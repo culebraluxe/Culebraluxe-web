@@ -38,7 +38,23 @@ function cardFacts(p: HomeProperty): string {
   return parts.join('  ·  ')
 }
 
-export async function HomeProperties() {
+type HomePropertiesProps = {
+  eyebrow?: string
+  title?: string
+  intro?: string
+  /** Number of cards to show. Defaults to 4. */
+  limit?: number
+  /** Optional "view all" call-to-action. Omit to hide it. */
+  cta?: { href: string; label: string } | null
+}
+
+export async function HomeProperties({
+  eyebrow = 'The Portfolio',
+  title = 'Find your place in Culebra.',
+  intro = 'Exquisite properties on an extraordinary island — each chosen for its light, its outlook, and its relationship to the sea.',
+  limit = 4,
+  cta = { href: '/#properties', label: 'View All Properties' },
+}: HomePropertiesProps = {}) {
   let properties: HomeProperty[] = []
   try {
     properties = await client.fetch(
@@ -47,11 +63,11 @@ export async function HomeProperties() {
       { next: { revalidate: 300 } },
     )
   } catch {
-    // Never break the homepage if Sanity is unavailable.
+    // Never break the page if Sanity is unavailable.
     return null
   }
 
-  const items = (properties ?? []).filter((p) => p.slug?.current).slice(0, 4)
+  const items = (properties ?? []).filter((p) => p.slug?.current).slice(0, limit)
   if (items.length === 0) return null
 
   return (
@@ -60,23 +76,24 @@ export async function HomeProperties() {
         <div className="mb-14 flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
           <div className="max-w-xl">
             <p className="mb-4 text-xs font-light uppercase tracking-[0.34em] text-background/60">
-              The Portfolio
+              {eyebrow}
             </p>
             <h2 className="text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl">
-              Find your place in Culebra.
+              {title}
             </h2>
             <p className="mt-5 max-w-md text-pretty text-sm font-light leading-relaxed text-background/70">
-              Exquisite properties on an extraordinary island — each chosen for its
-              light, its outlook, and its relationship to the sea.
+              {intro}
             </p>
           </div>
-          <Link
-            href="/#properties"
-            className="group inline-flex items-center gap-3 self-start border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background md:self-auto"
-          >
-            View All Properties
-            <ArrowRight className="h-4 w-4 transition-transform duration-500 group-hover:translate-x-1" />
-          </Link>
+          {cta && (
+            <Link
+              href={cta.href}
+              className="group inline-flex items-center gap-3 self-start border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background md:self-auto"
+            >
+              {cta.label}
+              <ArrowRight className="h-4 w-4 transition-transform duration-500 group-hover:translate-x-1" />
+            </Link>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
