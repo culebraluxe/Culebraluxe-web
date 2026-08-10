@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [
-  { label: 'Buyers', href: '#buyers' },
-  { label: 'Sellers', href: '#sellers' },
-  { label: 'Culture', href: '#culture' },
-  { label: 'About Us', href: '#about' },
-  { label: 'Contact', href: '#contact' },
+  { label: 'Buyers', href: '/buyers' },
+  { label: 'Sellers', href: '/sellers' },
+  { label: 'Guide', href: '/guide' },
+  { label: 'About', href: '/about' },
+  { label: 'FAQ', href: '/faq' },
+  { label: 'Contact', href: '/contact' },
 ]
 
 export function SiteHeader() {
@@ -33,7 +34,7 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex max-w-[1600px] items-center justify-between px-6 md:px-12">
         <a
-          href="#top"
+          href="/"
           className={cn(
             'font-serif text-xl font-normal tracking-[0.35em] uppercase transition-colors duration-500',
             scrolled ? 'text-foreground' : 'text-background',

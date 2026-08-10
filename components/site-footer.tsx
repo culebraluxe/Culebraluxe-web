@@ -20,11 +20,12 @@ export function SiteFooter() {
             aria-label="Footer"
           >
             {[
-              { label: 'Buyers', href: '#buyers' },
-              { label: 'Sellers', href: '#sellers' },
-              { label: 'Culture', href: '#culture' },
-              { label: 'About Us', href: '#about' },
-              { label: 'Contact', href: '#contact' },
+              { label: 'Buyers', href: '/buyers' },
+              { label: 'Sellers', href: '/sellers' },
+              { label: 'Guide', href: '/guide' },
+              { label: 'About', href: '/about' },
+              { label: 'FAQ', href: '/faq' },
+              { label: 'Contact', href: '/contact' },
             ].map((link) => (
               <a
                 key={link.href}
