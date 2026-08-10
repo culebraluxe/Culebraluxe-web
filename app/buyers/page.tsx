@@ -4,6 +4,7 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Reveal } from '@/components/reveal'
+import { HomeProperties } from '@/components/home-properties'
 
 export const metadata: Metadata = {
   title: 'For Buyers — CulebraLuxe',
@@ -83,6 +84,15 @@ export default function BuyersPage() {
             </div>
           </div>
         </section>
+
+        {/* Current listings — pulls live from Sanity, each card links to its detail page */}
+        <HomeProperties
+          eyebrow="Current Listings"
+          title="Homes currently on the island."
+          intro="A selection of the residences and land we are representing now. Select any property to explore its full details, gallery, and location."
+          limit={6}
+          cta={null}
+        />
 
         {/* Services + CTA */}
         <section className="bg-primary px-6 py-24 text-primary-foreground md:px-12 md:py-32">
