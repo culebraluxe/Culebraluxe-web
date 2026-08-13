@@ -96,7 +96,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'beaches',
     name: 'Flamenco Beach',
     image: {
-      src: '',
+      src: '/images/guide/beaches/flamenco-beach.jpg',
       alt: 'Flamenco Beach in Culebra, Puerto Rico',
     },
     eyebrow: 'Beaches',
@@ -113,7 +113,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'beaches',
     name: 'Zoni Beach',
     image: {
-      src: '',
+      src: '/images/guide/beaches/zoni-beach.jpg',
       alt: 'Zoni Beach in Culebra, Puerto Rico',
     },
     eyebrow: 'Beaches',
@@ -130,7 +130,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'beaches',
     name: 'Tamarindo Beach',
     image: {
-      src: '',
+      src: '/images/guide/beaches/tamarindo-beach.jpg',
       alt: 'Tamarindo Beach in Culebra, Puerto Rico',
     },
     eyebrow: 'Beaches',
@@ -147,7 +147,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'beaches',
     name: 'Carlos Rosario Beach',
     image: {
-      src: '',
+      src: '/images/guide/beaches/carlos-rosario-beach.jpg',
       alt: 'Carlos Rosario Beach in Culebra, Puerto Rico',
     },
     eyebrow: 'Beaches',
@@ -164,7 +164,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'beaches',
     name: 'Melones Beach',
     image: {
-      src: '',
+      src: '/images/guide/beaches/melones-beach.jpg',
       alt: 'Melones Beach in Culebra, Puerto Rico',
     },
     eyebrow: 'Beaches',
@@ -181,7 +181,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'beaches',
     name: 'Brava Beach',
     image: {
-      src: '',
+      src: '/images/guide/beaches/brava-beach.jpg',
       alt: 'Brava Beach on the north coast of Culebra',
     },
     eyebrow: 'Beaches',
@@ -202,7 +202,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'water',
     name: 'Snorkeling',
     image: {
-      src: '',
+       src: '/images/guide/water/snorkeling.jpg',
       alt: 'Snorkeling in the clear waters around Culebra',
     },
     eyebrow: 'Water',
@@ -216,7 +216,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'water',
     name: 'Diving',
     image: {
-      src: '',
+      src: '/images/guide/water/scuba-diving.jpg',
       alt: 'Scuba diving in Culebra',
     },
     eyebrow: 'Water',
@@ -230,7 +230,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'water',
     name: 'Boat Charters',
     image: {
-      src: '',
+      src: '/images/guide/water/boat-charters3.jpg',
       alt: 'Private boat charter in Culebra',
     },
     eyebrow: 'Water',
@@ -244,7 +244,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'water',
     name: 'Sailing',
     image: {
-      src: '',
+      src: '/images/guide/water/sailing.jpg',
       alt: 'Sailing around Culebra',
     },
     eyebrow: 'Water',
@@ -258,7 +258,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'water',
     name: 'Kayaking',
     image: {
-      src: '',
+      src: '/images/guide/water/kayaking.jpg',
       alt: 'Kayaking along the coast of Culebra',
     },
     eyebrow: 'Water',
@@ -272,7 +272,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'water',
     name: 'Exploring the Cays',
     image: {
-      src: '',
+      src: '/images/guide/water/exploring-the-cays.jpg',
       alt: 'Culebrita and the offshore cays surrounding Culebra',
     },
     eyebrow: 'Water',
@@ -290,7 +290,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'wildlife-land',
     name: 'Culebra National Wildlife Refuge',
     image: {
-      src: '',
+      src: '/images/guide/wildlife/wildlife.jpg',
       alt: 'Culebra National Wildlife Refuge',
     },
     eyebrow: 'Wildlife & Land',
@@ -309,7 +309,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'wildlife-land',
     name: 'Sea Turtles',
     image: {
-      src: '',
+      src: '/images/guide/wildlife/sea-turtles.jpg',
       alt: 'Sea turtle in the waters around Culebra',
     },
     eyebrow: 'Wildlife & Land',
@@ -323,7 +323,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'wildlife-land',
     name: 'Birding',
     image: {
-      src: '',
+      src: '/images/guide/wildlife/birding.jpg',
       alt: 'Seabirds around Culebra',
     },
     eyebrow: 'Wildlife & Land',
@@ -337,7 +337,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'wildlife-land',
     name: 'Hiking & Trails',
     image: {
-      src: '',
+      src: '/images/guide/wildlife/hiking.jpg',
       alt: 'Hiking through the dry landscape of Culebra',
     },
     eyebrow: 'Wildlife & Land',
@@ -351,7 +351,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'wildlife-land',
     name: 'Dry Forest',
     image: {
-      src: '',
+      src: '/images/guide/wildlife/dry-forest.jpg',
       alt: 'Subtropical dry forest vegetation in Culebra',
     },
     eyebrow: 'Wildlife & Land',
@@ -365,7 +365,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'wildlife-land',
     name: 'Conservation',
     image: {
-      src: '',
+      src: '/images/guide/wildlife/conservation.jpg',
       alt: 'Marine conservation work in Culebra',
     },
     eyebrow: 'Wildlife & Land',
@@ -381,12 +381,12 @@ export const culebraGuideItems: GuideItem[] = [
   // ==========================================
 
   {
-    id: 'cafe-melaza',
+    id: 'Pandeli',
     sectionId: 'coffee-casual',
-    name: 'Café Melaza',
+    name: 'Pabdeli',
     image: {
-      src: '',
-      alt: 'Café Melaza in Culebra',
+      src: '/images/guide/coffee-casual/pandeli.jpg',
+      alt: 'Pandeli Culebra',
     },
     eyebrow: 'Eat & Drink',
     subtitle: 'Breakfast & coffee',
@@ -404,7 +404,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'coffee-casual',
     name: 'Blac Flamingo Coffee',
     image: {
-      src: '',
+      src: '/images/guide/coffee-casual/blac-flamingo-coffee.jpg',
       alt: 'Blac Flamingo Coffee in Culebra',
     },
     eyebrow: 'Eat & Drink',
@@ -423,7 +423,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'coffee-casual',
     name: 'Culebra Coffee',
     image: {
-      src: '',
+      src: '/images/guide/coffee-casual/culebra-coffee.jpg',
       alt: 'Culebra Coffee in Dewey',
     },
     eyebrow: 'Eat & Drink',
@@ -438,12 +438,12 @@ export const culebraGuideItems: GuideItem[] = [
   },
 
   {
-    id: 'harbor-shack',
+    id: 'latitud-perfecta-cafe',
     sectionId: 'coffee-casual',
-    name: 'Harbor Shack',
+    name: 'Latitud Perfecta Café',
     image: {
-      src: '',
-      alt: 'Harbor Shack in Culebra',
+      src: '/images/guide/coffee-casual/latitud-perfecta-cafe.jpg',
+      alt: 'Latitud Perfecta Café in Culebra',
     },
     eyebrow: 'Eat & Drink',
     subtitle: 'Casual island fare',
@@ -456,13 +456,34 @@ export const culebraGuideItems: GuideItem[] = [
       'A relaxed town stop for burgers, drinks and unfussy food after a day on the water.',
   },
 
+
   {
-    id: 'piratas-hideout',
+    id: 'cafe-blue',
     sectionId: 'coffee-casual',
-    name: "Pirata's Hideout",
+    name: 'Cafe Blue',
     image: {
-      src: '',
-      alt: "Pirata's Hideout at Flamenco Beach",
+      src: '/images/guide/coffee-casual/cafe-blue.jpg',
+      alt: 'Cafe Blue in Culebra',
+    },
+    eyebrow: 'Eat & Drink',
+    subtitle: 'Casual island fare',
+    area: 'Dewey',
+    address: 'Calle Pedro Márquez, Culebra, PR 00775',
+    phone: '+17877420104',
+    latitude: 18.3015,
+    longitude: -65.3028,
+    description:
+      'A relaxed town stop for burgers, drinks and unfussy food after a day on the water.',
+  },
+
+
+  {
+    id: 'kiosk2',
+    sectionId: 'coffee-casual',
+    name: 'Kiosk #2',
+    image: {
+      src: '/images/guide/coffee-casual/kiosk2.jpg',
+      alt: "Kiosk #2 at Flamenco Beach",
     },
     eyebrow: 'Eat & Drink',
     subtitle: 'Beach kiosk',
@@ -484,7 +505,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'dining',
     name: 'Dinghy Dock',
     image: {
-      src: '',
+      src: '/images/guide/dining/dinghy-dock.jpg',
       alt: 'Dinghy Dock restaurant on the waterfront in Culebra',
     },
     eyebrow: 'Eat & Drink',
@@ -504,7 +525,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'dining',
     name: "Mamacita's",
     image: {
-      src: '',
+      src: '/images/guide/dining/mamacitas.jpg',
       alt: "Mamacita's restaurant in Culebra",
     },
     eyebrow: 'Eat & Drink',
@@ -528,7 +549,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'getting-here',
     name: 'Culebra Airport (CPX)',
     image: {
-      src: '',
+      src: '/images/guide/getting-here/culebra-airport.jpg',
       alt: 'Benjamín Rivera Noriega Airport in Culebra',
     },
     eyebrow: 'Getting Here',
@@ -546,7 +567,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'getting-here',
     name: 'Air Flamenco',
     image: {
-      src: '',
+      src: '/images/guide/getting-here/air-flamenco.jpg',
       alt: 'Air Flamenco aircraft serving Culebra',
     },
     eyebrow: 'Getting Here',
@@ -563,7 +584,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'getting-here',
     name: 'Cape Air',
     image: {
-      src: '',
+      src: '/images/guide/getting-here/cape-air.jpg',
       alt: 'Cape Air aircraft serving Culebra',
     },
     eyebrow: 'Getting Here',
@@ -579,7 +600,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'getting-here',
     name: 'Ceiba Ferry Terminal',
     image: {
-      src: '',
+      src: '/images/guide/getting-here/ceiba-ferry-terminal.jpg',
       alt: 'Ceiba ferry terminal in Puerto Rico',
     },
     eyebrow: 'Getting Here',
@@ -597,7 +618,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'getting-here',
     name: 'Puerto Rico Ferry',
     image: {
-      src: '',
+      src: '/images/guide/getting-here/puerto-rico-ferry.jpg',
       alt: 'Puerto Rico Ferry service to Culebra',
     },
     eyebrow: 'Getting Here',
@@ -615,7 +636,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'getting-here',
     name: 'From San Juan',
     image: {
-      src: '',
+      src: '/images/guide/getting-here/luis-muoz-marn-international-airport.jpg',
       alt: 'Travel from San Juan to Culebra',
     },
     eyebrow: 'Getting Here',
@@ -632,15 +653,15 @@ export const culebraGuideItems: GuideItem[] = [
   // ==========================================
 
   {
-    id: 'jeep-rentals',
+    id: 'carlos-jeep-rentals',
     sectionId: 'getting-around',
-    name: 'Jeep Rentals',
+    name: 'Carlos Jeep Rentals',
     image: {
-      src: '',
-      alt: 'Jeep rental in Culebra',
+      src: '/images/guide/getting-around/carlos-jeep-rentals.jpg',
+      alt: 'Carlos Jeep Rentals in Culebra',
     },
     eyebrow: 'Getting Around',
-    subtitle: 'Carlos Jeep Rental',
+    subtitle: 'Carlos Jeep Rentals',
     area: 'Near the airport',
     address: 'PR-250, Culebra, PR 00775',
     phone: '+17877423514',
@@ -652,12 +673,12 @@ export const culebraGuideItems: GuideItem[] = [
   },
 
   {
-    id: 'golf-cart-rentals',
+    id: 'jerry-jeep-rentals',
     sectionId: 'getting-around',
-    name: 'Golf Cart Rentals',
+    name: 'Jerrys Jeep Rentals',
     image: {
-      src: '',
-      alt: 'Golf cart rental in Culebra',
+      src: '/images/guide/getting-around/jerrys-jeep-rentals.jpg',
+      alt: 'Jerrys Jeeps & Golf carts rental in Culebra',
     },
     eyebrow: 'Getting Around',
     subtitle: "Jerry's Jeeps & Carts",
@@ -671,36 +692,36 @@ export const culebraGuideItems: GuideItem[] = [
   },
 
   {
-    id: 'car-rentals',
+    id: 'chocosbroncorental',
     sectionId: 'getting-around',
-    name: 'Car Rentals',
+    name: 'Chocos Bronco Rentals',
     image: {
-      src: '',
-      alt: 'Car rental in Culebra',
+      src: '/images/guide/getting-around/chocos-bronco-rentals.jpg',
+      alt: 'Chocos Bronco rental in Culebra',
     },
     eyebrow: 'Getting Around',
-    subtitle: "Willie's Car Rental",
+    subtitle: "Chocos Bronco Rental",
     area: 'Culebra',
     address: 'PR-250, Culebra, PR 00775',
     phone: '+17877423537',
     latitude: 18.3121,
     longitude: -65.3028,
     description:
-      'Compact cars and SUVs offer conventional transportation for visitors who prefer an enclosed vehicle.',
+      'Chocos Bronco Rentals for visitors who prefer an Broncos.',
   },
 
   {
-    id: 'taxi-local-drivers',
+    id: 'island-taxi',
     sectionId: 'getting-around',
     name: 'Taxis & Públicos',
     image: {
-      src: '',
-      alt: 'Local transportation in Culebra',
+      src: '/images/guide/getting-around/island-taxis.jpg',
+      alt: 'Island Taxis in Culebra',
     },
     eyebrow: 'Getting Around',
     area: 'Ferry dock · Airport · Flamenco',
     description:
-      'Local vans and drivers connect the ferry dock, airport, Flamenco Beach and other common island destinations.',
+      'Local taxi vans and drivers connect the ferry dock, airport, Flamenco Beach and other common island destinations.',
   },
 
   // ==========================================
@@ -708,11 +729,29 @@ export const culebraGuideItems: GuideItem[] = [
   // ==========================================
 
   {
-    id: 'supermercado-econo',
+    id: 'supermercado-milka',
     sectionId: 'essentials',
-    name: 'Supermercado',
+    name: 'Supermercado Milka',
     image: {
-      src: '',
+      src: '/images/guide/essentials/supermercado-milka.jpg',
+      alt: 'Grocery shopping in Culebra',
+    },
+    eyebrow: 'Essentials',
+    subtitle: 'Econo',
+    area: 'Dewey',
+    address: 'Calle William Font, Culebra, PR 00775',
+    phone: '+17877420528',
+    latitude: 18.3022,
+    longitude: -65.3025,
+    description:
+      'Full-service grocery shopping for food, household supplies and the basics of everyday island life.',
+  },
+{
+    id: 'supermercado-costa-del-sol',
+    sectionId: 'essentials',
+    name: 'Supermercado Costa Del Sol',
+    image: {
+      src: '/images/guide/essentials/supermercado-costa-del-sol.jpg',
       alt: 'Grocery shopping in Culebra',
     },
     eyebrow: 'Essentials',
@@ -727,12 +766,12 @@ export const culebraGuideItems: GuideItem[] = [
   },
 
   {
-    id: 'pharmacy',
+    id: 'supermercado-mayras',
     sectionId: 'essentials',
-    name: 'Pharmacy',
+    name: 'Supermercado Mayras',
     image: {
-      src: '',
-      alt: 'Pharmacy in Culebra',
+      src: '/images/guide/essentials/supermercado-mayras.jpg',
+      alt: 'Supermercado Mayras in Culebra',
     },
     eyebrow: 'Essentials',
     subtitle: 'Farmacia Culebra',
@@ -742,17 +781,18 @@ export const culebraGuideItems: GuideItem[] = [
     latitude: 18.3015,
     longitude: -65.3027,
     description:
-      'Local pharmacy for prescription medications, everyday health needs and basic personal-care supplies.',
+      ' A local grocery and pharmacy for everyday needs, including food, household supplies and personal care items',
   },
 
   {
-    id: 'medical-services',
+    id: 'emergency-medical-services',
     sectionId: 'essentials',
-    name: 'Medical Services',
+    name: 'Emergency And Medical Services',
     image: {
-      src: '',
-      alt: 'Medical services in Culebra',
+      src: '/images/guide/essentials/emergency-medical.jpg',
+      alt: 'Emergency and Medical services in Culebra',
     },
+
     eyebrow: 'Essentials',
     subtitle: 'Culebra health services',
     area: 'Culebra',
@@ -761,7 +801,7 @@ export const culebraGuideItems: GuideItem[] = [
     latitude: 18.3061,
     longitude: -65.3014,
     description:
-      'Local medical services provide basic care and urgent evaluation, with more advanced treatment available on Puerto Rico’s main island.',
+      'Local emergency and medical services provide basic care and urgent evaluation, with more advanced treatment available on Puerto Rico’s main island.',
   },
 
   {
@@ -769,7 +809,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'essentials',
     name: 'ATM / Banking',
     image: {
-      src: '',
+      src: '/images/guide/essentials/atm-banking.jpg',
       alt: 'ATM and banking services in Culebra',
     },
     eyebrow: 'Essentials',
@@ -780,17 +820,17 @@ export const culebraGuideItems: GuideItem[] = [
   },
 
   {
-    id: 'hardware-store',
+    id: 'ferreteria-gonzalez',
     sectionId: 'essentials',
-    name: 'Hardware Store',
+    name: 'Ferreteria Gonzalez',
     image: {
-      src: '',
-      alt: 'Hardware and household supplies in Culebra',
+      src: '/images/guide/essentials/ferreteria gonzalez.jpg',
+      alt: 'Ferreteria Gonzalez Hardware Store in Culebra',
     },
     eyebrow: 'Essentials',
     area: 'Culebra',
     description:
-      'Island hardware and household suppliers are useful for tools, repairs, marine needs and the realities of maintaining a home here.',
+      'Ferreteria Gonzalez Island hardware and household suppliers are useful for tools, repairs, marine needs and the realities of maintaining a home here.',
   },
 
   {
@@ -798,7 +838,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'essentials',
     name: 'Post Office',
     image: {
-      src: '',
+      src: '/images/guide/essentials/post-office.jpg',
       alt: 'United States Post Office in Culebra',
     },
     eyebrow: 'Essentials',
@@ -819,7 +859,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'Early Inhabitants',
     image: {
-      src: '',
+      src: '/images/guide/island-story/early-inhabitants.jpg',
       alt: 'Indigenous history of Culebra',
     },
     eyebrow: 'Island Story',
@@ -827,7 +867,7 @@ export const culebraGuideItems: GuideItem[] = [
     area: 'Culebra',
     note: 'Era: Pre-colonial',
     description:
-      'Indigenous peoples lived throughout the northeastern Caribbean long before European colonization, using these islands and waters for settlement, fishing and navigation.',
+      'Indigenous peoples Taino Arawak lived throughout the northeastern Caribbean long before European colonization, using these islands and waters for settlement, fishing and navigation.',
   },
 
   {
@@ -835,7 +875,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'Spanish Period',
     image: {
-      src: '',
+      src: '/images/guide/island-story/spainish-period.jpg',
       alt: 'Spanish-era history of Culebra',
     },
     eyebrow: 'Island Story',
@@ -849,9 +889,9 @@ export const culebraGuideItems: GuideItem[] = [
   {
     id: 'island-life',
     sectionId: 'island-story',
-    name: 'Island Life',
+    name: 'Pirate Life',
     image: {
-      src: '',
+      src: '/images/guide/island-story/pirates.jpg',
       alt: 'Historic community life in Culebra',
     },
     eyebrow: 'Island Story',
@@ -867,7 +907,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'U.S. Navy Presence',
     image: {
-      src: '',
+      src: '/images/guide/island-story/us-navy.jpg',
       alt: 'Historic United States Navy presence in Culebra',
     },
     eyebrow: 'Island Story',
@@ -883,7 +923,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'Community Resistance',
     image: {
-      src: '',
+      src: '/images/guide/island-story/resistance.jpg',
       alt: 'Community activism in Culebra',
     },
     eyebrow: 'Island Story',
@@ -899,7 +939,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'A New Chapter',
     image: {
-      src: '',
+      src: '/images/guide/island-story/culebra-1975.jpg',
       alt: 'Culebra after the end of United States Navy exercises',
     },
     eyebrow: 'Island Story',
@@ -915,7 +955,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'Conservation Legacy',
     image: {
-      src: '',
+      src: '/images/guide/island-story/conservation2.jpg',
       alt: 'Protected landscape and wildlife habitat in Culebra',
     },
     eyebrow: 'Island Story',
@@ -931,7 +971,7 @@ export const culebraGuideItems: GuideItem[] = [
     sectionId: 'island-story',
     name: 'Culebra Today',
     image: {
-      src: '',
+      src: '/images/guide/island-story/culebra-today.jpg',
       alt: 'Present-day Culebra landscape',
     },
     eyebrow: 'Island Story',
