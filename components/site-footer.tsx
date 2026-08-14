@@ -22,6 +22,7 @@ export function SiteFooter() {
             {[
               { label: 'Buyers', href: '/buyers' },
               { label: 'Sellers', href: '/sellers' },
+              { label: 'Services', href: '/services' },
               { label: 'Guide', href: '/guide' },
               { label: 'About', href: '/about' },
               { label: 'FAQ', href: '/faq' },
