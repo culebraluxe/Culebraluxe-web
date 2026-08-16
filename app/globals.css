@@ -191,3 +191,23 @@
     transition-duration: 0.01ms !important;
   }
 }
+/* ============================================================
+   CulebraLuxe Portal
+   ============================================================ */
+
+:root {
+  --portal-bg: #f7f7f5;
+  --portal-surface: #ffffff;
+  --portal-sidebar: #eef1f4;
+
+  --portal-navy: #182b40;
+  --portal-navy-soft: #29445f;
+
+  --portal-blue-gray: #64798d;
+  --portal-blue-pale: #e7edf2;
+
+  --portal-text: #20262b;
+  --portal-muted: #747b81;
+
+  --portal-border: rgba(24, 43, 64, 0.12);
+}

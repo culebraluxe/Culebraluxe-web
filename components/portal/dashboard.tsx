@@ -1,0 +1,435 @@
+import type {
+  Client,
+  Deal,
+  DealStage,
+  InteractionChannel,
+} from "@/lib/portal/types"
+
+const stageOrder: DealStage[] = [
+  "new_lead",
+  "qualified",
+  "showing",
+  "offer",
+  "under_contract",
+  "closed",
+]
+
+function formatCurrency(value?: number) {
+  if (!value) return "—"
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+function stageLabel(stage: DealStage) {
+  switch (stage) {
+    case "new_lead":
+      return "New Lead"
+    case "qualified":
+      return "Qualified"
+    case "showing":
+      return "Showing"
+    case "offer":
+      return "Offer"
+    case "under_contract":
+      return "Under Contract"
+    case "closed":
+      return "Closed"
+  }
+}
+
+function channelLabel(channel: InteractionChannel) {
+  switch (channel) {
+    case "imessage":
+      return "iMessage"
+    case "sms":
+      return "SMS"
+    case "email":
+      return "Email"
+    case "call":
+      return "Phone Call"
+    case "meeting":
+      return "Meeting"
+    case "showing":
+      return "Showing"
+    default:
+      return "Note"
+  }
+}
+
+export function Dashboard({
+  clients,
+  deals,
+}: {
+  clients: Client[]
+  deals: Deal[]
+}) {
+  const activeClients = clients.filter(
+    (client) => client.status === "active" || client.status === "warm"
+  )
+
+  const activeDeals = deals.filter(
+    (deal) => deal.stage !== "closed"
+  )
+
+  const upcomingActions = clients
+    .filter((client) => client.nextAction)
+    .slice(0, 4)
+
+  const recentInteractions = clients
+    .flatMap((client) =>
+      client.interactions.map((interaction) => ({
+        ...interaction,
+        clientName: client.displayName,
+      }))
+    )
+    .slice(0, 5)
+
+  const featuredDeal =
+    deals.find((deal) => deal.stage === "showing") ??
+    deals.find((deal) => deal.stage !== "closed") ??
+    deals[0]
+
+  const underContractCount = deals.filter(
+    (deal) => deal.stage === "under_contract"
+  ).length
+
+  return (
+    <div>
+      <div className="mb-8">
+        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
+          Portal
+        </p>
+
+        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
+          Dashboard
+        </h1>
+
+        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
+          Today&apos;s pulse across clients, properties, and active opportunities.
+        </p>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Active Clients"
+          value={String(activeClients.length)}
+          detail="Warm and active relationships"
+        />
+
+        <MetricCard
+          label="Live Deals"
+          value={String(activeDeals.length)}
+          detail="Open opportunities"
+        />
+
+        <MetricCard
+          label="Upcoming Actions"
+          value={String(upcomingActions.length)}
+          detail="Client actions currently scheduled"
+        />
+
+        <MetricCard
+          label="Under Contract"
+          value={String(underContractCount)}
+          detail="Transactions in progress"
+        />
+      </section>
+
+      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_360px]">
+        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+          <div className="border-b border-[var(--portal-border)] px-6 py-5">
+            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+              Needs Attention
+            </p>
+
+            <h2 className="mt-2 font-serif text-2xl font-light">
+              Client Follow-Up
+            </h2>
+          </div>
+
+          <div>
+            {upcomingActions.length > 0 ? (
+              upcomingActions.map((client) => (
+                <div
+                  key={client.id}
+                  className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] font-serif text-sm font-light text-[var(--portal-navy-soft)]">
+                      {client.displayName
+                        .split(" ")
+                        .slice(0, 2)
+                        .map((word) => word[0])
+                        .join("")}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex justify-between gap-4">
+                        <div className="text-sm font-medium">
+                          {client.displayName}
+                        </div>
+
+                        <div className="shrink-0 text-xs font-light text-black/40">
+                          {client.nextAction?.occurredAt}
+                        </div>
+                      </div>
+
+                      <div className="mt-1 font-serif text-lg font-light">
+                        {client.nextAction?.title}
+                      </div>
+
+                      {client.nextAction?.detail && (
+                        <div className="mt-1 text-xs font-light text-black/45">
+                          {client.nextAction.detail}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState text="No client follow-ups scheduled." />
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+          <div className="border-b border-[var(--portal-border)] px-6 py-5">
+            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+              Upcoming
+            </p>
+
+            <h2 className="mt-2 font-serif text-2xl font-light">
+              Next on the Calendar
+            </h2>
+          </div>
+
+          <div className="px-6">
+            {upcomingActions.length > 0 ? (
+              upcomingActions.map((client, index) => (
+                <div
+                  key={client.id}
+                  className="grid grid-cols-[24px_1fr] gap-4 border-b border-[var(--portal-border)] py-5 last:border-b-0"
+                >
+                  <div className="relative flex justify-center">
+                    <div className="mt-1.5 h-2 w-2 rounded-full bg-[var(--portal-navy)]" />
+
+                    {index < upcomingActions.length - 1 && (
+                      <div className="absolute bottom-[-20px] top-4 w-px bg-[var(--portal-border)]" />
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-light text-black/40">
+                      {client.nextAction?.occurredAt}
+                    </div>
+
+                    <div className="mt-1 text-sm font-medium">
+                      {client.nextAction?.title}
+                    </div>
+
+                    <div className="mt-1 text-xs font-light text-black/45">
+                      {client.displayName}
+                      {client.nextAction?.detail &&
+                        ` · ${client.nextAction.detail}`}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-10 text-sm font-light text-black/40">
+                No upcoming actions.
+              </div>
+            )}
+          </div>
+        </section>
+
+        {featuredDeal ? (
+          <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+            <div className="h-52 bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-navy-soft)]" />
+
+            <div className="p-6">
+              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+                Featured Opportunity
+              </p>
+
+              <h2 className="mt-3 font-serif text-2xl font-light">
+                {featuredDeal.propertyName}
+              </h2>
+
+              <p className="mt-1 text-xs font-light text-black/45">
+                {featuredDeal.propertyLocation}
+                {featuredDeal.propertyDescriptor &&
+                  ` · ${featuredDeal.propertyDescriptor}`}
+              </p>
+
+              <div className="mt-6 border-t border-[var(--portal-border)] pt-5">
+                <div className="font-serif text-2xl font-light">
+                  {formatCurrency(
+                    featuredDeal.offerPrice ??
+                      featuredDeal.listPrice
+                  )}
+                </div>
+
+                <div className="mt-2 text-xs font-light text-black/45">
+                  {featuredDeal.clientName}
+                </div>
+
+                <div className="mt-4 inline-flex rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                  {stageLabel(featuredDeal.stage)}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+              Featured Opportunity
+            </p>
+
+            <div className="mt-8 font-serif text-2xl font-light">
+              No active deals
+            </div>
+
+            <p className="mt-2 text-sm font-light text-black/40">
+              Featured opportunities will appear here.
+            </p>
+          </section>
+        )}
+      </div>
+
+      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <div>
+            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+              Portfolio Snapshot
+            </p>
+
+            <h2 className="mt-2 font-serif text-2xl font-light">
+              Deal Pipeline
+            </h2>
+          </div>
+
+          <div className="mt-7 space-y-4">
+            {stageOrder.map((stage) => {
+              const count = deals.filter(
+                (deal) => deal.stage === stage
+              ).length
+
+              const percent =
+                deals.length > 0
+                  ? Math.round((count / deals.length) * 100)
+                  : 0
+
+              return (
+                <div key={stage}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-xs font-light uppercase tracking-[0.12em] text-black/50">
+                      {stageLabel(stage)}
+                    </div>
+
+                    <div className="text-xs font-light text-black/40">
+                      {count}
+                    </div>
+                  </div>
+
+                  <div className="h-1.5 overflow-hidden bg-[var(--portal-blue-pale)]">
+                    <div
+                      className="h-full bg-[var(--portal-navy)]"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+          <div className="border-b border-[var(--portal-border)] px-6 py-5">
+            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+              Recent Activity
+            </p>
+
+            <h2 className="mt-2 font-serif text-2xl font-light">
+              Relationship Timeline
+            </h2>
+          </div>
+
+          <div>
+            {recentInteractions.length > 0 ? (
+              recentInteractions.map((interaction) => (
+                <div
+                  key={`${interaction.clientName}-${interaction.id}`}
+                  className="grid gap-3 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0 md:grid-cols-[130px_110px_1fr]"
+                >
+                  <div className="text-xs font-light text-black/40">
+                    {interaction.occurredAt}
+                  </div>
+
+                  <div className="text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
+                    {channelLabel(interaction.channel)}
+                  </div>
+
+                  <div>
+                    <div className="text-sm font-medium">
+                      {interaction.clientName}
+                    </div>
+
+                    <div className="mt-1 text-sm font-light text-black/55">
+                      {interaction.summary ?? interaction.title}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState text="No recent relationship activity." />
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string
+  value: string
+  detail: string
+}) {
+  return (
+    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+        {label}
+      </div>
+
+      <div className="mt-4 font-serif text-3xl font-light text-[var(--portal-navy)]">
+        {value}
+      </div>
+
+      <div className="mt-2 text-xs font-light text-black/40">
+        {detail}
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({
+  text,
+}: {
+  text: string
+}) {
+  return (
+    <div className="px-6 py-10 text-sm font-light text-black/40">
+      {text}
+    </div>
+  )
+}
