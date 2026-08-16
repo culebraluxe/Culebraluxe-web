@@ -1,7 +1,16 @@
 import { neon } from "@neondatabase/serverless"
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not configured")
+const appEnv = process.env.APP_ENV ?? "development"
+
+const databaseUrl =
+  appEnv === "production"
+    ? process.env.DATABASE_URL_PROD
+    : process.env.DATABASE_URL_DEV
+
+if (!databaseUrl) {
+  throw new Error(
+    `Database URL is not configured for APP_ENV="${appEnv}"`
+  )
 }
 
-export const sql = neon(process.env.DATABASE_URL)
+export const sql = neon(databaseUrl)
