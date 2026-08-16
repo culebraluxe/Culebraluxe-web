@@ -314,7 +314,15 @@ export function ClientManager({
                       key={interest.id}
                       className="flex flex-col gap-4 border-b border-black/5 px-6 py-5 last:border-b-0 md:flex-row md:items-center"
                     >
-                      <div className="h-20 w-full shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#cbd6df] to-[var(--portal-blue-gray)] md:w-28" />
+                      {interest.heroMediaId ? (
+                        <img
+                          src={`/api/media/${interest.heroMediaId}`}
+                          alt={interest.propertyName}
+                          className="h-20 w-full shrink-0 rounded-sm object-cover md:w-28"
+                        />
+                      ) : (
+                        <div className="h-20 w-full shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#cbd6df] to-[var(--portal-blue-gray)] md:w-28" />
+                      )}
 
                       <div className="min-w-0 flex-1">
                         <div className="font-serif text-lg font-light">

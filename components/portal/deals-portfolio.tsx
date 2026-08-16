@@ -199,7 +199,15 @@ export function DealsPortfolio({
                   >
                     <td className="px-6 py-5 align-top">
                       <div className="flex items-center gap-4">
-                        <div className="h-14 w-20 shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-blue-gray)]" />
+                        {deal.heroMediaId ? (
+                          <img
+                            src={`/api/media/${deal.heroMediaId}`}
+                            alt={deal.propertyName}
+                            className="h-14 w-20 shrink-0 rounded-sm object-cover"
+                          />
+                        ) : (
+                          <div className="h-14 w-20 shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-blue-gray)]" />
+                        )}
 
                         <div>
                           <div className="font-serif text-lg font-light">

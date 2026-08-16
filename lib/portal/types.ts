@@ -41,6 +41,7 @@ export interface PropertyInterest {
   bedrooms?: number
   descriptor?: string
   status: PropertyInterestStatus
+  heroMediaId?: string
 }
 
 export interface Interaction {
@@ -97,6 +98,8 @@ export interface Deal {
   propertyId: string
   propertyName: string
   propertyLocation: string
+
+  heroMediaId?: string
 
   clientId: string
   clientName: string

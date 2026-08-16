@@ -10,6 +10,8 @@ type DealRow = {
   property_type: string | null
   bedrooms: string | null
 
+  hero_media_id: string | null
+
   client_id: string
   client_name: string
 
@@ -62,6 +64,8 @@ export async function getDeals(): Promise<Deal[]> {
       p.property_type,
       p.bedrooms,
 
+      hero_media.media_id as hero_media_id,
+
       person.id as client_id,
       person.display_name as client_name,
 
@@ -113,6 +117,18 @@ export async function getDeals(): Promise<Deal[]> {
 
     left join lateral (
       select
+        pm.media_id
+      from property_media pm
+      where pm.property_id = p.id
+        and pm.role = 'hero'
+      order by
+        pm.sort_order asc,
+        pm.created_at asc
+      limit 1
+    ) hero_media on true
+
+    left join lateral (
+      select
         t.title,
         t.due_at
       from task t
@@ -155,6 +171,8 @@ export async function getDeals(): Promise<Deal[]> {
     propertyName: row.property_name,
     propertyLocation: row.property_location ?? "Culebra, Puerto Rico",
     propertyDescriptor: propertyDescriptor(row),
+
+    heroMediaId: row.hero_media_id ?? undefined,
 
     clientId: row.client_id,
     clientName: row.client_name,

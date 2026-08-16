@@ -250,7 +250,15 @@ export function Dashboard({
 
         {featuredDeal ? (
           <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
-            <div className="h-52 bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-navy-soft)]" />
+            {featuredDeal.heroMediaId ? (
+              <img
+                src={`/api/media/${featuredDeal.heroMediaId}`}
+                alt={featuredDeal.propertyName}
+                className="h-52 w-full object-cover"
+              />
+            ) : (
+              <div className="h-52 bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-navy-soft)]" />
+            )}
 
             <div className="p-6">
               <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">

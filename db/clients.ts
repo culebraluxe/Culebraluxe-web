@@ -17,6 +17,7 @@ type PropertyInterestRow = {
   bedrooms: string | null
   property_type: string | null
   status: PropertyInterestStatus
+  hero_media_id: string | null
 }
 
 type InteractionRow = {
@@ -155,7 +156,18 @@ export async function getClients(): Promise<Client[]> {
               'price', property.list_price::text,
               'bedrooms', property.bedrooms::text,
               'property_type', property.property_type,
-              'status', pi.status
+              'status', pi.status,
+              'hero_media_id',
+                (
+                  select pm.media_id
+                  from property_media pm
+                  where pm.property_id = property.id
+                    and pm.role = 'hero'
+                  order by
+                    pm.sort_order asc,
+                    pm.created_at asc
+                  limit 1
+                )
             )
             order by
               pi.ranking asc nulls last,
@@ -275,6 +287,7 @@ export async function getClients(): Promise<Client[]> {
           interest.property_type
         ),
         status: interest.status,
+        heroMediaId: interest.hero_media_id ?? undefined,
       }))
 
     const interactions: Interaction[] =
