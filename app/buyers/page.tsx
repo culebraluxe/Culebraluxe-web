@@ -1,15 +1,17 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+
+import { getProperties } from '@/db/properties'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Reveal } from '@/components/reveal'
-import { HomeProperties } from '@/components/home-properties'
+import { BuyersPropertyShowroom } from '@/components/buyers-property-showroom'
 
 export const metadata: Metadata = {
   title: 'For Buyers — CulebraLuxe',
   description:
-    'A considered, discreet path to owning an architectural estate or beachfront residence on the island of Culebra, Puerto Rico.',
+    'Explore exceptional homes, villas, and land for sale on Culebra, Puerto Rico.',
 }
 
 const STEPS = [
@@ -44,40 +46,64 @@ const SERVICES = [
   'Long-term stewardship advice',
 ]
 
-export default function BuyersPage() {
+export default async function BuyersPage() {
+  const properties = await getProperties()
+
   return (
     <>
       <SiteHeader />
+
       <main>
         <PageHero
           eyebrow="For Buyers"
-          title="A considered path to your place on the island."
-          intro="We represent a small number of buyers each year, guiding every stage with discretion — from private viewings and title diligence to residency, architecture, and the quiet logistics of island life."
+          title="Find your place on Culebra."
+          intro="Exceptional homes, villas, and land — presented with the perspective of people who know the island intimately."
           image="/images/hero-villa.png"
-          imageAlt="A modern luxury villa perched above the Culebra coastline at dusk"
+          imageAlt="A modern luxury villa overlooking the Culebra coastline"
         />
 
-        {/* Process */}
+        <BuyersPropertyShowroom properties={properties} />
+
+        {/* Buying guidance now supports the inventory rather than blocking it */}
         <section className="px-6 py-24 md:px-12 md:py-32">
           <div className="mx-auto max-w-[1600px]">
             <Reveal>
-              <p className="mb-16 text-xs font-light uppercase tracking-[0.34em] text-accent md:mb-24">
-                The Process
-              </p>
+              <div className="mb-16 max-w-3xl md:mb-20">
+                <p className="mb-5 text-xs font-light uppercase tracking-[0.34em] text-accent">
+                  Buying on Culebra
+                </p>
+
+                <h2 className="text-balance font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl">
+                  A considered path from first look to ownership.
+                </h2>
+
+                <p className="mt-6 max-w-2xl text-sm font-light leading-relaxed text-muted-foreground">
+                  Finding the right property is only the beginning.
+                  We guide the details that follow — privately,
+                  carefully, and with an understanding of how
+                  transactions work on the island.
+                </p>
+              </div>
             </Reveal>
-            <div className="grid gap-14 md:grid-cols-2 md:gap-x-24 md:gap-y-20">
-              {STEPS.map((step, i) => (
-                <Reveal key={step.n} delay={i * 100}>
-                  <div className="flex gap-8 border-t border-border pt-8">
-                    <span className="font-serif text-2xl font-light text-accent">{step.n}</span>
-                    <div>
-                      <h2 className="font-serif text-2xl font-light leading-snug text-foreground">
-                        {step.title}
-                      </h2>
-                      <p className="mt-4 max-w-md text-sm font-light leading-relaxed text-muted-foreground">
-                        {step.body}
-                      </p>
-                    </div>
+
+            <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-4 lg:gap-8">
+              {STEPS.map((step, index) => (
+                <Reveal
+                  key={step.n}
+                  delay={index * 80}
+                >
+                  <div className="border-t border-border pt-7">
+                    <span className="font-serif text-2xl font-light text-accent">
+                      {step.n}
+                    </span>
+
+                    <h3 className="mt-7 font-serif text-2xl font-light leading-snug text-foreground">
+                      {step.title}
+                    </h3>
+
+                    <p className="mt-4 text-sm font-light leading-relaxed text-muted-foreground">
+                      {step.body}
+                    </p>
                   </div>
                 </Reveal>
               ))}
@@ -85,48 +111,74 @@ export default function BuyersPage() {
           </div>
         </section>
 
-        {/* Current listings — pulls live from Sanity, each card links to its detail page */}
-        <HomeProperties
-          eyebrow="Current Listings"
-          title="Homes currently on the island."
-          intro="A selection of the residences and land we are representing now. Select any property to explore its full details, gallery, and location."
-          limit={6}
-          cta={null}
-        />
-
-        {/* Services + CTA */}
-        <section className="bg-primary px-6 py-24 text-primary-foreground md:px-12 md:py-32">
-          <div className="mx-auto grid max-w-[1600px] gap-14 md:grid-cols-2 md:gap-24">
-            <Reveal>
-              <p className="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
-                How we help
+        {/* Private / off-market moment */}
+        <section className="bg-foreground px-6 py-24 text-background md:px-12 md:py-32">
+          <div className="mx-auto grid max-w-[1600px] gap-14 lg:grid-cols-12 lg:items-center">
+            <Reveal className="lg:col-span-7">
+              <p className="mb-5 text-xs font-light uppercase tracking-[0.34em] text-background/50">
+                Private Opportunities
               </p>
-              <h2 className="text-balance font-serif text-3xl font-light leading-[1.1] md:text-4xl">
+
+              <h2 className="max-w-4xl text-balance font-serif text-4xl font-light leading-[1.05] md:text-5xl lg:text-6xl">
+                Not every exceptional property is publicly listed.
+              </h2>
+            </Reveal>
+
+            <Reveal
+              delay={100}
+              className="lg:col-span-4 lg:col-start-9"
+            >
+              <p className="text-sm font-light leading-relaxed text-background/70">
+                Culebra remains a small island with a highly
+                relationship-driven property market. Some owners
+                prefer discretion. Tell us what you are looking for,
+                and we can widen the search beyond the public inventory.
+              </p>
+
+              <Link
+                href="/contact"
+                className="group mt-8 inline-flex items-center gap-3 border border-background/30 px-8 py-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-500 hover:border-background"
+              >
+                Begin a private search
+
+                <span className="inline-block h-px w-8 bg-background transition-all duration-500 group-hover:w-12" />
+              </Link>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* Supporting services */}
+        <section className="px-6 py-24 md:px-12 md:py-32">
+          <div className="mx-auto grid max-w-[1600px] gap-14 lg:grid-cols-12 lg:gap-20">
+            <Reveal className="lg:col-span-5">
+              <p className="mb-5 text-xs font-light uppercase tracking-[0.34em] text-accent">
+                Beyond the Search
+              </p>
+
+              <h2 className="max-w-lg text-balance font-serif text-4xl font-light leading-[1.05] text-foreground md:text-5xl">
                 Every detail, quietly handled.
               </h2>
             </Reveal>
-            <Reveal delay={120} className="flex flex-col gap-10">
-              <ul className="flex flex-col divide-y divide-primary-foreground/10 border-y border-primary-foreground/10">
+
+            <Reveal
+              delay={100}
+              className="lg:col-span-6 lg:col-start-7"
+            >
+              <ul className="flex flex-col divide-y divide-border border-y border-border">
                 {SERVICES.map((item) => (
                   <li
                     key={item}
-                    className="py-5 text-sm font-light tracking-wide text-primary-foreground/85"
+                    className="py-5 text-sm font-light tracking-wide text-foreground/80"
                   >
                     {item}
                   </li>
                 ))}
               </ul>
-              <Link
-                href="/contact"
-                className="group inline-flex items-center gap-3 self-start text-xs font-light uppercase tracking-[0.24em]"
-              >
-                Begin a search
-                <span className="inline-block h-px w-10 bg-primary-foreground transition-all duration-500 group-hover:w-16" />
-              </Link>
             </Reveal>
           </div>
         </section>
       </main>
+
       <SiteFooter />
     </>
   )

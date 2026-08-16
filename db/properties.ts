@@ -23,6 +23,7 @@ type PropertyRow = {
   status: string
   property_type: string | null
   list_price: string | null
+  featured: boolean
 
   city: string | null
   state_or_province: string | null
@@ -74,6 +75,70 @@ type PropertyRow = {
   media: PropertyMediaRow[] | null
 }
 
+type PropertySummaryRow = {
+  id: string
+  name: string
+  slug: string | null
+  status: string
+  property_type: string | null
+  list_price: string | null
+  featured: boolean
+
+  location: string | null
+  city: string | null
+  neighborhood: string | null
+
+  bedrooms: string | null
+  bathrooms: string | null
+  square_feet: number | null
+
+  lot_size: string | null
+  lot_size_units: string | null
+
+  has_ocean_view: boolean
+  has_bay_view: boolean
+  has_beach_view: boolean
+  has_harbor_view: boolean
+  has_island_view: boolean
+  has_mountain_view: boolean
+  has_sunrise_view: boolean
+  has_sunset_view: boolean
+  has_water_access: boolean
+  has_beach_access: boolean
+
+  hero_media_id: string | null
+  hero_alt_text: string | null
+}
+
+export type PropertySummary = {
+  id: string
+  name: string
+  slug: string
+  status: string
+  propertyType: string | null
+  listPrice: number | null
+  featured: boolean
+
+  location: string | null
+  city: string | null
+  neighborhood: string | null
+
+  bedrooms: number | null
+  bathrooms: number | null
+  squareFeet: number | null
+
+  lotSize: number | null
+  lotSizeUnits: string | null
+
+  views: string[]
+
+  waterAccess: boolean
+  beachAccess: boolean
+
+  heroUrl: string | null
+  heroAlt: string
+}
+
 export type PropertyVideo = {
   id: string
   playbackId: string
@@ -114,7 +179,16 @@ function statusLabel(status: string) {
   }
 }
 
-function buildViewTypes(row: PropertyRow) {
+function buildViewTypes(row: {
+  has_ocean_view: boolean
+  has_bay_view: boolean
+  has_beach_view: boolean
+  has_harbor_view: boolean
+  has_island_view: boolean
+  has_mountain_view: boolean
+  has_sunrise_view: boolean
+  has_sunset_view: boolean
+}) {
   const views: string[] = []
 
   if (row.has_ocean_view) views.push("Ocean")
@@ -165,6 +239,119 @@ function buildLifestyleTags(row: PropertyRow) {
   return tags
 }
 
+
+/* ============================================================
+   BUYERS / INVENTORY
+   ============================================================ */
+
+export async function getProperties(): Promise<PropertySummary[]> {
+  const rows = await sql`
+    select
+      p.id,
+      p.name,
+      p.slug,
+      p.status,
+      p.property_type,
+      p.list_price,
+      p.featured,
+
+      p.location,
+      p.city,
+      p.neighborhood,
+
+      p.bedrooms,
+      p.bathrooms,
+      p.square_feet,
+
+      p.lot_size,
+      p.lot_size_units,
+
+      p.has_ocean_view,
+      p.has_bay_view,
+      p.has_beach_view,
+      p.has_harbor_view,
+      p.has_island_view,
+      p.has_mountain_view,
+      p.has_sunrise_view,
+      p.has_sunset_view,
+      p.has_water_access,
+      p.has_beach_access,
+
+      hero.media_id as hero_media_id,
+      hero.alt_text as hero_alt_text
+
+    from property p
+
+    left join lateral (
+      select
+        m.id as media_id,
+        m.alt_text
+      from property_media pm
+      join media m
+        on m.id = pm.media_id
+      where pm.property_id = p.id
+        and pm.role = 'hero'
+        and m.media_type = 'image'
+      order by
+        pm.sort_order asc,
+        pm.created_at asc
+      limit 1
+    ) hero on true
+
+    where p.archived_at is null
+      and p.slug is not null
+      and p.status in (
+        'active',
+        'coming_soon',
+        'under_contract'
+      )
+
+    order by
+      p.featured desc,
+      p.list_price desc nulls last,
+      p.created_at desc
+  `
+
+  return (rows as PropertySummaryRow[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug!,
+    status: statusLabel(row.status),
+    propertyType: row.property_type,
+    listPrice: toNumber(row.list_price),
+    featured: row.featured,
+
+    location: row.location,
+    city: row.city,
+    neighborhood: row.neighborhood,
+
+    bedrooms: toNumber(row.bedrooms),
+    bathrooms: toNumber(row.bathrooms),
+    squareFeet: row.square_feet,
+
+    lotSize: toNumber(row.lot_size),
+    lotSizeUnits: row.lot_size_units,
+
+    views: buildViewTypes(row),
+
+    waterAccess: row.has_water_access,
+    beachAccess: row.has_beach_access,
+
+    heroUrl: row.hero_media_id
+      ? `/api/media/${row.hero_media_id}`
+      : null,
+
+    heroAlt:
+      row.hero_alt_text ??
+      row.name,
+  }))
+}
+
+
+/* ============================================================
+   PROPERTY DETAIL
+   ============================================================ */
+
 export async function getPropertyBySlug(
   slug: string
 ): Promise<PropertyDetailResult | null> {
@@ -177,6 +364,7 @@ export async function getPropertyBySlug(
       p.status,
       p.property_type,
       p.list_price,
+      p.featured,
 
       p.city,
       p.state_or_province,
@@ -357,7 +545,9 @@ export async function getPropertyBySlug(
 
   return {
     property,
-    heroUrl: hero ? `/api/media/${hero.media_id}` : null,
+    heroUrl: hero
+      ? `/api/media/${hero.media_id}`
+      : null,
     galleryImages,
     videos,
   }
