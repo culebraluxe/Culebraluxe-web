@@ -1,123 +1,48 @@
 'use client'
 
 import { useState } from 'react'
-import { Check } from 'lucide-react'
-import MuxPlayer from '@mux/mux-player-react'
+import { Compass, Eye, Landmark, Sparkles } from 'lucide-react'
 
-import {
-  PropertyGallery,
-  type GalleryImage,
-} from '@/components/property/property-gallery'
-import { formatArea, formatPrice, isLand } from '@/lib/property'
+import { bathroomsDisplay } from '@/components/property/property-facts-card'
+import { PropertyLocation } from '@/components/property/property-location'
+import { PropertyVideos } from '@/components/property/property-videos'
+import { formatArea, isLand } from '@/lib/property'
+import type {
+  PropertyDetail,
+  PropertyVideo,
+} from '@/lib/property-types'
 import { cn } from '@/lib/utils'
-
-export type PropertyDetail = {
-  _id: string
-  title?: string | null
-  listingId?: string | null
-  standardStatus?: string | null
-  propertyType?: string | null
-  listPrice?: number | null
-  city?: string | null
-  stateOrProvince?: string | null
-  neighborhood?: string | null
-  latitude?: number | null
-  longitude?: number | null
-  bedroomsTotal?: number | null
-  bathroomsFull?: number | null
-  bathroomsHalf?: number | null
-  bathroomsTotal?: number | null
-  livingArea?: number | null
-  lotSizeArea?: number | null
-  lotSizeUnits?: string | null
-  yearBuilt?: number | null
-  stories?: number | null
-  parkingSpaces?: number | null
-  viewType?: string[] | null
-  waterAccess?: boolean | null
-  beachAccess?: boolean | null
-  amenities?: string[] | null
-  shortDescription?: string | null
-  editorialDescription?: string | null
-  architecture?: string | null
-  lifestyleTags?: string[] | null
-  listingAgentName?: string | null
-  listingAgentEmail?: string | null
-  listingAgentPhone?: string | null
-  listingOffice?: string | null
-}
-
-export type PropertyVideo = {
-  id: string
-  playbackId: string
-  role: 'video' | 'short'
-  title: string
-  caption?: string | null
-  aspectRatio?: string | null
-  durationSeconds?: number | null
-}
 
 type Tab =
   | 'Overview'
   | 'Details'
-  | 'Features'
-  | 'Location'
-  | 'Gallery'
+  | 'Map'
   | 'Video'
 
-const BASE_TABS: Tab[] = [
+const PRIMARY_TABS: Tab[] = [
   'Overview',
   'Details',
-  'Features',
-  'Location',
-  'Gallery',
 ]
 
-function bathroomsDisplay(p: PropertyDetail): string | null {
-  const total =
-    p.bathroomsTotal ??
-    ((p.bathroomsFull ?? 0) + (p.bathroomsHalf ?? 0) || null)
+const GENERATED_AMENITIES = new Set([
+  'Pool',
+  'Whole-Home Generator',
+  'Solar Power',
+  'Furnished',
+  'Gated',
+  'Water Access',
+  'Beach Access',
+])
 
-  if (total == null) return null
-
-  if (p.bathroomsFull != null || p.bathroomsHalf != null) {
-    const parts: string[] = []
-
-    if (p.bathroomsFull != null) {
-      parts.push(`${p.bathroomsFull} Full`)
-    }
-
-    if (p.bathroomsHalf != null) {
-      parts.push(`${p.bathroomsHalf} Half`)
-    }
-
-    return `${total} (${parts.join(', ')})`
-  }
-
-  return String(total)
-}
-
-function DefinitionRow({
-  label,
-  value,
-}: {
-  label: string
-  value?: string | number | null
-}) {
-  if (value == null || value === '') return null
-
-  return (
-    <div className="flex items-baseline justify-between gap-6 border-b border-border/60 py-3 last:border-0">
-      <dt className="text-xs font-light uppercase tracking-[0.16em] text-muted-foreground">
-        {label}
-      </dt>
-
-      <dd className="text-right text-sm font-light text-foreground">
-        {value}
-      </dd>
-    </div>
-  )
-}
+const GENERATED_LIFESTYLE_TAGS = new Set([
+  'Ocean View',
+  'Sunset View',
+  'Sunrise View',
+  'Beach Access',
+  'Water Access',
+  'Pool',
+  'Private Estate',
+])
 
 function EditorialText({ value }: { value: string }) {
   const paragraphs = value
@@ -139,118 +64,173 @@ function EditorialText({ value }: { value: string }) {
   )
 }
 
-function playerAspectRatio(video: PropertyVideo) {
-  if (!video.aspectRatio) {
-    return video.role === 'short' ? '9 / 16' : '16 / 9'
-  }
-
-  return video.aspectRatio.replace(':', ' / ')
-}
-
-function PropertyVideos({ videos }: { videos: PropertyVideo[] }) {
-  const films = videos.filter((video) => video.role === 'video')
-  const shorts = videos.filter((video) => video.role === 'short')
-
-  return (
-    <div className="flex flex-col gap-16">
-      {films.length > 0 && (
-        <div>
-          <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-            Property Film
-          </p>
-
-          <div className="flex flex-col gap-10">
-            {films.map((video) => (
-              <div key={video.id}>
-                <MuxPlayer
-                  playbackId={video.playbackId}
-                  metadata={{
-                    video_title: video.title,
-                  }}
-                  style={{
-                    width: '100%',
-                    aspectRatio: playerAspectRatio(video),
-                  }}
-                />
-
-                {video.caption && (
-                  <p className="mt-4 text-sm font-light leading-relaxed text-muted-foreground">
-                    {video.caption}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {shorts.length > 0 && (
-        <div>
-          <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-            Short Films
-          </p>
-
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {shorts.map((video) => (
-              <div key={video.id}>
-                <MuxPlayer
-                  playbackId={video.playbackId}
-                  metadata={{
-                    video_title: video.title,
-                  }}
-                  style={{
-                    width: '100%',
-                    aspectRatio: playerAspectRatio(video),
-                  }}
-                />
-
-                {video.caption && (
-                  <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
-                    {video.caption}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function PropertyTabs({
   property,
-  galleryImages,
   videos = [],
 }: {
   property: PropertyDetail
-  galleryImages: GalleryImage[]
   videos?: PropertyVideo[]
 }) {
   const [active, setActive] = useState<Tab>('Overview')
   const land = isLand(property.propertyType)
 
-  const tabs: Tab[] =
-    videos.length > 0 ? [...BASE_TABS, 'Video'] : BASE_TABS
+  const tabs: Tab[] = [
+    ...PRIMARY_TABS,
+    ...(videos.length > 0 ? (['Video'] as const) : []),
+    'Map',
+  ]
 
-  const highlights = (property.amenities ?? []).slice(0, 8)
+  const amenities = property.amenities ?? []
+  const views = property.viewType ?? []
+  const lifestyleTags = property.lifestyleTags ?? []
+  const compactAmenities = amenities.filter((item) =>
+    GENERATED_AMENITIES.has(item),
+  )
+  const amenityNotes = amenities.filter(
+    (item) => !GENERATED_AMENITIES.has(item),
+  )
+  const visibleAmenityLabels = new Set(
+    compactAmenities.map((item) => item.toLowerCase()),
+  )
+  const visibleViewLabels = new Set(
+    views.flatMap((view) => [
+      view.toLowerCase(),
+      `${view.toLowerCase()} view`,
+    ]),
+  )
+  const compactLifestyleTags = lifestyleTags.filter((item) => {
+    if (!GENERATED_LIFESTYLE_TAGS.has(item)) return false
+
+    const normalized = item.toLowerCase()
+
+    return (
+      !visibleAmenityLabels.has(normalized) &&
+      !visibleViewLabels.has(normalized)
+    )
+  })
+  const lifestyleNotes = lifestyleTags.filter(
+    (item) => !GENERATED_LIFESTYLE_TAGS.has(item),
+  )
+  const hasLeftHighlights =
+    compactAmenities.length > 0 ||
+    amenityNotes.length > 0 ||
+    Boolean(property.architecture)
+  const hasViews = views.length > 0
+  const hasLifestyle =
+    compactLifestyleTags.length > 0 || lifestyleNotes.length > 0
+
+  const overviewFacts = [
+    {
+      label: 'Lot Size',
+      value: formatArea(
+        property.lotSizeArea,
+        property.lotSizeUnits,
+      ),
+    },
+    {
+      label: 'Neighborhood',
+      value: property.neighborhood,
+    },
+  ].filter((fact) => fact.value != null && fact.value !== '')
+
+  const listingFacts = [
+    {
+      label: 'Listing Agent',
+      value: property.listingAgentName,
+    },
+    {
+      label: 'Office',
+      value: property.listingOffice,
+    },
+    {
+      label: 'Phone',
+      value: property.listingAgentPhone,
+    },
+    {
+      label: 'Email',
+      value: property.listingAgentEmail,
+    },
+    {
+      label: 'MLS / Listing ID',
+      value: property.listingId,
+    },
+  ].filter((fact) => fact.value != null && fact.value !== '')
+
+  const hasOverviewSidebar =
+    overviewFacts.length > 0 ||
+    listingFacts.length > 0 ||
+    hasViews ||
+    hasLifestyle
+
+  const detailFacts = [
+    {
+      label: 'Property Type',
+      value: property.propertyType,
+    },
+    {
+      label: 'Status',
+      value: property.standardStatus,
+    },
+    ...(!land
+      ? [
+          {
+            label: 'Bedrooms',
+            value: property.bedroomsTotal,
+          },
+          {
+            label: 'Bathrooms',
+            value: bathroomsDisplay(property),
+          },
+          {
+            label: 'Living Area',
+            value:
+              property.livingArea != null
+                ? `${property.livingArea.toLocaleString('en-US')} SF`
+                : null,
+          },
+          {
+            label: 'Stories',
+            value: property.stories,
+          },
+        ]
+      : []),
+    {
+      label: 'Lot Size',
+      value: formatArea(
+        property.lotSizeArea,
+        property.lotSizeUnits,
+      ),
+    },
+    {
+      label: 'Year Built',
+      value: property.yearBuilt,
+    },
+    {
+      label: 'Parking Spaces',
+      value: property.parkingSpaces,
+    },
+    {
+      label: 'Neighborhood',
+      value: property.neighborhood,
+    },
+    {
+      label: 'Water Access',
+      value: property.waterAccess ? 'Yes' : null,
+    },
+    {
+      label: 'Beach Access',
+      value: property.beachAccess ? 'Yes' : null,
+    },
+  ].filter((fact) => fact.value != null && fact.value !== '')
 
   const hasEditorial =
     typeof property.editorialDescription === 'string' &&
     property.editorialDescription.trim().length > 0
 
-  const locationLine = [
-    property.neighborhood,
-    property.city,
-    property.stateOrProvince,
-  ]
-    .filter(Boolean)
-    .join(', ')
-
   return (
-    <section className="w-full">
+    <section className="w-full border-x border-b border-border/90 bg-background">
       <nav
-        className="flex flex-wrap gap-x-10 gap-y-3 border-b border-border"
+        className="flex h-[60px] flex-nowrap overflow-x-auto border-b border-border/90 bg-muted/20 sm:h-16"
         aria-label="Property information"
       >
         {tabs.map((tab) => (
@@ -258,361 +238,287 @@ export function PropertyTabs({
             key={tab}
             type="button"
             onClick={() => setActive(tab)}
-            aria-current={active === tab}
+            aria-current={active === tab ? 'page' : undefined}
             className={cn(
-              'relative -mb-px pb-4 text-xs font-light uppercase tracking-[0.2em] transition-colors duration-300',
+              'relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-border/90 px-6 font-serif text-sm tracking-[0.04em] transition-colors duration-300 sm:min-w-[132px] sm:px-8 sm:text-[15px]',
               active === tab
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'bg-background font-medium text-foreground'
+                : 'text-muted-foreground/90 hover:bg-background/55 hover:text-foreground',
             )}
           >
             {tab}
 
             <span
               className={cn(
-                'absolute -bottom-px left-0 h-px w-full transition-colors duration-300',
-                active === tab ? 'bg-foreground' : 'bg-transparent',
+                'absolute inset-x-0 bottom-0 h-0.5 transition-colors duration-300',
+                active === tab ? 'bg-accent' : 'bg-transparent',
               )}
             />
           </button>
         ))}
       </nav>
 
-      <div className="pt-12">
+      <div className="bg-muted/[0.04] p-5 sm:p-6 lg:p-7">
         {active === 'Overview' && (
-          <div className="grid gap-12 lg:grid-cols-12 lg:gap-16">
-            <div className="lg:col-span-7">
-              <p className="mb-6 text-xs font-light uppercase tracking-[0.34em] text-accent">
+          <div
+            className={cn(
+              'grid items-start gap-8',
+              hasOverviewSidebar
+                ? 'lg:grid-cols-[minmax(0,1.65fr)_minmax(280px,1fr)] lg:gap-12'
+                : 'max-w-4xl',
+            )}
+          >
+            <div className="min-w-0">
+              <p className="mb-4 text-xs font-light uppercase tracking-[0.34em] text-accent">
                 The Property
               </p>
 
-              {hasEditorial ? (
-                <EditorialText value={property.editorialDescription!} />
-              ) : property.shortDescription ? (
-                <p className="text-pretty text-lg font-light leading-relaxed text-foreground/80">
-                  {property.shortDescription}
-                </p>
-              ) : (
-                <p className="text-sm font-light text-muted-foreground">
-                  A detailed description of this residence is being prepared.
-                </p>
-              )}
+              <div className="max-w-[68ch]">
+                {hasEditorial ? (
+                  <EditorialText value={property.editorialDescription!} />
+                ) : property.shortDescription ? (
+                  <p className="text-pretty text-base font-light leading-7 text-foreground/85">
+                    {property.shortDescription}
+                  </p>
+                ) : (
+                  <p className="text-sm font-light leading-relaxed text-muted-foreground">
+                    A detailed description of this residence is being prepared.
+                  </p>
+                )}
+              </div>
 
-              {highlights.length > 0 && (
-                <div className="mt-12">
-                  <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                    Highlights
+              {hasLeftHighlights && (
+                <div className="mt-7 border-t border-border/90 pt-6">
+                  <p className="mb-5 text-xs font-light uppercase tracking-[0.24em] text-accent">
+                    Property Highlights
                   </p>
 
-                  <ul className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                    {highlights.map((item) => (
-                      <li key={item} className="flex items-start gap-3">
-                        <Check className="mt-0.5 h-4 w-4 flex-none text-accent" />
+                  <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+                    {(compactAmenities.length > 0 || amenityNotes.length > 0) && (
+                      <section className="min-w-0">
+                        <div className="mb-3 flex items-center gap-2.5">
+                          <Sparkles
+                            className="h-4 w-4 flex-none text-accent"
+                            aria-hidden
+                          />
 
-                        <span className="text-sm font-light leading-snug text-foreground/85">
-                          {item}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                          <h3 className="font-serif text-base text-foreground">
+                            Amenities
+                          </h3>
+                        </div>
+
+                        {compactAmenities.length > 0 && (
+                          <ul className="space-y-2 pl-6">
+                            {compactAmenities.map((item) => (
+                              <li
+                                key={item}
+                                className="relative text-sm font-light leading-snug text-foreground/85 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-accent/70"
+                              >
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {amenityNotes.map((note) => (
+                          <p
+                            key={note}
+                            className={cn(
+                              'border-l border-accent/40 pl-4 text-sm font-light leading-relaxed text-muted-foreground',
+                              compactAmenities.length > 0 && 'mt-4',
+                            )}
+                          >
+                            {note}
+                          </p>
+                        ))}
+                      </section>
+                    )}
+
+                    {property.architecture && (
+                      <section className="min-w-0">
+                        <div className="mb-3 flex items-center gap-2.5">
+                          <Landmark
+                            className="h-4 w-4 flex-none text-accent"
+                            aria-hidden
+                          />
+
+                          <h3 className="font-serif text-base text-foreground">
+                            Architecture
+                          </h3>
+                        </div>
+
+                        <p className="border-l border-accent/40 pl-4 text-sm font-light leading-relaxed text-muted-foreground">
+                          {property.architecture}
+                        </p>
+                      </section>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
-            <aside className="lg:col-span-5">
-              <div className="border border-border p-8">
-                <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                  Key Facts
-                </p>
+            {hasOverviewSidebar && (
+              <aside className="min-w-0 self-start space-y-6">
+                {overviewFacts.length === 1 &&
+                  overviewFacts[0].label === 'Neighborhood' && (
+                    <dl
+                      className="border-t border-border/90 bg-muted/10 px-5 py-4 sm:px-6"
+                      aria-label="Location context"
+                    >
+                      <div className="flex items-baseline justify-between gap-5">
+                        <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                          Neighborhood
+                        </dt>
 
-                <dl>
-                  <DefinitionRow
-                    label="Price"
-                    value={formatPrice(property.listPrice)}
-                  />
-
-                  <DefinitionRow
-                    label="Property Type"
-                    value={property.propertyType}
-                  />
-
-                  <DefinitionRow
-                    label="Status"
-                    value={property.standardStatus}
-                  />
-
-                  {!land && (
-                    <>
-                      <DefinitionRow
-                        label="Bedrooms"
-                        value={property.bedroomsTotal}
-                      />
-
-                      <DefinitionRow
-                        label="Bathrooms"
-                        value={bathroomsDisplay(property)}
-                      />
-
-                      <DefinitionRow
-                        label="Living Area"
-                        value={
-                          property.livingArea != null
-                            ? `${property.livingArea.toLocaleString('en-US')} SF`
-                            : null
-                        }
-                      />
-                    </>
+                        <dd className="text-right text-[15px] font-normal text-foreground/90">
+                          {overviewFacts[0].value}
+                        </dd>
+                      </div>
+                    </dl>
                   )}
 
-                  <DefinitionRow
-                    label="Lot Size"
-                    value={formatArea(
-                      property.lotSizeArea,
-                      property.lotSizeUnits,
-                    )}
-                  />
+                {(overviewFacts.length > 1 ||
+                  (overviewFacts.length === 1 &&
+                    overviewFacts[0].label !== 'Neighborhood')) && (
+                  <section className="border-t border-border/90 bg-muted/10 px-5 py-5 sm:px-6">
+                    <p className="mb-4 text-xs font-light uppercase tracking-[0.24em] text-accent">
+                      Key Facts
+                    </p>
 
-                  <DefinitionRow
-                    label="Year Built"
-                    value={property.yearBuilt}
-                  />
+                    <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+                      {overviewFacts.map((fact) => (
+                        <div key={fact.label} className="min-w-0">
+                          <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                            {fact.label}
+                          </dt>
 
-                  <DefinitionRow
-                    label="Parking"
-                    value={property.parkingSpaces}
-                  />
-                </dl>
+                          <dd className="mt-1 break-words text-[15px] font-normal leading-snug text-foreground/90">
+                            {fact.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                )}
 
-                {(property.listingAgentName ||
-                  property.listingAgentPhone ||
-                  property.listingAgentEmail ||
-                  property.listingId) && (
-                  <>
-                    <p className="mb-4 mt-8 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
+                {listingFacts.length > 0 && (
+                  <section className="border-t border-border/90 px-5 py-5 sm:px-6">
+                    <p className="mb-3 text-xs font-light uppercase tracking-[0.2em] text-accent">
                       Listing Information
                     </p>
 
-                    <dl>
-                      <DefinitionRow
-                        label="Listing Agent"
-                        value={property.listingAgentName}
-                      />
+                    <dl className="space-y-3">
+                      {listingFacts.map((fact) => (
+                        <div
+                          key={fact.label}
+                          className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-4"
+                        >
+                          <dt className="text-[10px] font-light uppercase tracking-[0.14em] text-muted-foreground">
+                            {fact.label}
+                          </dt>
 
-                      <DefinitionRow
-                        label="Office"
-                        value={property.listingOffice}
-                      />
-
-                      <DefinitionRow
-                        label="Phone"
-                        value={property.listingAgentPhone}
-                      />
-
-                      <DefinitionRow
-                        label="Email"
-                        value={property.listingAgentEmail}
-                      />
-
-                      <DefinitionRow
-                        label="MLS / Listing ID"
-                        value={property.listingId}
-                      />
+                          <dd className="break-words text-right text-sm font-normal leading-snug text-foreground/90">
+                            {fact.value}
+                          </dd>
+                        </div>
+                      ))}
                     </dl>
-                  </>
+                  </section>
                 )}
-              </div>
-            </aside>
+
+                {hasViews && (
+                  <section className="border-t border-border/90 px-5 py-5 sm:px-6">
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <Eye
+                        className="h-4 w-4 flex-none text-accent"
+                        aria-hidden
+                      />
+
+                      <h3 className="font-serif text-base text-foreground">
+                        Views
+                      </h3>
+                    </div>
+
+                    <ul className="grid grid-cols-2 gap-x-5 gap-y-2 pl-6">
+                      {views.map((view) => (
+                        <li
+                          key={view}
+                          className="relative text-sm font-light leading-snug text-foreground/85 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-accent/70"
+                        >
+                          {view}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {hasLifestyle && (
+                  <section className="border-t border-border/90 px-5 py-5 sm:px-6">
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <Compass
+                        className="h-4 w-4 flex-none text-accent"
+                        aria-hidden
+                      />
+
+                      <h3 className="font-serif text-base text-foreground">
+                        Lifestyle
+                      </h3>
+                    </div>
+
+                    {compactLifestyleTags.length > 0 && (
+                      <ul className="grid grid-cols-2 gap-x-5 gap-y-2 pl-6">
+                        {compactLifestyleTags.map((tag) => (
+                          <li
+                            key={tag}
+                            className="relative text-sm font-light leading-snug text-foreground/85 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-accent/70"
+                          >
+                            {tag}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {lifestyleNotes.map((note) => (
+                      <p
+                        key={note}
+                        className={cn(
+                          'border-l border-accent/40 pl-4 text-sm font-light leading-relaxed text-muted-foreground',
+                          compactLifestyleTags.length > 0 && 'mt-4',
+                        )}
+                      >
+                        {note}
+                      </p>
+                    ))}
+                  </section>
+                )}
+              </aside>
+            )}
           </div>
         )}
 
         {active === 'Details' && (
-          <div className="max-w-3xl">
-            <dl className="grid gap-x-16 sm:grid-cols-2">
-              <DefinitionRow
-                label="Property Type"
-                value={property.propertyType}
-              />
+          <div>
+            <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-x-10">
+              {detailFacts.map((fact) => (
+                <div
+                  key={fact.label}
+                  className="min-w-0 border-t border-border/90 py-4"
+                >
+                  <dt className="text-[10px] font-light uppercase tracking-[0.17em] text-muted-foreground">
+                    {fact.label}
+                  </dt>
 
-              <DefinitionRow
-                label="Status"
-                value={property.standardStatus}
-              />
-
-              {!land && (
-                <>
-                  <DefinitionRow
-                    label="Bedrooms"
-                    value={property.bedroomsTotal}
-                  />
-
-                  <DefinitionRow
-                    label="Bathrooms"
-                    value={bathroomsDisplay(property)}
-                  />
-
-                  <DefinitionRow
-                    label="Living Area"
-                    value={
-                      property.livingArea != null
-                        ? `${property.livingArea.toLocaleString('en-US')} SF`
-                        : null
-                    }
-                  />
-
-                  <DefinitionRow
-                    label="Stories"
-                    value={property.stories}
-                  />
-                </>
-              )}
-
-              <DefinitionRow
-                label="Lot Size"
-                value={formatArea(
-                  property.lotSizeArea,
-                  property.lotSizeUnits,
-                )}
-              />
-
-              <DefinitionRow
-                label="Year Built"
-                value={property.yearBuilt}
-              />
-
-              <DefinitionRow
-                label="Parking Spaces"
-                value={property.parkingSpaces}
-              />
-
-              <DefinitionRow
-                label="Neighborhood"
-                value={property.neighborhood}
-              />
-
-              <DefinitionRow
-                label="Water Access"
-                value={property.waterAccess ? 'Yes' : null}
-              />
-
-              <DefinitionRow
-                label="Beach Access"
-                value={property.beachAccess ? 'Yes' : null}
-              />
+                  <dd className="mt-1.5 break-words text-[15px] font-normal leading-snug text-foreground/90">
+                    {fact.value}
+                  </dd>
+                </div>
+              ))}
             </dl>
           </div>
         )}
 
-        {active === 'Features' && (
-          <div className="flex flex-col gap-12">
-            {(property.amenities ?? []).length > 0 && (
-              <div>
-                <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                  Amenities
-                </p>
-
-                <ul className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {property.amenities!.map((item) => (
-                    <li key={item} className="flex items-start gap-3">
-                      <Check className="mt-0.5 h-4 w-4 flex-none text-accent" />
-
-                      <span className="text-sm font-light leading-snug text-foreground/85">
-                        {item}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {(property.viewType ?? []).length > 0 && (
-              <div>
-                <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                  Views & Setting
-                </p>
-
-                <div className="flex flex-wrap gap-3">
-                  {property.viewType!.map((view) => (
-                    <span
-                      key={view}
-                      className="border border-border px-4 py-2 text-xs font-light uppercase tracking-[0.16em] text-foreground/80"
-                    >
-                      {view}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(property.lifestyleTags ?? []).length > 0 && (
-              <div>
-                <p className="mb-6 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                  Lifestyle
-                </p>
-
-                <div className="flex flex-wrap gap-3">
-                  {property.lifestyleTags!.map((tag) => (
-                    <span
-                      key={tag}
-                      className="border border-border px-4 py-2 text-xs font-light uppercase tracking-[0.16em] text-foreground/80"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(property.amenities ?? []).length === 0 &&
-              (property.viewType ?? []).length === 0 &&
-              (property.lifestyleTags ?? []).length === 0 && (
-                <p className="text-sm font-light text-muted-foreground">
-                  Feature details will be added shortly.
-                </p>
-              )}
-          </div>
-        )}
-
-        {active === 'Location' && (
-          <div className="flex flex-col gap-8">
-            {locationLine && (
-              <div>
-                <p className="mb-2 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                  Location
-                </p>
-
-                <p className="font-serif text-2xl font-light text-foreground">
-                  {locationLine}
-                </p>
-              </div>
-            )}
-
-            {property.latitude != null &&
-            property.longitude != null ? (
-              <div className="aspect-[16/9] w-full overflow-hidden border border-border">
-                <iframe
-                  title={`Map of ${property.title ?? 'property'}`}
-                  className="h-full w-full"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${
-                    property.longitude - 0.012
-                  }%2C${property.latitude - 0.008}%2C${
-                    property.longitude + 0.012
-                  }%2C${property.latitude + 0.008}&layer=mapnik&marker=${
-                    property.latitude
-                  }%2C${property.longitude}`}
-                />
-              </div>
-            ) : (
-              <p className="text-sm font-light text-muted-foreground">
-                Precise location is shared privately with qualified buyers.
-              </p>
-            )}
-          </div>
-        )}
-
-        {active === 'Gallery' && (
-          <PropertyGallery images={galleryImages} />
+        {active === 'Map' && (
+          <PropertyLocation property={property} />
         )}
 
         {active === 'Video' && videos.length > 0 && (

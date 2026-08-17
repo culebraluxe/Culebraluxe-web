@@ -3,13 +3,8 @@
 import Image from 'next/image'
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import type { GalleryImage } from '@/lib/property-types'
 import { cn } from '@/lib/utils'
-
-export type GalleryImage = {
-  url: string
-  alt: string
-  caption?: string | null
-}
 
 export function PropertyGallery({ images }: { images: GalleryImage[] }) {
   const [active, setActive] = useState(0)

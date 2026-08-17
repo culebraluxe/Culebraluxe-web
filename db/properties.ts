@@ -1,6 +1,10 @@
 import { sql } from "./client"
-import type { PropertyDetail } from "@/components/property/property-tabs"
-import type { GalleryImage } from "@/components/property/property-gallery"
+import type {
+  GalleryImage,
+  PropertyDetail,
+  PropertyDetailResult,
+  PropertyVideo,
+} from "@/lib/property-types"
 
 type PropertyMediaRow = {
   media_id: string
@@ -137,23 +141,6 @@ export type PropertySummary = {
 
   heroUrl: string | null
   heroAlt: string
-}
-
-export type PropertyVideo = {
-  id: string
-  playbackId: string
-  role: "video" | "short"
-  title: string
-  caption?: string | null
-  aspectRatio?: string | null
-  durationSeconds?: number | null
-}
-
-export type PropertyDetailResult = {
-  property: PropertyDetail
-  heroUrl: string | null
-  galleryImages: GalleryImage[]
-  videos: PropertyVideo[]
 }
 
 function toNumber(value: string | null) {
