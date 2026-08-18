@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import type { GalleryImage } from '@/lib/property-types'
@@ -17,10 +17,42 @@ export function PropertyMediaPanel({
   propertyTitle?: string | null
 }) {
   const [activeIndex, setActiveIndex] = useState(0)
+  const [navigationVisible, setNavigationVisible] = useState(true)
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearNavigationTimer = useCallback(() => {
+    if (navigationTimerRef.current) {
+      clearTimeout(navigationTimerRef.current)
+      navigationTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleNavigationFade = useCallback(() => {
+    clearNavigationTimer()
+
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      setNavigationVisible(true)
+      return
+    }
+
+    navigationTimerRef.current = setTimeout(() => {
+      setNavigationVisible(false)
+    }, 2800)
+  }, [clearNavigationTimer])
+
+  const revealNavigation = useCallback(() => {
+    setNavigationVisible(true)
+    scheduleNavigationFade()
+  }, [scheduleNavigationFade])
 
   useEffect(() => {
     setActiveIndex(0)
   }, [heroUrl, propertyTitle])
+
+  useEffect(() => {
+    scheduleNavigationFade()
+    return clearNavigationTimer
+  }, [clearNavigationTimer, scheduleNavigationFade])
 
   const heroImage = galleryImages.find((image) => image.url === heroUrl)
   const mediaImages: GalleryImage[] = []
@@ -79,6 +111,17 @@ export function PropertyMediaPanel({
       tabIndex={0}
       role="group"
       aria-label="Property photo gallery"
+      onPointerMove={revealNavigation}
+      onPointerDown={revealNavigation}
+      onFocusCapture={() => {
+        clearNavigationTimer()
+        setNavigationVisible(true)
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          scheduleNavigationFade()
+        }
+      }}
       onKeyDown={(event) => {
         if (event.key === 'ArrowLeft') {
           event.preventDefault()
@@ -126,12 +169,22 @@ export function PropertyMediaPanel({
         )}
 
         {hasNavigation && (
-          <>
+          <div
+            className={cn(
+              'pointer-events-none absolute inset-0 z-10 transition-opacity duration-300',
+              navigationVisible
+                ? 'opacity-100'
+                : 'opacity-0',
+            )}
+          >
             <button
               type="button"
               onClick={showPreviousImage}
               aria-label="Previous photo"
-              className="absolute left-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+              className={cn(
+                'absolute left-2 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]',
+                navigationVisible && 'pointer-events-auto',
+              )}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </button>
@@ -140,11 +193,14 @@ export function PropertyMediaPanel({
               type="button"
               onClick={showNextImage}
               aria-label="Next photo"
-              className="absolute right-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+              className={cn(
+                'absolute right-2 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]',
+                navigationVisible && 'pointer-events-auto',
+              )}
             >
               <ChevronRight className="h-5 w-5" aria-hidden />
             </button>
-          </>
+          </div>
         )}
 
         {mediaImages.length > 0 && (
