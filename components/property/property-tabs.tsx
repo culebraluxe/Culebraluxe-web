@@ -55,7 +55,7 @@ function EditorialText({ value }: { value: string }) {
       {paragraphs.map((paragraph, index) => (
         <p
           key={`${index}-${paragraph.slice(0, 32)}`}
-          className="text-pretty text-[15px] font-light leading-relaxed text-foreground/80"
+          className="text-pretty text-[15px] font-normal leading-relaxed text-brand-navy/90"
         >
           {paragraph}
         </p>
@@ -228,9 +228,9 @@ export function PropertyTabs({
     property.editorialDescription.trim().length > 0
 
   return (
-    <section className="w-full border-x border-b border-border/90 bg-background">
+    <section className="w-full border-x border-b border-brand-navy/35 bg-card">
       <nav
-        className="flex h-[60px] flex-nowrap overflow-x-auto border-b border-border/90 bg-muted/20 sm:h-16"
+        className="flex h-[60px] flex-nowrap overflow-x-auto border-b border-brand-navy/35 bg-card sm:h-16"
         aria-label="Property information"
       >
         {tabs.map((tab) => (
@@ -240,10 +240,10 @@ export function PropertyTabs({
             onClick={() => setActive(tab)}
             aria-current={active === tab ? 'page' : undefined}
             className={cn(
-              'relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-border/90 px-6 font-serif text-sm tracking-[0.04em] transition-colors duration-300 sm:min-w-[132px] sm:px-8 sm:text-[15px]',
+              'relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-[#c6a15b] px-6 font-serif text-sm tracking-[0.04em] transition-colors duration-300 sm:min-w-[132px] sm:px-8 sm:text-[15px]',
               active === tab
-                ? 'bg-background font-medium text-foreground'
-                : 'text-muted-foreground/90 hover:bg-background/55 hover:text-foreground',
+                ? 'bg-brand-navy font-semibold text-[#c6a15b]'
+                : 'bg-brand-navy font-medium text-[#f8f5ec]/85 hover:text-[#f8f5ec]',
             )}
           >
             {tab}
@@ -251,14 +251,14 @@ export function PropertyTabs({
             <span
               className={cn(
                 'absolute inset-x-0 bottom-0 h-0.5 transition-colors duration-300',
-                active === tab ? 'bg-accent' : 'bg-transparent',
+                active === tab ? 'bg-[#c6a15b]' : 'bg-transparent',
               )}
             />
           </button>
         ))}
       </nav>
 
-      <div className="bg-muted/[0.04] p-5 sm:p-6 lg:p-7">
+      <div className="bg-brand-navy/[0.035] shadow-[inset_0_0_0_1px_rgba(3,15,35,0.16)] p-5 sm:p-6 lg:p-7">
         {active === 'Overview' && (
           <div
             className={cn(
@@ -269,7 +269,7 @@ export function PropertyTabs({
             )}
           >
             <div className="min-w-0">
-              <p className="mb-4 text-xs font-light uppercase tracking-[0.34em] text-accent">
+              <p className="mb-4 text-xs font-medium uppercase tracking-[0.34em] text-[#c6a15b]">
                 The Property
               </p>
 
@@ -277,19 +277,19 @@ export function PropertyTabs({
                 {hasEditorial ? (
                   <EditorialText value={property.editorialDescription!} />
                 ) : property.shortDescription ? (
-                  <p className="text-pretty text-base font-light leading-7 text-foreground/85">
+                  <p className="text-pretty text-base font-normal leading-7 text-brand-navy/90">
                     {property.shortDescription}
                   </p>
                 ) : (
-                  <p className="text-sm font-light leading-relaxed text-muted-foreground">
+                  <p className="text-sm font-normal leading-relaxed text-brand-navy/80">
                     A detailed description of this residence is being prepared.
                   </p>
                 )}
               </div>
 
               {hasLeftHighlights && (
-                <div className="mt-7 border-t border-border/90 pt-6">
-                  <p className="mb-5 text-xs font-light uppercase tracking-[0.24em] text-accent">
+                <div className="mt-7 border-t border-brand-navy/20 pt-6">
+                  <p className="mb-5 text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
                     Property Highlights
                   </p>
 
@@ -298,11 +298,11 @@ export function PropertyTabs({
                       <section className="min-w-0">
                         <div className="mb-3 flex items-center gap-2.5">
                           <Sparkles
-                            className="h-4 w-4 flex-none text-accent"
+                            className="h-4 w-4 flex-none text-[#c6a15b]"
                             aria-hidden
                           />
 
-                          <h3 className="font-serif text-base text-foreground">
+                          <h3 className="font-serif text-base font-semibold text-brand-navy">
                             Amenities
                           </h3>
                         </div>
@@ -312,7 +312,7 @@ export function PropertyTabs({
                             {compactAmenities.map((item) => (
                               <li
                                 key={item}
-                                className="relative text-sm font-light leading-snug text-foreground/85 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-accent/70"
+                                className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-[#c6a15b]/70"
                               >
                                 {item}
                               </li>
@@ -324,7 +324,7 @@ export function PropertyTabs({
                           <p
                             key={note}
                             className={cn(
-                              'border-l border-accent/40 pl-4 text-sm font-light leading-relaxed text-muted-foreground',
+                              'border-l border-[#c6a15b]/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82',
                               compactAmenities.length > 0 && 'mt-4',
                             )}
                           >
@@ -338,16 +338,16 @@ export function PropertyTabs({
                       <section className="min-w-0">
                         <div className="mb-3 flex items-center gap-2.5">
                           <Landmark
-                            className="h-4 w-4 flex-none text-accent"
+                            className="h-4 w-4 flex-none text-[#c6a15b]"
                             aria-hidden
                           />
 
-                          <h3 className="font-serif text-base text-foreground">
+                          <h3 className="font-serif text-base font-semibold text-brand-navy">
                             Architecture
                           </h3>
                         </div>
 
-                        <p className="border-l border-accent/40 pl-4 text-sm font-light leading-relaxed text-muted-foreground">
+                        <p className="border-l border-[#c6a15b]/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82">
                           {property.architecture}
                         </p>
                       </section>
@@ -362,15 +362,15 @@ export function PropertyTabs({
                 {overviewFacts.length === 1 &&
                   overviewFacts[0].label === 'Neighborhood' && (
                     <dl
-                      className="border-t border-border/90 bg-muted/10 px-5 py-4 sm:px-6"
+                      className="border-t border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-4 ring-1 ring-inset ring-brand-navy/20 sm:px-6"
                       aria-label="Location context"
                     >
                       <div className="flex items-baseline justify-between gap-5">
-                        <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">
                           Neighborhood
                         </dt>
 
-                        <dd className="text-right text-[15px] font-normal text-foreground/90">
+                        <dd className="text-right text-[15px] font-medium text-brand-navy">
                           {overviewFacts[0].value}
                         </dd>
                       </div>
@@ -380,19 +380,19 @@ export function PropertyTabs({
                 {(overviewFacts.length > 1 ||
                   (overviewFacts.length === 1 &&
                     overviewFacts[0].label !== 'Neighborhood')) && (
-                  <section className="border-t border-border/90 bg-muted/10 px-5 py-5 sm:px-6">
-                    <p className="mb-4 text-xs font-light uppercase tracking-[0.24em] text-accent">
+                  <section className="border-t border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
+                    <p className="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
                       Key Facts
                     </p>
 
                     <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
                       {overviewFacts.map((fact) => (
                         <div key={fact.label} className="min-w-0">
-                          <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                          <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">
                             {fact.label}
                           </dt>
 
-                          <dd className="mt-1 break-words text-[15px] font-normal leading-snug text-foreground/90">
+                          <dd className="mt-1 break-words text-[15px] font-medium leading-snug text-brand-navy">
                             {fact.value}
                           </dd>
                         </div>
@@ -402,8 +402,8 @@ export function PropertyTabs({
                 )}
 
                 {listingFacts.length > 0 && (
-                  <section className="border-t border-border/90 px-5 py-5 sm:px-6">
-                    <p className="mb-3 text-xs font-light uppercase tracking-[0.2em] text-accent">
+                  <section className="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
+                    <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-[#c6a15b]">
                       Listing Information
                     </p>
 
@@ -413,11 +413,11 @@ export function PropertyTabs({
                           key={fact.label}
                           className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-4"
                         >
-                          <dt className="text-[10px] font-light uppercase tracking-[0.14em] text-muted-foreground">
+                          <dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-navy/70">
                             {fact.label}
                           </dt>
 
-                          <dd className="break-words text-right text-sm font-normal leading-snug text-foreground/90">
+                          <dd className="break-words text-right text-sm font-medium leading-snug text-brand-navy">
                             {fact.value}
                           </dd>
                         </div>
@@ -427,14 +427,14 @@ export function PropertyTabs({
                 )}
 
                 {hasViews && (
-                  <section className="border-t border-border/90 px-5 py-5 sm:px-6">
+                  <section className="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
                     <div className="mb-3 flex items-center gap-2.5">
                       <Eye
-                        className="h-4 w-4 flex-none text-accent"
+                        className="h-4 w-4 flex-none text-[#c6a15b]"
                         aria-hidden
                       />
 
-                      <h3 className="font-serif text-base text-foreground">
+                      <h3 className="font-serif text-base font-semibold text-brand-navy">
                         Views
                       </h3>
                     </div>
@@ -443,7 +443,7 @@ export function PropertyTabs({
                       {views.map((view) => (
                         <li
                           key={view}
-                          className="relative text-sm font-light leading-snug text-foreground/85 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-accent/70"
+                          className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-[#c6a15b]/70"
                         >
                           {view}
                         </li>
@@ -453,14 +453,14 @@ export function PropertyTabs({
                 )}
 
                 {hasLifestyle && (
-                  <section className="border-t border-border/90 px-5 py-5 sm:px-6">
+                  <section className="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
                     <div className="mb-3 flex items-center gap-2.5">
                       <Compass
-                        className="h-4 w-4 flex-none text-accent"
+                        className="h-4 w-4 flex-none text-[#c6a15b]"
                         aria-hidden
                       />
 
-                      <h3 className="font-serif text-base text-foreground">
+                      <h3 className="font-serif text-base font-semibold text-brand-navy">
                         Lifestyle
                       </h3>
                     </div>
@@ -470,7 +470,7 @@ export function PropertyTabs({
                         {compactLifestyleTags.map((tag) => (
                           <li
                             key={tag}
-                            className="relative text-sm font-light leading-snug text-foreground/85 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-accent/70"
+                            className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-[#c6a15b]/70"
                           >
                             {tag}
                           </li>
@@ -482,7 +482,7 @@ export function PropertyTabs({
                       <p
                         key={note}
                         className={cn(
-                          'border-l border-accent/40 pl-4 text-sm font-light leading-relaxed text-muted-foreground',
+                          'border-l border-[#c6a15b]/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82',
                           compactLifestyleTags.length > 0 && 'mt-4',
                         )}
                       >
@@ -502,13 +502,13 @@ export function PropertyTabs({
               {detailFacts.map((fact) => (
                 <div
                   key={fact.label}
-                  className="min-w-0 border-t border-border/90 py-4"
+                  className="min-w-0 border-t border-brand-navy/40 bg-card/60 px-3 py-4 ring-1 ring-inset ring-brand-navy/25"
                 >
-                  <dt className="text-[10px] font-light uppercase tracking-[0.17em] text-muted-foreground">
+                  <dt className="text-[10px] font-semibold uppercase tracking-[0.17em] text-brand-navy/70">
                     {fact.label}
                   </dt>
 
-                  <dd className="mt-1.5 break-words text-[15px] font-normal leading-snug text-foreground/90">
+                  <dd className="mt-1.5 break-words text-[15px] font-medium leading-snug text-brand-navy">
                     {fact.value}
                   </dd>
                 </div>

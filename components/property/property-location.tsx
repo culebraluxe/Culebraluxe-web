@@ -29,7 +29,7 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
       }
     >
       {hasCoordinates ? (
-        <div className="h-[320px] w-full overflow-hidden rounded-sm border border-border/90 sm:h-[360px] lg:h-[450px]">
+        <div className="h-[320px] w-full overflow-hidden rounded-sm border border-brand-navy/45 shadow-[0_10px_28px_rgba(3,15,35,0.06)] sm:h-[360px] lg:h-[450px]">
           <iframe
             title={`Map of ${property.title ?? 'property'}`}
             className="h-full w-full"
@@ -45,13 +45,13 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
           />
         </div>
       ) : (
-        <div className="flex h-[300px] items-center justify-center rounded-sm border border-border/90 bg-muted/10 px-8 text-center sm:h-[340px] lg:h-[450px]">
+        <div className="flex h-[300px] items-center justify-center rounded-sm border border-brand-navy/45 bg-brand-navy/[0.05] px-8 text-center sm:h-[340px] lg:h-[450px]">
           <div className="max-w-sm">
-            <p className="font-serif text-xl font-light text-foreground">
+            <p className="font-serif text-xl font-semibold text-brand-navy">
               Private Location
             </p>
 
-            <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
+            <p className="mt-3 text-sm font-normal leading-relaxed text-brand-navy/82">
               Precise location information is available through CulebraLuxe.
             </p>
           </div>
@@ -59,23 +59,23 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
       )}
 
       {hasLocationContext && (
-        <aside className="border-t border-border/90 bg-muted/10 px-5 py-5 sm:px-6 sm:py-6">
-          <p className="text-xs font-light uppercase tracking-[0.24em] text-accent">
+        <aside className="border border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-5 sm:px-6 sm:py-6">
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
             Location
           </p>
 
-          <h2 className="mt-4 font-serif text-2xl font-light leading-tight text-foreground">
+          <h2 className="mt-4 font-serif text-2xl font-semibold leading-tight text-brand-navy">
             {property.neighborhood ?? property.city}
           </h2>
 
           {property.neighborhood && broaderLocation && (
-            <p className="mt-1.5 text-sm font-light text-muted-foreground">
+            <p className="mt-1.5 text-sm font-normal text-brand-navy/80">
               {broaderLocation}
             </p>
           )}
 
-          <div className="mt-5 border-t border-border/80 pt-5">
-            <p className="text-sm font-light leading-relaxed text-foreground/80">
+          <div className="mt-5 border-t border-brand-navy/30 pt-5">
+            <p className="text-sm font-normal leading-relaxed text-brand-navy/90">
               This property is located in {locationLine}.
             </p>
           </div>
@@ -84,11 +84,11 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
             <dl className="mt-6 space-y-3">
               {property.neighborhood && (
                 <div className="flex items-baseline justify-between gap-5">
-                  <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                  <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">
                     Neighborhood
                   </dt>
 
-                  <dd className="text-right text-sm font-normal text-foreground/90">
+                  <dd className="text-right text-sm font-medium text-brand-navy">
                     {property.neighborhood}
                   </dd>
                 </div>
@@ -96,11 +96,11 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
 
               {property.city && (
                 <div className="flex items-baseline justify-between gap-5">
-                  <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                  <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">
                     Municipality
                   </dt>
 
-                  <dd className="text-right text-sm font-normal text-foreground/90">
+                  <dd className="text-right text-sm font-medium text-brand-navy">
                     {property.city}
                   </dd>
                 </div>
@@ -108,11 +108,11 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
 
               {property.stateOrProvince && (
                 <div className="flex items-baseline justify-between gap-5">
-                  <dt className="text-[10px] font-light uppercase tracking-[0.16em] text-muted-foreground">
+                  <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-navy/70">
                     Region
                   </dt>
 
-                  <dd className="text-right text-sm font-normal text-foreground/90">
+                  <dd className="text-right text-sm font-medium text-brand-navy">
                     {property.stateOrProvince}
                   </dd>
                 </div>

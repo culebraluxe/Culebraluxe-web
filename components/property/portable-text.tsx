@@ -6,7 +6,7 @@ import {
 const components: PortableTextComponents = {
   block: {
     normal: ({ children }) => (
-      <p className="mb-5 text-pretty text-[15px] font-light leading-relaxed text-foreground/80 last:mb-0">
+      <p className="mb-5 text-pretty text-[15px] font-normal leading-relaxed text-brand-navy/90 last:mb-0">
         {children}
       </p>
     ),
@@ -28,12 +28,12 @@ const components: PortableTextComponents = {
   },
   list: {
     bullet: ({ children }) => (
-      <ul className="mb-5 flex flex-col gap-2 text-[15px] font-light leading-relaxed text-foreground/80">
+      <ul className="mb-5 flex flex-col gap-2 text-[15px] font-normal leading-relaxed text-brand-navy/90">
         {children}
       </ul>
     ),
     number: ({ children }) => (
-      <ol className="mb-5 flex list-decimal flex-col gap-2 pl-5 text-[15px] font-light leading-relaxed text-foreground/80">
+      <ol className="mb-5 flex list-decimal flex-col gap-2 pl-5 text-[15px] font-normal leading-relaxed text-brand-navy/90">
         {children}
       </ol>
     ),

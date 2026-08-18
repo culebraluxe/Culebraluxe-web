@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-brand-navy: var(--brand-navy);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,6 +50,7 @@
 
 :root {
   color-scheme: light;
+  --brand-navy: #030f23;
   /* warm bone / off-white background */
   --background: oklch(0.966 0.006 85);
   --foreground: oklch(0.245 0.008 260);

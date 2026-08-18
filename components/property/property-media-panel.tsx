@@ -53,7 +53,7 @@ export function PropertyMediaPanel({
     selectedGalleryImage?.alt ?? propertyTitle ?? 'Property'
 
   return (
-    <div className="absolute inset-0 flex flex-col gap-1 bg-background p-1">
+    <div className="absolute inset-0 flex flex-col gap-1 bg-brand-navy/[0.08] p-1">
       <div
         className={cn(
           'relative flex-none overflow-hidden bg-muted',
@@ -83,7 +83,7 @@ export function PropertyMediaPanel({
           <button
             type="button"
             onClick={() => setActiveImage({ kind: 'hero' })}
-            className="absolute right-3 top-3 z-10 border border-border bg-background/90 px-3 py-1.5 text-[9px] font-light uppercase tracking-[0.16em] text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="absolute right-3 top-3 z-10 border border-[#c6a15b]/45 bg-brand-navy/90 px-3 py-1.5 text-[9px] font-medium uppercase tracking-[0.16em] text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]/60"
             aria-label="Return to the original hero image"
           >
             Hero Image
@@ -114,9 +114,9 @@ export function PropertyMediaPanel({
                 aria-label={`View ${image.alt || `property image ${index + 2}`}`}
                 aria-current={isSelected ? 'true' : undefined}
                 className={cn(
-                  'relative h-[68px] overflow-hidden bg-muted transition-opacity sm:h-[78px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/70',
+                  'relative h-[68px] overflow-hidden bg-muted transition-opacity sm:h-[78px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#c6a15b]/70',
                   isSelected
-                    ? 'opacity-100 ring-1 ring-inset ring-accent/60'
+                    ? 'opacity-100 ring-2 ring-inset ring-[#c6a15b]/70'
                     : 'opacity-85 hover:opacity-100',
                 )}
               >
@@ -130,7 +130,7 @@ export function PropertyMediaPanel({
                 />
 
                 {showRemaining && (
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/80 text-sm font-light uppercase tracking-[0.16em] text-foreground backdrop-blur-[1px]">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-brand-navy/80 text-sm font-medium uppercase tracking-[0.16em] text-[#f8f5ec] backdrop-blur-[1px]">
                     +{remainingCount}
                   </div>
                 )}

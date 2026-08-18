@@ -141,28 +141,30 @@ export function PropertyFactsCard({
     )
 
     return (
-      <div className="px-5 py-3 lg:px-6">
-        <p className="mb-1.5 text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground/90">
+      <div className="w-full px-5 py-3 lg:px-6">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-navy/75">
           Key Facts
         </p>
 
-        <dl className="grid grid-cols-2 gap-x-5 xl:grid-cols-3 xl:gap-x-4">
+        <dl className="grid grid-cols-2 gap-2 xl:grid-cols-3">
           {visibleFacts.map((fact) => (
             <div
               key={fact.label}
-              className="flex min-h-12 items-center gap-2.5 border-b border-border/80 py-2"
+              className="flex min-h-12 items-center gap-2 border border-brand-navy/35 bg-brand-navy/[0.04] px-2 py-1.5"
             >
-              <fact.icon
-                className="h-3.5 w-3.5 flex-none self-center text-accent/90"
-                aria-hidden
-              />
+              <span className="flex h-6 w-6 flex-none items-center justify-center border border-[#c6a15b]/35 bg-[#c6a15b]/[0.09] text-[#c6a15b]">
+                <fact.icon
+                  className="h-3.5 w-3.5"
+                  aria-hidden
+                />
+              </span>
 
               <div className="min-w-0">
-                <dt className="text-[9px] font-light uppercase tracking-[0.14em] text-muted-foreground/90">
+                <dt className="text-[9px] font-semibold uppercase tracking-[0.12em] text-brand-navy/70">
                   {fact.label}
                 </dt>
 
-                <dd className="truncate text-sm font-normal leading-tight text-foreground/90">
+                <dd className="truncate text-sm font-medium leading-tight text-brand-navy">
                   {fact.value}
                 </dd>
               </div>
