@@ -90,6 +90,47 @@ export async function getInteractionById(
   return row ? mapInteraction(row) : null
 }
 
+export async function getInteractionBySourceIdentity(
+  sourceSystem: string,
+  sourceExternalId: string,
+  execute: QueryExecutor = sql,
+): Promise<Interaction | null> {
+  const normalizedSystem = sourceSystem.trim()
+  const normalizedExternalId = sourceExternalId.trim()
+
+  if (!normalizedSystem || !normalizedExternalId) {
+    throw new Error(
+      'sourceSystem and sourceExternalId must be provided together.',
+    )
+  }
+
+  const rows = await execute`
+    select
+      id,
+      person_id,
+      property_id,
+      deal_id,
+      channel,
+      event_type,
+      direction,
+      occurred_at,
+      title,
+      summary,
+      duration_seconds,
+      source_system,
+      source_external_id,
+      source_metadata,
+      created_at
+    from interaction
+    where source_system = ${normalizedSystem}
+      and source_external_id = ${normalizedExternalId}
+    limit 1
+  `
+
+  const row = rows[0] as InteractionRow | undefined
+  return row ? mapInteraction(row) : null
+}
+
 export async function createInteraction(
   input: CreateInteractionInput,
   execute: QueryExecutor = sql,
