@@ -1,68 +1,66 @@
 # Reviewer Checklist
 
-## CRM-03 — Identity Resolution + Safe Person Creation
+## CRM-05 — Email Intake
 
-Status: Awaiting implementation.
+Status: Awaiting architecture review; no implementation exists.
 
 Latest result: Not reviewed.
 
 ## Architecture and Scope
 
-- Implementation matches `CURRENT.md` and the approved `BUILDER.md` exactly.
-- CRM-02 retains Adapter -> InboundEvent -> normalization/resolution -> canonical CRM input.
-- Shared person resolution has one neutral implementation; no source-specific repository behavior exists.
-- No adapters, integrations, workflow engine, UI, routes, tasks, interactions, or property-interest persistence were added.
+- Provider connector -> neutral message -> pure adapter -> `InboundEvent` -> CRM-02/03 remains explicit.
+- No Gmail coupling, live provider access, credentials, route/UI, send/reply, cursor, acknowledgement, workflow, notification, or persistence.
+- No schema/migration, DB-write repository, dependency, or reuse of website receipt.
+- POC stops at canonical interaction input/advisory intents using injected fakes.
 
-## Eligibility and Identity
+## Identity and Direction
 
-- Creation is explicitly authorized by trusted application policy.
-- At least one authenticated/provider-asserted email or E.164 phone is required.
-- User-supplied-only, external-only, name-only, and absent identities cannot create.
-- Email/phone normalization is unchanged and names are never queried as keys.
-- External identities retain deterministic `sourceSystem:externalId` namespacing.
-- Duplicate hints are deduplicated; multiple owners are conflicting.
-- Existing people win and unmatched hints are not silently attached.
-- Archived identities are not reclaimed automatically.
+- Conservative email normalization preserves plus tags and dots.
+- Message ID is event identity; thread ID is correlation metadata only; source is provider/account scoped.
+- Provider/account tokens use the documented lowercase 1–64 character grammar; delimiters/config variants cannot collide.
+- Inbound actor is one external sender; outbound actor is one exact external recipient.
+- Missing/multiple sender mailboxes are deterministically rejected before identity work.
+- Internal-only/system mail never creates CRM people.
+- Multiple external outbound recipients, ambiguous role, or ambiguous envelope never chooses arbitrarily.
+- Names, subject/body, AI, aliases, and recipient order are not canonical identity evidence.
+- Existing exact person wins. Creation requires every applicable internal mailbox to declare the same one explicit role; missing/conflicting roles require resolution and never choose arbitrarily.
 
-## Person Data
+## Exclusions
 
-- Role comes from trusted creation policy, not raw metadata or untrusted role hints.
-- Status is `new` and no unrelated profile fields are synthesized.
-- Display-name fallback is temporary presentation data and never matching evidence.
-- Existing people are not overwritten.
-- Primary selection is deterministic and per identity type after normalization/deduplication.
-- Multiple emails produce exactly one primary email; multiple phones produce exactly one primary phone.
-- Email-only creation has a primary email, and phone-only creation has a primary phone.
-- External identities are not primary.
+- Bounce/delivery, auto-submitted, list/bulk, provider-system, and configured no-reply exclusions use exact transport evidence.
+- No broad substring checks cause false positives.
+- Exclusion occurs before person/context work and yields no canonical intents.
 
-## Atomicity and Concurrency
+## Content, Privacy, and Attachments
 
-- Person UUID is generated before the transaction.
-- Person and all identity inserts use the existing Neon non-interactive transaction path.
-- Identity ordering is deterministic.
-- No `ON CONFLICT DO NOTHING` can commit an orphan person or partial identity set.
-- Unique violations roll back fully and trigger exact ownership re-resolution.
-- One winner returns `resolved_existing`; multiple owners return `conflicting`; unclear/archived ownership requires resolution.
-- No blind retry can create another person.
-- Mixed race recovery returns the single active owner even when another hint remains unmatched.
-- Mixed-race unmatched hints are returned as unclaimed and no second creation attempt occurs.
-- Existing `(identity_type, identity_value)` uniqueness and CRM-01 interaction idempotency are not weakened.
+- Event type is exactly `email_received` inbound and `email_sent` outbound.
+- Neutral `plainText` is already clean; the provider connector owns extraction/history removal and the POC only validates/bounds it.
+- Subject/plain-text limits enforced; no raw MIME/full HTML/entire quoted history.
+- Recursive secret rejection and 32 KB metadata ceiling reused.
+- Emitted metadata is built from the exact documented allowlist; sanitizer-safe arbitrary provider fields are not admitted.
+- Bcc/credentials not emitted or logged.
+- Thread/reply/forward/participants remain bounded metadata, not canonical links.
+- Attachment provider IDs obey the opaque non-URL grammar; descriptors contain no bytes, URLs, downloads, media inserts, or invented relationship.
+- Retention/minimization intent documented without a job.
 
-## Repository Boundaries and Safety
+## Context and Idempotency
 
-- Production defaults use the existing Neon client; transaction injection is only a test seam.
-- Reads remain exact and writes are confined to the atomic person/identity repository operation.
-- Fixture verification performs zero Neon queries/writes.
-- No schema, migration, dependency, package, route, UI, or environment changes exist.
+- Duplicate source identity short-circuits before identity/property/deal work.
+- Same thread/different messages remain distinct.
+- Property/deal context is exact/trusted only; no free-text/fuzzy/AI linking.
+- Deal/person/property consistency remains CRM-02 behavior.
+- Unknown sender is resolution_required unless explicit CRM-03 policy authorizes creation.
+- No provider acknowledgement occurs without a future durable boundary.
 
 ## Verification
 
-- All required Builder fixtures cover behavior, rollback, race outcomes, and zero-write branches.
-- CRM-01 and CRM-02 verification remain green.
-- `git diff --check` passes.
-- `pnpm exec next build --webpack` passes.
-- Generated files are restored or removed.
+- Fixtures verify behavior/call order with zero Neon/provider access; unexpected calls fail.
+- Fixtures cover event types, malformed sender cardinality, token grammar/collision rejection, metadata allowlisting, opaque attachment IDs, and all mailbox-role agreement cases.
+- No task, interest, interaction, or DB person write is reachable (mocked CRM-03 behavior only).
+- CRM-01/02/03/04 suites remain green.
+- No package/lockfile/generated/environment/schema/route/UI changes.
+- `git diff --check` and webpack build pass.
 
 ## Latest Findings
 
-Awaiting implementation.
+Awaiting architecture review.

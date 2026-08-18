@@ -1,99 +1,84 @@
 # Builder Work Order
 
-## CRM-03 — Identity Resolution + Safe Person Creation
+## CRM-05 — Email Intake
 
-Status: Ready for implementation after human approval.
+Status: Ready only after architecture review passes.
 
-Follow `AGENTS.md` and `docs/agent/CURRENT.md`. Implement only this bounded fixture-backed POC.
+Follow `AGENTS.md` and `docs/agent/CURRENT.md`. Implement only the provider-neutral, fixture-only email adapter POC. Do not connect to a provider or persist anything.
 
-## Scope
+## Files and Boundaries
 
-1. Extract or expose CRM-02's exact person-resolution logic through a neutral domain module so CRM-02 and CRM-03 share one implementation. Preserve existing CRM-02 behavior.
-2. Add neutral CRM-03 contracts for:
-   - explicit creation policy with required canonical role;
-   - eligible identity claims;
-   - temporary display-name provenance;
-   - results: `created`, `resolved_existing`, `duplicate`, `conflicting`, `resolution_required`, `rejected`.
-3. Extend `db/person-identities.ts` with the smallest read seams needed to inspect active and archived identity ownership exactly.
-4. Add one atomic repository operation that:
-   - accepts an application-generated person UUID;
-   - inserts `person(display_name, role, status = 'new')`;
-   - inserts deterministically ordered eligible `person_identity` claims;
-   - persists deterministic per-type `is_primary` flags selected before SQL ordering;
-   - uses the existing Neon client's non-interactive transaction;
-   - rolls back the entire operation on any identity uniqueness conflict.
-5. Add a source-neutral application service that:
-   - receives a normalized inbound event plus explicit creation policy;
-   - checks source-event duplication first;
-   - resolves exact existing identity ownership before creation;
-   - applies eligibility rules from `CURRENT.md`;
-   - never uses a name for matching;
-   - creates atomically only when every rule passes;
-   - re-resolves identity ownership after a uniqueness race;
-   - returns unclaimed hints when an existing person wins and never attempts a second creation;
-   - produces no interaction, task, property-interest, workflow, or adapter writes.
-6. Extend the existing query-executor abstraction only if required for an injectable non-interactive transaction seam. Do not introduce another connection/environment path.
-7. Add fixture/mock verification only. No fixture may query or mutate Neon.
+Add the smallest cohesive modules, preferably:
 
-## Likely Files
+- `lib/crm-email-types.ts`
+- `lib/crm-email-normalization.ts`
+- `lib/crm-email-intake.ts`
+- `scripts/verify-crm-email-intake.mjs`
 
-- `lib/crm-intake-types.ts`
-- `lib/crm-intake.ts`
-- a focused neutral person-resolution/person-creation module under `lib/`
-- `db/person-identities.ts`
-- `db/query-executor.ts` only if the transaction seam requires it
-- `scripts/verify-crm-person-creation.mjs`
+Extend an existing neutral CRM type only if compilation requires it. Do not change schema/migrations, DB repositories, routes, UI, packages, environment files, CRM-04, or provider configuration.
 
-Touch no schema, migration, route, UI, portal, adapter, package, or lock files.
+## Required Contract
 
-## Required Behavior
+Define provider-neutral inputs/results for provider/account namespace, message/thread identity, timestamp, exactly one sender plus recipient collections, optional trusted direction, subject/provider-cleaned plain text, explicit reply/reference/forward fields, attachment descriptors, trusted exact context hints, and internal mailbox configuration with explicit per-mailbox creation role.
 
-- Creation requires explicit permission, a trusted canonical role, and at least one authenticated/provider-asserted email or E.164 phone.
-- User-supplied-only, external-only, or name-only actors return `resolution_required`.
-- Existing exact matches return `resolved_existing`; no person is created and unmatched hints are not attached.
-- Multiple hints matching one person resolve cleanly; multiple owners are `conflicting`.
-- A supplied explicit `personId` that does not exist is `rejected` and never triggers replacement creation.
-- New person and all eligible identity claims are atomic.
-- Concurrent identical claims produce one committed person; the loser returns `resolved_existing` after exact re-resolution.
-- After a race, one active owner wins even when other supplied hints remain unclaimed; those hints are returned as unclaimed and no second creation is attempted.
-- Archived identity ownership is not reclaimed automatically.
-- Primary selection is per type and follows stable normalized input order after deduplication: first eligible email is primary email and first eligible phone is primary phone; later identities of the same type and all external identities are non-primary.
-- Email-only and phone-only creation are both valid when the existing eligibility policy is satisfied.
-- `roleHint` and raw metadata cannot update canonical role or other person fields.
-- CRM-01 source-interaction idempotency remains unchanged.
+Attachment descriptors contain only provider reference, filename, MIME type, and size. Do not import Gmail SDK types or leak provider-specific fields into CRM repositories.
+
+## Adapter Rules
+
+1. NFKC-normalize, trim, and lowercase provider/account namespace. Require each to match `^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$` (1–64 characters). Validate non-empty message ID and timestamp.
+2. Construct source identity exactly as `email:<provider>:<accountNamespace>` plus provider message ID; delimiter-bearing/invalid source tokens are rejected.
+3. Normalize all addresses with existing conservative email normalization; preserve dots/plus tags; deduplicate in stable normalized input order.
+4. Determine direction/actor deterministically: external sender to only internal recipients is inbound; internal sender to exactly one external recipient is outbound; internal-only is excluded; multiple external outbound recipients is resolution_required; contradictory/ambiguous envelope or trusted direction is rejected.
+5. Require exactly one sender mailbox. Missing or multiple senders are rejected before identity work. Names are display hints only.
+6. Apply exact transport exclusions before person resolution: internal/system, configured system/no-reply senders, provider system category, bounce/delivery status, `Auto-Submitted` other than `no`, and `List-Id`/bulk-list evidence. No subject substring heuristics.
+7. Map canonical event type exactly: inbound -> `email_received`; outbound -> `email_sent`.
+8. Require `plainText` to be provider-extracted, markup-free, and quoted-history-free. Validate/bound subject to 500 and plain text to 4,000; do not implement heuristic stripping.
+9. Construct `source_metadata` only from the explicit allowlist: `threadId`, `inReplyToMessageId`, `referenceMessageIds`, `isForward`, `toEmails`, `ccEmails`, `replyToEmails`, and `attachments`. Discard arbitrary provider fields even if sanitizer-safe; then apply recursive secret checking and 32 KB ceiling. Omit bcc.
+10. Attachment descriptors contain only provider ID/name/MIME/size. Require provider attachment IDs to match `^[A-Za-z0-9._~+=-]{1,512}$`; reject URLs and bytes.
+11. Emit exact property/deal hints only from trusted adapter context. Never parse subject/body/attachments or use fuzzy/AI linking.
+
+## Coordinator Rules
+
+- Use injected repositories; defaulting to Neon is forbidden in this POC.
+- Check source identity before person/context resolution; duplicate returns existing interaction without later repository work.
+- Feed accepted messages through CRM-02 normalization/resolution and CRM-03 resolve/create policy.
+- Exact existing person wins.
+- For creation, collect all applicable configured internal mailboxes (inbound internal recipients; outbound internal senders). Every applicable mailbox must declare a role and all roles must be identical. Only that single explicit role may reach CRM-03 creation policy.
+- Missing/conflicting applicable mailbox roles return resolution_required with no creation; internal/system actors are never created. Existing exact people still resolve without a creation role.
+- Return canonical interaction input/advisory intents only. Do not call interaction/task/interest writes.
+- Do not acknowledge provider delivery or model cursor/retry state.
 
 ## Required Fixture Verification
 
-- authenticated email creates one `new` person and primary email identity;
-- provider-asserted E.164 phone creates successfully;
-- email plus phone are claimed in deterministic order in one transaction;
-- multiple eligible emails preserve one deterministic primary email and mark later emails non-primary;
-- multiple eligible phones preserve one deterministic primary phone and mark later phones non-primary;
-- email-only creation has a primary email and no primary phone;
-- phone-only creation has a primary phone and no primary email;
-- normalized duplicate hints are claimed once;
-- display-name hint is stored but never queried for matching;
-- absent display name falls back to primary email, then phone;
-- user-supplied-only, external-only, name-only, and no-identity cases require resolution;
-- external provider identity may accompany but not replace an eligible canonical anchor;
-- existing one-hint and multiple-hint matches return `resolved_existing` with zero writes;
-- one existing plus one new hint returns existing and leaves the new hint unclaimed;
-- multiple-person matches return `conflicting` with zero writes;
-- supplied but nonexistent explicit `personId` is rejected;
-- archived identity ownership requires resolution;
-- duplicate source interaction short-circuits before identity reads/transaction;
-- simulated unique race rolls back and resolves the one active winner;
-- mixed race: email claim loses to Person A while phone remains unclaimed, returning `resolved_existing` Person A with the phone reported unclaimed and no second creation attempt;
-- simulated race resolving multiple owners returns `conflicting`;
-- unexpected transaction failure does not retry or leave a reported created person;
-- no interaction, task, or property-interest write is reachable;
-- existing CRM-01 and CRM-02 verification remains green.
+- inbound/outbound direction and actor mapping, with `email_received`/`email_sent` respectively;
+- missing sender and multiple sender mailboxes rejected before identity work;
+- internal-only exclusion and multiple-external outbound resolution_required;
+- conflicting trusted direction rejected;
+- plus tags/dots preserved;
+- message ID, not thread ID, is idempotency identity; same thread/different messages remain distinct;
+- duplicate short-circuits before person/property/deal resolution;
+- existing person, explicitly eligible CRM-03 creation, missing-role/conflicting-mailbox-role non-creation, and agreeing multi-mailbox-role creation;
+- internal/system/no-reply addresses never create people;
+- exact bounce, delivery, auto-reply, provider-system, and list-mail exclusions;
+- ordinary subjects/business metadata do not cause false exclusion;
+- exact property/deal rules remain CRM-02 behavior and no free-text/AI linking exists;
+- provider/account token normalization, bounds, delimiter rejection, and deterministic source string;
+- subject/plain-text limits and provider-owned markup/quoted-history removal contract (no heuristic stripping);
+- explicit metadata allowlist rejects/discards arbitrary safe-looking provider payload; recursive secret rejection and 32 KB ceiling still apply;
+- no bcc/raw HTML/MIME/bytes/tokens/signed URLs/logs;
+- attachment descriptors preserve only opaque non-URL ID/name/MIME/size and reject URL-like IDs;
+- zero tasks, interests, interactions, provider calls, or Neon queries/writes;
+- CRM-01/02/03/04 fixtures remain green.
+
+Use fakes that throw on unexpected calls and verify call order, not only returned shapes.
 
 ## Verification
 
 Run:
 
 ```sh
+pnpm exec tsx --env-file=.env.local scripts/verify-crm-email-intake.mjs
+pnpm exec tsx --env-file=.env.local scripts/verify-website-intake.mjs
 pnpm exec tsx --env-file=.env.local scripts/verify-crm-person-creation.mjs
 pnpm exec tsx --env-file=.env.local scripts/verify-crm-intake.mjs
 pnpm exec tsx --env-file=.env.local scripts/verify-crm-foundation.mjs
@@ -101,4 +86,4 @@ git diff --check
 pnpm exec next build --webpack
 ```
 
-Restore generated files. Report exact files changed and confirm zero Neon access, no schema/dependency/UI/route changes, and no commit/push.
+Restore generated files. Report zero Neon/provider access, no schema/dependency/route/UI/environment changes, and no commit/push.

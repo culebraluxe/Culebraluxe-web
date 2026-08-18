@@ -23,7 +23,7 @@ export function PropertyActions({ property }: { property: PropertyDetail }) {
 
       <div className="flex items-stretch gap-2">
         <Link
-          href="/#contact"
+          href={`/contact?propertyId=${encodeURIComponent(property._id)}&requestType=private_viewing#contact`}
           className="inline-flex min-h-11 flex-1 items-center justify-center bg-brand-navy px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-[0.17em] text-[#f8f5ec] shadow-sm transition-colors duration-500 hover:bg-brand-navy"
         >
           Book a Private Viewing

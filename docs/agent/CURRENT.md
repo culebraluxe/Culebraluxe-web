@@ -1,107 +1,144 @@
 # Current Story
 
-## CRM-03 — Identity Resolution + Safe Person Creation
+## CRM-05 — Email Intake
 
-Status: Architecture complete; bounded Builder work order ready for approval.
+Status: Architecture ready for review; implementation has not started.
 
 ## Completed Foundations
 
-- CRM-01 provides canonical interaction/task contracts, source-event idempotency, and injected repository seams.
-- CRM-02 provides source-neutral inbound events, deterministic normalization, exact person/property/deal resolution, advisory intents, and canonical interaction input without writes.
+- CRM-01 provides append-only, source-idempotent interactions and explicit tasks.
+- CRM-02 provides the source-neutral `InboundEvent` contract, conservative identity normalization, exact person/property/deal resolution, and advisory intents.
+- CRM-03 provides explicitly authorized atomic person/identity creation with existing-person-wins race recovery.
+- CRM-04 provides a website-specific durable receipt and canonical website intake coordinator. Its proposed migration remains unexecuted.
 
-## Goal
+## Goal and Boundary
 
-Safely resolve an inbound actor or atomically create one canonical `person` with claimed `person_identity` rows, without fuzzy matching, duplicate people, workflow behavior, or external integration work.
+Design the smallest provider-neutral email adapter contract that can translate a provider message into CRM-02 without coupling CRM core to Gmail or performing live ingestion.
 
-## Existing Model
+CRM-05 is not a mailbox connector. It adds no OAuth, polling, webhook, cursor, send/reply, attachment download, route, UI, task creation, or database write. The POC is pure/injected and fixture-only.
 
-- `person` requires `display_name`, `role`, and `status`; UUID and timestamps have database defaults.
-- `person_identity` owns canonical identities and has global uniqueness on `(identity_type, identity_value)`.
-- Email and phone values are already normalized by CRM-02. External identities are namespaced as `sourceSystem:externalId`.
-- The existing Neon HTTP client supports a non-interactive transaction. Current `QueryExecutor` is query-only and must not be replaced by a second database connection path.
+## Provider-Neutral Contract
 
-## Decisions
+An `EmailProviderMessage` is transport input to an `EmailAdapter`. It contains:
 
-### Eligibility
+- provider name and a stable non-secret account namespace, each normalized to a restricted source token;
+- provider message ID and optional provider thread ID;
+- provider occurrence timestamp;
+- exactly one sender mailbox, `to`/`cc`/`bcc` recipients, and optional reply-to addresses;
+- provider-declared direction when trusted, otherwise enough envelope context to derive it from configured internal mailboxes;
+- subject and provider-extracted clean plain-text body/summary source;
+- normalized reply/forward metadata where explicitly supplied by the provider;
+- attachment descriptors containing stable provider attachment references, filename, MIME type, and size only;
+- optional exact property UUID/slug/recognized CulebraLuxe URL and exact deal UUID supplied by trusted adapter context;
+- explicit normalized transport fields only; arbitrary provider metadata is not accepted even when JSON-safe.
 
-- Creation is never an implicit fallback. A trusted application caller must pass an explicit creation policy.
-- At least one normalized email or strict E.164 phone with `authenticated` or `provider_asserted` evidence is required.
-- One eligible canonical identity is sufficient. A display name, external identity, or `user_supplied` identity alone is insufficient and returns `resolution_required`.
-- External identities may be claimed only when provider-asserted/authenticated and accompanied by an eligible email or phone anchor.
-- Duplicate normalized hints are deduplicated before resolution/claiming.
-- If an explicit `personId` is supplied but does not resolve, creation is rejected; it is not replaced with a new person.
-- Any hints resolving to multiple people are `conflicting`. No person is created.
+Provider-specific SDK objects must be mapped into this neutral contract before reaching CRM code.
 
-### Existing People and Mixed Hints
+## Message and Thread Identity
 
-- Existing people always win. If one or more hints resolve to the same active person, return `resolved_existing`.
-- New/unclaimed hints accompanying an existing match are not automatically attached in CRM-03. They are returned as unclaimed evidence for later human or separately approved verification.
-- An identity owned by an archived person is not reclaimed and returns `resolution_required` with an archived-identity reason.
-- Names are never queried for identity resolution.
+- The provider message ID is the event identity. Every distinct message becomes at most one interaction.
+- Thread ID is correlation metadata only. It must never be used as the interaction idempotency key because one thread contains multiple messages.
+- Source identity is deterministic and account-scoped: `source.system = email:<provider>:<accountNamespace>` and `source.externalId = <providerMessageId>`.
+- Provider and account namespace are NFKC-normalized, trimmed, lowercased, and must each match `^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$` (1–64 characters). Colons, whitespace, and empty tokens are rejected, preventing source delimiter collisions and configuration drift.
+- `accountNamespace` is a configured opaque stable identifier, not a token or mailbox password. It prevents collisions when provider message IDs are only account-scoped.
+- Duplicate/retried delivery short-circuits through existing CRM-01/02 `(source_system, source_external_id)` protection before person or context work.
 
-### Person Fields
+## Direction and Participants
 
-- The trusted creation policy supplies the canonical `role`: `buyer`, `seller`, or `both`. The inbound `roleHint` remains advisory and cannot override policy.
-- New people receive `status = new`.
-- `display_name` uses the normalized display-name hint when present. Otherwise it uses the eligible primary email, then phone, as a temporary editable display value. This fallback is presentation data, never an identity key.
-- CRM-03 does not populate budgets, preferences, notes, assignment, or other profile fields from raw metadata.
+- Internal mailbox addresses are injected configuration and normalized with CRM-02's conservative email rule.
+- Exactly one external sender with only internal recipients is `inbound`.
+- An internal sender with at least one external recipient is `outbound`; exactly one normalized external recipient may become the actor. Zero is internal/system and excluded; multiple distinct external recipients is `resolution_required`, not an arbitrary choice.
+- External sender to external recipients, or a provider direction that conflicts with the normalized envelope, is rejected by the caller boundary.
+- `to`, `cc`, `bcc`, and reply-to are transport metadata. They are never alternate canonical actors merely because they appear on the message.
+- Names/display labels are hints only and never identity keys.
+- A missing sender or any provider input containing more than one sender mailbox is deterministically rejected before identity work.
 
-### Primary Identity Selection
+## Identity and Role Policy
 
-- Primary identity is selected independently per identity type, not globally across all identities.
-- Normalization and deduplication preserve the first occurrence of each unique hint. This stable normalized input order is the tie-breaker for primary selection.
-- The first eligible normalized email becomes the primary email; additional emails are non-primary.
-- The first eligible normalized phone becomes the primary phone; additional phones are non-primary.
-- Email-only creation has a primary email and no primary phone. Phone-only creation has a primary phone and no primary email.
-- External identities are non-primary.
-- SQL inserts may still be sorted by type/value for deterministic lock ordering; that transaction ordering must not change the already-selected primary flags.
+- Email addresses use existing conservative `trim + lowercase` normalization. Dots and plus tags remain unchanged.
+- Inbound external sender is one `provider_asserted` email hint only when the adapter guarantees it came from the provider-parsed envelope. This asserts the envelope sender, not legal identity.
+- Outbound external recipient uses `provider_asserted` only from trusted sent-mail envelope data.
+- Existing exact person identity always wins.
+- Each configured internal mailbox may carry an explicit creation role. Creation is allowed only when every applicable internal mailbox for the message is role-configured and all applicable roles resolve to the same single value. For inbound mail, applicable mailboxes are the internal recipients; for outbound mail, they are the internal sender mailboxes. Missing or conflicting applicable roles returns `resolution_required` with no creation. Existing-person exact resolution is not blocked by missing creation policy.
+- Role is never inferred from subject/body, display name, AI, recipient aliases, or provider labels.
+- Internal addresses, system mailboxes, mailing lists, automated senders, and bounce/notification senders are never auto-created as people.
 
-### Atomic Claim and Race Handling
+## Exclusions Before CRM Resolution
 
-- Generate the person UUID in the application before issuing SQL.
-- Sort eligible identity claims deterministically by type/value.
-- Submit person insert plus all identity inserts through the existing Neon `sql.transaction(...)` path as one non-interactive transaction.
-- Identity inserts do not use `ON CONFLICT DO NOTHING`; a uniqueness violation must roll back the person insert and every identity claim.
-- On unique violation, re-read every normalized identity hint:
-  - if all claimed identities that now have owners belong to exactly one active person, return `resolved_existing` for that person and report every still-unclaimed hint as unclaimed;
-  - if claimed identities belong to different active people, return `conflicting`;
-  - if any identity belongs to an archived person, return `resolution_required` and do not attach it;
-  - if ownership remains unclear, return `resolution_required`;
-  - on unexpected database failure, return `rejected`/error and never retry creation blindly.
-- A single active existing owner always wins over creating a duplicate person. Unmatched hints remain evidence for a later explicit claim path; they never trigger a second creation attempt.
-- The existing uniqueness constraint is sufficient; no schema change is required.
+The pure adapter classifies and excludes messages before CRM-02/03 when deterministic transport evidence identifies:
 
-### Source Idempotency
+- any configured internal-only message;
+- provider/system notification categories;
+- delivery status/bounce reports (`multipart/report`, delivery-status headers, null return path, or configured mailer-daemon/postmaster address);
+- auto-replies or bulk/list mail through exact standard headers such as `Auto-Submitted` (other than `no`), `List-Id`, or provider-supplied categories;
+- configured no-reply/system sender addresses.
 
-- Check `(source_system, source_external_id)` before person creation. An existing interaction returns `duplicate` and short-circuits identity/context work.
-- Concurrent identical intake remains safe in two layers: identity uniqueness selects one canonical person, and CRM-01 interaction uniqueness selects one interaction.
-- CRM-03 does not write an interaction. It returns the person result for the existing CRM-02 preparation/persistence boundary.
+Header names/values are normalized conservatively. Broad substring matching is forbidden. A message is not excluded merely because its subject contains words such as “automatic” or “newsletter.” Exclusion yields an explicit reason and no person/interaction/intents.
 
-### Result Contract
+## Content, Threading, and Attachments
 
-- `created`: person and eligible identities committed atomically.
-- `resolved_existing`: exact match or concurrency winner found; no new person committed.
-- `duplicate`: source interaction already exists; no identity/person write attempted.
-- `conflicting`: supplied hints resolve to different people or race resolution reveals conflicting owners.
-- `resolution_required`: evidence is insufficient, identity belongs to an archived person, or safe deterministic ownership cannot be established.
-- `rejected`: invalid explicit person context, policy violation, or non-recoverable repository failure.
+- Canonical event type is deterministic: inbound emits `email_received`; outbound emits `email_sent`.
+- Interaction `title` receives a normalized, bounded subject (maximum 500 characters).
+- `EmailProviderMessage.plainText` must already be markup-free and quoted-history-free. The provider connector owns deterministic MIME/HTML extraction and quoted-history removal. The pure POC validates the field contract and bounds it to 4,000 characters; it does not guess stripping rules.
+- Existing CRM-02 sanitized metadata remains limited to 32 KB.
+- Reply/forward state is recorded only from explicit provider headers/fields (`inReplyToMessageId`, reference IDs, explicit forward classification). Subject prefixes alone are not authoritative.
+- `source_metadata` is constructed from an explicit allowlist only: `threadId`, `inReplyToMessageId`, `referenceMessageIds`, `isForward`, `toEmails`, `ccEmails`, `replyToEmails`, and `attachments`. Arbitrary provider payload/headers are discarded rather than passed through the sanitizer.
+- Attachment descriptors contain only `providerAttachmentId`, `filename`, `mimeType`, and `sizeBytes`. The provider attachment ID must be an opaque non-URL identifier matching `^[A-Za-z0-9._~+=-]{1,512}$`. Descriptors contain no bytes, URLs, access tokens, or raw content. A future attachment story may import bytes into `media` and persist stable media IDs through an explicitly reviewed relationship. CRM-05 neither invents that relationship nor downloads attachments.
 
-## Repository and Service Boundaries
+## Property and Deal Context
 
-- Shared exact person-resolution logic belongs in a neutral CRM domain module and remains used by CRM-02.
-- The application service owns policy, duplicate short-circuiting, resolution, and result mapping.
-- `db/person-identities.ts` owns exact identity reads and the atomic person/identity claim operation.
-- Extend the existing executor abstraction only enough to inject a transaction seam for fixtures. Production defaults must remain the existing Neon client and `sql.transaction`.
-- Adapters only produce `InboundEvent`; they never call CRM tables directly.
+- Property/deal resolution remains the unchanged CRM-02 exact-only path.
+- Only trusted adapter context may supply property UUID, slug, recognized CulebraLuxe property URL, or deal UUID.
+- Subject, body, signature, thread title, attachment name, AI output, and sender history are never used to choose property/deal.
+- Multiple exact hints must agree; deal must belong to resolved person and property.
+- Email adapter intents are advisory. No task or `property_interest` write is part of CRM-05.
+
+## Unknown Senders and Durable Intake
+
+- The pure POC returns `resolution_required` when CRM-02/03 cannot safely resolve/create the external actor.
+- It never acknowledges or deletes provider messages and has no live provider cursor, so fixture execution cannot lose mail.
+- A future live connector requires an explicitly reviewed durable receipt/cursor boundary before acknowledging delivery. It must hold unresolved/retry state without duplicating canonical CRM data.
+- CRM-04's website receipt is not reused for email, and CRM-05 does not prematurely add a generic ODS/staging table.
+
+## Privacy and Retention
+
+- Store the minimum canonical interaction summary and bounded audit metadata.
+- Never log or persist OAuth tokens, authorization headers, cookies, raw MIME, full HTML, attachment bytes, signed URLs, or provider SDK objects.
+- Bcc values may be used transiently for direction but are omitted from retained metadata.
+- Full bodies remain provider-owned. Canonical summaries follow interaction retention; transport metadata should be eligible for minimization after 24 months in a future retention story.
+- Excluded and unresolved fixture inputs are not persisted in CRM-05.
+
+## Application Boundaries
+
+1. Future provider connector authenticates and maps SDK payload to `EmailProviderMessage`.
+2. Pure adapter validates the already-clean plain-text contract, normalizes, classifies exclusions/direction, builds allowlisted metadata, bounds content, and emits `excluded`, `resolution_required`, `rejected`, or an `InboundEvent`.
+3. Email intake coordinator checks source idempotency, then uses injected CRM-02/03 repositories and explicit role/creation policy.
+4. Canonical persistence remains a later application boundary using CRM-01; this POC stops at canonical interaction input/result and performs no writes.
+
+No Gmail concepts appear in CRM repositories or domain types beyond opaque provider metadata.
 
 ## Schema Decision
 
-No schema or migration change. Existing required person fields and `person_identity_unique(identity_type, identity_value)` support the POC safely.
+No schema change is required for the bounded CRM-05 POC.
 
-## Deferred Risks
+Existing `interaction` fields support channel, direction, subject, summary, source identity, and bounded source metadata. Existing `person_identity` supports canonical email. A live unresolved-email receipt, mailbox cursor, or interaction-to-media relationship before a provider lifecycle exists would be speculative and risks a generic staging system.
 
-- Identity verification lifecycle and evidence persistence are not modeled; caller policy is trusted for this POC.
-- Attaching a new hint to an existing person is deferred.
-- Archived-person recovery and person merging are deferred to explicit human-controlled stories.
-- Temporary display names may need later enrichment, but cannot participate in matching.
-- CRM-03 proves atomic creation separately from final interaction persistence; a later intake orchestration story may choose a broader unit of work.
+Architecture review must revisit schema before any live connector acknowledges messages or persists attachments.
+
+## Smallest Fixture-Only POC
+
+- neutral email types;
+- pure email normalization/classification adapter;
+- injected coordinator composing CRM-02/03 without persistence;
+- fixtures for inbound/outbound, exclusions, idempotency short-circuit, identity policy, exact context, content bounds, metadata privacy, and attachments-as-descriptors;
+- zero provider calls and zero Neon access.
+
+## Deferred / Risks
+
+- Durable provider cursor/receipt and retry ownership.
+- Live Gmail/provider adapter, OAuth, webhook/polling, rate limits, and acknowledgements.
+- Sending/replying and notifications.
+- Attachment download, malware scanning, media relationship, and access policy.
+- Shared/business mailbox human assignment, group conversations, and role adjudication.
+- Manual resolution UI, retention jobs, legal hold, deletion/export policy.
+- Email threading UI and AI summarization/link suggestions.

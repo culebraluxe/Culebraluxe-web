@@ -10,7 +10,24 @@ export const metadata: Metadata = {
     'Begin a quiet conversation with CulebraLuxe about buying or selling on the island of Culebra, Puerto Rico.',
 }
 
-export default function ContactPage() {
+type ContactPageProps = {
+  searchParams: Promise<{
+    propertyId?: string
+    requestType?: string
+  }>
+}
+
+export default async function ContactPage({ searchParams }: ContactPageProps) {
+  const query = await searchParams
+  const requestType: 'private_viewing' | 'property_information' | undefined =
+    query.requestType === 'private_viewing' ||
+    query.requestType === 'property_information'
+      ? query.requestType
+      : undefined
+  const propertyContext = requestType
+    ? { propertyId: query.propertyId, requestType }
+    : undefined
+
   return (
     <>
       <SiteHeader />
@@ -22,7 +39,7 @@ export default function ContactPage() {
           image="/images/coastline.png"
           imageAlt="The Culebra coastline at golden hour"
         />
-        <Contact />
+        <Contact propertyContext={propertyContext} />
       </main>
       <SiteFooter />
     </>

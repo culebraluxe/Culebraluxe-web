@@ -1,18 +1,50 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Reveal } from '@/components/reveal'
+import { submitWebsitePropertyIntake } from '@/app/actions/website-intake'
 
 const INTERESTS = ['Buying', 'Selling', 'Both'] as const
 type Interest = (typeof INTERESTS)[number]
 
-export function Contact() {
+type PropertyContext = {
+  propertyId?: string
+  requestType: 'private_viewing' | 'property_information'
+}
+
+export function Contact({ propertyContext }: { propertyContext?: PropertyContext }) {
   const [interest, setInterest] = useState<Interest>('Buying')
   const [submitted, setSubmitted] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState(false)
+  const submissionId = useRef<string | null>(null)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSubmitted(true)
+    setError(false)
+
+    // The generic site contact remains the existing client-only experience.
+    if (!propertyContext?.propertyId) {
+      setSubmitted(true)
+      return
+    }
+
+    submissionId.current ??= crypto.randomUUID()
+    const formData = new FormData(event.currentTarget)
+    formData.set('submissionId', submissionId.current)
+    formData.set('propertyId', propertyContext.propertyId)
+    formData.set('requestType', propertyContext.requestType)
+
+    setPending(true)
+    try {
+      const result = await submitWebsitePropertyIntake(formData)
+      if (result.accepted) setSubmitted(true)
+      else setError(true)
+    } catch {
+      setError(true)
+    } finally {
+      setPending(false)
+    }
   }
 
   return (
@@ -59,6 +91,10 @@ export function Contact() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-10">
+              <div className="absolute -left-[9999px]" aria-hidden="true">
+                <label htmlFor="company">Company</label>
+                <input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" />
+              </div>
               <div className="grid gap-10 sm:grid-cols-2">
                 <Field id="name" label="Name" type="text" autoComplete="name" required />
                 <Field id="email" label="Email" type="email" autoComplete="email" required />
@@ -105,11 +141,17 @@ export function Contact() {
 
               <button
                 type="submit"
+                disabled={pending}
                 className="group mt-2 inline-flex items-center gap-3 self-start text-xs font-light uppercase tracking-[0.24em]"
               >
-                Send enquiry
+                {pending ? 'Sending…' : 'Send enquiry'}
                 <span className="inline-block h-px w-12 bg-primary-foreground transition-all duration-500 group-hover:w-20" />
               </button>
+              {error ? (
+                <p className="text-sm text-primary-foreground/70" role="alert">
+                  We could not send your note. Please try again.
+                </p>
+              ) : null}
             </form>
           )}
         </Reveal>
