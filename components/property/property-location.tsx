@@ -1,6 +1,13 @@
+import { GooglePropertyMap } from '@/components/property/google-property-map'
 import type { PropertyDetail } from '@/lib/property-types'
 
-export function PropertyLocation({ property }: { property: PropertyDetail }) {
+export function PropertyLocation({
+  property,
+  googleMapsApiKey,
+}: {
+  property: PropertyDetail
+  googleMapsApiKey?: string | null
+}) {
   const latitude = property.latitude
   const longitude = property.longitude
   const hasCoordinates =
@@ -30,18 +37,11 @@ export function PropertyLocation({ property }: { property: PropertyDetail }) {
     >
       {hasCoordinates ? (
         <div className="h-[320px] w-full overflow-hidden rounded-sm border border-brand-navy/45 shadow-[0_10px_28px_rgba(3,15,35,0.06)] sm:h-[360px] lg:h-[450px]">
-          <iframe
-            title={`Map of ${property.title ?? 'property'}`}
-            className="h-full w-full"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=${
-              longitude! - 0.012
-            }%2C${latitude! - 0.008}%2C${
-              longitude! + 0.012
-            }%2C${latitude! + 0.008}&layer=mapnik&marker=${
-              latitude
-            }%2C${longitude}`}
+          <GooglePropertyMap
+            apiKey={googleMapsApiKey ?? null}
+            latitude={latitude}
+            longitude={longitude}
+            title={property.title ?? 'Property'}
           />
         </div>
       ) : (

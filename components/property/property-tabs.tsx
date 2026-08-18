@@ -71,10 +71,12 @@ export function PropertyTabs({
   property,
   videos = [],
   documents = [],
+  googleMapsApiKey = null,
 }: {
   property: PropertyDetail
   videos?: PropertyVideo[]
   documents?: PropertyDocument[]
+  googleMapsApiKey?: string | null
 }) {
   const [active, setActive] = useState<Tab>('Overview')
   const land = isLand(property.propertyType)
@@ -524,7 +526,10 @@ export function PropertyTabs({
         )}
 
         {active === 'Map' && (
-          <PropertyLocation property={property} />
+          <PropertyLocation
+            property={property}
+            googleMapsApiKey={googleMapsApiKey}
+          />
         )}
 
         {active === 'Video' && videos.length > 0 && (

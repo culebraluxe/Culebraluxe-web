@@ -62,6 +62,12 @@ export default async function PropertyPage({
     videos,
     documents,
   } = result
+  const googleMapsApiKey =
+    process.env.NODE_ENV === 'production'
+      ? process.env.GOOGLE_MAPS_API_KEY?.trim() || null
+      : process.env.GOOGLE_MAPS_DEMO_KEY?.trim() ||
+        process.env.GOOGLE_MAPS_API_KEY?.trim() ||
+        null
 
   return (
     <>
@@ -112,6 +118,7 @@ export default async function PropertyPage({
             property={property}
             videos={videos}
             documents={documents}
+            googleMapsApiKey={googleMapsApiKey}
           />
         </div>
       </main>
