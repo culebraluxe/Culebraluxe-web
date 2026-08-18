@@ -1,3 +1,14 @@
+import type {
+  InteractionChannel,
+  InteractionDirection,
+  JsonObject,
+} from '@/lib/crm-types'
+
+export type {
+  InteractionChannel,
+  InteractionDirection,
+} from '@/lib/crm-types'
+
 export type ClientRole = "buyer" | "seller" | "both"
 
 export type ClientStatus =
@@ -10,19 +21,6 @@ export type PropertyInterestStatus =
   | "interested"
   | "shortlisted"
   | "tour_completed"
-
-export type InteractionChannel =
-  | "email"
-  | "call"
-  | "imessage"
-  | "sms"
-  | "meeting"
-  | "showing"
-  | "note"
-
-export type InteractionDirection =
-  | "inbound"
-  | "outbound"
 
 export type DealStage =
   | "new_lead"
@@ -47,11 +45,13 @@ export interface PropertyInterest {
 export interface Interaction {
   id: string
   channel: InteractionChannel
+  eventType: string
   direction?: InteractionDirection
   occurredAt: string
   title: string
   summary?: string
   durationSeconds?: number
+  sourceMetadata: JsonObject
 }
 
 export interface Client {

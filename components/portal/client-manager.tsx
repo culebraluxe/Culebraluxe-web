@@ -53,6 +53,14 @@ function interestStatusLabel(status: PropertyInterestStatus) {
 
 function channelLabel(channel: InteractionChannel) {
   switch (channel) {
+    case "website":
+      return "Website"
+    case "calendar":
+      return "Calendar"
+    case "document":
+      return "Document"
+    case "manual":
+      return "Manual entry"
     case "imessage":
       return "iMessage"
     case "sms":

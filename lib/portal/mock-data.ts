@@ -85,6 +85,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-1",
         channel: "call",
+        eventType: "call",
+        sourceMetadata: {},
         direction: "outbound",
         occurredAt: "Aug 15 · 11:42 AM",
         title: "Phone call",
@@ -94,6 +96,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-2",
         channel: "email",
+        eventType: "email",
+        sourceMetadata: {},
         direction: "outbound",
         occurredAt: "Aug 14 · 8:16 AM",
         title: "Email",
@@ -103,6 +107,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-3",
         channel: "showing",
+        eventType: "showing",
+        sourceMetadata: {},
         occurredAt: "Aug 11 · 4:30 PM",
         title: "Property showing",
         summary:
@@ -111,6 +117,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-4",
         channel: "note",
+        eventType: "note",
+        sourceMetadata: {},
         occurredAt: "Aug 10 · 9:05 AM",
         title: "Relationship note",
         summary:
@@ -170,6 +178,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-5",
         channel: "email",
+        eventType: "email",
+        sourceMetadata: {},
         direction: "outbound",
         occurredAt: "Aug 14 · 3:20 PM",
         title: "Email",
@@ -178,6 +188,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-6",
         channel: "call",
+        eventType: "call",
+        sourceMetadata: {},
         direction: "inbound",
         occurredAt: "Aug 12 · 1:10 PM",
         title: "Phone call",
@@ -217,6 +229,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-7",
         channel: "meeting",
+        eventType: "meeting",
+        sourceMetadata: {},
         occurredAt: "Aug 13 · 2:00 PM",
         title: "Listing strategy",
         summary: "Reviewed timing, photography and initial pricing.",
@@ -260,6 +274,8 @@ export const mockClients: Client[] = [
       {
         id: "interaction-8",
         channel: "imessage",
+        eventType: "imessage",
+        sourceMetadata: {},
         direction: "inbound",
         occurredAt: "Aug 15 · 9:06 AM",
         title: "iMessage",

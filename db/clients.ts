@@ -7,6 +7,7 @@ import type {
   PropertyInterest,
   PropertyInterestStatus,
 } from "@/lib/portal/types"
+import type { JsonObject } from '@/lib/crm-types'
 
 type PropertyInterestRow = {
   id: string
@@ -23,11 +24,13 @@ type PropertyInterestRow = {
 type InteractionRow = {
   id: string
   channel: InteractionChannel
+  event_type: string
   direction: InteractionDirection | null
   occurred_at: string
   title: string | null
   summary: string | null
   duration_seconds: number | null
+  source_metadata: JsonObject | null
 }
 
 type ClientRow = {
@@ -190,6 +193,7 @@ export async function getClients(): Promise<Client[]> {
             jsonb_build_object(
               'id', i.id,
               'channel', i.channel,
+              'event_type', i.event_type,
               'direction', i.direction,
               'occurred_at',
                 to_char(
@@ -198,7 +202,8 @@ export async function getClients(): Promise<Client[]> {
                 ),
               'title', i.title,
               'summary', i.summary,
-              'duration_seconds', i.duration_seconds
+              'duration_seconds', i.duration_seconds,
+              'source_metadata', i.source_metadata
             )
             order by i.occurred_at desc
           )
@@ -294,12 +299,14 @@ export async function getClients(): Promise<Client[]> {
       (row.interactions ?? []).map((interaction) => ({
         id: interaction.id,
         channel: interaction.channel,
+        eventType: interaction.event_type,
         direction: interaction.direction ?? undefined,
         occurredAt: interaction.occurred_at,
         title: interaction.title ?? "Interaction",
         summary: interaction.summary ?? undefined,
         durationSeconds:
           interaction.duration_seconds ?? undefined,
+        sourceMetadata: interaction.source_metadata ?? {},
       }))
 
     return {

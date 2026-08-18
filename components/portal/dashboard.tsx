@@ -43,6 +43,14 @@ function stageLabel(stage: DealStage) {
 
 function channelLabel(channel: InteractionChannel) {
   switch (channel) {
+    case "website":
+      return "Website"
+    case "calendar":
+      return "Calendar"
+    case "document":
+      return "Document"
+    case "manual":
+      return "Manual Entry"
     case "imessage":
       return "iMessage"
     case "sms":
