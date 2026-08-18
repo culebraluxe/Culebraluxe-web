@@ -2,13 +2,10 @@
 
 import Image from 'next/image'
 import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import type { GalleryImage } from '@/lib/property-types'
 import { cn } from '@/lib/utils'
-
-type ActiveImage =
-  | { kind: 'hero' }
-  | { kind: 'gallery'; index: number }
 
 export function PropertyMediaPanel({
   heroUrl,
@@ -19,41 +16,79 @@ export function PropertyMediaPanel({
   galleryImages: GalleryImage[]
   propertyTitle?: string | null
 }) {
-  const [activeImage, setActiveImage] = useState<ActiveImage>({
-    kind: 'hero',
-  })
+  const [activeIndex, setActiveIndex] = useState(0)
 
   useEffect(() => {
-    setActiveImage({ kind: 'hero' })
+    setActiveIndex(0)
   }, [heroUrl, propertyTitle])
 
-  let removedHero = false
-  const supportingImages: {
-    image: GalleryImage
-    galleryIndex: number
-  }[] = []
+  const heroImage = galleryImages.find((image) => image.url === heroUrl)
+  const mediaImages: GalleryImage[] = []
 
-  galleryImages.forEach((image, galleryIndex) => {
+  if (heroUrl) {
+    mediaImages.push({
+      url: heroUrl,
+      alt: heroImage?.alt ?? propertyTitle ?? 'Property',
+      caption: heroImage?.caption ?? null,
+    })
+  }
+
+  let removedHero = false
+  for (const image of galleryImages) {
     if (!removedHero && heroUrl && image.url === heroUrl) {
       removedHero = true
-      return
+      continue
     }
+    mediaImages.push(image)
+  }
 
-    supportingImages.push({ image, galleryIndex })
+  const normalizedActiveIndex =
+    mediaImages.length > 0 ? activeIndex % mediaImages.length : 0
+  const activeImage = mediaImages[normalizedActiveIndex] ?? null
+  const supportingImages: {
+    image: GalleryImage
+    mediaIndex: number
+  }[] = []
+
+  mediaImages.forEach((image, mediaIndex) => {
+    if (mediaIndex === 0) return
+    supportingImages.push({ image, mediaIndex })
   })
 
   const visibleThumbnails = supportingImages.slice(0, 4)
   const remainingCount = supportingImages.length - visibleThumbnails.length
-  const selectedGalleryImage =
-    activeImage.kind === 'gallery'
-      ? galleryImages[activeImage.index]
-      : null
-  const displayedUrl = selectedGalleryImage?.url ?? heroUrl
-  const displayedAlt =
-    selectedGalleryImage?.alt ?? propertyTitle ?? 'Property'
+  const displayedUrl = activeImage?.url ?? null
+  const displayedAlt = activeImage?.alt ?? propertyTitle ?? 'Property'
+  const hasNavigation = mediaImages.length > 1
+
+  function showPreviousImage() {
+    if (!hasNavigation) return
+    setActiveIndex(
+      (current) => (current - 1 + mediaImages.length) % mediaImages.length,
+    )
+  }
+
+  function showNextImage() {
+    if (!hasNavigation) return
+    setActiveIndex((current) => (current + 1) % mediaImages.length)
+  }
 
   return (
-    <div className="absolute inset-0 flex flex-col gap-1 bg-brand-navy/[0.08] p-1">
+    <div
+      className="absolute inset-0 flex flex-col gap-1 bg-brand-navy/[0.08] p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#c6a15b]/70"
+      tabIndex={0}
+      role="group"
+      aria-label="Property photo gallery"
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          showPreviousImage()
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          showNextImage()
+        }
+      }}
+    >
       <div
         className={cn(
           'relative flex-none overflow-hidden bg-muted',
@@ -65,29 +100,60 @@ export function PropertyMediaPanel({
         {displayedUrl && (
           <Image
             key={
-              activeImage.kind === 'hero'
+              normalizedActiveIndex === 0
                 ? 'hero'
-                : `gallery-${activeImage.index}`
+                : `gallery-${normalizedActiveIndex}`
             }
             src={displayedUrl}
             alt={displayedAlt}
             fill
-            priority={activeImage.kind === 'hero'}
+            priority={normalizedActiveIndex === 0}
             unoptimized
             sizes="100vw"
             className="object-cover"
           />
         )}
 
-        {activeImage.kind !== 'hero' && heroUrl && (
+        {normalizedActiveIndex !== 0 && heroUrl && (
           <button
             type="button"
-            onClick={() => setActiveImage({ kind: 'hero' })}
+            onClick={() => setActiveIndex(0)}
             className="absolute right-3 top-3 z-10 border border-[#c6a15b]/45 bg-brand-navy/90 px-3 py-1.5 text-[9px] font-medium uppercase tracking-[0.16em] text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]/60"
             aria-label="Return to the original hero image"
           >
             Hero Image
           </button>
+        )}
+
+        {hasNavigation && (
+          <>
+            <button
+              type="button"
+              onClick={showPreviousImage}
+              aria-label="Previous photo"
+              className="absolute left-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+            >
+              <ChevronLeft className="h-5 w-5" aria-hidden />
+            </button>
+
+            <button
+              type="button"
+              onClick={showNextImage}
+              aria-label="Next photo"
+              className="absolute right-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+            >
+              <ChevronRight className="h-5 w-5" aria-hidden />
+            </button>
+          </>
+        )}
+
+        {mediaImages.length > 0 && (
+          <p
+            className="absolute bottom-3 right-3 z-10 bg-brand-navy/70 px-2.5 py-1 text-[10px] font-medium tabular-nums tracking-[0.12em] text-[#f8f5ec] backdrop-blur-sm"
+            aria-live="polite"
+          >
+            {normalizedActiveIndex + 1} / {mediaImages.length}
+          </p>
         )}
       </div>
 
@@ -97,20 +163,17 @@ export function PropertyMediaPanel({
           role="group"
           aria-label="Supporting property images"
         >
-          {visibleThumbnails.map(({ image, galleryIndex }, index) => {
+          {visibleThumbnails.map(({ image, mediaIndex }, index) => {
             const showRemaining =
               index === visibleThumbnails.length - 1 && remainingCount > 0
             const isSelected =
-              activeImage.kind === 'gallery' &&
-              activeImage.index === galleryIndex
+              normalizedActiveIndex === mediaIndex
 
             return (
               <button
-                key={`${image.url}-${galleryIndex}`}
+                key={`${image.url}-${mediaIndex}`}
                 type="button"
-                onClick={() =>
-                  setActiveImage({ kind: 'gallery', index: galleryIndex })
-                }
+                onClick={() => setActiveIndex(mediaIndex)}
                 aria-label={`View ${image.alt || `property image ${index + 2}`}`}
                 aria-current={isSelected ? 'true' : undefined}
                 className={cn(

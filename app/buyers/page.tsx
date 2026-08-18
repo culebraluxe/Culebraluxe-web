@@ -14,6 +14,8 @@ export const metadata: Metadata = {
     'Explore exceptional homes, villas, and land for sale on Culebra, Puerto Rico.',
 }
 
+export const dynamic = 'force-dynamic'
+
 const STEPS = [
   {
     n: '01',
