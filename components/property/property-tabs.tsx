@@ -5,10 +5,12 @@ import { Compass, Eye, Landmark, Sparkles } from 'lucide-react'
 
 import { bathroomsDisplay } from '@/components/property/property-facts-card'
 import { PropertyLocation } from '@/components/property/property-location'
+import { PropertyDocuments } from '@/components/property/property-documents'
 import { PropertyVideos } from '@/components/property/property-videos'
 import { formatArea, isLand } from '@/lib/property'
 import type {
   PropertyDetail,
+  PropertyDocument,
   PropertyVideo,
 } from '@/lib/property-types'
 import { cn } from '@/lib/utils'
@@ -18,6 +20,7 @@ type Tab =
   | 'Details'
   | 'Map'
   | 'Video'
+  | 'Documents'
 
 const PRIMARY_TABS: Tab[] = [
   'Overview',
@@ -67,9 +70,11 @@ function EditorialText({ value }: { value: string }) {
 export function PropertyTabs({
   property,
   videos = [],
+  documents = [],
 }: {
   property: PropertyDetail
   videos?: PropertyVideo[]
+  documents?: PropertyDocument[]
 }) {
   const [active, setActive] = useState<Tab>('Overview')
   const land = isLand(property.propertyType)
@@ -77,6 +82,7 @@ export function PropertyTabs({
   const tabs: Tab[] = [
     ...PRIMARY_TABS,
     ...(videos.length > 0 ? (['Video'] as const) : []),
+    ...(documents.length > 0 ? (['Documents'] as const) : []),
     'Map',
   ]
 
@@ -523,6 +529,10 @@ export function PropertyTabs({
 
         {active === 'Video' && videos.length > 0 && (
           <PropertyVideos videos={videos} />
+        )}
+
+        {active === 'Documents' && documents.length > 0 && (
+          <PropertyDocuments documents={documents} />
         )}
       </div>
     </section>

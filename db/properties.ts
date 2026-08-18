@@ -3,15 +3,18 @@ import type {
   GalleryImage,
   PropertyDetail,
   PropertyDetailResult,
+  PropertyDocument,
   PropertyVideo,
 } from "@/lib/property-types"
 
 type PropertyMediaRow = {
   media_id: string
-  media_type: "image" | "video"
-  role: "hero" | "gallery" | "video" | "short"
+  media_type: "image" | "video" | "document"
+  role: "hero" | "gallery" | "video" | "short" | "document"
   sort_order: number
   filename: string | null
+  mime_type: string | null
+  file_size: string | null
   alt_text: string | null
   caption: string | null
   mux_playback_id: string | null
@@ -409,6 +412,8 @@ export async function getPropertyBySlug(
               'role', pm.role,
               'sort_order', pm.sort_order,
               'filename', m.filename,
+              'mime_type', m.mime_type,
+              'file_size', m.file_size::text,
               'alt_text', m.alt_text,
               'caption', m.caption,
               'mux_playback_id', m.mux_playback_id,
@@ -421,7 +426,8 @@ export async function getPropertyBySlug(
                 when 'gallery' then 1
                 when 'video' then 2
                 when 'short' then 3
-                else 4
+                when 'document' then 4
+                else 5
               end,
               pm.sort_order asc,
               pm.created_at asc
@@ -486,6 +492,23 @@ export async function getPropertyBySlug(
       durationSeconds: toNumber(item.duration_seconds),
     }))
 
+  const documents: PropertyDocument[] = media
+    .filter(
+      (item) =>
+        item.media_type === "document" &&
+        item.role === "document" &&
+        item.filename &&
+        item.mime_type
+    )
+    .map((item) => ({
+      id: item.media_id,
+      title: item.caption ?? item.alt_text ?? item.filename!,
+      filename: item.filename!,
+      mimeType: item.mime_type!,
+      fileSize: toNumber(item.file_size),
+      sortOrder: item.sort_order,
+    }))
+
   const property: PropertyDetail = {
     _id: row.id,
     title: row.name,
@@ -537,5 +560,6 @@ export async function getPropertyBySlug(
       : null,
     galleryImages,
     videos,
+    documents,
   }
 }

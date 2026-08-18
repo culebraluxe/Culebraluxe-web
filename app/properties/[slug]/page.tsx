@@ -60,6 +60,7 @@ export default async function PropertyPage({
     heroUrl,
     galleryImages,
     videos,
+    documents,
   } = result
 
   return (
@@ -110,6 +111,7 @@ export default async function PropertyPage({
           <PropertyTabs
             property={property}
             videos={videos}
+            documents={documents}
           />
         </div>
       </main>

@@ -50,9 +50,19 @@ export type PropertyVideo = {
   durationSeconds?: number | null
 }
 
+export type PropertyDocument = {
+  id: string
+  title: string
+  filename: string
+  mimeType: string
+  fileSize?: number | null
+  sortOrder: number
+}
+
 export type PropertyDetailResult = {
   property: PropertyDetail
   heroUrl: string | null
   galleryImages: GalleryImage[]
   videos: PropertyVideo[]
+  documents: PropertyDocument[]
 }
