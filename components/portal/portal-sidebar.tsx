@@ -29,6 +29,22 @@ const navigation = [
     href: "/portal/clients",
   },
   {
+    label: "Property Admin",
+    href: "/portal/property-admin",
+  },
+  {
+    label: "Media Audit",
+    href: "/portal/media-admin",
+  },
+  {
+    label: "Reporting",
+    href: "/portal/reporting",
+  },
+  {
+    label: "Identity Quality",
+    href: "/portal/identity-quality",
+  },
+  {
     label: "System Health",
     href: "/portal/system-health",
   },
