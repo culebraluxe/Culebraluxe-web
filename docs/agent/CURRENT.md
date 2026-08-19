@@ -1,144 +1,127 @@
 # Current Story
 
-## CRM-05 — Email Intake
+## CRM-07 — WhatsApp Intake
 
-Status: Architecture ready for review; implementation has not started.
+Status: Architecture only; awaiting a canonical-channel decision. No implementation is authorized.
 
 ## Completed Foundations
 
-- CRM-01 provides append-only, source-idempotent interactions and explicit tasks.
-- CRM-02 provides the source-neutral `InboundEvent` contract, conservative identity normalization, exact person/property/deal resolution, and advisory intents.
+- CRM-01 provides source-idempotent interaction inputs and the database uniqueness backstop.
+- CRM-02 provides neutral inbound events, strict identity normalization, exact context resolution, and advisory intents.
 - CRM-03 provides explicitly authorized atomic person/identity creation with existing-person-wins race recovery.
-- CRM-04 provides a website-specific durable receipt and canonical website intake coordinator. Its proposed migration remains unexecuted.
+- CRM-04 provides website intake; CRM-05 provides provider-neutral email intake.
+- CRM-06 provides a reviewed fixture-only communications boundary for calls, SMS, and iMessage, including strict-E.164 phone identity, endpoint classification, assurance mapping, duplicate-first coordination, and exact context resolution.
 
 ## Goal and Boundary
 
-Design the smallest provider-neutral email adapter contract that can translate a provider message into CRM-02 without coupling CRM core to Gmail or performing live ingestion.
+Design the smallest provider-neutral boundary through which a future WhatsApp Cloud API or equivalent connector could translate terminal message deliveries into canonical CRM intake.
 
-CRM-05 is not a mailbox connector. It adds no OAuth, polling, webhook, cursor, send/reply, attachment download, route, UI, task creation, or database write. The POC is pure/injected and fixture-only.
+CRM-07 is architecture only. It adds no Meta SDK or types, webhook route, signature verifier, live request, credential, environment variable, acknowledgement, cursor/receipt, database write, schema change, interaction persistence, media fetch, UI, reply/send behavior, task, interest, workflow, notification, or AI behavior.
 
-## Provider-Neutral Contract
+## Reuse and Separation
 
-An `EmailProviderMessage` is transport input to an `EmailAdapter`. It contains:
+Reuse from CRM-06:
 
-- provider name and a stable non-secret account namespace, each normalized to a restricted source token;
-- provider message ID and optional provider thread ID;
-- provider occurrence timestamp;
-- exactly one sender mailbox, `to`/`cc`/`bcc` recipients, and optional reply-to addresses;
-- provider-declared direction when trusted, otherwise enough envelope context to derive it from configured internal mailboxes;
-- subject and provider-extracted clean plain-text body/summary source;
-- normalized reply/forward metadata where explicitly supplied by the provider;
-- attachment descriptors containing stable provider attachment references, filename, MIME type, and size only;
-- optional exact property UUID/slug/recognized CulebraLuxe URL and exact deal UUID supplied by trusted adapter context;
-- explicit normalized transport fields only; arbitrary provider metadata is not accepted even when JSON-safe.
+- injected owned/shared/system endpoint configuration;
+- strict E.164 for every person identity;
+- exact phone identity resolution across SMS, iMessage, calls, and WhatsApp;
+- source-token and opaque provider-event-ID validation;
+- transport observation versus ownership assurance;
+- duplicate source identity before person/context resolution;
+- exact trusted property/deal context only;
+- CRM-02/03 repository boundaries and result semantics.
 
-Provider-specific SDK objects must be mapped into this neutral contract before reaching CRM code.
+Do not reuse CRM-06 by pretending WhatsApp is SMS. There is no `whatsapp` person-identity type: WhatsApp actors resolve through canonical `phone`. Transport/channel and identity are separate concepts.
 
-## Message and Thread Identity
+Provider SDK/webhook objects must be translated by a future connector into a neutral `WhatsAppProviderEvent` before CRM code. Meta names, object shapes, signature headers, access tokens, phone-number IDs, and media URLs never cross that boundary.
 
-- The provider message ID is the event identity. Every distinct message becomes at most one interaction.
-- Thread ID is correlation metadata only. It must never be used as the interaction idempotency key because one thread contains multiple messages.
-- Source identity is deterministic and account-scoped: `source.system = email:<provider>:<accountNamespace>` and `source.externalId = <providerMessageId>`.
-- Provider and account namespace are NFKC-normalized, trimmed, lowercased, and must each match `^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$` (1–64 characters). Colons, whitespace, and empty tokens are rejected, preventing source delimiter collisions and configuration drift.
-- `accountNamespace` is a configured opaque stable identifier, not a token or mailbox password. It prevents collisions when provider message IDs are only account-scoped.
-- Duplicate/retried delivery short-circuits through existing CRM-01/02 `(source_system, source_external_id)` protection before person or context work.
+## Canonical Channel Decision Gate
 
-## Direction and Participants
+The current TypeScript and database interaction-channel contracts do not include `whatsapp`. Mapping WhatsApp to `sms`, `imessage`, or generic `message` would corrupt transport meaning; the approved CRM-01 channel set intentionally has no generic `message` value.
 
-- Internal mailbox addresses are injected configuration and normalized with CRM-02's conservative email rule.
-- Exactly one external sender with only internal recipients is `inbound`.
-- An internal sender with at least one external recipient is `outbound`; exactly one normalized external recipient may become the actor. Zero is internal/system and excluded; multiple distinct external recipients is `resolution_required`, not an arbitrary choice.
-- External sender to external recipients, or a provider direction that conflicts with the normalized envelope, is rejected by the caller boundary.
-- `to`, `cc`, `bcc`, and reply-to are transport metadata. They are never alternate canonical actors merely because they appear on the message.
-- Names/display labels are hints only and never identity keys.
-- A missing sender or any provider input containing more than one sender mailbox is deterministically rejected before identity work.
+Therefore CRM-07 does not authorize implementation or schema work. Before a Builder POC can lower a WhatsApp event into `InboundEvent`, architecture must approve one of:
 
-## Identity and Role Policy
+1. add `whatsapp` to the neutral TypeScript channel and the existing interaction channel constraint in a separately reviewed narrow migration; or
+2. approve a different canonical transport model in a separate story.
 
-- Email addresses use existing conservative `trim + lowercase` normalization. Dots and plus tags remain unchanged.
-- Inbound external sender is one `provider_asserted` email hint only when the adapter guarantees it came from the provider-parsed envelope. This asserts the envelope sender, not legal identity.
-- Outbound external recipient uses `provider_asserted` only from trusted sent-mail envelope data.
-- Existing exact person identity always wins.
-- Each configured internal mailbox may carry an explicit creation role. Creation is allowed only when every applicable internal mailbox for the message is role-configured and all applicable roles resolve to the same single value. For inbound mail, applicable mailboxes are the internal recipients; for outbound mail, they are the internal sender mailboxes. Missing or conflicting applicable roles returns `resolution_required` with no creation. Existing-person exact resolution is not blocked by missing creation policy.
-- Role is never inferred from subject/body, display name, AI, recipient aliases, or provider labels.
-- Internal addresses, system mailboxes, mailing lists, automated senders, and bounce/notification senders are never auto-created as people.
+The recommended future decision is the narrow `whatsapp` channel addition, but no schema change is proposed or authorized in CRM-07.
 
-## Exclusions Before CRM Resolution
+## Proposed Neutral Event Contract
 
-The pure adapter classifies and excludes messages before CRM-02/03 when deterministic transport evidence identifies:
+A future connector would emit a bounded `WhatsAppProviderEvent` containing only:
 
-- any configured internal-only message;
-- provider/system notification categories;
-- delivery status/bounce reports (`multipart/report`, delivery-status headers, null return path, or configured mailer-daemon/postmaster address);
-- auto-replies or bulk/list mail through exact standard headers such as `Auto-Submitted` (other than `no`), `List-Id`, or provider-supplied categories;
-- configured no-reply/system sender addresses.
+- normalized provider and account namespace;
+- stable, opaque, case-preserving provider message ID;
+- occurrence time;
+- raw `from` and `to` endpoint addresses;
+- optional provider-declared direction for agreement checking only;
+- external-actor assurance: `transport_observed | ownership_verified | authenticated_actor`;
+- content class: `free_form | template | service | system`;
+- optional connector-extracted bounded plain text;
+- optional opaque template identifier for outbound template audit only;
+- optional bounded attachment descriptors;
+- optional display-name hint;
+- optional trusted exact property/deal context.
 
-Header names/values are normalized conservatively. Broad substring matching is forbidden. A message is not excluded merely because its subject contains words such as “automatic” or “newsletter.” Exclusion yields an explicit reason and no person/interaction/intents.
+Injected configuration remains authoritative for the owned WhatsApp business number, shared external numbers, non-person system endpoints, account namespace, and any future creation role. Provider event content cannot claim ownership or assign a CRM role. Configuration must reject duplicate/cross-category endpoints exactly as CRM-06 does.
 
-## Content, Threading, and Attachments
+## Direction, Identity, and Assurance
 
-- Canonical event type is deterministic: inbound emits `email_received`; outbound emits `email_sent`.
-- Interaction `title` receives a normalized, bounded subject (maximum 500 characters).
-- `EmailProviderMessage.plainText` must already be markup-free and quoted-history-free. The provider connector owns deterministic MIME/HTML extraction and quoted-history removal. The pure POC validates the field contract and bounds it to 4,000 characters; it does not guess stripping rules.
-- Existing CRM-02 sanitized metadata remains limited to 32 KB.
-- Reply/forward state is recorded only from explicit provider headers/fields (`inReplyToMessageId`, reference IDs, explicit forward classification). Subject prefixes alone are not authoritative.
-- `source_metadata` is constructed from an explicit allowlist only: `threadId`, `inReplyToMessageId`, `referenceMessageIds`, `isForward`, `toEmails`, `ccEmails`, `replyToEmails`, and `attachments`. Arbitrary provider payload/headers are discarded rather than passed through the sanitizer.
-- Attachment descriptors contain only `providerAttachmentId`, `filename`, `mimeType`, and `sizeBytes`. The provider attachment ID must be an opaque non-URL identifier matching `^[A-Za-z0-9._~+=-]{1,512}$`. Descriptors contain no bytes, URLs, access tokens, or raw content. A future attachment story may import bytes into `media` and persist stable media IDs through an explicitly reviewed relationship. CRM-05 neither invents that relationship nor downloads attachments.
+- Direction is derived from configured owned business endpoints and must agree with any provider-declared direction.
+- Inbound has exactly one external strict-E.164 actor and an owned business recipient; outbound has an owned sender and exactly one external strict-E.164 recipient.
+- Multiple external actors, shared numbers, withheld actors, groups, and ambiguous endpoints return `resolution_required`; malformed or missing owned endpoints reject; internal-only and configured system traffic exclude.
+- A WhatsApp address never becomes a new identity kind. The actor hint is `{ kind: 'phone', value: strictE164 }`.
+- Names, profile labels, provider contact IDs, message text, prior traffic, templates, AI, and phone-number display names are never identity keys.
+- A valid signed webhook proves provider delivery integrity, not human ownership. It maps only to `transport_observed`/`user_supplied`.
+- Exact existing active phone ownership may resolve at transport-observed assurance. Unknown transport-observed actors require `resolution_required`; no automatic person creation is authorized.
+- A future connector may supply stronger assurance only through a separately reviewed explicit contract. Webhook signature, message receipt, business-number membership, and provider delivery status cannot elevate assurance.
+- Archived/conflicting identity ownership keeps CRM-03 behavior and never attaches or creates silently.
 
-## Property and Deal Context
+## Source Identity and Duplicate Delivery
 
-- Property/deal resolution remains the unchanged CRM-02 exact-only path.
-- Only trusted adapter context may supply property UUID, slug, recognized CulebraLuxe property URL, or deal UUID.
-- Subject, body, signature, thread title, attachment name, AI output, and sender history are never used to choose property/deal.
-- Multiple exact hints must agree; deal must belong to resolved person and property.
-- Email adapter intents are advisory. No task or `property_interest` write is part of CRM-05.
+- Proposed source system: `communications:<provider>:<accountNamespace>` using the existing normalized source-token grammar.
+- Proposed external ID: `whatsapp:<providerMessageId>` using the existing bounded opaque identifier rules.
+- The provider message ID, not conversation ID, phone, timestamp, template, or content hash, is authoritative for idempotency.
+- Duplicate webhook delivery must check `(source_system, source_external_id)` before identity or context work and return the existing interaction reference without later calls.
+- Delivery/read/status callbacks, reactions, edits, revocations, retries, and webhook batches do not create additional person interactions in this POC. A future connector must collapse a provider envelope into individual terminal message events before calling CRM.
 
-## Unknown Senders and Durable Intake
+## Content and Message Class
 
-- The pure POC returns `resolution_required` when CRM-02/03 cannot safely resolve/create the external actor.
-- It never acknowledges or deletes provider messages and has no live provider cursor, so fixture execution cannot lose mail.
-- A future live connector requires an explicitly reviewed durable receipt/cursor boundary before acknowledging delivery. It must hold unresolved/retry state without duplicating canonical CRM data.
-- CRM-04's website receipt is not reused for email, and CRM-05 does not prematurely add a generic ODS/staging table.
+- `free_form`, `template`, and user-visible `service` describe accepted message provenance; `system` events are excluded from person interaction history.
+- Template messages are outbound only. An inbound template classification rejects as contradictory.
+- Plain text is connector-extracted, NFKC-normalized, line-ending normalized, control-checked, trimmed, and bounded to 1–4,000 Unicode code points, reusing CRM-06 rules.
+- A message may contain text, attachment descriptors, or both. A contentless message rejects.
+- `source_metadata` remains closed: `transport: 'whatsapp'`, `contentClass`, optional opaque `templateId`, and optional sanitized attachment descriptors. Text belongs in canonical summary, not metadata.
+- No arbitrary webhook payload, headers, contacts collection, credentials, access tokens, signed URLs, phone-number IDs, delivery receipts, or raw provider metadata is admitted or logged.
+
+## Attachments and Media Boundary
+
+Attachment descriptors may contain only a bounded opaque provider media ID, bounded filename when present, exact MIME type, and non-negative safe-integer size when known. Reject URL-like identifiers and cap descriptor count and serialized metadata using the existing email/CRM sanitizer conventions.
+
+Descriptors are references for a future reviewed fetch/import process only. CRM-07 does not fetch bytes, persist descriptors, create `media`, create `property_media`, expose provider URLs, or treat an attachment as property media. Provider-hosted media retention and expiration must not be confused with CulebraLuxe media ownership.
+
+## Context, Intents, and Persistence
+
+- Property/deal context comes only from trusted exact adapter context and retains CRM-02 agreement and deal-ownership rules.
+- Text, captions, filenames, templates, names, AI, and conversation history never select property, deal, or person context.
+- No requested action is inferred. Advisory task/property-interest intents remain empty.
+- No person, interaction, task, interest, receipt, media, or other persistence is reachable in CRM-07 architecture.
 
 ## Privacy and Retention
 
-- Store the minimum canonical interaction summary and bounded audit metadata.
-- Never log or persist OAuth tokens, authorization headers, cookies, raw MIME, full HTML, attachment bytes, signed URLs, or provider SDK objects.
-- Bcc values may be used transiently for direction but are omitted from retained metadata.
-- Full bodies remain provider-owned. Canonical summaries follow interaction retention; transport metadata should be eligible for minimization after 24 months in a future retention story.
-- Excluded and unresolved fixture inputs are not persisted in CRM-05.
-
-## Application Boundaries
-
-1. Future provider connector authenticates and maps SDK payload to `EmailProviderMessage`.
-2. Pure adapter validates the already-clean plain-text contract, normalizes, classifies exclusions/direction, builds allowlisted metadata, bounds content, and emits `excluded`, `resolution_required`, `rejected`, or an `InboundEvent`.
-3. Email intake coordinator checks source idempotency, then uses injected CRM-02/03 repositories and explicit role/creation policy.
-4. Canonical persistence remains a later application boundary using CRM-01; this POC stops at canonical interaction input/result and performs no writes.
-
-No Gmail concepts appear in CRM repositories or domain types beyond opaque provider metadata.
+- Retain only normalized facts required for canonical interaction history; never retain the raw webhook envelope in CRM metadata.
+- Message bodies may contain sensitive client content and must use the existing bounded canonical summary contract.
+- Provider media IDs and descriptors require a future explicit retention/deletion policy before live ingestion.
+- A live webhook requires a separately reviewed durable receipt/acknowledgement and retry boundary, signature-verification boundary, least-privilege credential handling, and operational retention schedule. It must not reuse `website_intake_submission` or become a generic staging/ODS store.
 
 ## Schema Decision
 
-No schema change is required for the bounded CRM-05 POC.
+No schema change is authorized in CRM-07. Architecture has identified a future narrow channel decision, not approved a migration. The existing person identity and all resolution/context contracts are sufficient; only canonical WhatsApp transport representation remains unresolved.
 
-Existing `interaction` fields support channel, direction, subject, summary, source identity, and bounded source metadata. Existing `person_identity` supports canonical email. A live unresolved-email receipt, mailbox cursor, or interaction-to-media relationship before a provider lifecycle exists would be speculative and risks a generic staging system.
+## Risks and Open Decisions
 
-Architecture review must revisit schema before any live connector acknowledges messages or persists attachments.
-
-## Smallest Fixture-Only POC
-
-- neutral email types;
-- pure email normalization/classification adapter;
-- injected coordinator composing CRM-02/03 without persistence;
-- fixtures for inbound/outbound, exclusions, idempotency short-circuit, identity policy, exact context, content bounds, metadata privacy, and attachments-as-descriptors;
-- zero provider calls and zero Neon access.
-
-## Deferred / Risks
-
-- Durable provider cursor/receipt and retry ownership.
-- Live Gmail/provider adapter, OAuth, webhook/polling, rate limits, and acknowledgements.
-- Sending/replying and notifications.
-- Attachment download, malware scanning, media relationship, and access policy.
-- Shared/business mailbox human assignment, group conversations, and role adjudication.
-- Manual resolution UI, retention jobs, legal hold, deletion/export policy.
-- Email threading UI and AI summarization/link suggestions.
+- Approve or reject the recommended narrow `whatsapp` interaction-channel addition before any implementation.
+- Select and validate a provider capability before defining webhook acknowledgement, signature verification, cursor/receipt, and stronger assurance.
+- Define attachment fetch, malware screening, media ownership, expiry, and retention before media ingestion.
+- Define consent, opt-in/opt-out, message-window/template policy, deletion/export, and jurisdictional requirements before live traffic.
+- Shared business numbers, number reassignment, groups, replies, reactions, edits, delivery/read state, and outbound sending remain separate stories.

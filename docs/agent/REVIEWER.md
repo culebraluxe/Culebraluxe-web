@@ -1,66 +1,57 @@
 # Reviewer Checklist
 
-## CRM-05 — Email Intake
+## CRM-07 — WhatsApp Intake
 
-Status: Awaiting architecture review; no implementation exists.
+Status: Architecture only; awaiting canonical-channel decision. No implementation exists or is authorized.
 
 Latest result: Not reviewed.
 
-## Architecture and Scope
+## Scope and Boundary
 
-- Provider connector -> neutral message -> pure adapter -> `InboundEvent` -> CRM-02/03 remains explicit.
-- No Gmail coupling, live provider access, credentials, route/UI, send/reply, cursor, acknowledgement, workflow, notification, or persistence.
-- No schema/migration, DB-write repository, dependency, or reuse of website receipt.
-- POC stops at canonical interaction input/advisory intents using injected fakes.
+- Provider webhook/SDK -> neutral WhatsApp event -> pure adapter -> canonical intake boundary is explicit.
+- No Meta/provider coupling, live call, credential/environment, route, receipt/cursor, acknowledgement, schema, database write, UI, send/reply, workflow, notification, or media fetch.
+- No WhatsApp identity kind; strict canonical phone identity is reused.
+- WhatsApp is not mislabeled as SMS/iMessage and no generic message channel is invented.
 
-## Identity and Direction
+## Canonical Channel Gate
 
-- Conservative email normalization preserves plus tags and dots.
-- Message ID is event identity; thread ID is correlation metadata only; source is provider/account scoped.
-- Provider/account tokens use the documented lowercase 1–64 character grammar; delimiters/config variants cannot collide.
-- Inbound actor is one external sender; outbound actor is one exact external recipient.
-- Missing/multiple sender mailboxes are deterministically rejected before identity work.
-- Internal-only/system mail never creates CRM people.
-- Multiple external outbound recipients, ambiguous role, or ambiguous envelope never chooses arbitrarily.
-- Names, subject/body, AI, aliases, and recipient order are not canonical identity evidence.
-- Existing exact person wins. Creation requires every applicable internal mailbox to declare the same one explicit role; missing/conflicting roles require resolution and never choose arbitrarily.
+- The absent canonical `whatsapp` channel is identified explicitly.
+- Architecture does not silently authorize a schema change.
+- The hypothetical Builder remains blocked until a separately reviewed canonical-channel decision.
+- Any future migration is narrow and changes only the existing channel contract.
 
-## Exclusions
+## Direction, Identity, and Assurance
 
-- Bounce/delivery, auto-submitted, list/bulk, provider-system, and configured no-reply exclusions use exact transport evidence.
-- No broad substring checks cause false positives.
-- Exclusion occurs before person/context work and yields no canonical intents.
+- Injected configuration alone owns the internal business number and endpoint classification.
+- Direction is endpoint-derived and agrees with any trusted provider direction.
+- Person endpoints are strict E.164 and resolve through `phone` across all communication transports.
+- Names, provider contacts, profile labels, content, templates, filenames, history, and AI never identify a person.
+- Webhook signature/provider delivery is transport assurance only and cannot authorize unknown-person creation.
+- Exact active owners win; archived/conflicting/shared/ambiguous actors never attach or create silently.
 
-## Content, Privacy, and Attachments
+## Idempotency and Event Semantics
 
-- Event type is exactly `email_received` inbound and `email_sent` outbound.
-- Neutral `plainText` is already clean; the provider connector owns extraction/history removal and the POC only validates/bounds it.
-- Subject/plain-text limits enforced; no raw MIME/full HTML/entire quoted history.
-- Recursive secret rejection and 32 KB metadata ceiling reused.
-- Emitted metadata is built from the exact documented allowlist; sanitizer-safe arbitrary provider fields are not admitted.
-- Bcc/credentials not emitted or logged.
-- Thread/reply/forward/participants remain bounded metadata, not canonical links.
-- Attachment provider IDs obey the opaque non-URL grammar; descriptors contain no bytes, URLs, downloads, media inserts, or invented relationship.
-- Retention/minimization intent documented without a job.
+- Provider message ID, qualified as `whatsapp:<id>`, is authoritative for source idempotency.
+- Duplicate webhook delivery short-circuits before person/context work.
+- Conversation ID, phone, timestamp, content, and template do not determine deduplication.
+- Delivery/read/status, reactions, edits, revocations, retries, and webhook batching do not create duplicate interactions.
+- System events exclude; inbound template classification rejects; accepted message classes are deterministic.
 
-## Context and Idempotency
+## Content, Metadata, and Attachments
 
-- Duplicate source identity short-circuits before identity/property/deal work.
-- Same thread/different messages remain distinct.
-- Property/deal context is exact/trusted only; no free-text/fuzzy/AI linking.
-- Deal/person/property consistency remains CRM-02 behavior.
-- Unknown sender is resolution_required unless explicit CRM-03 policy authorizes creation.
-- No provider acknowledgement occurs without a future durable boundary.
+- Text normalization/bounds match the existing CRM communications contract.
+- Metadata is closed and contains only transport, content class, optional opaque template ID, and bounded sanitized attachment descriptors.
+- No raw webhook, headers, signature, token, credential, URL, arbitrary payload, or metadata logging.
+- Attachment descriptors use strict runtime types/count/size/serialization bounds and never trigger network fetch, byte storage, `media`, or `property_media` writes.
+- Privacy/retention and provider-media expiry are explicitly deferred behind a live-integration review.
 
-## Verification
+## Context and Side Effects
 
-- Fixtures verify behavior/call order with zero Neon/provider access; unexpected calls fail.
-- Fixtures cover event types, malformed sender cardinality, token grammar/collision rejection, metadata allowlisting, opaque attachment IDs, and all mailbox-role agreement cases.
-- No task, interest, interaction, or DB person write is reachable (mocked CRM-03 behavior only).
-- CRM-01/02/03/04 suites remain green.
-- No package/lockfile/generated/environment/schema/route/UI changes.
-- `git diff --check` and webpack build pass.
+- Property/deal resolution is exact trusted context only.
+- No free-text, caption, filename, template, subject, fuzzy, or AI context inference.
+- No requested-action inference; advisory intents remain empty.
+- No person, interaction, task, interest, receipt, media, schema, provider, or environment side effects are reachable.
 
-## Latest Findings
+## Review Result Format
 
-Awaiting architecture review.
+Return `PASS` or `CHANGES REQUIRED`, followed by concise findings grouped as Critical, High, Medium, and Low. Architecture can pass only if the decision gate remains explicit and implementation remains unauthorized.

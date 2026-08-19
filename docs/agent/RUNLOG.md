@@ -201,3 +201,212 @@
 - Fixes: Added fixture requirements for assurance, special endpoint outcomes, identifier grammar, message normalization, and the persistence gate.
 - Risks: No real provider assurance capability is approved by this design; live receipt/acknowledgement, shared-number policy, and consent/retention remain future architecture decisions.
 - Next action: Re-review `CRM-06-PRELIMINARY.md`; do not implement CRM-06 in this unattended session.
+
+## 2026-08-18 — New unattended session checkpoint
+
+- Role: Lead
+- Story: CRM-05 — Email Intake
+- Files changed: `docs/agent/RUNLOG.md`
+- Decision: Begin the newly authorized CRM-05 implementation sequence with a fresh architecture review of the committed coordination documents.
+- Checks: Working tree was clean at session start on branch `main`, commit `d5ad6fc` (`Add website CRM intake pipeline`). Existing CRM-05 and CRM-06 documents were inspected.
+- Result: CRM-05 is queued for an independent architecture gate; no implementation has begun.
+- Fixes: None.
+- Risks: Provider-neutral fixture scope must remain isolated from live email providers, Neon, routes, credentials, and side effects.
+- Next action: Run CRM-05 architecture review and implement only after PASS.
+
+## 2026-08-18 — CRM-05 second architecture correction checkpoint
+
+- Role: Lead
+- Story: CRM-05 — Email Intake
+- Files changed: `docs/agent/CURRENT.md`, `docs/agent/BUILDER.md`, `docs/agent/REVIEWER.md`, and this run log.
+- Decision: Separated envelope parsing from identity assurance. Exact normalized email may resolve an existing person, while unknown-person creation now requires an explicit provider-neutral `authenticated_pass` verdict plus the existing unanimous mailbox-role policy; conservative default is no creation. Defined bounded, case-preserving opaque message/thread/reply/reference IDs; an exact neutral category enum; and a connector-owned clean-plaintext contract that the adapter only NFKC-normalizes and bounds.
+- Checks: `git diff --check` required after these documentation-only changes. No implementation, schema, migration, database, provider, environment, route, UI, package, commit, staging, or push operation occurred.
+- Result: All current CRM-05 architecture findings are addressed; implementation remains unauthorized until independent architecture re-review returns PASS.
+- Fixes: Removed envelope parsing as creation evidence, bounded and protected provider identifiers, removed any implication that the adapter verifies or strips text, and replaced open-ended provider category labels with deterministic neutral values and outcomes.
+- Risks: A future connector must correctly attest the bounded authentication verdict; live ingestion still requires a separately reviewed durable receipt/cursor and provider-specific security review.
+- Next action: Re-review CRM-05 architecture. Do not implement until PASS.
+
+## 2026-08-18 — CRM-05 outbound-assurance correction checkpoint
+
+- Role: Lead
+- Story: CRM-05 — Email Intake
+- Files changed: `docs/agent/CURRENT.md`, `docs/agent/BUILDER.md`, `docs/agent/REVIEWER.md`, and this run log.
+- Decision: Restricted authenticated creation eligibility to inbound external senders. Outbound authentication proves the configured internal sender, not ownership of an external recipient; therefore an exact existing outbound recipient may resolve, but an unknown outbound recipient must return `resolution_required` and cannot auto-create in CRM-05.
+- Checks: `git diff --check` required after this documentation-only correction. No implementation, schema, migration, database, provider, environment, route, UI, package, staging, commit, or push operation occurred.
+- Result: The remaining High trust-boundary finding is addressed; CRM-05 is ready for another independent architecture review.
+- Fixes: Added explicit Builder fixture and Reviewer coverage proving authenticated outbound internal mail cannot create an unknown external recipient.
+- Risks: Auto-creation for outbound recipients remains unavailable until a separate, explicitly reviewed recipient-ownership assurance contract exists.
+- Next action: Re-review CRM-05 architecture. Do not implement until PASS.
+
+## 2026-08-18 16:47 AST — CRM-05 Builder checkpoint
+
+- Role: Builder
+- Story: CRM-05 — Email Intake
+- Files changed: added `lib/crm-email-types.ts`, `lib/crm-email-normalization.ts`, `lib/crm-email-intake.ts`, and `scripts/verify-crm-email-intake.mjs`; appended this run log only. The existing Lead coordination-document changes were preserved and not rewritten by Builder.
+- Decision: Implemented only the approved provider-neutral, fixture-only adapter and coordinator. Source identity is message-scoped and account-namespaced; direction, exclusions, actor assurance, mailbox-role creation policy, allowlisted metadata, opaque identifiers, attachments-as-descriptors, and exact CRM-02/03 composition are bounded explicitly.
+- Checks: `verify-crm-email-intake`, CRM-04 website intake, CRM-03 person creation, CRM-02 intake, and CRM-01 foundation fixtures passed. `git diff --check` passed. `pnpm exec next build --webpack` passed; the generated `next-env.d.ts` rewrite was restored. The build emitted only the existing Node experimental `localStorage` warning during static generation.
+- Result: Ready for independent implementation review. New fixtures use injected repositories, fail on unexpected creation, and performed zero Neon queries/writes and zero provider access.
+- Fixes: Rejected invalid/ambiguous envelope states and source tokens; preserved case-sensitive opaque provider identifiers; separated sender authentication from envelope identity; prevented unknown outbound creation; required unanimous explicit mailbox roles for inbound creation; limited retained metadata to the approved allowlist; rejected secrets/oversize metadata and URL-like attachment IDs; preserved exact CRM context resolution.
+- Risks: A future live connector still requires a separately reviewed durable receipt/cursor, provider authentication implementation, acknowledgement/retry ownership, attachment ingestion/security, and retention policy. CRM-05 deliberately contains none of those capabilities.
+- Next action: Independent Reviewer should evaluate the implementation against `docs/agent/BUILDER.md` and `docs/agent/REVIEWER.md`. No live integration or persistence should proceed from this POC.
+- Safety confirmation: no schema, migration, DB repository, route, UI, dependency, lockfile, environment, provider configuration, Neon mutation, external side effect, staging, commit, deploy, or push change occurred.
+
+## 2026-08-18 — CRM-05 implementation review-fix checkpoint
+
+- Role: Builder
+- Story: CRM-05 — Email Intake
+- Files changed: `lib/crm-email-normalization.ts`, `scripts/verify-crm-email-intake.mjs`, and this run log.
+- Decision: Applied only the independent review findings. Attachment descriptors now require non-null string provider IDs, filenames, and MIME types plus an integer byte size. Delivery-status MIME detection now compares the exact normalized media type before parameters rather than using a prefix match.
+- Checks: Added fixtures for missing/null/numeric attachment IDs and invalid descriptor primitive types; exact `multipart/report` with parameters and the non-excluding `multipart/reporting` near-match; exclusion-before-repository order; conflicting exact property hints; deal/property mismatch; and proof that property-like subject/body text performs no context lookup. The CRM-01 through CRM-05 fixture suites, `git diff --check`, and `pnpm exec next build --webpack` all passed. The build-generated `next-env.d.ts` rewrite was restored.
+- Result: Review findings are resolved and the implementation is ready for independent re-review. All verification remained fixture-only with zero Neon access, zero provider access, and no canonical persistence.
+- Fixes: Removed runtime primitive coercion at the attachment boundary, removed the broad MIME prefix false positive, and closed the requested exact-context and call-order fixture gaps.
+- Risks: Live provider lifecycle, credentials, receipts/cursors, acknowledgements, attachment download, and persistence remain deliberately outside CRM-05.
+- Next action: Independent Reviewer should re-review the bounded changes against `docs/agent/BUILDER.md` and `docs/agent/REVIEWER.md`.
+- Safety confirmation: no schema, migration, database repository, route, UI, dependency, lockfile, environment, provider configuration, Neon mutation, external side effect, staging, commit, deploy, or push change occurred.
+
+## 2026-08-18 17:09 AST — CRM-06 implementation review-fix checkpoint
+
+- Timestamp: 2026-08-18T17:09:32-04:00
+- Role: Builder
+- Story: CRM-06 — Phone / SMS / iMessage Intake
+- Files changed: `lib/crm-communications-normalization.ts`, `scripts/verify-crm-communications-intake.mjs`, and this run log.
+- Decision: Applied only the independent review findings. Owned-line configuration now rejects every duplicate normalized phone, with a distinct error when duplicate declarations conflict on role. The fixture matrix now makes duration, idempotency, display-name, and ownership/configuration conflict boundaries explicit.
+- Checks: Added negative, fractional, unsafe-integer, required, and forbidden duration cases across connected, voicemail, missed/busy, and failed call outcomes; proved correlation changes do not alter source identity; proved display names never enter identity matching; and covered duplicate/conflicting owned-line declarations. CRM-01 through CRM-06 suites passed, `git diff --check` passed, and `pnpm exec next build --webpack` passed. Build-generated `next-env.d.ts` was restored and no `tsconfig.tsbuildinfo` remains.
+- Result: Review findings are resolved and the implementation is ready for independent re-review. Verification remained fixture-only with zero Neon access, provider access, or canonical writes.
+- Fixes: Closed the identical-role duplicate configuration gap and expanded behavioral verification without changing the provider-neutral architecture.
+- Risks: Active identity ownership conflicts remain governed by the already-green CRM-03 conflict fixtures and database identity uniqueness; CRM-06 emits exactly one canonical external phone hint and never selects among multiple actors.
+- Next action: Independent Reviewer should re-review the bounded CRM-06 changes against the coordination documents.
+- Safety confirmation: no schema, migration, database repository, route, UI, dependency, lockfile, environment, provider configuration, Neon mutation, external side effect, staging, commit, deploy, or push change occurred.
+
+## 2026-08-18 — CRM-06 Lead promotion checkpoint
+
+- Timestamp: 2026-08-18T16:52:56-04:00
+- Story: CRM-06 — Phone / SMS / iMessage Intake
+- Role: Lead
+- Files: `docs/agent/CURRENT.md`, `docs/agent/BUILDER.md`, `docs/agent/REVIEWER.md`, `docs/agent/RUNLOG.md`
+- Decision: Promoted the preliminary design into a bounded fixture-only architecture and Builder work order. The canonical event contract uses `call_received`, `call_placed`, `call_missed`, `sms_received`, `sms_sent`, `imessage_received`, and `imessage_sent`; strict E.164 remains the only phone identity; transport observation is separated from ownership assurance; provider event identity remains the idempotency key.
+- Checks: Inspected CRM-01/02/03 and the completed CRM-05 adapter/coordinator patterns. `git diff --check` pending at this checkpoint.
+- Result: Architecture is ready for independent review. No schema is needed for this POC.
+- Fixes: Resolved the preliminary open call-reporting question by defining terminal received/placed/missed semantics without mirroring provider lifecycle callbacks. Defined deterministic endpoint, assurance, source-ID, content, metadata, and error outcomes.
+- Risks: No real provider capability is approved for ownership assurance. Live acknowledgement/retry, consent, retention, shared numbers, number reassignment, Apple feasibility, recordings, and persistence remain deliberately deferred.
+- Next action: Run an independent CRM-06 architecture review before implementation.
+- Safety: No implementation, schema, database, provider, route, UI, dependency, environment, staging, commit, deploy, or push action occurred.
+
+## 2026-08-18 — CRM-06 implementation completion checkpoint
+
+- Role: Reviewer
+- Story: CRM-06 — Phone / SMS / iMessage Intake
+- Files changed: `docs/agent/RUNLOG.md`
+- Decision: PASS after the bounded implementation correction loop.
+- Checks: Independent re-review confirmed duplicate owned-line rejection, complete call-duration matrix fixtures, correlation-ID nonidentity, display-name nonidentity, clean generated files, and zero provider/Neon/canonical writes.
+- Result: No Critical, High, Medium, or Low findings. CRM-06 fixture-only implementation is locally complete.
+- Fixes: Duplicate normalized owned lines now always reject; required duration, configuration, identity, and idempotency fixtures were added before PASS.
+- Risks: Live transport assurance, provider delivery receipts, consent/retention, and Apple/iMessage feasibility remain deferred.
+- Next action: Prepare CRM-07 WhatsApp Intake architecture only and run an independent architecture review.
+
+## 2026-08-18 17:04 AST — CRM-06 Builder checkpoint
+
+- Timestamp: 2026-08-18T17:04:56-04:00
+- Role: Builder
+- Story: CRM-06 — Phone / SMS / iMessage Intake
+- Files changed: added `lib/crm-communications-types.ts`, `lib/crm-communications-normalization.ts`, `lib/crm-communications-intake.ts`, and `scripts/verify-crm-communications-intake.mjs`; appended this run log only. Existing coordination and CRM-05 changes were preserved.
+- Decision: Implemented only the approved provider-neutral, fixture-only communications adapter and coordinator. Configuration is the sole authority for owned/shared/system endpoints and creation roles; terminal call outcomes, strict-E.164 identity, assurance mapping, source identity, content, metadata, and exact context resolution follow the closed CRM-06 contract.
+- Checks: CRM-01 through CRM-06 fixture suites passed. `git diff --check` passed. `pnpm exec next build --webpack` passed; generated `next-env.d.ts` and `tsconfig.tsbuildinfo` changes were restored/removed. The build emitted only the existing Node experimental `localStorage` warning during static generation.
+- Result: Ready for independent implementation review. Fixtures used injected repositories and performed zero Neon queries/writes, zero provider calls, and zero canonical CRM writes.
+- Fixes: Added deterministic direction and actor selection, all seven canonical event types, the closed call disposition/duration/voicemail matrix, strict endpoint and identifier validation, SMS/iMessage Unicode normalization, allowlisted metadata, duplicate-first coordinator behavior, exact CRM-02 context resolution, and CRM-03 assurance/role-gated creation.
+- Risks: A future live connector still requires separately reviewed provider capability, credentials, durable receipt/cursor, acknowledgement/retry, consent/content retention, number reassignment/shared ownership policy, and Apple feasibility. None are reachable from this POC.
+- Next action: Independent Reviewer should evaluate the implementation against `docs/agent/BUILDER.md` and `docs/agent/REVIEWER.md`.
+- Safety confirmation: no schema, migration, database repository, route, UI, dependency, lockfile, environment, provider configuration, Neon mutation, external side effect, staging, commit, deploy, or push change occurred.
+
+## 2026-08-18 — CRM-05 implementation completion checkpoint
+
+- Role: Reviewer
+- Story: CRM-05 — Email Intake
+- Files changed: `docs/agent/RUNLOG.md`
+- Decision: PASS after the bounded implementation fix loop.
+- Checks: Independent re-review confirmed strict attachment runtime types, exact delivery-report MIME matching, exact-context conflict coverage, no free-text linking, clean generated files, and no dependency changes.
+- Result: No Critical, High, Medium, or blocking Low findings. CRM-05 implementation is locally complete.
+- Fixes: Missing/null attachment identifier coercion and broad MIME-prefix exclusion were corrected before PASS.
+- Risks: Live provider delivery, acknowledgement, persistence, and credentials remain deliberately absent and require future reviewed architecture.
+- Next action: Promote CRM-06 preliminary notes into the active coordination files and run a fresh full architecture review.
+
+## 2026-08-18 — CRM-06 architecture review checkpoint
+
+- Role: Architecture Reviewer
+- Story: CRM-06 — Phone / SMS / iMessage Intake
+- Files changed: `docs/agent/RUNLOG.md`
+- Decision: CHANGES REQUIRED. The overall provider-neutral/no-schema boundary was sound, but the promoted contract left call outcomes, endpoint authority, identifier rejection, metadata keys, and intent behavior underspecified.
+- Checks: Read-only review of active `CURRENT.md`, `BUILDER.md`, and `REVIEWER.md` against CRM-02/03 boundaries.
+- Result: Implementation remained blocked pending bounded Lead corrections.
+- Risks: Provider-event endpoint classifications or open metadata could become an accidental trust escalation; an incomplete call matrix could produce inconsistent canonical events.
+- Next action: Lead must close these contracts and request re-review. No implementation authorized.
+
+## 2026-08-18 — CRM-06 architecture review-fix checkpoint
+
+- Timestamp: 2026-08-18T16:58:12-04:00
+- Role: Lead
+- Story: CRM-06 — Phone / SMS / iMessage Intake
+- Files changed: `docs/agent/CURRENT.md`, `docs/agent/BUILDER.md`, `docs/agent/REVIEWER.md`, and this run log.
+- Decision: Applied only the architecture-review corrections. Added a closed call disposition/duration/voicemail matrix; made injected configuration the sole endpoint/role authority; replaced value-content secret guessing with deterministic opaque-ID rules; closed the communications metadata shape; and required no requested action with empty advisory intents.
+- Checks: `git diff --check` required after this documentation-only correction.
+- Result: CRM-06 is ready for architecture re-review; implementation remains unauthorized until PASS.
+- Fixes: Defined collision validation across owned/shared/system configuration and allowed direct shared-sanitizer size verification without inflating transport metadata.
+- Risks: Live provider assurance, receipts/acknowledgement, privacy/retention, shared identity, Apple feasibility, and persistence remain deferred.
+- Next action: Independent re-review of the active CRM-06 coordination documents.
+- Safety: No implementation, schema, database, provider, route, UI, dependency, environment, staging, commit, deploy, or push action occurred.
+## 2026-08-18 17:11 AST — CRM-07 Lead architecture checkpoint
+
+- Story: CRM-07 — WhatsApp Intake
+- Role: Lead
+- Files: `docs/agent/CURRENT.md`, `docs/agent/BUILDER.md`, `docs/agent/REVIEWER.md`, `docs/agent/RUNLOG.md`
+- Decision: Advanced the coordination documents from completed CRM-06 to a provider-neutral WhatsApp architecture. Reused strict phone identity, endpoint configuration, assurance separation, duplicate-first source identity, exact context, and injected repository boundaries. Explicitly refused to disguise WhatsApp as SMS/iMessage or add a generic message channel.
+- Checks: Inspected the CRM-06 types, normalization, intake coordinator, verification coverage, current interaction-channel contract, and coordination history. `git diff --check` is pending this checkpoint append.
+- Result: Architecture only. Implementation is blocked pending a separately reviewed canonical `whatsapp` channel decision; no schema change is proposed or authorized.
+- Fixes: Defined provider-message idempotency, business-number authority, signed-webhook assurance limits, closed message-class metadata, attachment descriptors without fetch/persistence, privacy/retention boundaries, exact context, and no-AI/no-fuzzy rules.
+- Risks: Current canonical channel cannot represent WhatsApp faithfully. Live webhook receipts, signature verification, acknowledgement/retry, credentials, consent, templates, provider media retention, and outbound delivery remain deliberately deferred.
+- Next action: Independent architecture review of CRM-07 and a human decision on canonical WhatsApp channel representation before any Builder work.
+
+## 2026-08-18 — CRM-07 architecture review checkpoint
+
+- Role: Architecture Reviewer
+- Story: CRM-07 — WhatsApp Intake
+- Files changed: `docs/agent/RUNLOG.md`
+- Decision: PASS for architecture only; implementation remains blocked.
+- Checks: Independent review confirmed provider-neutral Cloud API boundaries, canonical phone reuse, duplicate-first source identity, configuration-owned business-number classification, assurance separation, exact context, attachment-reference privacy, and no Meta/live coupling.
+- Result: No Critical, High, or Medium findings. No schema change is authorized in CRM-07.
+- Fixes: None required.
+- Risks: The current canonical interaction channel lacks `whatsapp`. A separately reviewed narrow channel/migration decision and exact event-type/service-message matrix are required before implementation.
+- Next action: Stop CRM-07 at architecture PASS and complete the unattended quality gate.
+
+## UNATTENDED SESSION SUMMARY — CRM-05 THROUGH CRM-07
+
+- CRM-05 status: provider-neutral Email Intake fixture POC implemented and independently reviewed PASS.
+- CRM-06 status: provider-neutral Phone / SMS / iMessage fixture POC implemented and independently reviewed PASS.
+- CRM-07 status: WhatsApp architecture independently reviewed PASS; implementation blocked pending a separate canonical-channel decision.
+- Architecture reviews: CRM-05 required two bounded trust-contract corrections before PASS; CRM-06 required one bounded contract correction before PASS; CRM-07 passed as architecture-only with implementation blocked.
+- Implementation reviews: CRM-05 required strict attachment runtime validation, exact MIME matching, and context fixture additions before PASS. CRM-06 required duplicate owned-line rejection and matrix/idempotency/nonidentity fixture additions before PASS.
+- Files changed or added: `docs/agent/CURRENT.md`, `docs/agent/BUILDER.md`, `docs/agent/REVIEWER.md`, `docs/agent/RUNLOG.md`, `lib/crm-email-types.ts`, `lib/crm-email-normalization.ts`, `lib/crm-email-intake.ts`, `scripts/verify-crm-email-intake.mjs`, `lib/crm-communications-types.ts`, `lib/crm-communications-normalization.ts`, `lib/crm-communications-intake.ts`, and `scripts/verify-crm-communications-intake.mjs`.
+- Proposed migrations: none in this session.
+- Migrations executed: none. Neon was not queried or mutated.
+- Verification: CRM-01 through CRM-06 fixture suites passed. CRM-05/06 suites used injected fakes and performed zero provider access, zero Neon access, and zero canonical writes.
+- Build: `pnpm exec next build --webpack` passed. The build-generated `next-env.d.ts` rewrite was restored; no `tsconfig.tsbuildinfo` remains. The only build warning was the existing Node experimental `localStorage` warning during static generation.
+- Diff/dependencies: `git diff --check` passed. No package, lockfile, environment, schema, database repository, route, or UI changes were introduced.
+- Quality findings: no adapter imports a DB repository, calls `fetch`, reads provider/environment credentials, or logs secrets. Listing names/slugs occur only in fixtures to prove exact-context and no-free-text-linking behavior; production adapters contain no property/person special cases.
+- Known issues: live email and communications ingestion still need durable receipts/cursors, acknowledgement ownership, provider security review, and consent/retention policy. WhatsApp cannot be represented canonically until a separately reviewed `whatsapp` channel decision is approved.
+- Human decisions required: whether to authorize a narrow interaction-channel migration for WhatsApp; exact WhatsApp event types/service-message matrix; future live-provider assurance, durable delivery, privacy, and retention policies.
+- Recommended next action: review CRM-05/06 pure adapter diffs and fixtures, then open a separate architecture story for the canonical `whatsapp` channel before authorizing CRM-07 Builder work.
+- Current branch: `main`.
+- Exact git status:
+  - modified: `docs/agent/BUILDER.md`
+  - modified: `docs/agent/CURRENT.md`
+  - modified: `docs/agent/REVIEWER.md`
+  - modified: `docs/agent/RUNLOG.md`
+  - untracked: `lib/crm-communications-intake.ts`
+  - untracked: `lib/crm-communications-normalization.ts`
+  - untracked: `lib/crm-communications-types.ts`
+  - untracked: `lib/crm-email-intake.ts`
+  - untracked: `lib/crm-email-normalization.ts`
+  - untracked: `lib/crm-email-types.ts`
+  - untracked: `scripts/verify-crm-communications-intake.mjs`
+  - untracked: `scripts/verify-crm-email-intake.mjs`
+- Confirmation: NO PUSH. NO DEPLOY. NO NEON MUTATION. NO COMMIT. NO STAGING.
