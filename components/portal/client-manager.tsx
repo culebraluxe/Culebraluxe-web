@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useMemo, useState } from "react"
 import type {
   Client,
@@ -260,12 +261,21 @@ export function ClientManager({
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="self-start rounded-full border border-[var(--portal-border)] px-5 py-2.5 text-xs font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
-              >
-                Edit profile
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href={`/portal/clients/${selectedClient.id}`}
+                  className="self-start rounded-full border border-[var(--portal-border)] px-5 py-2.5 text-xs font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
+                >
+                  View dossier
+                </Link>
+
+                <button
+                  type="button"
+                  className="self-start rounded-full border border-[var(--portal-border)] px-5 py-2.5 text-xs font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
+                >
+                  Edit profile
+                </button>
+              </div>
             </div>
 
             <div className="mt-8 grid gap-6 border-t border-black/10 pt-7 md:grid-cols-2 xl:grid-cols-4">

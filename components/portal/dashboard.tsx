@@ -4,6 +4,7 @@ import type {
   DealStage,
   InteractionChannel,
 } from "@/lib/portal/types"
+import type { DashboardSnapshot } from "@/db/dashboard"
 
 const stageOrder: DealStage[] = [
   "new_lead",
@@ -71,9 +72,11 @@ function channelLabel(channel: InteractionChannel) {
 export function Dashboard({
   clients,
   deals,
+  snapshot,
 }: {
   clients: Client[]
   deals: Deal[]
+  snapshot: DashboardSnapshot
 }) {
   const activeClients = clients.filter(
     (client) => client.status === "active" || client.status === "warm"
@@ -83,18 +86,14 @@ export function Dashboard({
     (deal) => deal.stage !== "closed"
   )
 
-  const upcomingActions = clients
-    .filter((client) => client.nextAction)
-    .slice(0, 4)
+  const attentionTasks = [
+    ...snapshot.overdueTasks,
+    ...snapshot.tasksDueSoon,
+  ].slice(0, 4)
 
-  const recentInteractions = clients
-    .flatMap((client) =>
-      client.interactions.map((interaction) => ({
-        ...interaction,
-        clientName: client.displayName,
-      }))
-    )
-    .slice(0, 5)
+  const calendarTasks = snapshot.tasksDueSoon.slice(0, 4)
+
+  const recentInteractions = snapshot.recentInteractions
 
   const featuredDeal =
     deals.find((deal) => deal.stage === "showing") ??
@@ -136,8 +135,8 @@ export function Dashboard({
 
         <MetricCard
           label="Upcoming Actions"
-          value={String(upcomingActions.length)}
-          detail="Client actions currently scheduled"
+          value={String(snapshot.tasksDueSoon.length)}
+          detail="Tasks due within the next 7 days"
         />
 
         <MetricCard
@@ -160,15 +159,15 @@ export function Dashboard({
           </div>
 
           <div>
-            {upcomingActions.length > 0 ? (
-              upcomingActions.map((client) => (
+            {attentionTasks.length > 0 ? (
+              attentionTasks.map((task) => (
                 <div
-                  key={client.id}
+                  key={task.id}
                   className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
                   <div className="flex items-start gap-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] font-serif text-sm font-light text-[var(--portal-navy-soft)]">
-                      {client.displayName
+                      {(task.contextName ?? "Task")
                         .split(" ")
                         .slice(0, 2)
                         .map((word) => word[0])
@@ -178,21 +177,21 @@ export function Dashboard({
                     <div className="min-w-0 flex-1">
                       <div className="flex justify-between gap-4">
                         <div className="text-sm font-medium">
-                          {client.displayName}
+                          {task.contextName ?? "Task"}
                         </div>
 
                         <div className="shrink-0 text-xs font-light text-black/40">
-                          {client.nextAction?.occurredAt}
+                          {task.dueAtLabel ?? "Unscheduled"}
                         </div>
                       </div>
 
                       <div className="mt-1 font-serif text-lg font-light">
-                        {client.nextAction?.title}
+                        {task.title}
                       </div>
 
-                      {client.nextAction?.detail && (
+                      {task.detail && (
                         <div className="mt-1 text-xs font-light text-black/45">
-                          {client.nextAction.detail}
+                          {task.detail}
                         </div>
                       )}
                     </div>
@@ -200,7 +199,7 @@ export function Dashboard({
                 </div>
               ))
             ) : (
-              <EmptyState text="No client follow-ups scheduled." />
+              <EmptyState text="No follow-ups need attention." />
             )}
           </div>
         </section>
@@ -217,33 +216,32 @@ export function Dashboard({
           </div>
 
           <div className="px-6">
-            {upcomingActions.length > 0 ? (
-              upcomingActions.map((client, index) => (
+            {calendarTasks.length > 0 ? (
+              calendarTasks.map((task, index) => (
                 <div
-                  key={client.id}
+                  key={task.id}
                   className="grid grid-cols-[24px_1fr] gap-4 border-b border-[var(--portal-border)] py-5 last:border-b-0"
                 >
                   <div className="relative flex justify-center">
                     <div className="mt-1.5 h-2 w-2 rounded-full bg-[var(--portal-navy)]" />
 
-                    {index < upcomingActions.length - 1 && (
+                    {index < calendarTasks.length - 1 && (
                       <div className="absolute bottom-[-20px] top-4 w-px bg-[var(--portal-border)]" />
                     )}
                   </div>
 
                   <div>
                     <div className="text-xs font-light text-black/40">
-                      {client.nextAction?.occurredAt}
+                      {task.dueAtLabel ?? "Unscheduled"}
                     </div>
 
                     <div className="mt-1 text-sm font-medium">
-                      {client.nextAction?.title}
+                      {task.title}
                     </div>
 
                     <div className="mt-1 text-xs font-light text-black/45">
-                      {client.displayName}
-                      {client.nextAction?.detail &&
-                        ` · ${client.nextAction.detail}`}
+                      {task.contextName ?? "Task"}
+                      {task.detail && ` · ${task.detail}`}
                     </div>
                   </div>
                 </div>
@@ -380,11 +378,11 @@ export function Dashboard({
             {recentInteractions.length > 0 ? (
               recentInteractions.map((interaction) => (
                 <div
-                  key={`${interaction.clientName}-${interaction.id}`}
+                  key={interaction.id}
                   className="grid gap-3 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0 md:grid-cols-[130px_110px_1fr]"
                 >
                   <div className="text-xs font-light text-black/40">
-                    {interaction.occurredAt}
+                    {interaction.occurredAtLabel}
                   </div>
 
                   <div className="text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
@@ -393,7 +391,7 @@ export function Dashboard({
 
                   <div>
                     <div className="text-sm font-medium">
-                      {interaction.clientName}
+                      {interaction.personName}
                     </div>
 
                     <div className="mt-1 text-sm font-light text-black/55">

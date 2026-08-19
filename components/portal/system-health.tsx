@@ -1,0 +1,141 @@
+import type { SystemHealthSnapshot } from "@/db/system-health"
+
+function MetricCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string
+  value: string
+  detail: string
+}) {
+  return (
+    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+        {label}
+      </div>
+
+      <div className="mt-4 font-serif text-3xl font-light text-[var(--portal-navy)]">
+        {value}
+      </div>
+
+      <div className="mt-2 text-xs font-light text-black/40">
+        {detail}
+      </div>
+    </div>
+  )
+}
+
+export function SystemHealth({
+  health,
+}: {
+  health: SystemHealthSnapshot
+}) {
+  return (
+    <div>
+      <div className="mb-8">
+        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
+          Portal
+        </p>
+
+        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
+          System Health
+        </h1>
+
+        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
+          Operational signals across intake, tasks, deals, properties and
+          relationship data — read-only.
+        </p>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Needs Review"
+          value={String(health.unresolvedIntakeCount)}
+          detail="Unresolved intake submissions"
+        />
+        <MetricCard
+          label="Open Tasks"
+          value={String(health.openTaskCount)}
+          detail={`${health.overdueTaskCount} overdue`}
+        />
+        <MetricCard
+          label="Active Deals"
+          value={String(health.activeDealCount)}
+          detail={`${health.underContractCount} under contract`}
+        />
+        <MetricCard
+          label="Active Properties"
+          value={String(health.activePropertyCount)}
+          detail="Active inventory"
+        />
+      </section>
+
+      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <h2 className="font-serif text-2xl font-light">
+          Recent Activity
+        </h2>
+
+        <div className="mt-4 grid gap-6 md:grid-cols-2">
+          <Detail
+            label="Last Interaction"
+            value={health.recentInteractionAtLabel ?? "None recorded"}
+          />
+          <Detail
+            label="Interactions (7 days)"
+            value={String(health.interactionsLast7Days)}
+          />
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <h2 className="font-serif text-2xl font-light">
+          Data Quality
+        </h2>
+
+        <p className="mt-1 text-xs font-light text-black/40">
+          Signals worth reviewing, derived directly from the schema.
+        </p>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <Detail
+            label="Clients without email"
+            value={String(health.personsWithoutEmailIdentity)}
+          />
+          <Detail
+            label="Clients without phone"
+            value={String(health.personsWithoutPhoneIdentity)}
+          />
+          <Detail
+            label="Open tasks no due date"
+            value={String(health.openTasksWithoutDueDate)}
+          />
+          <Detail
+            label="Properties no hero image"
+            value={String(health.activePropertiesWithoutHeroMedia)}
+          />
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Detail({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-black/35">
+        {label}
+      </div>
+
+      <div className="mt-2 text-sm font-light leading-6 text-black/70">
+        {value}
+      </div>
+    </div>
+  )
+}

@@ -9,12 +9,24 @@ const navigation = [
     href: "/portal/dashboard",
   },
   {
+    label: "Needs Review",
+    href: "/portal/needs-review",
+  },
+  {
+    label: "Activity",
+    href: "/portal/activity",
+  },
+  {
     label: "Deals Portfolio",
     href: "/portal/deals",
   },
   {
     label: "Client Manager",
     href: "/portal/clients",
+  },
+  {
+    label: "System Health",
+    href: "/portal/system-health",
   },
 ]
 

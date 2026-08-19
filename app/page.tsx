@@ -1,3 +1,4 @@
+import { getProperties } from '@/db/properties'
 import { SiteHeader } from '@/components/site-header'
 import { Hero } from '@/components/hero'
 import { FeaturedProperties } from '@/components/featured-properties'
@@ -8,13 +9,19 @@ import { About } from '@/components/about'
 import { Contact } from '@/components/contact'
 import { SiteFooter } from '@/components/site-footer'
 
-export default function Page() {
+export const dynamic = 'force-dynamic'
+
+export default async function Page() {
+  const properties = await getProperties()
+
+  const featured = properties.filter((property) => property.featured)
+
   return (
     <>
       <SiteHeader />
       <main>
         <Hero />
-        <FeaturedProperties />
+        <FeaturedProperties properties={featured} />
         <HomeProperties />
         <Services />
         <Culture />
