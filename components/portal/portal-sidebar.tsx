@@ -9,6 +9,10 @@ const navigation = [
     href: "/portal/dashboard",
   },
   {
+    label: "Attention",
+    href: "/portal/attention",
+  },
+  {
     label: "Needs Review",
     href: "/portal/needs-review",
   },

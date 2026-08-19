@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useMemo, useState } from "react"
 import type { Deal, DealStage } from "@/lib/portal/types"
 
@@ -210,9 +211,12 @@ export function DealsPortfolio({
                         )}
 
                         <div>
-                          <div className="font-serif text-lg font-light">
+                          <Link
+                            href={`/portal/deals/${deal.id}`}
+                            className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                          >
                             {deal.propertyName}
-                          </div>
+                          </Link>
 
                           <div className="mt-1 text-xs font-light text-black/45">
                             {deal.propertyLocation}
