@@ -1,13 +1,11 @@
 import type { QueryExecutor } from './query-executor'
+import { withTransaction } from '../lib/neon-interactive'
 
-// Interactive transaction runner over the Neon client. Services that need
+// Interactive transaction runner over the Neon database. Services that need
 // conditional multi-statement logic (validate → mutate → record receipt) run
-// inside this; tests inject a fake runner instead. The client is imported
-// lazily so tests (and any caller not using the real runner) never trigger
-// db/client's module-load URL requirement.
+// inside this; tests inject a fake runner instead. The adapter is lazy (the
+// Pool and connection URL are resolved on first use), so importing this module
+// never requires a DATABASE_URL.
 export type TxRunner = <T>(cb: (tx: QueryExecutor) => Promise<T>) => Promise<T>
 
-export const neonTx: TxRunner = async (cb) => {
-  const { sql } = await import('./client')
-  return (sql as any).transaction(async (tx: any) => cb(tx as QueryExecutor))
-}
+export const neonTx: TxRunner = async (cb) => withTransaction(cb)
