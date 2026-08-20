@@ -1,28 +1,37 @@
-import { neon } from '@neondatabase/serverless'
+import { sql } from '../db/client'
 import type { QueryExecutor } from '../db/query-executor'
 
 // ---------------------------------------------------------------------------
-// Handle to the workflow engine's own Postgres database.
+// Workflow engine persistence handle — SAME Neon database as CulebraLuxe.
 //
-// The engine persistence layer is intentionally separate from the CulebraLuxe
-// schema. If the engine database is not configured, the Portal renders a
-// setup/empty state rather than failing.
+// CTO topology: ONE database hosts both the application tables and the engine
+// tables. The code boundary is unchanged (the engine still knows nothing about
+// deal/offer/property/person). The engine expects `sql.begin(cb)`; Neon exposes
+// `sql.transaction(cb)`, so this module adapts that single seam.
 // ---------------------------------------------------------------------------
 
-const engineUrl = process.env.WORKFLOW_ENGINE_DATABASE_URL
-
-let cached: ReturnType<typeof neon> | null = null
+const engineHandle = (() => {
+  const q = sql as any
+  if (typeof q.begin !== 'function') {
+    q.begin = (cb: (tx: QueryExecutor) => Promise<unknown>) =>
+      q.transaction(async (tx: any) => cb(tx as QueryExecutor))
+  }
+  return q
+})()
 
 export function engineConfigured(): boolean {
-  return Boolean(engineUrl)
+  // Shared database: the engine is always configured when the app is.
+  return true
 }
 
 export function engineSql(): QueryExecutor {
-  if (!engineUrl) {
-    throw new Error(
-      'Workflow engine database is not configured (WORKFLOW_ENGINE_DATABASE_URL).',
-    )
-  }
-  if (!cached) cached = neon(engineUrl)
-  return cached as unknown as QueryExecutor
+  return engineHandle as QueryExecutor
+}
+
+export function isMissingRelation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === '42P01'
+  )
 }

@@ -1,0 +1,399 @@
+# Workflow XML Model — RE_supermodel
+
+Status: **CRM-14E — XML RE_SUPERMODEL**. The XML definition format is the
+authoritative source for workflow definitions. The workflow engine remains a
+generic, domain-neutral runtime.
+
+```
+XML source
+  ↓
+generic XML parser  (workflow_app/xml/mini-xml.ts + xml-parser.ts)
+  ↓
+ProcessGraph
+  ↓
+generic validator   (workflow_app/xml/graph-validator.ts)
+  ↓
+versioned process_definitions row in Neon  (upsertProcessDefinition)
+  ↓
+workflow_engine execution
+```
+
+Future:
+
+```
+visual editor
+  ↕  same XML source format
+  ↓
+parser → ProcessGraph → deploy → engine
+```
+
+---
+
+## 1. Architectural decisions (re-stated)
+
+1. **XML is the authoritative source format** for workflow definitions.
+2. `ProcessGraph` remains the engine's internal/runtime representation.
+3. XML parses/validates into `ProcessGraph`.
+4. **The XML node id IS the workflow state identity.**
+5. Human-readable `label` is presentation metadata for that same state.
+6. No second CulebraLuxe workflow-state enum/mapping layer exists.
+7. `deal.stage` remains a separate coarse canonical CRM state, changed only by
+   explicit application commands.
+8. SME/responsibility roles remain the same conceptual model already used by
+   `workflow_app`; XML `responsibility` values are **hints** resolved by
+   `workflow_app` to actual participants/users.
+9. `workflow_engine` is completely domain-neutral and unchanged at runtime.
+10. Simple cases take a short path; complex cases activate additional branches
+    through the same model. Jurisdiction is never engine behavior.
+
+---
+
+## 2. Generic XML grammar
+
+The grammar is deliberately small and generic. There are **no domain-specific
+tags** (no `deal`, `offer`, `inspection`, `appraisal`, `CRIM`, `Florida`,
+`PuertoRico`, `notario`). Domain concepts appear only as node `id`s, `label`s,
+`responsibility` values, process variables, and conditions.
+
+### Root
+
+| Element | Attributes | Meaning |
+|---|---|---|
+| `process-definition` | `key` (req), `version` (req int>0), `name` (req), `description` (opt) | Deployment identity + metadata. |
+
+### Node elements (exactly one `start-state`; all ids unique)
+
+| Element | Attributes | Maps to `NodeDefinition` |
+|---|---|---|
+| `start-state` | `id`, `label`, `description` | `type: 'start'` |
+| `state` | `id`, `label`, `description` | `type: 'state'` (passthrough) |
+| `task-node` | `id`, `label`, `description`, `responsibility`, `priority`, `form-key` | `type: 'task'`; `responsibility` → `responsibility` + `candidateGroups: [responsibility]` |
+| `command-node` | `id`, `label`, `description`, `command-type` (req), `transition`, `responsibility` | `type: 'command'`; `commandType`, `transition` (success transition) |
+| `decision` | `id`, `label`, `description`, `refresh-facts` | `type: 'decision'`; child `<on/>` → `decisions` |
+| `fork` | `id`, `label`, `description` | `type: 'fork'`; child `<transition required/>` → branches |
+| `join` | `id`, `label`, `description` | `type: 'join'` |
+| `timer` | `id`, `label`, `description`, `due-at`, `due-at-variable`, `on-fire` | `type: 'timer'`; `timer: { dueAt?, dueAtVariable?, transition? }` |
+| `end-state` | `id`, `label`, `description`, `outcome` | `type: 'end'`; `outcome` ∈ `completed|cancelled|failed|conflict` |
+
+### Child elements
+
+| Element | Parent | Attributes | Maps to |
+|---|---|---|---|
+| `transition` | most node types | `name` (req), `to` (req), `condition` (opt), `required` (opt bool) | `TransitionDefinition` |
+| `on` | `decision` | `condition` (req), `transition` (req, a transition *name*) | one entry of `decisions` |
+| `display-order` / `node` | `process-definition` | `node ref` (req) | `ProcessGraph.displayOrder` (portal timeline) |
+
+### Contract rules enforced by the parser (`xml-parser.ts`)
+
+- duplicate node ids → rejected
+- transition target that does not exist → rejected
+- unknown element / attribute / non-empty text content → rejected explicitly
+- more than one `start-state`, or none → rejected
+- invalid `version` / `priority` / `outcome` / `refresh-facts` / `required` → rejected
+- labels, descriptions, and responsibility metadata are preserved
+- `display-order` refs must exist
+
+### Contract rules enforced by the validator (`graph-validator.ts`)
+
+The validator operates on **ProcessGraph**, not XML, so any future authoring
+format (JSON, YAML, a visual editor) reuses it. It rejects only structures the
+engine cannot run plus unambiguous authoring errors:
+
+- exactly one start node; `startNodeId` points to it
+- every transition target exists; no duplicate transition names on a node
+- `command` nodes require `commandType` and a success transition
+- `decision` nodes require transitions and every `<on>` rule must reference a
+  declared transition name
+- `timer` nodes require `due-at` or `due-at-variable` and a resume transition
+- `end` nodes require a valid `outcome`
+- cycles are allowed (blocker loops are intentional — the engine handles them)
+
+The validator deliberately does **not** invent stylistic constraints.
+
+---
+
+## 3. XML → ProcessGraph mapping (exact)
+
+Given a node element `<E id="x" label="L" description="D" ...>`:
+
+```
+id                 -> NodeDefinition.id            (state identity)
+label              -> NodeDefinition.name          (presentation label)
+description        -> NodeDefinition.description
+responsibility     -> NodeDefinition.responsibility
+                     (task-node also -> candidateGroups:[responsibility])
+command-type       -> NodeDefinition.commandType
+transition (attr)  -> NodeDefinition.transition    (command success transition)
+refresh-facts      -> NodeDefinition.refreshFacts
+due-at             -> NodeDefinition.timer.dueAt
+due-at-variable    -> NodeDefinition.timer.dueAtVariable
+on-fire            -> NodeDefinition.timer.transition
+outcome            -> NodeDefinition.outcome
+<transition/>      -> NodeDefinition.transitions[]
+<on/>              -> NodeDefinition.decisions[]
+```
+
+`ProcessGraph = { startNodeId, nodes, displayOrder? }`.
+
+---
+
+## 4. State identity + label contract (Story 116)
+
+Every node may carry:
+
+- `id` — stable machine/business workflow identity (the XML node id **is** the
+  state)
+- `label` — human-readable UI label
+- `description` — optional explanatory copy
+
+Example:
+
+```xml
+<task-node id="title_cure" label="Resolve Title Issues" responsibility="title_company"/>
+```
+
+The Portal read model exposes `node id`, `node label`, `node description`, and
+`node responsibility` **directly from the deployed definition graph**. There is
+no `PortalWorkflowState`, no `CulebraWorkflowState`, no translation table, and
+no giant switch mapping for workflow node names.
+
+`deal.stage` remains independent and changes only via explicit application
+commands (`deal.set_stage_under_contract`, `deal.set_stage_closed`, ...).
+
+---
+
+## 5. Responsibility / SME contract (Story 117)
+
+XML may declare one of the abstract business-role hints:
+
+```
+brokerage  buyer  seller  lender  inspector  appraiser
+notario    title_company  other_sme
+```
+
+These are hints. `workflow_app/responsibility.ts` resolves them to an
+operational owner class and, where relevant, a `deal_participant.role_label`
+used to find the actual responsible SME. The engine never resolves application
+identity — it only carries the hint (and mirrors it into `candidateGroups` on
+task nodes for human-task candidates).
+
+Important distinction preserved:
+
+```
+deal owner / accountable agent   !=   current task responsible SME
+```
+
+No second SME taxonomy was introduced.
+
+---
+
+## 6. RE_supermodel — text diagram
+
+```
+offer_accepted
+      │
+      ▼
+pns_preparation ──cancel──► transaction_cancelled (cancelled)
+      │ prepared
+      ▼
+pns_executed ──cancel──► transaction_cancelled
+      │ executed
+      ▼
+mark_under_contract (command: deal.set_stage_under_contract)
+      │
+      ▼
+under_contract
+      │
+      ▼
+fork_tracks  (10 branches, all required; optional tracks gated by decisions)
+  ├── title_work ──issue──► title_blocker ──resolved──► title_work
+  ├── tax_clearance ──issue──► tax_blocker ──resolved──► tax_clearance
+  ├── funds_ready ──issue──► funds_blocker ──resolved──► funds_ready
+  ├── closing_documents ──issue──► closing_documents_blocker
+  ├── inspection_applicable? ──► inspection ──issue──► inspection_blocker
+  ├── financing_applicable? ──► financing ──fail──► financing_failed (failed)
+  ├── appraisal_applicable? ──► appraisal ──issue──► appraisal_blocker
+  ├── insurance_applicable? ──► insurance ──issue──► insurance_blocker
+  ├── survey_applicable? ──► survey ──issue──► survey_blocker
+  └── hoa_applicable? ──► hoa_clearance ──issue──► hoa_blocker
+      (each '..._applicable?' decision routes "not applicable" straight to the join)
+      │
+      ▼
+join_tracks
+      │
+      ▼
+closing_readiness_gate (decision: closingConfirmationRequired == true)
+      │ confirm (when required)                    │ ready (default)
+      ▼                                            ▼
+closing_readiness ──► ready_to_close        ready_to_close
+(final brokerage confirmation)
+                                                       │
+                                                       ▼
+                                                 closing_schedule (fork)
+                                  ┌────────────────┴─────────────────┐
+                                  │ closing (required)               │ deadline (optional)
+                                  ▼                                  ▼
+                            closing ──closed──►                closing_deadline_applicable?
+                                  │ mark_closed                      │ monitor
+                                  ▼                                  ▼
+                            closed_state                        closing_date_timer
+                                  │                              │ fire (date passed)
+                                  ▼                              ▼
+                            closing_schedule_join            closing_date_escalation
+                                  │                       ┌─────┴──────┐
+                                  │                       │ extend     │ proceed
+                                  ▼                       ▼            │
+                            post_closing              set_closing_date  │
+                                  │                   (reschedule)      │
+                                  ▼                       └──► timer ──┘
+                            recording_applicable?
+                                  │ run                    │ skip
+                                  ▼                        ▼
+                            recording ──issue──► recording_blocker ──► post_closing_complete
+                                  │ done
+                                  ▼
+                            post_closing_complete (completed)
+```
+
+Terminals:
+
+- `post_closing_complete` — completed
+- `transaction_cancelled` — cancelled
+- `transaction_failed` — failed
+- `financing_failed` — failed
+
+---
+
+## 7. Simple cash path (Story 120)
+
+A clean cash transaction flows through the **same** supermodel without any
+placeholder work:
+
+```
+Offer Accepted → P&S Preparation → P&S Executed → Under Contract
+→ Title/Legal → Tax/Municipal (CRIM) clearance → Funds Ready → Closing Documents
+→ (inspection/financing/appraisal/insurance/survey/HOA all "not applicable" → join)
+→ Closing Readiness (fact-gated) → Ready to Close → Closing → Closed
+→ Recording/Registry follow-up (if requiresRegistryFollowup)
+```
+
+Because each optional track is gated by an applicability decision that routes
+"not applicable" straight to the join, **no financing/appraisal/inspection/
+HOA/survey/insurance task is ever created** for a simple case. This is proven
+by scenario A in `workflow_app/tests/re-supermodel.test.ts`.
+
+## 8. Complexity paths (Story 121)
+
+Expressible without engine changes: inspection issue/repair, title defect/cure,
+financing failure, appraisal gap, closing-date extension, tax/CRIM blocker,
+HOA issue, survey issue, insurance blocker, funds-not-ready, and post-closing
+recording/registry follow-up. Each is represented as a blocker loop
+(`<track>` → issue → `<track>_blocker` → resolved → back) or a failure/terminal
+edge.
+
+## 9. Jurisdiction / configuration model (Story 119)
+
+Operating differences are expressed **only as facts/capabilities** supplied by
+`workflow_app`, never as jurisdiction-encoded engine behavior:
+
+| Fact | Meaning |
+|---|---|
+| `closingAgentRole` | which closing professional (e.g. `notario` vs `title_company`) |
+| `requiresNotario` | notary/closing professional required |
+| `requiresTitleCompany` | title company work required |
+| `requiresCrimClearance` | CRIM clearance required (PR/Culebra) |
+| `requiresRegistryFollowup` | post-closing registry/recording follow-up |
+| `requiresHoaClearance` | HOA/condo clearance required |
+| `requiresSurvey` | survey required |
+| `financingApplicable` | financing branch active (bool/null) |
+| `appraisalApplicable` | appraisal branch active (bool/null) |
+| `inspectionApplicable` | inspection branch active (bool/null) |
+| `insuranceApplicable` | insurance branch active (bool/null) |
+| `closingConfirmationRequired` | optional final brokerage confirmation |
+| `closingDateScheduled` / `closingDate` | closing-date monitor fact/date |
+
+CulebraLuxe currently supplies the PR/Culebra facts/config. Florida material is
+a complexity reference/stress model, not the current production jurisdiction.
+
+## 10. Appraisal independence (Story 123)
+
+`appraisalApplicable` is independent of `financingApplicable`:
+
+- cash + `appraisalApplicable` ⇒ appraisal runs, financing does not (scenario C)
+- financed + `appraisalApplicable=false` ⇒ financing runs, appraisal does not
+  (scenario D)
+
+Neither "financed ⇒ appraisal" nor "cash ⇒ no appraisal" is encoded.
+
+## 11. Closing readiness (Story 124 / 136)
+
+Eligibility is structural, never a magic boolean. The fork/join already
+guarantees every applicable required obligation is cleared/waived/resolved
+before `closing_readiness_gate` is reached. The gate then only adds the final
+brokerage confirmation when the `closingConfirmationRequired` fact is set;
+otherwise it proceeds straight to `ready_to_close`. The confirmation cannot
+override blockers because it comes AFTER the join. (Story 135/136 improved
+this: the `closingReadinessVerified` boolean and its command were removed as the
+wrong semantic shape — confirmation is a task, not a persisted fact.)
+
+## 12. P&S / closing date semantics (Story 122)
+
+`closing_date_timer` uses `dueAtVariable="closingDate"` (the canonical deal
+closing date). If the date is amended/extended, `closing_date_escalation` →
+`deal.set_closing_date` → the timer reschedules on the **same** instance; the
+workflow never restarts because a date changed (scenario I). `deal.stage`
+closing is a separate command.
+
+## 13. Post-closing (Story 125)
+
+`mark_closed` fires `deal.set_stage_closed` (deal.stage becomes closed) while
+the workflow continues through `post_closing` → `recording_applicable` →
+`recording` (registry/recording follow-up) → `post_closing_complete`. Workflow
+completion is not collapsed into `deal.stage`.
+
+---
+
+## 14. Generic deployment pipeline (Story 127)
+
+Canonical command (created but **not executed** in CRM-14E — nothing is
+deployed to Neon):
+
+```sh
+node_modules/.bin/tsx workflow_app/scripts/deploy-process-definition.ts \
+  workflow_app/definitions/RE_supermodel-v1.xml
+```
+
+Pipeline: `XML → parse → validate → ProcessGraph → upsertProcessDefinition`.
+Versioned and idempotent; the same command deploys any future definition.
+
+## 15. Visual modeler future contract (Story 129)
+
+Documentation only — **no visual editor is built by CRM-14E.**
+
+```
+visual editor
+  ↕  (read/write the SAME XML source)
+  ↓
+parser (mini-xml → xml-parser)
+  ↓
+validator (graph-validator)
+  ↓
+deploy (upsertProcessDefinition)
+  ↓
+engine
+```
+
+The editor and the pipeline share one XML grammar, so the XML remains
+source-controlled, diffable, reviewable, and versioned. A future editor only
+needs to emit/read the grammar in section 2; no engine change is required.
+
+---
+
+## 16. Dependency / package requirement
+
+**No new package is required.** The repository had no XML parser dependency;
+Node has no built-in XML parser; a bounded, deterministic parser
+(`workflow_app/xml/mini-xml.ts`) was implemented for the controlled grammar.
+If full XML 1.0 conformance (DTDs, namespaces, arbitrary entity expansion) is
+ever needed, replace `mini-xml.ts` behind the same `parseXml` surface with a
+maintained parser such as `fast-xml-parser` or `sax`.

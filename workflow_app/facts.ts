@@ -1,11 +1,27 @@
 import { sql } from '../db/client'
 import { financingApplicableFromType } from './financing'
+import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 
-// Canonical DealWorkflowFacts projection for transaction-close-v1.
+// ---------------------------------------------------------------------------
+// Canonical DealWorkflowFacts projection for the RE_supermodel.
 //
 // Only the facts workflow decisions require. Canonical data only — no mock
-// data, no full row dumps. Financing applicability derives from the canonical
-// deal.financing_type fact, never from lender participant presence.
+// data, no full row dumps.
+//
+// Story 134 classification:
+//   A — derived from canonical data:
+//       financingApplicable (deal.financing_type), closingDate /
+//       closingDateScheduled (deal.closing_date)
+//   B — CulebraLuxe configuration default (configuration.ts):
+//       closingAgentRole, requiresNotario, requiresTitleCompany,
+//       requiresCrimClearance, requiresRegistryFollowup,
+//       inspectionApplicable, insuranceApplicable, requiresSurvey,
+//       requiresHoaClearance, closingConfirmationRequired
+//   C — unresolved (never invented; requires human/application resolution):
+//       appraisalApplicable (lender/buyer/seller request; independent of
+//       financing)
+//   D — not yet necessary for V1: none
+// ---------------------------------------------------------------------------
 
 export type DealWorkflowFacts = {
   dealId: string
@@ -35,8 +51,27 @@ export type DealWorkflowFacts = {
     personId: string | null
     userId: string | null
   }>
+
+  // Class A (derived)
   /** true = financed, false = cash, null = unknown. */
   financingApplicable: boolean | null
+  /** true when a canonical target closing date exists. */
+  closingDateScheduled: boolean
+
+  // Class B (CulebraLuxe configuration defaults)
+  closingAgentRole: string
+  requiresNotario: boolean
+  requiresTitleCompany: boolean
+  requiresCrimClearance: boolean
+  requiresRegistryFollowup: boolean
+  inspectionApplicable: boolean
+  insuranceApplicable: boolean
+  requiresSurvey: boolean
+  requiresHoaClearance: boolean
+  closingConfirmationRequired: boolean
+
+  // Class C (unresolved — never coerced to a boolean)
+  appraisalApplicable: boolean | null
 }
 
 export { financingApplicableFromType }
@@ -105,13 +140,30 @@ export async function getDealWorkflowFacts(
     `,
   ])
 
+  const cfg = CULEBRA_JURISDICTION_CONFIG
+  const closingDate = deal.closing_date
+
   return {
     dealId: deal.id,
     stage: deal.stage,
     listPrice: deal.list_price === null ? null : Number(deal.list_price),
     offerPrice: deal.offer_price === null ? null : Number(deal.offer_price),
-    closingDate: deal.closing_date,
+    closingDate,
     financingApplicable: financingApplicableFromType(deal.financing_type),
+    closingDateScheduled: closingDate !== null,
+    // Class B — Culebra operating defaults.
+    closingAgentRole: cfg.closingAgentRole,
+    requiresNotario: cfg.requiresNotario,
+    requiresTitleCompany: cfg.requiresTitleCompany,
+    requiresCrimClearance: cfg.requiresCrimClearance,
+    requiresRegistryFollowup: cfg.requiresRegistryFollowup,
+    inspectionApplicable: cfg.inspectionApplicable,
+    insuranceApplicable: cfg.insuranceApplicable,
+    requiresSurvey: cfg.requiresSurvey,
+    requiresHoaClearance: cfg.requiresHoaClearance,
+    closingConfirmationRequired: cfg.closingConfirmationRequired,
+    // Class C — unresolved; never invented.
+    appraisalApplicable: null,
     property: {
       id: deal.property_id,
       name: deal.property_name,

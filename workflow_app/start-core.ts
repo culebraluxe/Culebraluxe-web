@@ -3,10 +3,8 @@
 
 export type StartWorkflowDeps = {
   findActive: (dealId: string) => Promise<string | null>
-  readFacts: (
-    dealId: string,
-  ) => Promise<{ financingApplicable: boolean | null } | null>
-  start: (dealId: string, financingApplicable: boolean | null) => Promise<string>
+  readFacts: (dealId: string) => Promise<Record<string, any> | null>
+  start: (dealId: string, facts: Record<string, any>) => Promise<string>
 }
 
 export async function startWorkflowCore(
@@ -16,12 +14,10 @@ export async function startWorkflowCore(
   const existing = await deps.findActive(dealId)
   if (existing) return { instanceId: existing, started: false }
 
-  const facts = await deps.readFacts(dealId)
-  // Unknown financing applicability (null) stays null — never coerced to cash.
-  const financingApplicable = facts?.financingApplicable ?? null
+  const facts = (await deps.readFacts(dealId)) ?? {}
 
   try {
-    const instanceId = await deps.start(dealId, financingApplicable)
+    const instanceId = await deps.start(dealId, facts)
     return { instanceId, started: true }
   } catch (err) {
     if (isUniqueViolation(err)) {

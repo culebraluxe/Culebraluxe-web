@@ -1,27 +1,26 @@
 // ---------------------------------------------------------------------------
-// P&S closing-date timer reconciliation.
+// P&S closing-date timer reconciliation (Story 122 / 137).
 //
-// deal.closing_date is the canonical current P&S target closing date. When it
-// changes while transaction-close-v1 is active:
-//   - the SAME workflow instance continues (never terminated/restarted),
-//   - the closing-deadline timer is rescheduled idempotently,
-//   - the obsolete due_at is replaced (the old timer cannot later fire as
-//     though still authoritative).
+// The RE_supermodel's `closing_date_timer` node (in the XML) owns scheduling
+// the closing-deadline timer from the canonical `closingDate` fact. When that
+// canonical date changes while the instance is active, this seam RESCHEDULES
+// the instance's existing pending timer — the SAME workflow instance
+// continues, never terminated/restarted. No legal deadline is invented: if no
+// canonical closing date exists (or no timer has been scheduled yet), nothing
+// happens; the node schedules it when the workflow reaches the closing stage.
 //
-// No legal deadline is invented: if no canonical closing date exists, nothing
-// is scheduled.
+// This module is generic: it names no workflow node and no jurisdiction.
 // ---------------------------------------------------------------------------
 
 export type ClosingTimerDeps = {
   findPendingTimer: (
     instanceId: string,
   ) => Promise<{ jobId: string; dueAt: string } | null>
-  schedule: (instanceId: string, dueAt: Date) => Promise<string>
   reschedule: (jobId: string, dueAt: Date) => Promise<void>
 }
 
 export type ClosingTimerResult = {
-  action: 'scheduled' | 'rescheduled' | 'unchanged'
+  action: 'rescheduled' | 'unchanged'
   jobId: string | null
 }
 
@@ -32,17 +31,13 @@ export async function reconcileClosingTimerCore(
 ): Promise<ClosingTimerResult> {
   const existing = await deps.findPendingTimer(instanceId)
 
-  if (!closingDate) {
-    // No canonical date: leave any existing timer untouched, never invent one.
+  // No canonical date, or no timer scheduled yet (the node schedules it when
+  // the workflow reaches the closing stage): nothing to reschedule.
+  if (!closingDate || !existing) {
     return { action: 'unchanged', jobId: existing?.jobId ?? null }
   }
 
   const target = new Date(closingDate)
-  if (!existing) {
-    const jobId = await deps.schedule(instanceId, target)
-    return { action: 'scheduled', jobId }
-  }
-
   if (existing.dueAt === closingDate) {
     return { action: 'unchanged', jobId: existing.jobId }
   }
@@ -71,7 +66,7 @@ export async function reconcileClosingTimer(
         from jobs
         where process_instance_id = ${id}
           and status = 'pending'
-          and payload->>'kind' = 'closing_deadline'
+          and type = 'timer'
         limit 1
       `
       const r = rows[0]
@@ -79,14 +74,6 @@ export async function reconcileClosingTimer(
         ? { jobId: r.id as string, dueAt: r.due_at as string }
         : null
     },
-    schedule: async (id, dueAt) =>
-      engine().createJob({
-        processInstanceId: id,
-        type: 'timer',
-        dueAt,
-        payload: { kind: 'closing_deadline' },
-        maxAttempts: 5,
-      }),
     reschedule: async (jobId, dueAt) =>
       engine().rescheduleTimerJob({ jobId, newDueAt: dueAt, actor: 'system' }),
   })

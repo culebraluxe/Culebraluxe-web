@@ -2,9 +2,9 @@
 // V1 workflow reconciliation entrypoint.
 //
 // One idempotent application-level pass that:
-//   1. starts transaction-close-v1 for accepted-offer deals missing an instance,
-//   2. materializes missing operational tasks,
-//   3. reconciles canonical closing-date timers.
+//   1. starts the residential-transaction workflow for accepted-offer deals
+//      missing an instance,
+//   2. materializes missing operational tasks.
 //
 // Suitable later for a Vercel Cron, an admin action, or an operational worker.
 // Not a scheduler framework; no cron is configured here.
@@ -36,10 +36,10 @@ export async function reconcileWorkflowsCore(
 }
 
 export async function reconcileWorkflows(): Promise<ReconcileReport> {
-  const { reconcileTransactionWorkflows } = await import('./runtime')
+  const { reconcileResidentialTransactionWorkflows } = await import('./runtime')
   const { reconcileTaskMaterialization } = await import('./task-reconciliation')
   return reconcileWorkflowsCore({
-    startMissing: reconcileTransactionWorkflows,
+    startMissing: reconcileResidentialTransactionWorkflows,
     materializeTasks: reconcileTaskMaterialization,
   })
 }

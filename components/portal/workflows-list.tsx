@@ -83,15 +83,15 @@ export function WorkflowsList({
         <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
           <GitBranch className="mx-auto h-9 w-9 text-[#c6a15b]" />
           <h2 className="mt-5 font-serif text-2xl font-light text-[var(--portal-navy)]">
-            Workflow engine not configured
+            Workflow runtime not ready
           </h2>
           <p className="mx-auto mt-3 max-w-lg text-sm font-light leading-6 text-black/55">
-            The workflow engine runs in its own database, separate from the
-            CulebraLuxe schema. Set{" "}
+            The workflow runtime shares the CulebraLuxe database. Apply the
+            unified activation script (
             <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
-              WORKFLOW_ENGINE_DATABASE_URL
-            </code>{" "}
-            and apply the engine schema to enable transaction workflows.
+              db/manual/2026-08-20_v4_crm14_workflow_activation.sql
+            </code>
+            ) to enable transaction workflows.
           </p>
         </section>
       ) : summaries.length === 0 ? (

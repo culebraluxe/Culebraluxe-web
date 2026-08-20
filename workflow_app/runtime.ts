@@ -3,29 +3,24 @@ import { createApplicationPort } from './application-port'
 import { engineConfigured, engineSql } from './engine-client'
 import { getDealWorkflowFacts } from './facts'
 import {
-  TRANSACTION_CLOSE_V1_KEY,
-  TRANSACTION_CLOSE_V1_VERSION,
-} from './definitions/transaction-close-v1'
+  RESIDENTIAL_TRANSACTION_KEY,
+  RESIDENTIAL_TRANSACTION_VERSION,
+} from './workflow-config'
 import { startWorkflowCore } from './start-core'
 
 // ---------------------------------------------------------------------------
-// Workflow start boundary — the application-side operation that turns a real
-// accepted offer into a running transaction-close-v1 instance.
+// Workflow start boundary — turns an accepted-offer deal into a running
+// RE_supermodel instance. The definition topology lives ONLY in
+// workflow_app/definitions/RE_supermodel-v1.xml; this seam only names the
+// logical definition key/version and the deal subject.
 //
-// The CulebraLuxe DB (canonical) and the workflow engine DB (orchestration)
-// are separate databases, so "accept offer" and "start workflow" cannot be one
-// ACID transaction. Atomicity is NOT faked:
+//   accepted eligible offer/deal
+//     -> locate the approved RE_supermodel definition version
+//     -> start instance (subject_type='deal', subject_id=deal.id)
 //
-//   acceptOffer (app DB)   ──commit──►  startTransactionCloseWorkflow (engine DB)
-//                     ^                                 │
-//                     └──── recovery window ────────────┘
-//
-// The recoverable handoff is `reconcileTransactionWorkflows()`: it finds deals
-// with an accepted offer that have no active workflow instance and starts them
-// idempotently. The engine's `process_instances_definition_subject_active_unique`
-// partial unique index (migration 002) makes concurrent duplicate starts of the
-// SAME definition fail deterministically, while still allowing a different
-// workflow definition to be active for the same deal.
+// The CulebraLuxe DB (canonical) and the workflow engine DB (shared) cannot
+// make "accept offer" and "start workflow" one transaction, so the recoverable
+// handoff is `reconcileResidentialTransactionWorkflows()`.
 // ---------------------------------------------------------------------------
 
 export async function findActiveInstance(
@@ -39,22 +34,22 @@ export async function findActiveInstance(
     where pi.subject_type = 'deal'
       and pi.subject_id = ${dealId}
       and pi.status = 'active'
-      and pd.key = ${TRANSACTION_CLOSE_V1_KEY}
+      and pd.key = ${RESIDENTIAL_TRANSACTION_KEY}
     limit 1
   `
   return (rows[0]?.id as string | undefined) ?? null
 }
 
-export async function startTransactionCloseWorkflow(
+export async function startResidentialTransactionWorkflow(
   dealId: string,
 ): Promise<{ instanceId: string; started: boolean }> {
   return startWorkflowCore(dealId, {
     findActive: findActiveInstance,
     readFacts: async (id) => {
       const facts = await getDealWorkflowFacts(id)
-      return facts ? { financingApplicable: facts.financingApplicable } : null
+      return facts ? (facts as unknown as Record<string, any>) : null
     },
-    start: async (id, financingApplicable) => {
+    start: async (id, facts) => {
       if (!engineConfigured()) {
         throw new Error('Workflow engine database is not configured.')
       }
@@ -62,10 +57,10 @@ export async function startTransactionCloseWorkflow(
         app: createApplicationPort(),
       })
       const { processInstanceId } = await engine.startProcess({
-        definitionKey: TRANSACTION_CLOSE_V1_KEY,
-        version: TRANSACTION_CLOSE_V1_VERSION,
+        definitionKey: RESIDENTIAL_TRANSACTION_KEY,
+        version: RESIDENTIAL_TRANSACTION_VERSION,
         startedBy: 'system',
-        variables: { financingApplicable },
+        variables: facts,
         subject: { subjectType: 'deal', subjectId: id },
       })
       return processInstanceId
@@ -73,7 +68,7 @@ export async function startTransactionCloseWorkflow(
   })
 }
 
-export async function reconcileTransactionWorkflows(): Promise<string[]> {
+export async function reconcileResidentialTransactionWorkflows(): Promise<string[]> {
   const { sql } = await import('../db/client')
   const dealRows = await sql`
     select distinct o.deal_id
@@ -84,7 +79,7 @@ export async function reconcileTransactionWorkflows(): Promise<string[]> {
   for (const row of dealRows as Array<{ deal_id: string }>) {
     const existing = await findActiveInstance(row.deal_id)
     if (!existing) {
-      const { instanceId } = await startTransactionCloseWorkflow(row.deal_id)
+      const { instanceId } = await startResidentialTransactionWorkflow(row.deal_id)
       started.push(instanceId)
     }
   }

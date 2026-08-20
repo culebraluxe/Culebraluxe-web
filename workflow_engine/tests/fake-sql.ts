@@ -219,6 +219,10 @@ export class FakeSql {
       const pid = params[0];
       return st.jobs.filter((r) => r.process_instance_id === pid && ['pending', 'locked'].includes(r.status)).map((r) => ({ id: r.id }));
     }
+    if (t.startsWith('select * from jobs where token_id =') && t.includes("status in ('pending', 'locked')")) {
+      const tid = params[0];
+      return st.jobs.filter((r) => r.token_id === tid && ['pending', 'locked'].includes(r.status));
+    }
     if (t.startsWith('select * from jobs where id =') && t.includes('for update')) {
       const row = st.jobs.find((r) => r.id === params[0]);
       return row ? [row] : [];

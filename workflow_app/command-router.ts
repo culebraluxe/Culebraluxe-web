@@ -12,13 +12,12 @@ import {
 import { acceptOffer } from '../db/offer-acceptance'
 import { setDealStage } from '../db/deal-stage'
 import { setDealFinancingType } from '../db/deal-financing'
+import { setDealClosingDate } from '../db/deal-closing-date'
 
 // ---------------------------------------------------------------------------
-// Command router for transaction-close-v1.
-//
-// Existing canonical services are routed through here. Commands without a safe
-// CulebraLuxe service would be declared as gaps; in this tranche the offer and
-// deal-stage gaps are closed with the real canonical services below.
+// Command router — maps workflow command types to canonical application
+// services. The engine never imports this file; the application remains
+// authoritative for authority and domain validation.
 // ---------------------------------------------------------------------------
 
 export type GapContract = {
@@ -136,6 +135,25 @@ export async function routeCommand(
       return setDealFinancingType({
         dealId,
         financingType,
+        commandId: envelope.commandId,
+      })
+    }
+    case 'deal.set_closing_date': {
+      const { closingDate } = envelope.input as { closingDate?: string }
+      const dealId = envelope.aggregateId
+      if (!dealId || !closingDate) {
+        return {
+          commandId: envelope.commandId,
+          outcome: 'validation_failure',
+          emittedEvents: [],
+          aggregateId: dealId ?? null,
+          message: 'deal.set_closing_date requires dealId and a closingDate.',
+          replayed: false,
+        }
+      }
+      return setDealClosingDate({
+        dealId,
+        closingDate,
         commandId: envelope.commandId,
       })
     }

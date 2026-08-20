@@ -65,6 +65,8 @@ export interface ProcessDefinition {
 export interface ProcessGraph {
   nodes: Record<string, NodeDefinition>;
   startNodeId: string;
+  /** Optional ordered node ids for presentation (e.g. portal timeline). */
+  displayOrder?: string[];
 }
 
 /** Minimal timer/deadline construct on a `timer` node. */
@@ -93,6 +95,13 @@ export interface NodeDefinition {
     | string;
   name?: string;
   description?: string;
+  /**
+   * Abstract responsibility hint (free string). The engine treats it as
+   * presentation/resolution metadata and never resolves it. On task nodes it
+   * is mirrored into `candidateGroups` for human-task candidate assignment.
+   * The embedding application resolves hints to actual participants.
+   */
+  responsibility?: string;
   transitions?: TransitionDefinition[];
   formKey?: string;
   candidateGroups?: string[];

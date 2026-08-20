@@ -282,6 +282,53 @@ test('optional branch still active at join release is skipped (and its task obso
   assert.equal(events(fake, 'token.joined').length, 1);
 });
 
+test('optional timer branch skipped at join cancels its pending job', async () => {
+  const graph = {
+    startNodeId: 'start',
+    nodes: {
+      start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'f' }] },
+      f: {
+        id: 'f',
+        type: 'fork',
+        transitions: [
+          { name: 'req', to: 'taskReq' },
+          { name: 'opt', to: 'wait', required: false },
+        ],
+      },
+      taskReq: { id: 'taskReq', type: 'task', name: 'Req', transitions: [{ name: 'done', to: 'j' }] },
+      wait: {
+        id: 'wait',
+        type: 'timer',
+        timer: { dueAtVariable: 'deadline', transition: 'fire' },
+        transitions: [{ name: 'fire', to: 'j' }],
+      },
+      j: { id: 'j', type: 'join', transitions: [{ name: 'go', to: 'end' }] },
+      end: { id: 'end', type: 'end' },
+    },
+  };
+
+  const fake = new FakeSql();
+  fake.seedDefinition('g', 1, graph);
+  const engine = new WorkflowEngine(fake.sql, { evaluate: stubEvaluator });
+
+  await engine.startProcess({
+    definitionKey: 'g',
+    startedBy: 'x',
+    variables: { deadline: '2099-01-01T00:00:00.000Z' },
+  });
+
+  // The optional timer branch scheduled a pending timer job.
+  const timerJob = fake.store.jobs.find((j) => j.type === 'timer')!;
+  assert.equal(timerJob.status, 'pending');
+
+  const reqTask = fake.store.tasks.find((t) => t.name === 'Req')!;
+  await engine.completeTask({ taskId: reqTask.id, userId: 'w', transitionName: 'done' });
+
+  // The join skipped the optional branch; its timer job must no longer be pending.
+  assert.equal(timerJob.status, 'cancelled');
+  assert.equal(events(fake, 'job.cancelled').length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // Story 9 — join event payload
 // ---------------------------------------------------------------------------

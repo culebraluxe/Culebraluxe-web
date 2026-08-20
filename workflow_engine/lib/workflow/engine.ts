@@ -1287,6 +1287,29 @@ export class WorkflowEngine {
           data: { reason: 'branch skipped' },
         });
       }
+
+      // Cancel any open job still anchored to the skipped branch. A timer (or
+      // other job) whose token can no longer legally execute must not remain
+      // operationally pending.
+      const openJobs = await tx`
+        SELECT * FROM jobs
+        WHERE token_id = ${row.id} AND status IN ('pending', 'locked')
+      `;
+      for (const j of openJobs) {
+        await tx`
+          UPDATE jobs
+          SET status = 'cancelled', locked_by = null, locked_until = null
+          WHERE id = ${j.id}
+        `;
+        await this._event(tx, {
+          processInstanceId: instance.id,
+          tokenId: row.id,
+          jobId: j.id,
+          eventType: 'job.cancelled',
+          actor,
+          data: { type: j.type, reason: 'branch skipped' },
+        });
+      }
     }
 
     const branchRows = await tx`SELECT id FROM tokens WHERE parent_token_id = ${parentId}`;

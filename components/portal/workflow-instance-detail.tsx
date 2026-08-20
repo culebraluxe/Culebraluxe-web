@@ -9,18 +9,13 @@ import {
 } from "lucide-react"
 
 import type { WorkflowDetail } from "@/workflow_app/read-service"
-import {
-  transactionCloseV1Graph,
-  TRANSACTION_CLOSE_V1_ORDER,
-  TRANSACTION_MILESTONE_REQUIRED,
-} from "@/workflow_app/definitions/transaction-close-v1"
-import { responsibilityFor } from "@/workflow_app/responsibility"
-import { deadlineFor } from "@/workflow_app/deadlines"
+import { resolveResponsibility } from "@/workflow_app/responsibility"
+import { deadlineLabelFor } from "@/workflow_app/deadlines"
 
-function nodeLabel(id: string) {
-  const node = transactionCloseV1Graph.nodes[id]
-  return node?.name ?? id.replace(/_/g, " ")
-}
+// Story 128 — this view is fully definition-driven. Node labels, descriptions,
+// responsibility hints, optionality, and timeline order all come from the
+// deployed definition (authored in XML). There is no hardcoded workflow-state
+// mapping or translation table in the Portal layer.
 
 function statusPill(detail: WorkflowDetail) {
   if (detail.outcome === "cancelled") return { label: "Cancelled", cls: "bg-black/5 text-black/55" }
@@ -33,8 +28,8 @@ function statusPill(detail: WorkflowDetail) {
 
 export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
   const pill = statusPill(detail)
-  const completed = new Set(detail.completedMilestones)
-  const active = new Set(detail.activeMilestones)
+  const completed = new Set(detail.completedNodes)
+  const active = new Set(detail.currentNodes)
   const blocked = detail.currentNodes.filter((n) => n.endsWith("_blocker"))
 
   return (
@@ -68,17 +63,20 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
       </header>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        {/* Timeline */}
+        {/* Timeline (definition display-order) */}
         <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
           <h2 className="font-serif text-xl font-light text-[var(--portal-navy)]">Progress</h2>
           <ol className="mt-6 space-y-0">
-            {TRANSACTION_CLOSE_V1_ORDER.map((id, i) => {
-              const isMilestone = TRANSACTION_MILESTONE_REQUIRED[id] !== undefined
+            {(detail.displayOrder.length > 0
+              ? detail.displayOrder
+              : detail.currentNodes
+            ).map((id, i, list) => {
               const done = completed.has(id)
-              const isActive = active.has(id) || detail.currentNodes.includes(id)
+              const isActive = active.has(id)
+              const optional = detail.optionalNodes.includes(id)
               return (
                 <li key={id} className="relative flex gap-4 pb-6 last:pb-0">
-                  {i < TRANSACTION_CLOSE_V1_ORDER.length - 1 && (
+                  {i < list.length - 1 && (
                     <span className="absolute left-[11px] top-6 h-full w-px bg-[var(--portal-border)]" />
                   )}
                   {done ? (
@@ -90,16 +88,21 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
                   )}
                   <div className="min-w-0">
                     <div className="text-sm font-normal text-[var(--portal-navy)]">
-                      {nodeLabel(id)}
-                      {isMilestone && !TRANSACTION_MILESTONE_REQUIRED[id] && (
+                      {detail.nodeLabels[id] ?? id.replace(/_/g, " ")}
+                      {optional && (
                         <span className="ml-2 text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
                           optional
                         </span>
                       )}
                     </div>
                     <div className="text-xs font-light text-black/50">
-                      {isMilestone ? deadlineFor(id).label : ""}
+                      {deadlineLabelFor(id) ?? ""}
                     </div>
+                    {detail.nodeDescriptions[id] && (
+                      <div className="mt-0.5 max-w-md text-xs font-light leading-5 text-black/45">
+                        {detail.nodeDescriptions[id]}
+                      </div>
+                    )}
                   </div>
                 </li>
               )
@@ -112,13 +115,17 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
           <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
             <h2 className="font-serif text-xl font-light text-[var(--portal-navy)]">Milestones</h2>
             <ul className="mt-4 space-y-2">
-              {detail.activeMilestones.map((id) => (
+              {detail.activeMilestoneNodeIds.map((id) => (
                 <li key={id} className="flex items-center justify-between text-sm font-light">
-                  <span className="text-[var(--portal-navy)]">{nodeLabel(id)}</span>
-                  <span className="text-xs text-black/50">{responsibilityFor(id).owner}</span>
+                  <span className="text-[var(--portal-navy)]">
+                    {detail.nodeLabels[id] ?? id.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-xs text-black/50">
+                    {resolveResponsibility(detail.nodeResponsibility[id]).owner}
+                  </span>
                 </li>
               ))}
-              {detail.activeMilestones.length === 0 && detail.outcome === null && (
+              {detail.activeMilestoneNodeIds.length === 0 && detail.outcome === null && (
                 <li className="text-sm font-light text-black/45">No active milestone.</li>
               )}
             </ul>
@@ -138,7 +145,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
               <div className="flex justify-between">
                 <dt>Blockers</dt>
                 <dd className={blocked.length > 0 ? "text-amber-700" : ""}>
-                  {blocked.map(nodeLabel).join(", ") || "—"}
+                  {blocked.map((n) => detail.nodeLabels[n] ?? n).join(", ") || "—"}
                 </dd>
               </div>
             </dl>
@@ -151,7 +158,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
                 <li key={e.id} className="text-sm font-light">
                   <div className="text-[var(--portal-navy)]">{e.eventType}</div>
                   <div className="text-xs text-black/45">
-                    {e.nodeId ? `Node: ${nodeLabel(e.nodeId)} · ` : ""}
+                    {e.nodeId ? `Node: ${detail.nodeLabels[e.nodeId] ?? e.nodeId} · ` : ""}
                     {e.actor ?? ""}
                   </div>
                 </li>
