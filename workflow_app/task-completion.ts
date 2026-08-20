@@ -1,8 +1,3 @@
-import { WorkflowEngine } from '../workflow_engine/lib/workflow/engine'
-import { createApplicationPort } from './application-port'
-import { engineSql } from './engine-client'
-import { findWorkflowTaskId } from './correlation'
-
 // ---------------------------------------------------------------------------
 // Human-task completion seam (CRM-14I / Story 147).
 //
@@ -18,6 +13,10 @@ import { findWorkflowTaskId } from './correlation'
 // engine task via the correlation table and completes it through the engine.
 // The transition name is taken from the deployed XML; when omitted, the engine
 // uses the node's first declared transition (the normal advancement path).
+//
+// The DB/engine wiring is imported dynamically so `completeWorkflowTaskCore`
+// stays importable in unit tests without a database (same pattern as
+// task-materialization.ts and closing-timer.ts).
 // ---------------------------------------------------------------------------
 
 export type CompleteWorkflowTaskInput = {
@@ -27,21 +26,47 @@ export type CompleteWorkflowTaskInput = {
   formData?: Record<string, any>
 }
 
-export async function completeWorkflowTask(
+export type CompleteWorkflowTaskDeps = {
+  findWorkflowTaskId: (applicationTaskId: string) => Promise<string | null>
+  completeEngineTask: (
+    workflowTaskId: string,
+    input: CompleteWorkflowTaskInput,
+  ) => Promise<void>
+}
+
+// Pure, testable core. The DB/engine wiring lives in `completeWorkflowTask`.
+export async function completeWorkflowTaskCore(
   input: CompleteWorkflowTaskInput,
-): Promise<void> {
-  const workflowTaskId = await findWorkflowTaskId(input.applicationTaskId)
+  deps: CompleteWorkflowTaskDeps,
+): Promise<{ workflowTaskId: string }> {
+  const workflowTaskId = await deps.findWorkflowTaskId(input.applicationTaskId)
   if (!workflowTaskId) {
     throw new Error(
       `No workflow task correlates to application task ${input.applicationTaskId}`,
     )
   }
+  await deps.completeEngineTask(workflowTaskId, input)
+  return { workflowTaskId }
+}
 
-  const engine = new WorkflowEngine(engineSql(), { app: createApplicationPort() })
-  await engine.completeTask({
-    taskId: workflowTaskId,
-    userId: input.userId,
-    formData: input.formData ?? {},
-    transitionName: input.transitionName,
+export async function completeWorkflowTask(
+  input: CompleteWorkflowTaskInput,
+): Promise<void> {
+  const { findWorkflowTaskId } = await import('./correlation')
+  const { engineSql } = await import('./engine-client')
+  const { createApplicationPort } = await import('./application-port')
+  const { WorkflowEngine } = await import('../workflow_engine/lib/workflow/engine')
+
+  await completeWorkflowTaskCore(input, {
+    findWorkflowTaskId,
+    completeEngineTask: async (workflowTaskId, i) => {
+      const engine = new WorkflowEngine(engineSql(), { app: createApplicationPort() })
+      await engine.completeTask({
+        taskId: workflowTaskId,
+        userId: i.userId,
+        formData: i.formData ?? {},
+        transitionName: i.transitionName,
+      })
+    },
   })
 }

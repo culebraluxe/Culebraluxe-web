@@ -59,3 +59,12 @@ test('no canonical closing date invents nothing', async () => {
   assert.equal(res.action, 'unchanged')
   assert.equal(getTimer()!.jobId, 'job-1')
 })
+
+test('F. sequential extensions reuse the SAME timer job (no duplicate timer)', async () => {
+  const { deps, getTimer, calls } = makeDeps({ jobId: 'job-1', dueAt: '2026-09-01T00:00:00.000Z' })
+  await reconcileClosingTimerCore('inst-1', '2026-10-01T00:00:00.000Z', deps)
+  await reconcileClosingTimerCore('inst-1', '2026-11-01T00:00:00.000Z', deps)
+  assert.deepEqual(calls, ['reschedule', 'reschedule'])
+  assert.equal(getTimer()!.jobId, 'job-1')
+  assert.equal(getTimer()!.dueAt, '2026-11-01T00:00:00.000Z')
+})
