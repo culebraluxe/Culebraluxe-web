@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { ShowingActions } from "@/components/portal/write/showing-actions"
 import type { Showing, ShowingStatus } from "@/db/showings"
 
 function statusLabel(status: ShowingStatus) {
@@ -86,6 +87,9 @@ function ShowingRow({ showing }: { showing: Showing }) {
             <div>Cancelled {showing.cancelledAtLabel}</div>
           )}
         </div>
+      </div>
+      <div className="mt-3">
+        <ShowingActions showingId={showing.id} status={showing.status} />
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ import type {
   TaskKind,
   TaskStatus,
 } from '../lib/crm-types'
+import { PortalWriteError } from '../lib/portal-write-error'
 import type { QueryExecutor } from './query-executor'
 
 type TaskRow = {
@@ -81,21 +82,27 @@ export async function createTask(
   execute: QueryExecutor = sql,
 ): Promise<Task> {
   if (!input.title.trim()) {
-    throw new Error('Task title is required.')
+    throw new PortalWriteError('validation', 'Task title is required.')
   }
 
   if (!input.personId && !input.propertyId && !input.dealId) {
-    throw new Error('A task requires person, property, or deal context.')
+    throw new PortalWriteError(
+      'validation',
+      'A task requires person, property, or deal context.',
+    )
   }
 
   const priority = input.priority ?? 0
   if (!Number.isInteger(priority) || priority < 0 || priority > 32767) {
-    throw new Error('Task priority must be an integer between 0 and 32767.')
+    throw new PortalWriteError(
+      'validation',
+      'Task priority must be an integer between 0 and 32767.',
+    )
   }
 
   const taskKind = input.taskKind ?? 'human'
   if (taskKind !== 'human' && taskKind !== 'system') {
-    throw new Error('Task kind must be human or system.')
+    throw new PortalWriteError('validation', 'Task kind must be human or system.')
   }
 
   const dueAt =

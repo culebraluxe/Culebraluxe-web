@@ -1,3 +1,4 @@
+import { NeedsReviewActions } from "@/components/portal/write/needs-review-actions"
 import type { NeedsReviewItem } from "@/db/needs-review"
 
 function requestTypeLabel(
@@ -166,9 +167,12 @@ export function NeedsReview({
                   </div>
 
                 </div>
+
               </div>
+
+              <NeedsReviewActions submissionId={item.id} />
             </article>
-          ))}
+            ))}
         </div>
       )}
     </div>

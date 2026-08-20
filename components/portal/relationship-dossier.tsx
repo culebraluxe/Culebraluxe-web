@@ -1,5 +1,8 @@
 import Link from "next/link"
 
+import { InteractionLogForm } from "@/components/portal/write/interaction-log"
+import { PersonActions } from "@/components/portal/write/person-actions"
+import { TaskActions } from "@/components/portal/write/task-actions"
 import type {
   RelationshipDossier,
 } from "@/db/dossier"
@@ -168,6 +171,28 @@ export function RelationshipDossier({
         )}
       </section>
 
+      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
+        <h2 className="font-serif text-2xl font-light">Relationship & Notes</h2>
+        <p className="mt-1 text-xs font-light text-black/40">
+          Relationship status, client notes, and manual timeline entries.
+        </p>
+        <div className="mt-6 grid gap-8 lg:grid-cols-2">
+          <PersonActions
+            personId={person.id}
+            initialStatus={person.status}
+            initialNotes={person.notes}
+          />
+          <div>
+            <h3 className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+              Log an interaction
+            </h3>
+            <div className="mt-3">
+              <InteractionLogForm personId={person.id} />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
         <section className="rounded-sm border border-[var(--portal-border)] bg-white">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
@@ -209,6 +234,9 @@ export function RelationshipDossier({
                     {task.dueAtLabel ?? "Unscheduled"}
                     {task.propertyName && ` · ${task.propertyName}`}
                     {task.dealPropertyName && ` · ${task.dealPropertyName}`}
+                  </div>
+                  <div className="mt-3">
+                    <TaskActions taskId={task.id} />
                   </div>
                 </div>
               ))}

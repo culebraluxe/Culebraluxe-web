@@ -4,6 +4,13 @@ import type {
   DealParticipant,
   DealWorkspace,
 } from "@/db/deal-workspace"
+import { CreateTaskForm, TaskActions } from "@/components/portal/write/task-actions"
+import { CreateShowingForm, ShowingActions } from "@/components/portal/write/showing-actions"
+import { OfferActions, OfferForm } from "@/components/portal/write/offer-actions"
+import {
+  AddOtherParticipantForm,
+  OtherParticipantActions,
+} from "@/components/portal/write/participant-actions"
 
 function stageLabel(stage: string) {
   switch (stage) {
@@ -243,26 +250,34 @@ export function DealWorkspace({
               {workspace.participants.map((participant) => (
                 <div
                   key={participant.id}
-                  className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
+                  className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-                      {participantRole(participant)}
-                    </div>
-                    <div className="mt-1 font-serif text-lg font-light">
-                      {participant.name}
-                    </div>
-                    {participant.roleLabel && (
-                      <div className="mt-1 text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
-                        {participant.roleCategory}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+                        {participantRole(participant)}
                       </div>
-                    )}
-                  </div>
-                  <div className="text-right text-xs font-light text-black/40">
-                    {participant.detail && <div>{participant.detail}</div>}
-                    <div className="mt-1 uppercase tracking-[0.12em]">
-                      {participant.kind}
+                      <div className="mt-1 font-serif text-lg font-light">
+                        {participant.name}
+                      </div>
+                      {participant.roleLabel && (
+                        <div className="mt-1 text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
+                          {participant.roleCategory}
+                        </div>
+                      )}
                     </div>
+                    <div className="text-right text-xs font-light text-black/40">
+                      {participant.detail && <div>{participant.detail}</div>}
+                      <div className="mt-1 uppercase tracking-[0.12em]">
+                        {participant.kind}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <OtherParticipantActions
+                      participantId={participant.id}
+                      roleCategory={participant.roleCategory}
+                    />
                   </div>
                 </div>
               ))}
@@ -270,6 +285,7 @@ export function DealWorkspace({
           ) : (
             <Empty text="No participants on record." />
           )}
+          <AddOtherParticipantForm dealId={deal.id} />
         </section>
       </div>
 
@@ -307,12 +323,22 @@ export function DealWorkspace({
                   <div className="mt-2 text-xs font-light text-black/40">
                     {task.dueAtLabel ?? "Unscheduled"}
                   </div>
+                  <div className="mt-3">
+                    <TaskActions taskId={task.id} />
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <Empty text="No open tasks on this deal." />
           )}
+          <div className="border-t border-[var(--portal-border)] px-6 py-5">
+            <CreateTaskForm
+              dealId={deal.id}
+              personId={workspace.client?.id}
+              compact
+            />
+          </div>
         </section>
 
         <section className="rounded-sm border border-[var(--portal-border)] bg-white">
@@ -412,6 +438,9 @@ export function DealWorkspace({
                       {offer.note}
                     </p>
                   )}
+                  <div className="mt-3">
+                    <OfferActions offerId={offer.id} status={offer.status} />
+                  </div>
                 </div>
               </div>
             ))}
@@ -419,6 +448,32 @@ export function DealWorkspace({
         ) : (
           <Empty text="No offers on record for this deal." />
         )}
+        <div className="border-t border-[var(--portal-border)] px-6 py-5">
+          {(() => {
+            const client = workspace.client
+            if (!client) {
+              return (
+                <p className="text-sm font-light text-black/45">
+                  Add an offer once a client is linked to this deal.
+                </p>
+              )
+            }
+            return (
+              <div className="space-y-4">
+                <OfferForm dealId={deal.id} personId={client.id} />
+                {workspace.offers.map((offer) => (
+                  <OfferForm
+                    key={offer.id}
+                    dealId={deal.id}
+                    personId={client.id}
+                    parentOfferId={offer.id}
+                    label={`Counter ${formatCurrency(offer.amount)}`}
+                  />
+                ))}
+              </div>
+            )
+          })()}
+        </div>
       </div>
 
       <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
@@ -476,6 +531,12 @@ export function DealWorkspace({
                         {showing.feedback}
                       </p>
                     )}
+                    <div className="mt-3">
+                      <ShowingActions
+                        showingId={showing.id}
+                        status={showing.status}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -484,6 +545,14 @@ export function DealWorkspace({
         ) : (
           <Empty text="No showings on record for this deal." />
         )}
+        <div className="border-t border-[var(--portal-border)] px-6 py-5">
+          {workspace.client && (
+            <CreateShowingForm
+              personId={workspace.client.id}
+              dealId={deal.id}
+            />
+          )}
+        </div>
       </div>
 
       {deal.notes && (
