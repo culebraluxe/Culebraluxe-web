@@ -52,6 +52,8 @@ function channelLabel(channel: string) {
       return "Document"
     case "manual":
       return "Manual Entry"
+    case "whatsapp":
+      return "WhatsApp"
     default:
       return channel.charAt(0).toUpperCase() + channel.slice(1)
   }

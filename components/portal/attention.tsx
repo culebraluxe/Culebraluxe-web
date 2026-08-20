@@ -27,6 +27,8 @@ function channelLabel(channel: string | null) {
       return "Showing"
     case "website":
       return "Website"
+    case "whatsapp":
+      return "WhatsApp"
     default:
       return channel ? channel.charAt(0).toUpperCase() + channel.slice(1) : null
   }

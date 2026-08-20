@@ -17,6 +17,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const REQUEST_TYPES = new Set<WebsiteIntakeRequestType>([
   'private_viewing',
   'property_information',
+  'general_enquiry',
 ])
 
 export class WebsiteIntakeTransientError extends Error {
@@ -41,14 +42,33 @@ function requiredText(value: unknown, field: string) {
 
 export function normalizeWebsiteIntake(input: Record<string, unknown>) {
   const submissionId = requiredText(input.submissionId, 'Submission ID')
-  const propertyId = requiredText(input.propertyId, 'Property ID')
-  if (!UUID_PATTERN.test(submissionId) || !UUID_PATTERN.test(propertyId)) {
-    throw new Error('Submission ID and property ID must be UUIDs.')
+  if (!UUID_PATTERN.test(submissionId)) {
+    throw new Error('Submission ID must be a UUID.')
   }
 
   const requestType = requiredText(input.requestType, 'Request type')
   if (!REQUEST_TYPES.has(requestType as WebsiteIntakeRequestType)) {
     throw new Error('Request type is invalid.')
+  }
+  const isPropertyScoped =
+    requestType === 'private_viewing' || requestType === 'property_information'
+
+  const rawPropertyId = input.propertyId
+  const propertyId =
+    rawPropertyId !== undefined &&
+    rawPropertyId !== null &&
+    String(rawPropertyId).trim() !== ''
+      ? requiredText(rawPropertyId, 'Property ID')
+      : undefined
+
+  if (isPropertyScoped && !propertyId) {
+    throw new Error('Property ID is required for this request type.')
+  }
+  if (!isPropertyScoped && propertyId) {
+    throw new Error('A general enquiry must not include a property ID.')
+  }
+  if (propertyId && !UUID_PATTERN.test(propertyId)) {
+    throw new Error('Property ID must be a UUID.')
   }
 
   const displayName = normalizeDisplayName(requiredText(input.name, 'Name'))
@@ -118,7 +138,9 @@ export function adaptWebsiteIntake(
       eventType:
         payload.requestType === 'private_viewing'
           ? 'private_viewing_requested'
-          : 'property_inquiry_submitted',
+          : payload.requestType === 'property_information'
+            ? 'property_inquiry_submitted'
+            : 'general_enquiry_submitted',
       direction: 'inbound',
       actor: {
         personId: actor.personId,
@@ -136,11 +158,17 @@ export function adaptWebsiteIntake(
         subject:
           payload.requestType === 'private_viewing'
             ? 'Private viewing request'
-            : 'Property information request',
+            : payload.requestType === 'property_information'
+              ? 'Property information request'
+              : 'General enquiry',
         summary: payload.message,
       },
-      context: { propertyId: payload.propertyId },
-      intentHints: { requestedAction: payload.requestType },
+      context: payload.propertyId ? { propertyId: payload.propertyId } : {},
+      intentHints:
+        payload.requestType === 'private_viewing' ||
+        payload.requestType === 'property_information'
+          ? { requestedAction: payload.requestType }
+          : undefined,
       rawMetadata: { requestType: payload.requestType },
     },
   }
@@ -157,8 +185,11 @@ export async function processWebsiteIntake(
   options: { trustedResolutionRetry?: boolean } = {},
 ): Promise<WebsiteIntakeResult> {
   const { repositories } = dependencies
-  const property = await repositories.findActiveProperty(payload.propertyId)
-  if (!property) return { accepted: false, status: 'invalid' }
+  let property: { id: string } | null = null
+  if (payload.propertyId) {
+    property = await repositories.findActiveProperty(payload.propertyId)
+    if (!property) return { accepted: false, status: 'invalid' }
+  }
 
   const inserted = await repositories.insertOrReadReceipt(payload)
   if (!websitePayloadsEqual(inserted.receipt, payload)) {
@@ -258,7 +289,7 @@ export async function processWebsiteIntake(
     const persisted = await repositories.persistCanonical({
       interactionId: (dependencies.createId ?? randomUUID)(),
       personId: person.personId,
-      propertyId: property.id,
+      propertyId: property?.id,
       submissionId: payload.submissionId,
       requestType: payload.requestType,
       occurredAt,

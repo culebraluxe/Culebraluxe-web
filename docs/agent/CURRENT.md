@@ -1,8 +1,12 @@
 # Current Story
 
-## CRM-07 — WhatsApp Intake
+## V1 Database Unblock Tranche (M-1..M-5)
 
-Status: Architecture only; awaiting a canonical-channel decision. No implementation is authorized.
+Status: Implemented as additive migrations 010-014 (pending human Neon execution, review, and commit).
+
+### CRM-07 — WhatsApp Intake
+
+Status: Architecture approved. M-1 adds the canonical `whatsapp` interaction channel; no provider integration is implemented.
 
 ## Completed Foundations
 
@@ -125,3 +129,12 @@ No schema change is authorized in CRM-07. Architecture has identified a future n
 - Define attachment fetch, malware screening, media ownership, expiry, and retention before media ingestion.
 - Define consent, opt-in/opt-out, message-window/template policy, deletion/export, and jurisdictional requirements before live traffic.
 - Shared business numbers, number reassignment, groups, replies, reactions, edits, delivery/read state, and outbound sending remain separate stories.
+
+## V1 Database Unblock Tranche — Architecture Notes
+
+- M-1 (010_whatsapp_channel.sql): `whatsapp` is a canonical interaction channel, not a new identity type. WhatsApp actors resolve through `person_identity` phone (strict E.164); source idempotency reuses `(source_system, source_external_id)`. Provider integration deferred.
+- M-2 (011_website_intake_general_enquiry.sql): `general_enquiry` is a property-less website intake request type. `website_intake_submission.property_id` is now nullable with a CHECK that property-scoped requests require a property and `general_enquiry` forbids one. Generic `/contact` now submits through the canonical pipeline; property-scoped `private_viewing`/`property_information` behavior is unchanged. Identity resolution and CRM-04 rules unchanged.
+- M-3 (012_deal_participant.sql): additive normalized participants. Role is a checked structural category (`client`/`owner`/`seller`/`other`) plus an optional `role_label` for the SME long tail (application-curated, no migration per role). Legacy `deal.client_person_id`, `deal.owner_user_id`, `property.seller_person_id` remain source-of-truth for current reads; `deal_participant` is backfilled from them and remains additive until a later story migrates the FKs.
+- M-4 (013_showing.sql): `showing` is the mutable lifecycle entity (`requested`/`scheduled`/`completed`/`cancelled`); `interaction` remains the immutable timeline. A completed showing must eventually emit exactly one idempotent `channel='showing'` interaction (occurred_at = completed_at ?? scheduled_at; idempotency from showing.id). Documented only — the write behavior belongs to a later bounded story.
+- M-5 (014_offer.sql): `offer` rows carry `amount`/`status` (`submitted`/`accepted`/`rejected`/`withdrawn`). Original offers have `parent_offer_id = null`; counters are new rows with `status='submitted'` and `parent_offer_id` pointing at the countered offer. `status='countered'` is not used. `deal.offer_price` is untouched; no offer backfill.
+- CRM-14 workflow kernel, closing orchestration, and full auth design remain explicitly deferred.

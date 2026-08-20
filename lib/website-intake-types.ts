@@ -7,6 +7,7 @@ import type {
 export type WebsiteIntakeRequestType =
   | 'private_viewing'
   | 'property_information'
+  | 'general_enquiry'
 
 export type WebsiteIntakeStatus =
   | 'received'
@@ -18,7 +19,7 @@ export type WebsiteIntakeStatus =
 export interface WebsiteIntakePayload {
   submissionId: string
   requestType: WebsiteIntakeRequestType
-  propertyId: string
+  propertyId?: string
   displayName: string
   email: string
   message?: string
@@ -70,7 +71,7 @@ export interface WebsiteIntakeRepositories {
 export interface CanonicalWebsiteIntakeInput {
   interactionId: string
   personId: string
-  propertyId: string
+  propertyId?: string
   submissionId: string
   requestType: WebsiteIntakeRequestType
   occurredAt: string

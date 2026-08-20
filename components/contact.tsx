@@ -24,20 +24,20 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
     event.preventDefault()
     setError(false)
 
-    // The generic site contact (no request context) remains the existing
-    // client-only experience. Any property-scoped request must reach the CRM
-    // pipeline; without a property id the backend honestly rejects it.
-    if (!propertyContext) {
-      setSubmitted(true)
-      return
-    }
-
+    // Generic site contact (no request context) becomes a property-less
+    // general enquiry in the canonical website intake pipeline. Property-
+    // scoped requests reach the same pipeline with their request type and
+    // property id; without a property id the backend honestly rejects them.
     submissionId.current ??= crypto.randomUUID()
     const formData = new FormData(event.currentTarget)
     formData.set('submissionId', submissionId.current)
-    formData.set('requestType', propertyContext.requestType)
-    if (propertyContext.propertyId) {
-      formData.set('propertyId', propertyContext.propertyId)
+    if (propertyContext) {
+      formData.set('requestType', propertyContext.requestType)
+      if (propertyContext.propertyId) {
+        formData.set('propertyId', propertyContext.propertyId)
+      }
+    } else {
+      formData.set('requestType', 'general_enquiry')
     }
 
     setPending(true)

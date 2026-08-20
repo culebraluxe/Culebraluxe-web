@@ -74,6 +74,8 @@ function channelLabel(channel: InteractionChannel) {
       return "Meeting"
     case "showing":
       return "Showing"
+    case "whatsapp":
+      return "WhatsApp"
     default:
       return "Note"
   }

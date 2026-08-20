@@ -19,6 +19,7 @@ export type InteractionChannel =
   | 'document'
   | 'manual'
   | 'note'
+  | 'whatsapp'
 
 export type InteractionDirection = 'inbound' | 'outbound'
 

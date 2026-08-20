@@ -15,7 +15,7 @@ import type {
 type ReceiptRow = {
   id: string
   request_type: WebsiteIntakeReceipt['requestType']
-  property_id: string
+  property_id: string | null
   display_name: string
   email: string
   message: string | null
@@ -35,7 +35,7 @@ function mapReceipt(row: ReceiptRow): WebsiteIntakeReceipt {
   return {
     submissionId: row.id,
     requestType: row.request_type,
-    propertyId: row.property_id,
+    propertyId: row.property_id ?? undefined,
     displayName: row.display_name,
     email: row.email,
     message: row.message ?? undefined,
@@ -55,7 +55,7 @@ export async function insertOrReadWebsiteIntakeReceipt(
     insert into website_intake_submission (
       id, request_type, property_id, display_name, email, message
     ) values (
-      ${input.submissionId}, ${input.requestType}, ${input.propertyId},
+      ${input.submissionId}, ${input.requestType}, ${input.propertyId ?? null},
       ${input.displayName}, ${input.email}, ${input.message ?? null}
     )
     on conflict (id) do nothing
@@ -148,15 +148,21 @@ export async function persistCanonicalWebsiteIntake(
   const eventType =
     input.requestType === 'private_viewing'
       ? 'private_viewing_requested'
-      : 'property_inquiry_submitted'
+      : input.requestType === 'property_information'
+        ? 'property_inquiry_submitted'
+        : 'general_enquiry_submitted'
   const title =
     input.requestType === 'private_viewing'
       ? 'Private viewing request'
-      : 'Property information request'
+      : input.requestType === 'property_information'
+        ? 'Property information request'
+        : 'General enquiry'
   const taskTitle =
     input.requestType === 'private_viewing'
       ? `Follow up on private viewing request from ${input.displayName}`
-      : `Follow up on property inquiry from ${input.displayName}`
+      : input.requestType === 'property_information'
+        ? `Follow up on property inquiry from ${input.displayName}`
+        : `Follow up on general enquiry from ${input.displayName}`
 
   const results = await executeTransaction((execute) => [
     execute`
@@ -165,7 +171,7 @@ export async function persistCanonicalWebsiteIntake(
         occurred_at, title, summary, source_system, source_external_id,
         source_metadata
       ) values (
-        ${input.interactionId}, ${input.personId}, ${input.propertyId},
+        ${input.interactionId}, ${input.personId}, ${input.propertyId ?? null},
         'website', ${eventType}, 'inbound', ${input.occurredAt}, ${title},
         ${input.message ?? null}, 'website', ${input.submissionId},
         ${JSON.stringify({ requestType: input.requestType })}::jsonb
@@ -175,22 +181,27 @@ export async function persistCanonicalWebsiteIntake(
       do nothing
       returning id
     `,
-    execute`
-      insert into property_interest (person_id, property_id, status)
-      select ${input.personId}, ${input.propertyId}, 'interested'
-      where exists (
-        select 1 from interaction where id = ${input.interactionId}
-      )
-      on conflict (person_id, property_id) do nothing
-      returning id
-    `,
+    // Property-less general enquiries never create a property_interest row.
+    ...(input.propertyId
+      ? [
+          execute`
+            insert into property_interest (person_id, property_id, status)
+            select ${input.personId}, ${input.propertyId}, 'interested'
+            where exists (
+              select 1 from interaction where id = ${input.interactionId}
+            )
+            on conflict (person_id, property_id) do nothing
+            returning id
+          `,
+        ]
+      : []),
     execute`
       insert into task (
         title, detail, person_id, property_id, source_interaction_id,
         task_kind, priority
       )
       select ${taskTitle}, ${input.message ?? null}, ${input.personId},
-        ${input.propertyId}, ${input.interactionId}, 'human', 0
+        ${input.propertyId ?? null}, ${input.interactionId}, 'human', 0
       where exists (
         select 1 from interaction where id = ${input.interactionId}
       )

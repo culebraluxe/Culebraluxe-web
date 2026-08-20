@@ -42,6 +42,7 @@ function stageLabel(stage: string) {
 }
 
 function channelLabel(channel: string) {
+  if (channel === "whatsapp") return "WhatsApp"
   return channel.charAt(0).toUpperCase() + channel.slice(1)
 }
 
