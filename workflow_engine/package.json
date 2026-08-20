@@ -1,0 +1,27 @@
+{
+  "name": "workflow-engine",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.0",
+    "@rjsf/core": "^5.18.0",
+    "@rjsf/utils": "^5.18.0",
+    "@rjsf/validator-ajv8": "^5.18.0",
+    "expr-eval": "^2.0.2",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

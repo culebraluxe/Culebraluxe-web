@@ -146,6 +146,37 @@ create trigger enforce_app_user_role_account_type
     before insert or update of app_user_id, role_id on app_user_role
     for each row execute function enforce_app_user_role_account_type();
 
+-- ------------------------------------------------------------
+-- account_type immutability (closes the reverse-mutation hole)
+-- Once account_type is set, it cannot change, so an existing
+-- app_user_role mapping can never be silently invalidated by a
+-- later account_type update on either side.
+-- ------------------------------------------------------------
+
+create or replace function prevent_account_type_change()
+returns trigger
+language plpgsql
+as $$
+begin
+    if new.account_type is distinct from old.account_type then
+        raise exception 'account_type is immutable once referenced';
+    end if;
+    return new;
+end;
+$$;
+
+drop trigger if exists prevent_app_user_account_type_change on app_user;
+create trigger prevent_app_user_account_type_change
+    before update of account_type on app_user
+    for each row
+    execute function prevent_account_type_change();
+
+drop trigger if exists prevent_role_account_type_change on role;
+create trigger prevent_role_account_type_change
+    before update of account_type on role
+    for each row
+    execute function prevent_account_type_change();
+
 -- ============================================================
 -- Seeds — role
 -- ============================================================

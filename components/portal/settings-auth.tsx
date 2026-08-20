@@ -3,6 +3,8 @@ import type {
   SettingsRole,
   SettingsUser,
 } from "@/db/settings-auth"
+import type { SecurityStatus } from "@/db/auth-status"
+import type { BreakGlassReadiness } from "@/lib/auth/break-glass-readiness"
 
 // AUTH-01 read-only Settings views (Stories 9-11). No create/edit/delete yet;
 // these render canonical app_user / role / authority data once migration 015
@@ -235,6 +237,144 @@ export function SettingsRoles({ roles }: { roles: SettingsRole[] }) {
 // ---------------------------------------------------------------------------
 // Story 11 — Authorities
 // ---------------------------------------------------------------------------
+
+export function SecurityStatusPanel({
+  status,
+}: {
+  status: SecurityStatus
+}) {
+  const items: Array<{ label: string; value: number; detail: string }> = [
+    {
+      label: "Active internal users",
+      value: status.activeInternalUsers,
+      detail: "Internal accounts currently enabled",
+    },
+    {
+      label: "External users",
+      value: status.externalUsers,
+      detail: "Customer/client accounts",
+    },
+    {
+      label: "Users with no role",
+      value: status.usersWithNoRole,
+      detail: "Active actors that would lack authority",
+    },
+    {
+      label: "Users with multiple roles",
+      value: status.usersWithMultipleRoles,
+      detail: "Actors holding more than one role",
+    },
+    {
+      label: "Mapped auth identities",
+      value: status.mappedAuthIdentities,
+      detail: "Provider subjects linked to app_users",
+    },
+    {
+      label: "Unmapped app_users",
+      value: status.unmappedAppUsers,
+      detail: "Application users with no provider identity",
+    },
+    {
+      label: "Owner assignments",
+      value: status.ownerRoleAssignments,
+      detail: "Current owner-role holders",
+    },
+    {
+      label: "Inactive users w/ active role",
+      value: status.inactiveUsersWithActiveRoleMappings,
+      detail: "Disabled actors still mapped to an active role",
+    },
+    {
+      label: "Account-type mismatches",
+      value: status.accountTypeMismatchCount,
+      detail: "Should always be 0 (invariant)",
+    },
+  ]
+
+  return (
+    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="font-serif text-2xl font-light">Security Status</h2>
+          <p className="mt-1 text-xs font-light text-black/40">
+            Operational security facts — no tokens or credentials.
+          </p>
+        </div>
+        <span
+          className={`rounded-sm px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.14em] ${
+            status.ownerRoleAssignments === 0
+              ? "bg-[#8a4b2a]/10 text-[#8a4b2a]"
+              : "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]"
+          }`}
+        >
+          {status.ownerRoleAssignments === 0
+            ? "No owner assigned"
+            : "Owner assigned"}
+        </span>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/30 p-4"
+          >
+            <div className="text-[10px] font-light uppercase tracking-[0.16em] text-black/45">
+              {item.label}
+            </div>
+            <div className="mt-2 font-serif text-2xl font-light">{item.value}</div>
+            <div className="mt-1 text-xs font-light text-black/40">
+              {item.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export function BreakGlassStatusPanel({
+  readiness,
+}: {
+  readiness: BreakGlassReadiness
+}) {
+  const items: Array<{ label: string; ready: boolean }> = [
+    { label: "Break-glass configured", ready: readiness.configured },
+    { label: "Break-glass enabled", ready: readiness.enabled },
+    { label: "Root user resolvable", ready: readiness.rootResolvable },
+    { label: "Root user active", ready: readiness.rootActive },
+    { label: "Root holds owner role", ready: readiness.ownerRolePresent },
+    { label: "Security audit table", ready: readiness.auditTableAvailable },
+  ]
+
+  return (
+    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <h2 className="font-serif text-2xl font-light">Break-glass readiness</h2>
+      <p className="mt-1 text-xs font-light text-black/40">
+        Emergency root access posture. No secrets, hashes, or tokens shown.
+      </p>
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/30 p-4"
+          >
+            <div className="text-[10px] font-light uppercase tracking-[0.16em] text-black/45">
+              {item.label}
+            </div>
+            <div
+              className={`mt-2 text-sm font-light ${
+                item.ready ? "text-[#40584b]" : "text-[#8a4b2a]"
+              }`}
+            >
+              {item.ready ? "Ready" : "Not configured"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
 
 export function SettingsAuthorities({
   authorities,

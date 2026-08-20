@@ -4,6 +4,10 @@ import { getOpsCounts } from './ops-counts'
 // Read-only Portal system-health projection (OPS-01). Exposes operational
 // counts and data-quality signals derivable from the existing schema. This is
 // not a generic DB admin tool: no table editing, no secrets, no writes.
+//
+// AUTH checks are run conditionally after probing for the AUTH tables, because
+// Postgres resolves table names at parse time (to_regclass inside one query
+// cannot guard a subquery referencing a not-yet-created table).
 
 export type SystemHealthSnapshot = {
   unresolvedIntakeCount: number
@@ -33,10 +37,16 @@ export type SystemHealthSnapshot = {
   // AUTH-01 safety net: internal/external account-type mismatches in role
   // assignments (0 expected; the trigger enforces this).
   accountTypeMismatchCount: number
+  // AUTH-02 security health
+  activeAppUsersWithoutRole: number
+  authIdentityInactiveAppUser: number
+  ownerAssignments: number
+  multipleOwners: number
+  authIdentityWithoutUsableAppUser: number
 }
 
 export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
-  const [counts, deals, recent, quality] = await Promise.all([
+  const [counts, deals, recent, quality, authTables] = await Promise.all([
     getOpsCounts(),
     sql`
       select count(*)::int as under_contract_count
@@ -159,24 +169,12 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
             on m.id = pm.media_id
           where pm.role = 'hero'
             and m.media_type <> 'image'
-        ) as hero_media_not_image,
-        (
-          -- Guarded so System Health remains functional before migration 015
-          -- (role / app_user_role do not exist yet).
-          case
-            when to_regclass('app_user_role') is not null
-            then (
-              select count(*)::int
-              from app_user_role aur
-              join role r
-                on r.id = aur.role_id
-              join app_user u
-                on u.id = aur.app_user_id
-              where r.account_type <> u.account_type
-            )
-            else 0
-          end
-        ) as account_type_mismatch_count
+        ) as hero_media_not_image
+    `,
+    sql`
+      select
+        to_regclass('app_user_role') is not null as has_roles,
+        to_regclass('auth_identity') is not null as has_identities
     `,
   ])
 
@@ -200,9 +198,89 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
         inactive_participants_without_ended_at: number
         public_properties_with_multiple_heroes: number
         hero_media_not_image: number
-        account_type_mismatch_count: number
       }
     | undefined
+
+  const authTableRow = authTables[0] as
+    | { has_roles: boolean; has_identities: boolean }
+    | undefined
+  const hasRoles = authTableRow?.has_roles ?? false
+  const hasIdentities = authTableRow?.has_identities ?? false
+
+  let accountTypeMismatchCount = 0
+  let activeAppUsersWithoutRole = 0
+  let ownerAssignments = 0
+  let multipleOwners = 0
+  let authIdentityInactiveAppUser = 0
+  let authIdentityWithoutUsableAppUser = 0
+
+  if (hasRoles) {
+    const roleRows = await sql`
+      select
+        (
+          select count(*)::int
+          from app_user_role aur
+          join role r on r.id = aur.role_id
+          join app_user u on u.id = aur.app_user_id
+          where r.account_type <> u.account_type
+        ) as account_type_mismatch_count,
+        (
+          select count(*)::int
+          from app_user u
+          where u.active = true
+            and not exists (
+              select 1 from app_user_role aur where aur.app_user_id = u.id
+            )
+        ) as active_app_users_without_role,
+        (
+          select count(*)::int
+          from app_user_role aur
+          join role r on r.id = aur.role_id
+          where r.code = 'owner'
+        ) as owner_assignments
+    `
+    const roleRow = roleRows[0] as
+      | {
+          account_type_mismatch_count: number
+          active_app_users_without_role: number
+          owner_assignments: number
+        }
+      | undefined
+    accountTypeMismatchCount = roleRow?.account_type_mismatch_count ?? 0
+    activeAppUsersWithoutRole = roleRow?.active_app_users_without_role ?? 0
+    ownerAssignments = roleRow?.owner_assignments ?? 0
+    multipleOwners = ownerAssignments > 1 ? 1 : 0
+  }
+
+  if (hasIdentities) {
+    const identityRows = await sql`
+      select
+        (
+          select count(*)::int
+          from auth_identity ai
+          join app_user u on u.id = ai.app_user_id
+          where u.active = false
+        ) as auth_identity_inactive_app_user,
+        (
+          select count(*)::int
+          from auth_identity ai
+          where not exists (
+            select 1 from app_user u
+            where u.id = ai.app_user_id and u.active = true
+          )
+        ) as auth_identity_without_usable_app_user
+    `
+    const identityRow = identityRows[0] as
+      | {
+          auth_identity_inactive_app_user: number
+          auth_identity_without_usable_app_user: number
+        }
+      | undefined
+    authIdentityInactiveAppUser =
+      identityRow?.auth_identity_inactive_app_user ?? 0
+    authIdentityWithoutUsableAppUser =
+      identityRow?.auth_identity_without_usable_app_user ?? 0
+  }
 
   return {
     unresolvedIntakeCount: counts.unresolvedIntakeCount,
@@ -236,6 +314,11 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
     publicPropertiesWithMultipleHeroes:
       qualityRow?.public_properties_with_multiple_heroes ?? 0,
     heroMediaNotImage: qualityRow?.hero_media_not_image ?? 0,
-    accountTypeMismatchCount: qualityRow?.account_type_mismatch_count ?? 0,
+    accountTypeMismatchCount,
+    activeAppUsersWithoutRole,
+    authIdentityInactiveAppUser,
+    ownerAssignments,
+    multipleOwners,
+    authIdentityWithoutUsableAppUser,
   }
 }

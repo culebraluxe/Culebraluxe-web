@@ -1,5 +1,12 @@
 import Link from "next/link"
 
+import {
+  BreakGlassStatusPanel,
+  SecurityStatusPanel,
+} from "@/components/portal/settings-auth"
+import { getSecurityStatus } from "@/db/auth-status"
+import { getBreakGlassReadiness } from "@/lib/auth/break-glass-readiness"
+
 const sections = [
   {
     href: "/portal/settings/users",
@@ -24,6 +31,9 @@ const sections = [
 export const dynamic = "force-dynamic"
 
 export default async function SettingsPage() {
+  const securityStatus = await getSecurityStatus()
+  const breakGlass = await getBreakGlassReadiness()
+
   return (
     <div>
       <div className="mb-8">
@@ -58,6 +68,10 @@ export default async function SettingsPage() {
           </Link>
         ))}
       </section>
+
+      <SecurityStatusPanel status={securityStatus} />
+
+      <BreakGlassStatusPanel readiness={breakGlass} />
     </div>
   )
 }

@@ -187,6 +187,39 @@ export function SystemHealth({
           />
         </div>
       </section>
+
+      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <h2 className="font-serif text-2xl font-light">
+          Security Model
+        </h2>
+
+        <p className="mt-1 text-xs font-light text-black/40">
+          Application security invariants (guarded pre-migration; 0 is healthy).
+        </p>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <Detail
+            label="Active users with no role"
+            value={String(health.activeAppUsersWithoutRole)}
+          />
+          <Detail
+            label="Auth identities → inactive user"
+            value={String(health.authIdentityInactiveAppUser)}
+          />
+          <Detail
+            label="Owner assignments"
+            value={String(health.ownerAssignments)}
+          />
+          <Detail
+            label="Multiple owners (informational)"
+            value={String(health.multipleOwners)}
+          />
+          <Detail
+            label="Auth identities without usable user"
+            value={String(health.authIdentityWithoutUsableAppUser)}
+          />
+        </div>
+      </section>
     </div>
   )
 }

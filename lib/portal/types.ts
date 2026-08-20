@@ -30,6 +30,9 @@ export type DealStage =
   | "under_contract"
   | "closed"
 
+/** Canonical financing applicability fact (NULL = unknown). */
+export type DealFinancingType = "cash" | "financed"
+
 export interface PropertyInterest {
   id: string
   propertyId: string

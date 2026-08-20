@@ -33,6 +33,10 @@ const navigationGroups = [
         href: "/portal/deals",
       },
       {
+        label: "Workflows",
+        href: "/portal/workflows",
+      },
+      {
         label: "Showings",
         href: "/portal/showings",
       },
