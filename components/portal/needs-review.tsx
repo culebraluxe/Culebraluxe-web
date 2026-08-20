@@ -3,9 +3,16 @@ import type { NeedsReviewItem } from "@/db/needs-review"
 function requestTypeLabel(
   requestType: NeedsReviewItem["requestType"]
 ) {
-  return requestType === "private_viewing"
-    ? "Private Viewing"
-    : "Property Information"
+  switch (requestType) {
+    case "private_viewing":
+      return "Private Viewing"
+    case "property_information":
+      return "Property Information"
+    case "general_enquiry":
+      return "General Enquiry"
+    default:
+      return requestType
+  }
 }
 
 function statusLabel(status: NeedsReviewItem["status"]) {
