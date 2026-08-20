@@ -50,6 +50,25 @@ function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
+function propertyStatusLabel(status: string) {
+  switch (status) {
+    case "coming_soon":
+      return "Coming Soon"
+    case "under_contract":
+      return "Under Contract"
+    case "off_market":
+      return "Off Market"
+    case "prospect":
+      return "Prospect"
+    case "sold":
+      return "Sold"
+    case "archived":
+      return "Archived"
+    default:
+      return status.charAt(0).toUpperCase() + status.slice(1)
+  }
+}
+
 function participantRoleLabel(role: string) {
   switch (role) {
     case "client":
@@ -212,13 +231,111 @@ export function Reporting({
       </section>
 
       <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
-        <h2 className="font-serif text-2xl font-light">Inventory</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <h2 className="font-serif text-2xl font-light">Listing & Seller</h2>
+        <p className="mt-1 text-xs font-light text-black/40">
+          Brokerage inventory and listing-health signals from canonical data.
+        </p>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label="Active Properties"
             value={String(snapshot.activePropertyCount)}
             detail="Active inventory"
           />
+          <MetricCard
+            label="With Seller"
+            value={String(snapshot.propertiesWithSellerCount)}
+            detail="Listings with seller_person_id"
+          />
+          <MetricCard
+            label="Public Missing Hero"
+            value={String(snapshot.publicPropertiesMissingHero)}
+            detail="Active public listings without hero"
+          />
+          <MetricCard
+            label="Public No Media"
+            value={String(snapshot.publicPropertiesNoMedia)}
+            detail="Active public listings with no media"
+          />
+        </div>
+
+        <div className="mt-6 grid gap-6 2xl:grid-cols-2">
+          <div>
+            <h3 className="text-xs font-light uppercase tracking-[0.2em] text-black/40">
+              Listings by Status
+            </h3>
+            <div className="mt-4 space-y-4">
+              {snapshot.listingsByStatus.length > 0 ? (
+                snapshot.listingsByStatus.map((item) => (
+                  <DistributionBar
+                    key={item.status}
+                    label={propertyStatusLabel(item.status)}
+                    count={item.count}
+                    total={snapshot.listingsByStatus.reduce(
+                      (sum, row) => sum + row.count,
+                      0,
+                    )}
+                  />
+                ))
+              ) : (
+                <p className="text-sm font-light text-black/40">
+                  No properties on record.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-light uppercase tracking-[0.2em] text-black/40">
+              Enquiries by Property
+            </h3>
+            <div className="mt-4 space-y-4">
+              {snapshot.enquiriesByProperty.length > 0 ? (
+                snapshot.enquiriesByProperty.map((item) => (
+                  <DistributionBar
+                    key={item.propertyName}
+                    label={item.propertyName}
+                    count={item.count}
+                    total={snapshot.enquiriesByProperty.reduce(
+                      (sum, row) => sum + row.count,
+                      0,
+                    )}
+                  />
+                ))
+              ) : (
+                <p className="text-sm font-light text-black/40">
+                  No website enquiries on record.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <h3 className="text-xs font-light uppercase tracking-[0.2em] text-black/40">
+            Showings by Property
+          </h3>
+          <div className="mt-4 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {snapshot.showingsByProperty.length > 0 ? (
+              snapshot.showingsByProperty.map((item) => (
+                <div
+                  key={item.propertyName}
+                  className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/40 px-4 py-3"
+                >
+                  <div className="text-xs font-light text-black/60">
+                    {item.propertyName}
+                  </div>
+                  <div className="mt-1 font-serif text-xl font-light">
+                    {item.count}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm font-light text-black/40">
+                No showings on record.
+              </p>
+            )}
+          </div>
         </div>
       </section>
 

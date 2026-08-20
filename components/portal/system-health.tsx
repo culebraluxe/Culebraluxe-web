@@ -153,6 +153,40 @@ export function SystemHealth({
           />
         </div>
       </section>
+
+      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <h2 className="font-serif text-2xl font-light">
+          Write-Side Invariants
+        </h2>
+
+        <p className="mt-1 text-xs font-light text-black/40">
+          Deterministic checks on invariants the listing/showing write services
+          are expected to maintain.
+        </p>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <Detail
+            label="Completed showings no showing interaction"
+            value={String(health.completedShowingsMissingShowingInteraction)}
+          />
+          <Detail
+            label="Inactive participants without ended_at"
+            value={String(health.inactiveParticipantsWithoutEndedAt)}
+          />
+          <Detail
+            label="Public properties with multiple heroes"
+            value={String(health.publicPropertiesWithMultipleHeroes)}
+          />
+          <Detail
+            label="Hero media not an image"
+            value={String(health.heroMediaNotImage)}
+          />
+          <Detail
+            label="Role / account-type mismatches"
+            value={String(health.accountTypeMismatchCount)}
+          />
+        </div>
+      </section>
     </div>
   )
 }

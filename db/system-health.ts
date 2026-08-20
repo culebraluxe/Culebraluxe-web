@@ -25,6 +25,14 @@ export type SystemHealthSnapshot = {
   otherParticipantsMissingRoleLabel: number
   offersWithCrossDealParent: number
   showingsWithDealPropertyMismatch: number
+  // Write-side invariants relevant to current listing/showing/participant writes
+  completedShowingsMissingShowingInteraction: number
+  inactiveParticipantsWithoutEndedAt: number
+  publicPropertiesWithMultipleHeroes: number
+  heroMediaNotImage: number
+  // AUTH-01 safety net: internal/external account-type mismatches in role
+  // assignments (0 expected; the trigger enforces this).
+  accountTypeMismatchCount: number
 }
 
 export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
@@ -115,7 +123,60 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
             on d.id = s.deal_id
           where s.property_id is not null
             and s.property_id <> d.property_id
-        ) as showings_with_deal_property_mismatch
+        ) as showings_with_deal_property_mismatch,
+        (
+          select count(*)::int
+          from showing s
+          where s.status = 'completed'
+            and not exists (
+              select 1 from interaction i
+              where i.source_system = 'showing'
+                and i.source_external_id = s.id::text
+            )
+        ) as completed_showings_missing_showing_interaction,
+        (
+          select count(*)::int
+          from deal_participant
+          where active = false and ended_at is null
+        ) as inactive_participants_without_ended_at,
+        (
+          select count(*)::int
+          from (
+            select pm.property_id
+            from property_media pm
+            where pm.role = 'hero'
+            group by pm.property_id
+            having count(*) > 1
+          ) multi_hero
+          join property p
+            on p.id = multi_hero.property_id
+          where p.archived_at is null
+        ) as public_properties_with_multiple_heroes,
+        (
+          select count(*)::int
+          from property_media pm
+          join media m
+            on m.id = pm.media_id
+          where pm.role = 'hero'
+            and m.media_type <> 'image'
+        ) as hero_media_not_image,
+        (
+          -- Guarded so System Health remains functional before migration 015
+          -- (role / app_user_role do not exist yet).
+          case
+            when to_regclass('app_user_role') is not null
+            then (
+              select count(*)::int
+              from app_user_role aur
+              join role r
+                on r.id = aur.role_id
+              join app_user u
+                on u.id = aur.app_user_id
+              where r.account_type <> u.account_type
+            )
+            else 0
+          end
+        ) as account_type_mismatch_count
     `,
   ])
 
@@ -135,6 +196,11 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
         other_participants_missing_role_label: number
         offers_with_cross_deal_parent: number
         showings_with_deal_property_mismatch: number
+        completed_showings_missing_showing_interaction: number
+        inactive_participants_without_ended_at: number
+        public_properties_with_multiple_heroes: number
+        hero_media_not_image: number
+        account_type_mismatch_count: number
       }
     | undefined
 
@@ -163,5 +229,13 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
     offersWithCrossDealParent: qualityRow?.offers_with_cross_deal_parent ?? 0,
     showingsWithDealPropertyMismatch:
       qualityRow?.showings_with_deal_property_mismatch ?? 0,
+    completedShowingsMissingShowingInteraction:
+      qualityRow?.completed_showings_missing_showing_interaction ?? 0,
+    inactiveParticipantsWithoutEndedAt:
+      qualityRow?.inactive_participants_without_ended_at ?? 0,
+    publicPropertiesWithMultipleHeroes:
+      qualityRow?.public_properties_with_multiple_heroes ?? 0,
+    heroMediaNotImage: qualityRow?.hero_media_not_image ?? 0,
+    accountTypeMismatchCount: qualityRow?.account_type_mismatch_count ?? 0,
   }
 }

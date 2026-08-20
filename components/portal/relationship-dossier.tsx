@@ -378,9 +378,12 @@ export function RelationshipDossier({
                   className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
                   <div>
-                    <div className="font-serif text-lg font-light">
+                    <Link
+                      href={`/portal/property-admin/${interest.propertyId}`}
+                      className="font-serif text-lg font-light text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+                    >
                       {interest.propertyName}
-                    </div>
+                    </Link>
 
                     <div className="mt-1 text-xs font-light text-black/45">
                       {interest.location}

@@ -23,6 +23,13 @@ export type ReportingSnapshot = {
   dealsWithOffers: number
   participantRoleDistribution: { role: string; count: number }[]
   recentCompletedShowings: number
+  // Listing / Seller operations (LOPS reporting)
+  listingsByStatus: { status: string; count: number }[]
+  propertiesWithSellerCount: number
+  publicPropertiesMissingHero: number
+  publicPropertiesNoMedia: number
+  enquiriesByProperty: { propertyName: string; count: number }[]
+  showingsByProperty: { propertyName: string; count: number }[]
 }
 
 type CountRow = { count: number }
@@ -39,6 +46,11 @@ export async function getReportingSnapshot(): Promise<ReportingSnapshot> {
     offersByStatus,
     offerSummary,
     participantRoles,
+    listings,
+    sellerCount,
+    propertyIssues,
+    enquiryRows,
+    showingPropertyRows,
   ] = await Promise.all([
     getOpsCounts(),
     sql`
@@ -101,6 +113,58 @@ export async function getReportingSnapshot(): Promise<ReportingSnapshot> {
       group by role
       order by count desc
     `,
+    sql`
+      select status, count(*)::int as count
+      from property
+      group by status
+      order by count desc
+    `,
+    sql`
+      select count(*)::int as count
+      from property
+      where seller_person_id is not null
+    `,
+    sql`
+      select
+        (
+          select count(*)::int
+          from property p
+          where p.archived_at is null
+            and p.status in ('active', 'coming_soon', 'under_contract')
+            and not exists (
+              select 1 from property_media pm
+              where pm.property_id = p.id and pm.role = 'hero'
+            )
+        ) as missing_hero,
+        (
+          select count(*)::int
+          from property p
+          where p.archived_at is null
+            and p.status in ('active', 'coming_soon', 'under_contract')
+            and not exists (
+              select 1 from property_media pm
+              where pm.property_id = p.id
+            )
+        ) as no_media
+    `,
+    sql`
+      select property.name as property_name, count(*)::int as count
+      from website_intake_submission w
+      join property
+        on property.id = w.property_id
+      group by property.name
+      order by count desc
+      limit 5
+    `,
+    sql`
+      select property.name as property_name, count(*)::int as count
+      from showing s
+      join property
+        on property.id = s.property_id
+      group by property.name
+      order by count desc
+      limit 5
+    `,
   ])
 
   const dealStageDistribution = (dealStages as { stage: string; count: number }[]).map(
@@ -139,5 +203,27 @@ export async function getReportingSnapshot(): Promise<ReportingSnapshot> {
     participantRoleDistribution: (
       participantRoles as { role: string; count: number }[]
     ).map((row) => ({ role: String(row.role), count: Number(row.count) })),
+    listingsByStatus: (listings as { status: string; count: number }[]).map(
+      (row) => ({ status: String(row.status), count: Number(row.count) }),
+    ),
+    propertiesWithSellerCount:
+      (sellerCount[0] as CountRow | undefined)?.count ?? 0,
+    publicPropertiesMissingHero:
+      (propertyIssues[0] as { missing_hero: number } | undefined)
+        ?.missing_hero ?? 0,
+    publicPropertiesNoMedia:
+      (propertyIssues[0] as { no_media: number } | undefined)?.no_media ?? 0,
+    enquiriesByProperty: (
+      enquiryRows as { property_name: string; count: number }[]
+    ).map((row) => ({
+      propertyName: String(row.property_name),
+      count: Number(row.count),
+    })),
+    showingsByProperty: (
+      showingPropertyRows as { property_name: string; count: number }[]
+    ).map((row) => ({
+      propertyName: String(row.property_name),
+      count: Number(row.count),
+    })),
   }
 }

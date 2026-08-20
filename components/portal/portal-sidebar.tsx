@@ -60,6 +60,10 @@ const navigationGroups = [
         label: "System Health",
         href: "/portal/system-health",
       },
+      {
+        label: "Settings",
+        href: "/portal/settings",
+      },
     ],
   },
 ]

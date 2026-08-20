@@ -194,7 +194,16 @@ export function DealWorkspace({
             <h2 className="font-serif text-2xl font-light">Property</h2>
           </div>
           <div className="px-6 py-5">
-            <div className="font-serif text-xl font-light">{property?.name ?? "—"}</div>
+            {property?.id ? (
+              <Link
+                href={`/portal/property-admin/${property.id}`}
+                className="inline-flex min-h-11 items-center font-serif text-xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+              >
+                {property.name}
+              </Link>
+            ) : (
+              <div className="font-serif text-xl font-light">{property?.name ?? "—"}</div>
+            )}
             <div className="mt-2 space-y-2 text-xs font-light text-black/45">
               <div>{property?.location ?? "—"}</div>
               <div>

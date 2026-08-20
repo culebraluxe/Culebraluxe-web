@@ -74,6 +74,7 @@ export type DealWorkspace = {
     updatedAtLabel: string
   } | null
   property: {
+    id: string
     name: string
     location: string | null
     propertyType: string | null
@@ -106,6 +107,7 @@ type DealRow = {
   closed_at_label: string | null
   created_at_label: string
   updated_at_label: string
+  property_id: string
   property_name: string
   property_location: string | null
   property_type: string | null
@@ -213,6 +215,7 @@ export async function getDealWorkspace(
           d.updated_at at time zone 'America/Puerto_Rico',
           'Mon FMDD, YYYY'
         ) as updated_at_label,
+        property.id as property_id,
         property.name as property_name,
         property.location as property_location,
         property.property_type,
@@ -440,6 +443,7 @@ export async function getDealWorkspace(
       updatedAtLabel: dealRow.updated_at_label,
     },
     property: {
+      id: dealRow.property_id,
       name: dealRow.property_name,
       location: dealRow.property_location ?? null,
       propertyType: dealRow.property_type ?? null,

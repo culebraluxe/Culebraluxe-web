@@ -37,6 +37,26 @@ function TableHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
+const QUALITY_LABELS: Array<{
+  flag: keyof PropertyAdminRow["dataQuality"]
+  label: string
+}> = [
+  { flag: "missingSlug", label: "no slug" },
+  { flag: "missingPrice", label: "no price" },
+  { flag: "missingLocation", label: "no location" },
+  { flag: "missingDescription", label: "no description" },
+  { flag: "missingBedsBaths", label: "no beds/baths" },
+  { flag: "noMedia", label: "no media" },
+  { flag: "missingHero", label: "no hero" },
+  { flag: "malformedLotUnits", label: "lot units" },
+]
+
+function qualityIssues(row: PropertyAdminRow) {
+  return QUALITY_LABELS.filter((item) => row.dataQuality[item.flag]).map(
+    (item) => item.label,
+  )
+}
+
 export function PropertyAdmin({
   rows,
 }: {
@@ -54,9 +74,9 @@ export function PropertyAdmin({
         </h1>
 
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Brokerage inventory with per-listing operational workspaces: facts,
-          visibility, media order, seller context, tasks, activity, and
-          showings/deals.
+          Operational listing index: scan status, price, location, media
+          completeness, and data-quality issues, then open the per-listing
+          workspace to maintain it.
         </p>
       </div>
 
@@ -72,7 +92,7 @@ export function PropertyAdmin({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] border-collapse">
+          <table className="w-full min-w-[1300px] border-collapse">
             <thead>
               <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
                 <TableHeading>Property</TableHeading>
@@ -84,6 +104,7 @@ export function PropertyAdmin({
                 <TableHeading>Seller</TableHeading>
                 <TableHeading>Hero</TableHeading>
                 <TableHeading>Img / Vid / Doc</TableHeading>
+                <TableHeading>Data quality</TableHeading>
                 <TableHeading>Archived</TableHeading>
               </tr>
             </thead>
@@ -164,6 +185,20 @@ export function PropertyAdmin({
                       {row.imageCount} / {row.videoCount} / {row.documentCount}
                     </td>
                     <td className="px-4 py-4 align-top text-sm font-light">
+                      {row.issueCount === 0 ? (
+                        <span className="text-[#40584b]">✓ Complete</span>
+                      ) : (
+                        <div>
+                          <span className="font-light text-[#8a4b2a]">
+                            {row.issueCount} issue{row.issueCount === 1 ? "" : "s"}
+                          </span>
+                          <div className="mt-1 max-w-[220px] text-[11px] leading-4 text-black/45">
+                            {qualityIssues(row).join(" · ")}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 align-top text-sm font-light">
                       {row.archived ? "Yes" : "—"}
                     </td>
                   </tr>
@@ -171,7 +206,7 @@ export function PropertyAdmin({
               ) : (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-4 py-12 text-center text-sm font-light text-black/40"
                   >
                     No properties on file.
