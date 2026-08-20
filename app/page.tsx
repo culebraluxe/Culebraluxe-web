@@ -22,7 +22,7 @@ export default async function Page() {
       <main>
         <Hero />
         <FeaturedProperties properties={featured} />
-        <HomeProperties />
+        <HomeProperties properties={properties} />
         <Services />
         <Culture />
         <About />

@@ -27,6 +27,15 @@ import {
   updateTaskDue,
   withdrawOffer,
 } from '@/db/portal-writes'
+import {
+  setPropertyHero,
+  setPropertyMediaOrder,
+  unlinkPropertyMedia,
+  updateMediaMetadata,
+  updatePropertyFacts,
+  updatePropertyVisibility,
+} from '@/db/portal-property'
+import type { PropertyFactsInput } from '@/db/portal-property'
 
 // Bounded Portal V1.1 write actions. Server-side validation happens here; the
 // SQL stays in the db layer. Every action returns a discriminated result that
@@ -674,6 +683,145 @@ export async function updatePersonStatusAction(
   try {
     const result = await updatePersonStatus(personId, status)
     revalidatePortal()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+// ---------------------------------------------------------------
+// LISTING OPERATIONS — Property Administration edits (LOPS V1)
+// ---------------------------------------------------------------
+
+// Revalidate the public surfaces that read canonical property data so admin
+// edits propagate immediately to the homepage, buyers inventory, and listing
+// detail pages.
+function revalidatePropertyPublic() {
+  revalidatePath('/', 'layout')
+  revalidatePath('/buyers', 'page')
+  revalidatePath('/properties', 'layout')
+}
+
+export async function updatePropertyFactsAction(
+  propertyId: string,
+  input: PropertyFactsInput,
+): Promise<PortalWriteResult<{ id: string; slug: string | null }>> {
+  if (!isUuid(propertyId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property identifier.',
+    }
+  }
+  try {
+    const result = await updatePropertyFacts(propertyId, input)
+    revalidatePortal()
+    revalidatePropertyPublic()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function updatePropertyVisibilityAction(
+  propertyId: string,
+  input: { featured: boolean; status: string },
+): Promise<PortalWriteResult<{ id: string; slug: string | null }>> {
+  if (!isUuid(propertyId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property identifier.',
+    }
+  }
+  try {
+    const result = await updatePropertyVisibility(propertyId, input)
+    revalidatePortal()
+    revalidatePropertyPublic()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function setPropertyMediaOrderAction(
+  propertyId: string,
+  orderedMediaIds: string[],
+): Promise<PortalWriteResult<{ id: string }>> {
+  if (!isUuid(propertyId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property identifier.',
+    }
+  }
+  try {
+    const result = await setPropertyMediaOrder(propertyId, orderedMediaIds)
+    revalidatePortal()
+    revalidatePropertyPublic()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function setPropertyHeroAction(
+  propertyId: string,
+  mediaId: string,
+): Promise<PortalWriteResult<{ id: string; mediaId: string }>> {
+  if (!isUuid(propertyId) || !isUuid(mediaId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property or media identifier.',
+    }
+  }
+  try {
+    const result = await setPropertyHero(propertyId, mediaId)
+    revalidatePortal()
+    revalidatePropertyPublic()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function unlinkPropertyMediaAction(
+  propertyId: string,
+  mediaId: string,
+): Promise<PortalWriteResult<{ id: string; mediaId: string }>> {
+  if (!isUuid(propertyId) || !isUuid(mediaId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property or media identifier.',
+    }
+  }
+  try {
+    const result = await unlinkPropertyMedia(propertyId, mediaId)
+    revalidatePortal()
+    revalidatePropertyPublic()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function updateMediaMetadataAction(
+  mediaId: string,
+  input: { altText: string | null; caption: string | null },
+): Promise<PortalWriteResult<{ id: string }>> {
+  if (!isUuid(mediaId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid media identifier.',
+    }
+  }
+  try {
+    const result = await updateMediaMetadata(mediaId, input)
+    revalidatePortal()
+    revalidatePropertyPublic()
     return { ok: true, data: result }
   } catch (error) {
     return failure(error)

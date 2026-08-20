@@ -54,8 +54,9 @@ export function PropertyAdmin({
         </h1>
 
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Read-only brokerage inventory: listings, media completeness, and
-          archived state.
+          Brokerage inventory with per-listing operational workspaces: facts,
+          visibility, media order, seller context, tasks, activity, and
+          showings/deals.
         </p>
       </div>
 
@@ -94,9 +95,12 @@ export function PropertyAdmin({
                     className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40"
                   >
                     <td className="px-4 py-4 align-top">
-                      <div className="font-serif text-lg font-light">
+                      <Link
+                        href={`/portal/property-admin/${row.id}`}
+                        className="font-serif text-lg font-light text-[var(--portal-navy-soft)] underline-offset-2 hover:underline"
+                      >
                         {row.name}
-                      </div>
+                      </Link>
                       {row.slug ? (
                         <Link
                           href={`/properties/${row.slug}`}
@@ -114,6 +118,12 @@ export function PropertyAdmin({
                           {row.propertyType}
                         </div>
                       )}
+                      <Link
+                        href={`/portal/property-admin/${row.id}`}
+                        className="mt-2 inline-block text-xs font-light text-black/50 underline-offset-2 hover:text-[var(--portal-navy)] hover:underline"
+                      >
+                        Manage listing →
+                      </Link>
                     </td>
                     <td className="px-4 py-4 align-top text-sm font-light">
                       {statusLabel(row.status)}

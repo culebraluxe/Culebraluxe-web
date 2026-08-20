@@ -610,16 +610,16 @@ export async function getSimilarProperties(
     order by
       case when p.property_type = ${current.propertyType} then 0 else 1 end,
       case
-        when ${current.neighborhood} is not null
-          and p.neighborhood = ${current.neighborhood} then 0
-        when ${current.neighborhood} is null
-          and ${current.city} is not null
-          and p.city = ${current.city} then 0
+        when ${current.neighborhood}::text is not null
+          and p.neighborhood = ${current.neighborhood}::text then 0
+        when ${current.neighborhood}::text is null
+          and ${current.city}::text is not null
+          and p.city = ${current.city}::text then 0
         else 1
       end,
       case
-        when ${current.listPrice} is not null
-          then abs(coalesce(p.list_price, 0) - ${current.listPrice})
+        when ${current.listPrice}::numeric is not null
+          then abs(coalesce(p.list_price, 0) - ${current.listPrice}::numeric)
         else 0
       end asc,
       p.featured desc,

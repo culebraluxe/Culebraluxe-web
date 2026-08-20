@@ -77,6 +77,80 @@ export async function getTaskById(
   return row ? mapTask(row) : null
 }
 
+export type PropertyOpenTask = {
+  id: string
+  title: string
+  detail: string | null
+  dueAt: string | null
+  dueAtLabel: string | null
+  isOverdue: boolean
+  personId: string | null
+  personName: string | null
+  dealId: string | null
+  dealName: string | null
+}
+
+// Read-only property-scoped open tasks (LOPS-05). Returns open tasks whose
+// property_id matches the listing, with best-available person/deal context
+// joined only through canonical FKs. Reuses the existing task table; no new
+// task semantics or workflow behavior.
+export async function getPropertyOpenTasks(
+  propertyId: string,
+  execute: QueryExecutor = sql,
+): Promise<PropertyOpenTask[]> {
+  const rows = await execute`
+    select
+      t.id,
+      t.title,
+      t.detail,
+      t.due_at::text as due_at,
+      t.person_id,
+      t.deal_id,
+      to_char(
+        t.due_at at time zone 'America/Puerto_Rico',
+        'Mon FMDD, YYYY HH12:MI AM'
+      ) as due_at_label,
+      person.display_name as person_name,
+      deal_property.name as deal_name
+    from task t
+    left join person
+      on person.id = t.person_id
+    left join deal
+      on deal.id = t.deal_id
+    left join property deal_property
+      on deal_property.id = deal.property_id
+    where t.property_id = ${propertyId}
+      and t.status = 'open'
+    order by t.due_at asc nulls last, t.created_at asc
+  `
+
+  const nowIso = new Date().toISOString()
+
+  return (rows as Array<{
+    id: string
+    title: string
+    detail: string | null
+    due_at: string | null
+    due_at_label: string | null
+    person_id: string | null
+    person_name: string | null
+    deal_id: string | null
+    deal_name: string | null
+  }>).map((row) => ({
+    id: row.id,
+    title: row.title,
+    detail: row.detail ?? null,
+    dueAt: row.due_at ?? null,
+    dueAtLabel: row.due_at_label ?? null,
+    isOverdue:
+      row.due_at !== null && row.due_at < nowIso,
+    personId: row.person_id ?? null,
+    personName: row.person_name ?? null,
+    dealId: row.deal_id ?? null,
+    dealName: row.deal_name ?? null,
+  }))
+}
+
 export async function createTask(
   input: CreateTaskInput,
   execute: QueryExecutor = sql,

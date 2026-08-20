@@ -2,43 +2,25 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 
-import { client } from '@/sanity/lib/client'
-import { HOME_PROPERTIES_QUERY } from '@/sanity/lib/queries'
-import { urlFor } from '@/sanity/lib/image'
+import type { PropertySummary } from '@/db/properties'
 import { SaveProperty } from '@/components/property/save-property'
 import { formatArea, formatPrice, isLand } from '@/lib/property'
 
-type HomeProperty = {
-  _id: string
-  title?: string | null
-  slug?: { current?: string | null } | null
-  listPrice?: number | null
-  featured?: boolean | null
-  propertyType?: string | null
-  neighborhood?: string | null
-  bedroomsTotal?: number | null
-  bathroomsTotal?: number | null
-  livingArea?: number | null
-  lotSizeArea?: number | null
-  lotSizeUnits?: string | null
-  viewType?: string[] | null
-  heroImage?: unknown
-}
-
-function cardFacts(p: HomeProperty): string {
+function cardFacts(p: PropertySummary): string {
   const parts: string[] = []
   if (!isLand(p.propertyType)) {
-    if (p.bedroomsTotal != null) parts.push(`${p.bedroomsTotal} Bed`)
-    if (p.bathroomsTotal != null) parts.push(`${p.bathroomsTotal} Bath`)
+    if (p.bedrooms != null) parts.push(`${p.bedrooms} Bed`)
+    if (p.bathrooms != null) parts.push(`${p.bathrooms} Bath`)
   } else {
-    const lot = formatArea(p.lotSizeArea, p.lotSizeUnits)
+    const lot = formatArea(p.lotSize, p.lotSizeUnits)
     if (lot) parts.push(lot)
   }
-  if (p.viewType?.[0]) parts.push(`${p.viewType[0]} View`)
+  if (p.views[0]) parts.push(`${p.views[0]} View`)
   return parts.join('  ·  ')
 }
 
 type HomePropertiesProps = {
+  properties: PropertySummary[]
   eyebrow?: string
   title?: string
   intro?: string
@@ -48,26 +30,15 @@ type HomePropertiesProps = {
   cta?: { href: string; label: string } | null
 }
 
-export async function HomeProperties({
+export function HomeProperties({
+  properties,
   eyebrow = 'The Portfolio',
   title = 'Find your place in Culebra.',
   intro = 'Exquisite properties on an extraordinary island — each chosen for its light, its outlook, and its relationship to the sea.',
   limit = 4,
   cta = { href: '/#properties', label: 'View All Properties' },
-}: HomePropertiesProps = {}) {
-  let properties: HomeProperty[] = []
-  try {
-    properties = await client.fetch(
-      HOME_PROPERTIES_QUERY,
-      {},
-      { next: { revalidate: 300 } },
-    )
-  } catch {
-    // Never break the page if Sanity is unavailable.
-    return null
-  }
-
-  const items = (properties ?? []).filter((p) => p.slug?.current).slice(0, limit)
+}: HomePropertiesProps) {
+  const items = properties.slice(0, limit)
   if (items.length === 0) return null
 
   return (
@@ -98,22 +69,18 @@ export async function HomeProperties({
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {items.map((p) => {
-            const href = `/properties/${p.slug!.current}`
-            const img = p.heroImage
-              ? urlFor(p.heroImage as Parameters<typeof urlFor>[0])
-                  .width(700)
-                  .height(560)
-                  .url()
-              : null
+            const href = `/properties/${p.slug}`
+
             return (
-              <article key={p._id} className="group flex flex-col">
+              <article key={p.id} className="group flex flex-col">
                 <div className="relative aspect-[5/4] w-full overflow-hidden bg-background/10">
-                  <Link href={href} aria-label={p.title ?? 'View property'}>
-                    {img && (
+                  <Link href={href} aria-label={p.name}>
+                    {p.heroUrl && (
                       <Image
-                        src={img || '/placeholder.svg'}
-                        alt={p.title ?? 'Property'}
+                        src={p.heroUrl}
+                        alt={p.name}
                         fill
+                        unoptimized
                         sizes="(min-width: 1024px) 22vw, (min-width: 640px) 45vw, 90vw"
                         className="object-cover transition-transform duration-[1400ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.05]"
                       />
@@ -125,7 +92,9 @@ export async function HomeProperties({
                     </span>
                   )}
                   <SaveProperty
-                    propertyId={p._id}
+                    propertyId={p.id}
+                    slug={p.slug}
+                    name={p.name}
                     variant="icon"
                     className="absolute right-3 top-3"
                   />
@@ -135,7 +104,7 @@ export async function HomeProperties({
                     href={href}
                     className="font-serif text-xl font-light transition-colors duration-300 hover:text-background/70"
                   >
-                    {p.title}
+                    {p.name}
                   </Link>
                   <span className="whitespace-nowrap text-sm font-light text-background/80">
                     {formatPrice(p.listPrice)}
