@@ -89,7 +89,7 @@ export function ActivityFeed({
                   {entry.personId ? (
                     <Link
                       href={`/portal/clients/${entry.personId}`}
-                      className="inline-block text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                     >
                       {entry.personName ?? "Unknown person"}
                     </Link>
@@ -127,7 +127,7 @@ export function ActivityFeed({
           </div>
         ) : (
           <div className="px-6 py-12 text-sm font-light text-black/40">
-            No activity recorded yet.
+            No activity recorded yet. Interactions will appear here as they are captured.
           </div>
         )}
       </section>

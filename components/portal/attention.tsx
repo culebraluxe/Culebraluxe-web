@@ -113,7 +113,7 @@ export function Attention({
                     {task.personId ? (
                       <Link
                         href={`/portal/clients/${task.personId}`}
-                        className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                        className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                       >
                         {task.title}
                       </Link>
@@ -159,7 +159,7 @@ export function Attention({
                   {task.personId ? (
                     <Link
                       href={`/portal/clients/${task.personId}`}
-                      className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                     >
                       {task.title}
                     </Link>
@@ -201,7 +201,7 @@ export function Attention({
                   <div className="min-w-0">
                     <Link
                       href={`/portal/clients/${person.id}`}
-                      className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                     >
                       {person.displayName}
                     </Link>
@@ -246,7 +246,7 @@ export function Attention({
                   <div className="min-w-0">
                     <Link
                       href={`/portal/clients/${person.id}`}
-                      className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                     >
                       {person.displayName}
                     </Link>

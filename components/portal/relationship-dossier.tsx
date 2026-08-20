@@ -213,7 +213,7 @@ export function RelationshipDossier({
             </div>
           ) : (
             <div className="px-6 py-10 text-sm font-light text-black/40">
-              No open tasks.
+              No open tasks for this person.
             </div>
           )}
         </section>
@@ -239,7 +239,7 @@ export function RelationshipDossier({
                   <div className="flex items-start justify-between gap-4">
                     <Link
                       href={`/portal/deals/${deal.id}`}
-                      className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                     >
                       {deal.propertyName}
                     </Link>
@@ -263,7 +263,7 @@ export function RelationshipDossier({
             </div>
           ) : (
             <div className="px-6 py-10 text-sm font-light text-black/40">
-              No deals on record.
+              No deals for this person yet.
             </div>
           )}
         </section>
@@ -363,7 +363,7 @@ export function RelationshipDossier({
             </div>
           ) : (
             <div className="px-6 py-10 text-sm font-light text-black/40">
-              No property interests.
+              No property interests yet.
             </div>
           )}
         </section>

@@ -118,7 +118,7 @@ export function Dashboard({
         </h1>
 
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Today&apos;s pulse across clients, properties, and active opportunities.
+          What needs your attention, what is moving, and what happened recently — at a glance.
         </p>
       </div>
 
@@ -200,7 +200,7 @@ export function Dashboard({
                       {task.personId ? (
                         <Link
                           href={`/portal/clients/${task.personId}`}
-                          className="mt-1 inline-block font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                          className="mt-1 inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                         >
                           {task.title}
                         </Link>
@@ -226,14 +226,24 @@ export function Dashboard({
         </section>
 
         <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-          <div className="border-b border-[var(--portal-border)] px-6 py-5">
-            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-              Upcoming
-            </p>
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5">
+            <div>
+              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+                Upcoming
+              </p>
 
-            <h2 className="mt-2 font-serif text-2xl font-light">
-              Next on the Calendar
-            </h2>
+              <h2 className="mt-2 font-serif text-2xl font-light">
+                Next on the Calendar
+              </h2>
+            </div>
+
+            <Link
+              href="/portal/attention"
+              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+            >
+              View all
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <div className="px-6">
@@ -259,7 +269,7 @@ export function Dashboard({
                     {task.personId ? (
                       <Link
                         href={`/portal/clients/${task.personId}`}
-                        className="mt-1 inline-block text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                        className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                       >
                         {task.title}
                       </Link>
@@ -278,7 +288,7 @@ export function Dashboard({
               ))
             ) : (
               <div className="py-10 text-sm font-light text-black/40">
-                No upcoming actions.
+                Nothing due in the next 7 days.
               </div>
             )}
           </div>
@@ -303,7 +313,7 @@ export function Dashboard({
 
               <Link
                 href={`/portal/deals/${featuredDeal.id}`}
-                className="mt-3 inline-block font-serif text-2xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                className="mt-3 inline-flex min-h-11 items-center font-serif text-2xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
               >
                 {featuredDeal.propertyName}
               </Link>
@@ -351,14 +361,24 @@ export function Dashboard({
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
-          <div>
-            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-              Portfolio Snapshot
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+                Portfolio Snapshot
+              </p>
 
-            <h2 className="mt-2 font-serif text-2xl font-light">
-              Deal Pipeline
-            </h2>
+              <h2 className="mt-2 font-serif text-2xl font-light">
+                Deal Pipeline
+              </h2>
+            </div>
+
+            <Link
+              href="/portal/deals"
+              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+            >
+              View all
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <div className="mt-7 space-y-4">

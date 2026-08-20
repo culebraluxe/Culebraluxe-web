@@ -189,7 +189,7 @@ export function DealWorkspace({
             <div className="px-6 py-5">
               <Link
                 href={`/portal/clients/${workspace.client.id}`}
-                className="font-serif text-xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                className="inline-flex min-h-11 items-center font-serif text-xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
               >
                 {workspace.client.displayName}
               </Link>
@@ -281,7 +281,7 @@ export function DealWorkspace({
               ))}
             </div>
           ) : (
-            <Empty text="No open tasks." />
+            <Empty text="No open tasks on this deal." />
           )}
         </section>
 
@@ -319,7 +319,7 @@ export function DealWorkspace({
                     {item.personId ? (
                       <Link
                         href={`/portal/clients/${item.personId}`}
-                        className="inline-block text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                        className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
                       >
                         {item.personName ?? "—"}
                       </Link>
@@ -334,7 +334,7 @@ export function DealWorkspace({
               ))}
             </div>
           ) : (
-            <Empty text="No deal activity recorded." />
+            <Empty text="No deal activity yet." />
           )}
         </section>
       </div>
