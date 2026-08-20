@@ -162,3 +162,18 @@ test('RE_supermodel graph validates cleanly', () => {
   const result = validateProcessGraph(parsed.graph)
   assert.equal(result.valid, true, result.errors.join('; '))
 })
+
+test('decision node with an unsupported condition expression is rejected', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'decide' }] },
+    decide: {
+      id: 'decide',
+      type: 'decision',
+      decisions: [{ condition: 'flag && other', transition: 'no' }],
+      transitions: [{ name: 'no', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.ok(result.errors.some((e) => /unsupported condition expression/.test(e)))
+})

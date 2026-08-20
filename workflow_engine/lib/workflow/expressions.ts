@@ -1,35 +1,80 @@
-import { createRequire } from 'node:module';
+// ---------------------------------------------------------------------------
+// Dependency-free, bounded condition DSL for decision nodes.
+//
+// Grammar (Story 182/184 — exactly what current definitions use, plus the
+// minimal equality/inequality forms):
+//
+//   expression := identifier WS op WS literal
+//   identifier := [A-Za-z_][A-Za-z0-9_]*
+//   op         := '==' | '!='
+//   literal    := 'true' | 'false' | 'null'
+//               | number (-?\d+(\.\d+)?)
+//               | '"' string '"' | "'" string "'"
+//
+// The COMPLETE string must match. Anything else (e.g. '&&', '||', '!',
+// function calls, '===', '>', '<', trailing garbage) is unsupported and is
+// rejected — never silently evaluated to a branch.
+//
+// Semantics (Story 183/185):
+//   - a supported expression evaluates deterministically with strict
+//     equality/inequality; missing facts stay `undefined` and never collapse
+//     into `null` (so `identifier == null` is true only when the fact is
+//     explicitly null)
+//   - an unsupported or malformed expression raises an explicit generic error
+//     at runtime (the deployment validator should have rejected it earlier)
+// ---------------------------------------------------------------------------
 
-// Lazily load expr-eval so the engine core can be exercised without the
-// package installed (tests inject a stub evaluator). Behavior is unchanged:
-// the same expr-eval parser is used at runtime and any error still evaluates
-// to `false` (silent-false), preserving the original contract.
-const require = createRequire(import.meta.url);
-
-let parser: any = null;
-
-function getParser(): any {
-  if (!parser) {
-    const mod = require('expr-eval') as { Parser: new () => any };
-    parser = new mod.Parser();
+export class ExpressionError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ExpressionError'
   }
-  return parser;
+}
+
+const EXPRESSION_PATTERN =
+  /^([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*(true|false|null|-?\d+(?:\.\d+)?|"[^"\n]*"|'[^'\n]*')$/
+
+/** True when `expression` conforms to the supported condition DSL. */
+export function isSupportedExpression(expression: string): boolean {
+  return EXPRESSION_PATTERN.test(expression.trim())
 }
 
 /**
- * Safely evaluate a decision condition against process variables.
- * Supports expressions like: amount > 100000, status == "approved"
+ * Evaluate a decision condition against process variables.
+ * Throws `ExpressionError` for any unsupported/malformed expression.
  */
 export function evaluateCondition(
   expression: string,
   variables: Record<string, any>,
 ): boolean {
-  try {
-    const p = getParser();
-    const expr = p.parse(expression);
-    return Boolean(expr.evaluate(variables));
-  } catch (err) {
-    console.error('Expression evaluation failed:', expression, err);
-    return false;
+  const m = EXPRESSION_PATTERN.exec(expression.trim())
+  if (!m) {
+    throw new ExpressionError(`Unsupported workflow expression: ${JSON.stringify(expression)}`)
   }
+
+  const [, name, op, literal] = m
+  const lhs = variables[name]
+  const rhs = parseLiteral(literal)
+
+  switch (op) {
+    case '==':
+      return lhs === rhs
+    case '!=':
+      return lhs !== rhs
+    default:
+      throw new ExpressionError(`Unsupported workflow operator in: ${JSON.stringify(expression)}`)
+  }
+}
+
+function parseLiteral(s: string): any {
+  if (s === 'true') return true
+  if (s === 'false') return false
+  if (s === 'null') return null
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    return s.slice(1, -1)
+  }
+  return Number(s)
 }

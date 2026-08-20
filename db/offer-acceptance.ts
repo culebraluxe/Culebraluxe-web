@@ -1,5 +1,5 @@
 import type { CommandResult, CommandOutcome } from '../lib/workflow/contracts'
-import { claimReceipt, finalizeReceipt, readFinalReceipt } from './workflow-command-receipt'
+import { claimReceipt, finalizeReceipt, readFinalReceipt, replayOutcome } from './workflow-command-receipt'
 import { neonTx, type TxRunner } from './tx'
 
 // ---------------------------------------------------------------------------
@@ -38,12 +38,13 @@ export async function acceptOffer(
     const claimed = await claimReceipt(tx, input.commandId)
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
+      const replay = replayOutcome(receipt)
       return {
         commandId: input.commandId,
-        outcome: (receipt?.outcome ?? 'success') as CommandOutcome,
+        outcome: replay.outcome,
         emittedEvents: [],
         aggregateId: receipt?.aggregateId ?? null,
-        message: receipt?.message ?? null,
+        message: replay.message,
         replayed: true,
       }
     }

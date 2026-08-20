@@ -16,6 +16,7 @@ import type {
   ProcessGraph,
   ProcessOutcome,
 } from '../../workflow_engine/lib/workflow/types'
+import { isSupportedExpression } from '../../workflow_engine/lib/workflow/expressions'
 
 export interface GraphValidationResult {
   valid: boolean
@@ -121,6 +122,10 @@ function validateNode(
     for (const d of node.decisions ?? []) {
       if (!d.condition || !d.condition.trim()) {
         errors.push(`decision node '${id}' has an <on> rule with an empty condition`)
+      } else if (!isSupportedExpression(d.condition)) {
+        errors.push(
+          `decision node '${id}' has an unsupported condition expression '${d.condition}'`,
+        )
       }
       if (!transitionNames.has(d.transition)) {
         errors.push(
