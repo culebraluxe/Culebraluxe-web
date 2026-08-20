@@ -316,7 +316,16 @@ export function DealWorkspace({
                     )}
                   </div>
                   <div>
-                    <div className="text-sm font-medium">{item.personName ?? "—"}</div>
+                    {item.personId ? (
+                      <Link
+                        href={`/portal/clients/${item.personId}`}
+                        className="inline-block text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      >
+                        {item.personName ?? "—"}
+                      </Link>
+                    ) : (
+                      <div className="text-sm font-medium">{item.personName ?? "—"}</div>
+                    )}
                     <div className="mt-1 text-sm font-light text-black/55">
                       {item.summary ?? item.title ?? "Interaction"}
                     </div>

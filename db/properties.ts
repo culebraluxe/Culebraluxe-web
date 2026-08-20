@@ -146,6 +146,28 @@ export type PropertySummary = {
   heroAlt: string
 }
 
+export type PropertyIntro = {
+  id: string
+  name: string
+  location: string | null
+}
+
+export async function getPropertyIntroById(
+  propertyId: string,
+): Promise<PropertyIntro | null> {
+  const rows = await sql`
+    select id, name, location
+    from property
+    where id = ${propertyId}
+      and archived_at is null
+    limit 1
+  `
+  const row = rows[0] as PropertyIntro | undefined
+  return row
+    ? { id: row.id, name: row.name, location: row.location ?? null }
+    : null
+}
+
 function toNumber(value: string | null) {
   return value === null ? null : Number(value)
 }

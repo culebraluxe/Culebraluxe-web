@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import type {
   Client,
   Deal,
@@ -148,14 +150,24 @@ export function Dashboard({
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_360px]">
         <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-          <div className="border-b border-[var(--portal-border)] px-6 py-5">
-            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-              Needs Attention
-            </p>
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5">
+            <div>
+              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+                Needs Attention
+              </p>
 
-            <h2 className="mt-2 font-serif text-2xl font-light">
-              Client Follow-Up
-            </h2>
+              <h2 className="mt-2 font-serif text-2xl font-light">
+                Client Follow-Up
+              </h2>
+            </div>
+
+            <Link
+              href="/portal/attention"
+              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+            >
+              View all
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <div>
@@ -185,9 +197,18 @@ export function Dashboard({
                         </div>
                       </div>
 
-                      <div className="mt-1 font-serif text-lg font-light">
-                        {task.title}
-                      </div>
+                      {task.personId ? (
+                        <Link
+                          href={`/portal/clients/${task.personId}`}
+                          className="mt-1 inline-block font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                        >
+                          {task.title}
+                        </Link>
+                      ) : (
+                        <div className="mt-1 font-serif text-lg font-light">
+                          {task.title}
+                        </div>
+                      )}
 
                       {task.detail && (
                         <div className="mt-1 text-xs font-light text-black/45">
@@ -235,9 +256,18 @@ export function Dashboard({
                       {task.dueAtLabel ?? "Unscheduled"}
                     </div>
 
-                    <div className="mt-1 text-sm font-medium">
-                      {task.title}
-                    </div>
+                    {task.personId ? (
+                      <Link
+                        href={`/portal/clients/${task.personId}`}
+                        className="mt-1 inline-block text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      >
+                        {task.title}
+                      </Link>
+                    ) : (
+                      <div className="mt-1 text-sm font-medium">
+                        {task.title}
+                      </div>
+                    )}
 
                     <div className="mt-1 text-xs font-light text-black/45">
                       {task.contextName ?? "Task"}
@@ -271,9 +301,12 @@ export function Dashboard({
                 Featured Opportunity
               </p>
 
-              <h2 className="mt-3 font-serif text-2xl font-light">
+              <Link
+                href={`/portal/deals/${featuredDeal.id}`}
+                className="mt-3 inline-block font-serif text-2xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+              >
                 {featuredDeal.propertyName}
-              </h2>
+              </Link>
 
               <p className="mt-1 text-xs font-light text-black/45">
                 {featuredDeal.propertyLocation}
@@ -364,14 +397,24 @@ export function Dashboard({
         </section>
 
         <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-          <div className="border-b border-[var(--portal-border)] px-6 py-5">
-            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-              Recent Activity
-            </p>
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5">
+            <div>
+              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+                Recent Activity
+              </p>
 
-            <h2 className="mt-2 font-serif text-2xl font-light">
-              Relationship Timeline
-            </h2>
+              <h2 className="mt-2 font-serif text-2xl font-light">
+                Relationship Timeline
+              </h2>
+            </div>
+
+            <Link
+              href="/portal/activity"
+              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+            >
+              View all
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <div>

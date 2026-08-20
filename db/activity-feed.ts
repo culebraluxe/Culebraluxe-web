@@ -8,6 +8,8 @@ import { sql } from './client'
 
 export type ActivityFeedEntry = {
   id: string
+  personId: string | null
+  dealId: string | null
   channel: string
   direction: string | null
   occurredAt: string
@@ -21,6 +23,8 @@ export type ActivityFeedEntry = {
 
 type ActivityFeedRow = {
   id: string
+  person_id: string | null
+  deal_id: string | null
   channel: string
   direction: string | null
   occurred_at: string
@@ -38,6 +42,8 @@ export async function getActivityFeed(
   const rows = await sql`
     select
       i.id,
+      person.id as person_id,
+      deal.id as deal_id,
       i.channel,
       i.direction,
       i.occurred_at,
@@ -65,6 +71,8 @@ export async function getActivityFeed(
 
   return (rows as ActivityFeedRow[]).map((row) => ({
     id: row.id,
+    personId: row.person_id ?? null,
+    dealId: row.deal_id ?? null,
     channel: row.channel,
     direction: row.direction ?? null,
     occurredAt: row.occurred_at,

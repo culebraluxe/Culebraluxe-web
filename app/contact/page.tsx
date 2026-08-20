@@ -3,6 +3,7 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Contact } from '@/components/contact'
+import { getPropertyIntroById } from '@/db/properties'
 
 export const metadata: Metadata = {
   title: 'Contact — CulebraLuxe',
@@ -25,7 +26,13 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
       ? query.requestType
       : undefined
   const propertyContext = requestType
-    ? { propertyId: query.propertyId, requestType }
+    ? {
+        propertyId: query.propertyId,
+        requestType,
+        propertyName: query.propertyId
+          ? (await getPropertyIntroById(query.propertyId))?.name ?? null
+          : null,
+      }
     : undefined
 
   return (

@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import type { ActivityFeedEntry } from "@/db/activity-feed"
 
 function channelLabel(channel: string) {
@@ -84,9 +86,18 @@ export function ActivityFeed({
                 </div>
 
                 <div>
-                  <div className="text-sm font-medium">
-                    {entry.personName ?? "Unknown person"}
-                  </div>
+                  {entry.personId ? (
+                    <Link
+                      href={`/portal/clients/${entry.personId}`}
+                      className="inline-block text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                    >
+                      {entry.personName ?? "Unknown person"}
+                    </Link>
+                  ) : (
+                    <div className="text-sm font-medium">
+                      {entry.personName ?? "Unknown person"}
+                    </div>
+                  )}
 
                   <div className="mt-1 text-sm font-light text-black/55">
                     {entry.summary ?? entry.title ?? "Interaction"}
@@ -94,9 +105,20 @@ export function ActivityFeed({
 
                   {(entry.propertyName || entry.dealPropertyName) && (
                     <div className="mt-1 text-xs font-light text-black/40">
-                      {[entry.propertyName, entry.dealPropertyName]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {entry.dealPropertyName && entry.dealId ? (
+                        <Link
+                          href={`/portal/deals/${entry.dealId}`}
+                          className="text-[var(--portal-navy-soft)] underline-offset-2 hover:underline"
+                        >
+                          {entry.dealPropertyName}
+                        </Link>
+                      ) : (
+                        entry.dealPropertyName ?? entry.propertyName
+                      )}
+                      {entry.propertyName &&
+                        entry.dealPropertyName &&
+                        entry.propertyName !== entry.dealPropertyName &&
+                        ` · ${entry.propertyName}`}
                     </div>
                   )}
                 </div>

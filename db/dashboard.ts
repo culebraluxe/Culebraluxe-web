@@ -8,6 +8,7 @@ import type { InteractionChannel } from '@/lib/crm-types'
 
 export type DashboardTask = {
   id: string
+  personId: string | null
   title: string
   detail: string | null
   dueAt: string | null
@@ -35,6 +36,7 @@ const DUE_SOON_WINDOW_DAYS = 7
 
 type TaskRow = {
   id: string
+  person_id: string | null
   title: string
   detail: string | null
   due_at: string | null
@@ -56,6 +58,7 @@ type RecentInteractionRow = {
 function mapTask(row: TaskRow): DashboardTask {
   return {
     id: row.id,
+    personId: row.person_id ?? null,
     title: row.title,
     detail: row.detail ?? null,
     dueAt: row.due_at ?? null,
@@ -73,6 +76,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     sql`
       select
         t.id,
+        person.id as person_id,
         t.title,
         t.detail,
         t.due_at,

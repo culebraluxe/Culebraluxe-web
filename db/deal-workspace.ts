@@ -22,6 +22,7 @@ export type DealWorkspaceTask = {
 
 export type DealWorkspaceActivity = {
   id: string
+  personId: string | null
   channel: string
   direction: string | null
   occurredAtLabel: string
@@ -100,6 +101,7 @@ type TaskRow = {
 
 type ActivityRow = {
   id: string
+  person_id: string | null
   channel: string
   direction: string | null
   occurred_at_label: string
@@ -197,6 +199,7 @@ export async function getDealWorkspace(
     sql`
       select
         i.id,
+        person.id as person_id,
         i.channel,
         i.direction,
         to_char(
@@ -284,6 +287,7 @@ export async function getDealWorkspace(
     })),
     activity: (activityRows as ActivityRow[]).map((row) => ({
       id: row.id,
+      personId: row.person_id ?? null,
       channel: row.channel,
       direction: row.direction ?? null,
       occurredAtLabel: row.occurred_at_label,

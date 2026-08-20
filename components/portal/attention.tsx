@@ -110,9 +110,18 @@ export function Attention({
                   className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="font-serif text-lg font-light">
-                      {task.title}
-                    </div>
+                    {task.personId ? (
+                      <Link
+                        href={`/portal/clients/${task.personId}`}
+                        className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      >
+                        {task.title}
+                      </Link>
+                    ) : (
+                      <div className="font-serif text-lg font-light">
+                        {task.title}
+                      </div>
+                    )}
                     <span className="rounded-full bg-[#f3e3d8] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[#8a4b2a]">
                       Overdue
                     </span>
@@ -147,7 +156,16 @@ export function Attention({
                   key={task.id}
                   className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
-                  <div className="font-serif text-lg font-light">{task.title}</div>
+                  {task.personId ? (
+                    <Link
+                      href={`/portal/clients/${task.personId}`}
+                      className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                    >
+                      {task.title}
+                    </Link>
+                  ) : (
+                    <div className="font-serif text-lg font-light">{task.title}</div>
+                  )}
                   {task.detail && (
                     <p className="mt-1 text-sm font-light text-black/50">{task.detail}</p>
                   )}

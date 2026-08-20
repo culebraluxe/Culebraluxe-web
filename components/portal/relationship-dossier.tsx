@@ -237,9 +237,12 @@ export function RelationshipDossier({
                   className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="font-serif text-lg font-light">
+                    <Link
+                      href={`/portal/deals/${deal.id}`}
+                      className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                    >
                       {deal.propertyName}
-                    </div>
+                    </Link>
 
                     <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
                       {stageLabel(deal.stage)}

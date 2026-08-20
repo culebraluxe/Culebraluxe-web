@@ -3,50 +3,60 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-const navigation = [
+const navigationGroups = [
   {
-    label: "Dashboard",
-    href: "/portal/dashboard",
+    label: "Work",
+    items: [
+      {
+        label: "Dashboard",
+        href: "/portal/dashboard",
+      },
+      {
+        label: "Attention",
+        href: "/portal/attention",
+      },
+      {
+        label: "Needs Review",
+        href: "/portal/needs-review",
+      },
+      {
+        label: "Activity",
+        href: "/portal/activity",
+      },
+    ],
   },
   {
-    label: "Attention",
-    href: "/portal/attention",
-  },
-  {
-    label: "Needs Review",
-    href: "/portal/needs-review",
-  },
-  {
-    label: "Activity",
-    href: "/portal/activity",
-  },
-  {
-    label: "Deals Portfolio",
-    href: "/portal/deals",
-  },
-  {
-    label: "Client Manager",
-    href: "/portal/clients",
-  },
-  {
-    label: "Property Admin",
-    href: "/portal/property-admin",
-  },
-  {
-    label: "Media Audit",
-    href: "/portal/media-admin",
-  },
-  {
-    label: "Reporting",
-    href: "/portal/reporting",
-  },
-  {
-    label: "Identity Quality",
-    href: "/portal/identity-quality",
-  },
-  {
-    label: "System Health",
-    href: "/portal/system-health",
+    label: "Operations & Reporting",
+    items: [
+      {
+        label: "Deals",
+        href: "/portal/deals",
+      },
+      {
+        label: "Clients",
+        href: "/portal/clients",
+      },
+      {
+        label: "Property Admin",
+        href: "/portal/property-admin",
+      },
+      {
+        label: "Media Audit",
+        href: "/portal/media-admin",
+      },
+      {
+        label: "Reporting",
+        href: "/portal/reporting",
+      },
+      {
+        label: "Identity Quality",
+        href: "/portal/identity-quality",
+      },
+      {
+        label: "System Health",
+        href: "/portal/system-health",
+      },
+    ],
   },
 ]
 
@@ -68,25 +78,35 @@ export function PortalSidebar() {
       </div>
 
       <nav className="flex-1 px-4 py-8">
-        <div className="space-y-1">
-          {navigation.map((item) => {
-            const active = pathname.startsWith(item.href)
+        <div className="space-y-6">
+          {navigationGroups.map((group) => (
+            <div key={group.label}>
+              <div className="px-4 pb-2 text-[10px] font-light uppercase tracking-[0.24em] text-white/35">
+                {group.label}
+              </div>
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={[
-                  "block rounded-sm px-4 py-3 text-sm font-light transition-colors",
-                  active
-                    ? "bg-white/12 text-white"
-                    : "text-white/55 hover:bg-white/7 hover:text-white",
-                ].join(" ")}
-              >
-                {item.label}
-              </Link>
-            )
-          })}
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const active = pathname.startsWith(item.href)
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={[
+                        "block rounded-sm px-4 py-3 text-sm font-light transition-colors",
+                        active
+                          ? "bg-white/12 text-white"
+                          : "text-white/55 hover:bg-white/7 hover:text-white",
+                      ].join(" ")}
+                    >
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </nav>
 

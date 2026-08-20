@@ -6,6 +6,7 @@ import { sql } from './client'
 
 export type AttentionTask = {
   id: string
+  personId: string | null
   title: string
   detail: string | null
   dueAt: string | null
@@ -48,6 +49,7 @@ const QUIET_THRESHOLD_DAYS = 30
 
 type TaskRow = {
   id: string
+  person_id: string | null
   title: string
   detail: string | null
   due_at: string | null
@@ -86,6 +88,7 @@ export async function getAttentionSnapshot(): Promise<AttentionSnapshot> {
     sql`
       select
         t.id,
+        person.id as person_id,
         t.title,
         t.detail,
         t.due_at,
@@ -207,6 +210,7 @@ export async function getAttentionSnapshot(): Promise<AttentionSnapshot> {
     const dueAt = raw.due_at ?? null
     const task: AttentionTask = {
       id: raw.id,
+      personId: raw.person_id ?? null,
       title: raw.title,
       detail: raw.detail ?? null,
       dueAt,

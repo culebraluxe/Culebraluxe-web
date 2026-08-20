@@ -10,6 +10,7 @@ type Interest = (typeof INTERESTS)[number]
 type PropertyContext = {
   propertyId?: string
   requestType: 'private_viewing' | 'property_information'
+  propertyName?: string | null
 }
 
 export function Contact({ propertyContext }: { propertyContext?: PropertyContext }) {
@@ -23,8 +24,10 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
     event.preventDefault()
     setError(false)
 
-    // The generic site contact remains the existing client-only experience.
-    if (!propertyContext?.propertyId) {
+    // The generic site contact (no request context) remains the existing
+    // client-only experience. Any property-scoped request must reach the CRM
+    // pipeline; without a property id the backend honestly rejects it.
+    if (!propertyContext) {
       setSubmitted(true)
       return
     }
@@ -32,8 +35,10 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
     submissionId.current ??= crypto.randomUUID()
     const formData = new FormData(event.currentTarget)
     formData.set('submissionId', submissionId.current)
-    formData.set('propertyId', propertyContext.propertyId)
     formData.set('requestType', propertyContext.requestType)
+    if (propertyContext.propertyId) {
+      formData.set('propertyId', propertyContext.propertyId)
+    }
 
     setPending(true)
     try {
@@ -85,12 +90,36 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
             <div className="flex h-full min-h-64 flex-col items-start justify-center border-t border-primary-foreground/10 pt-10">
               <p className="font-serif text-3xl font-light md:text-4xl">Thank you.</p>
               <p className="mt-4 max-w-md text-sm font-light leading-relaxed text-primary-foreground/70">
-                Your note has reached us. A member of the CulebraLuxe team will respond
-                personally within one business day.
+                {propertyContext?.requestType === 'private_viewing'
+                  ? 'Your private viewing request has been received. A member of the CulebraLuxe team will be in touch within one business day.'
+                  : propertyContext?.requestType === 'property_information'
+                    ? 'Your request for property information has been received. A member of the CulebraLuxe team will respond within one business day.'
+                    : 'Your note has reached us. A member of the CulebraLuxe team will respond personally within one business day.'}
               </p>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="flex flex-col gap-10">
+            <>
+              {propertyContext ? (
+                <div className="mb-10 border-b border-primary-foreground/10 pb-8">
+                  <p className="text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
+                    {propertyContext.requestType === 'private_viewing'
+                      ? 'Private Viewing'
+                      : 'Property Information'}
+                  </p>
+                  <p className="mt-3 font-serif text-2xl font-light leading-snug md:text-3xl">
+                    {propertyContext.requestType === 'private_viewing'
+                      ? 'Request a private viewing'
+                      : 'Request property information'}
+                    {propertyContext.propertyName ? (
+                      <span className="mt-1 block text-primary-foreground/70">
+                        of {propertyContext.propertyName}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              ) : null}
+
+              <form onSubmit={handleSubmit} className="flex flex-col gap-10">
               <div className="absolute -left-[9999px]" aria-hidden="true">
                 <label htmlFor="company">Company</label>
                 <input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" />
@@ -100,28 +129,30 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
                 <Field id="email" label="Email" type="email" autoComplete="email" required />
               </div>
 
-              <fieldset className="flex flex-col gap-4">
-                <legend className="text-xs font-light uppercase tracking-[0.22em] text-primary-foreground/50">
-                  I am interested in
-                </legend>
-                <div className="flex flex-wrap gap-3">
-                  {INTERESTS.map((option) => (
-                    <button
-                      type="button"
-                      key={option}
-                      onClick={() => setInterest(option)}
-                      className={`border px-6 py-2.5 text-xs font-light uppercase tracking-[0.18em] transition-colors duration-300 ${
-                        interest === option
-                          ? 'border-primary-foreground bg-primary-foreground text-primary'
-                          : 'border-primary-foreground/25 text-primary-foreground/70 hover:border-primary-foreground/60'
-                      }`}
-                      aria-pressed={interest === option}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
+              {!propertyContext ? (
+                <fieldset className="flex flex-col gap-4">
+                  <legend className="text-xs font-light uppercase tracking-[0.22em] text-primary-foreground/50">
+                    I am interested in
+                  </legend>
+                  <div className="flex flex-wrap gap-3">
+                    {INTERESTS.map((option) => (
+                      <button
+                        type="button"
+                        key={option}
+                        onClick={() => setInterest(option)}
+                        className={`border px-6 py-2.5 text-xs font-light uppercase tracking-[0.18em] transition-colors duration-300 ${
+                          interest === option
+                            ? 'border-primary-foreground bg-primary-foreground text-primary'
+                            : 'border-primary-foreground/25 text-primary-foreground/70 hover:border-primary-foreground/60'
+                        }`}
+                        aria-pressed={interest === option}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : null}
 
               <div className="flex flex-col gap-3">
                 <label
@@ -142,9 +173,13 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
               <button
                 type="submit"
                 disabled={pending}
-                className="group mt-2 inline-flex items-center gap-3 self-start text-xs font-light uppercase tracking-[0.24em]"
+                className="group mt-2 inline-flex min-h-11 items-center gap-3 self-start px-4 text-xs font-light uppercase tracking-[0.24em]"
               >
-                {pending ? 'Sending…' : 'Send enquiry'}
+                {pending
+                  ? 'Sending…'
+                  : propertyContext?.requestType === 'private_viewing'
+                    ? 'Request viewing'
+                    : 'Send enquiry'}
                 <span className="inline-block h-px w-12 bg-primary-foreground transition-all duration-500 group-hover:w-20" />
               </button>
               {error ? (
@@ -153,6 +188,7 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
                 </p>
               ) : null}
             </form>
+            </>
           )}
         </Reveal>
       </div>

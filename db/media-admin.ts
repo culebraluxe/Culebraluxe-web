@@ -1,4 +1,5 @@
 import { sql } from './client'
+import { getPropertyMediaCoverage } from './property-media-coverage'
 
 // Read-only media/documents audit projection (OPS-04). Answers which
 // properties have hero/gallery/video/document media and which media are
@@ -38,18 +39,8 @@ type MediaTypeRow = {
   missing_alt: number
 }
 
-type PropertyMediaRowRaw = {
-  property_id: string
-  property_name: string
-  has_hero: boolean
-  image_count: number
-  video_count: number
-  document_count: number
-  total_count: number
-}
-
 export async function getMediaAdmin(): Promise<MediaAdminSnapshot> {
-  const [typeRows, propertyRows] = await Promise.all([
+  const [typeRows, coverageRows] = await Promise.all([
     sql`
       select
         m.media_type,
@@ -77,26 +68,7 @@ export async function getMediaAdmin(): Promise<MediaAdminSnapshot> {
       group by m.media_type
       order by m.media_type
     `,
-    sql`
-      select
-        p.id as property_id,
-        p.name as property_name,
-        bool_or(
-          m.media_type = 'image' and pm.role = 'hero'
-        ) as has_hero,
-        count(*) filter (where m.media_type = 'image') as image_count,
-        count(*) filter (where m.media_type = 'video') as video_count,
-        count(*) filter (where m.media_type = 'document') as document_count,
-        count(*)::int as total_count
-      from property_media pm
-      join media m
-        on m.id = pm.media_id
-      join property p
-        on p.id = pm.property_id
-      where p.archived_at is null
-      group by p.id, p.name
-      order by p.name asc
-    `,
+    getPropertyMediaCoverage(),
   ])
 
   const byType = (typeRows as MediaTypeRow[]).map((row) => ({
@@ -110,18 +82,26 @@ export async function getMediaAdmin(): Promise<MediaAdminSnapshot> {
   const totalMedia = byType.reduce((sum, item) => sum + item.total, 0)
   const totalUnlinked = byType.reduce((sum, item) => sum + item.unlinked, 0)
 
+  const propertyRows = coverageRows
+    .filter(
+      (row) =>
+        !row.archived &&
+        row.imageCount + row.videoCount + row.documentCount > 0,
+    )
+    .map((row) => ({
+      propertyId: row.propertyId,
+      propertyName: row.propertyName,
+      hasHero: row.heroMediaId !== null,
+      imageCount: row.imageCount,
+      videoCount: row.videoCount,
+      documentCount: row.documentCount,
+      totalCount: row.imageCount + row.videoCount + row.documentCount,
+    }))
+
   return {
     totalMedia,
     totalUnlinked,
     byType,
-    propertyRows: (propertyRows as PropertyMediaRowRaw[]).map((row) => ({
-      propertyId: row.property_id,
-      propertyName: row.property_name,
-      hasHero: row.has_hero,
-      imageCount: row.image_count,
-      videoCount: row.video_count,
-      documentCount: row.document_count,
-      totalCount: row.total_count,
-    })),
+    propertyRows,
   }
 }

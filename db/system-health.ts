@@ -1,4 +1,5 @@
 import { sql } from './client'
+import { getOpsCounts } from './ops-counts'
 
 // Read-only Portal system-health projection (OPS-01). Exposes operational
 // counts and data-quality signals derivable from the existing schema. This is
@@ -20,45 +21,13 @@ export type SystemHealthSnapshot = {
   activePropertiesWithoutHeroMedia: number
 }
 
-type CountRow = { count: number }
-
 export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
-  const [
-    intake,
-    openTasks,
-    overdueTasks,
-    deals,
-    properties,
-    recent,
-    quality,
-  ] = await Promise.all([
+  const [counts, deals, recent, quality] = await Promise.all([
+    getOpsCounts(),
     sql`
-      select count(*)::int as count
-      from website_intake_submission
-      where status in ('received', 'resolution_required')
-    `,
-    sql`
-      select count(*)::int as count
-      from task
-      where status = 'open'
-    `,
-    sql`
-      select count(*)::int as count
-      from task
-      where status = 'open'
-        and due_at is not null
-        and due_at < now()
-    `,
-    sql`
-      select
-        (select count(*)::int from deal where stage <> 'closed') as active_count,
-        (select count(*)::int from deal where stage = 'under_contract') as under_contract_count
-    `,
-    sql`
-      select count(*)::int as count
-      from property
-      where archived_at is null
-        and status in ('active', 'coming_soon', 'under_contract')
+      select count(*)::int as under_contract_count
+      from deal
+      where stage = 'under_contract'
     `,
     sql`
       select
@@ -109,13 +78,7 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
     `,
   ])
 
-  const intakeCount = (intake[0] as CountRow)?.count ?? 0
-  const openTaskCount = (openTasks[0] as CountRow)?.count ?? 0
-  const overdueTaskCount = (overdueTasks[0] as CountRow)?.count ?? 0
-  const dealRow = deals[0] as
-    | { active_count: number; under_contract_count: number }
-    | undefined
-  const propertyCount = (properties[0] as CountRow)?.count ?? 0
+  const dealRow = deals[0] as { under_contract_count: number } | undefined
   const recentRow = recent[0] as
     | { recent_label: string | null; last_7_days: number }
     | undefined
@@ -129,12 +92,12 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
     | undefined
 
   return {
-    unresolvedIntakeCount: intakeCount,
-    openTaskCount,
-    overdueTaskCount,
-    activeDealCount: dealRow?.active_count ?? 0,
+    unresolvedIntakeCount: counts.unresolvedIntakeCount,
+    openTaskCount: counts.openTaskCount,
+    overdueTaskCount: counts.overdueTaskCount,
+    activeDealCount: counts.activeDealCount,
     underContractCount: dealRow?.under_contract_count ?? 0,
-    activePropertyCount: propertyCount,
+    activePropertyCount: counts.activePropertyCount,
     recentInteractionAtLabel: recentRow?.recent_label ?? null,
     interactionsLast7Days: recentRow?.last_7_days ?? 0,
     personsWithoutEmailIdentity: qualityRow?.persons_without_email ?? 0,
