@@ -2,7 +2,7 @@ import { neon } from "@neondatabase/serverless"
 
 const appEnv = process.env.APP_ENV ?? "development"
 
-const databaseUrl =
+export const databaseUrl =
   appEnv === "production"
     ? process.env.DATABASE_URL_PROD
     : process.env.DATABASE_URL_DEV
