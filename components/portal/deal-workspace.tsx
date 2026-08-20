@@ -1,6 +1,9 @@
 import Link from "next/link"
 
-import type { DealWorkspace } from "@/db/deal-workspace"
+import type {
+  DealParticipant,
+  DealWorkspace,
+} from "@/db/deal-workspace"
 
 function stageLabel(stage: string) {
   switch (stage) {
@@ -56,6 +59,22 @@ function formatCurrency(value?: number | null) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function participantRole(participant: DealParticipant): string {
+  const base =
+    participant.roleCategory === "client"
+      ? "Client"
+      : participant.roleCategory === "owner"
+        ? "Owner"
+        : participant.roleCategory === "seller"
+          ? "Seller"
+          : "Other"
+  return participant.roleLabel ?? base
+}
+
+function offerStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 function Detail({
@@ -212,23 +231,28 @@ export function DealWorkspace({
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">Participants</h2>
             <p className="mt-1 text-xs font-light text-black/40">
-              Client, owner, and seller where known.
+              Canonical participant roles from the deal.
             </p>
           </div>
           {workspace.participants.length > 0 ? (
             <div>
               {workspace.participants.map((participant) => (
                 <div
-                  key={`${participant.role}-${participant.name}`}
+                  key={participant.id}
                   className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-                      {participant.role}
+                      {participantRole(participant)}
                     </div>
                     <div className="mt-1 font-serif text-lg font-light">
                       {participant.name}
                     </div>
+                    {participant.roleLabel && (
+                      <div className="mt-1 text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
+                        {participant.roleCategory}
+                      </div>
+                    )}
                   </div>
                   <div className="text-right text-xs font-light text-black/40">
                     {participant.detail && <div>{participant.detail}</div>}
@@ -339,6 +363,58 @@ export function DealWorkspace({
             <Empty text="No deal activity yet." />
           )}
         </section>
+      </div>
+
+      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
+          <div>
+            <h2 className="font-serif text-2xl font-light">Offers</h2>
+            <p className="mt-1 text-xs font-light text-black/40">
+              Offer history and counter lineage for this deal.
+            </p>
+          </div>
+          <span className="text-xs font-light text-black/35">
+            {workspace.offers.length}
+          </span>
+        </div>
+        {workspace.offers.length > 0 ? (
+          <div>
+            {workspace.offers.map((offer) => (
+              <div
+                key={offer.id}
+                className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-serif text-2xl font-light">
+                      {formatCurrency(offer.amount)}
+                    </span>
+                    <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                      {offerStatus(offer.status)}
+                    </span>
+                    <span className="rounded-full border border-[var(--portal-border)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-black/50">
+                      {offer.isCounter ? "Counter" : "Original"}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-xs font-light text-black/45">
+                    {offer.personName && <span>{offer.personName}</span>}
+                    <span> · Submitted {offer.submittedAtLabel}</span>
+                    {offer.respondedAtLabel && (
+                      <span> · Responded {offer.respondedAtLabel}</span>
+                    )}
+                  </div>
+                  {offer.note && (
+                    <p className="mt-2 text-sm font-light leading-6 text-black/55">
+                      {offer.note}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty text="No offers on record for this deal." />
+        )}
       </div>
 
       {deal.notes && (

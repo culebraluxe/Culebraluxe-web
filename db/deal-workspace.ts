@@ -1,13 +1,18 @@
 import { sql } from './client'
 
 // Read-only Deal Workspace projection (CRM-12B + CRM-13). Composes canonical
-// deal, property, person, app_user, task, and interaction data. Participants
-// (client / owner / seller) are derived only from existing canonical FKs —
-// there is no normalized participants table.
+// deal, property, person, app_user, task, interaction, deal_participant, and
+// offer data. Participants are read from the canonical deal_participant table
+// (active rows), resolving person vs app_user deterministically; the legacy
+// deal/client/owner/seller FKs remain untouched for existing read paths.
 
 export type DealParticipant = {
-  role: string
+  id: string
+  roleCategory: 'client' | 'owner' | 'seller' | 'other'
+  roleLabel: string | null
   kind: 'person' | 'user'
+  personId: string | null
+  userId: string | null
   name: string
   detail: string | null
 }
@@ -29,6 +34,19 @@ export type DealWorkspaceActivity = {
   title: string | null
   summary: string | null
   personName: string | null
+}
+
+export type DealWorkspaceOffer = {
+  id: string
+  personId: string
+  personName: string | null
+  parentOfferId: string | null
+  amount: number
+  status: string
+  submittedAtLabel: string
+  respondedAtLabel: string | null
+  note: string | null
+  isCounter: boolean
 }
 
 export type DealWorkspace = {
@@ -62,6 +80,7 @@ export type DealWorkspace = {
   participants: DealParticipant[]
   openTasks: DealWorkspaceTask[]
   activity: DealWorkspaceActivity[]
+  offers: DealWorkspaceOffer[]
 }
 
 type DealRow = {
@@ -110,6 +129,30 @@ type ActivityRow = {
   person_name: string | null
 }
 
+type ParticipantRow = {
+  id: string
+  role_category: string
+  role_label: string | null
+  person_id: string | null
+  user_id: string | null
+  person_name: string | null
+  user_name: string | null
+  person_email: string | null
+  person_phone: string | null
+}
+
+type OfferRow = {
+  id: string
+  person_id: string
+  person_name: string | null
+  parent_offer_id: string | null
+  amount: string
+  status: string
+  submitted_at_label: string
+  responded_at_label: string | null
+  note: string | null
+}
+
 function toNumber(value: string | null) {
   return value === null ? null : Number(value)
 }
@@ -117,7 +160,8 @@ function toNumber(value: string | null) {
 export async function getDealWorkspace(
   dealId: string,
 ): Promise<DealWorkspace> {
-  const [dealRows, taskRows, activityRows] = await Promise.all([
+  const [dealRows, taskRows, activityRows, participantRows, offerRows] =
+    await Promise.all([
     sql`
       select
         d.id,
@@ -216,6 +260,72 @@ export async function getDealWorkspace(
       order by i.occurred_at desc
       limit 20
     `,
+    sql`
+      select
+        dp.id,
+        dp.role as role_category,
+        dp.role_label,
+        dp.person_id,
+        dp.user_id,
+        person.display_name as person_name,
+        app_user.display_name as user_name,
+        person_email.identity_value as person_email,
+        person_phone.identity_value as person_phone
+      from deal_participant dp
+      left join person
+        on person.id = dp.person_id
+      left join app_user
+        on app_user.id = dp.user_id
+      left join lateral (
+        select pi.identity_value
+        from person_identity pi
+        where pi.person_id = dp.person_id
+          and pi.identity_type = 'email'
+        order by pi.is_primary desc, pi.created_at asc
+        limit 1
+      ) person_email on true
+      left join lateral (
+        select pi.identity_value
+        from person_identity pi
+        where pi.person_id = dp.person_id
+          and pi.identity_type = 'phone'
+        order by pi.is_primary desc, pi.created_at asc
+        limit 1
+      ) person_phone on true
+      where dp.deal_id = ${dealId}
+        and dp.active = true
+      order by
+        case dp.role
+          when 'client' then 0
+          when 'owner' then 1
+          when 'seller' then 2
+          else 3
+        end,
+        dp.created_at asc
+    `,
+    sql`
+      select
+        o.id,
+        o.person_id,
+        person.display_name as person_name,
+        o.parent_offer_id,
+        o.amount,
+        o.status,
+        to_char(
+          o.submitted_at at time zone 'America/Puerto_Rico',
+          'Mon FMDD, YYYY HH12:MI AM'
+        ) as submitted_at_label,
+        to_char(
+          o.responded_at at time zone 'America/Puerto_Rico',
+          'Mon FMDD, YYYY HH12:MI AM'
+        ) as responded_at_label,
+        o.note
+      from offer o
+      left join person
+        on person.id = o.person_id
+      where o.deal_id = ${dealId}
+      order by o.submitted_at asc
+    `,
   ])
 
   const dealRow = (dealRows as DealRow[])[0]
@@ -229,24 +339,24 @@ export async function getDealWorkspace(
       participants: [],
       openTasks: [],
       activity: [],
+      offers: [],
     }
   }
 
-  const participants: DealParticipant[] = []
-  participants.push({
-    role: 'Client',
-    kind: 'person',
-    name: dealRow.client_name,
-    detail: [dealRow.client_email, dealRow.client_phone]
-      .filter(Boolean)
-      .join(' · ') || null,
-  })
-  if (dealRow.owner_name) {
-    participants.push({ role: 'Owner', kind: 'user', name: dealRow.owner_name, detail: null })
-  }
-  if (dealRow.seller_id && dealRow.seller_name) {
-    participants.push({ role: 'Seller', kind: 'person', name: dealRow.seller_name, detail: null })
-  }
+  const participants: DealParticipant[] = (
+    participantRows as ParticipantRow[]
+  ).map((row) => ({
+    id: row.id,
+    roleCategory: row.role_category as DealParticipant['roleCategory'],
+    roleLabel: row.role_label ?? null,
+    kind: row.person_id ? 'person' : 'user',
+    personId: row.person_id ?? null,
+    userId: row.user_id ?? null,
+    name: row.person_name ?? row.user_name ?? 'Unknown',
+    detail: row.person_id
+      ? [row.person_email, row.person_phone].filter(Boolean).join(' · ') || null
+      : null,
+  }))
 
   return {
     deal: {
@@ -277,6 +387,18 @@ export async function getDealWorkspace(
       phone: dealRow.client_phone ?? null,
     },
     participants,
+    offers: (offerRows as OfferRow[]).map((row) => ({
+      id: row.id,
+      personId: row.person_id,
+      personName: row.person_name ?? null,
+      parentOfferId: row.parent_offer_id ?? null,
+      amount: Number(row.amount),
+      status: row.status,
+      submittedAtLabel: row.submitted_at_label,
+      respondedAtLabel: row.responded_at_label ?? null,
+      note: row.note ?? null,
+      isCounter: Boolean(row.parent_offer_id),
+    })),
     openTasks: (taskRows as TaskRow[]).map((row) => ({
       id: row.id,
       title: row.title,
