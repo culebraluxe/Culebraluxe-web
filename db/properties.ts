@@ -324,7 +324,11 @@ export async function getProperties(): Promise<PropertySummary[]> {
       p.created_at desc
   `
 
-  return (rows as PropertySummaryRow[]).map((row) => ({
+  return (rows as PropertySummaryRow[]).map(mapSummary)
+}
+
+function mapSummary(row: PropertySummaryRow): PropertySummary {
+  return {
     id: row.id,
     name: row.name,
     slug: row.slug!,
@@ -356,7 +360,120 @@ export async function getProperties(): Promise<PropertySummary[]> {
     heroAlt:
       row.hero_alt_text ??
       row.name,
-  }))
+  }
+}
+
+// Deterministic, explainable "similar" rule using only canonical property
+// fields: same property type first, then same neighborhood/city, then price
+// proximity, with the standard inventory ordering as a stable tiebreak. No
+// similarity score is computed or exposed; the current property is excluded
+// and only active/public inventory is eligible.
+export async function getSimilarProperties(
+  propertyId: string,
+  current: {
+    propertyType: string | null
+    city: string | null
+    neighborhood: string | null
+    listPrice: number | null
+  },
+  limit = 3,
+): Promise<PropertySummary[]> {
+  const rows = await sql`
+    select
+      p.id,
+      p.name,
+      p.slug,
+      p.status,
+      p.property_type,
+      p.list_price,
+      p.featured,
+
+      p.location,
+      p.city,
+      p.neighborhood,
+
+      p.bedrooms,
+      p.bathrooms,
+      p.square_feet,
+
+      p.lot_size,
+      p.lot_size_units,
+
+      p.has_ocean_view,
+      p.has_bay_view,
+      p.has_beach_view,
+      p.has_harbor_view,
+      p.has_island_view,
+      p.has_mountain_view,
+      p.has_sunrise_view,
+      p.has_sunset_view,
+      p.has_water_access,
+      p.has_beach_access,
+
+      hero.media_id as hero_media_id,
+      hero.alt_text as hero_alt_text
+
+    from property p
+
+    left join lateral (
+      select
+        m.id as media_id,
+        m.alt_text
+      from property_media pm
+      join media m
+        on m.id = pm.media_id
+      where pm.property_id = p.id
+        and pm.role = 'hero'
+        and m.media_type = 'image'
+      order by
+        pm.sort_order asc,
+        pm.created_at asc
+      limit 1
+    ) hero on true
+
+    where p.id <> ${propertyId}
+      and p.archived_at is null
+      and p.slug is not null
+      and p.status in ('active', 'coming_soon', 'under_contract')
+
+    order by
+      case when p.property_type = ${current.propertyType} then 0 else 1 end,
+      case
+        when ${current.neighborhood} is not null
+          and p.neighborhood = ${current.neighborhood} then 0
+        when ${current.neighborhood} is null
+          and ${current.city} is not null
+          and p.city = ${current.city} then 0
+        else 1
+      end,
+      case
+        when ${current.listPrice} is not null
+          then abs(coalesce(p.list_price, 0) - ${current.listPrice})
+        else 0
+      end asc,
+      p.featured desc,
+      p.list_price desc nulls last,
+      p.created_at desc
+
+    limit ${limit}
+  `
+
+  return (rows as PropertySummaryRow[]).map(mapSummary)
+}
+
+// Lightweight public-slug set used by browser-local "Recently Viewed" so
+// stored entries can be checked against currently live listings and stale
+// or missing slugs can be dropped safely.
+export async function getPublicPropertySlugs(): Promise<string[]> {
+  const rows = await sql`
+    select slug
+    from property
+    where archived_at is null
+      and slug is not null
+      and status in ('active', 'coming_soon', 'under_contract')
+    order by created_at asc
+  `
+  return (rows as { slug: string }[]).map((row) => row.slug)
 }
 
 

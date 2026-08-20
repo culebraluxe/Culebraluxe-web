@@ -3,11 +3,13 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
 
-import { getPropertyBySlug } from '@/db/properties'
+import { getPropertyBySlug, getPublicPropertySlugs } from '@/db/properties'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PropertyCockpit } from '@/components/property/property-cockpit'
 import { PropertyTabs } from '@/components/property/property-tabs'
+import { RecentlyViewed } from '@/components/property/recently-viewed'
+import { SimilarProperties } from '@/components/property/similar-properties'
 
 type PageProps = {
   params: Promise<{ slug: string }>
@@ -69,6 +71,8 @@ export default async function PropertyPage({
         process.env.GOOGLE_MAPS_API_KEY?.trim() ||
         null
 
+  const publicSlugs = await getPublicPropertySlugs()
+
   return (
     <>
       <SiteHeader />
@@ -119,6 +123,21 @@ export default async function PropertyPage({
             videos={videos}
             documents={documents}
             googleMapsApiKey={googleMapsApiKey}
+          />
+
+          <SimilarProperties
+            propertyId={property._id}
+            propertyType={property.propertyType}
+            city={property.city}
+            neighborhood={property.neighborhood}
+            listPrice={property.listPrice}
+          />
+
+          <RecentlyViewed
+            slug={slug}
+            id={property._id}
+            name={property.title ?? slug}
+            validSlugs={publicSlugs}
           />
         </div>
       </main>
