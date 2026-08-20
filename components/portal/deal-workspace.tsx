@@ -461,15 +461,17 @@ export function DealWorkspace({
             return (
               <div className="space-y-4">
                 <OfferForm dealId={deal.id} personId={client.id} />
-                {workspace.offers.map((offer) => (
-                  <OfferForm
-                    key={offer.id}
-                    dealId={deal.id}
-                    personId={client.id}
-                    parentOfferId={offer.id}
-                    label={`Counter ${formatCurrency(offer.amount)}`}
-                  />
-                ))}
+                {workspace.offers
+                  .filter((offer) => offer.status === 'submitted')
+                  .map((offer) => (
+                    <OfferForm
+                      key={offer.id}
+                      dealId={deal.id}
+                      personId={client.id}
+                      parentOfferId={offer.id}
+                      label={`Counter ${formatCurrency(offer.amount)}`}
+                    />
+                  ))}
               </div>
             )
           })()}

@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { TaskActions } from "@/components/portal/write/task-actions"
 import type { AttentionSnapshot } from "@/db/attention"
 
 function roleLabel(role: string) {
@@ -138,6 +139,9 @@ export function Attention({
                       task.dealPropertyName ?? task.propertyName
                     }`}
                   </div>
+                  <div className="mt-3">
+                    <TaskActions taskId={task.id} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -177,6 +181,9 @@ export function Attention({
                     {(task.propertyName || task.dealPropertyName) && ` · ${
                       task.dealPropertyName ?? task.propertyName
                     }`}
+                  </div>
+                  <div className="mt-3">
+                    <TaskActions taskId={task.id} />
                   </div>
                 </div>
               ))}

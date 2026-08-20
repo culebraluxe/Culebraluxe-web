@@ -7,6 +7,7 @@ import {
   endParticipantAction,
   updateParticipantRoleLabelAction,
 } from '@/app/portal/actions'
+import { PersonSelector } from '@/components/portal/write/person-selector'
 
 type Result = { ok: boolean; message?: string }
 
@@ -26,6 +27,7 @@ const ghostButton =
 export function AddOtherParticipantForm({ dealId }: { dealId: string }) {
   const [isPending, startTransition] = useTransition()
   const [personId, setPersonId] = useState('')
+  const [personLabel, setPersonLabel] = useState<string | null>(null)
   const [roleLabel, setRoleLabel] = useState('')
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
@@ -33,18 +35,26 @@ export function AddOtherParticipantForm({ dealId }: { dealId: string }) {
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!roleLabel.trim()) return
+    if (!roleLabel.trim()) {
+      setMessage({ ok: false, text: 'Enter a role label (e.g. Attorney).' })
+      return
+    }
+    if (!personId) {
+      setMessage({ ok: false, text: 'Select an existing person first.' })
+      return
+    }
     setMessage(null)
     startTransition(async () => {
       const result = resolve(
         await addOtherParticipantAction({
           dealId,
-          personId: personId.trim() || undefined,
+          personId,
           roleLabel,
         }),
       )
       if (result.ok) {
         setPersonId('')
+        setPersonLabel(null)
         setRoleLabel('')
         setMessage({ ok: true, text: 'Participant added.' })
       } else {
@@ -74,17 +84,21 @@ export function AddOtherParticipantForm({ dealId }: { dealId: string }) {
             className="mt-2 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
           />
         </label>
-        <label className="block">
+        <div>
           <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            Person id (optional)
+            Person
           </span>
-          <input
-            value={personId}
-            onChange={(event) => setPersonId(event.target.value)}
-            placeholder="00000000-0000-0000-0000-000000000000"
-            className="mt-2 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
-          />
-        </label>
+          <div className="mt-2">
+            <PersonSelector
+              selectedLabel={personLabel}
+              onSelect={(id, label) => {
+                setPersonId(id)
+                setPersonLabel(label || null)
+              }}
+              placeholder="Search existing people…"
+            />
+          </div>
+        </div>
       </div>
       <div className="flex items-center gap-3">
         <button
@@ -117,7 +131,10 @@ export function OtherParticipantActions({
 }) {
   const [isPending, startTransition] = useTransition()
   const [roleLabel, setRoleLabel] = useState('')
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<{
+    ok: boolean
+    text: string
+  } | null>(null)
 
   if (roleCategory !== 'other') return null
 
@@ -125,7 +142,9 @@ export function OtherParticipantActions({
     setMessage(null)
     startTransition(async () => {
       const result = resolve(await action())
-      if (!result.ok) setMessage(result.message ?? 'Action failed.')
+      if (!result.ok) {
+        setMessage({ ok: false, text: result.message ?? 'Action failed.' })
+      }
     })
   }
 
@@ -135,16 +154,23 @@ export function OtherParticipantActions({
     setMessage(null)
     startTransition(async () => {
       const result = resolve(
-        await updateParticipantRoleLabelAction(participantId, roleLabel.trim()),
+        await updateParticipantRoleLabelAction(
+          participantId,
+          roleLabel.trim(),
+        ),
       )
-      if (result.ok) setRoleLabel('')
-      else setMessage(result.message ?? 'Could not update.')
+      if (result.ok) {
+        setRoleLabel('')
+        setMessage({ ok: true, text: 'Role updated.' })
+      } else {
+        setMessage({ ok: false, text: result.message ?? 'Could not update.' })
+      }
     })
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
-      <form onSubmit={updateRole} className="flex items-center gap-2">
+    <div className="mt-2 space-y-2">
+      <form onSubmit={updateRole} className="flex flex-wrap items-center gap-2">
         <input
           value={roleLabel}
           onChange={(event) => setRoleLabel(event.target.value)}
@@ -159,17 +185,23 @@ export function OtherParticipantActions({
         >
           Update
         </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => run(() => endParticipantAction(participantId))}
+          className={ghostButton}
+        >
+          End
+        </button>
       </form>
-      <button
-        type="button"
-        disabled={isPending}
-        onClick={() => run(() => endParticipantAction(participantId))}
-        className={ghostButton}
-      >
-        End
-      </button>
       {message && (
-        <span className="text-xs font-light text-[#8a4b2a]">{message}</span>
+        <span
+          className={`text-xs font-light ${
+            message.ok ? 'text-black/50' : 'text-[#8a4b2a]'
+          }`}
+        >
+          {message.text}
+        </span>
       )}
     </div>
   )

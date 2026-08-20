@@ -12,8 +12,7 @@ import {
 type Result = { ok: boolean; message?: string }
 
 function resolve(result: unknown): Result {
-  const value = result as Result
-  return value
+  return result as Result
 }
 
 const secondaryButton =
@@ -24,36 +23,87 @@ const ghostButton =
 
 export function TaskActions({ taskId }: { taskId: string }) {
   const [isPending, startTransition] = useTransition()
-  const [message, setMessage] = useState<string | null>(null)
+  const [dueAt, setDueAt] = useState('')
+  const [message, setMessage] = useState<{
+    ok: boolean
+    text: string
+  } | null>(null)
 
   function run(action: () => Promise<unknown>) {
     setMessage(null)
     startTransition(async () => {
       const result = resolve(await action())
-      if (!result.ok) setMessage(result.message ?? 'Action failed.')
+      if (!result.ok) {
+        setMessage({ ok: false, text: result.message ?? 'Action failed.' })
+      }
+    })
+  }
+
+  function submitDue(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setMessage(null)
+    startTransition(async () => {
+      const result = resolve(await updateTaskDueAction(taskId, dueAt || null))
+      if (result.ok) {
+        setDueAt('')
+        setMessage({ ok: true, text: 'Due date saved.' })
+      } else {
+        setMessage({
+          ok: false,
+          text: result.message ?? 'Could not update due date.',
+        })
+      }
     })
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        disabled={isPending}
-        onClick={() => run(() => completeTaskAction(taskId))}
-        className={secondaryButton}
-      >
-        Complete
-      </button>
-      <button
-        type="button"
-        disabled={isPending}
-        onClick={() => run(() => cancelTaskAction(taskId))}
-        className={ghostButton}
-      >
-        Cancel
-      </button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => run(() => completeTaskAction(taskId))}
+          className={secondaryButton}
+        >
+          Complete
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => run(() => cancelTaskAction(taskId))}
+          className={ghostButton}
+        >
+          Cancel
+        </button>
+      </div>
+      <form onSubmit={submitDue} className="flex flex-wrap items-center gap-2">
+        <label className="sr-only" htmlFor={`due-${taskId}`}>
+          Due date and time (local)
+        </label>
+        <input
+          id={`due-${taskId}`}
+          type="datetime-local"
+          value={dueAt}
+          onChange={(event) => setDueAt(event.target.value)}
+          aria-label="Due date and time (local)"
+          className="block min-h-11 w-52 rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+        />
+        <button
+          type="submit"
+          disabled={isPending}
+          className={secondaryButton}
+        >
+          Set due
+        </button>
+      </form>
       {message && (
-        <span className="text-xs font-light text-[#8a4b2a]">{message}</span>
+        <span
+          className={`text-xs font-light ${
+            message.ok ? 'text-black/50' : 'text-[#8a4b2a]'
+          }`}
+        >
+          {message.text}
+        </span>
       )}
     </div>
   )
@@ -72,6 +122,7 @@ export function CreateTaskForm({
 }) {
   const [isPending, startTransition] = useTransition()
   const [title, setTitle] = useState('')
+  const [detail, setDetail] = useState('')
   const [dueAt, setDueAt] = useState('')
   const [message, setMessage] = useState<{
     ok: boolean
@@ -85,6 +136,7 @@ export function CreateTaskForm({
       const result = resolve(
         await createTaskAction({
           title,
+          detail: detail || null,
           dueAt: dueAt || null,
           personId,
           propertyId,
@@ -93,6 +145,7 @@ export function CreateTaskForm({
       )
       if (result.ok) {
         setTitle('')
+        setDetail('')
         setDueAt('')
         setMessage({ ok: true, text: 'Task created.' })
       } else {
@@ -118,7 +171,7 @@ export function CreateTaskForm({
         </label>
         <label className="block">
           <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            Due (optional)
+            Due (optional, local time)
           </span>
           <input
             type="datetime-local"
@@ -128,6 +181,17 @@ export function CreateTaskForm({
           />
         </label>
       </div>
+      <label className="block">
+        <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+          Detail (optional)
+        </span>
+        <input
+          value={detail}
+          onChange={(event) => setDetail(event.target.value)}
+          placeholder="Context for this follow-up"
+          className="mt-2 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+        />
+      </label>
       <div className="flex items-center gap-3">
         <button
           type="submit"
@@ -146,46 +210,6 @@ export function CreateTaskForm({
           </span>
         )}
       </div>
-    </form>
-  )
-}
-
-export function UpdateTaskDue({ taskId }: { taskId: string }) {
-  const [isPending, startTransition] = useTransition()
-  const [dueAt, setDueAt] = useState('')
-  const [message, setMessage] = useState<string | null>(null)
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setMessage(null)
-    startTransition(async () => {
-      const result = resolve(
-        await updateTaskDueAction(taskId, dueAt || null),
-      )
-      if (!result.ok) setMessage(result.message ?? 'Could not update due date.')
-      else setDueAt('')
-    })
-  }
-
-  return (
-    <form onSubmit={submit} className="flex items-center gap-2">
-      <input
-        type="datetime-local"
-        value={dueAt}
-        onChange={(event) => setDueAt(event.target.value)}
-        aria-label="Due date"
-        className="block min-h-11 w-48 rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
-      />
-      <button
-        type="submit"
-        disabled={isPending}
-        className={secondaryButton}
-      >
-        Set due
-      </button>
-      {message && (
-        <span className="text-xs font-light text-[#8a4b2a]">{message}</span>
-      )}
     </form>
   )
 }

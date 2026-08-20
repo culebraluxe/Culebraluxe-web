@@ -3,6 +3,9 @@
 import { revalidatePath } from 'next/cache'
 
 import { PortalWriteError } from '@/lib/portal-write-error'
+import { toPortalInstant } from '@/lib/portal-time'
+import { searchPeople } from '@/db/people'
+import type { PersonSearchResult } from '@/db/people'
 import { createTask } from '@/db/tasks'
 import {
   addOtherParticipant,
@@ -49,10 +52,26 @@ function isUuid(value: string): boolean {
 function failure(
   error: unknown,
 ): { ok: false; code: PortalWriteErrorCode; message: string } {
-  const message = error instanceof Error ? error.message : 'Unknown error.'
-  const code: PortalWriteErrorCode =
-    error instanceof PortalWriteError ? error.code : 'unknown'
-  return { ok: false, code, message }
+  if (error instanceof PortalWriteError) {
+    return { ok: false, code: error.code, message: error.message }
+  }
+  // Never surface raw database/internal messages to the operator.
+  console.error(
+    'Portal write failed.',
+    error instanceof Error ? error.message : error,
+  )
+  return {
+    ok: false,
+    code: 'unknown',
+    message: 'Something went wrong. Please try again.',
+  }
+}
+
+export async function searchPeopleAction(
+  query: string,
+): Promise<PersonSearchResult[]> {
+  if (typeof query !== 'string' || query.trim().length < 2) return []
+  return searchPeople(query.trim())
 }
 
 function revalidatePortal() {
@@ -94,6 +113,16 @@ export async function createTaskAction(input: {
       message: 'Task context identifiers are invalid.',
     }
   }
+  if (
+    input.dueAt != null &&
+    Number.isNaN(new Date(input.dueAt).getTime())
+  ) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Due date must be a valid date.',
+    }
+  }
   try {
     const task = await createTask({
       title,
@@ -101,7 +130,7 @@ export async function createTaskAction(input: {
       personId: input.personId ?? undefined,
       propertyId: input.propertyId ?? undefined,
       dealId: input.dealId ?? undefined,
-      dueAt: input.dueAt ?? undefined,
+      dueAt: input.dueAt != null ? toPortalInstant(input.dueAt) : undefined,
       priority: input.priority ?? undefined,
       taskKind: 'human',
     })
@@ -157,7 +186,10 @@ export async function updateTaskDueAction(
     }
   }
   try {
-    const result = await updateTaskDue(taskId, dueAt)
+    const result = await updateTaskDue(
+      taskId,
+      dueAt !== null ? toPortalInstant(dueAt) : null,
+    )
     revalidatePortal()
     return { ok: true, data: result }
   } catch (error) {
@@ -215,8 +247,10 @@ export async function logManualInteractionAction(input: {
       message: 'A title or summary is required.',
     }
   }
-  const occurredAt = input.occurredAt ?? new Date().toISOString()
-  if (Number.isNaN(new Date(occurredAt).getTime())) {
+  if (
+    input.occurredAt !== undefined &&
+    Number.isNaN(new Date(input.occurredAt).getTime())
+  ) {
     return {
       ok: false,
       code: 'validation',
@@ -227,7 +261,10 @@ export async function logManualInteractionAction(input: {
     const result = await logManualInteraction({
       personId: input.personId,
       channel: input.channel,
-      occurredAt,
+      occurredAt:
+        input.occurredAt !== undefined
+          ? toPortalInstant(input.occurredAt)
+          : new Date().toISOString(),
       title: title || undefined,
       summary: summary || undefined,
       propertyId: input.propertyId ?? undefined,
@@ -286,7 +323,10 @@ export async function createShowingAction(input: {
       personId: input.personId,
       propertyId: input.propertyId ?? undefined,
       dealId: input.dealId ?? undefined,
-      requestedAt: input.requestedAt ?? undefined,
+      requestedAt:
+        input.requestedAt !== undefined
+          ? toPortalInstant(input.requestedAt)
+          : undefined,
     })
     revalidatePortal()
     return { ok: true, data: { id: result.id } }
@@ -314,7 +354,7 @@ export async function scheduleShowingAction(
     }
   }
   try {
-    const result = await scheduleShowing(showingId, scheduledAt)
+    const result = await scheduleShowing(showingId, toPortalInstant(scheduledAt))
     revalidatePortal()
     return { ok: true, data: { id: result.id } }
   } catch (error) {
@@ -364,7 +404,10 @@ export async function completeShowingAction(
     }
   }
   try {
-    const result = await completeShowing(showingId, completedAt ?? undefined)
+    const result = await completeShowing(
+      showingId,
+      completedAt !== undefined ? toPortalInstant(completedAt) : undefined,
+    )
     revalidatePortal()
     return { ok: true, data: { id: result.id } }
   } catch (error) {

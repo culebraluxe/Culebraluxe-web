@@ -6,6 +6,7 @@ import {
   attachIntakeToPersonAction,
   rejectIntakeAction,
 } from '@/app/portal/actions'
+import { PersonSelector } from '@/components/portal/write/person-selector'
 
 type Result = { ok: boolean; message?: string }
 
@@ -26,6 +27,7 @@ export function NeedsReviewActions({
 }) {
   const [isPending, startTransition] = useTransition()
   const [personId, setPersonId] = useState('')
+  const [personLabel, setPersonLabel] = useState<string | null>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
   )
@@ -42,14 +44,18 @@ export function NeedsReviewActions({
 
   function attach(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!personId.trim()) return
+    if (!personId) {
+      setMessage({ ok: false, text: 'Select an existing person first.' })
+      return
+    }
     setMessage(null)
     startTransition(async () => {
       const result = resolve(
-        await attachIntakeToPersonAction(submissionId, personId.trim()),
+        await attachIntakeToPersonAction(submissionId, personId),
       )
       if (result.ok) {
         setPersonId('')
+        setPersonLabel(null)
         setMessage({ ok: true, text: 'Attached to person.' })
       } else {
         setMessage({ ok: false, text: result.message ?? 'Could not attach.' })
@@ -58,26 +64,34 @@ export function NeedsReviewActions({
   }
 
   return (
-    <div className="mt-4 space-y-3 border-t border-[var(--portal-border)] pt-4">
-      <form onSubmit={attach} className="flex flex-wrap items-end gap-3">
-        <label className="block">
-          <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            Attach to existing person (person id)
-          </span>
-          <input
-            value={personId}
-            onChange={(event) => setPersonId(event.target.value)}
-            placeholder="00000000-0000-0000-0000-000000000000"
-            className="mt-2 block min-h-11 w-80 rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={isPending || !personId.trim()}
-          className={secondaryButton}
-        >
-          Attach
-        </button>
+    <div className="space-y-3 border-t border-[var(--portal-border)] pt-4">
+      <form onSubmit={attach} className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div>
+            <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+              Attach to existing person
+            </span>
+            <div className="mt-2">
+              <PersonSelector
+                selectedLabel={personLabel}
+                onSelect={(id, label) => {
+                  setPersonId(id)
+                  setPersonLabel(label || null)
+                }}
+                placeholder="Search existing people…"
+              />
+            </div>
+          </div>
+          <div className="self-end">
+            <button
+              type="submit"
+              disabled={isPending || !personId}
+              className={secondaryButton}
+            >
+              Attach
+            </button>
+          </div>
+        </div>
       </form>
 
       <div className="flex items-center gap-3">

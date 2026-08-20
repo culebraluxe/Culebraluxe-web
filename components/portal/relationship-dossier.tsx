@@ -2,7 +2,7 @@ import Link from "next/link"
 
 import { InteractionLogForm } from "@/components/portal/write/interaction-log"
 import { PersonActions } from "@/components/portal/write/person-actions"
-import { TaskActions } from "@/components/portal/write/task-actions"
+import { CreateTaskForm, TaskActions } from "@/components/portal/write/task-actions"
 import type {
   RelationshipDossier,
 } from "@/db/dossier"
@@ -246,6 +246,9 @@ export function RelationshipDossier({
               No open tasks for this person.
             </div>
           )}
+          <div className="border-t border-[var(--portal-border)] px-6 py-5">
+            <CreateTaskForm personId={person.id} compact />
+          </div>
         </section>
 
         <section className="rounded-sm border border-[var(--portal-border)] bg-white">

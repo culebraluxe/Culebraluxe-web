@@ -89,7 +89,7 @@ export function InteractionLogForm({
         </label>
         <label className="block">
           <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            Date (optional)
+            Date (optional, local time)
           </span>
           <input
             type="datetime-local"

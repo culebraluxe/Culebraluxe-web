@@ -1,6 +1,10 @@
 import Link from "next/link"
 
-import { ShowingActions } from "@/components/portal/write/showing-actions"
+import {
+  CreateShowingPanel,
+  ShowingActions,
+} from "@/components/portal/write/showing-actions"
+import type { ShowingPropertyOption } from "@/components/portal/write/showing-actions"
 import type { Showing, ShowingStatus } from "@/db/showings"
 
 function statusLabel(status: ShowingStatus) {
@@ -95,7 +99,13 @@ function ShowingRow({ showing }: { showing: Showing }) {
   )
 }
 
-export function Showings({ showings }: { showings: Showing[] }) {
+export function Showings({
+  showings,
+  properties,
+}: {
+  showings: Showing[]
+  properties: ShowingPropertyOption[]
+}) {
   const requested = showings.filter((showing) => showing.status === "requested")
   const scheduled = showings.filter((showing) => showing.status === "scheduled")
   const completed = showings.filter((showing) => showing.status === "completed")
@@ -147,6 +157,18 @@ export function Showings({ showings }: { showings: Showing[] }) {
           cancelled — drawn from the canonical showing table.
         </p>
       </div>
+
+      <section className="mb-6 rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="border-b border-[var(--portal-border)] px-6 py-5">
+          <h2 className="font-serif text-2xl font-light">Request a showing</h2>
+          <p className="mt-1 text-xs font-light text-black/40">
+            Create a requested showing for an existing person and property.
+          </p>
+        </div>
+        <div className="px-6 py-5">
+          <CreateShowingPanel properties={properties} />
+        </div>
+      </section>
 
       {showings.length === 0 ? (
         <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10">
