@@ -1,12 +1,14 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { Suspense } from 'react'
 
-import { getProperties } from '@/db/properties'
+import { getFilteredProperties, getProperties } from '@/db/properties'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Reveal } from '@/components/reveal'
 import { BuyersPropertyShowroom } from '@/components/buyers-property-showroom'
+import { CompareBar } from '@/components/property/compare-bar'
 
 export const metadata: Metadata = {
   title: 'For Buyers — CulebraLuxe',
@@ -15,6 +17,10 @@ export const metadata: Metadata = {
 }
 
 export const dynamic = 'force-dynamic'
+
+type BuyersPageProps = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
 
 const STEPS = [
   {
@@ -48,8 +54,52 @@ const SERVICES = [
   'Long-term stewardship advice',
 ]
 
-export default async function BuyersPage() {
-  const properties = await getProperties()
+export default async function BuyersPage({ searchParams }: BuyersPageProps) {
+  const query = await searchParams
+
+  const category =
+    query.category === 'land'
+      ? ('land' as const)
+      : query.category === 'homes'
+        ? ('homes' as const)
+        : ('all' as const)
+
+  const sort =
+    query.sort === 'price-high' ||
+    query.sort === 'price-low' ||
+    query.sort === 'name'
+      ? (query.sort as 'price-high' | 'price-low' | 'name')
+      : ('featured' as const)
+
+  const q = typeof query.q === 'string' ? query.q : ''
+  const maxPriceText = typeof query.maxPrice === 'string' ? query.maxPrice : ''
+  const bedsText = typeof query.beds === 'string' ? query.beds : ''
+  const viewText = typeof query.view === 'string' ? query.view : ''
+
+  const initial = {
+    category,
+    q,
+    maxPrice: maxPriceText,
+    beds: bedsText,
+    view: viewText,
+    sort,
+  }
+
+  const filters = {
+    category,
+    q,
+    maxPrice: /^\d+$/.test(maxPriceText) ? Number(maxPriceText) : null,
+    beds: /^\d+$/.test(bedsText) ? Number(bedsText) : null,
+    view: viewText || undefined,
+    sort,
+  }
+
+  // The full inventory feeds the featured carousel and compare; the filtered
+  // query drives the inventory list (server-side filtering contract).
+  const [allProperties, filteredResult] = await Promise.all([
+    getProperties(),
+    getFilteredProperties(filters),
+  ])
 
   return (
     <>
@@ -64,7 +114,16 @@ export default async function BuyersPage() {
           imageAlt="A modern luxury villa overlooking the Culebra coastline"
         />
 
-        <BuyersPropertyShowroom properties={properties} />
+        <Suspense fallback={null}>
+          <BuyersPropertyShowroom
+            properties={filteredResult.properties}
+            featured={allProperties}
+            viewOptions={filteredResult.viewOptions}
+            initial={initial}
+          />
+        </Suspense>
+
+        <CompareBar properties={allProperties} />
 
         {/* Buying guidance now supports the inventory rather than blocking it */}
         <section className="px-6 py-24 md:px-12 md:py-32">

@@ -2,7 +2,8 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowUpRight,
   Search,
@@ -10,6 +11,7 @@ import {
 
 import type { PropertySummary } from '@/db/properties'
 import { SaveProperty } from '@/components/property/save-property'
+import { CompareProperty } from '@/components/property/compare-property'
 import { FeaturedPropertyCarousel } from '@/components/property/featured-property-carousel'
 import {
   formatArea,
@@ -27,6 +29,16 @@ type SortMode =
 
 type BuyersPropertyShowroomProps = {
   properties: PropertySummary[]
+  featured: PropertySummary[]
+  viewOptions: string[]
+  initial: {
+    category: Category
+    q: string
+    maxPrice: string
+    beds: string
+    view: string
+    sort: SortMode
+  }
 }
 
 function propertyLocation(property: PropertySummary) {
@@ -137,8 +149,17 @@ function InventoryCard({
 
         <SaveProperty
           propertyId={property.id}
+          slug={property.slug}
+          name={property.name}
           variant="icon"
           className="absolute right-4 top-4 z-30"
+        />
+
+        <CompareProperty
+          id={property.id}
+          slug={property.slug}
+          name={property.name}
+          className="absolute right-14 top-4 z-30"
         />
       </div>
 
@@ -177,126 +198,104 @@ function InventoryCard({
 
 export function BuyersPropertyShowroom({
   properties,
+  featured,
+  viewOptions,
+  initial,
 }: BuyersPropertyShowroomProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
   const [category, setCategory] =
-    useState<Category>('all')
+    useState<Category>(initial.category)
 
-  const [search, setSearch] = useState('')
-  const [maxPrice, setMaxPrice] = useState('')
-  const [beds, setBeds] = useState('')
-  const [view, setView] = useState('')
+  const [search, setSearch] = useState(initial.q)
+  const [maxPrice, setMaxPrice] = useState(initial.maxPrice)
+  const [beds, setBeds] = useState(initial.beds)
+  const [view, setView] = useState(initial.view)
   const [sort, setSort] =
-    useState<SortMode>('featured')
+    useState<SortMode>(initial.sort)
 
-  const showroom = properties.slice(0, 5)
+  // PX-24C: URL is the source of truth. Reconcile local controls from the URL
+  // whenever it changes (including back/forward navigation) without pushing.
+  useEffect(() => {
+    setCategory(
+      searchParams.get('category') === 'land'
+        ? 'land'
+        : searchParams.get('category') === 'homes'
+          ? 'homes'
+          : 'all',
+    )
+    setSearch(searchParams.get('q') ?? '')
+    setMaxPrice(searchParams.get('maxPrice') ?? '')
+    setBeds(searchParams.get('beds') ?? '')
+    setView(searchParams.get('view') ?? '')
+    const sortValue = searchParams.get('sort')
+    setSort(
+      sortValue === 'price-high' ||
+        sortValue === 'price-low' ||
+        sortValue === 'name'
+        ? sortValue
+        : 'featured',
+    )
+  }, [searchParams])
 
-  const viewOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        properties.flatMap(
-          (property) => property.views,
-        ),
-      ),
-    ).sort()
-  }, [properties])
+  // Push local filter state into the URL. Uses replace so typing/controls do
+  // not spam history, and skips when the URL already matches to avoid churn on
+  // back/forward reconciliation.
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (category !== 'all') params.set('category', category)
+    if (search.trim()) params.set('q', search.trim())
+    if (maxPrice) params.set('maxPrice', maxPrice)
+    if (beds) params.set('beds', beds)
+    if (view) params.set('view', view)
+    if (sort !== 'featured') params.set('sort', sort)
+    const qs = params.toString()
+    if (qs === searchParams.toString()) return
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }, [category, search, maxPrice, beds, view, sort, router, pathname, searchParams])
+
+  const showroom = featured
 
   const filtered = useMemo(() => {
-    const normalizedSearch = search
-      .trim()
-      .toLowerCase()
+    const normalizedSearch = search.trim().toLowerCase()
 
-    const next = properties.filter((property) => {
-      if (!matchesCategory(property, category)) {
-        return false
-      }
+    const next = normalizedSearch
+      ? properties.filter((property) => {
+          const haystack = [
+            property.name,
+            property.location,
+            property.city,
+            property.neighborhood,
+            property.propertyType,
+            ...property.views,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
 
-      if (
-        maxPrice &&
-        property.listPrice != null &&
-        property.listPrice > Number(maxPrice)
-      ) {
-        return false
-      }
-
-      if (
-        beds &&
-        !isLand(property.propertyType) &&
-        (property.bedrooms ?? 0) < Number(beds)
-      ) {
-        return false
-      }
-
-      if (
-        view &&
-        !property.views.some(
-          (propertyView) =>
-            propertyView.toLowerCase() ===
-            view.toLowerCase(),
-        )
-      ) {
-        return false
-      }
-
-      if (normalizedSearch) {
-        const haystack = [
-          property.name,
-          property.location,
-          property.city,
-          property.neighborhood,
-          property.propertyType,
-          ...property.views,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-
-        if (!haystack.includes(normalizedSearch)) {
-          return false
-        }
-      }
-
-      return true
-    })
+          return haystack.includes(normalizedSearch)
+        })
+      : properties
 
     return [...next].sort((a, b) => {
       switch (sort) {
         case 'price-high':
-          return (
-            (b.listPrice ?? -1) -
-            (a.listPrice ?? -1)
-          )
-
+          return (b.listPrice ?? -1) - (a.listPrice ?? -1)
         case 'price-low':
           return (
-            (a.listPrice ??
-              Number.MAX_SAFE_INTEGER) -
-            (b.listPrice ??
-              Number.MAX_SAFE_INTEGER)
+            (a.listPrice ?? Number.MAX_SAFE_INTEGER) -
+            (b.listPrice ?? Number.MAX_SAFE_INTEGER)
           )
-
         case 'name':
           return a.name.localeCompare(b.name)
-
         default:
-          if (a.featured !== b.featured) {
-            return a.featured ? -1 : 1
-          }
-
-          return (
-            (b.listPrice ?? -1) -
-            (a.listPrice ?? -1)
-          )
+          if (a.featured !== b.featured) return a.featured ? -1 : 1
+          return (b.listPrice ?? -1) - (a.listPrice ?? -1)
       }
     })
-  }, [
-    properties,
-    category,
-    search,
-    maxPrice,
-    beds,
-    view,
-    sort,
-  ])
+  }, [properties, search, sort])
 
   if (properties.length === 0) {
     return (
@@ -361,12 +360,20 @@ export function BuyersPropertyShowroom({
                 Available properties.
               </h2>
 
-              <p className="text-xs font-light uppercase tracking-[0.18em] text-muted-foreground">
-                {filtered.length}{' '}
-                {filtered.length === 1
-                  ? 'property'
-                  : 'properties'}
-              </p>
+              <div className="flex items-center gap-5">
+                <p className="text-xs font-light uppercase tracking-[0.18em] text-muted-foreground">
+                  {filtered.length}{' '}
+                  {filtered.length === 1
+                    ? 'property'
+                    : 'properties'}
+                </p>
+                <Link
+                  href="/favorites"
+                  className="text-xs font-light uppercase tracking-[0.18em] text-accent transition-colors hover:text-foreground"
+                >
+                  Saved
+                </Link>
+              </div>
             </div>
           </div>
 

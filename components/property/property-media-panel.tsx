@@ -23,6 +23,7 @@ export function PropertyMediaPanel({
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
 
   const clearNavigationTimer = useCallback(() => {
     if (navigationTimerRef.current) {
@@ -121,9 +122,18 @@ export function PropertyMediaPanel({
 
   function openLightbox(index: number) {
     if (mediaImages.length === 0) return
+    triggerRef.current = document.activeElement as HTMLElement | null
     setLightboxIndex(index % mediaImages.length)
     setLightboxOpen(true)
   }
+
+  // Restore focus to the triggering control when the lightbox closes.
+  useEffect(() => {
+    if (!lightboxOpen && triggerRef.current) {
+      triggerRef.current.focus()
+      triggerRef.current = null
+    }
+  }, [lightboxOpen])
 
   function moveLightbox(delta: 1 | -1) {
     const total = mediaImagesRef.current.length
@@ -207,6 +217,15 @@ export function PropertyMediaPanel({
             unoptimized
             sizes="100vw"
             className="object-cover"
+          />
+        )}
+
+        {mediaImages.length > 1 && (
+          <button
+            type="button"
+            onClick={() => openLightbox(normalizedActiveIndex)}
+            aria-label="View all photos"
+            className="absolute inset-0 z-[5] h-full w-full"
           />
         )}
 

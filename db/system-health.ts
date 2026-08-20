@@ -19,6 +19,12 @@ export type SystemHealthSnapshot = {
   personsWithoutPhoneIdentity: number
   openTasksWithoutDueDate: number
   activePropertiesWithoutHeroMedia: number
+  completedShowingsMissingCompletedAt: number
+  scheduledShowingsMissingScheduledAt: number
+  activeParticipantsWithEndedAt: number
+  otherParticipantsMissingRoleLabel: number
+  offersWithCrossDealParent: number
+  showingsWithDealPropertyMismatch: number
 }
 
 export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
@@ -74,7 +80,42 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
               select 1 from property_media pm
               where pm.property_id = p.id and pm.role = 'hero'
             )
-        ) as active_properties_without_hero
+        ) as active_properties_without_hero,
+        (
+          select count(*)::int
+          from showing
+          where status = 'completed' and completed_at is null
+        ) as completed_showings_missing_completed_at,
+        (
+          select count(*)::int
+          from showing
+          where status = 'scheduled' and scheduled_at is null
+        ) as scheduled_showings_missing_scheduled_at,
+        (
+          select count(*)::int
+          from deal_participant
+          where active = true and ended_at is not null
+        ) as active_participants_with_ended_at,
+        (
+          select count(*)::int
+          from deal_participant
+          where role = 'other' and role_label is null
+        ) as other_participants_missing_role_label,
+        (
+          select count(*)::int
+          from offer o
+          join offer parent
+            on parent.id = o.parent_offer_id
+          where parent.deal_id <> o.deal_id
+        ) as offers_with_cross_deal_parent,
+        (
+          select count(*)::int
+          from showing s
+          join deal d
+            on d.id = s.deal_id
+          where s.property_id is not null
+            and s.property_id <> d.property_id
+        ) as showings_with_deal_property_mismatch
     `,
   ])
 
@@ -88,6 +129,12 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
         persons_without_phone: number
         open_tasks_without_due: number
         active_properties_without_hero: number
+        completed_showings_missing_completed_at: number
+        scheduled_showings_missing_scheduled_at: number
+        active_participants_with_ended_at: number
+        other_participants_missing_role_label: number
+        offers_with_cross_deal_parent: number
+        showings_with_deal_property_mismatch: number
       }
     | undefined
 
@@ -105,5 +152,16 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
     openTasksWithoutDueDate: qualityRow?.open_tasks_without_due ?? 0,
     activePropertiesWithoutHeroMedia:
       qualityRow?.active_properties_without_hero ?? 0,
+    completedShowingsMissingCompletedAt:
+      qualityRow?.completed_showings_missing_completed_at ?? 0,
+    scheduledShowingsMissingScheduledAt:
+      qualityRow?.scheduled_showings_missing_scheduled_at ?? 0,
+    activeParticipantsWithEndedAt:
+      qualityRow?.active_participants_with_ended_at ?? 0,
+    otherParticipantsMissingRoleLabel:
+      qualityRow?.other_participants_missing_role_label ?? 0,
+    offersWithCrossDealParent: qualityRow?.offers_with_cross_deal_parent ?? 0,
+    showingsWithDealPropertyMismatch:
+      qualityRow?.showings_with_deal_property_mismatch ?? 0,
   }
 }

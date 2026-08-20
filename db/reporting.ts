@@ -18,6 +18,11 @@ export type ReportingSnapshot = {
   interactionByChannel: { channel: string; count: number }[]
   unresolvedNeedsReviewCount: number
   activePropertyCount: number
+  showingByStatus: { status: string; count: number }[]
+  offersByStatus: { status: string; count: number }[]
+  dealsWithOffers: number
+  participantRoleDistribution: { role: string; count: number }[]
+  recentCompletedShowings: number
 }
 
 type CountRow = { count: number }
@@ -30,6 +35,10 @@ export async function getReportingSnapshot(): Promise<ReportingSnapshot> {
     dealStages,
     interactions,
     channels,
+    showings,
+    offersByStatus,
+    offerSummary,
+    participantRoles,
   ] = await Promise.all([
     getOpsCounts(),
     sql`
@@ -63,6 +72,35 @@ export async function getReportingSnapshot(): Promise<ReportingSnapshot> {
       group by channel
       order by count desc
     `,
+    sql`
+      select status, count(*)::int as count
+      from showing
+      group by status
+      order by count desc
+    `,
+    sql`
+      select status, count(*)::int as count
+      from offer
+      group by status
+      order by count desc
+    `,
+    sql`
+      select
+        (select count(distinct deal_id)::int from offer) as deals_with_offers,
+        (
+          select count(*)::int
+          from showing
+          where status = 'completed'
+            and completed_at >= now() - interval '30 days'
+        ) as recent_completed_showings
+    `,
+    sql`
+      select role, count(*)::int as count
+      from deal_participant
+      where active = true
+      group by role
+      order by count desc
+    `,
   ])
 
   const dealStageDistribution = (dealStages as { stage: string; count: number }[]).map(
@@ -86,5 +124,20 @@ export async function getReportingSnapshot(): Promise<ReportingSnapshot> {
     ),
     unresolvedNeedsReviewCount: counts.unresolvedIntakeCount,
     activePropertyCount: counts.activePropertyCount,
+    showingByStatus: (showings as { status: string; count: number }[]).map(
+      (row) => ({ status: String(row.status), count: Number(row.count) }),
+    ),
+    offersByStatus: (offersByStatus as { status: string; count: number }[]).map(
+      (row) => ({ status: String(row.status), count: Number(row.count) }),
+    ),
+    dealsWithOffers:
+      (offerSummary[0] as { deals_with_offers: number } | undefined)
+        ?.deals_with_offers ?? 0,
+    recentCompletedShowings:
+      (offerSummary[0] as { recent_completed_showings: number } | undefined)
+        ?.recent_completed_showings ?? 0,
+    participantRoleDistribution: (
+      participantRoles as { role: string; count: number }[]
+    ).map((row) => ({ role: String(row.role), count: Number(row.count) })),
   }
 }

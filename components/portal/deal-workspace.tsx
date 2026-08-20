@@ -77,6 +77,10 @@ function offerStatus(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
+function showingStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
 function Detail({
   label,
   value,
@@ -414,6 +418,71 @@ export function DealWorkspace({
           </div>
         ) : (
           <Empty text="No offers on record for this deal." />
+        )}
+      </div>
+
+      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
+          <div>
+            <h2 className="font-serif text-2xl font-light">Showings</h2>
+            <p className="mt-1 text-xs font-light text-black/40">
+              Showing history for this deal.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-4">
+            <span className="text-xs font-light text-black/35">
+              {workspace.showings.length}
+            </span>
+            <Link
+              href="/portal/showings"
+              className="inline-flex min-h-11 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+            >
+              View all showings
+              <span aria-hidden>→</span>
+            </Link>
+          </div>
+        </div>
+        {workspace.showings.length > 0 ? (
+          <div>
+            {workspace.showings.map((showing) => (
+              <div
+                key={showing.id}
+                className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/portal/clients/${showing.personId}`}
+                        className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                      >
+                        {showing.personName}
+                      </Link>
+                      <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                        {showingStatus(showing.status)}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs font-light text-black/45">
+                      Requested {showing.requestedAtLabel}
+                      {showing.scheduledAtLabel &&
+                        ` · Scheduled ${showing.scheduledAtLabel}`}
+                      {showing.completedAtLabel &&
+                        ` · Completed ${showing.completedAtLabel}`}
+                      {showing.cancelledAtLabel &&
+                        ` · Cancelled ${showing.cancelledAtLabel}`}
+                    </div>
+                    {showing.feedback && (
+                      <p className="mt-2 text-sm font-light leading-6 text-black/55">
+                        {showing.feedback}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty text="No showings on record for this deal." />
         )}
       </div>
 

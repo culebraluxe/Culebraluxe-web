@@ -363,6 +363,177 @@ function mapSummary(row: PropertySummaryRow): PropertySummary {
   }
 }
 
+export type PropertyFilterInput = {
+  category?: 'all' | 'homes' | 'land'
+  q?: string
+  maxPrice?: number | null
+  beds?: number | null
+  view?: string
+  sort?: 'featured' | 'price-high' | 'price-low' | 'name'
+}
+
+// Server-side buyers filter contract (PX-24B). Filters are applied in SQL
+// over canonical property fields only; free-text search and sorting remain
+// deterministic client-side conveniences over the already-filtered result so
+// structured filters never depend on full-inventory client logic. Returns the
+// matching inventory plus the distinct view vocabulary across all eligible
+// inventory (so the view dropdown stays stable while filtering).
+export async function getFilteredProperties(
+  filters: PropertyFilterInput,
+): Promise<{ properties: PropertySummary[]; viewOptions: string[] }> {
+  const category = filters.category ?? 'all'
+  const q = (filters.q ?? '').trim().toLowerCase()
+  const maxPrice = filters.maxPrice ?? null
+  const beds = filters.beds ?? null
+  const view = filters.view?.trim() ?? ''
+  const viewValue = view.toLowerCase()
+  const hasView = [
+    'ocean',
+    'bay',
+    'beach',
+    'harbor',
+    'island',
+    'mountain',
+    'sunrise',
+    'sunset',
+  ].includes(viewValue)
+
+  const propertyRows = await sql`
+    select
+      p.id,
+      p.name,
+      p.slug,
+      p.status,
+      p.property_type,
+      p.list_price,
+      p.featured,
+
+      p.location,
+      p.city,
+      p.neighborhood,
+
+      p.bedrooms,
+      p.bathrooms,
+      p.square_feet,
+
+      p.lot_size,
+      p.lot_size_units,
+
+      p.has_ocean_view,
+      p.has_bay_view,
+      p.has_beach_view,
+      p.has_harbor_view,
+      p.has_island_view,
+      p.has_mountain_view,
+      p.has_sunrise_view,
+      p.has_sunset_view,
+      p.has_water_access,
+      p.has_beach_access,
+
+      hero.media_id as hero_media_id,
+      hero.alt_text as hero_alt_text
+
+    from property p
+
+    left join lateral (
+      select
+        m.id as media_id,
+        m.alt_text
+      from property_media pm
+      join media m
+        on m.id = pm.media_id
+      where pm.property_id = p.id
+        and pm.role = 'hero'
+        and m.media_type = 'image'
+      order by
+        pm.sort_order asc,
+        pm.created_at asc
+      limit 1
+    ) hero on true
+
+    where p.archived_at is null
+      and p.slug is not null
+      and p.status in ('active', 'coming_soon', 'under_contract')
+
+      and (${category !== 'land'} or lower(coalesce(p.property_type, '')) = 'land')
+      and (${category !== 'homes'} or lower(coalesce(p.property_type, '')) <> 'land')
+
+      and (${maxPrice === null} or p.list_price <= ${maxPrice})
+
+      and (
+        ${beds === null}
+        or (lower(coalesce(p.property_type, '')) <> 'land' and p.bedrooms >= ${beds})
+      )
+
+      and (
+        ${!hasView}
+        or case
+          when ${viewValue} = 'ocean' then p.has_ocean_view
+          when ${viewValue} = 'bay' then p.has_bay_view
+          when ${viewValue} = 'beach' then p.has_beach_view
+          when ${viewValue} = 'harbor' then p.has_harbor_view
+          when ${viewValue} = 'island' then p.has_island_view
+          when ${viewValue} = 'mountain' then p.has_mountain_view
+          when ${viewValue} = 'sunrise' then p.has_sunrise_view
+          when ${viewValue} = 'sunset' then p.has_sunset_view
+          else false
+        end
+      )
+
+      and (
+        ${q === ''}
+        or lower(
+          coalesce(p.name, '') || ' ' ||
+          coalesce(p.location, '') || ' ' ||
+          coalesce(p.city, '') || ' ' ||
+          coalesce(p.neighborhood, '') || ' ' ||
+          coalesce(p.property_type, '') ||
+          case when p.has_ocean_view then ' ocean' else '' end ||
+          case when p.has_bay_view then ' bay' else '' end ||
+          case when p.has_beach_view then ' beach' else '' end ||
+          case when p.has_harbor_view then ' harbor' else '' end ||
+          case when p.has_island_view then ' island' else '' end ||
+          case when p.has_mountain_view then ' mountain' else '' end ||
+          case when p.has_sunrise_view then ' sunrise' else '' end ||
+          case when p.has_sunset_view then ' sunset' else '' end
+        ) like '%' || ${q} || '%'
+      )
+
+    order by
+      p.featured desc,
+      p.list_price desc nulls last,
+      p.created_at desc
+  `
+
+  const viewRows = await sql`
+    select
+      has_ocean_view,
+      has_bay_view,
+      has_beach_view,
+      has_harbor_view,
+      has_island_view,
+      has_mountain_view,
+      has_sunrise_view,
+      has_sunset_view
+    from property
+    where archived_at is null
+      and slug is not null
+      and status in ('active', 'coming_soon', 'under_contract')
+  `
+
+  const viewSet = new Set<string>()
+  for (const row of viewRows as Array<Record<string, boolean>>) {
+    for (const viewName of buildViewTypes(row as Parameters<typeof buildViewTypes>[0])) {
+      viewSet.add(viewName)
+    }
+  }
+
+  return {
+    properties: (propertyRows as PropertySummaryRow[]).map(mapSummary),
+    viewOptions: Array.from(viewSet).sort(),
+  }
+}
+
 // Deterministic, explainable "similar" rule using only canonical property
 // fields: same property type first, then same neighborhood/city, then price
 // proximity, with the standard inventory ordering as a stable tiebreak. No

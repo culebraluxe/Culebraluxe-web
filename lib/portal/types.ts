@@ -120,4 +120,10 @@ export interface Deal {
   closingDate?: string
 
   propertyDescriptor?: string
+
+  showingCount?: number
+  offerCount?: number
+  participantCount?: number
+  latestOfferAmount?: number
+  latestOfferStatus?: string
 }

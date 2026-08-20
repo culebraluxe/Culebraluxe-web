@@ -24,6 +24,12 @@ type DealRow = {
 
   closing_date: string | null
 
+  showing_count: number | null
+  offer_count: number | null
+  participant_count: number | null
+  latest_offer_amount: string | null
+  latest_offer_status: string | null
+
   next_milestone: string | null
   next_milestone_at: string | null
 
@@ -102,7 +108,14 @@ export async function getDeals(): Promise<Deal[]> {
           'Mon FMDD, YYYY'
         )
         else null
-      end as last_activity_at
+      end as last_activity_at,
+
+      (select count(*) from showing s where s.deal_id = d.id)::int as showing_count,
+      (select count(*) from offer o where o.deal_id = d.id)::int as offer_count,
+      (select count(*) from deal_participant dp
+        where dp.deal_id = d.id and dp.active = true)::int as participant_count,
+      latest_offer.amount as latest_offer_amount,
+      latest_offer.status as latest_offer_status
 
     from deal d
 
@@ -151,6 +164,16 @@ export async function getDeals(): Promise<Deal[]> {
       limit 1
     ) last_interaction on true
 
+    left join lateral (
+      select
+        o.amount,
+        o.status
+      from offer o
+      where o.deal_id = d.id
+      order by o.submitted_at desc
+      limit 1
+    ) latest_offer on true
+
     order by
       case d.stage
         when 'under_contract' then 1
@@ -191,5 +214,11 @@ export async function getDeals(): Promise<Deal[]> {
 
     lastActivity: row.last_activity ?? undefined,
     lastActivityAt: row.last_activity_at ?? undefined,
+
+    showingCount: row.showing_count ?? 0,
+    offerCount: row.offer_count ?? 0,
+    participantCount: row.participant_count ?? 0,
+    latestOfferAmount: toNumber(row.latest_offer_amount),
+    latestOfferStatus: row.latest_offer_status ?? undefined,
   }))
 }

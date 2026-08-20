@@ -23,6 +23,20 @@ function formatCurrency(value?: number) {
   }).format(value)
 }
 
+function dealSummary(deal: Deal): string {
+  const parts: string[] = []
+  if (deal.showingCount) {
+    parts.push(`${deal.showingCount} showing${deal.showingCount === 1 ? "" : "s"}`)
+  }
+  if (deal.offerCount) {
+    parts.push(`${deal.offerCount} offer${deal.offerCount === 1 ? "" : "s"}`)
+  }
+  if (deal.participantCount) {
+    parts.push(`${deal.participantCount} participant${deal.participantCount === 1 ? "" : "s"}`)
+  }
+  return parts.join(" · ")
+}
+
 function stageLabel(stage: DealStage) {
   switch (stage) {
     case "new_lead":
@@ -223,6 +237,14 @@ export function DealsPortfolio({
                             {deal.propertyDescriptor &&
                               ` · ${deal.propertyDescriptor}`}
                           </div>
+
+                          {(deal.showingCount ||
+                            deal.offerCount ||
+                            deal.participantCount) && (
+                            <div className="mt-1 text-xs font-light text-[var(--portal-navy-soft)]">
+                              {dealSummary(deal)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -245,13 +267,32 @@ export function DealsPortfolio({
                     </td>
 
                     <td className="px-6 py-5 align-top">
-                      <div className="text-sm font-light">
-                        {formatCurrency(deal.offerPrice ?? deal.listPrice)}
-                      </div>
-
-                      <div className="mt-1 text-xs font-light text-black/40">
-                        {deal.offerPrice ? "Current offer" : "List price"}
-                      </div>
+                      {deal.offerCount ? (
+                        <>
+                          <div className="text-sm font-light">
+                            {formatCurrency(
+                              deal.latestOfferAmount ??
+                                deal.offerPrice ??
+                                deal.listPrice
+                            )}
+                          </div>
+                          <div className="mt-1 text-xs font-light text-black/40">
+                            {deal.latestOfferStatus
+                              ? deal.latestOfferStatus.charAt(0).toUpperCase() +
+                                deal.latestOfferStatus.slice(1)
+                              : "Latest offer"}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-sm font-light">
+                            {formatCurrency(deal.offerPrice ?? deal.listPrice)}
+                          </div>
+                          <div className="mt-1 text-xs font-light text-black/40">
+                            {deal.offerPrice ? "Current offer" : "List price"}
+                          </div>
+                        </>
+                      )}
                     </td>
 
                     <td className="px-6 py-5 align-top">

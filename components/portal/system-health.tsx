@@ -116,6 +116,43 @@ export function SystemHealth({
           />
         </div>
       </section>
+
+      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <h2 className="font-serif text-2xl font-light">
+          Transaction Data Quality
+        </h2>
+
+        <p className="mt-1 text-xs font-light text-black/40">
+          Signals derivable from showings, offers, and participants.
+        </p>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <Detail
+            label="Completed showings missing completed_at"
+            value={String(health.completedShowingsMissingCompletedAt)}
+          />
+          <Detail
+            label="Scheduled showings missing scheduled_at"
+            value={String(health.scheduledShowingsMissingScheduledAt)}
+          />
+          <Detail
+            label="Active participants with ended_at"
+            value={String(health.activeParticipantsWithEndedAt)}
+          />
+          <Detail
+            label="Other participants missing role label"
+            value={String(health.otherParticipantsMissingRoleLabel)}
+          />
+          <Detail
+            label="Offers with cross-deal parent"
+            value={String(health.offersWithCrossDealParent)}
+          />
+          <Detail
+            label="Showings with deal/property mismatch"
+            value={String(health.showingsWithDealPropertyMismatch)}
+          />
+        </div>
+      </section>
     </div>
   )
 }

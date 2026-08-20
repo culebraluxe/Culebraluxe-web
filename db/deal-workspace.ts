@@ -49,6 +49,18 @@ export type DealWorkspaceOffer = {
   isCounter: boolean
 }
 
+export type DealWorkspaceShowing = {
+  id: string
+  personId: string
+  personName: string
+  status: string
+  requestedAtLabel: string
+  scheduledAtLabel: string | null
+  completedAtLabel: string | null
+  cancelledAtLabel: string | null
+  feedback: string | null
+}
+
 export type DealWorkspace = {
   deal: {
     id: string
@@ -81,6 +93,7 @@ export type DealWorkspace = {
   openTasks: DealWorkspaceTask[]
   activity: DealWorkspaceActivity[]
   offers: DealWorkspaceOffer[]
+  showings: DealWorkspaceShowing[]
 }
 
 type DealRow = {
@@ -129,6 +142,18 @@ type ActivityRow = {
   person_name: string | null
 }
 
+type ShowingRow = {
+  id: string
+  person_id: string
+  person_name: string
+  status: string
+  requested_at_label: string
+  scheduled_at_label: string | null
+  completed_at_label: string | null
+  cancelled_at_label: string | null
+  feedback: string | null
+}
+
 type ParticipantRow = {
   id: string
   role_category: string
@@ -160,8 +185,14 @@ function toNumber(value: string | null) {
 export async function getDealWorkspace(
   dealId: string,
 ): Promise<DealWorkspace> {
-  const [dealRows, taskRows, activityRows, participantRows, offerRows] =
-    await Promise.all([
+  const [
+    dealRows,
+    taskRows,
+    activityRows,
+    participantRows,
+    offerRows,
+    showingRows,
+  ] = await Promise.all([
     sql`
       select
         d.id,
@@ -326,6 +357,43 @@ export async function getDealWorkspace(
       where o.deal_id = ${dealId}
       order by o.submitted_at asc
     `,
+    sql`
+      select
+        s.id,
+        s.person_id,
+        person.display_name as person_name,
+        s.status,
+        to_char(
+          s.requested_at at time zone 'America/Puerto_Rico',
+          'Mon FMDD, YYYY HH12:MI AM'
+        ) as requested_at_label,
+        to_char(
+          s.scheduled_at at time zone 'America/Puerto_Rico',
+          'Mon FMDD, YYYY HH12:MI AM'
+        ) as scheduled_at_label,
+        to_char(
+          s.completed_at at time zone 'America/Puerto_Rico',
+          'Mon FMDD, YYYY HH12:MI AM'
+        ) as completed_at_label,
+        to_char(
+          s.cancelled_at at time zone 'America/Puerto_Rico',
+          'Mon FMDD, YYYY HH12:MI AM'
+        ) as cancelled_at_label,
+        s.feedback
+      from showing s
+      join person
+        on person.id = s.person_id
+      where s.deal_id = ${dealId}
+      order by
+        case s.status
+          when 'requested' then 0
+          when 'scheduled' then 1
+          when 'completed' then 2
+          when 'cancelled' then 3
+          else 4
+        end,
+        s.requested_at desc
+    `,
   ])
 
   const dealRow = (dealRows as DealRow[])[0]
@@ -340,6 +408,7 @@ export async function getDealWorkspace(
       openTasks: [],
       activity: [],
       offers: [],
+      showings: [],
     }
   }
 
@@ -398,6 +467,17 @@ export async function getDealWorkspace(
       respondedAtLabel: row.responded_at_label ?? null,
       note: row.note ?? null,
       isCounter: Boolean(row.parent_offer_id),
+    })),
+    showings: (showingRows as ShowingRow[]).map((row) => ({
+      id: row.id,
+      personId: row.person_id,
+      personName: row.person_name,
+      status: row.status,
+      requestedAtLabel: row.requested_at_label,
+      scheduledAtLabel: row.scheduled_at_label ?? null,
+      completedAtLabel: row.completed_at_label ?? null,
+      cancelledAtLabel: row.cancelled_at_label ?? null,
+      feedback: row.feedback ?? null,
     })),
     openTasks: (taskRows as TaskRow[]).map((row) => ({
       id: row.id,

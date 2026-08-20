@@ -46,6 +46,23 @@ function channelLabel(channel: string) {
   return channel.charAt(0).toUpperCase() + channel.slice(1)
 }
 
+function statusLabel(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function participantRoleLabel(role: string) {
+  switch (role) {
+    case "client":
+      return "Client"
+    case "owner":
+      return "Owner"
+    case "seller":
+      return "Seller"
+    default:
+      return role.charAt(0).toUpperCase() + role.slice(1)
+  }
+}
+
 function DistributionBar({
   label,
   count,
@@ -203,6 +220,84 @@ export function Reporting({
             detail="Active inventory"
           />
         </div>
+      </section>
+
+      <section className="mt-6 grid gap-6 2xl:grid-cols-2">
+        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <h2 className="font-serif text-2xl font-light">Showings</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <MetricCard
+              label="Completed (30 days)"
+              value={String(snapshot.recentCompletedShowings)}
+              detail="Recent completed showings"
+            />
+          </div>
+          <div className="mt-5 space-y-4">
+            {snapshot.showingByStatus.length > 0 ? (
+              snapshot.showingByStatus.map((item) => (
+                <DistributionBar
+                  key={item.status}
+                  label={statusLabel(item.status)}
+                  count={item.count}
+                  total={snapshot.showingByStatus.reduce(
+                    (sum, row) => sum + row.count,
+                    0,
+                  )}
+                />
+              ))
+            ) : (
+              <p className="text-sm font-light text-black/40">No showings on record.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <h2 className="font-serif text-2xl font-light">Offers</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <MetricCard
+              label="Deals with Offers"
+              value={String(snapshot.dealsWithOffers)}
+              detail="Distinct deals"
+            />
+          </div>
+          <div className="mt-5 space-y-4">
+            {snapshot.offersByStatus.length > 0 ? (
+              snapshot.offersByStatus.map((item) => (
+                <DistributionBar
+                  key={item.status}
+                  label={statusLabel(item.status)}
+                  count={item.count}
+                  total={snapshot.offersByStatus.reduce(
+                    (sum, row) => sum + row.count,
+                    0,
+                  )}
+                />
+              ))
+            ) : (
+              <p className="text-sm font-light text-black/40">No offers on record.</p>
+            )}
+          </div>
+          <h3 className="mt-6 text-xs font-light uppercase tracking-[0.2em] text-black/40">
+            Participants
+          </h3>
+          <div className="mt-4 space-y-4">
+            {snapshot.participantRoleDistribution.length > 0 ? (
+              snapshot.participantRoleDistribution.map((item) => (
+                <DistributionBar
+                  key={item.role}
+                  label={participantRoleLabel(item.role)}
+                  count={item.count}
+                  total={snapshot.participantRoleDistribution.reduce(
+                    (sum, row) => sum + row.count,
+                    0,
+                  )}
+                />
+              ))
+            ) : (
+              <p className="text-sm font-light text-black/40">No participants on record.</p>
+            )}
+          </div>
+        </section>
       </section>
     </div>
   )

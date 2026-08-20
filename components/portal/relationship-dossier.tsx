@@ -371,6 +371,123 @@ export function RelationshipDossier({
         </section>
       </div>
 
+      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
+          <div>
+            <h2 className="font-serif text-2xl font-light">Showings</h2>
+            <p className="mt-1 text-xs font-light text-black/40">
+              Properties this person has requested or viewed.
+            </p>
+          </div>
+          <span className="text-xs font-light text-black/35">
+            {dossier.showings.length}
+          </span>
+        </div>
+        {dossier.showings.length > 0 ? (
+          <div>
+            {dossier.showings.map((showing) => (
+              <div
+                key={showing.id}
+                className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-serif text-lg font-light">
+                        {showing.propertyName ?? showing.dealPropertyName ?? "—"}
+                      </span>
+                      <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                        {showingStatus(showing.status)}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs font-light text-black/45">
+                      Requested {showing.requestedAtLabel}
+                      {showing.scheduledAtLabel &&
+                        ` · Scheduled ${showing.scheduledAtLabel}`}
+                      {showing.completedAtLabel &&
+                        ` · Completed ${showing.completedAtLabel}`}
+                    </div>
+                    {showing.feedback && (
+                      <p className="mt-2 text-sm font-light leading-6 text-black/55">
+                        {showing.feedback}
+                      </p>
+                    )}
+                  </div>
+                  {showing.dealId && (
+                    <Link
+                      href={`/portal/deals/${showing.dealId}`}
+                      className="shrink-0 text-xs font-light text-[var(--portal-navy-soft)] underline-offset-2 hover:underline"
+                    >
+                      View deal
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-6 py-10 text-sm font-light text-black/40">
+            No showings on record.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
+          <div>
+            <h2 className="font-serif text-2xl font-light">Offers</h2>
+            <p className="mt-1 text-xs font-light text-black/40">
+              Offer history for this person.
+            </p>
+          </div>
+          <span className="text-xs font-light text-black/35">
+            {dossier.offers.length}
+          </span>
+        </div>
+        {dossier.offers.length > 0 ? (
+          <div>
+            {dossier.offers.map((offer) => (
+              <div
+                key={offer.id}
+                className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-serif text-2xl font-light">
+                        {formatCurrency(offer.amount)}
+                      </span>
+                      <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                        {offerStatus(offer.status)}
+                      </span>
+                      <span className="rounded-full border border-[var(--portal-border)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-black/50">
+                        {offer.isCounter ? "Counter" : "Original"}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-xs font-light text-black/45">
+                      {offer.dealPropertyName}
+                      <span> · Submitted {offer.submittedAtLabel}</span>
+                      {offer.respondedAtLabel &&
+                        ` · Responded ${offer.respondedAtLabel}`}
+                    </div>
+                  </div>
+                  <Link
+                    href={`/portal/deals/${offer.dealId}`}
+                    className="shrink-0 text-xs font-light text-[var(--portal-navy-soft)] underline-offset-2 hover:underline"
+                  >
+                    View deal
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-6 py-10 text-sm font-light text-black/40">
+            No offers on record.
+          </div>
+        )}
+      </div>
+
       <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
         <h2 className="font-serif text-2xl font-light">
           Relationship Notes
@@ -382,6 +499,14 @@ export function RelationshipDossier({
       </div>
     </div>
   )
+}
+
+function showingStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function offerStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 function Detail({
