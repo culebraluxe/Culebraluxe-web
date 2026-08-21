@@ -141,6 +141,11 @@ export class FakeSql {
       const pid = params[0];
       return st.tokens.filter((r) => r.process_instance_id === pid);
     }
+    if (t.startsWith('select id from tokens where id =') && t.includes('for update')) {
+      const row = st.tokens.find((r) => r.id === params[0]);
+      return row ? [row] : [];
+    }
+
     if (t.startsWith('select * from tokens where id =') && t.includes('for update')) {
       const row = st.tokens.find((r) => r.id === params[0]);
       return row ? [row] : [];

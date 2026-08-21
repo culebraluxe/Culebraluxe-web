@@ -19,6 +19,7 @@ import {
   ProcessOutcome,
   TokenOutcome,
   EngineOptions,
+  EngineHooks,
   ApplicationCommandRequest,
   ApplicationCommandResult,
 } from './types';
@@ -38,11 +39,13 @@ export class WorkflowEngine {
   ) => boolean;
   private app?: EngineOptions['app'];
   private now: () => Date;
+  private hooks?: EngineHooks;
 
   constructor(private sql: SqlClient, options: EngineOptions = {}) {
     this.evaluate = options.evaluate ?? evaluateCondition;
     this.app = options.app;
     this.now = options.now ?? (() => new Date());
+    this.hooks = options.hooks;
   }
 
   // ----------------------------------------------------------------
@@ -1217,8 +1220,6 @@ export class WorkflowEngine {
     actor: string,
     variables: Record<string, any>,
   ) {
-    await this._completeToken(tx, token, actor, 'completed');
-
     const parentId = token.parentTokenId;
     if (!parentId) {
       // Join without a fork parent: degenerate passthrough.
@@ -1241,6 +1242,20 @@ export class WorkflowEngine {
       }
       return;
     }
+
+    // Serialize the join release on the fork parent token (CRM-14B).
+    // Both branches of a fork share the same parent_token_id, so locking
+    // the parent row means exactly one branch transaction decides the
+    // release at a time: the winner completes its branch and either waits
+    // or releases; the loser blocks on this lock and re-reads the sibling
+    // count AFTER the winner commits. Exactly-once release - no stuck join,
+    // no duplicate successor token.
+    await tx`SELECT id FROM tokens WHERE id = ${parentId} FOR UPDATE`;
+    if (this.hooks?.afterJoinParentLock) {
+      await this.hooks.afterJoinParentLock(parentId);
+    }
+
+    await this._completeToken(tx, token, actor, 'completed');
 
     const requiredActive = await tx`
       SELECT count(*)::int AS cnt

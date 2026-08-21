@@ -23,8 +23,6 @@ class ConcurrencyDomain {
   offerEffectCount = 0
   stageEffectCount = 0
   failNextEffect = false
-  joinState = new Map<string, Set<string>>()
-  tokens = new Map<string, string>()
 
   private norm(s: string) {
     return s.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -134,30 +132,6 @@ class ConcurrencyDomain {
       return Promise.resolve(row ? [{ stage: row.stage }] : [])
     }
 
-    if (t.includes('insert into join_state') && t.includes('on conflict do nothing')) {
-      const joinId = p[0] as string
-      const branchId = p[1] as string
-      const set = this.joinState.get(joinId) ?? new Set<string>()
-      if (set.has(branchId)) return Promise.resolve([])
-      set.add(branchId)
-      this.joinState.set(joinId, set)
-      return Promise.resolve([{ branch_id: branchId }])
-    }
-    if (t.includes('select count(*) from join_state') && t.includes('where join_id')) {
-      const joinId = p[0] as string
-      const set = this.joinState.get(joinId)
-      const count = set ? set.size : 0
-      return Promise.resolve([{ count }])
-    }
-    if (t.includes('insert into token') && t.includes('on conflict do nothing')) {
-      const tokenId = p[0] as string
-      const joinId = p[1] as string
-      // ensure only one token per join
-      if ([...this.tokens.values()].includes(joinId)) return Promise.resolve([])
-      this.tokens.set(tokenId, joinId)
-      return Promise.resolve([{ token_id: tokenId }])
-    }
-
     throw new Error(`CONCURRENCY_UNHANDLED: ${t}`)
   }
 
@@ -219,40 +193,8 @@ test('rolled-back attempt does not poison a future retry', async () => {
   assert.equal(d.stageEffectCount, 1)
 })
 
-test('two required fork branches complete concurrently against the same join: join releases exactly once and produces exactly one downstream token', async () => {
-  const d = new ConcurrencyDomain()
-  const joinId = 'join-1'
-  const branchA = 'branch-a'
-  const branchB = 'branch-b'
 
-  async function completeBranch(joinId: string, branchId: string) {
-    await d.runner(async (tx) => {
-      await tx`
-        insert into join_state (join_id, branch_id) values (${joinId}, ${branchId})
-        on conflict do nothing
-        returning branch_id
-      `
-      const countRows = await tx`
-        select count(*) from join_state where join_id = ${joinId}
-      `
-      const count = Number(countRows[0]?.count ?? 0)
-      if (count === 2) {
-        await tx`
-          insert into token (token_id, join_id) values (${`token-${joinId}`}, ${joinId})
-          on conflict do nothing
-          returning token_id
-        `
-      }
-    })
-  }
-
-  await Promise.all([
-    completeBranch(joinId, branchA),
-    completeBranch(joinId, branchB),
-  ])
-
-  assert.equal(d.joinState.get(joinId)?.size, 2)
-  const tokensForJoin = [...d.tokens.entries()].filter(([, j]) => j === joinId)
-  assert.equal(tokensForJoin.length, 1)
-  assert.ok(tokensForJoin[0])
-})
+// NOTE (CRM-14B): the previous in-memory join-concurrency proof using an
+// invented join_state/token model was invalid and has been removed. The real
+// exactly-once join release proof against overlapping PostgreSQL transactions
+// lives in workflow_engine/tests/persistence/join-concurrency.test.ts.

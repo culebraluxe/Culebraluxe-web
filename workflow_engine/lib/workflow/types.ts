@@ -263,6 +263,31 @@ export type ConditionEvaluator = (
   variables: Record<string, any>,
 ) => boolean;
 
+/**
+ * Test-only synchronization / fault-injection hooks. Throwing from any hook
+ * aborts the enclosing engine step transaction, so the step rolls back as one
+ * atomic unit (ENG-09). Generic - carries no domain semantics.
+ */
+export type EngineHooks = {
+  /** In _arriveAtNode, before the node's handler / human-task creation. */
+  beforeNodeArrive?: (nodeId: string) => void | Promise<void>;
+  /** In _handleFork, before each child token insert. */
+  beforeForkChildCreate?: (
+    parentTokenId: string,
+    toNodeId: string,
+  ) => void | Promise<void>;
+  /** In _handleJoin, after acquiring the fork-parent token lock (CRM-14B). */
+  afterJoinParentLock?: (parentTokenId: string) => void | Promise<void>;
+  /** In completeTask, after the task is marked completed, before token advance. */
+  beforeTaskCompleteEvent?: (taskId: string) => void | Promise<void>;
+  /** In fireTimerJob, after the job is completed, before the token move. */
+  beforeTimerTokenMove?: (jobId: string) => void | Promise<void>;
+  /** In _checkProcessCompletion / _terminateProcess, before the process update. */
+  beforeProcessTerminal?: (processInstanceId: string) => void | Promise<void>;
+  /** In _handleCommand, after app.executeCommand returns, before process_commands insert. */
+  afterCommandSideEffect?: (commandId: string) => void | Promise<void>;
+}
+
 export interface EngineOptions {
   /** Decision-condition evaluator. Defaults to the expr-eval-backed evaluator. */
   evaluate?: ConditionEvaluator;
@@ -270,6 +295,8 @@ export interface EngineOptions {
   app?: ApplicationPort;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
+  /** Test-only synchronization / fault-injection hooks. */
+  hooks?: EngineHooks;
 }
 
 // ---------------------------------------------------------------------------
