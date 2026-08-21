@@ -1,4 +1,5 @@
 import { type StoryBoardModel } from "@/lib/storyboard-data"
+import type { StoryRun } from "@/db/storyboard"
 import { StoryBoardTable } from "@/components/portal/write/story-board-table"
 
 // ---------------------------------------------------------------------------
@@ -86,7 +87,13 @@ function WorkstreamRow({ model }: { model: StoryBoardModel }) {
   )
 }
 
-export function StoryBoard({ model }: { model: StoryBoardModel }) {
+export function StoryBoard({
+  model,
+  runs,
+}: {
+  model: StoryBoardModel
+  runs: StoryRun[]
+}) {
   return (
     <div>
       <header className="mb-8">
@@ -158,23 +165,25 @@ export function StoryBoard({ model }: { model: StoryBoardModel }) {
       </section>
 
 
-      <StoryBoardTable stories={model.stories} />
+      <StoryBoardTable stories={model.stories} runs={runs} />
 
       <footer className="mt-6 text-xs font-light leading-6 text-black/40">
         <p>
-          Status scoring — Complete / Operationalized (and V1/V2 variants):
-          1.00 · Read-side complete / Readiness PASS: 0.80 · Partial / strong
-          V1 core / Minor remainder / Browser-local V1: 0.50 · Planned / Open /
-          Blocked / Deferred / Hardware or content dependent: 0.00. Workstream
-          weights — Public Website 20, CRM Foundation 20, Portal 20,
-          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Net-Net =
-          Σ (workstream completion × weight). All values come from the
-          storyboard_story rows in Neon; the stored{" "}
+          Workstream completion is the average of the stored{" "}
           <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
             completion
           </code>{" "}
-          column is the human-authored estimate and does not drive the rollup.
-          No workflow_engine changes.
+          (0–100) over rollup-participating stories — status is categorical and
+          does not drive the percentage. Net-Net = Σ (workstream completion ×
+          weight) with weights Public Website 20, CRM Foundation 20, Portal 20,
+          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Status
+          buckets (Complete / In Progress + Partial / Planned + Deferred + Hold
+          + Failed / Blocked) feed the count columns only. Execution runs live
+          in{" "}
+          <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
+            storyboard_story_run
+          </code>{" "}
+          (migration 023). No workflow_engine changes.
         </p>
       </footer>
     </div>

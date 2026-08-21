@@ -72,20 +72,25 @@ Then update `.env.local`: `DATABASE_URL_DEV` / `DATABASE_URL` (pooled host),
 
 ## Story Board on DEV
 
-- `db/migrations/021_storyboard_story.sql` (table) and
-  `db/migrations/022_storyboard_authoritative_seed.sql` (adds `completion` +
-  `rollup` columns and reseeds the authoritative 8/21 master board — 74
-  human-authored stories, replacing the earlier inferred S-* seed) are
+- `db/migrations/021_storyboard_story.sql` (table),
+  `db/migrations/022_storyboard_authoritative_seed.sql` (completion/rollup
+  columns + the 74-story 8/21 master board), and
+  `db/migrations/023_storyboard_execution_history.sql` (story dates + the
+  eight-value status CHECK + `storyboard_story_run` execution history) are
   **applied to the DEV branch** (2026-08-21). They are **not** applied to
   production.
 - Story IDs are the human-assigned master IDs (CRM-*, OPS-*, PORTAL-*, PX-*,
   PLAT-*, ENG-*, POLISH-*, AUTH-*, DOC-*). Workstream values are the canonical
   short codes: PUBLIC, CRM, PORTAL, TXN, ADMIN, AUTH, CONTENT, HARDEN.
-- Rollup (per-workstream counts + completion) and the Net-Net completion are
-  computed from the stored stories by `lib/storyboard-data.ts`; changing a
-  story status changes its workstream completion and net-net.
-- CRUD (create / edit / change status) is verified against DEV through
-  `db/storyboard.ts`, and `/portal/storyboard` renders the board from DEV.
-- The repository tests in `workflow_app/tests/storyboard.test.ts` and
-  `workflow_app/tests/storyboard-rollup.test.ts` use an in-memory fake / pure
-  model and never require a database.
+- Statuses are exactly: Planned, In Progress, Complete, Partial, Blocked,
+  Failed, Deferred, Hold. Completion math uses the stored `completion` (0..100);
+  Complete forces 100. Net-Net = Σ (workstream completion × weight), where
+  workstream completion = AVG(stored completion) over rollup stories.
+- Execution runs: `startStoryRun` sets In Progress + preserves the first
+  `actual_start_at`; `finishStoryRun` records the run (result, completion,
+  notes, commit hash, tests summary) and updates the parent story without
+  touching human notes. Run history is surfaced per story on the board.
+- The repository tests in `workflow_app/tests/storyboard.test.ts`,
+  `workflow_app/tests/storyboard-rollup.test.ts`, and
+  `workflow_app/tests/storyboard-runs.test.ts` use in-memory fakes / pure
+  models and never require a database.

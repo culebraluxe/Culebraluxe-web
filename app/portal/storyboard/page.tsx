@@ -1,5 +1,5 @@
 import { StoryBoard, StoryBoardNotReady } from "@/components/portal/story-board"
-import { listStoryboardStories } from "@/db/storyboard"
+import { listStoryboardRuns, listStoryboardStories } from "@/db/storyboard"
 import { buildStoryBoardModel } from "@/lib/storyboard-data"
 
 export const dynamic = "force-dynamic"
@@ -11,7 +11,8 @@ export default async function StoryBoardPage() {
     return <StoryBoardNotReady />
   }
 
+  const runs = await listStoryboardRuns()
   const model = buildStoryBoardModel(stories)
 
-  return <StoryBoard model={model} />
+  return <StoryBoard model={model} runs={runs ?? []} />
 }

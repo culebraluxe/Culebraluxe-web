@@ -1,5 +1,16 @@
 # Agent Run Log
 
+## 2026-08-21 — Story execution history + authoritative completion
+
+- Role: Builder
+- Story: Add story execution history and make completion % authoritative
+- Files changed: `db/migrations/023_storyboard_execution_history.sql` (new — story dates, eight-value status CHECK, `storyboard_story_run`), `lib/storyboard-data.ts` (8 statuses, AVG(completion) rollup), `db/storyboard.ts` (dates + run lifecycle), `app/portal/storyboard/actions.ts` (date fields, run actions, Complete→100), `app/portal/storyboard/page.tsx`, `components/portal/story-board.tsx`, `components/portal/write/story-board-table.tsx` (Completion/Dates columns + expandable run history), tests, `docs/DEV_DATABASE.md`, and this run log.
+- Decision: completion % becomes authoritative — workstream completion = AVG(stored completion); status is categorical (8 values) and feeds only the count buckets; runs are durable per-story execution history.
+- Checks: Migration 023 applied to DEV; 74 stories / 0 S-* / all statuses in the 8 / completion 0..100 / Complete forces 100; completion-only change moved CRM 48.6→50 and Net-Net 50.6→50.9; status-only change left math unchanged; rollup=false parents excluded; full run lifecycle verified (start → In Progress + actual_start preserved; finish records result/completion/notes/commit/tests and updates the story without touching human notes; Complete sets completed_at; 2 runs preserved); `/portal/storyboard` renders Net-Net 50.6 + new columns from DEV; storyboard tests 23/23; full `workflow_app` suite 136/136; `pnpm exec next build --webpack` passed; `git diff --check` passed.
+- Database mutations: DEV branch only — migration 023 applied, temporary completion/status flips applied and reverted, a temporary run-lifecycle story created and removed. **Production untouched.**
+- Decisions made: status buckets (Complete / In Progress+Partial / Planned+Deferred+Hold+Failed / Blocked) feed the four count columns; run.result_status is constrained to the six outcomes (Planned and In Progress are not outcomes); run records keep the agent-reported completion while the story forces 100 on Complete.
+- Next action: none; migration 023 remains unapplied to production by design.
+
 ## 2026-08-21 — Authoritative master board + DB rollups on Story Board
 
 - Role: Builder

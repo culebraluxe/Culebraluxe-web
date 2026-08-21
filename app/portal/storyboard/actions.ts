@@ -2,13 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 
-import {
-  createStoryboardStory,
-  setStoryboardStatus,
-  updateStoryboardStory,
-  type StoryboardStory,
-  type StoryboardStoryInput,
-} from '@/db/storyboard'
 import { PortalWriteError } from '@/lib/portal-write-error'
 import {
   STORY_PRIORITIES,
@@ -17,6 +10,17 @@ import {
   type StoryPriority,
   type StoryStatus,
 } from '@/lib/storyboard-data'
+import {
+  createStoryboardStory,
+  finishStoryRun,
+  setStoryboardStatus,
+  startStoryRun,
+  updateStoryboardStory,
+  type FinishRunInput,
+  type StoryboardStory,
+  type StoryboardStoryInput,
+  type StoryRun,
+} from '@/db/storyboard'
 
 // ---------------------------------------------------------------------------
 // Story Board write actions. Validation happens here (per Portal convention);
@@ -43,7 +47,22 @@ export type StoryFormInput = {
   dependencies: string | null
   completion: number
   rollup: boolean
+  plannedStartAt: string | null
+  actualStartAt: string | null
+  completedAt: string | null
 }
+
+/** Outcome statuses allowed on a run (Planned / In Progress are not outcomes). */
+export const RUN_RESULT_STATUSES = [
+  'Complete',
+  'Partial',
+  'Blocked',
+  'Failed',
+  'Deferred',
+  'Hold',
+] as const
+
+export type RunResultStatus = (typeof RUN_RESULT_STATUSES)[number]
 
 function failure(
   error: unknown,
@@ -111,8 +130,12 @@ function toInput(form: StoryFormInput): StoryboardStoryInput {
     scope: form.scope?.trim() || null,
     acceptanceCriteria: form.acceptanceCriteria?.trim() || null,
     dependencies: form.dependencies?.trim() || null,
-    completion: form.completion,
+    // Complete forces completion = 100 (enforced centrally).
+    completion: form.status === 'Complete' ? 100 : form.completion,
     rollup: form.rollup,
+    plannedStartAt: form.plannedStartAt?.trim() || null,
+    actualStartAt: form.actualStartAt?.trim() || null,
+    completedAt: form.completedAt?.trim() || null,
   }
 }
 
@@ -167,6 +190,75 @@ export async function setStoryStatusAction(
     const story = await setStoryboardStatus(id, status)
     revalidateStoryBoard()
     return { ok: true, data: story }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Execution run lifecycle (narrow agent interface)
+// ---------------------------------------------------------------------------
+
+export async function startStoryRunAction(
+  storyId: string,
+): Promise<StoryBoardWriteResult<{ run: StoryRun; story: StoryboardStory }>> {
+  if (!storyId.trim()) {
+    return { ok: false, code: 'validation', message: 'Story ID is required.' }
+  }
+  try {
+    const result = await startStoryRun(storyId.trim())
+    revalidateStoryBoard()
+    return { ok: true, data: result }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function finishStoryRunAction(
+  runId: string,
+  input: {
+    resultStatus: string
+    completion: number
+    notes: string
+    commitHash?: string | null
+    testsSummary?: string | null
+  },
+): Promise<StoryBoardWriteResult<{ run: StoryRun; story: StoryboardStory }>> {
+  if (!runId.trim()) {
+    return { ok: false, code: 'validation', message: 'Run ID is required.' }
+  }
+  if (!RUN_RESULT_STATUSES.includes(input.resultStatus as RunResultStatus)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Result status must be one of the execution outcomes.',
+    }
+  }
+  if (
+    typeof input.completion !== 'number' ||
+    !Number.isInteger(input.completion) ||
+    input.completion < 0 ||
+    input.completion > 100
+  ) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Completion must be an integer between 0 and 100.',
+    }
+  }
+
+  const runInput: FinishRunInput = {
+    resultStatus: input.resultStatus,
+    completion: input.completion,
+    notes: input.notes ?? '',
+    commitHash: input.commitHash?.trim() || null,
+    testsSummary: input.testsSummary?.trim() || null,
+  }
+
+  try {
+    const result = await finishStoryRun(runId.trim(), runInput)
+    revalidateStoryBoard()
+    return { ok: true, data: result }
   } catch (error) {
     return failure(error)
   }

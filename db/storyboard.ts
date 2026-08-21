@@ -29,6 +29,9 @@ export type StoryboardStory = {
   dependencies: string | null
   completion: number
   rollup: boolean
+  plannedStartAt: string | null
+  actualStartAt: string | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -47,6 +50,9 @@ export type StoryboardStoryInput = {
   dependencies: string | null
   completion: number
   rollup: boolean
+  plannedStartAt: string | null
+  actualStartAt: string | null
+  completedAt: string | null
 }
 
 export type StoryboardStoryUpdate = Omit<StoryboardStoryInput, 'id'>
@@ -65,6 +71,9 @@ type StoryRow = QueryRow & {
   dependencies: string | null
   completion: number
   rollup: boolean
+  planned_start_at: string | null
+  actual_start_at: string | null
+  completed_at: string | null
   created_at: string
   updated_at: string
 }
@@ -99,6 +108,9 @@ function mapStory(row: StoryRow): StoryboardStory {
     dependencies: row.dependencies,
     completion: row.completion,
     rollup: row.rollup,
+    plannedStartAt: row.planned_start_at,
+    actualStartAt: row.actual_start_at,
+    completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -123,8 +135,8 @@ export async function listStoryboardStories(
 
   const rows = await q`
     select id, workstream, title, priority, status, notes, batch, goal, scope,
-      acceptance_criteria, dependencies, completion, rollup, created_at,
-      updated_at
+      acceptance_criteria, dependencies, completion, rollup,
+      planned_start_at, actual_start_at, completed_at, created_at, updated_at
     from storyboard_story
     order by workstream, id
   `
@@ -139,18 +151,21 @@ export async function createStoryboardStory(
   const rows = await q`
     insert into storyboard_story (
       id, workstream, title, priority, status, notes, batch, goal, scope,
-      acceptance_criteria, dependencies, completion, rollup
+      acceptance_criteria, dependencies, completion, rollup,
+      planned_start_at, actual_start_at, completed_at
     ) values (
       ${input.id}, ${input.workstream}, ${input.title}, ${input.priority},
       ${input.status}, ${input.notes}, ${input.batch ?? null},
       ${input.goal ?? null}, ${input.scope ?? null},
       ${input.acceptanceCriteria ?? null}, ${input.dependencies ?? null},
-      ${input.completion}, ${input.rollup}
+      ${input.completion}, ${input.rollup},
+      ${input.plannedStartAt ?? null}, ${input.actualStartAt ?? null},
+      ${input.completedAt ?? null}
     )
     on conflict (id) do nothing
     returning id, workstream, title, priority, status, notes, batch, goal,
       scope, acceptance_criteria, dependencies, completion, rollup,
-      created_at, updated_at
+      planned_start_at, actual_start_at, completed_at, created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -182,11 +197,14 @@ export async function updateStoryboardStory(
         dependencies = ${input.dependencies ?? null},
         completion = ${input.completion},
         rollup = ${input.rollup},
+        planned_start_at = ${input.plannedStartAt ?? null},
+        actual_start_at = ${input.actualStartAt ?? null},
+        completed_at = ${input.completedAt ?? null},
         updated_at = now()
     where id = ${id}
     returning id, workstream, title, priority, status, notes, batch, goal,
       scope, acceptance_criteria, dependencies, completion, rollup,
-      created_at, updated_at
+      planned_start_at, actual_start_at, completed_at, created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -204,15 +222,205 @@ export async function setStoryboardStatus(
   const rows = await q`
     update storyboard_story
     set status = ${status},
+        completion = case when ${status} = 'Complete' then 100 else completion end,
         updated_at = now()
     where id = ${id}
     returning id, workstream, title, priority, status, notes, batch, goal,
       scope, acceptance_criteria, dependencies, completion, rollup,
-      created_at, updated_at
+      planned_start_at, actual_start_at, completed_at, created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
     throw new PortalWriteError('not-found', `Story "${id}" was not found.`)
   }
   return mapStory(row)
+}
+
+// ---------------------------------------------------------------------------
+// Execution runs (storyboard_story_run)
+// ---------------------------------------------------------------------------
+
+export type StoryRun = {
+  id: string
+  storyId: string
+  startedAt: string
+  endedAt: string | null
+  resultStatus: string | null
+  completion: number | null
+  notes: string | null
+  commitHash: string | null
+  testsSummary: string | null
+  createdAt: string
+}
+
+export type FinishRunInput = {
+  resultStatus: string
+  completion: number
+  notes: string
+  commitHash: string | null
+  testsSummary: string | null
+}
+
+type RunRow = QueryRow & {
+  id: string
+  story_id: string
+  started_at: string
+  ended_at: string | null
+  result_status: string | null
+  completion: number | null
+  notes: string | null
+  commit_hash: string | null
+  tests_summary: string | null
+  created_at: string
+}
+
+function mapRun(row: RunRow): StoryRun {
+  return {
+    id: row.id,
+    storyId: row.story_id,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    resultStatus: row.result_status,
+    completion: row.completion,
+    notes: row.notes,
+    commitHash: row.commit_hash,
+    testsSummary: row.tests_summary,
+    createdAt: row.created_at,
+  }
+}
+
+export async function isRunTableReady(
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select to_regclass('storyboard_story_run') is not null as ready
+  `
+  return rows[0]?.ready === true
+}
+
+export async function listStoryboardRuns(
+  execute?: QueryExecutor,
+): Promise<StoryRun[] | null> {
+  const q = execute ?? (await executor())
+  const ready = await isRunTableReady(q)
+  if (!ready) return null
+
+  const rows = await q`
+    select id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, created_at
+    from storyboard_story_run
+    order by started_at desc, id
+  `
+  return rows.map((row) => mapRun(row as RunRow))
+}
+
+export async function listStoryRuns(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<StoryRun[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, created_at
+    from storyboard_story_run
+    where story_id = ${storyId}
+    order by started_at desc, id
+  `
+  return rows.map((row) => mapRun(row as RunRow))
+}
+
+/**
+ * Start an execution run for a story:
+ *   - story status → In Progress
+ *   - actual_start_at = COALESCE(actual_start_at, now()) — the first start is
+ *     preserved across retries unless a human edits it
+ *   - creates a storyboard_story_run row with started_at
+ * Human story fields (title, workstream, priority, notes) are never touched.
+ */
+export async function startStoryRun(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<{ run: StoryRun; story: StoryboardStory }> {
+  const q = execute ?? (await executor())
+  const storyRows = await q`
+    update storyboard_story
+    set status = 'In Progress',
+        actual_start_at = coalesce(actual_start_at, now()),
+        updated_at = now()
+    where id = ${storyId}
+    returning id, workstream, title, priority, status, notes, batch, goal,
+      scope, acceptance_criteria, dependencies, completion, rollup,
+      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+  `
+  const storyRow = storyRows[0] as StoryRow | undefined
+  if (!storyRow) {
+    throw new PortalWriteError('not-found', `Story "${storyId}" was not found.`)
+  }
+
+  const runRows = await q`
+    insert into storyboard_story_run (story_id, started_at)
+    values (${storyId}, now())
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, created_at
+  `
+  const runRow = runRows[0] as RunRow
+  return { run: mapRun(runRow), story: mapStory(storyRow) }
+}
+
+/**
+ * Finish an execution run:
+ *   - sets the run's ended_at, result_status, completion, notes, and optional
+ *     commit_hash / tests_summary
+ *   - updates the parent story: status = result_status, completion = run
+ *     completion; a Complete result forces completion = 100 and sets
+ *     completed_at = now(); anything else leaves completed_at null
+ * Human story notes are never overwritten.
+ */
+export async function finishStoryRun(
+  runId: string,
+  input: FinishRunInput,
+  execute?: QueryExecutor,
+): Promise<{ run: StoryRun; story: StoryboardStory }> {
+  const q = execute ?? (await executor())
+  const runRows = await q`
+    update storyboard_story_run
+    set ended_at = now(),
+        result_status = ${input.resultStatus},
+        completion = ${input.completion},
+        notes = ${input.notes},
+        commit_hash = ${input.commitHash ?? null},
+        tests_summary = ${input.testsSummary ?? null}
+    where id = ${runId}
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, created_at
+  `
+  const runRow = runRows[0] as RunRow | undefined
+  if (!runRow) {
+    throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)
+  }
+  const run = mapRun(runRow)
+
+  const completion =
+    input.resultStatus === 'Complete' ? 100 : input.completion
+  const storyRows = await q`
+    update storyboard_story
+    set status = ${input.resultStatus},
+        completion = ${completion},
+        completed_at = case when ${input.resultStatus} = 'Complete'
+          then now() else null end,
+        updated_at = now()
+    where id = ${run.storyId}
+    returning id, workstream, title, priority, status, notes, batch, goal,
+      scope, acceptance_criteria, dependencies, completion, rollup,
+      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+  `
+  const storyRow = storyRows[0] as StoryRow | undefined
+  if (!storyRow) {
+    throw new PortalWriteError(
+      'not-found',
+      `Story "${run.storyId}" was not found.`,
+    )
+  }
+  return { run, story: mapStory(storyRow) }
 }

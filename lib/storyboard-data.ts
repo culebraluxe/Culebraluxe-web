@@ -33,25 +33,14 @@ export function workstreamName(code: string): string {
 }
 
 export const STORY_STATUSES = [
-  'Complete',
-  'Complete V1',
-  'Complete V2',
-  'Operationalized',
-  'Operationalized V1',
-  'Operationalized V2',
-  'Read-side complete',
-  'Read-side V1',
-  'Read-side V1 complete',
-  'Readiness PASS',
-  'Partial',
-  'strong V1 core',
-  'Minor remainder',
-  'Browser-local V1',
   'Planned',
-  'Open',
+  'In Progress',
+  'Complete',
+  'Partial',
   'Blocked',
+  'Failed',
   'Deferred',
-  'Hardware/content dependent',
+  'Hold',
 ] as const
 
 export type StoryStatus = (typeof STORY_STATUSES)[number]
@@ -81,75 +70,38 @@ export type StoryRecord = {
   scope: string | null
   acceptanceCriteria: string | null
   dependencies: string | null
-  /** Human-authored 0–100 completion (informational; rollup uses status). */
+  /** Authoritative 0–100 numeric progress; drives the rollup math. */
   completion: number
   /** Whether the story participates in the workstream rollup. */
   rollup: boolean
+  plannedStartAt: string | null
+  actualStartAt: string | null
+  completedAt: string | null
 }
 
 // ---------------------------------------------------------------------------
-// Status completion scoring and buckets (8/21 master board policy).
+// Status buckets (counts only).
 //
-//   complete  — Complete / Complete V1 / Complete V2 / Operationalized /
-//               Operationalized V1 / Operationalized V2              → 1.00
-//   partial   — Read-side complete / Read-side V1 / Read-side V1 complete /
-//               Readiness PASS (0.80) and Partial / strong V1 core /
-//               Minor remainder / Browser-local V1 (0.50)
-//   open      — Planned / Open / Deferred / Hardware/content dependent → 0.00
-//   blocked   — Blocked                                                → 0.00
+// Completion math uses storyboard_story.completion (0..100), NOT status.
+// Status is categorical state; buckets are used for the count columns only:
 //
-// Human-readable labels are stored on the story; scoring/bucketing happens
-// internally from these maps.
+//   complete — Complete
+//   partial  — In Progress, Partial
+//   open     — Planned, Deferred, Hold, Failed
+//   blocked  — Blocked
 // ---------------------------------------------------------------------------
 
 export type StatusBucket = 'complete' | 'partial' | 'open' | 'blocked'
 
-export const STATUS_SCORE: Record<StoryStatus, number> = {
-  Complete: 1,
-  'Complete V1': 1,
-  'Complete V2': 1,
-  Operationalized: 1,
-  'Operationalized V1': 1,
-  'Operationalized V2': 1,
-  'Read-side complete': 0.8,
-  'Read-side V1': 0.8,
-  'Read-side V1 complete': 0.8,
-  'Readiness PASS': 0.8,
-  Partial: 0.5,
-  'strong V1 core': 0.5,
-  'Minor remainder': 0.5,
-  'Browser-local V1': 0.5,
-  Planned: 0,
-  Open: 0,
-  Blocked: 0,
-  Deferred: 0,
-  'Hardware/content dependent': 0,
-}
-
 export const STATUS_BUCKET: Record<StoryStatus, StatusBucket> = {
   Complete: 'complete',
-  'Complete V1': 'complete',
-  'Complete V2': 'complete',
-  Operationalized: 'complete',
-  'Operationalized V1': 'complete',
-  'Operationalized V2': 'complete',
-  'Read-side complete': 'partial',
-  'Read-side V1': 'partial',
-  'Read-side V1 complete': 'partial',
-  'Readiness PASS': 'partial',
+  'In Progress': 'partial',
   Partial: 'partial',
-  'strong V1 core': 'partial',
-  'Minor remainder': 'partial',
-  'Browser-local V1': 'partial',
   Planned: 'open',
-  Open: 'open',
   Deferred: 'open',
-  'Hardware/content dependent': 'open',
+  Hold: 'open',
+  Failed: 'open',
   Blocked: 'blocked',
-}
-
-export function statusScore(status: string): number {
-  return STATUS_SCORE[status as StoryStatus] ?? 0
 }
 
 export function statusBucket(status: string): StatusBucket {
@@ -166,7 +118,8 @@ export function statusBucket(status: string): StatusBucket {
 // story_count and the four counts cover ROLLUP-participating stories only
 // (parents such as CRM-14, CRM-16, PORTAL-01 are stored with rollup=false and
 // excluded — their children carry the rollup weight). completion_percent is
-// the mean status score over the workstream's rollup stories.
+// the AVG of the stored completion (0..100) over the workstream's rollup
+// stories — status scoring is NOT used for the percentage.
 //
 // net_net = SUM(workstream_completion_percent * workstream_weight), with
 // weights as percentages summing to 100.
@@ -220,9 +173,7 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     const completionPercent =
       storyCount > 0
         ? round(
-            (group.reduce((sum, s) => sum + statusScore(s.status), 0) /
-              storyCount) *
-              100,
+            group.reduce((sum, s) => sum + s.completion, 0) / storyCount,
           )
         : 0
 

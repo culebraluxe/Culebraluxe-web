@@ -53,6 +53,9 @@ class FakeDb {
         dependencies: p[10] ?? null,
         completion: p[11],
         rollup: p[12],
+        planned_start_at: p[13] ?? null,
+        actual_start_at: p[14] ?? null,
+        completed_at: p[15] ?? null,
         created_at: '2026-08-21T00:00:00Z',
         updated_at: '2026-08-21T00:00:00Z',
       }
@@ -63,11 +66,15 @@ class FakeDb {
     if (t.includes('update storyboard_story')) {
       const statusOnly =
         t.includes('set status = $1') && !t.includes('set workstream')
-      const id = statusOnly ? p[1] : p[12]
+      // status-only update: `set status=$1, completion=case when $2='Complete'...`
+      // so the story id is $3 (p[2]); full update has id as $16 (p[15]).
+      const id = statusOnly ? p[2] : p[15]
       const r = this.rows.find((x) => x.id === id)
       if (!r) return Promise.resolve([])
       if (statusOnly) {
         r.status = p[0]
+        // Complete forces completion = 100 (mirrors the repository SQL).
+        if (p[0] === 'Complete') r.completion = 100
       } else {
         r.workstream = p[0]
         r.title = p[1]
@@ -81,6 +88,9 @@ class FakeDb {
         r.dependencies = p[9] ?? null
         r.completion = p[10]
         r.rollup = p[11]
+        r.planned_start_at = p[12] ?? null
+        r.actual_start_at = p[13] ?? null
+        r.completed_at = p[14] ?? null
       }
       r.updated_at = '2026-08-21T01:00:00Z'
       return Promise.resolve([r])
@@ -108,6 +118,9 @@ const baseInput = {
   dependencies: null,
   completion: 0,
   rollup: true,
+  plannedStartAt: null,
+  actualStartAt: null,
+  completedAt: null,
 }
 
 test('isStoryboardTableReady reports the probe result', async () => {
@@ -168,6 +181,9 @@ test('updateStoryboardStory updates fields and preserves the id', async () => {
       dependencies: 'S-008',
       completion: 85,
       rollup: true,
+      plannedStartAt: '2026-08-22',
+      actualStartAt: '2026-08-23',
+      completedAt: null,
     },
     f.tx,
   )
@@ -181,6 +197,9 @@ test('updateStoryboardStory updates fields and preserves the id', async () => {
   assert.equal(updated.dependencies, 'S-008')
   assert.equal(updated.completion, 85)
   assert.equal(updated.rollup, true)
+  assert.equal(updated.plannedStartAt, '2026-08-22')
+  assert.equal(updated.actualStartAt, '2026-08-23')
+  assert.equal(updated.completedAt, null)
   assert.notEqual(updated.updatedAt, updated.createdAt)
 })
 
