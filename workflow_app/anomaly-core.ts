@@ -158,4 +158,95 @@ export async function collectAnomalies(
       message: `Subject ${m.subject_type}:${m.subject_id} has ${m.c} active instances`,
     })
   }
+
+  // 8. Stale locked job — a job whose lease has expired (its worker died or
+  // was partitioned). Deterministically detectable from the lease column.
+  // Recovery is reclaimStaleJobs (CRM-14F); surfacing here keeps it visible
+  // until an operator/poller reclaims it.
+  const staleLocks = (await execute`
+    select
+      j.id::text as job_id,
+      j.type,
+      j.process_instance_id::text as pid,
+      j.locked_by,
+      j.locked_until::text as locked_until
+    from jobs j
+    where j.status = 'locked'
+      and j.locked_until < now()
+  `) as any[]
+  for (const j of staleLocks) {
+    anomalies.push({
+      kind: 'stale-locked-job',
+      severity: 'warning',
+      instanceId: j.pid,
+      subjectId: null,
+      message: `Job ${j.job_id} (${j.type}) is locked by ${j.locked_by} past its lease (${j.locked_until})`,
+    })
+  }
+
+  // 9. Wedged instance — active instance with no active tokens and no
+  // pending/locked jobs: it completed its tokens but was never terminalized
+  // (an atomicity artifact). Safe auto-repair is NOT available for this class
+  // (disposition is a judgment call); surface it for operator review.
+  const wedged = (await execute`
+    select pi.id::text as instance_id, pd.key, pd.version
+    from process_instances pi
+    join process_definitions pd on pd.id = pi.definition_id
+    where pi.status = 'active'
+      and not exists (
+        select 1 from tokens t
+        where t.process_instance_id = pi.id and t.status = 'active'
+      )
+      and not exists (
+        select 1 from jobs j
+        where j.process_instance_id = pi.id and j.status in ('pending', 'locked')
+      )
+  `) as any[]
+  for (const w of wedged) {
+    anomalies.push({
+      kind: 'wedged-instance',
+      severity: 'warning',
+      instanceId: w.instance_id,
+      subjectId: null,
+      message: `Process ${w.instance_id} (${w.key} v${w.version}) is active but has no active tokens or pending work — was never terminalized`,
+    })
+  }
+
+  // 10. Orphan token — an active token whose process instance no longer
+  // exists (should be prevented by FK, but a partition/import edge could
+  // surface it). Also catches active tokens on terminal instances.
+  const orphan = (await execute`
+    select t.id::text as token_id, t.process_instance_id::text as pid, t.node_id
+    from tokens t
+    left join process_instances pi on pi.id = t.process_instance_id
+    where t.status = 'active'
+      and (pi.id is null or pi.status != 'active')
+  `) as any[]
+  for (const o of orphan) {
+    anomalies.push({
+      kind: 'orphan-token',
+      severity: 'warning',
+      instanceId: o.pid,
+      subjectId: null,
+      message: `Token ${o.token_id} at '${o.node_id}' is active but its process is missing or not active`,
+    })
+  }
+
+  // 11. Error instance missing an outcome — an 'error'-status process with no
+  // recorded terminal outcome (impossible-state detection for operators).
+  const errorNoOutcome = (await execute`
+    select pi.id::text as instance_id, pd.key, pd.version
+    from process_instances pi
+    join process_definitions pd on pd.id = pi.definition_id
+    where pi.status = 'error' and pi.outcome is null
+  `) as any[]
+  for (const e of errorNoOutcome) {
+    anomalies.push({
+      kind: 'error-instance-missing-outcome',
+      severity: 'critical',
+      instanceId: e.instance_id,
+      subjectId: null,
+      message: `Process ${e.instance_id} (${e.key} v${e.version}) is 'error' with no terminal outcome`,
+    })
+  }
 }

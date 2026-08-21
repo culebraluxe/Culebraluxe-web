@@ -62,6 +62,11 @@ async function collect(
 test('no violations → the sweep reports zero anomalies', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     { match: 'from tasks t left join workflow_task_correlation', rows: [] },
     { match: 'left join task t on t.id = c.application_task_id', rows: [] },
@@ -76,6 +81,11 @@ test('no violations → the sweep reports zero anomalies', async () => {
 test('failed-process detector flags error status and failed outcome', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     { match: 'from tasks t left join workflow_task_correlation', rows: [] },
     { match: 'left join task t on t.id = c.application_task_id', rows: [] },
@@ -103,6 +113,11 @@ test('failed-process detector flags error status and failed outcome', async () =
 test('pending-receipt detector flags stuck pending receipts', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     {
       match: 'from workflow_command_receipt where outcome =',
       rows: [
@@ -126,6 +141,11 @@ test('pending-receipt detector flags stuck pending receipts', async () => {
 test('ready-task-uncorrelated detector flags engine tasks with no correlation', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     {
       match: 'from tasks t left join workflow_task_correlation',
@@ -147,6 +167,11 @@ test('ready-task-uncorrelated detector flags engine tasks with no correlation', 
 test('correlation-dangling-app-task detector flags missing canonical task', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     { match: 'from tasks t left join workflow_task_correlation', rows: [] },
     {
@@ -167,6 +192,11 @@ test('correlation-dangling-app-task detector flags missing canonical task', asyn
 test('correlation-dangling-workflow-task detector flags missing engine task', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     { match: 'from tasks t left join workflow_task_correlation', rows: [] },
     { match: 'left join task t on t.id = c.application_task_id', rows: [] },
@@ -186,6 +216,11 @@ test('correlation-dangling-workflow-task detector flags missing engine task', as
 test('open-job-on-closed-token detector flags stale jobs', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     { match: 'from tasks t left join workflow_task_correlation', rows: [] },
     { match: 'left join task t on t.id = c.application_task_id', rows: [] },
@@ -209,6 +244,11 @@ test('open-job-on-closed-token detector flags stale jobs', async () => {
 test('multiple-active-instances detector flags duplicate active instances', async () => {
   const f = new FakeAnomalyDb()
   f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+
     { match: 'from workflow_command_receipt where outcome =', rows: [] },
     { match: 'from tasks t left join workflow_task_correlation', rows: [] },
     { match: 'left join task t on t.id = c.application_task_id', rows: [] },
@@ -224,4 +264,86 @@ test('multiple-active-instances detector flags duplicate active instances', asyn
   assert.equal(anomalies[0].kind, 'multiple-active-instances')
   assert.equal(anomalies[0].subjectId, 'deal-9')
   assert.ok(anomalies[0].message.includes('deal:deal-9'))
+})
+test('stale-locked-job detector flags an expired lease', async () => {
+  const f = new FakeAnomalyDb()
+  f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [{ job_id: 'job-9', type: 'timer', pid: 'inst-9', locked_by: 'dead', locked_until: '2026-01-01' }] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+    { match: 'from workflow_command_receipt where outcome =', rows: [] },
+    { match: 'from tasks t left join workflow_task_correlation', rows: [] },
+    { match: 'left join task t on t.id = c.application_task_id', rows: [] },
+    { match: 'left join tasks t on t.id::text = c.workflow_task_id', rows: [] },
+    { match: 'from jobs j join tokens t on t.id = j.token_id', rows: [] },
+    { match: 'from process_instances where status =', rows: [] },
+  ]
+  const anomalies = await collect(f, [])
+  assert.equal(anomalies.length, 1)
+  assert.equal(anomalies[0].kind, 'stale-locked-job')
+  assert.equal(anomalies[0].instanceId, 'inst-9')
+  assert.ok(anomalies[0].message.includes('job-9'))
+})
+
+test('wedged-instance detector flags an active instance with no runnable work', async () => {
+  const f = new FakeAnomalyDb()
+  f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [{ instance_id: 'inst-7', key: 'RE', version: 1 }] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+    { match: 'from workflow_command_receipt where outcome =', rows: [] },
+    { match: 'from tasks t left join workflow_task_correlation', rows: [] },
+    { match: 'left join task t on t.id = c.application_task_id', rows: [] },
+    { match: 'left join tasks t on t.id::text = c.workflow_task_id', rows: [] },
+    { match: 'from jobs j join tokens t on t.id = j.token_id', rows: [] },
+    { match: 'from process_instances where status =', rows: [] },
+  ]
+  const anomalies = await collect(f, [])
+  assert.equal(anomalies.length, 1)
+  assert.equal(anomalies[0].kind, 'wedged-instance')
+  assert.equal(anomalies[0].instanceId, 'inst-7')
+})
+
+test('orphan-token detector flags an active token on a missing/terminal process', async () => {
+  const f = new FakeAnomalyDb()
+  f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [{ token_id: 'tok-3', pid: 'inst-3', node_id: 'tA' }] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [] },
+    { match: 'from workflow_command_receipt where outcome =', rows: [] },
+    { match: 'from tasks t left join workflow_task_correlation', rows: [] },
+    { match: 'left join task t on t.id = c.application_task_id', rows: [] },
+    { match: 'left join tasks t on t.id::text = c.workflow_task_id', rows: [] },
+    { match: 'from jobs j join tokens t on t.id = j.token_id', rows: [] },
+    { match: 'from process_instances where status =', rows: [] },
+  ]
+  const anomalies = await collect(f, [])
+  assert.equal(anomalies.length, 1)
+  assert.equal(anomalies[0].kind, 'orphan-token')
+  assert.equal(anomalies[0].instanceId, 'inst-3')
+  assert.ok(anomalies[0].message.includes('tok-3'))
+})
+
+test('error-instance-missing-outcome detector flags impossible error state', async () => {
+  const f = new FakeAnomalyDb()
+  f.rowsByQuery = [
+    { match: "j.status = 'locked' and j.locked_until", rows: [] },
+    { match: "pi.status = 'active' and not exists", rows: [] },
+    { match: 'left join process_instances pi', rows: [] },
+    { match: "pi.status = 'error' and pi.outcome is null", rows: [{ instance_id: 'inst-5', key: 'RE', version: 1 }] },
+    { match: 'from workflow_command_receipt where outcome =', rows: [] },
+    { match: 'from tasks t left join workflow_task_correlation', rows: [] },
+    { match: 'left join task t on t.id = c.application_task_id', rows: [] },
+    { match: 'left join tasks t on t.id::text = c.workflow_task_id', rows: [] },
+    { match: 'from jobs j join tokens t on t.id = j.token_id', rows: [] },
+    { match: 'from process_instances where status =', rows: [] },
+  ]
+  const anomalies = await collect(f, [])
+  assert.equal(anomalies.length, 1)
+  assert.equal(anomalies[0].kind, 'error-instance-missing-outcome')
+  assert.equal(anomalies[0].severity, 'critical')
+  assert.equal(anomalies[0].instanceId, 'inst-5')
 })

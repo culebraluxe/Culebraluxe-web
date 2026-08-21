@@ -30,6 +30,25 @@ import {
   MissingApplicationPortError,
 } from './errors';
 
+// ---------------------------------------------------------------------------
+// Retry / failure / idempotency constants (ENG-10)
+//
+// Failure classes are deliberately distinct and never conflated:
+//   1. BUSINESS REJECTION — the application/domain refuses a command or fact
+//      (validation_failure / not_found / conflict / unauthorized /
+//      precondition_failure). It is a *permanent* outcome: never retried as an
+//      engine/infrastructure failure.
+//   2. ENGINE EXECUTION FAILURE — an engine step throws while applying a valid
+//      transition. Retryable up to the job's max_attempts with backoff.
+//   3. INFRASTRUCTURE FAILURE — database/connection/runtime prevented the
+//      step from completing. Also retryable; on exhaustion the job is
+//      terminal 'failed' with last_error retained.
+// The engine never encodes domain commands; idempotency at the command
+// boundary is owned by the application command-receipt seam.
+// ---------------------------------------------------------------------------
+export const JOB_BACKOFF_BASE_MS = 60_000;
+export const JOB_LEASE_MS = 5 * 60 * 1000;
+
 type SqlClient = any; // neon tagged template client
 
 // ---------------------------------------------------------------------------
@@ -427,7 +446,7 @@ export class WorkflowEngine {
   // ----------------------------------------------------------------
   async claimJobs(workerId: string, limit = 10): Promise<Job[]> {
     const now = this.now();
-    const lockUntil = new Date(now.getTime() + 5 * 60 * 1000);
+    const lockUntil = new Date(now.getTime() + JOB_LEASE_MS);
     const rows = await this.sql`
       UPDATE jobs
       SET status = 'locked',
@@ -481,7 +500,7 @@ export class WorkflowEngine {
     });
   }
 
-  async failJob(jobId: string, workerId: string, error: string): Promise<void> {
+  async failJob(jobId: string, workerId: string, error: string, opts: { permanent?: boolean } = {}): Promise<void> {
     await this.sql.begin(async (tx: SqlClient) => {
       const jobRows = await tx`SELECT * FROM jobs WHERE id = ${jobId} FOR UPDATE`;
       const job = this._mapJob(jobRows[0]);
@@ -490,8 +509,12 @@ export class WorkflowEngine {
         throw new Error('Job is not locked by this worker');
       }
 
-      const shouldRetry = job.attempts < job.maxAttempts;
-      const retryDueAt = new Date(this.now().getTime() + 60_000 * Math.pow(2, job.attempts));
+      // A PERMANENT failure (e.g. business rejection) is terminal immediately:
+      // never retried as an engine/infrastructure failure.
+      const shouldRetry = !opts.permanent && job.attempts < job.maxAttempts;
+      const retryDueAt = new Date(
+        this.now().getTime() + JOB_BACKOFF_BASE_MS * Math.pow(2, job.attempts),
+      );
 
       await tx`
         UPDATE jobs
@@ -511,7 +534,7 @@ export class WorkflowEngine {
           jobId,
           eventType: shouldRetry ? 'job.retry_scheduled' : 'job.failed',
           actor: workerId,
-          data: { error, attempts: job.attempts },
+          data: { error, attempts: job.attempts, permanent: !!opts.permanent },
         });
       }
     });
@@ -709,6 +732,185 @@ export class WorkflowEngine {
         });
       }
     });
+  }
+
+  // ----------------------------------------------------------------
+  // Lease expiry / reclaim (CRM-14F)
+  //
+  // A lock is a LEASE: locked_until = now + JOB_LEASE_MS. A locked job
+  // whose lease has expired is stale (its worker died or was partitioned)
+  // and is reclaimable to 'pending' so a later claim can own it again.
+  //
+  // Invariants:
+  //  - exactly one owner per locked job (claim is claim-first via the
+  //    UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED));
+  //  - a LIVE lock (locked_until >= now) is never reclaimed early;
+  //  - reclaim does not reset attempts/last_error — a job that keeps
+  //    crashing its workers eventually exhausts max_attempts and goes
+  //    terminal 'failed' (poison-job handling), never auto-resurrects.
+  // ----------------------------------------------------------------
+  async reclaimStaleJobs(batch = 20): Promise<number> {
+    const now = this.now();
+    const rows = await this.sql`
+      UPDATE jobs
+      SET status = 'pending',
+          locked_by = null,
+          locked_until = null,
+          updated_at = ${now}
+      WHERE id IN (
+        SELECT id FROM jobs
+        WHERE status = 'locked'
+          AND locked_until < ${now}
+        ORDER BY locked_until ASC
+        LIMIT ${batch}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id
+    `;
+    return rows.length as number;
+  }
+
+  /** Per-instance stale-lease reclaim (narrow operator reconciliation scope). */
+  async reclaimStaleJobsForInstance(processInstanceId: string): Promise<number> {
+    const now = this.now();
+    const rows = await this.sql`
+      UPDATE jobs
+      SET status = 'pending',
+          locked_by = null,
+          locked_until = null,
+          updated_at = ${now}
+      WHERE process_instance_id = ${processInstanceId}
+        AND status = 'locked'
+        AND locked_until < ${now}
+      RETURNING id
+    `;
+    return rows.length as number;
+  }
+
+  // ----------------------------------------------------------------
+  // Operator requeue of a poisoned job (CRM-14F / ENG-10)
+  //
+  // ONLY a terminal 'failed' job (attempts exhausted) is eligible. The
+  // operation is explicit and audited (job.requeued event): attempts are
+  // reset and last_error cleared so the job may be claimed again. Never
+  // automatic.
+  // ----------------------------------------------------------------
+  async requeueJob(params: { jobId: string; actor: string }): Promise<void> {
+    const { jobId, actor } = params;
+
+    await this.sql.begin(async (tx: SqlClient) => {
+      const jobRows = await tx`SELECT * FROM jobs WHERE id = ${jobId} FOR UPDATE`;
+      const job = this._mapJob(jobRows[0]);
+      if (!job) throw new Error(`Job not found: ${jobId}`);
+      if (job.status !== 'failed') {
+        throw new WorkflowConflictError(
+          `Job ${jobId} cannot be requeued (status=${job.status})`,
+          'JOB_NOT_REQUEUEABLE',
+        );
+      }
+
+      const now = this.now();
+      await tx`
+        UPDATE jobs
+        SET status = 'pending',
+            attempts = 0,
+            last_error = null,
+            locked_by = null,
+            locked_until = null,
+            due_at = ${now},
+            updated_at = ${now}
+        WHERE id = ${jobId}
+      `;
+
+      if (job.processInstanceId) {
+        await this._event(tx, {
+          tenantId: job.tenantId,
+          processInstanceId: job.processInstanceId,
+          tokenId: job.tokenId,
+          jobId,
+          eventType: 'job.requeued',
+          actor,
+          data: { type: job.type },
+        });
+      }
+    });
+  }
+
+  // ----------------------------------------------------------------
+  // Bounded due-job poller (CRM-14F)
+  //
+  // One deterministic, bounded pass over due work:
+  //   1. reclaim stale locked leases (bounded batch)
+  //   2. claim a bounded batch of due pending jobs (claim-first)
+  //   3. execute each claimed job:
+  //        - timer jobs anchored to a token are fired (token advance)
+  //        - non-timer jobs use the caller-supplied executor (the
+  //          application owns async/message/signal execution), then the
+  //          job is completed
+  //        - if no executor is supplied, the job FAILS with a clear
+  //          persistent error (never silently dropped)
+  //   4. any thrown execution error marks the job failed (attempts/backoff)
+  // No internal loop: one invocation processes at most one bounded batch.
+  // ----------------------------------------------------------------
+  async runDueJobs(
+    workerId: string,
+    batch = 10,
+    opts: { executeJob?: (job: Job) => Promise<void> } = {},
+  ): Promise<{
+    reclaimed: number
+    claimed: Job[]
+    fired: number
+    completed: number
+    failed: number
+  }> {
+    const reclaimed = await this.reclaimStaleJobs(batch);
+    const jobs = await this.claimJobs(workerId, batch);
+
+    let fired = 0;
+    let completed = 0;
+    let failed = 0;
+
+    for (const job of jobs) {
+      try {
+        if (job.type === 'timer' && job.tokenId) {
+          await this.fireTimerJob({ jobId: job.id, workerId });
+          fired += 1;
+        } else if (opts.executeJob) {
+          await opts.executeJob(job);
+          await this.completeJob(job.id, workerId);
+          completed += 1;
+        } else {
+          await this.failJob(
+            job.id,
+            workerId,
+            `no executor registered for job type '${job.type}'`,
+          );
+          failed += 1;
+        }
+      } catch (e) {
+        await this.failJob(job.id, workerId, String((e as Error)?.message ?? e).slice(0, 2000));
+        failed += 1;
+      }
+    }
+
+    return { reclaimed, claimed: jobs, fired, completed, failed };
+  }
+
+  /** Read-only: pending jobs whose due_at has passed (overdue deadline query). */
+  async listOverdueJobs(limit = 50): Promise<Job[]> {
+    const now = this.now();
+    const rows = await this.sql`
+      SELECT * FROM jobs
+      WHERE status = 'pending' AND due_at < ${now}
+      ORDER BY due_at ASC
+      LIMIT ${limit}
+    `;
+    return rows.map((r: any) => this._mapJob(r));
+  }
+
+  async getJob(jobId: string): Promise<Job | null> {
+    const rows = await this.sql`SELECT * FROM jobs WHERE id = ${jobId}`;
+    return rows[0] ? this._mapJob(rows[0]) : null;
   }
 
   // ----------------------------------------------------------------
