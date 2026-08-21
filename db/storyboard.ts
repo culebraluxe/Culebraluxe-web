@@ -107,6 +107,12 @@ async function executor(): Promise<QueryExecutor> {
   return defaultExecutor
 }
 
+function dateOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (value instanceof Date) return value.toISOString()
+  return String(value)
+}
+
 function mapStory(row: StoryRow): StoryboardStory {
   return {
     id: row.id,
@@ -124,14 +130,14 @@ function mapStory(row: StoryRow): StoryboardStory {
     contextRefs: row.context_refs,
     acceptanceCriteria: row.acceptance_criteria,
     postconditions: row.postconditions,
-    architectBriefUpdatedAt: row.architect_brief_updated_at,
+    architectBriefUpdatedAt: dateOrNull(row.architect_brief_updated_at),
     completion: row.completion,
     rollup: row.rollup,
-    plannedStartAt: row.planned_start_at,
-    actualStartAt: row.actual_start_at,
-    completedAt: row.completed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    plannedStartAt: dateOrNull(row.planned_start_at),
+    actualStartAt: dateOrNull(row.actual_start_at),
+    completedAt: dateOrNull(row.completed_at),
+    createdAt: dateOrNull(row.created_at) ?? '',
+    updatedAt: dateOrNull(row.updated_at) ?? '',
   }
 }
 
@@ -162,6 +168,24 @@ export async function listStoryboardStories(
     order by workstream, id
   `
   return rows.map((row) => mapStory(row as StoryRow))
+}
+
+export async function getStoryboardStory(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<StoryboardStory | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, workstream, title, priority, status, notes, batch, goal, scope,
+      dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
+    from storyboard_story
+    where id = ${storyId}
+  `
+  const row = rows[0] as StoryRow | undefined
+  return row ? mapStory(row) : null
 }
 
 export async function createStoryboardStory(
@@ -335,8 +359,8 @@ function mapRun(row: RunRow): StoryRun {
   return {
     id: row.id,
     storyId: row.story_id,
-    startedAt: row.started_at,
-    endedAt: row.ended_at,
+    startedAt: dateOrNull(row.started_at) ?? '',
+    endedAt: dateOrNull(row.ended_at),
     resultStatus: row.result_status,
     completion: row.completion,
     notes: row.notes,
@@ -348,7 +372,7 @@ function mapRun(row: RunRow): StoryRun {
     contextRefsSnapshot: row.context_refs_snapshot,
     acceptanceCriteriaSnapshot: row.acceptance_criteria_snapshot,
     postconditionsSnapshot: row.postconditions_snapshot,
-    createdAt: row.created_at,
+    createdAt: dateOrNull(row.created_at) ?? '',
   }
 }
 

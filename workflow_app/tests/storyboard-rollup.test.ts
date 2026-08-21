@@ -37,6 +37,8 @@ function story(overrides: Partial<StoryRecord> & { id: string }): StoryRecord {
     plannedStartAt: overrides.plannedStartAt ?? null,
     actualStartAt: overrides.actualStartAt ?? null,
     completedAt: overrides.completedAt ?? null,
+    createdAt: overrides.createdAt ?? '2026-08-21T00:00:00Z',
+    updatedAt: overrides.updatedAt ?? '2026-08-21T00:00:00Z',
   }
 }
 

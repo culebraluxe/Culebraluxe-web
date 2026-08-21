@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   createStoryboardStory,
+  getStoryboardStory,
   isStoryboardTableReady,
   listStoryboardStories,
   setStoryboardStatus,
@@ -118,6 +119,10 @@ class FakeDb {
     }
 
     if (t.includes('from storyboard_story')) {
+      if (t.includes('where id =')) {
+        const row = this.rows.find((r) => r.id === p[0])
+        return Promise.resolve(row ? [row] : [])
+      }
       return Promise.resolve(this.rows)
     }
 
@@ -255,6 +260,20 @@ test('setStoryboardStatus for a missing id returns not-found', async () => {
     (error: unknown) =>
       error instanceof PortalWriteError && error.code === 'not-found',
   )
+})
+
+test('getStoryboardStory returns a story by id and null for unknown ids', async () => {
+  const f = new FakeDb()
+  await createStoryboardStory({ ...baseInput, id: 'ENG-04', status: 'Planned' }, f.tx)
+  await createStoryboardStory({ ...baseInput, id: 'CRM-14B', status: 'Blocked' }, f.tx)
+
+  const found = await getStoryboardStory('ENG-04', f.tx)
+  assert.equal(found?.id, 'ENG-04')
+  assert.equal(found?.status, 'Planned')
+  const foundTwo = await getStoryboardStory('CRM-14B', f.tx)
+  assert.equal(foundTwo?.id, 'CRM-14B')
+  const missing = await getStoryboardStory('NOPE', f.tx)
+  assert.equal(missing, null)
 })
 
 test('listStoryboardStories returns the seeded rows in order', async () => {

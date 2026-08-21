@@ -1,5 +1,5 @@
-import { type StoryBoardModel } from "@/lib/storyboard-data"
-import type { StoryRun } from "@/db/storyboard"
+import { type StoryBoardFilter, type StoryBoardModel, type StoryRecord } from "@/lib/storyboard-data"
+import { StoryBoardControls } from "@/components/portal/storyboard/story-board-controls"
 import { StoryBoardTable } from "@/components/portal/write/story-board-table"
 
 // ---------------------------------------------------------------------------
@@ -133,10 +133,12 @@ function WorkstreamRow({ model }: { model: StoryBoardModel }) {
 
 export function StoryBoard({
   model,
-  runs,
+  filter,
+  visibleStories,
 }: {
   model: StoryBoardModel
-  runs: StoryRun[]
+  filter: StoryBoardFilter
+  visibleStories: StoryRecord[]
 }) {
   return (
     <div>
@@ -155,10 +157,9 @@ export function StoryBoard({
         </div>
 
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          The authoritative CulebraLuxe master backlog — the human-authored
-          8/21 board. Create, edit, and change status here; changes persist to
-          Neon and drive the rollup. No repository-derived stories, no new
-          items, no implementation.
+          The authoritative CulebraLuxe development backlog. Story state,
+          completion, architecture guidance, and execution history persist to
+          Neon and drive the project rollup.
         </p>
       </header>
 
@@ -205,8 +206,13 @@ export function StoryBoard({
         </div>
       </section>
 
+      <StoryBoardControls
+        filter={filter}
+        visibleCount={visibleStories.length}
+        totalCount={model.totalStories}
+      />
 
-      <StoryBoardTable stories={model.stories} runs={runs} />
+      <StoryBoardTable stories={visibleStories} totalStories={model.totalStories} />
 
       <footer className="mt-6 text-xs font-light leading-6 text-black/40">
         <p>
@@ -221,8 +227,9 @@ export function StoryBoard({
           carries its execution specification (goal, dependencies,
           preconditions, architect brief, context refs, acceptance criteria,
           postconditions); runs snapshot that specification when they start
-          (migration 024). Inspect any story for the full detail and execution
-          history. No workflow_engine changes.
+          (migration 024). Open any story to inspect the full detail and
+          execution history, or filter/search the list above. No
+          workflow_engine changes.
         </p>
       </footer>
     </div>

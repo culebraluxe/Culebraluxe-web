@@ -82,6 +82,8 @@ export type StoryRecord = {
   plannedStartAt: string | null
   actualStartAt: string | null
   completedAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +113,176 @@ export const STATUS_BUCKET: Record<StoryStatus, StatusBucket> = {
 
 export function statusBucket(status: string): StatusBucket {
   return STATUS_BUCKET[status as StoryStatus] ?? 'open'
+}
+
+// ---------------------------------------------------------------------------
+// Story Board filtering / search model
+//
+// Pure functions over the authoritative stored stories. URL query parameters
+// are parsed into a StoryBoardFilter (stable names: q, workstream, status,
+// priority, view, rollup) and serialized back for links/bookmarks. The
+// executive dashboard and rollup math are computed from the FULL story set
+// and never depend on the active filter.
+// ---------------------------------------------------------------------------
+
+export type StoryBoardView =
+  | 'all'
+  | 'open'
+  | 'blocked-failed'
+  | 'complete'
+  | 'deferred-hold'
+
+export const WORK_VIEWS: ReadonlyArray<{
+  code: StoryBoardView
+  label: string
+  statuses: readonly StoryStatus[]
+}> = [
+  { code: 'all', label: 'All', statuses: [] },
+  {
+    code: 'open',
+    label: 'Open Work',
+    statuses: ['Planned', 'In Progress', 'Partial'],
+  },
+  {
+    code: 'blocked-failed',
+    label: 'Blocked / Failed',
+    statuses: ['Blocked', 'Failed'],
+  },
+  { code: 'complete', label: 'Complete', statuses: ['Complete'] },
+  {
+    code: 'deferred-hold',
+    label: 'Deferred / Hold',
+    statuses: ['Deferred', 'Hold'],
+  },
+]
+
+export type StoryBoardFilter = {
+  q: string
+  workstream: 'all' | Workstream
+  status: 'all' | StoryStatus
+  priority: 'all' | StoryPriority
+  view: StoryBoardView
+  rollup: 'all' | 'in' | 'out'
+}
+
+export function defaultStoryBoardFilter(): StoryBoardFilter {
+  return {
+    q: '',
+    workstream: 'all',
+    status: 'all',
+    priority: 'all',
+    view: 'all',
+    rollup: 'all',
+  }
+}
+
+type SearchParamsLike = Record<string, string | string[] | undefined>
+
+function firstParam(params: SearchParamsLike, key: string): string | undefined {
+  const value = params[key]
+  return Array.isArray(value) ? value[0] : value
+}
+
+export function parseStoryBoardFilter(
+  params: SearchParamsLike,
+): StoryBoardFilter {
+  const filter = defaultStoryBoardFilter()
+
+  const q = firstParam(params, 'q')
+  if (q) filter.q = q
+
+  const workstream = firstParam(params, 'workstream')
+  if (
+    workstream &&
+    (WORKSTREAM_CODES as readonly string[]).includes(workstream)
+  ) {
+    filter.workstream = workstream as Workstream
+  }
+
+  const status = firstParam(params, 'status')
+  if (status && (STORY_STATUSES as readonly string[]).includes(status)) {
+    filter.status = status as StoryStatus
+  }
+
+  const priority = firstParam(params, 'priority')
+  if (priority && (STORY_PRIORITIES as readonly string[]).includes(priority)) {
+    filter.priority = priority as StoryPriority
+  }
+
+  const view = firstParam(params, 'view')
+  if (view && WORK_VIEWS.some((v) => v.code === view)) {
+    filter.view = view as StoryBoardView
+  }
+
+  const rollup = firstParam(params, 'rollup')
+  if (rollup === 'in' || rollup === 'out') filter.rollup = rollup
+
+  return filter
+}
+
+export function storyBoardFilterToQuery(filter: StoryBoardFilter): string {
+  const params = new URLSearchParams()
+  if (filter.q.trim()) params.set('q', filter.q.trim())
+  if (filter.workstream !== 'all') params.set('workstream', filter.workstream)
+  if (filter.status !== 'all') params.set('status', filter.status)
+  if (filter.priority !== 'all') params.set('priority', filter.priority)
+  if (filter.view !== 'all') params.set('view', filter.view)
+  if (filter.rollup !== 'all') params.set('rollup', filter.rollup)
+  return params.toString()
+}
+
+export function isStoryBoardFilterActive(filter: StoryBoardFilter): boolean {
+  return storyBoardFilterToQuery(filter) !== ''
+}
+
+const SEARCH_FIELDS: ReadonlyArray<keyof StoryRecord> = [
+  'id',
+  'title',
+  'notes',
+  'goal',
+  'architectBrief',
+  'acceptanceCriteria',
+  'dependencies',
+  'preconditions',
+  'contextRefs',
+  'postconditions',
+]
+
+export function storyMatchesQuery(story: StoryRecord, q: string): boolean {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return true
+  return SEARCH_FIELDS.some((field) => {
+    const value = story[field]
+    return (
+      typeof value === 'string' && value.toLowerCase().includes(needle)
+    )
+  })
+}
+
+export function filterStories(
+  stories: StoryRecord[],
+  filter: StoryBoardFilter,
+): StoryRecord[] {
+  return stories.filter((story) => {
+    if (filter.workstream !== 'all' && story.workstream !== filter.workstream) {
+      return false
+    }
+    if (filter.status !== 'all' && story.status !== filter.status) {
+      return false
+    }
+    if (filter.priority !== 'all' && story.priority !== filter.priority) {
+      return false
+    }
+    if (filter.view !== 'all') {
+      const view = WORK_VIEWS.find((v) => v.code === filter.view)
+      if (view && view.statuses.length > 0 && !view.statuses.includes(story.status)) {
+        return false
+      }
+    }
+    if (filter.rollup === 'in' && !story.rollup) return false
+    if (filter.rollup === 'out' && story.rollup) return false
+    return storyMatchesQuery(story, filter.q)
+  })
 }
 
 // ---------------------------------------------------------------------------
