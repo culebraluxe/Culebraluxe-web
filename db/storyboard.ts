@@ -63,10 +63,10 @@ type StoryRow = QueryRow & {
   updated_at: string
 }
 
-const STORY_COLUMNS = `
-  id, workstream, title, priority, status, notes, batch, goal, scope,
-  acceptance_criteria, dependencies, created_at, updated_at
-`
+// NOTE: column lists are written literally in every query. The Neon driver
+// parameterizes interpolated string values (a `select ${cols}` would become
+// `select $1` and return a `?column?` row), so a shared string constant can
+// never be interpolated into these templates.
 
 let defaultExecutor: QueryExecutor | null = null
 
@@ -114,7 +114,8 @@ export async function listStoryboardStories(
   if (!ready) return null
 
   const rows = await q`
-    select ${STORY_COLUMNS}
+    select id, workstream, title, priority, status, notes, batch, goal, scope,
+      acceptance_criteria, dependencies, created_at, updated_at
     from storyboard_story
     order by workstream, id
   `
@@ -137,7 +138,8 @@ export async function createStoryboardStory(
       ${input.acceptanceCriteria ?? null}, ${input.dependencies ?? null}
     )
     on conflict (id) do nothing
-    returning ${STORY_COLUMNS}
+    returning id, workstream, title, priority, status, notes, batch, goal,
+      scope, acceptance_criteria, dependencies, created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -169,7 +171,8 @@ export async function updateStoryboardStory(
         dependencies = ${input.dependencies ?? null},
         updated_at = now()
     where id = ${id}
-    returning ${STORY_COLUMNS}
+    returning id, workstream, title, priority, status, notes, batch, goal,
+      scope, acceptance_criteria, dependencies, created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -189,7 +192,8 @@ export async function setStoryboardStatus(
     set status = ${status},
         updated_at = now()
     where id = ${id}
-    returning ${STORY_COLUMNS}
+    returning id, workstream, title, priority, status, notes, batch, goal,
+      scope, acceptance_criteria, dependencies, created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {

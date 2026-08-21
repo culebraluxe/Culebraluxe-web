@@ -1,5 +1,16 @@
 # Agent Run Log
 
+## 2026-08-21 — Story Board DEV persistence activation
+
+- Role: Builder
+- Story: Activate Story Board persistence in DEV
+- Files changed: `db/storyboard.ts` (column-list fix), `db/migrations/021_storyboard_story.sql` (DEV-applied note), `docs/DEV_DATABASE.md` (new DEV setup record), and this run log. `.env.local` updated locally (gitignored).
+- Decision: Create a disposable Neon branch `dev` (from `production`), point `.env.local` DEV access at it, apply migration 021 there, and verify CRUD.
+- Checks: Migration applied to DEV (41 seed rows); create/edit/status/list verified against DEV via `db/storyboard.ts`; `/portal/storyboard` renders 41 stories from DEV; create → page shows → refresh persists → delete → gone; `workflow_app` suite 122/122; `pnpm exec next build --webpack` passed; `git diff --check` passed.
+- Database mutations: DEV branch only — `storyboard_story` table created, 41 rows seeded, temporary fixture rows created and removed. **Production untouched.**
+- Defects found: `db/storyboard.ts` interpolated a shared column-list string into queries; the Neon driver parameterizes interpolated strings (`select $1` → `?column?` rows). Fixed by writing column lists literally. (The fake-based unit test could not catch this; real-DEV verification did.)
+- Next action: none; migration remains unapplied to production by design.
+
 ## 2026-08-18 — CRM-04 Lead checkpoint
 
 - Role: Lead

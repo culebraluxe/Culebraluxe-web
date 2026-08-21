@@ -8,7 +8,8 @@
 -- transcribed from docs/workflow/MASTER_STORYBOARD.md and
 -- docs/workflow/STORYBOARD_STATUS.md (seed 2026-08-20).
 --
--- NOT executed. Apply manually after review.
+-- Applied to the disposable DEV branch (`dev`) on 2026-08-21 — 41 seed rows
+-- present, CRUD verified. NOT applied to production.
 
 begin;
 
