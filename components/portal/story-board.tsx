@@ -1,58 +1,11 @@
-import {
-  WORKSTREAMS,
-  type StoryBoardModel,
-  type StoryPriority,
-  type StoryStatus,
-} from "@/lib/storyboard-data"
+import { WORKSTREAMS, type StoryBoardModel } from "@/lib/storyboard-data"
+import { StoryBoardTable } from "@/components/portal/write/story-board-table"
 
 // ---------------------------------------------------------------------------
-// Read-only Story Board. No CRUD, no database, no workflow_engine involvement.
+// Story Board — server view. Metrics stay server-computed from Neon data; the
+// editable story table is a client component (create / edit / change status).
+// No workflow_engine involvement.
 // ---------------------------------------------------------------------------
-
-const statusClasses: Record<StoryStatus, string> = {
-  Complete: "bg-emerald-50 text-emerald-700",
-  Operationalized: "bg-emerald-50 text-emerald-700",
-  "Minor remainder": "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]",
-  "Read-side complete": "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]",
-  "Readiness PASS": "bg-amber-50 text-amber-700",
-  Partial: "bg-black/5 text-black/55",
-  Planned: "bg-black/5 text-black/55",
-  Open: "bg-black/5 text-black/55",
-  Blocked: "bg-red-50 text-red-700",
-  Deferred: "bg-black/5 text-black/40",
-  "Hardware/content dependent": "bg-black/5 text-black/55",
-}
-
-const priorityClasses: Record<StoryPriority, string> = {
-  Critical: "bg-red-50 text-red-700",
-  High: "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]",
-  "High-ish": "bg-[#c6a15b]/15 text-[#8a6d2f]",
-  "Medium-High": "bg-black/5 text-black/60",
-  Medium: "bg-black/5 text-black/50",
-  Low: "bg-black/5 text-black/40",
-  Later: "bg-black/5 text-black/40",
-  "High-value polish": "bg-[#c6a15b]/15 text-[#8a6d2f]",
-}
-
-function StatusPill({ status }: { status: StoryStatus }) {
-  return (
-    <span
-      className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-xs font-light ${statusClasses[status]}`}
-    >
-      {status}
-    </span>
-  )
-}
-
-function PriorityPill({ priority }: { priority: StoryPriority }) {
-  return (
-    <span
-      className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-xs font-light ${priorityClasses[priority]}`}
-    >
-      {priority}
-    </span>
-  )
-}
 
 function MetricCard({
   label,
@@ -146,108 +99,6 @@ function WorkstreamRow({ model }: { model: StoryBoardModel }) {
   )
 }
 
-function StoryTable({ model }: { model: StoryBoardModel }) {
-  return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
-      <div className="border-b border-[var(--portal-border)] px-6 py-6">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="font-serif text-2xl font-light">Story Backlog</h2>
-          <span className="text-xs font-light uppercase tracking-[0.18em] text-black/40">
-            {model.stories.length} stories · read-only
-          </span>
-        </div>
-        <p className="mt-1 text-sm font-light text-black/50">
-          The existing human-authored backlog, grouped by workstream. No
-          repository-derived stories; nothing here is implemented by this view.
-        </p>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-[var(--portal-border)]">
-              <th className="w-24 px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                ID
-              </th>
-              <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                Story
-              </th>
-              <th className="w-40 px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                Priority
-              </th>
-              <th className="w-48 px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                Status
-              </th>
-              <th className="min-w-72 px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                Notes
-              </th>
-            </tr>
-          </thead>
-
-          {WORKSTREAMS.map((workstream) => {
-            const rows = model.stories.filter(
-              (s) => s.workstream === workstream,
-            )
-
-            return (
-              <tbody key={workstream}>
-                <tr className="bg-[var(--portal-blue-pale)]/50">
-                  <td
-                    colSpan={5}
-                    className="px-6 py-3 text-[10px] font-light uppercase tracking-[0.24em] text-[var(--portal-navy)]"
-                  >
-                    {workstream}
-                    <span className="ml-3 text-black/40">
-                      {rows.length} story{rows.length === 1 ? "" : "s"}
-                    </span>
-                  </td>
-                </tr>
-
-                {rows.length === 0 ? (
-                  <tr className="border-b border-[var(--portal-border)]">
-                    <td
-                      colSpan={5}
-                      className="px-6 py-6 text-sm font-light italic text-black/40"
-                    >
-                      No stories tracked under this workstream yet.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((story) => (
-                    <tr
-                      key={story.id}
-                      className="border-b border-[var(--portal-border)] last:border-b-0"
-                    >
-                      <td className="px-6 py-4 align-top font-mono text-xs text-[var(--portal-navy)]">
-                        {story.id}
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <div className="font-light leading-6 text-[var(--portal-navy)]">
-                          {story.title}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <PriorityPill priority={story.priority} />
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <StatusPill status={story.status} />
-                      </td>
-                      <td className="px-6 py-4 align-top text-sm font-light leading-6 text-black/55">
-                        {story.notes}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            )
-          })}
-        </table>
-      </div>
-    </section>
-  )
-}
-
-
 export function StoryBoard({ model }: { model: StoryBoardModel }) {
   return (
     <div>
@@ -261,13 +112,14 @@ export function StoryBoard({ model }: { model: StoryBoardModel }) {
             Story Board
           </h1>
           <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
-            Read-only
+            Editable
           </span>
         </div>
 
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Program view of the existing human-authored backlog — no
-          repository-derived stories, no new items, no implementation.
+          The authoritative home for the existing human-authored backlog —
+          create, edit, and change status here. Changes are persisted to Neon.
+          No repository-derived stories, no new items, no implementation.
         </p>
       </header>
 
@@ -321,7 +173,7 @@ export function StoryBoard({ model }: { model: StoryBoardModel }) {
         </div>
       </section>
 
-      <StoryTable model={model} />
+      <StoryBoardTable stories={model.stories} />
 
       <footer className="mt-6 text-xs font-light leading-6 text-black/40">
         <p>
@@ -338,11 +190,50 @@ export function StoryBoard({ model }: { model: StoryBoardModel }) {
           Usable Product aggregates CRM / Intake, Portal / Operations and Public
           Property / Buyer Experience; Brokerage-Ready aggregates the
           brokerage-operational cluster (S-012…S-016, S-030…S-032, S-037,
-          S-038). Statuses and priorities use the program vocabulary. This page
-          is read-only — no CRUD, no database changes, no workflow_engine
-          changes.
+          S-038). Statuses and priorities use the program vocabulary. Stories
+          are stored in{" "}
+          <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
+            storyboard_story
+          </code>{" "}
+          (migration 021) — no workflow_engine changes.
         </p>
       </footer>
+    </div>
+  )
+}
+
+export function StoryBoardNotReady() {
+  return (
+    <div>
+      <header className="mb-8">
+        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
+          Portal
+        </p>
+
+        <div className="mt-3 flex items-baseline gap-4">
+          <h1 className="font-serif text-4xl font-light leading-[1.1]">
+            Story Board
+          </h1>
+          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+            Not ready
+          </span>
+        </div>
+      </header>
+
+      <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
+        <h2 className="font-serif text-2xl font-light text-[var(--portal-navy)]">
+          Story Board storage not ready
+        </h2>
+        <p className="mx-auto mt-3 max-w-lg text-sm font-light leading-6 text-black/55">
+          The storyboard table has not been applied to this database yet. Apply
+          the reviewed migration (
+          <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
+            db/migrations/021_storyboard_story.sql
+          </code>
+          ) to enable the board. The migration also seeds the existing 41
+          human-authored stories.
+        </p>
+      </section>
     </div>
   )
 }
