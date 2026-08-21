@@ -64,6 +64,9 @@ Migrations applied to the dev branch so far:
   architect_brief_updated_at) + immutable run specification snapshots
 - `025_agent_work_queue.sql` — `Ready` status + `agent_work_item` table,
   DB-driven Ready dispatch, one-active-per-story and single-worker indexes
+- `026_run_lifecycle_telemetry.sql` — run `updated_at` last-activity column +
+  `Cancelled` run outcome (applied 2026-08-21 via the WebSocket Pool over the
+  unpooled connection; the Neon HTTP driver does not execute DDL)
 
 ## Recreating the disposable DEV branch
 

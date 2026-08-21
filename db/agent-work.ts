@@ -3,9 +3,14 @@ import { neonTx, type TxRunner } from './tx'
 import {
   finishStoryRun,
   mapStory,
+  setStoryboardStatus,
   startStoryRun,
+  terminateStoryRun,
+  updateStoryRunProgress,
   type StoryboardStory,
   type StoryRow,
+  type StoryRun,
+  type StoryRunProgressInput,
 } from './storyboard'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
@@ -174,6 +179,103 @@ export async function getAgentWorkItem(
   `
   const row = rows[0] as AgentWorkRow | undefined
   return row ? mapWorkItem(row) : null
+}
+
+/** The single system-wide active work item (Claimed or Running), if any. */
+export async function getActiveAgentWorkItem(
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+    from agent_work_item
+    where state in ('Claimed', 'Running')
+    limit 1
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  return row ? mapWorkItem(row) : null
+}
+
+/**
+ * Stale Claimed/Running work items — active items whose heartbeat
+ * (updated_at) has been silent for at least `staleAfterMinutes`. A stale item
+ * means the worker is presumed dead; it still BLOCKS the queue until
+ * `recoverStaleAgentWork` marks it terminal.
+ */
+export async function listStaleAgentWork(
+  staleAfterMinutes = 60,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+    from agent_work_item
+    where state in ('Claimed', 'Running')
+      and updated_at < now() - (${staleAfterMinutes} || ' minutes')::interval
+    order by updated_at asc
+  `
+  return rows.map((row) => mapWorkItem(row as AgentWorkRow))
+}
+
+/**
+ * Persist live progress on a Running work item (migration 026 telemetry):
+ *   - the work item's updated_at is refreshed (heartbeat — a Running job must
+ *     not appear indistinguishable from a dead worker)
+ *   - the linked storyboard_story_run gets completion / an appended
+ *     timestamped milestone note / an updated tests summary (all optional)
+ * Requires the work item to be Running with a begun story run.
+ */
+export async function updateAgentWorkProgress(
+  workItemId: string,
+  input: StoryRunProgressInput,
+  execute?: QueryExecutor,
+): Promise<{ workItem: AgentWorkItem; run: StoryRun }> {
+  if (
+    input.completion !== undefined &&
+    (!Number.isInteger(input.completion) ||
+      input.completion < 0 ||
+      input.completion > 100)
+  ) {
+    throw new PortalWriteError(
+      'validation',
+      'completion must be an integer between 0 and 100.',
+    )
+  }
+
+  const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  if (!item.storyRunId) {
+    throw new PortalWriteError(
+      'conflict',
+      `Work item "${workItemId}" has no story run; begin execution first.`,
+    )
+  }
+
+  // Heartbeat: refresh updated_at only while the item is actually Running.
+  const heartbeats = await q`
+    update agent_work_item
+    set updated_at = now()
+    where id = ${workItemId}
+      and state = 'Running'
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      created_at, updated_at
+  `
+  const heartbeatRow = heartbeats[0] as AgentWorkRow | undefined
+  if (!heartbeatRow) {
+    throw new PortalWriteError(
+      'conflict',
+      `Work item "${workItemId}" is not Running; progress requires an active run.`,
+    )
+  }
+
+  const run = await updateStoryRunProgress(item.storyRunId, input, q)
+  return { workItem: mapWorkItem(heartbeatRow), run }
 }
 
 /**
@@ -345,17 +447,48 @@ export async function finishAgentWork(
   return { workItem: mapWorkItem(row), run, story }
 }
 
+export type AgentWorkFailInput = {
+  completion?: number
+  note?: string
+  testsSummary?: string | null
+}
+
 /**
- * Mark a work item Error — the execution mechanism itself failed or could not
- * correctly record the run. The run/story are left untouched (the worker
- * should record what it can through the normal finish path when possible).
+ * Mark a work item Error (execution-infrastructure failure) and TERMINATE the
+ * linked run as Failed so nothing stays Running forever:
+ *   - when the work item has a begun story run: run -> ended_at now(),
+ *     result_status Failed, completion preserved/given, an explanatory note
+ *     appended to the narrative, tests summary preserved/given; the story ->
+ *     Failed (the run did not finish cleanly; deliberate retry re-Readies it)
+ *   - the work item -> Error with error_text + finished_at + updated_at
+ * When the claim never began (no run), only the work item is marked Error.
  */
 export async function failAgentWork(
   workItemId: string,
   errorText: string,
+  input: AgentWorkFailInput = {},
   execute?: QueryExecutor,
 ): Promise<AgentWorkItem> {
   const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+
+  if (item.storyRunId) {
+    await terminateStoryRun(
+      item.storyRunId,
+      {
+        resultStatus: 'Failed',
+        completion: input.completion,
+        note: input.note ?? `execution failed: ${errorText}`,
+        testsSummary: input.testsSummary,
+      },
+      q,
+    )
+    await setStoryboardStatus(item.storyId, 'Failed', q)
+  }
+
   const rows = await q`
     update agent_work_item
     set state = 'Error',
@@ -374,12 +507,44 @@ export async function failAgentWork(
   return mapWorkItem(row)
 }
 
-/** Cancel an active work item (human/architect decision). */
+export type AgentWorkCancelInput = {
+  note?: string
+}
+
+/**
+ * Cancel an active coding run (human/architect/operator decision):
+ *   - when the work item has a begun story run: run -> ended_at now(),
+ *     result_status Cancelled (migration 026), completion preserved, a
+ *     cancellation note appended to the narrative; the story -> Hold
+ *     (existing canonical "paused, can resume" status)
+ *   - the work item -> Cancelled with finished_at + updated_at
+ * User cancellation is a distinct terminal outcome — never classified as a
+ * failure. When the claim never began (no run), only the work item is marked
+ * Cancelled.
+ */
 export async function cancelAgentWork(
   workItemId: string,
+  input: AgentWorkCancelInput = {},
   execute?: QueryExecutor,
 ): Promise<AgentWorkItem> {
   const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+
+  if (item.storyRunId) {
+    await terminateStoryRun(
+      item.storyRunId,
+      {
+        resultStatus: 'Cancelled',
+        note: input.note ?? 'run cancelled by operator.',
+      },
+      q,
+    )
+    await setStoryboardStatus(item.storyId, 'Hold', q)
+  }
+
   const rows = await q`
     update agent_work_item
     set state = 'Cancelled',
@@ -395,4 +560,52 @@ export async function cancelAgentWork(
     throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
   }
   return mapWorkItem(row)
+}
+
+/**
+ * Recover stale Claimed/Running work — items whose heartbeat has been silent
+ * for at least `staleAfterMinutes` (worker presumed dead / host restarted).
+ * Each stale item is marked EXPLICITLY terminal:
+ *   - run (when begun) -> Failed with a timestamped stale-recovery note
+ *   - story -> Failed (deliberate retry re-Readies the story)
+ *   - work item -> Error with error_text naming the last heartbeat
+ * Recovery NEVER reruns work automatically; it only unblocks the queue so a
+ * fresh claim (and human deliberation) can proceed.
+ */
+export async function recoverStaleAgentWork(
+  staleAfterMinutes = 60,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem[]> {
+  const q = execute ?? (await executor())
+  const stale = await listStaleAgentWork(staleAfterMinutes, q)
+
+  const recovered: AgentWorkItem[] = []
+  for (const item of stale) {
+    if (item.storyRunId) {
+      await terminateStoryRun(
+        item.storyRunId,
+        {
+          resultStatus: 'Failed',
+          note: `marked stale — no heartbeat since ${item.updatedAt}; worker presumed terminated. Deliberate retry: set the story back to Ready.`,
+        },
+        q,
+      )
+      await setStoryboardStatus(item.storyId, 'Failed', q)
+    }
+    const rows = await q`
+      update agent_work_item
+      set state = 'Error',
+          error_text = ${`stale: no heartbeat since ${item.updatedAt}`},
+          finished_at = now(),
+          updated_at = now()
+      where id = ${item.id}
+        and state in ('Claimed', 'Running')
+      returning id, story_id, state, priority, queued_at, claimed_at,
+        claimed_by, started_at, finished_at, story_run_id, error_text,
+        created_at, updated_at
+    `
+    const row = rows[0] as AgentWorkRow | undefined
+    if (row) recovered.push(mapWorkItem(row))
+  }
+  return recovered
 }

@@ -122,14 +122,17 @@ class FakeDb {
     }
 
     if (t.includes('update storyboard_story_run')) {
-      const r = this.runs.find((x) => x.id === p[5])
+      // finishStoryRun param layout (see db/storyboard.ts):
+      // [status, completion, notes×4, commit, tests, id]
+      const r = this.runs.find((x) => x.id === p[p.length - 1])
       if (!r) return Promise.resolve([])
       r.ended_at = this.now
       r.result_status = p[0]
       r.completion = p[1]
-      r.notes = p[2]
-      r.commit_hash = p[3] ?? null
-      r.tests_summary = p[4] ?? null
+      if (p[2]) r.notes = r.notes ? `${r.notes}\n${p[2]}` : p[2]
+      if (p[6] !== null) r.commit_hash = p[6]
+      if (p[7] !== null) r.tests_summary = p[7]
+      r.updated_at = this.now
       return Promise.resolve([r])
     }
 

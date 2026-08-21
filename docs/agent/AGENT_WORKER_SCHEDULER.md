@@ -121,9 +121,27 @@ and never mutates Story Board state:
 | `agent:work` exits `Error` (infra) | exit code propagated; next interval retries |
 | network unavailable | DB call fails; exit code propagated; next interval retries |
 | a live invocation is still running | new invocation logs `skipped:` and exits `0` |
+| a run is stale (no heartbeat) | `pnpm agent:work` reports it; `pnpm agent:work --recover` marks it terminal and unblocks the queue |
 
 The scheduler never creates work items and never changes story state itself —
 all lifecycle writes flow through the existing `pnpm agent:work` command.
+
+## Run telemetry
+
+While executing a story, the worker records observable progress with:
+
+```
+pnpm agent:work --progress <workItemId> --completion <0-100> --note "<milestone>" [--tests "<summary>"]
+pnpm agent:work --finish   <workItemId> --result <outcome> --completion <n> --notes "<narrative>" --commit <hash> --tests "<summary>"
+pnpm agent:work --error    <workItemId> --error-text "<why>"
+pnpm agent:work --cancel   <workItemId> --note "<why>"
+pnpm agent:work --recover  [--stale-after <minutes>]
+```
+
+Progress updates persist completion + a timestamped milestone note to
+`storyboard_story_run` and refresh `agent_work_item.updated_at` (the heartbeat,
+default stale threshold 60 minutes). Full semantics live in
+`docs/agent/STORY_EXECUTION_CONTRACT.md` ("Run telemetry and lifecycle").
 
 ## Emergency stop / pause autonomous coding immediately
 

@@ -1,5 +1,49 @@
 # Agent Run Log
 
+## 2026-08-21 — Autonomous worker telemetry and run lifecycle repair
+
+- Role: Builder
+- Story: Fix the autonomous coding worker so a queued story has a durable,
+  observable lifecycle from queue through completion — live progress,
+  heartbeat, narrative, tests summary, commit hash, terminal outcomes
+  (finish/fail/cancel), and stale-run recovery.
+- Files changed: `db/migrations/026_run_lifecycle_telemetry.sql` (new —
+  `storyboard_story_run.updated_at` last-activity column; `Cancelled` added to
+  the run result_status CHECK), `db/storyboard.ts` (run `updated_at` in type/
+  mapping/selects; `finishStoryRun` APPENDS final notes to the accumulated
+  narrative, sets `updated_at`, maps Cancelled run → story `Hold`; new
+  `updateStoryRunProgress` — completion/timestamped milestone notes/tests
+  summary; new `terminateStoryRun` — terminal Failed/Cancelled outcome with
+  preserved completion + explanatory note), `db/agent-work.ts` (new
+  `updateAgentWorkProgress` — progress + heartbeat via `agent_work_item.
+  updated_at`; `getActiveAgentWorkItem`; `listStaleAgentWork`;
+  `recoverStaleAgentWork` — marks stale Claimed/Running work terminal: run
+  Failed, work Error naming last heartbeat, story Failed, queue unblocked, no
+  auto-rerun; `failAgentWork` now terminates the run as Failed + story Failed;
+  `cancelAgentWork` now terminates the run as Cancelled + story Hold),
+  `scripts/agent-work.ts` (new `--progress`, `--cancel`, `--recover`
+  subcommands; `--error` accepts completion/note/tests; claim prints
+  progress/cancel hints and a stale-active-item warning), tests
+  (`workflow_app/tests/agent-work.test.ts` — 8 new lifecycle tests; updated
+  fakes for the CASE-parameter layouts; `storyboard-runs.test.ts` fake
+  updated), and this run log.
+- Decision: no new table — the existing `storyboard_story_run` columns support
+  the required telemetry cleanly (`notes` accumulates an append-style
+  narrative). Heartbeat = the progress update's refresh of
+  `agent_work_item.updated_at` (no competing heartbeat architecture).
+  Cancellation is a distinct terminal run outcome (`Cancelled`), never a
+  failure; the story maps to existing canonical `Hold`. Stale recovery is
+  explicit (`--recover`) and marks stale work terminal rather than silently
+  rerunning potentially destructive work.
+- Verification: 257/257 tests (8 new), tsc clean. Migration 026 applied to the
+  shared control-plane DB (Neon HTTP driver does not execute DDL — applied via
+  the WebSocket Pool over `DATABASE_URL_UNPOOLED`) and verified (`updated_at`
+  present, CHECK includes Cancelled). Live end-to-end with TMP-TEL-* data: 29
+  checks passed covering progress/heartbeat/narrative/tests/commit/finish/
+  cancel/fail/stale-recovery/queue-unblock; all TMP data cleaned up (74
+  stories, 0 work items; the single ENG-04 run is pre-existing human-directed
+  history from commit 9aabca3). Next build + git diff --check follow.
+
 ## 2026-08-21 — Autonomous single-story worker scheduler
 
 - Role: Builder

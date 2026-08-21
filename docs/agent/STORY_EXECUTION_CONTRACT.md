@@ -89,6 +89,49 @@ If a field is empty, do not invent hidden requirements merely to fill it.
 - Operational details and the kill switch live in
   `docs/agent/AGENT_WORKER_SCHEDULER.md`.
 
+## Run telemetry and lifecycle
+
+A coding run must be observable from the persisted Story Board data alone:
+what the agent is doing right now, what it has done, and whether it finished
+cleanly.
+
+- **Progress while running** — the worker records milestones with
+  `pnpm agent:work --progress <workItemId> [--completion <0-100>] [--note <text>] [--tests <text>]`:
+  - `completion` (0–100) is persisted at meaningful milestones, never per token.
+  - `note` appends a timestamped milestone to `storyboard_story_run.notes`
+    (append-style history — the narrative is never destroyed).
+  - `tests` replaces `tests_summary` with the latest concise test result.
+  - Every progress call refreshes `agent_work_item.updated_at` — the run's
+    heartbeat.
+- **Narrative** — `storyboard_story_run.notes` is the human-readable execution
+  narrative (e.g. "inspected existing map component", "replaced legacy marker
+  construction", "targeted tests passed", "Next build passed"). It never
+  contains raw chain-of-thought or command dumps. `--finish` notes are appended
+  to the accumulated narrative, not a replacement.
+- **Tests** — a concise `tests_summary` is persisted whenever tests run (e.g.
+  `pnpm test: 124/124 passed; tsc passed; next build passed`), not just
+  "tests passed".
+- **Commit** — the real Git hash is persisted to `commit_hash`; a hash is never
+  fabricated when no commit was created.
+- **Successful completion** — `--finish` writes `result_status`, `completion`
+  (Complete forces 100), `ended_at`, final narrative, `tests_summary`, and
+  `commit_hash`; the work item ends `Done` with `finished_at`.
+- **Failure** — `--error` marks the work item `Error` with `error_text` and
+  terminates the run as `Failed` (`ended_at`, completion, explanation note);
+  the story moves to `Failed`. Infra failure is never classified as `Complete`.
+- **Cancellation** — `--cancel` produces an explicit terminal outcome: run
+  `Cancelled`, work item `Cancelled`, story `Hold` (existing canonical "paused,
+  can resume" status), with a note explaining the last milestone and the
+  cancellation. User cancellation is not classified as a failure.
+- **Stale runs** — a `Claimed`/`Running` item whose heartbeat
+  (`agent_work_item.updated_at`) has been silent past the threshold (default
+  60 minutes; `AGENT_WORKER_STALE_AFTER_MINUTES` or `--stale-after`) is
+  detected by `pnpm agent:work` (stale warning) and can be recovered explicitly
+  with `pnpm agent:work --recover`: run `Failed`, work item `Error` naming the
+  last heartbeat, story `Failed`. Recovery never reruns work automatically —
+  it marks stale work explicitly and unblocks the queue for a deliberate retry
+  (re-set the story to `Ready`). A run never remains `Running` forever.
+
 ## Execution state
 
 When beginning work:

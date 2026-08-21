@@ -326,6 +326,8 @@ export type StoryRun = {
   acceptanceCriteriaSnapshot: string | null
   postconditionsSnapshot: string | null
   createdAt: string
+  /** Last activity on the run (progress updates, terminal writes). */
+  updatedAt: string
 }
 
 export type FinishRunInput = {
@@ -353,6 +355,7 @@ type RunRow = QueryRow & {
   acceptance_criteria_snapshot: string | null
   postconditions_snapshot: string | null
   created_at: string
+  updated_at: string
 }
 
 function mapRun(row: RunRow): StoryRun {
@@ -373,6 +376,7 @@ function mapRun(row: RunRow): StoryRun {
     acceptanceCriteriaSnapshot: row.acceptance_criteria_snapshot,
     postconditionsSnapshot: row.postconditions_snapshot,
     createdAt: dateOrNull(row.created_at) ?? '',
+    updatedAt: dateOrNull(row.updated_at) ?? '',
   }
 }
 
@@ -398,7 +402,8 @@ export async function listStoryboardRuns(
       notes, commit_hash, tests_summary,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
-      postconditions_snapshot, created_at
+      postconditions_snapshot, created_at,
+      updated_at
     from storyboard_story_run
     order by started_at desc, id
   `
@@ -415,7 +420,8 @@ export async function listStoryRuns(
       notes, commit_hash, tests_summary,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
-      postconditions_snapshot, created_at
+      postconditions_snapshot, created_at,
+      updated_at
     from storyboard_story_run
     where story_id = ${storyId}
     order by started_at desc, id
@@ -470,7 +476,8 @@ export async function startStoryRun(
       notes, commit_hash, tests_summary,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
-      postconditions_snapshot, created_at
+      postconditions_snapshot, created_at,
+      updated_at
   `
   const runRow = runRows[0] as RunRow
   return { run: mapRun(runRow), story: mapStory(storyRow) }
@@ -479,10 +486,12 @@ export async function startStoryRun(
 /**
  * Finish an execution run:
  *   - sets the run's ended_at, result_status, completion, notes, and optional
- *     commit_hash / tests_summary
- *   - updates the parent story: status = result_status, completion = run
- *     completion; a Complete result forces completion = 100 and sets
- *     completed_at = now(); anything else leaves completed_at null
+ *     commit_hash / tests_summary; run notes are APPENDED to any live progress
+ *     narrative already persisted during the run (never destroys it)
+ *   - updates the parent story: status = result_status (a 'Cancelled' run maps
+ *     to the story status 'Hold'), completion = run completion; a Complete
+ *     result forces completion = 100 and sets completed_at = now(); anything
+ *     else leaves completed_at null
  * Human story notes are never overwritten.
  */
 export async function finishStoryRun(
@@ -496,15 +505,21 @@ export async function finishStoryRun(
     set ended_at = now(),
         result_status = ${input.resultStatus},
         completion = ${input.completion},
-        notes = ${input.notes},
+        notes = case
+          when ${input.notes}::text is null or ${input.notes}::text = '' then notes
+          when notes is null or notes = '' then ${input.notes}
+          else notes || E'\\n' || ${input.notes}
+        end,
         commit_hash = ${input.commitHash ?? null},
-        tests_summary = ${input.testsSummary ?? null}
+        tests_summary = ${input.testsSummary ?? null},
+        updated_at = now()
     where id = ${runId}
     returning id, story_id, started_at, ended_at, result_status, completion,
       notes, commit_hash, tests_summary,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
-      postconditions_snapshot, created_at
+      postconditions_snapshot, created_at,
+      updated_at
   `
   const runRow = runRows[0] as RunRow | undefined
   if (!runRow) {
@@ -514,9 +529,11 @@ export async function finishStoryRun(
 
   const completion =
     input.resultStatus === 'Complete' ? 100 : input.completion
+  const storyStatus =
+    input.resultStatus === 'Cancelled' ? 'Hold' : input.resultStatus
   const storyRows = await q`
     update storyboard_story
-    set status = ${input.resultStatus},
+    set status = ${storyStatus},
         completion = ${completion},
         completed_at = case when ${input.resultStatus} = 'Complete'
           then now() else null end,
@@ -536,4 +553,99 @@ export async function finishStoryRun(
     )
   }
   return { run, story: mapStory(storyRow) }
+}
+
+
+/**
+ * Live progress on an ACTIVE run (migration 026 telemetry):
+ *   - completion: sets the run's 0-100 completion when provided
+ *   - note: APPENDS a timestamped milestone to the run's execution narrative
+ *     (never destroys previously accumulated notes)
+ *   - testsSummary: replaces the run's current tests summary when provided
+ *   - updated_at = now() (last activity)
+ * Does NOT touch the parent story — the story status/completion remain the
+ * terminal lifecycle's responsibility.
+ */
+export type StoryRunProgressInput = {
+  completion?: number
+  note?: string
+  testsSummary?: string | null
+}
+
+export async function updateStoryRunProgress(
+  runId: string,
+  input: StoryRunProgressInput,
+  execute?: QueryExecutor,
+): Promise<StoryRun> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update storyboard_story_run
+    set completion = case when ${input.completion ?? null}::int is null
+          then completion else ${input.completion ?? null} end,
+        notes = case
+          when ${input.note ?? null}::text is null or ${input.note ?? null}::text = '' then notes
+          when notes is null or notes = '' then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note ?? null}
+          else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note ?? null}
+        end,
+        tests_summary = case when ${input.testsSummary ?? null}::text is null
+          then tests_summary else ${input.testsSummary ?? null} end,
+        updated_at = now()
+    where id = ${runId}
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot, created_at, updated_at
+  `
+  const row = rows[0] as RunRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)
+  }
+  return mapRun(row)
+}
+
+/**
+ * Terminate a run with a non-standard outcome (failure / cancellation / stale
+ * recovery): ended_at + result_status + completion (preserved when omitted) +
+ * a timestamped explanatory note appended to the narrative + tests summary
+ * (preserved when omitted). The parent story is updated by the caller.
+ */
+export type TerminateRunInput = {
+  resultStatus: 'Failed' | 'Cancelled'
+  completion?: number
+  note: string
+  testsSummary?: string | null
+}
+
+export async function terminateStoryRun(
+  runId: string,
+  input: TerminateRunInput,
+  execute?: QueryExecutor,
+): Promise<StoryRun> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update storyboard_story_run
+    set ended_at = now(),
+        result_status = ${input.resultStatus},
+        completion = case when ${input.completion ?? null}::int is null
+          then completion else ${input.completion ?? null} end,
+        notes = case
+          when notes is null or notes = '' then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note}
+          else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note}
+        end,
+        tests_summary = case when ${input.testsSummary ?? null}::text is null
+          then tests_summary else ${input.testsSummary ?? null} end,
+        updated_at = now()
+    where id = ${runId}
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot, created_at, updated_at
+  `
+  const row = rows[0] as RunRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)
+  }
+  return mapRun(row)
 }
