@@ -12,6 +12,8 @@ import {
   STORY_PRIORITIES,
   STORY_STATUSES,
   WORKSTREAMS,
+  statusBucket,
+  workstreamName,
   type StoryRecord,
 } from '@/lib/storyboard-data'
 
@@ -21,18 +23,17 @@ function resolve(result: unknown): Result {
   return result as Result
 }
 
-const statusClasses: Record<string, string> = {
-  Complete: 'bg-emerald-50 text-emerald-700',
-  Operationalized: 'bg-emerald-50 text-emerald-700',
-  'Minor remainder': 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]',
-  'Read-side complete': 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]',
-  'Readiness PASS': 'bg-amber-50 text-amber-700',
-  Partial: 'bg-black/5 text-black/55',
-  Planned: 'bg-black/5 text-black/55',
-  Open: 'bg-black/5 text-black/55',
-  Blocked: 'bg-red-50 text-red-700',
-  Deferred: 'bg-black/5 text-black/40',
-  'Hardware/content dependent': 'bg-black/5 text-black/55',
+function statusPillClasses(status: string): string {
+  switch (statusBucket(status)) {
+    case 'complete':
+      return 'bg-emerald-50 text-emerald-700'
+    case 'partial':
+      return 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]'
+    case 'blocked':
+      return 'bg-red-50 text-red-700'
+    default:
+      return 'bg-black/5 text-black/55'
+  }
 }
 
 const priorityClasses: Record<string, string> = {
@@ -67,7 +68,7 @@ const selectInput =
 function emptyForm(): StoryFormInput {
   return {
     id: '',
-    workstream: WORKSTREAMS[0],
+    workstream: WORKSTREAMS[0].code,
     title: '',
     priority: 'Medium',
     status: 'Open',
@@ -77,6 +78,8 @@ function emptyForm(): StoryFormInput {
     scope: null,
     acceptanceCriteria: null,
     dependencies: null,
+    completion: 0,
+    rollup: true,
   }
 }
 
@@ -152,9 +155,9 @@ function StoryForm({
             onChange={(event) => setField('workstream', event.target.value)}
             className={`${selectInput} w-full`}
           >
-            {WORKSTREAMS.map((workstream) => (
-              <option key={workstream} value={workstream}>
-                {workstream}
+            {WORKSTREAMS.map((ws) => (
+              <option key={ws.code} value={ws.code}>
+                {ws.code} — {ws.name}
               </option>
             ))}
           </select>
@@ -241,6 +244,41 @@ function StoryForm({
               onChange={(event) => setField('dependencies', event.target.value)}
               className={textInput}
             />
+          </label>
+
+          <label className="block">
+            <span className={fieldLabel}>Completion (0–100)</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={form.completion}
+              onChange={(event) =>
+                setField('completion', Number(event.target.value) || 0)
+              }
+              className={textInput}
+            />
+            <span className="mt-1.5 block text-xs font-light text-black/40">
+              Human-authored estimate; the rollup scores from status.
+            </span>
+          </label>
+
+          <label className="block">
+            <span className={fieldLabel}>Counts toward rollup</span>
+            <div className="mt-2 flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.rollup}
+                onChange={(event) => setField('rollup', event.target.checked)}
+                className="h-4 w-4 accent-[var(--portal-navy)]"
+              />
+              <span className="text-sm font-light text-black/55">
+                Participates in workstream rollup
+              </span>
+            </div>
+            <span className="mt-1.5 block text-xs font-light text-black/40">
+              Parent stories (rollup=false) are stored but excluded from counts.
+            </span>
           </label>
 
           <label className="block">
@@ -348,7 +386,7 @@ function StoryRow({
             value={story.status}
             disabled={isPending}
             onChange={(event) => onChangeStatus(event.target.value)}
-            className={`inline-block min-h-8 cursor-pointer whitespace-nowrap rounded-full px-3 text-xs font-light outline-none ${statusClasses[story.status]}`}
+            className={`inline-block min-h-8 cursor-pointer whitespace-nowrap rounded-full px-3 text-xs font-light outline-none ${statusPillClasses(story.status)}`}
           >
             {STORY_STATUSES.map((status) => (
               <option key={status} value={status}>
@@ -379,6 +417,8 @@ function StoryRow({
                 scope: story.scope,
                 acceptanceCriteria: story.acceptanceCriteria,
                 dependencies: story.dependencies,
+                completion: story.completion,
+                rollup: story.rollup,
               }}
               idEditable={false}
               submitLabel="Save changes"
@@ -538,17 +578,17 @@ export function StoryBoardTable({ stories }: { stories: StoryRecord[] }) {
             </tr>
           </thead>
 
-          {WORKSTREAMS.map((workstream) => {
-            const rows = stories.filter((s) => s.workstream === workstream)
+          {WORKSTREAMS.map((ws) => {
+            const rows = stories.filter((s) => s.workstream === ws.code)
 
             return (
-              <tbody key={workstream}>
+              <tbody key={ws.code}>
                 <tr className="bg-[var(--portal-blue-pale)]/50">
                   <td
                     colSpan={5}
                     className="px-6 py-3 text-[10px] font-light uppercase tracking-[0.24em] text-[var(--portal-navy)]"
                   >
-                    {workstream}
+                    {workstreamName(ws.code)}
                     <span className="ml-3 text-black/40">
                       {rows.length} story{rows.length === 1 ? '' : 's'}
                     </span>

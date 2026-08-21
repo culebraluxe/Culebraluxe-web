@@ -1,5 +1,16 @@
 # Agent Run Log
 
+## 2026-08-21 — Authoritative master board + DB rollups on Story Board
+
+- Role: Builder
+- Story: Replace Story Board seed with authoritative master board + DB rollups
+- Files changed: `db/migrations/022_storyboard_authoritative_seed.sql` (new — completion/rollup columns + 74-story reseed), `lib/storyboard-data.ts` (8 workstreams/weights, status scoring, net-net model), `db/storyboard.ts` (completion/rollup persistence), `app/portal/storyboard/actions.ts`, `components/portal/story-board.tsx` (Net-Net + workstream rollup dashboard), `components/portal/write/story-board-table.tsx` (new fields), tests, `docs/DEV_DATABASE.md`, and this run log.
+- Decision: Replace the inferred S-001…S-041 DEV rows with the human-authored 8/21 master board (74 stories), and derive workstream completion + Net-Net from persisted statuses.
+- Checks: Migration 022 applied to DEV (74 rows, 0 S-*, distinct ids 74); per-workstream rollup counts reconcile with raw SQL; Net-Net 44.8%; status change CRM-14B Planned→Complete moved TXN 34.6→42.3 and Net-Net 44.8→45.9 (reverted); `/portal/storyboard` renders the board + Net-Net from DEV and persists on refresh; storyboard tests 16/16; full `workflow_app` suite green; `pnpm exec next build --webpack` passed; `git diff --check` passed.
+- Database mutations: DEV branch only — columns added, rows reseeded, temporary status flips applied and reverted. **Production untouched.**
+- Decisions made: rollup completion uses status scoring (COMPLETION column is stored human data but does not drive the rollup); rollup=false parent stories (CRM-14, CRM-16, PORTAL-01) are stored but excluded from counts; Deferred/Hardware-dependent fold into the open bucket so counts reconcile.
+- Next action: none; migration 022 remains unapplied to production by design.
+
 ## 2026-08-21 — Story Board DEV persistence activation
 
 - Role: Builder

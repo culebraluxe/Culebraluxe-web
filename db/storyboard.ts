@@ -27,6 +27,8 @@ export type StoryboardStory = {
   scope: string | null
   acceptanceCriteria: string | null
   dependencies: string | null
+  completion: number
+  rollup: boolean
   createdAt: string
   updatedAt: string
 }
@@ -43,6 +45,8 @@ export type StoryboardStoryInput = {
   scope: string | null
   acceptanceCriteria: string | null
   dependencies: string | null
+  completion: number
+  rollup: boolean
 }
 
 export type StoryboardStoryUpdate = Omit<StoryboardStoryInput, 'id'>
@@ -59,6 +63,8 @@ type StoryRow = QueryRow & {
   scope: string | null
   acceptance_criteria: string | null
   dependencies: string | null
+  completion: number
+  rollup: boolean
   created_at: string
   updated_at: string
 }
@@ -91,6 +97,8 @@ function mapStory(row: StoryRow): StoryboardStory {
     scope: row.scope,
     acceptanceCriteria: row.acceptance_criteria,
     dependencies: row.dependencies,
+    completion: row.completion,
+    rollup: row.rollup,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -115,7 +123,8 @@ export async function listStoryboardStories(
 
   const rows = await q`
     select id, workstream, title, priority, status, notes, batch, goal, scope,
-      acceptance_criteria, dependencies, created_at, updated_at
+      acceptance_criteria, dependencies, completion, rollup, created_at,
+      updated_at
     from storyboard_story
     order by workstream, id
   `
@@ -130,16 +139,18 @@ export async function createStoryboardStory(
   const rows = await q`
     insert into storyboard_story (
       id, workstream, title, priority, status, notes, batch, goal, scope,
-      acceptance_criteria, dependencies
+      acceptance_criteria, dependencies, completion, rollup
     ) values (
       ${input.id}, ${input.workstream}, ${input.title}, ${input.priority},
       ${input.status}, ${input.notes}, ${input.batch ?? null},
       ${input.goal ?? null}, ${input.scope ?? null},
-      ${input.acceptanceCriteria ?? null}, ${input.dependencies ?? null}
+      ${input.acceptanceCriteria ?? null}, ${input.dependencies ?? null},
+      ${input.completion}, ${input.rollup}
     )
     on conflict (id) do nothing
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, created_at, updated_at
+      scope, acceptance_criteria, dependencies, completion, rollup,
+      created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -169,10 +180,13 @@ export async function updateStoryboardStory(
         scope = ${input.scope ?? null},
         acceptance_criteria = ${input.acceptanceCriteria ?? null},
         dependencies = ${input.dependencies ?? null},
+        completion = ${input.completion},
+        rollup = ${input.rollup},
         updated_at = now()
     where id = ${id}
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, created_at, updated_at
+      scope, acceptance_criteria, dependencies, completion, rollup,
+      created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -193,7 +207,8 @@ export async function setStoryboardStatus(
         updated_at = now()
     where id = ${id}
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, created_at, updated_at
+      scope, acceptance_criteria, dependencies, completion, rollup,
+      created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {

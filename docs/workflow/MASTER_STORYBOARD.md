@@ -9,6 +9,13 @@
 > storyboard implements nothing, changes no application/engine/schema/data, and
 > builds no UI.
 
+> **Note (2026-08-21):** the persistent `/portal/storyboard` is now the
+> authoritative CulebraLuxe master backlog, seeded from the human-authored
+> 8/21 master board (74 stories) via
+> `db/migrations/022_storyboard_authoritative_seed.sql`. This document and
+> `STORYBOARD_STATUS.md` are retained as history of the earlier S-* storyboard.
+
+
 ---
 
 ## 1. Purpose

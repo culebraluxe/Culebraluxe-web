@@ -1,50 +1,70 @@
 // ---------------------------------------------------------------------------
-// CulebraLuxe Story Board — vocabulary and dashboard model.
+// CulebraLuxe Story Board — vocabulary and rollup model.
 //
-// This module owns the program vocabulary (workstreams, statuses, priorities)
-// and the dashboard/metrics computation. Story data is NOT stored here: the 41
-// existing human-authored stories are seeded into Neon by
-// db/migrations/021_storyboard_story.sql and read through db/storyboard.ts.
-// Nothing here derives stories from the repository and no backlog items are
-// created.
-//
-// Statuses and priorities use the program vocabulary exactly as required.
+// This module owns the program vocabulary (workstreams, statuses, priorities),
+// the status completion scoring, and the workstream rollup / net-net
+// computation. Story data is NOT stored here: the authoritative 8/21 master
+// board (74 human-authored stories) is seeded into Neon by
+// db/migrations/022_storyboard_authoritative_seed.sql and read through
+// db/storyboard.ts. Nothing here derives stories from the repository and no
+// backlog items are created.
 // ---------------------------------------------------------------------------
 
+/** Workstream code stored on each story, with its rollup name and weight. */
 export const WORKSTREAMS = [
-  "CRM / Intake",
-  "Portal / Operations",
-  "Public Property / Buyer Experience",
-  "Platform / Engineering / Data",
+  { code: 'PUBLIC', name: 'Public Website / Property Experience', weight: 20 },
+  { code: 'CRM', name: 'CRM Foundation / Intake Core', weight: 20 },
+  { code: 'PORTAL', name: 'Portal / Relationship Operations', weight: 20 },
+  { code: 'TXN', name: 'Transaction / Deal Workflow', weight: 15 },
+  { code: 'ADMIN', name: 'Admin / Data Management', weight: 10 },
+  { code: 'AUTH', name: 'Auth / Security / User Access', weight: 5 },
+  { code: 'CONTENT', name: 'Content / Marketing / Source Cleanup', weight: 5 },
+  { code: 'HARDEN', name: 'Integrations / Operational Hardening', weight: 5 },
 ] as const
 
-export type Workstream = (typeof WORKSTREAMS)[number]
+export type Workstream = (typeof WORKSTREAMS)[number]['code']
+
+export const WORKSTREAM_CODES: readonly string[] = WORKSTREAMS.map(
+  (w) => w.code,
+)
+
+export function workstreamName(code: string): string {
+  return WORKSTREAMS.find((w) => w.code === code)?.name ?? code
+}
 
 export const STORY_STATUSES = [
-  "Complete",
-  "Read-side complete",
-  "Partial",
-  "Planned",
-  "Open",
-  "Blocked",
-  "Deferred",
-  "Hardware/content dependent",
-  "Operationalized",
-  "Minor remainder",
-  "Readiness PASS",
+  'Complete',
+  'Complete V1',
+  'Complete V2',
+  'Operationalized',
+  'Operationalized V1',
+  'Operationalized V2',
+  'Read-side complete',
+  'Read-side V1',
+  'Read-side V1 complete',
+  'Readiness PASS',
+  'Partial',
+  'strong V1 core',
+  'Minor remainder',
+  'Browser-local V1',
+  'Planned',
+  'Open',
+  'Blocked',
+  'Deferred',
+  'Hardware/content dependent',
 ] as const
 
 export type StoryStatus = (typeof STORY_STATUSES)[number]
 
 export const STORY_PRIORITIES = [
-  "Critical",
-  "High",
-  "High-ish",
-  "Medium-High",
-  "Medium",
-  "Low",
-  "Later",
-  "High-value polish",
+  'Critical',
+  'High',
+  'High-ish',
+  'Medium-High',
+  'Medium',
+  'Low',
+  'Later',
+  'High-value polish',
 ] as const
 
 export type StoryPriority = (typeof STORY_PRIORITIES)[number]
@@ -61,106 +81,116 @@ export type StoryRecord = {
   scope: string | null
   acceptanceCriteria: string | null
   dependencies: string | null
+  /** Human-authored 0–100 completion (informational; rollup uses status). */
+  completion: number
+  /** Whether the story participates in the workstream rollup. */
+  rollup: boolean
 }
 
 // ---------------------------------------------------------------------------
-// The 41 existing human-authored stories are seeded into the database by
-// db/migrations/021_storyboard_story.sql (the authoritative copy). The page
-// reads them from Neon via db/storyboard.ts; no static duplicate lives here.
+// Status completion scoring and buckets (8/21 master board policy).
+//
+//   complete  — Complete / Complete V1 / Complete V2 / Operationalized /
+//               Operationalized V1 / Operationalized V2              → 1.00
+//   partial   — Read-side complete / Read-side V1 / Read-side V1 complete /
+//               Readiness PASS (0.80) and Partial / strong V1 core /
+//               Minor remainder / Browser-local V1 (0.50)
+//   open      — Planned / Open / Deferred / Hardware/content dependent → 0.00
+//   blocked   — Blocked                                                → 0.00
+//
+// Human-readable labels are stored on the story; scoring/bucketing happens
+// internally from these maps.
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Dashboard model
-//
-// weight — the workstream's share of total program weight. Each story
-//          contributes priority points (Critical 5 … Later 1); a workstream's
-//          weight is its share of the summed points across all stories.
-// completionPercent — priority-weighted completion within the workstream,
-//          where each status maps to a completion fraction (below).
-// weightedContribution — weight × completionPercent (percentage points);
-//          summing across workstreams gives overall program completion.
-//
-// The three summary metrics aggregate the same story data:
-//   Architecture / Foundation % — the Platform / Engineering / Data workstream.
-//   Usable Product % — CRM / Intake + Portal / Operations + Public Property.
-//   Brokerage-Ready % — the brokerage-operational cluster: Portal / Operations
-//          workstream stories plus the operational platform stories that must
-//          be done for the brokerage to run daily deals end-to-end.
-// ---------------------------------------------------------------------------
+export type StatusBucket = 'complete' | 'partial' | 'open' | 'blocked'
 
-/** Completion fraction per status. Human-readable policy, not repo-derived. */
-export const STATUS_COMPLETION: Record<StoryStatus, number> = {
+export const STATUS_SCORE: Record<StoryStatus, number> = {
   Complete: 1,
+  'Complete V1': 1,
+  'Complete V2': 1,
   Operationalized: 1,
-  "Minor remainder": 0.9,
-  "Read-side complete": 0.85,
-  "Readiness PASS": 0.85,
+  'Operationalized V1': 1,
+  'Operationalized V2': 1,
+  'Read-side complete': 0.8,
+  'Read-side V1': 0.8,
+  'Read-side V1 complete': 0.8,
+  'Readiness PASS': 0.8,
   Partial: 0.5,
-  Planned: 0.15,
-  "Hardware/content dependent": 0.15,
-  Blocked: 0.1,
-  Open: 0.05,
+  'strong V1 core': 0.5,
+  'Minor remainder': 0.5,
+  'Browser-local V1': 0.5,
+  Planned: 0,
+  Open: 0,
+  Blocked: 0,
   Deferred: 0,
+  'Hardware/content dependent': 0,
 }
 
-/** Relative weight per priority (used for workstream weights). */
-export const PRIORITY_POINTS: Record<StoryPriority, number> = {
-  Critical: 5,
-  High: 4,
-  "High-ish": 3.5,
-  "Medium-High": 3,
-  Medium: 2,
-  Low: 1.5,
-  Later: 1,
-  "High-value polish": 1,
+export const STATUS_BUCKET: Record<StoryStatus, StatusBucket> = {
+  Complete: 'complete',
+  'Complete V1': 'complete',
+  'Complete V2': 'complete',
+  Operationalized: 'complete',
+  'Operationalized V1': 'complete',
+  'Operationalized V2': 'complete',
+  'Read-side complete': 'partial',
+  'Read-side V1': 'partial',
+  'Read-side V1 complete': 'partial',
+  'Readiness PASS': 'partial',
+  Partial: 'partial',
+  'strong V1 core': 'partial',
+  'Minor remainder': 'partial',
+  'Browser-local V1': 'partial',
+  Planned: 'open',
+  Open: 'open',
+  Deferred: 'open',
+  'Hardware/content dependent': 'open',
+  Blocked: 'blocked',
 }
 
-/** Display ordering for priorities (low number = higher on the page). */
-export const PRIORITY_ORDER: Record<StoryPriority, number> = {
-  Critical: 0,
-  High: 1,
-  "High-ish": 2,
-  "Medium-High": 3,
-  Medium: 4,
-  Low: 5,
-  Later: 6,
-  "High-value polish": 7,
+export function statusScore(status: string): number {
+  return STATUS_SCORE[status as StoryStatus] ?? 0
 }
 
-/** Stories whose completion determines the Brokerage-Ready metric. */
-export const BROKERAGE_READY_STORY_IDS: ReadonlySet<string> = new Set([
-  "S-012",
-  "S-013",
-  "S-014",
-  "S-015",
-  "S-016",
-  "S-030",
-  "S-031",
-  "S-032",
-  "S-037",
-  "S-038",
-])
+export function statusBucket(status: string): StatusBucket {
+  return STATUS_BUCKET[status as StoryStatus] ?? 'open'
+}
 
-export type WorkstreamMetric = {
-  workstream: Workstream
+// ---------------------------------------------------------------------------
+// Rollup model
+//
+// Per workstream (matching the required rollup fields):
+//   workstream, story_count, complete_count, partial_count, open_count,
+//   blocked_count, completion_percent
+//
+// story_count and the four counts cover ROLLUP-participating stories only
+// (parents such as CRM-14, CRM-16, PORTAL-01 are stored with rollup=false and
+// excluded — their children carry the rollup weight). completion_percent is
+// the mean status score over the workstream's rollup stories.
+//
+// net_net = SUM(workstream_completion_percent * workstream_weight), with
+// weights as percentages summing to 100.
+// ---------------------------------------------------------------------------
+
+export type WorkstreamRollup = {
+  workstream: string
+  code: Workstream
   weight: number
-  completionPercent: number
-  weightedContribution: number
   storyCount: number
   completeCount: number
-}
-
-export type SummaryMetric = {
-  label: string
-  percent: number
-  detail: string
+  partialCount: number
+  openCount: number
+  blockedCount: number
+  completionPercent: number
+  /** All stored stories for the workstream, including rollup=false parents. */
+  storedCount: number
 }
 
 export type StoryBoardModel = {
   stories: StoryRecord[]
-  workstreams: WorkstreamMetric[]
-  summary: SummaryMetric[]
-  overallPercent: number
+  workstreams: WorkstreamRollup[]
+  /** Overall net-net completion, 0–100. */
+  netNet: number
 }
 
 function round(value: number, digits = 1) {
@@ -168,80 +198,54 @@ function round(value: number, digits = 1) {
   return Math.round(value * factor) / factor
 }
 
-function completionPercentFor(stories: StoryRecord[]): number {
-  const total = stories.reduce((sum, s) => sum + PRIORITY_POINTS[s.priority], 0)
-  if (total === 0) return 0
-  const done = stories.reduce(
-    (sum, s) => sum + PRIORITY_POINTS[s.priority] * STATUS_COMPLETION[s.status],
-    0,
-  )
-  return (done / total) * 100
-}
-
 export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
-  const totalWeight = stories.reduce(
-    (sum, s) => sum + PRIORITY_POINTS[s.priority],
-    0,
-  )
+  const workstreams: WorkstreamRollup[] = WORKSTREAMS.map((ws) => {
+    const stored = stories.filter((s) => s.workstream === ws.code)
+    const group = stored.filter((s) => s.rollup)
+    const storyCount = group.length
 
-  const workstreams = WORKSTREAMS.map((workstream) => {
-    const group = stories.filter((s) => s.workstream === workstream)
-    const groupWeight = group.reduce(
-      (sum, s) => sum + PRIORITY_POINTS[s.priority],
-      0,
-    )
-    const completionPercent = completionPercentFor(group)
-    const weight = totalWeight > 0 ? (groupWeight / totalWeight) * 100 : 0
+    const completeCount = group.filter(
+      (s) => statusBucket(s.status) === 'complete',
+    ).length
+    const partialCount = group.filter(
+      (s) => statusBucket(s.status) === 'partial',
+    ).length
+    const openCount = group.filter(
+      (s) => statusBucket(s.status) === 'open',
+    ).length
+    const blockedCount = group.filter(
+      (s) => statusBucket(s.status) === 'blocked',
+    ).length
+
+    const completionPercent =
+      storyCount > 0
+        ? round(
+            (group.reduce((sum, s) => sum + statusScore(s.status), 0) /
+              storyCount) *
+              100,
+          )
+        : 0
 
     return {
-      workstream,
-      weight: round(weight),
-      completionPercent: round(completionPercent),
-      weightedContribution: round((weight / 100) * completionPercent),
-      storyCount: group.length,
-      completeCount: group.filter(
-        (s) => s.status === "Complete" || s.status === "Operationalized",
-      ).length,
+      workstream: ws.name,
+      code: ws.code,
+      weight: ws.weight,
+      storyCount,
+      completeCount,
+      partialCount,
+      openCount,
+      blockedCount,
+      completionPercent,
+      storedCount: stored.length,
     }
   })
 
-  const overallPercent = round(
+  const netNet = round(
     workstreams.reduce(
-      (sum, ws) => sum + ws.weightedContribution,
+      (sum, ws) => sum + (ws.completionPercent * ws.weight) / 100,
       0,
     ),
   )
 
-  const foundationStories = stories.filter(
-    (s) => s.workstream === "Platform / Engineering / Data",
-  )
-  const productStories = stories.filter(
-    (s) =>
-      s.workstream === "CRM / Intake" ||
-      s.workstream === "Portal / Operations" ||
-      s.workstream === "Public Property / Buyer Experience",
-  )
-  const brokerageStories = stories.filter((s) =>
-    BROKERAGE_READY_STORY_IDS.has(s.id),
-  )
-
-  const summary: SummaryMetric[] = [
-    {
-      label: "Architecture / Foundation",
-      percent: round(completionPercentFor(foundationStories)),
-      detail: `${foundationStories.length} platform stories`,
-    },
-    {
-      label: "Usable Product",
-      percent: round(completionPercentFor(productStories)),
-      detail: `${productStories.length} product stories`,
-    },
-    {
-      label: "Brokerage-Ready",
-      percent: round(completionPercentFor(brokerageStories)),
-      detail: `${brokerageStories.length} brokerage-operational stories`,
-    },
-  ]
-
-  return { stories, workstreams, summary, overallPercent }
+  return { stories, workstreams, netNet }
 }

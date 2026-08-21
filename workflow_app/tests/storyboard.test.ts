@@ -51,6 +51,8 @@ class FakeDb {
         scope: p[8] ?? null,
         acceptance_criteria: p[9] ?? null,
         dependencies: p[10] ?? null,
+        completion: p[11],
+        rollup: p[12],
         created_at: '2026-08-21T00:00:00Z',
         updated_at: '2026-08-21T00:00:00Z',
       }
@@ -61,7 +63,7 @@ class FakeDb {
     if (t.includes('update storyboard_story')) {
       const statusOnly =
         t.includes('set status = $1') && !t.includes('set workstream')
-      const id = statusOnly ? p[1] : p[10]
+      const id = statusOnly ? p[1] : p[12]
       const r = this.rows.find((x) => x.id === id)
       if (!r) return Promise.resolve([])
       if (statusOnly) {
@@ -77,6 +79,8 @@ class FakeDb {
         r.scope = p[7] ?? null
         r.acceptance_criteria = p[8] ?? null
         r.dependencies = p[9] ?? null
+        r.completion = p[10]
+        r.rollup = p[11]
       }
       r.updated_at = '2026-08-21T01:00:00Z'
       return Promise.resolve([r])
@@ -92,7 +96,7 @@ class FakeDb {
 
 const baseInput = {
   id: 'CRM-19',
-  workstream: 'CRM / Intake',
+  workstream: 'CRM',
   title: 'WhatsApp live connector',
   priority: 'High',
   status: 'Open',
@@ -102,6 +106,8 @@ const baseInput = {
   scope: null,
   acceptanceCriteria: null,
   dependencies: null,
+  completion: 0,
+  rollup: true,
 }
 
 test('isStoryboardTableReady reports the probe result', async () => {
@@ -121,12 +127,14 @@ test('createStoryboardStory inserts and returns the camelCase record', async () 
   const f = new FakeDb()
   const story = await createStoryboardStory(baseInput, f.tx)
   assert.equal(story.id, 'CRM-19')
-  assert.equal(story.workstream, 'CRM / Intake')
+  assert.equal(story.workstream, 'CRM')
   assert.equal(story.title, 'WhatsApp live connector')
   assert.equal(story.priority, 'High')
   assert.equal(story.status, 'Open')
   assert.equal(story.notes, 'Provider webhook + signature verification.')
   assert.equal(story.acceptanceCriteria, null)
+  assert.equal(story.completion, 0)
+  assert.equal(story.rollup, true)
   assert.equal(f.rows.length, 1)
 })
 
@@ -148,7 +156,7 @@ test('updateStoryboardStory updates fields and preserves the id', async () => {
   const updated = await updateStoryboardStory(
     'CRM-19',
     {
-      workstream: 'Platform / Engineering / Data',
+      workstream: 'TXN',
       title: 'WhatsApp connector (renamed)',
       priority: 'Critical',
       status: 'Blocked',
@@ -158,17 +166,21 @@ test('updateStoryboardStory updates fields and preserves the id', async () => {
       scope: 'Webhook only.',
       acceptanceCriteria: 'Idempotent receipt.',
       dependencies: 'S-008',
+      completion: 85,
+      rollup: true,
     },
     f.tx,
   )
   assert.equal(updated.id, 'CRM-19')
-  assert.equal(updated.workstream, 'Platform / Engineering / Data')
+  assert.equal(updated.workstream, 'TXN')
   assert.equal(updated.title, 'WhatsApp connector (renamed)')
   assert.equal(updated.priority, 'Critical')
   assert.equal(updated.status, 'Blocked')
   assert.equal(updated.batch, 4)
   assert.equal(updated.goal, 'Lower provider deliveries.')
   assert.equal(updated.dependencies, 'S-008')
+  assert.equal(updated.completion, 85)
+  assert.equal(updated.rollup, true)
   assert.notEqual(updated.updatedAt, updated.createdAt)
 })
 

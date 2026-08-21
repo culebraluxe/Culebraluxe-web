@@ -13,10 +13,9 @@ import { PortalWriteError } from '@/lib/portal-write-error'
 import {
   STORY_PRIORITIES,
   STORY_STATUSES,
-  WORKSTREAMS,
+  WORKSTREAM_CODES,
   type StoryPriority,
   type StoryStatus,
-  type Workstream,
 } from '@/lib/storyboard-data'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +41,8 @@ export type StoryFormInput = {
   scope: string | null
   acceptanceCriteria: string | null
   dependencies: string | null
+  completion: number
+  rollup: boolean
 }
 
 function failure(
@@ -76,7 +77,7 @@ function validateInput(
     const idError = validateId(input.id)
     if (idError) return idError
   }
-  if (!WORKSTREAMS.includes(input.workstream as Workstream)) {
+  if (!WORKSTREAM_CODES.includes(input.workstream)) {
     return 'Workstream is required.'
   }
   if (!input.title.trim()) return 'Story title is required.'
@@ -85,6 +86,14 @@ function validateInput(
   }
   if (!STORY_STATUSES.includes(input.status as StoryStatus)) {
     return 'Status is required.'
+  }
+  if (
+    typeof input.completion !== 'number' ||
+    !Number.isInteger(input.completion) ||
+    input.completion < 0 ||
+    input.completion > 100
+  ) {
+    return 'Completion must be an integer between 0 and 100.'
   }
   return null
 }
@@ -102,6 +111,8 @@ function toInput(form: StoryFormInput): StoryboardStoryInput {
     scope: form.scope?.trim() || null,
     acceptanceCriteria: form.acceptanceCriteria?.trim() || null,
     dependencies: form.dependencies?.trim() || null,
+    completion: form.completion,
+    rollup: form.rollup,
   }
 }
 
