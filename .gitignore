@@ -9,6 +9,9 @@ __v0_jsx-dev-runtime.ts
 # Environment variables
 .env*.local
 
+# Agent worker scheduler local overrides (optional, machine-specific)
+.env.scheduler
+
 # Common ignores
 node_modules
 .next/

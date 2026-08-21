@@ -1,5 +1,42 @@
 # Agent Run Log
 
+## 2026-08-21 — Autonomous single-story worker scheduler
+
+- Role: Builder
+- Story: Add autonomous single-story worker scheduler — a local periodic
+  wake-up for `pnpm agent:work` that removes the last manual step between a
+  story becoming `Ready` and the coding agent claiming it.
+- Files changed: `scripts/agent-worker-once.sh` (new — single-invocation
+  wrapper: repo-root resolution with `AGENT_WORKER_REPO` override, explicit
+  PATH for launchd, mkdir no-overlap lock with stale-pid recovery, invokes
+  `pnpm agent:work` exactly once, timestamped start/end + exit code in
+  `~/Library/Logs/CulebraLuxe/agent-worker.invocations.log`, never loops),
+  `scripts/com.culebraluxe.agent-worker.plist.template` (new — LaunchAgent
+  template: `StartInterval 300`, RunAtLoad, deployed wrapper outside
+  TCC-protected `~/Documents`), `scripts/agent-scheduler.mjs` (new —
+  `install`/`status`/`run`/`stop`/`uninstall` CLI: renders plist, deploys the
+  wrapper copy, bootstraps via launchctl gui domain, kill switch = bootout +
+  persisted disable), `package.json` (`agent:scheduler:install|status|run|stop|
+  uninstall`), `.gitignore` (`.env.scheduler`), tests
+  (`workflow_app/tests/agent-scheduler.test.ts` — 9 wrapper/plist/CLI tests,
+  no DB), `docs/agent/AGENT_WORKER_SCHEDULER.md` (new — architecture, cadence,
+  commands, logs, env, failure modes, emergency stop), and this run log.
+- Decision: launchd user LaunchAgent over a custom daemon; the scheduler owns
+  NO queue logic (DB + `pnpm agent:work` remain the authority). Discovery:
+  the repo lives under TCC-protected `~/Documents`, and launchd-spawned
+  processes cannot execute files there (exit 126), so `install` deploys a copy
+  of the wrapper to `~/Library/Application Support/CulebraLuxe/` which the
+  LaunchAgent runs with `AGENT_WORKER_REPO` pointing back at the repo.
+- Verification: wrapper `no work` exit 0 + logs; queue-safety in production
+  with temporary TMP-SCHED-A/B Ready stories (one claim per invocation,
+  `claimed_by=scheduler`, single-worker refusal while Running, second story
+  claimed only after the first finished, cleanup restored 74/0/0); install →
+  RunAtLoad + kickstart scheduled runs logged (exit 0); stop persisted
+  disabled and blocked runs; uninstall removed plist + deployed wrapper;
+  re-install left the scheduler enabled with zero Ready stories; 9 new tests,
+  full suite, tsc, Next build, git diff --check clean.
+- Release: commit + push follow verification; no production migration needed.
+
 ## 2026-08-21 — Production-master agent work queue + Ready status
 
 - Role: Builder

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  CulebraLuxe agent worker scheduler — periodic `pnpm agent:work` invoker.
+
+  Generated from this template by `pnpm agent:scheduler:install`
+  (scripts/agent-scheduler.mjs), which substitutes {{SUPPORT_DIR}},
+  {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}}, {{LABEL}}, and {{CADENCE_SECONDS}},
+  validates the result with plutil, and bootstraps it into launchd
+  (gui/$(id -u)).
+
+  The LaunchAgent invokes a deployed copy of scripts/agent-worker-once.sh at
+  {{SUPPORT_DIR}} (outside the TCC-protected ~/Documents folder — macOS does
+  not allow launchd-spawned processes to execute files under Documents). The
+  deployed copy receives AGENT_WORKER_REPO={{REPO_ROOT}} through the plist
+  environment, cd's into the repository, and runs `pnpm agent:work`.
+
+  Cadence: StartInterval {{CADENCE_SECONDS}} seconds (5 minutes). Each
+  invocation claims AT MOST ONE story and exits. The wrapper's local lock plus
+  the database single-worker index prevent overlapping local invocations.
+
+  Manage with:
+    pnpm agent:scheduler:install
+    pnpm agent:scheduler:status
+    pnpm agent:scheduler:run
+    pnpm agent:scheduler:stop       (kill switch)
+    pnpm agent:scheduler:uninstall
+  See docs/agent/AGENT_WORKER_SCHEDULER.md.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{LABEL}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{SUPPORT_DIR}}/agent-worker-once.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{SUPPORT_DIR}}</string>
+
+  <key>StartInterval</key>
+  <integer>{{CADENCE_SECONDS}}</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>AGENT_WORKER_REPO</key>
+    <string>{{REPO_ROOT}}</string>
+    <key>AGENT_WORKER_LOG_DIR</key>
+    <string>{{LOG_DIR}}</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/agent-worker.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/agent-worker.err.log</string>
+</dict>
+</plist>

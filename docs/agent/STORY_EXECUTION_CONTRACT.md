@@ -72,6 +72,23 @@ If a field is empty, do not invent hidden requirements merely to fill it.
   `Done` (the authorized attempt was processed normally). Never invent
   prerequisite work.
 
+## Autonomous scheduler
+
+- Ready stories are dispatched automatically by the database trigger into a
+  `Ready` work item.
+- A scheduled worker on the development host wakes every 5 minutes and invokes
+  `pnpm agent:work` (via `scripts/agent-worker-once.sh`, managed by the
+  launchd LaunchAgent `com.culebraluxe.agent-worker`).
+- Each invocation processes **at most one** story. There is no internal
+  execution loop; multiple Ready stories execute over separate scheduler
+  intervals.
+- The production Story Board remains the execution-control authority. The
+  scheduler never creates work items, never mutates stories, and only runs
+  the existing worker command.
+- DEV remains the implementation/test sandbox.
+- Operational details and the kill switch live in
+  `docs/agent/AGENT_WORKER_SCHEDULER.md`.
+
 ## Execution state
 
 When beginning work:
