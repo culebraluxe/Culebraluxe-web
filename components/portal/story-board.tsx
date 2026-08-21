@@ -9,23 +9,6 @@ import { StoryBoardTable } from "@/components/portal/write/story-board-table"
 // workflow_engine involvement.
 // ---------------------------------------------------------------------------
 
-function NetNetCard({ netNet }: { netNet: number }) {
-  return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
-      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-        Net-Net Completion
-      </div>
-      <div className="mt-4 font-serif text-5xl font-light leading-none text-[var(--portal-navy)]">
-        {netNet.toFixed(1)}%
-      </div>
-      <div className="mt-3 text-xs font-light leading-5 text-black/40">
-        Weighted across the 8 workstreams — Σ (workstream completion ×
-        weight) — computed from the stored Story Board state.
-      </div>
-    </div>
-  )
-}
-
 function CompletionBar({ percent }: { percent: number }) {
   return (
     <div className="flex items-center gap-3">
@@ -38,6 +21,70 @@ function CompletionBar({ percent }: { percent: number }) {
       <span className="font-serif text-lg font-light text-[var(--portal-navy)]">
         {percent.toFixed(1)}%
       </span>
+    </div>
+  )
+}
+
+function SummaryStat({
+  label,
+  value,
+  note,
+}: {
+  label: string
+  value: string
+  note?: string
+}) {
+  return (
+    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-5">
+      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+        {label}
+      </div>
+      <div className="mt-3 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
+        {value}
+      </div>
+      {note && (
+        <div className="mt-2 text-xs font-light leading-5 text-black/40">
+          {note}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SummaryStrip({ model }: { model: StoryBoardModel }) {
+  return (
+    <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="rounded-sm border border-[#c6a15b]/40 bg-white p-5">
+        <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[#8a6d2f]">
+          Net-Net Completion
+        </div>
+        <div className="mt-3 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
+          {model.netNet.toFixed(1)}%
+        </div>
+        <div className="mt-2 text-xs font-light leading-5 text-black/40">
+          Σ (workstream completion × weight)
+        </div>
+      </div>
+      <SummaryStat
+        label="Authoritative stories"
+        value={String(model.totalStories)}
+        note="All stored stories"
+      />
+      <SummaryStat
+        label="Complete"
+        value={String(model.totalComplete)}
+        note="Status Complete"
+      />
+      <SummaryStat
+        label="In Progress / Partial"
+        value={String(model.totalInProgressPartial)}
+        note="Actively being worked"
+      />
+      <SummaryStat
+        label="Blocked / Failed"
+        value={String(model.totalBlockedFailed)}
+        note="Requires attention"
+      />
     </div>
   )
 }
@@ -70,13 +117,10 @@ function WorkstreamRow({ model }: { model: StoryBoardModel }) {
             {ws.completeCount}
           </td>
           <td className="px-6 py-4 align-top font-light text-black/60">
-            {ws.partialCount}
+            {ws.inProgressPartialCount}
           </td>
           <td className="px-6 py-4 align-top font-light text-black/60">
-            {ws.openCount}
-          </td>
-          <td className="px-6 py-4 align-top font-light text-black/60">
-            {ws.blockedCount}
+            {ws.blockedFailedCount}
           </td>
           <td className="px-6 py-4 align-top">
             <CompletionBar percent={ws.completionPercent} />
@@ -118,7 +162,7 @@ export function StoryBoard({
         </p>
       </header>
 
-      <NetNetCard netNet={model.netNet} />
+      <SummaryStrip model={model} />
 
       <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
         <div className="border-b border-[var(--portal-border)] px-6 py-6">
@@ -146,13 +190,10 @@ export function StoryBoard({
                   Complete
                 </th>
                 <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Partial
+                  In Progress / Partial
                 </th>
                 <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Open
-                </th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Blocked
+                  Blocked / Failed
                 </th>
                 <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
                   Completion
@@ -176,14 +217,12 @@ export function StoryBoard({
           (0–100) over rollup-participating stories — status is categorical and
           does not drive the percentage. Net-Net = Σ (workstream completion ×
           weight) with weights Public Website 20, CRM Foundation 20, Portal 20,
-          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Status
-          buckets (Complete / In Progress + Partial / Planned + Deferred + Hold
-          + Failed / Blocked) feed the count columns only. Execution runs live
-          in{" "}
-          <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
-            storyboard_story_run
-          </code>{" "}
-          (migration 023). No workflow_engine changes.
+          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Each story
+          carries its execution specification (goal, dependencies,
+          preconditions, architect brief, context refs, acceptance criteria,
+          postconditions); runs snapshot that specification when they start
+          (migration 024). Inspect any story for the full detail and execution
+          history. No workflow_engine changes.
         </p>
       </footer>
     </div>

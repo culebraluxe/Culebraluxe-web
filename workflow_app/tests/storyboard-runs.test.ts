@@ -7,6 +7,7 @@ import {
   listStoryboardRuns,
   listStoryRuns,
   startStoryRun,
+  updateStoryboardStory,
 } from '../../db/storyboard'
 import { PortalWriteError } from '../../lib/portal-write-error'
 import type { QueryExecutor } from '../../db/query-executor'
@@ -26,8 +27,12 @@ const baseInput = {
   batch: null,
   goal: null,
   scope: null,
-  acceptanceCriteria: null,
   dependencies: null,
+  preconditions: null,
+  architectBrief: null,
+  contextRefs: null,
+  acceptanceCriteria: null,
+  postconditions: null,
   completion: 10,
   rollup: true,
   plannedStartAt: null,
@@ -74,6 +79,12 @@ class FakeDb {
         notes: null,
         commit_hash: null,
         tests_summary: null,
+        goal_snapshot: p[1] ?? null,
+        preconditions_snapshot: p[2] ?? null,
+        architect_brief_snapshot: p[3] ?? null,
+        context_refs_snapshot: p[4] ?? null,
+        acceptance_criteria_snapshot: p[5] ?? null,
+        postconditions_snapshot: p[6] ?? null,
         created_at: this.now,
       }
       this.runs.push(row)
@@ -91,13 +102,18 @@ class FakeDb {
         batch: p[6] ?? null,
         goal: p[7] ?? null,
         scope: p[8] ?? null,
-        acceptance_criteria: p[9] ?? null,
-        dependencies: p[10] ?? null,
-        completion: p[11],
-        rollup: p[12],
-        planned_start_at: p[13] ?? null,
-        actual_start_at: p[14] ?? null,
-        completed_at: p[15] ?? null,
+        dependencies: p[9] ?? null,
+        preconditions: p[10] ?? null,
+        architect_brief: p[11] ?? null,
+        context_refs: p[12] ?? null,
+        acceptance_criteria: p[13] ?? null,
+        postconditions: p[14] ?? null,
+        architect_brief_updated_at: p[15] ? this.now : null,
+        completion: p[16],
+        rollup: p[17],
+        planned_start_at: p[18] ?? null,
+        actual_start_at: p[19] ?? null,
+        completed_at: p[20] ?? null,
         created_at: this.now,
         updated_at: this.now,
       }
@@ -132,6 +148,29 @@ class FakeDb {
         r.status = p[0]
         r.completion = p[1]
         r.completed_at = p[0] === 'Complete' ? this.now : null
+        r.updated_at = this.now
+        return Promise.resolve([r])
+      }
+      if (t.includes('set workstream')) {
+        const r = this.stories.find((x) => x.id === p[18])
+        if (!r) return Promise.resolve([])
+        r.workstream = p[0]
+        r.title = p[1]
+        r.priority = p[2]
+        r.status = p[3]
+        r.notes = p[4]
+        r.batch = p[5] ?? null
+        r.goal = p[6] ?? null
+        r.scope = p[7] ?? null
+        r.dependencies = p[8] ?? null
+        r.preconditions = p[9] ?? null
+        r.architect_brief = p[10] ?? null
+        r.context_refs = p[11] ?? null
+        r.acceptance_criteria = p[12] ?? null
+        r.postconditions = p[13] ?? null
+        r.completion = p[15]
+        r.rollup = p[16]
+        r.planned_start_at = p[17] ?? null
         r.updated_at = this.now
         return Promise.resolve([r])
       }
@@ -271,4 +310,78 @@ test('starting a run on a missing story returns not-found', async () => {
     (error: unknown) =>
       error instanceof PortalWriteError && error.code === 'not-found',
   )
+})
+
+test('starting a run snapshots the execution specification', async () => {
+  const f = new FakeDb()
+  const spec = {
+    goal: 'Deliver WhatsApp receipts reliably.',
+    preconditions: 'Provider webhook approved.',
+    architectBrief: 'Reuse the media provider seam; keep workflow_engine generic.',
+    contextRefs: 'workflow_app/…, db/migrations/021_*.sql',
+    acceptanceCriteria: 'Idempotent receipt recorded for every webhook hit.',
+    postconditions: 'Human story notes preserved; rollup math unchanged.',
+  }
+  await createStoryboardStory({ ...baseInput, ...spec }, f.tx)
+
+  const { run } = await startStoryRun('CRM-19', f.tx)
+  assert.equal(run.goalSnapshot, spec.goal)
+  assert.equal(run.preconditionsSnapshot, spec.preconditions)
+  assert.equal(run.architectBriefSnapshot, spec.architectBrief)
+  assert.equal(run.contextRefsSnapshot, spec.contextRefs)
+  assert.equal(run.acceptanceCriteriaSnapshot, spec.acceptanceCriteria)
+  assert.equal(run.postconditionsSnapshot, spec.postconditions)
+})
+
+test('historical snapshots are immutable; a later run captures the newer spec', async () => {
+  const f = new FakeDb()
+  const specV1 = {
+    goal: 'Goal v1',
+    preconditions: 'Preconditions v1',
+    architectBrief: 'Brief v1',
+    contextRefs: 'Refs v1',
+    acceptanceCriteria: 'Criteria v1',
+    postconditions: 'Postconditions v1',
+  }
+  await createStoryboardStory({ ...baseInput, ...specV1 }, f.tx)
+
+  const first = await startStoryRun('CRM-19', f.tx)
+
+  // The human/architect edits the parent story after run 1 has started.
+  const specV2 = {
+    goal: 'Goal v2',
+    preconditions: 'Preconditions v2',
+    architectBrief: 'Brief v2',
+    contextRefs: 'Refs v2',
+    acceptanceCriteria: 'Criteria v2',
+    postconditions: 'Postconditions v2',
+  }
+  await updateStoryboardStory('CRM-19', { ...baseInput, ...specV2 }, f.tx)
+
+  // Editing the parent must NOT alter the historical snapshot.
+  const afterEdit = await listStoryRuns('CRM-19', f.tx)
+  const run1 = afterEdit[0]
+  assert.equal(run1.goalSnapshot, specV1.goal)
+  assert.equal(run1.preconditionsSnapshot, specV1.preconditions)
+  assert.equal(run1.architectBriefSnapshot, specV1.architectBrief)
+  assert.equal(run1.contextRefsSnapshot, specV1.contextRefs)
+  assert.equal(run1.acceptanceCriteriaSnapshot, specV1.acceptanceCriteria)
+  assert.equal(run1.postconditionsSnapshot, specV1.postconditions)
+
+  // A second run receives the newer/current specification.
+  const second = await startStoryRun('CRM-19', f.tx)
+  assert.equal(second.run.goalSnapshot, specV2.goal)
+  assert.equal(second.run.architectBriefSnapshot, specV2.architectBrief)
+  assert.equal(second.run.postconditionsSnapshot, specV2.postconditions)
+
+  // Run 1 still retains the ORIGINAL specification.
+  const finalRuns = await listStoryRuns('CRM-19', f.tx)
+  assert.equal(finalRuns.length, 2)
+  const firstRun = finalRuns.find((r) => r.goalSnapshot === specV1.goal)
+  assert.ok(firstRun)
+  assert.equal(firstRun.architectBriefSnapshot, specV1.architectBrief)
+  assert.equal(firstRun.postconditionsSnapshot, specV1.postconditions)
+  const secondRun = finalRuns.find((r) => r.goalSnapshot === specV2.goal)
+  assert.ok(secondRun)
+  assert.equal(secondRun.architectBriefSnapshot, specV2.architectBrief)
 })

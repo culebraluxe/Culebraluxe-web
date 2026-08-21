@@ -23,8 +23,13 @@ function story(overrides: Partial<StoryRecord> & { id: string }): StoryRecord {
     batch: overrides.batch ?? null,
     goal: overrides.goal ?? null,
     scope: overrides.scope ?? null,
-    acceptanceCriteria: overrides.acceptanceCriteria ?? null,
     dependencies: overrides.dependencies ?? null,
+    preconditions: overrides.preconditions ?? null,
+    architectBrief: overrides.architectBrief ?? null,
+    contextRefs: overrides.contextRefs ?? null,
+    acceptanceCriteria: overrides.acceptanceCriteria ?? null,
+    postconditions: overrides.postconditions ?? null,
+    architectBriefUpdatedAt: overrides.architectBriefUpdatedAt ?? null,
     // Complete forces 100; otherwise the caller provides an honest 0..100.
     completion:
       overrides.completion ?? (overrides.status === 'Complete' ? 100 : 0),

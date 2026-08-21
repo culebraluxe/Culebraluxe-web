@@ -25,8 +25,13 @@ export type StoryboardStory = {
   batch: number | null
   goal: string | null
   scope: string | null
-  acceptanceCriteria: string | null
   dependencies: string | null
+  preconditions: string | null
+  architectBrief: string | null
+  contextRefs: string | null
+  acceptanceCriteria: string | null
+  postconditions: string | null
+  architectBriefUpdatedAt: string | null
   completion: number
   rollup: boolean
   plannedStartAt: string | null
@@ -46,8 +51,12 @@ export type StoryboardStoryInput = {
   batch: number | null
   goal: string | null
   scope: string | null
-  acceptanceCriteria: string | null
   dependencies: string | null
+  preconditions: string | null
+  architectBrief: string | null
+  contextRefs: string | null
+  acceptanceCriteria: string | null
+  postconditions: string | null
   completion: number
   rollup: boolean
   plannedStartAt: string | null
@@ -67,8 +76,13 @@ type StoryRow = QueryRow & {
   batch: number | null
   goal: string | null
   scope: string | null
-  acceptance_criteria: string | null
   dependencies: string | null
+  preconditions: string | null
+  architect_brief: string | null
+  context_refs: string | null
+  acceptance_criteria: string | null
+  postconditions: string | null
+  architect_brief_updated_at: string | null
   completion: number
   rollup: boolean
   planned_start_at: string | null
@@ -104,8 +118,13 @@ function mapStory(row: StoryRow): StoryboardStory {
     batch: row.batch,
     goal: row.goal,
     scope: row.scope,
-    acceptanceCriteria: row.acceptance_criteria,
     dependencies: row.dependencies,
+    preconditions: row.preconditions,
+    architectBrief: row.architect_brief,
+    contextRefs: row.context_refs,
+    acceptanceCriteria: row.acceptance_criteria,
+    postconditions: row.postconditions,
+    architectBriefUpdatedAt: row.architect_brief_updated_at,
     completion: row.completion,
     rollup: row.rollup,
     plannedStartAt: row.planned_start_at,
@@ -135,8 +154,10 @@ export async function listStoryboardStories(
 
   const rows = await q`
     select id, workstream, title, priority, status, notes, batch, goal, scope,
-      acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+      dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
     from storyboard_story
     order by workstream, id
   `
@@ -151,21 +172,27 @@ export async function createStoryboardStory(
   const rows = await q`
     insert into storyboard_story (
       id, workstream, title, priority, status, notes, batch, goal, scope,
-      acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at
+      dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at
     ) values (
       ${input.id}, ${input.workstream}, ${input.title}, ${input.priority},
       ${input.status}, ${input.notes}, ${input.batch ?? null},
       ${input.goal ?? null}, ${input.scope ?? null},
-      ${input.acceptanceCriteria ?? null}, ${input.dependencies ?? null},
+      ${input.dependencies ?? null}, ${input.preconditions ?? null},
+      ${input.architectBrief ?? null}, ${input.contextRefs ?? null},
+      ${input.acceptanceCriteria ?? null}, ${input.postconditions ?? null},
+      case when ${input.architectBrief ?? null}::text is null then null else now() end,
       ${input.completion}, ${input.rollup},
       ${input.plannedStartAt ?? null}, ${input.actualStartAt ?? null},
       ${input.completedAt ?? null}
     )
     on conflict (id) do nothing
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+      scope, dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -193,18 +220,25 @@ export async function updateStoryboardStory(
         batch = ${input.batch ?? null},
         goal = ${input.goal ?? null},
         scope = ${input.scope ?? null},
-        acceptance_criteria = ${input.acceptanceCriteria ?? null},
         dependencies = ${input.dependencies ?? null},
+        preconditions = ${input.preconditions ?? null},
+        architect_brief = ${input.architectBrief ?? null},
+        context_refs = ${input.contextRefs ?? null},
+        acceptance_criteria = ${input.acceptanceCriteria ?? null},
+        postconditions = ${input.postconditions ?? null},
+        architect_brief_updated_at = case
+          when architect_brief is distinct from ${input.architectBrief ?? null}::text
+          then now() else architect_brief_updated_at end,
         completion = ${input.completion},
         rollup = ${input.rollup},
         planned_start_at = ${input.plannedStartAt ?? null},
-        actual_start_at = ${input.actualStartAt ?? null},
-        completed_at = ${input.completedAt ?? null},
         updated_at = now()
     where id = ${id}
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+      scope, dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -212,6 +246,15 @@ export async function updateStoryboardStory(
   }
   return mapStory(row)
 }
+
+/**
+ * System-owned dates:
+ *  - actual_start_at is set by startStoryRun (COALESCE — the first start is
+ *    preserved); the normal human edit path never touches it.
+ *  - completed_at is set by finishStoryRun on a Complete result.
+ * Human editing updates planned_start_at only (see the Story Execution
+ * Contract / Story Board spec). Never wipe execution dates with a stale form.
+ */
 
 export async function setStoryboardStatus(
   id: string,
@@ -226,8 +269,10 @@ export async function setStoryboardStatus(
         updated_at = now()
     where id = ${id}
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+      scope, dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
   `
   const row = rows[0] as StoryRow | undefined
   if (!row) {
@@ -250,6 +295,12 @@ export type StoryRun = {
   notes: string | null
   commitHash: string | null
   testsSummary: string | null
+  goalSnapshot: string | null
+  preconditionsSnapshot: string | null
+  architectBriefSnapshot: string | null
+  contextRefsSnapshot: string | null
+  acceptanceCriteriaSnapshot: string | null
+  postconditionsSnapshot: string | null
   createdAt: string
 }
 
@@ -271,6 +322,12 @@ type RunRow = QueryRow & {
   notes: string | null
   commit_hash: string | null
   tests_summary: string | null
+  goal_snapshot: string | null
+  preconditions_snapshot: string | null
+  architect_brief_snapshot: string | null
+  context_refs_snapshot: string | null
+  acceptance_criteria_snapshot: string | null
+  postconditions_snapshot: string | null
   created_at: string
 }
 
@@ -285,6 +342,12 @@ function mapRun(row: RunRow): StoryRun {
     notes: row.notes,
     commitHash: row.commit_hash,
     testsSummary: row.tests_summary,
+    goalSnapshot: row.goal_snapshot,
+    preconditionsSnapshot: row.preconditions_snapshot,
+    architectBriefSnapshot: row.architect_brief_snapshot,
+    contextRefsSnapshot: row.context_refs_snapshot,
+    acceptanceCriteriaSnapshot: row.acceptance_criteria_snapshot,
+    postconditionsSnapshot: row.postconditions_snapshot,
     createdAt: row.created_at,
   }
 }
@@ -308,7 +371,10 @@ export async function listStoryboardRuns(
 
   const rows = await q`
     select id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary, created_at
+      notes, commit_hash, tests_summary,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot, created_at
     from storyboard_story_run
     order by started_at desc, id
   `
@@ -322,7 +388,10 @@ export async function listStoryRuns(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary, created_at
+      notes, commit_hash, tests_summary,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot, created_at
     from storyboard_story_run
     where story_id = ${storyId}
     order by started_at desc, id
@@ -335,7 +404,8 @@ export async function listStoryRuns(
  *   - story status → In Progress
  *   - actual_start_at = COALESCE(actual_start_at, now()) — the first start is
  *     preserved across retries unless a human edits it
- *   - creates a storyboard_story_run row with started_at
+ *   - creates a storyboard_story_run row with started_at and an immutable
+ *     snapshot of the story execution specification
  * Human story fields (title, workstream, priority, notes) are never touched.
  */
 export async function startStoryRun(
@@ -350,8 +420,10 @@ export async function startStoryRun(
         updated_at = now()
     where id = ${storyId}
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+      scope, dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
   `
   const storyRow = storyRows[0] as StoryRow | undefined
   if (!storyRow) {
@@ -359,10 +431,22 @@ export async function startStoryRun(
   }
 
   const runRows = await q`
-    insert into storyboard_story_run (story_id, started_at)
-    values (${storyId}, now())
+    insert into storyboard_story_run (
+      story_id, started_at,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot
+    ) values (
+      ${storyId}, now(),
+      ${storyRow.goal ?? null}, ${storyRow.preconditions ?? null},
+      ${storyRow.architect_brief ?? null}, ${storyRow.context_refs ?? null},
+      ${storyRow.acceptance_criteria ?? null}, ${storyRow.postconditions ?? null}
+    )
     returning id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary, created_at
+      notes, commit_hash, tests_summary,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot, created_at
   `
   const runRow = runRows[0] as RunRow
   return { run: mapRun(runRow), story: mapStory(storyRow) }
@@ -393,7 +477,10 @@ export async function finishStoryRun(
         tests_summary = ${input.testsSummary ?? null}
     where id = ${runId}
     returning id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary, created_at
+      notes, commit_hash, tests_summary,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot, created_at
   `
   const runRow = runRows[0] as RunRow | undefined
   if (!runRow) {
@@ -412,8 +499,10 @@ export async function finishStoryRun(
         updated_at = now()
     where id = ${run.storyId}
     returning id, workstream, title, priority, status, notes, batch, goal,
-      scope, acceptance_criteria, dependencies, completion, rollup,
-      planned_start_at, actual_start_at, completed_at, created_at, updated_at
+      scope, dependencies, preconditions, architect_brief, context_refs,
+      acceptance_criteria, postconditions, architect_brief_updated_at,
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      created_at, updated_at
   `
   const storyRow = storyRows[0] as StoryRow | undefined
   if (!storyRow) {

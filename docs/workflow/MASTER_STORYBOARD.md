@@ -14,6 +14,15 @@
 > 8/21 master board (74 stories) via
 > `db/migrations/022_storyboard_authoritative_seed.sql`. This document and
 > `STORYBOARD_STATUS.md` are retained as history of the earlier S-* storyboard.
+>
+> **Capability (2026-08-21, migration 024):** each stored story now carries a
+> durable execution specification — goal, dependencies, preconditions,
+> architect brief, context references, acceptance criteria, postconditions —
+> and every execution run snapshots that specification at start (immutable).
+> The global execution rules live in
+> [`docs/agent/STORY_EXECUTION_CONTRACT.md`](../agent/STORY_EXECUTION_CONTRACT.md).
+> The 74 stories' spec fields are intentionally empty; the architect/review
+> model and human populate important stories deliberately.
 
 
 ---

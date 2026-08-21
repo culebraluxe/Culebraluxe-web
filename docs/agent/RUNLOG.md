@@ -1,5 +1,56 @@
 # Agent Run Log
 
+## 2026-08-21 — Story execution specification + run snapshots
+
+- Role: Builder
+- Story: Finalize the Story Board as the durable shared interface (human owner /
+  architect / coding agent) — execution-specification fields, immutable run
+  snapshots, story-detail UI, and the global execution contract.
+- Files changed: `db/migrations/024_storyboard_execution_specification.sql`
+  (new — preconditions, architect_brief, context_refs, postconditions,
+  architect_brief_updated_at on `storyboard_story`; six snapshot columns on
+  `storyboard_story_run`), `docs/agent/STORY_EXECUTION_CONTRACT.md` (new —
+  global execution rules), `lib/storyboard-data.ts` (spec fields on
+  StoryRecord; total + per-workstream Complete / In Progress+Partial /
+  Blocked+Failed counts), `db/storyboard.ts` (spec-field persistence;
+  `architect_brief_updated_at` stamped only when the brief changes; run start
+  snapshots the six spec fields; update path no longer touches system-owned
+  actual_start_at / completed_at), `app/portal/storyboard/actions.ts` (spec
+  fields on the form input), `components/portal/story-board.tsx` (summary
+  strip + reworked workstream columns), `components/portal/write/story-board-table.tsx`
+  (Inspect story detail with Overview / Dates / Product Context / Architect
+  Handoff / Definition of Done / Execution History with collapsed per-run
+  specification snapshots; new form fields incl. a gold-marked Architect
+  brief), tests, `docs/DEV_DATABASE.md`, and this run log.
+- Decision: The Story Board is the authoritative backlog with a durable
+  execution specification per story. Starting a run snapshots the current
+  specification so historical runs show exactly what was executed against;
+  later parent edits never alter a snapshot. Human editing is scoped to §8
+  fields — actual_start_at and completed_at stay system-owned (start/finish
+  run lifecycle).
+- Checks: Migration 024 applied to DEV; live-DEV verification passed 20/20 —
+  74 stories / 0 S-* / no spec content invented for the 74 / notes preserved;
+  all new fields persist through save/reload; architect_brief_updated_at
+  stamped on create with a brief, unchanged on unrelated edits, re-stamped on
+  brief edits; run 1 snapshots current spec; parent edit does not alter run 1
+  snapshot; run 2 receives the newer spec; first actual_start_at preserved;
+  Complete forces 100 + completed_at; human notes never overwritten;
+  temporary TEST-SPEC-01 story + runs removed (count restored to 74);
+  storyboard tests 27/27 (incl. new spec-field + snapshot + stamp tests);
+  full `workflow_app` suite 140/140; `pnpm exec next build --webpack` passed;
+  `git diff --check` passed.
+- Database mutations: DEV branch only — migration 024 applied; a temporary
+  spec/run-lifecycle story created and fully removed after verification.
+  **Production untouched.**
+- Decisions made: `architect_brief_updated_at` is derived in the UPDATE via
+  `case when architect_brief is distinct from $N::text` (explicit `::text`
+  cast required — a bare parameter in `case when $N is null` has no type
+  inference under the Neon parameterized driver, found live on DEV); run
+  snapshots exclude dependencies (per spec, six fields); the detail view is
+  an expandable Inspect row on the existing route — no separate PM app.
+- Next action: none; migrations 021–024 remain unapplied to production by
+  design.
+
 ## 2026-08-21 — Story execution history + authoritative completion
 
 - Role: Builder

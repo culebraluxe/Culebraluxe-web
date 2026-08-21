@@ -54,6 +54,15 @@ transaction against the dev URL (see the pattern used for
    `` sql`select ${cols} from ...` `` becomes `select $1` (a `?column?` row).
    Column lists must be written **literally** in every query.
 
+Migrations applied to the dev branch so far:
+
+- `021_storyboard_story.sql` — Story Board table
+- `022_storyboard_authoritative_seed.sql` — 74-story authoritative seed
+- `023_storyboard_execution_history.sql` — dates, status CHECK, run history
+- `024_storyboard_execution_specification.sql` — execution-spec fields
+  (preconditions, architect_brief, context_refs, postconditions,
+  architect_brief_updated_at) + immutable run specification snapshots
+
 ## Recreating the disposable DEV branch
 
 Non-default Neon branches auto-expire per `.neon` branch policy (TTL 7 days).

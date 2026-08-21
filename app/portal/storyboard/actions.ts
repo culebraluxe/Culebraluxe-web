@@ -43,8 +43,12 @@ export type StoryFormInput = {
   batch: number | null
   goal: string | null
   scope: string | null
-  acceptanceCriteria: string | null
   dependencies: string | null
+  preconditions: string | null
+  architectBrief: string | null
+  contextRefs: string | null
+  acceptanceCriteria: string | null
+  postconditions: string | null
   completion: number
   rollup: boolean
   plannedStartAt: string | null
@@ -128,8 +132,12 @@ function toInput(form: StoryFormInput): StoryboardStoryInput {
     batch: form.batch,
     goal: form.goal?.trim() || null,
     scope: form.scope?.trim() || null,
-    acceptanceCriteria: form.acceptanceCriteria?.trim() || null,
     dependencies: form.dependencies?.trim() || null,
+    preconditions: form.preconditions?.trim() || null,
+    architectBrief: form.architectBrief?.trim() || null,
+    contextRefs: form.contextRefs?.trim() || null,
+    acceptanceCriteria: form.acceptanceCriteria?.trim() || null,
+    postconditions: form.postconditions?.trim() || null,
     // Complete forces completion = 100 (enforced centrally).
     completion: form.status === 'Complete' ? 100 : form.completion,
     rollup: form.rollup,

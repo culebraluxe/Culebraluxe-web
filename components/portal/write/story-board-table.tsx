@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, type ReactNode } from 'react'
 
 import {
   createStoryAction,
@@ -87,8 +87,12 @@ function emptyForm(): StoryFormInput {
     batch: null,
     goal: null,
     scope: null,
-    acceptanceCriteria: null,
     dependencies: null,
+    preconditions: null,
+    architectBrief: null,
+    contextRefs: null,
+    acceptanceCriteria: null,
+    postconditions: null,
     completion: 0,
     rollup: true,
     plannedStartAt: null,
@@ -265,6 +269,16 @@ function StoryForm({
           </label>
 
           <label className="block">
+            <span className={fieldLabel}>Preconditions</span>
+            <textarea
+              value={form.preconditions ?? ''}
+              onChange={(event) => setField('preconditions', event.target.value)}
+              rows={2}
+              className={`${textInput} resize-y`}
+            />
+          </label>
+
+          <label className="block">
             <span className={fieldLabel}>Completion (0–100)</span>
             <input
               type="number"
@@ -310,30 +324,10 @@ function StoryForm({
               }
               className={textInput}
             />
-          </label>
-
-          <label className="block">
-            <span className={fieldLabel}>Actual start</span>
-            <input
-              type="date"
-              value={toDateInput(form.actualStartAt)}
-              onChange={(event) =>
-                setField('actualStartAt', event.target.value || null)
-              }
-              className={textInput}
-            />
-          </label>
-
-          <label className="block">
-            <span className={fieldLabel}>Completed</span>
-            <input
-              type="date"
-              value={toDateInput(form.completedAt)}
-              onChange={(event) =>
-                setField('completedAt', event.target.value || null)
-              }
-              className={textInput}
-            />
+            <span className="mt-1.5 block text-xs font-light text-black/40">
+              Actual start and completion are owned by the execution lifecycle
+              (start/finish run).
+            </span>
           </label>
 
           <label className="block">
@@ -364,6 +358,44 @@ function StoryForm({
                 setField('acceptanceCriteria', event.target.value)
               }
               rows={2}
+              className={`${textInput} resize-y`}
+            />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className={fieldLabel}>Postconditions</span>
+            <textarea
+              value={form.postconditions ?? ''}
+              onChange={(event) => setField('postconditions', event.target.value)}
+              rows={2}
+              className={`${textInput} resize-y`}
+            />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className="text-[10px] font-light uppercase tracking-[0.18em] text-[#8a6d2f]">
+              Architect brief — AI-to-AI technical direction
+            </span>
+            <textarea
+              value={form.architectBrief ?? ''}
+              onChange={(event) => setField('architectBrief', event.target.value)}
+              rows={4}
+              placeholder="Constraints, direction, reuse points, known traps, boundaries…"
+              className={`${textInput} resize-y border-[#c6a15b]/40`}
+            />
+            <span className="mt-1.5 block text-xs font-light text-black/40">
+              Architecture guidance for the coding agent; distinct from human
+              notes.
+            </span>
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className={fieldLabel}>Context references</span>
+            <textarea
+              value={form.contextRefs ?? ''}
+              onChange={(event) => setField('contextRefs', event.target.value)}
+              rows={2}
+              placeholder="Repository paths, tests, migrations, docs, contracts…"
               className={`${textInput} resize-y`}
             />
           </label>
@@ -443,34 +475,215 @@ function RunHistory({ runs }: { runs: StoryRun[] }) {
               Tests: {run.testsSummary}
             </p>
           )}
+          <details className="mt-2">
+            <summary className="cursor-pointer text-[10px] font-light uppercase tracking-[0.18em] text-black/40 hover:text-black/60">
+              Specification snapshot used for this run
+            </summary>
+            <div className="mt-2 space-y-2 border-t border-[var(--portal-border)] pt-2 text-xs font-light leading-5 text-black/60">
+              <SnapshotField label="Goal" value={run.goalSnapshot} />
+              <SnapshotField label="Preconditions" value={run.preconditionsSnapshot} />
+              <SnapshotField label="Architect brief" value={run.architectBriefSnapshot} />
+              <SnapshotField label="Context refs" value={run.contextRefsSnapshot} />
+              <SnapshotField label="Acceptance criteria" value={run.acceptanceCriteriaSnapshot} />
+              <SnapshotField label="Postconditions" value={run.postconditionsSnapshot} />
+            </div>
+          </details>
         </div>
       ))}
     </div>
   )
 }
 
+function SnapshotField({
+  label,
+  value,
+}: {
+  label: string
+  value: string | null
+}) {
+  return (
+    <div>
+      <span className="text-black/35">{label}: </span>
+      <span className="whitespace-pre-wrap">{value ?? '—'}</span>
+    </div>
+  )
+}
+
+function DetailSection({
+  title,
+  children,
+  hint,
+}: {
+  title: string
+  children: ReactNode
+  hint?: string
+}) {
+  return (
+    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-4">
+      <div className="flex items-baseline justify-between gap-4">
+        <h5 className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+          {title}
+        </h5>
+        {hint && (
+          <span className="text-[10px] font-light text-black/35">{hint}</span>
+        )}
+      </div>
+      <div className="mt-2 space-y-2 text-sm font-light leading-6 text-black/70">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function DetailField({
+  label,
+  value,
+  distinct,
+}: {
+  label: string
+  value: string | null
+  distinct?: boolean
+}) {
+  if (!value) return null
+  return (
+    <div>
+      <div
+        className={`text-[10px] font-light uppercase tracking-[0.18em] ${
+          distinct ? 'text-[#8a6d2f]' : 'text-black/35'
+        }`}
+      >
+        {label}
+      </div>
+      <p className={`mt-1 whitespace-pre-wrap ${distinct ? 'text-[#8a6d2f]' : ''}`}>
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function StoryDetail({ story, runs }: { story: StoryRecord; runs: StoryRun[] }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <DetailSection title="Overview">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <span className="text-black/40">ID</span>
+          <span className="font-mono">{story.id}</span>
+          <span className="text-black/40">Workstream</span>
+          <span>
+            {workstreamName(story.workstream)} ({story.workstream})
+          </span>
+          <span className="text-black/40">Priority</span>
+          <span>{story.priority}</span>
+          <span className="text-black/40">Status</span>
+          <span>{story.status}</span>
+          <span className="text-black/40">Completion</span>
+          <span>{story.completion}%</span>
+          <span className="text-black/40">Rollup</span>
+          <span>{story.rollup ? 'Yes' : 'No'}</span>
+        </div>
+        <p className="mt-2 text-xs font-light text-black/45">{story.title}</p>
+      </DetailSection>
+
+      <DetailSection title="Dates">
+        <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
+          <span className="text-black/40">Planned</span>
+          <span className="text-black/40">Actual</span>
+          <span className="text-black/40">Completed</span>
+          <span>{dateLabel(story.plannedStartAt)}</span>
+          <span>{dateLabel(story.actualStartAt)}</span>
+          <span>{dateLabel(story.completedAt)}</span>
+        </div>
+      </DetailSection>
+
+      <DetailSection title="Product Context">
+        <DetailField label="Goal" value={story.goal} />
+        <DetailField label="Human notes" value={story.notes || null} />
+        <DetailField label="Dependencies" value={story.dependencies} />
+        <DetailField label="Preconditions" value={story.preconditions} />
+        {!story.goal &&
+          !story.notes &&
+          !story.dependencies &&
+          !story.preconditions && (
+            <p className="text-sm font-light italic text-black/40">
+              No product context recorded yet.
+            </p>
+          )}
+      </DetailSection>
+
+      <DetailSection
+        title="Architect Handoff"
+        hint={
+          story.architectBriefUpdatedAt
+            ? `Updated ${dateLabel(story.architectBriefUpdatedAt)}`
+            : undefined
+        }
+      >
+        {story.architectBrief ? (
+          <DetailField
+            label="Architect brief"
+            value={story.architectBrief}
+            distinct
+          />
+        ) : (
+          <p className="text-sm font-light italic text-black/40">
+            No architect brief yet.
+          </p>
+        )}
+        <DetailField label="Context references" value={story.contextRefs} />
+        {story.architectBriefUpdatedAt && (
+          <p className="text-[10px] font-light uppercase tracking-[0.18em] text-black/35">
+            Architect brief updated at {story.architectBriefUpdatedAt}
+          </p>
+        )}
+      </DetailSection>
+
+      <DetailSection title="Definition of Done">
+        <DetailField
+          label="Acceptance criteria"
+          value={story.acceptanceCriteria}
+        />
+        <DetailField label="Postconditions" value={story.postconditions} />
+        {!story.acceptanceCriteria && !story.postconditions && (
+          <p className="text-sm font-light italic text-black/40">
+            No definition of done recorded yet.
+          </p>
+        )}
+      </DetailSection>
+
+      <DetailSection title="Execution History">
+        <div className="mb-1 text-[10px] font-light uppercase tracking-[0.18em] text-black/35">
+          {runs.length} run{runs.length === 1 ? '' : 's'} · newest first
+        </div>
+        <RunHistory runs={runs} />
+      </DetailSection>
+    </div>
+  )
+}
+
+
+
 function StoryRow({
   story,
   runs,
   isEditing,
-  isHistoryOpen,
+  isDetailOpen,
   isPending,
   onEdit,
   onCancelEdit,
   onSave,
   onChangeStatus,
-  onToggleHistory,
+  onToggleDetail,
 }: {
   story: StoryRecord
   runs: StoryRun[]
   isEditing: boolean
-  isHistoryOpen: boolean
+  isDetailOpen: boolean
   isPending: boolean
   onEdit: () => void
   onCancelEdit: () => void
   onSave: (form: StoryFormInput) => void
   onChangeStatus: (status: string) => void
-  onToggleHistory: () => void
+  onToggleDetail: () => void
 }) {
   return (
     <>
@@ -494,10 +707,10 @@ function StoryRow({
             <button
               type="button"
               disabled={isPending}
-              onClick={onToggleHistory}
+              onClick={onToggleDetail}
               className={ghostButton}
             >
-              History ({runs.length})
+              Inspect
             </button>
           </div>
         </td>
@@ -561,8 +774,12 @@ function StoryRow({
                 batch: story.batch,
                 goal: story.goal,
                 scope: story.scope,
-                acceptanceCriteria: story.acceptanceCriteria,
                 dependencies: story.dependencies,
+                preconditions: story.preconditions,
+                architectBrief: story.architectBrief,
+                contextRefs: story.contextRefs,
+                acceptanceCriteria: story.acceptanceCriteria,
+                postconditions: story.postconditions,
                 completion: story.completion,
                 rollup: story.rollup,
                 plannedStartAt: story.plannedStartAt,
@@ -579,18 +796,22 @@ function StoryRow({
         </tr>
       )}
 
-      {isHistoryOpen && (
+      {isDetailOpen && (
         <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-bg)]/40">
           <td colSpan={7} className="px-6 py-5">
             <div className="mb-3 flex items-baseline justify-between gap-4">
-              <h4 className="font-serif text-lg font-light">
-                Execution History
+              <h4 className="font-serif text-xl font-light">
+                {story.id} — Story Detail
               </h4>
-              <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-                {runs.length} run{runs.length === 1 ? '' : 's'}
-              </span>
+              <button
+                type="button"
+                onClick={onToggleDetail}
+                className={ghostButton}
+              >
+                Close
+              </button>
             </div>
-            <RunHistory runs={runs} />
+            <StoryDetail story={story} runs={runs} />
           </td>
         </tr>
       )}
@@ -609,7 +830,7 @@ export function StoryBoardTable({
   const [isPending, startTransition] = useTransition()
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [historyOpenId, setHistoryOpenId] = useState<string | null>(null)
+  const [detailOpenId, setDetailOpenId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
   )
@@ -789,7 +1010,7 @@ export function StoryBoardTable({
                       story={story}
                       runs={runs.filter((r) => r.storyId === story.id)}
                       isEditing={editingStory?.id === story.id}
-                      isHistoryOpen={historyOpenId === story.id}
+                      isDetailOpen={detailOpenId === story.id}
                       isPending={isPending}
                       onEdit={() => {
                         setEditingId(story.id)
@@ -802,8 +1023,8 @@ export function StoryBoardTable({
                       }}
                       onSave={(form) => saveStory(story.id, form)}
                       onChangeStatus={(status) => changeStatus(story.id, status)}
-                      onToggleHistory={() =>
-                        setHistoryOpenId((current) =>
+                      onToggleDetail={() =>
+                        setDetailOpenId((current) =>
                           current === story.id ? null : story.id,
                         )
                       }

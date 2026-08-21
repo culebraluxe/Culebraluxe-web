@@ -19,9 +19,15 @@ type Row = Record<string, any>
 class FakeDb {
   rows: Row[] = []
   tableReady = true
+  stampSeq = 0
 
   private norm(s: string) {
     return s.replace(/\s+/g, ' ').trim().toLowerCase()
+  }
+
+  private stamp(): string {
+    this.stampSeq += 1
+    return `2026-08-21T02:00:0${this.stampSeq}Z`
   }
 
   tx: QueryExecutor = (strings, ...params) => {
@@ -49,13 +55,18 @@ class FakeDb {
         batch: p[6] ?? null,
         goal: p[7] ?? null,
         scope: p[8] ?? null,
-        acceptance_criteria: p[9] ?? null,
-        dependencies: p[10] ?? null,
-        completion: p[11],
-        rollup: p[12],
-        planned_start_at: p[13] ?? null,
-        actual_start_at: p[14] ?? null,
-        completed_at: p[15] ?? null,
+        dependencies: p[9] ?? null,
+        preconditions: p[10] ?? null,
+        architect_brief: p[11] ?? null,
+        context_refs: p[12] ?? null,
+        acceptance_criteria: p[13] ?? null,
+        postconditions: p[14] ?? null,
+        architect_brief_updated_at: p[15] ? this.stamp() : null,
+        completion: p[16],
+        rollup: p[17],
+        planned_start_at: p[18] ?? null,
+        actual_start_at: p[19] ?? null,
+        completed_at: p[20] ?? null,
         created_at: '2026-08-21T00:00:00Z',
         updated_at: '2026-08-21T00:00:00Z',
       }
@@ -67,8 +78,9 @@ class FakeDb {
       const statusOnly =
         t.includes('set status = $1') && !t.includes('set workstream')
       // status-only update: `set status=$1, completion=case when $2='Complete'...`
-      // so the story id is $3 (p[2]); full update has id as $16 (p[15]).
-      const id = statusOnly ? p[2] : p[15]
+      // so the story id is $3 (p[2]); full update has id as $19 (p[18]) and no
+      // longer touches the system-owned actual_start_at / completed_at.
+      const id = statusOnly ? p[2] : p[18]
       const r = this.rows.find((x) => x.id === id)
       if (!r) return Promise.resolve([])
       if (statusOnly) {
@@ -76,6 +88,7 @@ class FakeDb {
         // Complete forces completion = 100 (mirrors the repository SQL).
         if (p[0] === 'Complete') r.completion = 100
       } else {
+        const priorBrief = r.architect_brief ?? null
         r.workstream = p[0]
         r.title = p[1]
         r.priority = p[2]
@@ -84,13 +97,21 @@ class FakeDb {
         r.batch = p[5] ?? null
         r.goal = p[6] ?? null
         r.scope = p[7] ?? null
-        r.acceptance_criteria = p[8] ?? null
-        r.dependencies = p[9] ?? null
-        r.completion = p[10]
-        r.rollup = p[11]
-        r.planned_start_at = p[12] ?? null
-        r.actual_start_at = p[13] ?? null
-        r.completed_at = p[14] ?? null
+        r.dependencies = p[8] ?? null
+        r.preconditions = p[9] ?? null
+        r.architect_brief = p[10] ?? null
+        r.context_refs = p[11] ?? null
+        r.acceptance_criteria = p[12] ?? null
+        r.postconditions = p[13] ?? null
+        // architect_brief_updated_at = case when architect_brief is distinct
+        // from $14 then now() else architect_brief_updated_at end — compares
+        // the incoming brief (p[14] === p[10]) to the PRIOR stored value.
+        if ((p[14] ?? null) !== priorBrief) {
+          r.architect_brief_updated_at = this.stamp()
+        }
+        r.completion = p[15]
+        r.rollup = p[16]
+        r.planned_start_at = p[17] ?? null
       }
       r.updated_at = '2026-08-21T01:00:00Z'
       return Promise.resolve([r])
@@ -114,8 +135,12 @@ const baseInput = {
   batch: null,
   goal: null,
   scope: null,
-  acceptanceCriteria: null,
   dependencies: null,
+  preconditions: null,
+  architectBrief: null,
+  contextRefs: null,
+  acceptanceCriteria: null,
+  postconditions: null,
   completion: 0,
   rollup: true,
   plannedStartAt: null,
@@ -198,7 +223,9 @@ test('updateStoryboardStory updates fields and preserves the id', async () => {
   assert.equal(updated.completion, 85)
   assert.equal(updated.rollup, true)
   assert.equal(updated.plannedStartAt, '2026-08-22')
-  assert.equal(updated.actualStartAt, '2026-08-23')
+  // actual_start_at and completed_at are system-owned dates: the normal edit
+  // path never touches them, even when the form payload carries stale values.
+  assert.equal(updated.actualStartAt, null)
   assert.equal(updated.completedAt, null)
   assert.notEqual(updated.updatedAt, updated.createdAt)
 })
@@ -242,4 +269,82 @@ test('listStoryboardStories returns the seeded rows in order', async () => {
   assert.equal(rows.length, 2)
   assert.equal(rows[0].id, 'CRM-19')
   assert.equal(rows[1].id, 'OPS-07')
+})
+
+test('execution specification fields persist through create and update', async () => {
+  const f = new FakeDb()
+  const spec = {
+    goal: 'Deliver WhatsApp receipts reliably.',
+    dependencies: 'CRM-08',
+    preconditions: 'Provider webhook approved.',
+    architectBrief: 'Reuse the media provider seam; do not touch workflow_engine.',
+    contextRefs: 'workflow_app/…, db/migrations/021_*.sql',
+    acceptanceCriteria: 'Idempotent receipt recorded for every webhook hit.',
+    postconditions: 'storyboard_story rows untouched; human notes preserved.',
+  }
+  const created = await createStoryboardStory(
+    { ...baseInput, ...spec },
+    f.tx,
+  )
+  assert.equal(created.goal, spec.goal)
+  assert.equal(created.dependencies, spec.dependencies)
+  assert.equal(created.preconditions, spec.preconditions)
+  assert.equal(created.architectBrief, spec.architectBrief)
+  assert.equal(created.contextRefs, spec.contextRefs)
+  assert.equal(created.acceptanceCriteria, spec.acceptanceCriteria)
+  assert.equal(created.postconditions, spec.postconditions)
+  assert.notEqual(created.architectBriefUpdatedAt, null)
+
+  const updated = await updateStoryboardStory(
+    'CRM-19',
+    {
+      ...baseInput,
+      ...spec,
+      architectBrief: 'New architect direction after review.',
+      postconditions: 'Updated invariant.',
+    },
+    f.tx,
+  )
+  assert.equal(updated.architectBrief, 'New architect direction after review.')
+  assert.equal(updated.postconditions, 'Updated invariant.')
+  assert.equal(updated.goal, spec.goal)
+})
+
+test('architect_brief_updated_at stamps only when the architect brief changes', async () => {
+  const f = new FakeDb()
+  await createStoryboardStory(baseInput, f.tx)
+  assert.equal(f.rows[0].architect_brief_updated_at, null)
+
+  // Changing unrelated fields must NOT stamp architect_brief_updated_at.
+  const unrelated = await updateStoryboardStory(
+    'CRM-19',
+    { ...baseInput, title: 'Renamed title', notes: 'Human note update.' },
+    f.tx,
+  )
+  assert.equal(unrelated.architectBriefUpdatedAt, null)
+
+  // Changing the architect brief stamps it.
+  const briefed = await updateStoryboardStory(
+    'CRM-19',
+    { ...baseInput, architectBrief: 'First brief.' },
+    f.tx,
+  )
+  assert.notEqual(briefed.architectBriefUpdatedAt, null)
+  const stampedAt = briefed.architectBriefUpdatedAt
+
+  // A later unrelated edit must not move the stamp.
+  const after = await updateStoryboardStory(
+    'CRM-19',
+    { ...baseInput, architectBrief: 'First brief.', priority: 'Low' },
+    f.tx,
+  )
+  assert.equal(after.architectBriefUpdatedAt, stampedAt)
+
+  // Changing the brief again re-stamps.
+  const rebriefed = await updateStoryboardStory(
+    'CRM-19',
+    { ...baseInput, architectBrief: 'Second brief.' },
+    f.tx,
+  )
+  assert.notEqual(rebriefed.architectBriefUpdatedAt, stampedAt)
 })

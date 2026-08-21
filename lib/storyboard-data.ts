@@ -68,8 +68,13 @@ export type StoryRecord = {
   batch: number | null
   goal: string | null
   scope: string | null
-  acceptanceCriteria: string | null
   dependencies: string | null
+  preconditions: string | null
+  architectBrief: string | null
+  contextRefs: string | null
+  acceptanceCriteria: string | null
+  postconditions: string | null
+  architectBriefUpdatedAt: string | null
   /** Authoritative 0–100 numeric progress; drives the rollup math. */
   completion: number
   /** Whether the story participates in the workstream rollup. */
@@ -131,6 +136,8 @@ export type WorkstreamRollup = {
   weight: number
   storyCount: number
   completeCount: number
+  inProgressPartialCount: number
+  blockedFailedCount: number
   partialCount: number
   openCount: number
   blockedCount: number
@@ -144,11 +151,24 @@ export type StoryBoardModel = {
   workstreams: WorkstreamRollup[]
   /** Overall net-net completion, 0–100. */
   netNet: number
+  /** Executive summary counts over ALL stored stories. */
+  totalStories: number
+  totalComplete: number
+  totalInProgressPartial: number
+  totalBlockedFailed: number
 }
 
 function round(value: number, digits = 1) {
   const factor = 10 ** digits
   return Math.round(value * factor) / factor
+}
+
+function isInProgressPartial(status: string): boolean {
+  return status === 'In Progress' || status === 'Partial'
+}
+
+function isBlockedFailed(status: string): boolean {
+  return status === 'Blocked' || status === 'Failed'
 }
 
 export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
@@ -169,6 +189,12 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     const blockedCount = group.filter(
       (s) => statusBucket(s.status) === 'blocked',
     ).length
+    const inProgressPartialCount = group.filter((s) =>
+      isInProgressPartial(s.status),
+    ).length
+    const blockedFailedCount = group.filter((s) =>
+      isBlockedFailed(s.status),
+    ).length
 
     const completionPercent =
       storyCount > 0
@@ -183,6 +209,8 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
       weight: ws.weight,
       storyCount,
       completeCount,
+      inProgressPartialCount,
+      blockedFailedCount,
       partialCount,
       openCount,
       blockedCount,
@@ -198,5 +226,15 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     ),
   )
 
-  return { stories, workstreams, netNet }
+  return {
+    stories,
+    workstreams,
+    netNet,
+    totalStories: stories.length,
+    totalComplete: stories.filter((s) => s.status === 'Complete').length,
+    totalInProgressPartial: stories.filter((s) =>
+      isInProgressPartial(s.status),
+    ).length,
+    totalBlockedFailed: stories.filter((s) => isBlockedFailed(s.status)).length,
+  }
 }
