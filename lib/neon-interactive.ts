@@ -38,8 +38,8 @@ function isFragment(v: unknown): v is Fragment {
   )
 }
 
-function flatten(
-  strings: TemplateStringsArray,
+export function flatten(
+  strings: readonly string[],
   values: any[],
 ): { text: string; params: any[] } {
   let text = ''
@@ -64,7 +64,7 @@ function flatten(
 
 type Row = Record<string, any>
 
-function makeQueryFn(run: (text: string, params: any[]) => Promise<Row[]>) {
+export function makeQueryFn(run: (text: string, params: any[]) => Promise<Row[]>) {
   const fn: any = (strings: TemplateStringsArray, ...values: any[]) => {
     const { text, params } = flatten(strings, values)
     let memo: Promise<Row[]> | null = null
