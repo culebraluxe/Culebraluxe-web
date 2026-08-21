@@ -32,6 +32,32 @@ import {
 
 type SqlClient = any; // neon tagged template client
 
+// ---------------------------------------------------------------------------
+// Central atomicity invariant (ENG-09)
+//
+//   AN ENGINE STEP EITHER COMMITS ONE COMPLETE VALID PERSISTENT STATE
+//   TRANSITION OR LEAVES THE PREVIOUS VALID PERSISTENT STATE INTACT.
+//
+// Every public operation (startProcess, completeTask, fireTimerJob,
+// signalToken, cancelProcess, ...) executes inside a single `sql.begin`
+// transaction: token completion, transition recording, successor/fork-child
+// creation, join release, human-task completion, timer advancement, process
+// completion/termination, and event recording all commit or roll back together.
+//
+// Application command boundary (the one deliberate exception):
+// `_handleCommand` calls app.executeCommand INSIDE the engine transaction
+// callback but on the APPLICATION's own connection, so that side effect can
+// commit independently of the engine transaction. Correctness is recovered
+// WITHOUT a distributed transaction by three cooperating guarantees:
+//   1. deterministic commandId = sha256(instanceId:nodeId)  (_commandId)
+//   2. process_commands UNIQUE(process_instance_id, node_id) replay guard -
+//      if the engine transaction rolls back the command row is gone and the
+//      step is retried with the SAME commandId (the instance id is stable)
+//   3. the application's workflow_command_receipt claim-first receipt makes
+//      the business effect idempotent across retries
+// A crash/replay after the side effect commits therefore cannot duplicate it.
+// ---------------------------------------------------------------------------
+
 export class WorkflowEngine {
   private evaluate: (
     expression: string,
@@ -239,6 +265,10 @@ export class WorkflowEngine {
             version = version + 1
         WHERE id = ${taskId} AND version = ${task.version}
       `;
+
+      if (this.hooks?.beforeTaskCompleteEvent) {
+        await this.hooks.beforeTaskCompleteEvent(taskId);
+      }
 
       await this._event(tx, {
         tenantId: task.tenantId,
@@ -551,6 +581,10 @@ export class WorkflowEngine {
         WHERE id = ${jobId}
       `;
 
+      if (this.hooks?.beforeTimerTokenMove) {
+        await this.hooks.beforeTimerTokenMove(jobId);
+      }
+
       if (job.tokenId) {
         const tokenRows = await tx`SELECT * FROM tokens WHERE id = ${job.tokenId} FOR UPDATE`;
         const token = this._mapToken(tokenRows[0]);
@@ -781,6 +815,9 @@ export class WorkflowEngine {
   ) {
     const node = opts.graph.nodes[opts.token.nodeId];
     if (!node) throw new Error(`Node ${opts.token.nodeId} not found`);
+    if (this.hooks?.beforeNodeArrive) {
+      await this.hooks.beforeNodeArrive(node.id);
+    }
     if (node.type === 'task') {
       // A token placed/moved onto a task node waits at the human gate.
       await this._createHumanTask(tx, {
@@ -943,6 +980,14 @@ export class WorkflowEngine {
     processInstanceId: string,
     actor: string,
   ) {
+    // Serialize terminalization on the instance row (ENG-09): two tokens
+    // completing concurrently must not both observe a zero active count
+    // (double-complete) or both observe a non-zero count (stuck process).
+    await tx`SELECT id FROM process_instances WHERE id = ${processInstanceId} FOR UPDATE`;
+    if (this.hooks?.beforeProcessTerminal) {
+      await this.hooks.beforeProcessTerminal(processInstanceId);
+    }
+
     const active = await tx`
       SELECT count(*)::int AS cnt FROM tokens
       WHERE process_instance_id = ${processInstanceId} AND status = 'active'
@@ -980,6 +1025,10 @@ export class WorkflowEngine {
         : outcome === 'completed'
           ? 'completed'
           : 'error';
+
+    if (this.hooks?.beforeProcessTerminal) {
+      await this.hooks.beforeProcessTerminal(processInstanceId);
+    }
 
     await tx`
       UPDATE process_instances
@@ -1175,6 +1224,10 @@ export class WorkflowEngine {
       `;
       const live = this._mapInstance(liveRows[0]);
       if (live.status !== 'active') break;
+
+      if (this.hooks?.beforeForkChildCreate) {
+        await this.hooks.beforeForkChildCreate(parentToken.id, transition.to);
+      }
 
       const required = transition.required !== false;
       const childRows = await tx`
@@ -1483,6 +1536,16 @@ export class WorkflowEngine {
       });
 
       result = await this.app.executeCommand(request);
+
+      // The application side effect above committed on the APPLICATION's own
+      // connection and is now durable OUTSIDE this engine transaction. If this
+      // step fails now the engine transaction rolls back but the side effect
+      // remains; deterministic commandId + process_commands uniqueness + the
+      // app command receipt make the retry replay idempotent (no duplicate
+      // business effect). No distributed transaction is introduced (ENG-09).
+      if (this.hooks?.afterCommandSideEffect) {
+        await this.hooks.afterCommandSideEffect(commandId);
+      }
 
       await tx`
         INSERT INTO process_commands (

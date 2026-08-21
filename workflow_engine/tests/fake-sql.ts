@@ -155,6 +155,11 @@ export class FakeSql {
       return row ? [row] : [];
     }
 
+    if (t.startsWith('select id from process_instances where id =') && t.includes('for update')) {
+      const row = st.processInstances.find((r) => r.id === params[0]);
+      return row ? [row] : [];
+    }
+
     if (t.startsWith('select * from process_instances where id =') && t.includes('for update')) {
       const row = st.processInstances.find((r) => r.id === params[0]);
       return row ? [row] : [];

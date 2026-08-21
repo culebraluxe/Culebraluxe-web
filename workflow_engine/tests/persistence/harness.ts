@@ -46,9 +46,14 @@ export async function ensureProbeTable(): Promise<void> {
 
 /** Ensure the app-side command-effect table used by the ENG-09 boundary proof. */
 export async function ensureCommandEffectTable(): Promise<void> {
+  // Test-only table. Tenant-scoped so concurrent persistence files (the
+  // test:persistence glob may run files in parallel processes) cannot
+  // interfere with each other's rows.
+  await interactiveSql`drop table if exists tunit_command_effect`
   await interactiveSql`
-    create table if not exists tunit_command_effect (
+    create table tunit_command_effect (
       command_id text primary key,
+      tenant_id uuid not null,
       effect_count integer not null default 1
     )
   `
@@ -150,7 +155,7 @@ export class PersistenceFixture {
       /* table absent */
     }
     try {
-      await interactiveSql`delete from tunit_command_effect`
+      await interactiveSql`delete from tunit_command_effect where tenant_id = ${this.tenantId}`
     } catch {
       /* table absent */
     }
