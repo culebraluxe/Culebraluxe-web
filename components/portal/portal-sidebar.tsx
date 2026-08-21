@@ -57,6 +57,10 @@ const navigationGroups = [
         href: "/portal/reporting",
       },
       {
+        label: "Story Board",
+        href: "/portal/storyboard",
+      },
+      {
         label: "Identity Quality",
         href: "/portal/identity-quality",
       },
