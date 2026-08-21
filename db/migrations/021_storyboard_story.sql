@@ -9,7 +9,7 @@
 -- docs/workflow/STORYBOARD_STATUS.md (seed 2026-08-20).
 --
 -- Applied to the disposable DEV branch (`dev`) on 2026-08-21 — 41 seed rows
--- present, CRUD verified. NOT applied to production.
+-- present, CRUD verified. Applied to PRODUCTION on 2026-08-21 (74 rows after 022).
 
 begin;
 

@@ -14,7 +14,8 @@
 -- Specification content is intentionally NOT populated here. The architect /
 -- review model and human owner populate stories deliberately in later work.
 --
--- Applied to the disposable DEV branch. NOT applied to production.
+-- Applied to the disposable DEV branch. Applied to PRODUCTION on 2026-08-21
+-- (execution-specification columns + run snapshots verified; content empty).
 
 begin;
 

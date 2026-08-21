@@ -13,7 +13,8 @@
 -- Workstream values are the canonical short codes:
 --   PUBLIC, CRM, PORTAL, TXN, ADMIN, AUTH, CONTENT, HARDEN
 --
--- Applied to the disposable DEV branch. NOT applied to production.
+-- Applied to the disposable DEV branch. Applied to PRODUCTION on 2026-08-21
+-- (authoritative 74-row board verified; zero S-*; no spec content seeded).
 
 begin;
 

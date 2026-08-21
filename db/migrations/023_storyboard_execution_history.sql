@@ -14,7 +14,8 @@
 -- Completion math uses storyboard_story.completion (0..100); status remains
 -- categorical state and drives the count buckets only.
 --
--- Applied to the disposable DEV branch. NOT applied to production.
+-- Applied to the disposable DEV branch. Applied to PRODUCTION on 2026-08-21
+-- (dates + 8-value status CHECK + storyboard_story_run verified).
 
 begin;
 
