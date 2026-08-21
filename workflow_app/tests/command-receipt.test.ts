@@ -73,6 +73,7 @@ test('a pending receipt is an in-flight conflict, not a terminal outcome', () =>
   const r = replayOutcome({ commandId: 'c', outcome: 'pending', aggregateId: null, message: null })
   assert.equal(r.outcome, 'conflict')
   assert.match(r.message ?? '', /pending/i)
+  assert.equal(replayOutcome({ commandId: 'c', outcome: 'pending', aggregateId: null, message: null }).outcome, 'conflict')
 })
 
 test('a completed receipt replays success deterministically', () => {
