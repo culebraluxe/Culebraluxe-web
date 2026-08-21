@@ -11,6 +11,7 @@
     "test": "tsx --test workflow_engine/tests/*.test.ts workflow_app/tests/*.test.ts",
     "test:engine": "tsx --test workflow_engine/tests/*.test.ts",
     "test:app": "tsx --test workflow_app/tests/*.test.ts",
+    "test:persistence": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs --test workflow_engine/tests/persistence/*.test.ts workflow_app/tests/persistence/*.test.ts",
     "agent:work": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-work.ts",
     "agent:scheduler:install": "node scripts/agent-scheduler.mjs install",
     "agent:scheduler:status": "node scripts/agent-scheduler.mjs status",
