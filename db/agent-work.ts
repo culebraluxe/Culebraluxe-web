@@ -52,6 +52,19 @@ export type AgentWorkItem = {
   finishedAt: string | null
   storyRunId: string | null
   errorText: string | null
+  /** Logical agent role (architect | builder | reviewer | verifier | ...). */
+  role: string | null
+  /** LOGICAL model profile (architect-pro, builder-flash, ...) — never vendor. */
+  modelProfile: string | null
+  /** Optional additive special instructions for this command. */
+  specialInstructions: string | null
+  /** Runtime adapter selected for this attempt. */
+  runtimeAdapter: string | null
+  /** Opaque external runtime/session id correlation (never canonical truth). */
+  externalRunId: string | null
+  /** Retry accounting. */
+  attempts: number
+  maxAttempts: number
   createdAt: string
   updatedAt: string
 }
@@ -73,6 +86,13 @@ type AgentWorkRow = QueryRow & {
   finished_at: string | null
   story_run_id: string | null
   error_text: string | null
+  role: string | null
+  model_profile: string | null
+  special_instructions: string | null
+  runtime_adapter: string | null
+  external_run_id: string | null
+  attempts: number
+  max_attempts: number
   created_at: string
   updated_at: string
 }
@@ -103,6 +123,13 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
     finishedAt: row.finished_at ?? null,
     storyRunId: row.story_run_id ?? null,
     errorText: row.error_text ?? null,
+    role: row.role ?? null,
+    modelProfile: row.model_profile ?? null,
+    specialInstructions: row.special_instructions ?? null,
+    runtimeAdapter: row.runtime_adapter ?? null,
+    externalRunId: row.external_run_id ?? null,
+    attempts: row.attempts ?? 0,
+    maxAttempts: row.max_attempts ?? 3,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -127,7 +154,7 @@ export async function listAgentWorkItems(
 
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, created_at, updated_at
     from agent_work_item
     order by queued_at desc, id
   `
@@ -141,7 +168,7 @@ export async function listAgentWorkForStory(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, created_at, updated_at
     from agent_work_item
     where story_id = ${storyId}
     order by queued_at desc, id
@@ -157,7 +184,7 @@ export async function listActiveAgentWorkForStory(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, created_at, updated_at
     from agent_work_item
     where story_id = ${storyId}
       and state in ('Ready', 'Claimed', 'Running')
@@ -173,7 +200,7 @@ export async function getAgentWorkItem(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, created_at, updated_at
     from agent_work_item
     where id = ${workItemId}
   `
@@ -188,7 +215,7 @@ export async function getActiveAgentWorkItem(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, created_at, updated_at
     from agent_work_item
     where state in ('Claimed', 'Running')
     limit 1
@@ -210,13 +237,123 @@ export async function listStaleAgentWork(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, created_at, updated_at
     from agent_work_item
     where state in ('Claimed', 'Running')
       and updated_at < now() - (${staleAfterMinutes} || ' minutes')::interval
     order by updated_at asc
   `
   return rows.map((row) => mapWorkItem(row as AgentWorkRow))
+}
+
+/**
+ * Atomically claim a SPECIFIC Ready work item (single-worker semantics kept:
+ * refuses when any Claimed/Running/Paused item exists system-wide). Used by
+ * the invoker's deterministic claim of a chosen command and by contract
+ * fixtures; the normal poller path uses claimNextAgentWork instead.
+ */
+export async function claimSpecificAgentWork(
+  workItemId: string,
+  workerId: string,
+  runner: TxRunner = neonTx,
+): Promise<AgentWorkItem | null> {
+  return runner(async (tx) => {
+    await tx`select pg_advisory_xact_lock(cast(9000212 as bigint))`
+
+    const activeRows = await tx`
+      select id from agent_work_item
+      where state in ('Claimed', 'Running', 'Paused')
+      limit 1
+    `
+    if (activeRows.length > 0) return null
+
+    const claimedRows = await tx`
+      update agent_work_item
+      set state = 'Claimed',
+          claimed_at = now(),
+          claimed_by = ${workerId},
+          updated_at = now()
+      where id = ${workItemId}
+        and state = 'Ready'
+      returning id, story_id, state, priority, queued_at, claimed_at,
+        claimed_by, started_at, finished_at, story_run_id, error_text,
+        role, model_profile, special_instructions, runtime_adapter,
+        external_run_id, attempts, max_attempts, created_at, updated_at
+    `
+    const row = claimedRows[0] as AgentWorkRow | undefined
+    return row ? mapWorkItem(row) : null
+  })
+}
+
+/**
+ * Set the runtime adapter identity + external run correlation on a work item
+ * (migration 028 command envelope). Used by the invoker/adapter at execution
+ * time so the durable row answers "which adapter/provider/model executed this
+ * command and which external session correlates". External ids are opaque.
+ */
+export async function setAgentWorkRuntime(
+  workItemId: string,
+  input: { runtimeAdapter: string; externalRunId?: string | null },
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update agent_work_item
+    set runtime_adapter = ${input.runtimeAdapter},
+        external_run_id = coalesce(${input.externalRunId ?? null}, external_run_id),
+        updated_at = now()
+    where id = ${workItemId}
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  return mapWorkItem(row)
+}
+
+/**
+ * Enqueue a durable Agent Work Command (migration 028 envelope) for a story.
+ * Creates a Ready work item with the logical role/model profile + optional
+ * special instructions. The authoritative story spec is NOT copied here — it
+ * is resolved from storyboard_story at execution time. The story must already
+ * be Ready (explicit authorization) or the caller enqueues directly for
+ * test/dogfood fixtures; duplicate protection (one active item per story) is
+ * enforced by the database.
+ */
+export async function enqueueAgentWorkCommand(
+  input: {
+    storyId: string
+    role?: string | null
+    modelProfile?: string | null
+    specialInstructions?: string | null
+    priority?: number
+    maxAttempts?: number
+  },
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    insert into agent_work_item (
+      story_id, state, priority, role, model_profile, special_instructions, max_attempts
+    ) values (
+      ${input.storyId}, 'Ready', ${input.priority ?? 0},
+      ${input.role ?? null}, ${input.modelProfile ?? null},
+      ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3}
+    )
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  if (!row) {
+    throw new PortalWriteError('conflict', `Unable to enqueue work for story "${input.storyId}".`)
+  }
+  return mapWorkItem(row)
 }
 
 /**
@@ -264,7 +401,8 @@ export async function updateAgentWorkProgress(
       and state = 'Running'
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
-      created_at, updated_at
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
   `
   const heartbeatRow = heartbeats[0] as AgentWorkRow | undefined
   if (!heartbeatRow) {
@@ -383,7 +521,8 @@ export async function beginAgentWorkRun(
     where id = ${workItemId}
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
-      created_at, updated_at
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -438,7 +577,8 @@ export async function finishAgentWork(
     where id = ${workItemId}
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
-      created_at, updated_at
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -498,7 +638,8 @@ export async function failAgentWork(
     where id = ${workItemId}
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
-      created_at, updated_at
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -553,7 +694,8 @@ export async function cancelAgentWork(
     where id = ${workItemId}
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
-      created_at, updated_at
+      role, model_profile, special_instructions, runtime_adapter,
+      external_run_id, attempts, max_attempts, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
