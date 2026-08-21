@@ -61,6 +61,10 @@ const navigationGroups = [
         href: "/portal/storyboard",
       },
       {
+        label: "Command Console",
+        href: "/portal/command-console",
+      },
+      {
         label: "Identity Quality",
         href: "/portal/identity-quality",
       },

@@ -171,15 +171,27 @@ test('ENG-18: completed work remains queryable; Error/Cancelled remain traceable
   }
 })
 
-test('ENG-18: re-save/requeue does not create duplicate active command rows', async () => {
+test('ENG-18: re-save/requeue reuses the active command row (never a duplicate)', async () => {
   const work = new SqlAgentWorkRepository(executor)
   const storyId = `TMP-Q-${Date.now()}-${++seq}`
   try {
     await createStory(storyId)
-    await work.enqueue({ storyId, modelProfile: 'builder-flash', priority: 10 })
-    await assert.rejects(() =>
-      work.enqueue({ storyId, modelProfile: 'builder-flash', priority: 10 }),
-    )
+    const first = await work.enqueue({ storyId, modelProfile: 'builder-flash', priority: 10 })
+    // A second "queue command" for the same Ready story UPSERTS the envelope
+    // onto the existing active row (console reuse semantics) — it does NOT
+    // create a second queue row.
+    const second = await work.enqueue({
+      storyId,
+      role: 'architect',
+      modelProfile: 'architect-pro',
+      executionPolicy: 'Daytime Only',
+      priority: 10,
+    })
+    assert.equal(second.id, first.id, 'reuses the same durable command row')
+    assert.equal(second.role, 'architect')
+    assert.equal(second.modelProfile, 'architect-pro')
+    assert.equal(second.executionPolicy, 'Daytime Only')
+
     const active = await interactiveSql`
       select count(*)::int as c from agent_work_item
       where story_id = ${storyId} and state in ('Ready', 'Claimed', 'Running')
