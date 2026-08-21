@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { StoryDetailSections } from "@/components/portal/storyboard/story-detail-sections"
+import { listActiveAgentWorkForStory } from "@/db/agent-work"
 import {
   getStoryboardStory,
   listStoryRuns,
@@ -32,6 +33,7 @@ export default async function StoryDetailPage({
   }
 
   const runs = await listStoryRuns(id)
+  const activeWork = await listActiveAgentWorkForStory(id)
 
   return (
     <div>
@@ -76,6 +78,53 @@ export default async function StoryDetailPage({
           </Link>
         </div>
       </header>
+
+      {activeWork.length > 0 && (
+        <section className="mb-6 rounded-sm border border-[var(--portal-border)] bg-white p-4">
+          <h5 className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
+            Agent Work Queue
+          </h5>
+          {activeWork.map((item) => (
+            <div
+              key={item.id}
+              className="mt-3 grid gap-x-8 gap-y-1 text-xs font-light leading-5 text-black/60 sm:grid-cols-2 lg:grid-cols-4"
+            >
+              <div>
+                <span className="text-black/35">State · </span>
+                <span className="text-[var(--portal-navy)]">{item.state}</span>
+              </div>
+              <div>
+                <span className="text-black/35">Queued · </span>
+                {item.queuedAt}
+              </div>
+              {item.claimedBy && (
+                <div>
+                  <span className="text-black/35">Claimed by · </span>
+                  {item.claimedBy}
+                </div>
+              )}
+              {item.claimedAt && (
+                <div>
+                  <span className="text-black/35">Claimed at · </span>
+                  {item.claimedAt}
+                </div>
+              )}
+              {item.startedAt && (
+                <div>
+                  <span className="text-black/35">Started · </span>
+                  {item.startedAt}
+                </div>
+              )}
+              {item.storyRunId && (
+                <div>
+                  <span className="text-black/35">Run · </span>
+                  <code>{item.storyRunId.slice(0, 12)}</code>
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       <StoryDetailSections story={story} runs={runs} />
     </div>

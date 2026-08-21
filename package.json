@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test workflow_engine/tests/*.test.ts workflow_app/tests/*.test.ts",
     "test:engine": "tsx --test workflow_engine/tests/*.test.ts",
-    "test:app": "tsx --test workflow_app/tests/*.test.ts"
+    "test:app": "tsx --test workflow_app/tests/*.test.ts",
+    "agent:work": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-work.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

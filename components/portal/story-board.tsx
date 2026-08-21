@@ -85,6 +85,11 @@ function SummaryStrip({ model }: { model: StoryBoardModel }) {
         value={String(model.totalBlockedFailed)}
         note="Requires attention"
       />
+      <SummaryStat
+        label="Ready for execution"
+        value={String(model.totalReady)}
+        note="Authorized for the coding agent"
+      />
     </div>
   )
 }

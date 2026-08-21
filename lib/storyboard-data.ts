@@ -34,6 +34,7 @@ export function workstreamName(code: string): string {
 
 export const STORY_STATUSES = [
   'Planned',
+  'Ready',
   'In Progress',
   'Complete',
   'Partial',
@@ -105,6 +106,7 @@ export const STATUS_BUCKET: Record<StoryStatus, StatusBucket> = {
   'In Progress': 'partial',
   Partial: 'partial',
   Planned: 'open',
+  Ready: 'open',
   Deferred: 'open',
   Hold: 'open',
   Failed: 'open',
@@ -141,7 +143,7 @@ export const WORK_VIEWS: ReadonlyArray<{
   {
     code: 'open',
     label: 'Open Work',
-    statuses: ['Planned', 'In Progress', 'Partial'],
+    statuses: ['Planned', 'Ready', 'In Progress', 'Partial'],
   },
   {
     code: 'blocked-failed',
@@ -328,6 +330,8 @@ export type StoryBoardModel = {
   totalComplete: number
   totalInProgressPartial: number
   totalBlockedFailed: number
+  /** Stories explicitly authorized for coding-agent execution. */
+  totalReady: number
 }
 
 function round(value: number, digits = 1) {
@@ -408,5 +412,6 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
       isInProgressPartial(s.status),
     ).length,
     totalBlockedFailed: stories.filter((s) => isBlockedFailed(s.status)).length,
+    totalReady: stories.filter((s) => s.status === 'Ready').length,
   }
 }

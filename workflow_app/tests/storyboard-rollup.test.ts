@@ -42,11 +42,27 @@ function story(overrides: Partial<StoryRecord> & { id: string }): StoryRecord {
   }
 }
 
-test('statusBucket categorizes the eight controlled statuses', () => {
+test('Ready does not alter completion math and is counted in totalReady', () => {
+  const model = buildStoryBoardModel([
+    story({ id: 'D-1', workstream: 'CRM', status: 'Ready', completion: 20 }),
+    story({ id: 'D-2', workstream: 'CRM', status: 'Planned', completion: 20 }),
+  ])
+  assert.equal(model.totalReady, 1)
+  const crm = model.workstreams.find((w) => w.code === 'CRM')!
+  // Ready (like Planned) uses the stored completion in the average.
+  assert.equal(crm.completionPercent, 20)
+  // Ready status alone changes no rollup count columns.
+  assert.equal(crm.completeCount, 0)
+  assert.equal(crm.inProgressPartialCount, 0)
+  assert.equal(crm.blockedFailedCount, 0)
+})
+
+test('statusBucket categorizes the nine controlled statuses', () => {
   assert.equal(statusBucket('Complete'), 'complete')
   assert.equal(statusBucket('In Progress'), 'partial')
   assert.equal(statusBucket('Partial'), 'partial')
   assert.equal(statusBucket('Planned'), 'open')
+  assert.equal(statusBucket('Ready'), 'open')
   assert.equal(statusBucket('Deferred'), 'open')
   assert.equal(statusBucket('Hold'), 'open')
   assert.equal(statusBucket('Failed'), 'open')

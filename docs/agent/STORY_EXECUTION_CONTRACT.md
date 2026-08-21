@@ -7,6 +7,12 @@ starting any story; do not repeat it inside every `architect_brief`.
 ## Authoritative state
 
 - The persistent Story Board is the authoritative CulebraLuxe backlog.
+- The production Story Board is the authoritative **execution-control state**:
+  read execution authorization from production, and write queue/run/result
+  evidence back to production Story Board tables.
+- `Ready` is **explicit authorization** to execute. It is never inferred from
+  `Planned` or `Partial`; only an explicit transition into `Ready` authorizes
+  the coding agent to claim work.
 - Read the requested story before coding.
 - Do not invent, rename, merge, or silently rewrite backlog stories.
 
@@ -46,8 +52,25 @@ If a field is empty, do not invent hidden requirements merely to fill it.
 ## Database
 
 - The DEV database may be freely read, written, migrated, seeded, reset,
-  queried, and repaired as needed.
-- The production database must never be modified during autonomous execution.
+  queried, and repaired as needed; it is the implementation/test sandbox.
+- The production Story Board is the control plane. The worker writes Story
+  Board lifecycle state and execution history back to the production
+  `storyboard_story`, `storyboard_story_run`, and `agent_work_item` tables.
+- Autonomous work must **not** mutate unrelated production application/domain
+  data, run production application migrations for the selected story, perform
+  destructive production verification, or change production fixtures.
+- Migration promotion to production happens only through an explicit
+  production-release task.
+
+## Agent work queue
+
+- One invocation of the worker command handles **at most one** work item.
+- Do not take another story after completing the current one; a later
+  invocation may claim the next `Ready` item.
+- When an obvious unmet prerequisite prevents execution, finish honestly as
+  `Blocked`, record the blocker in the run notes, and mark the work item
+  `Done` (the authorized attempt was processed normally). Never invent
+  prerequisite work.
 
 ## Execution state
 

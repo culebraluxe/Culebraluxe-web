@@ -66,7 +66,7 @@ export type StoryboardStoryInput = {
 
 export type StoryboardStoryUpdate = Omit<StoryboardStoryInput, 'id'>
 
-type StoryRow = QueryRow & {
+export type StoryRow = QueryRow & {
   id: string
   workstream: string
   title: string
@@ -113,7 +113,7 @@ function dateOrNull(value: unknown): string | null {
   return String(value)
 }
 
-function mapStory(row: StoryRow): StoryboardStory {
+export function mapStory(row: StoryRow): StoryboardStory {
   return {
     id: row.id,
     workstream: row.workstream as Workstream,

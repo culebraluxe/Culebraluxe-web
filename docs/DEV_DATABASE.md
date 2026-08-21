@@ -62,6 +62,8 @@ Migrations applied to the dev branch so far:
 - `024_storyboard_execution_specification.sql` — execution-spec fields
   (preconditions, architect_brief, context_refs, postconditions,
   architect_brief_updated_at) + immutable run specification snapshots
+- `025_agent_work_queue.sql` — `Ready` status + `agent_work_item` table,
+  DB-driven Ready dispatch, one-active-per-story and single-worker indexes
 
 ## Recreating the disposable DEV branch
 
@@ -91,9 +93,11 @@ Then update `.env.local`: `DATABASE_URL_DEV` / `DATABASE_URL` (pooled host),
 - Story IDs are the human-assigned master IDs (CRM-*, OPS-*, PORTAL-*, PX-*,
   PLAT-*, ENG-*, POLISH-*, AUTH-*, DOC-*). Workstream values are the canonical
   short codes: PUBLIC, CRM, PORTAL, TXN, ADMIN, AUTH, CONTENT, HARDEN.
-- Statuses are exactly: Planned, In Progress, Complete, Partial, Blocked,
-  Failed, Deferred, Hold. Completion math uses the stored `completion` (0..100);
-  Complete forces 100. Net-Net = Σ (workstream completion × weight), where
+- Statuses are exactly: Planned, Ready, In Progress, Complete, Partial,
+  Blocked, Failed, Deferred, Hold. `Ready` is explicit authorization for the
+  coding agent (never inferred); it does not change completion math. Completion
+  math uses the stored `completion` (0..100); Complete forces 100. Net-Net =
+  Σ (workstream completion × weight), where
   workstream completion = AVG(stored completion) over rollup stories.
 - Execution runs: `startStoryRun` sets In Progress + preserves the first
   `actual_start_at`; `finishStoryRun` records the run (result, completion,

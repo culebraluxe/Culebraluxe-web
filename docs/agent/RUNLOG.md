@@ -1,5 +1,39 @@
 # Agent Run Log
 
+## 2026-08-21 — Production-master agent work queue + Ready status
+
+- Role: Builder
+- Story: Add production-master agent work queue with single-worker execution —
+  the dispatch layer between the authoritative Story Board and the coding agent.
+- Files changed: `db/migrations/025_agent_work_queue.sql` (new — `Ready` in the
+  status CHECK, `agent_work_item` table, DB-driven Ready→work-item dispatch
+  trigger, one-active-per-story partial unique index, system-wide single-worker
+  partial unique index), `db/agent-work.ts` (new — claim/begin/finish/fail/
+  cancel repository with transactional advisory-locked `claimNextAgentWork`),
+  `scripts/agent-work.ts` (new — `pnpm agent:work` one-story-at-most command,
+  production-gated), `lib/storyboard-data.ts` (`Ready` status, bucket, Open
+  Work view, `totalReady` model count), `components/portal/story-board.tsx`
+  (Ready for execution summary stat), `app/portal/storyboard/[id]/page.tsx`
+  (active work item info), `docs/agent/STORY_EXECUTION_CONTRACT.md`
+  (production control plane, Ready authorization, one-item rule), tests
+  (`workflow_app/tests/agent-work.test.ts` — 18 queue/lifecycle/concurrency
+  tests), `docs/DEV_DATABASE.md`, and this run log.
+- Decision: Execution authorization lives only on production
+  `storyboard_story` (`Ready` = explicit authorization). `agent_work_item`
+  carries no specification; the authoritative spec is snapshotted into
+  `storyboard_story_run` at begin. The single-worker rule is enforced
+  database-side (partial unique index on `(true) WHERE state IN
+  ('Claimed','Running')`) and serialized by an advisory lock, so two workers
+  can never race into two active stories. A work item is `Done` whenever the
+  attempt finished normally and its result was recorded — `Error` is reserved
+  for execution-infrastructure failure.
+- Verification: DEV migration applied + full lifecycle/ordering/duplicate/
+  single-worker checks with temporary TMP-* data (all passed, cleaned up);
+  240/240 tests, tsc clean, Next build clean. Migration 025 promoted to
+  production (74 stories preserved, history intact) and re-verified end-to-end
+  with temporary TMP-PROD-* data (all passed, cleaned up). Commit/push/Vercel
+  deploy to follow so DB + app land on the same released version.
+
 ## 2026-08-21 — Story execution specification + run snapshots
 
 - Role: Builder

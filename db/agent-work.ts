@@ -1,0 +1,398 @@
+import { PortalWriteError } from '../lib/portal-write-error'
+import { neonTx, type TxRunner } from './tx'
+import {
+  finishStoryRun,
+  mapStory,
+  startStoryRun,
+  type StoryboardStory,
+  type StoryRow,
+} from './storyboard'
+import type { QueryExecutor, QueryRow } from './query-executor'
+
+// ---------------------------------------------------------------------------
+// Agent work queue repository (migration 025).
+//
+// The dispatch layer between the authoritative Story Board (control plane) and
+// the coding agent. Reads execution authorization FROM the production
+// storyboard_story table and WRITES queue/run/result evidence back to the
+// production Story Board tables. agent_work_item stores no story
+// specification — the authoritative spec stays on storyboard_story and is
+// snapshotted into storyboard_story_run when execution begins.
+//
+// Single-worker semantics are enforced database-side by migration 025:
+//   - at most one active work item per story (partial unique index)
+//   - at most one Claimed/Running item system-wide (partial unique index on a
+//     constant), with the claim command additionally serializing concurrent
+//     claims through an advisory lock so a second worker is refused cleanly
+//     instead of racing into a second active execution.
+// ---------------------------------------------------------------------------
+
+export type AgentWorkState =
+  | 'Ready'
+  | 'Claimed'
+  | 'Running'
+  | 'Done'
+  | 'Error'
+  | 'Cancelled'
+
+export type AgentWorkItem = {
+  id: string
+  storyId: string
+  state: AgentWorkState
+  priority: number
+  queuedAt: string
+  claimedAt: string | null
+  claimedBy: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  storyRunId: string | null
+  errorText: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentWorkClaim = {
+  workItem: AgentWorkItem
+  story: StoryboardStory
+}
+
+type AgentWorkRow = QueryRow & {
+  id: string
+  story_id: string
+  state: string
+  priority: number
+  queued_at: string
+  claimed_at: string | null
+  claimed_by: string | null
+  started_at: string | null
+  finished_at: string | null
+  story_run_id: string | null
+  error_text: string | null
+  created_at: string
+  updated_at: string
+}
+
+// NOTE: column lists are written literally (Neon driver parameterizes
+// interpolated strings — a `select ${cols}` would become `select $1`).
+
+let defaultExecutor: QueryExecutor | null = null
+
+async function executor(): Promise<QueryExecutor> {
+  if (!defaultExecutor) {
+    const client = await import('./client')
+    defaultExecutor = client.sql
+  }
+  return defaultExecutor
+}
+
+function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
+  return {
+    id: row.id,
+    storyId: row.story_id,
+    state: row.state as AgentWorkState,
+    priority: row.priority,
+    queuedAt: row.queued_at,
+    claimedAt: row.claimed_at ?? null,
+    claimedBy: row.claimed_by ?? null,
+    startedAt: row.started_at ?? null,
+    finishedAt: row.finished_at ?? null,
+    storyRunId: row.story_run_id ?? null,
+    errorText: row.error_text ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function isAgentWorkTableReady(
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select to_regclass('agent_work_item') is not null as ready
+  `
+  return rows[0]?.ready === true
+}
+
+export async function listAgentWorkItems(
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem[] | null> {
+  const q = execute ?? (await executor())
+  const ready = await isAgentWorkTableReady(q)
+  if (!ready) return null
+
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+    from agent_work_item
+    order by queued_at desc, id
+  `
+  return rows.map((row) => mapWorkItem(row as AgentWorkRow))
+}
+
+export async function listAgentWorkForStory(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+    from agent_work_item
+    where story_id = ${storyId}
+    order by queued_at desc, id
+  `
+  return rows.map((row) => mapWorkItem(row as AgentWorkRow))
+}
+
+/** Active work for a story (Ready / Claimed / Running), newest first. */
+export async function listActiveAgentWorkForStory(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+    from agent_work_item
+    where story_id = ${storyId}
+      and state in ('Ready', 'Claimed', 'Running')
+    order by queued_at desc, id
+  `
+  return rows.map((row) => mapWorkItem(row as AgentWorkRow))
+}
+
+export async function getAgentWorkItem(
+  workItemId: string,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, created_at, updated_at
+    from agent_work_item
+    where id = ${workItemId}
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  return row ? mapWorkItem(row) : null
+}
+
+/**
+ * Atomically claim the next Ready work item for a single worker.
+ *
+ * Transactional behavior (via the injected runner; defaults to the Neon
+ * interactive transaction):
+ *   1. acquire a system-wide advisory lock so concurrent claims serialize
+ *   2. refuse cleanly if any item is already Claimed or Running
+ *   3. select one Ready item — priority DESC, then queued_at ASC
+ *   4. claim exactly one row: state -> Claimed, claimed_at -> now(),
+ *      claimed_by -> workerId
+ *   5. return the claimed work item plus the authoritative story specification
+ *
+ * Returns null when there is no Ready work, or when another item is already
+ * active (so a second worker is never handed work concurrently).
+ */
+export async function claimNextAgentWork(
+  workerId: string,
+  runner: TxRunner = neonTx,
+): Promise<AgentWorkClaim | null> {
+  return runner(async (tx) => {
+    // Serialize concurrent claims system-wide. Literal key: 'culebra-agent-claim'.
+    await tx`select pg_advisory_xact_lock(cast(9000212 as bigint))`
+
+    const activeRows = await tx`
+      select id from agent_work_item
+      where state in ('Claimed', 'Running')
+      limit 1
+    `
+    if (activeRows.length > 0) return null
+
+    const claimedRows = await tx`
+      update agent_work_item
+      set state = 'Claimed',
+          claimed_at = now(),
+          claimed_by = ${workerId},
+          updated_at = now()
+      where id = (
+        select id from agent_work_item
+        where state = 'Ready'
+        order by priority desc, queued_at asc, id
+        limit 1
+      )
+      returning id, story_id, state, priority, queued_at, claimed_at,
+        claimed_by, started_at, finished_at, story_run_id, error_text,
+        created_at, updated_at
+    `
+    const claimedRow = claimedRows[0] as AgentWorkRow | undefined
+    if (!claimedRow) return null
+
+    const workItem = mapWorkItem(claimedRow)
+    const storyRows = await tx`
+      select id, workstream, title, priority, status, notes, batch, goal, scope,
+        dependencies, preconditions, architect_brief, context_refs,
+        acceptance_criteria, postconditions, architect_brief_updated_at,
+        completion, rollup, planned_start_at, actual_start_at, completed_at,
+        created_at, updated_at
+      from storyboard_story
+      where id = ${workItem.storyId}
+    `
+    const storyRow = storyRows[0] as StoryRow | undefined
+    if (!storyRow) {
+      throw new PortalWriteError(
+        'not-found',
+        `Story "${workItem.storyId}" for work item ${workItem.id} was not found.`,
+      )
+    }
+    return { workItem, story: mapStory(storyRow) }
+  })
+}
+
+/**
+ * Begin execution of a claimed work item:
+ *   - work item state -> Running, started_at -> now()
+ *   - runs the existing Story Board start lifecycle against the authoritative
+ *     story: story -> In Progress, first actual_start_at preserved, a
+ *     storyboard_story_run is created with an immutable snapshot of the
+ *     execution specification, and the run id is recorded on the work item.
+ */
+export async function beginAgentWorkRun(
+  workItemId: string,
+  execute?: QueryExecutor,
+): Promise<{ workItem: AgentWorkItem; story: StoryboardStory }> {
+  const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  if (item.state !== 'Claimed') {
+    throw new PortalWriteError(
+      'conflict',
+      `Work item "${workItemId}" is ${item.state}; only a Claimed item can begin.`,
+    )
+  }
+
+  const { run, story } = await startStoryRun(item.storyId, q)
+
+  const rows = await q`
+    update agent_work_item
+    set state = 'Running',
+        started_at = now(),
+        story_run_id = ${run.id},
+        updated_at = now()
+    where id = ${workItemId}
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      created_at, updated_at
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  return { workItem: mapWorkItem(row), story }
+}
+
+export type FinishAgentWorkInput = {
+  resultStatus: string
+  completion: number
+  notes: string
+  commitHash: string | null
+  testsSummary: string | null
+}
+
+/**
+ * Finish execution of a Running work item:
+ *   - records the storyboard_story_run result (ended_at, result_status,
+ *     completion, notes, commit_hash, tests_summary) and updates the
+ *     authoritative story status/completion via the existing finish lifecycle
+ *   - work item -> Done, finished_at -> now()
+ *
+ * A work item is Done whenever the coding attempt finished normally and its
+ * result was recorded — the story result may be Partial/Blocked/etc. Work item
+ * Error is reserved for execution-infrastructure failure (failAgentWork).
+ */
+export async function finishAgentWork(
+  workItemId: string,
+  input: FinishAgentWorkInput,
+  execute?: QueryExecutor,
+): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }> {
+  const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  if (!item.storyRunId) {
+    throw new PortalWriteError(
+      'conflict',
+      `Work item "${workItemId}" has no story run; begin execution first.`,
+    )
+  }
+
+  const { run, story } = await finishStoryRun(item.storyRunId, input, q)
+
+  const rows = await q`
+    update agent_work_item
+    set state = 'Done',
+        finished_at = now(),
+        updated_at = now()
+    where id = ${workItemId}
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      created_at, updated_at
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  return { workItem: mapWorkItem(row), run, story }
+}
+
+/**
+ * Mark a work item Error — the execution mechanism itself failed or could not
+ * correctly record the run. The run/story are left untouched (the worker
+ * should record what it can through the normal finish path when possible).
+ */
+export async function failAgentWork(
+  workItemId: string,
+  errorText: string,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update agent_work_item
+    set state = 'Error',
+        error_text = ${errorText},
+        finished_at = now(),
+        updated_at = now()
+    where id = ${workItemId}
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      created_at, updated_at
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  return mapWorkItem(row)
+}
+
+/** Cancel an active work item (human/architect decision). */
+export async function cancelAgentWork(
+  workItemId: string,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update agent_work_item
+    set state = 'Cancelled',
+        finished_at = now(),
+        updated_at = now()
+    where id = ${workItemId}
+    returning id, story_id, state, priority, queued_at, claimed_at,
+      claimed_by, started_at, finished_at, story_run_id, error_text,
+      created_at, updated_at
+  `
+  const row = rows[0] as AgentWorkRow | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  return mapWorkItem(row)
+}
