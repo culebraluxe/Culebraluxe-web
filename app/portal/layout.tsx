@@ -4,8 +4,7 @@ import { redirect } from "next/navigation"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { toPortalActorSnapshot } from "@/lib/auth/actor-snapshot"
-import { PortalHeader } from "@/components/portal/portal-header"
-import { PortalSidebar } from "@/components/portal/portal-sidebar"
+import { OperatingShell } from "@/components/portal/operating-shell"
 
 export const dynamic = "force-dynamic"
 
@@ -13,6 +12,9 @@ export const dynamic = "force-dynamic"
 // the cheap Edge first gate; THIS is where portal.read is enforced against the
 // DB-backed canonical projection. Unauthenticated → /login; authenticated but
 // missing portal.read (or inactive/unmapped) → /login/unauthorized.
+//
+// UI-01: the rendering shell is the operating-surface shell (NEXUS | OPS |
+// TECH | SUPPORT + contextual navigation) — the persistent left rail is gone.
 export default async function PortalLayout({
   children,
 }: {
@@ -27,19 +29,5 @@ export default async function PortalLayout({
   // Cosmetic UI projection only — hiding buttons is never the security boundary.
   const actor = toPortalActorSnapshot(result.actor)
 
-  return (
-    <div className="min-h-screen bg-[var(--portal-bg)] text-[var(--portal-text)]">
-      <div className="flex min-h-screen">
-        <PortalSidebar actor={actor} />
-
-        <div className="min-w-0 flex-1">
-          <PortalHeader actor={actor} />
-
-          <main className="px-6 py-8 lg:px-10 lg:py-10 xl:px-14">
-            {children}
-          </main>
-        </div>
-      </div>
-    </div>
-  )
+  return <OperatingShell actor={actor}>{children}</OperatingShell>
 }

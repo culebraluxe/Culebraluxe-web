@@ -10,6 +10,8 @@
 // backlog items are created.
 // ---------------------------------------------------------------------------
 
+import { OPERATING_SURFACE_ORDER } from './navigation'
+
 /** Workstream code stored on each story, with its rollup name and weight. */
 export const WORKSTREAMS = [
   { code: 'PUBLIC', name: 'Public Website / Property Experience', weight: 20 },
@@ -30,6 +32,33 @@ export const WORKSTREAM_CODES: readonly string[] = WORKSTREAMS.map(
 
 export function workstreamName(code: string): string {
   return WORKSTREAMS.find((w) => w.code === code)?.name ?? code
+}
+
+// ---------------------------------------------------------------------------
+// Operating surfaces (UI-01) — a SECOND organizing axis, INDEPENDENT from
+// workstream. The canonical tokens come from the navigation registry so the
+// Story Board vocabulary and the application shell can never drift apart.
+// NULL on a story means "not yet deliberately classified" — it is never
+// silently interpreted as NEXUS, OPS, TECH or SUPPORT.
+// ---------------------------------------------------------------------------
+
+export const OPERATING_SURFACES: readonly string[] =
+  OPERATING_SURFACE_ORDER as readonly string[]
+
+export type OperatingSurface = (typeof OPERATING_SURFACE_ORDER)[number]
+
+export const OPERATING_SURFACE_CODES: readonly string[] = OPERATING_SURFACE_ORDER.map(
+  (s) => s,
+)
+
+/** Display helper: null stays "Unclassified" — never a fake surface. */
+export function operatingSurfaceName(code: string | null): string {
+  if (!code) return 'Unclassified'
+  const surface = code.toUpperCase()
+  if ((OPERATING_SURFACE_CODES as readonly string[]).includes(surface)) {
+    return surface
+  }
+  return 'Unclassified'
 }
 
 export const STORY_STATUSES = [
@@ -62,6 +91,9 @@ export type StoryPriority = (typeof STORY_PRIORITIES)[number]
 export type StoryRecord = {
   id: string
   workstream: Workstream
+  /** UI-01: second organizing axis (NEXUS | OPS | TECH | SUPPORT); null = not
+   *  yet deliberately classified. Independent from workstream. */
+  operatingSurface: OperatingSurface | null
   title: string
   priority: StoryPriority
   status: StoryStatus

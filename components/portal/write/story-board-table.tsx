@@ -13,6 +13,7 @@ import {
   STORY_PRIORITIES,
   STORY_STATUSES,
   WORKSTREAMS,
+  OPERATING_SURFACES,
   workstreamName,
   type StoryRecord,
 } from '@/lib/storyboard-data'
@@ -65,6 +66,7 @@ function emptyForm(): StoryFormInput {
   return {
     id: '',
     workstream: WORKSTREAMS[0].code,
+    operatingSurface: null,
     title: '',
     priority: 'Medium',
     status: 'Planned',
@@ -164,6 +166,27 @@ function StoryForm({
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="block">
+          <span className={fieldLabel}>Operating Surface</span>
+          <select
+            value={form.operatingSurface ?? ''}
+            onChange={(event) =>
+              setField('operatingSurface', event.target.value || null)
+            }
+            className={`${selectInput} w-full`}
+          >
+            <option value="">Unclassified</option>
+            {OPERATING_SURFACES.map((surface) => (
+              <option key={surface} value={surface}>
+                {surface}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1.5 block text-xs font-light text-black/40">
+            NEXUS | OPS | TECH | SUPPORT — independent from workstream.
+          </span>
         </label>
 
         <label className="block">
@@ -467,6 +490,17 @@ function StoryRow({
           </span>
         </td>
         <td className="px-6 py-4 align-top">
+          <span
+            className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
+              story.operatingSurface
+                ? 'border border-[#c6a15b]/40 text-[#8a6d2f]'
+                : 'border border-black/10 text-black/35'
+            }`}
+          >
+            {story.operatingSurface ?? 'Unclassified'}
+          </span>
+        </td>
+        <td className="px-6 py-4 align-top">
           <select
             value={story.status}
             disabled={isPending}
@@ -512,6 +546,7 @@ function StoryRow({
               initial={{
                 id: story.id,
                 workstream: story.workstream,
+                operatingSurface: story.operatingSurface,
                 title: story.title,
                 priority: story.priority,
                 status: story.status,

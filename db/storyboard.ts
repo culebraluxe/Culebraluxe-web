@@ -4,6 +4,7 @@ import type {
   StoryStatus,
   Workstream,
 } from '../lib/storyboard-data'
+import type { OperatingSurface } from '../lib/storyboard-data'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,9 @@ import type { QueryExecutor, QueryRow } from './query-executor'
 export type StoryboardStory = {
   id: string
   workstream: Workstream
+  /** UI-01: operating surface (NEXUS | OPS | TECH | SUPPORT). Null = not yet
+   *  deliberately classified; never interpreted as a fake surface. */
+  operatingSurface: OperatingSurface | null
   title: string
   priority: StoryPriority
   status: StoryStatus
@@ -44,6 +48,8 @@ export type StoryboardStory = {
 export type StoryboardStoryInput = {
   id: string
   workstream: string
+  /** UI-01: optional operating surface; omitted/null stays unclassified. */
+  operatingSurface?: string | null
   title: string
   priority: string
   status: string
@@ -69,6 +75,7 @@ export type StoryboardStoryUpdate = Omit<StoryboardStoryInput, 'id'>
 export type StoryRow = QueryRow & {
   id: string
   workstream: string
+  operating_surface: string | null
   title: string
   priority: string
   status: string
@@ -117,6 +124,7 @@ export function mapStory(row: StoryRow): StoryboardStory {
   return {
     id: row.id,
     workstream: row.workstream as Workstream,
+    operatingSurface: (row.operating_surface as OperatingSurface | null) ?? null,
     title: row.title,
     priority: row.priority as StoryPriority,
     status: row.status as StoryStatus,
@@ -159,7 +167,8 @@ export async function listStoryboardStories(
   if (!ready) return null
 
   const rows = await q`
-    select id, workstream, title, priority, status, notes, batch, goal, scope,
+    select id, workstream, operating_surface, title, priority, status, notes,
+      batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
@@ -176,7 +185,8 @@ export async function getStoryboardStory(
 ): Promise<StoryboardStory | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select id, workstream, title, priority, status, notes, batch, goal, scope,
+    select id, workstream, operating_surface, title, priority, status, notes,
+      batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
@@ -198,7 +208,8 @@ export async function createStoryboardStory(
       id, workstream, title, priority, status, notes, batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
-      completion, rollup, planned_start_at, actual_start_at, completed_at
+      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      operating_surface
     ) values (
       ${input.id}, ${input.workstream}, ${input.title}, ${input.priority},
       ${input.status}, ${input.notes}, ${input.batch ?? null},
@@ -209,10 +220,12 @@ export async function createStoryboardStory(
       case when ${input.architectBrief ?? null}::text is null then null else now() end,
       ${input.completion}, ${input.rollup},
       ${input.plannedStartAt ?? null}, ${input.actualStartAt ?? null},
-      ${input.completedAt ?? null}
+      ${input.completedAt ?? null},
+      ${input.operatingSurface ?? null}
     )
     on conflict (id) do nothing
-    returning id, workstream, title, priority, status, notes, batch, goal,
+    returning id, workstream, operating_surface, title, priority, status, notes,
+      batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
@@ -256,9 +269,11 @@ export async function updateStoryboardStory(
         completion = ${input.completion},
         rollup = ${input.rollup},
         planned_start_at = ${input.plannedStartAt ?? null},
+        operating_surface = ${input.operatingSurface ?? null},
         updated_at = now()
     where id = ${id}
-    returning id, workstream, title, priority, status, notes, batch, goal,
+    returning id, workstream, operating_surface, title, priority, status, notes,
+      batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
@@ -292,7 +307,8 @@ export async function setStoryboardStatus(
         completion = case when ${status} = 'Complete' then 100 else completion end,
         updated_at = now()
     where id = ${id}
-    returning id, workstream, title, priority, status, notes, batch, goal,
+    returning id, workstream, operating_surface, title, priority, status, notes,
+      batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,

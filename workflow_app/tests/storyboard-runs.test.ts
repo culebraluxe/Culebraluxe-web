@@ -20,6 +20,7 @@ type Row = Record<string, any>
 const baseInput = {
   id: 'CRM-19',
   workstream: 'CRM',
+  operatingSurface: null,
   title: 'WhatsApp live connector',
   priority: 'High',
   status: 'Planned',
@@ -114,6 +115,7 @@ class FakeDb {
         planned_start_at: p[18] ?? null,
         actual_start_at: p[19] ?? null,
         completed_at: p[20] ?? null,
+        operating_surface: p[21] ?? null,
         created_at: this.now,
         updated_at: this.now,
       }
@@ -155,7 +157,8 @@ class FakeDb {
         return Promise.resolve([r])
       }
       if (t.includes('set workstream')) {
-        const r = this.stories.find((x) => x.id === p[18])
+        // operating_surface is $18 (p[18]); where id is $20 (p[19]).
+        const r = this.stories.find((x) => x.id === p[19])
         if (!r) return Promise.resolve([])
         r.workstream = p[0]
         r.title = p[1]
@@ -174,6 +177,7 @@ class FakeDb {
         r.completion = p[15]
         r.rollup = p[16]
         r.planned_start_at = p[17] ?? null
+        r.operating_surface = p[18] ?? null
         r.updated_at = this.now
         return Promise.resolve([r])
       }

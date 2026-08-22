@@ -7,6 +7,7 @@ import {
   STORY_PRIORITIES,
   STORY_STATUSES,
   WORKSTREAM_CODES,
+  OPERATING_SURFACE_CODES,
   type StoryPriority,
   type StoryStatus,
 } from '@/lib/storyboard-data'
@@ -36,6 +37,9 @@ export type StoryBoardWriteResult<T> =
 export type StoryFormInput = {
   id: string
   workstream: string
+  /** UI-01: operating surface (NEXUS | OPS | TECH | SUPPORT); null = not yet
+   *  deliberately classified. Independent from workstream. */
+  operatingSurface: string | null
   title: string
   priority: string
   status: string
@@ -103,6 +107,12 @@ function validateInput(
   if (!WORKSTREAM_CODES.includes(input.workstream)) {
     return 'Workstream is required.'
   }
+  if (
+    input.operatingSurface != null &&
+    !OPERATING_SURFACE_CODES.includes(input.operatingSurface)
+  ) {
+    return 'Operating surface must be one of NEXUS, OPS, TECH, SUPPORT.'
+  }
   if (!input.title.trim()) return 'Story title is required.'
   if (!STORY_PRIORITIES.includes(input.priority as StoryPriority)) {
     return 'Priority is required.'
@@ -125,6 +135,7 @@ function toInput(form: StoryFormInput): StoryboardStoryInput {
   return {
     id: form.id.trim(),
     workstream: form.workstream,
+    operatingSurface: form.operatingSurface?.trim() || null,
     title: form.title.trim(),
     priority: form.priority,
     status: form.status,

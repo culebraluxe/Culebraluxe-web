@@ -35,6 +35,7 @@ type Row = Record<string, any>
 const baseInput: StoryboardStoryInput = {
   id: 'ENG-04',
   workstream: 'HARDEN',
+  operatingSurface: 'TECH',
   title: 'TUNIT Formal Regression Suite',
   priority: 'High',
   status: 'Planned',
@@ -158,6 +159,7 @@ class FakeQueueDb {
         planned_start_at: p[18] ?? null,
         actual_start_at: p[19] ?? null,
         completed_at: p[20] ?? null,
+        operating_surface: p[21] ?? null,
         created_at: this.now,
         updated_at: this.now,
         priority_score: 0,

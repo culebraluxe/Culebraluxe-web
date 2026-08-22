@@ -623,7 +623,8 @@ export async function claimNextAgentWork(
 
     const workItem = mapWorkItem(claimedRow)
     const storyRows = await tx`
-      select id, workstream, title, priority, status, notes, batch, goal, scope,
+      select id, workstream, operating_surface, title, priority, status, notes,
+        batch, goal, scope,
         dependencies, preconditions, architect_brief, context_refs,
         acceptance_criteria, postconditions, architect_brief_updated_at,
         completion, rollup, planned_start_at, actual_start_at, completed_at,
