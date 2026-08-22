@@ -26,6 +26,13 @@ export type DomainEventType =
   | 'PARTICIPANT_ADDED'
   | 'PARTICIPANT_ENDED'
   | 'PROPERTY_STATUS_CHANGED'
+  // DOC-03 — Signature Provider Seam neutral events. Downstream consumers
+  // (DOC-05 reconciliation) subscribe to these neutral events, never to
+  // provider webhooks.
+  | 'SIGNATURE_REQUEST_SENT'
+  | 'SIGNATURE_REQUEST_COMPLETED'
+  | 'SIGNATURE_REQUEST_DECLINED'
+  | 'SIGNATURE_REQUEST_VOIDED'
 
 export type AggregateType =
   | 'deal'
@@ -36,6 +43,8 @@ export type AggregateType =
   | 'deal_participant'
   | 'property'
   | 'person'
+  // DOC-03 — canonical signature_request aggregate (provider-free).
+  | 'signature_request'
 
 export type DomainEvent = {
   eventId: string

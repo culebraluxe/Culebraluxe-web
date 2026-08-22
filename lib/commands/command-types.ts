@@ -23,3 +23,12 @@ export const OFFER_ACCEPT = 'offer.accept'
 export const TASK_CREATE = 'task.create'
 export const TASK_COMPLETE = 'task.complete'
 export const TASK_CANCEL = 'task.cancel'
+
+// DOC-03 — provider-neutral signature commands (the Signature Provider Seam).
+// These are canonical application commands registered in lib/commands/register
+// and dispatched by the signature application router (lib/signature) — NOT
+// workflow engine commands (the workflow engine never signs).
+export const SIGNATURE_REQUEST_SEND = 'signature.request.send'
+export const SIGNATURE_REQUEST_STATUS = 'signature.request.status'
+export const SIGNATURE_REQUEST_CANCEL = 'signature.request.cancel'
+export const SIGNATURE_REQUEST_DECLINE = 'signature.request.decline'

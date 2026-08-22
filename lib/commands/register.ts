@@ -43,6 +43,16 @@ import {
   CompleteTaskCommand,
   CreateTaskCommand,
 } from './task/task-commands'
+import {
+  SIGNATURE_REQUEST_CANCEL,
+  SIGNATURE_REQUEST_DECLINE,
+  SIGNATURE_REQUEST_SEND,
+  SIGNATURE_REQUEST_STATUS,
+  CancelSignatureRequestCommand,
+  DeclineSignatureRequestCommand,
+  SendSignatureRequestCommand,
+  StatusSignatureRequestCommand,
+} from './signature/signature-commands'
 
 /** Register every canonical command handler into the given registry. */
 export function registerCanonicalCommands(registry: CommandRegistry): void {
@@ -56,6 +66,12 @@ export function registerCanonicalCommands(registry: CommandRegistry): void {
   registry.register(TASK_CREATE, new CreateTaskCommand())
   registry.register(TASK_COMPLETE, new CompleteTaskCommand())
   registry.register(TASK_CANCEL, new CancelTaskCommand())
+  // DOC-03 — provider-neutral signature commands (dispatched by the signature
+  // application router through the canonical seam; never per-provider).
+  registry.register(SIGNATURE_REQUEST_SEND, new SendSignatureRequestCommand())
+  registry.register(SIGNATURE_REQUEST_STATUS, new StatusSignatureRequestCommand())
+  registry.register(SIGNATURE_REQUEST_CANCEL, new CancelSignatureRequestCommand())
+  registry.register(SIGNATURE_REQUEST_DECLINE, new DeclineSignatureRequestCommand())
 }
 
 /** A fresh registry with every canonical command registered. */
