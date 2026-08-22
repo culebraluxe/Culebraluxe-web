@@ -254,22 +254,38 @@
   /* Shared panel primitives — Standard / Soft / Feature / Attention. */
   --portal-panel-bg: #ffffff;
   --portal-panel-border: #ccd6e0;
-  --portal-panel-shadow: 0 1px 2px rgba(24, 43, 64, 0.05), 0 6px 18px rgba(24, 43, 64, 0.07);
-  --portal-panel-radius: 8px;
+  --portal-panel-shadow: 0 1px 2px rgba(24, 43, 64, 0.05), 0 2px 6px rgba(24, 43, 64, 0.06), 0 12px 28px rgba(24, 43, 64, 0.1);
+  --portal-panel-radius: 10px;
   --portal-panel-padding: 24px;
   --portal-panel-heading: #182b40;
   --portal-panel-heading-muted: #64798d;
 
   --portal-soft-bg: #eef3f8;
+  --portal-soft-gradient: linear-gradient(180deg, #f2f6fa 0%, #e8eff6 100%);
   --portal-soft-heading: #182b40;
 
   --portal-feature-bg: #182b40;
+  --portal-feature-gradient: linear-gradient(135deg, #1d3348 0%, #14263a 55%, #0e1c2d 100%);
   --portal-feature-border: #182b40;
-  --portal-feature-shadow: 0 6px 20px rgba(24, 43, 64, 0.24);
+  --portal-feature-shadow: 0 2px 6px rgba(24, 43, 64, 0.18), 0 14px 34px rgba(24, 43, 64, 0.3);
   --portal-feature-heading: #ffffff;
   --portal-feature-muted: rgba(255, 255, 255, 0.6);
+  --portal-feature-eyebrow: #d8b877;
 
   --portal-attention-bg: #f3f7fb;
   --portal-attention-border: #182b40;
   --portal-attention-heading: #182b40;
+  --portal-attention-eyebrow: #8a6d2f;
+
+  /* Shared glass nav tokens — frosted operating rail + translucent shell. */
+  --portal-shell-bg: rgba(238, 242, 247, 0.82);
+  --portal-shell-blur: 10px;
+  --portal-rail-bg: rgba(255, 255, 255, 0.66);
+  --portal-rail-blur: 14px;
+  --portal-rail-border: rgba(24, 43, 64, 0.16);
+  --portal-rail-shadow: 0 1px 2px rgba(24, 43, 64, 0.06), 0 8px 24px rgba(24, 43, 64, 0.1);
+  --portal-rail-radius: 10px;
+  --portal-rail-hover-bg: rgba(24, 43, 64, 0.07);
+  --portal-tab-height: 44px;
+  --portal-tab-radius: 7px;
 }

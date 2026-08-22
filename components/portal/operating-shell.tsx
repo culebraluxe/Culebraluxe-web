@@ -103,8 +103,8 @@ export function OperatingShell({
         </div>
       </header>
 
-      {/* Tier 1 + Tier 2 — sticky operating navigation */}
-      <div className="sticky top-0 z-20 border-b border-[var(--portal-border)] bg-[var(--portal-bg)]">
+      {/* Tier 1 + Tier 2 — sticky operating navigation (frosted shell) */}
+      <div className="sticky top-0 z-20 border-b border-[var(--portal-border)] bg-[var(--portal-shell-bg)] backdrop-blur-[var(--portal-shell-blur)]">
         <nav
           aria-label="Operating surface"
           className="grid grid-cols-5"
@@ -132,7 +132,7 @@ export function OperatingShell({
         <div className="overflow-x-auto px-3 pb-3 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <nav
             aria-label={`${activeSurface} navigation`}
-            className="flex w-max min-w-full items-center gap-1 rounded-lg border border-[var(--portal-border)] bg-white p-1 shadow-sm"
+            className="flex w-max min-w-full items-center gap-1.5 rounded-[var(--portal-rail-radius)] border border-[var(--portal-rail-border)] bg-[var(--portal-rail-bg)] p-1 shadow-[var(--portal-rail-shadow)] backdrop-blur-[var(--portal-rail-blur)]"
           >
             {visibleItems.map((item) => {
               const activeItem =
@@ -143,10 +143,10 @@ export function OperatingShell({
                   href={item.href}
                   aria-current={activeItem ? 'page' : undefined}
                   className={[
-                    'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-3.5 text-[11px] font-medium uppercase tracking-[0.12em] transition-colors',
+                    'relative flex min-h-[var(--portal-tab-height)] shrink-0 items-center whitespace-nowrap rounded-[var(--portal-tab-radius)] px-3.5 text-[11px] font-medium uppercase tracking-[0.12em] transition-colors',
                     activeItem
-                      ? 'bg-[var(--portal-navy)] text-white shadow-sm'
-                      : 'text-[var(--portal-navy)] hover:bg-[var(--portal-blue-pale)] active:bg-[var(--portal-blue-pale)]',
+                      ? 'bg-[var(--portal-navy)] text-white shadow-sm after:absolute after:inset-x-4 after:bottom-px after:h-0.5 after:rounded-full after:bg-[var(--portal-gold)]'
+                      : 'text-[var(--portal-navy)] hover:bg-[var(--portal-rail-hover-bg)] active:bg-[var(--portal-rail-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--portal-gold)]/60',
                   ].join(' ')}
                 >
                   {item.label}

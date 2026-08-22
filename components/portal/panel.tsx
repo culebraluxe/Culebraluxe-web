@@ -26,11 +26,11 @@ export type PanelVariant = 'standard' | 'soft' | 'feature' | 'attention'
 const variantSurface: Record<PanelVariant, string> = {
   standard:
     'border-[var(--portal-panel-border)] bg-[var(--portal-panel-bg)] shadow-[var(--portal-panel-shadow)]',
-  soft: 'border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-[var(--portal-panel-shadow)]',
+  soft: 'border-[var(--portal-panel-border)] [background:var(--portal-soft-gradient)] shadow-[var(--portal-panel-shadow)]',
   feature:
-    'border-[var(--portal-feature-border)] bg-[var(--portal-feature-bg)] shadow-[var(--portal-feature-shadow)] text-white',
+    'border-[var(--portal-feature-border)] [background:var(--portal-feature-gradient)] shadow-[var(--portal-feature-shadow)] text-white',
   attention:
-    'border-[var(--portal-attention-border)] bg-[var(--portal-attention-bg)] shadow-[var(--portal-panel-shadow)]',
+    'border-[var(--portal-attention-border)] border-t-2 border-t-[var(--portal-gold)] bg-[var(--portal-attention-bg)] shadow-[var(--portal-panel-shadow)]',
 }
 
 const headingTone: Record<PanelVariant, string> = {
@@ -43,8 +43,8 @@ const headingTone: Record<PanelVariant, string> = {
 const mutedTone: Record<PanelVariant, string> = {
   standard: 'text-[var(--portal-panel-heading-muted)]',
   soft: 'text-[var(--portal-blue-gray)]',
-  feature: 'text-[var(--portal-feature-muted)]',
-  attention: 'text-[var(--portal-blue-gray)]',
+  feature: 'text-[var(--portal-feature-eyebrow)]',
+  attention: 'text-[var(--portal-attention-eyebrow)]',
 }
 
 export function Panel({
