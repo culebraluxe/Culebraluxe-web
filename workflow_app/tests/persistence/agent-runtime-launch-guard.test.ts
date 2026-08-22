@@ -21,7 +21,11 @@ import {
   validateAgentWorkLaunchConfig,
 } from '../../../db/agent-work'
 import { getStoryboardStory, listStoryRuns } from '../../../db/storyboard'
-import { invokeNextAgentCommand } from '../../../agent-runtime/invoker'
+import {
+  claimNextAgentCommand,
+  executeClaimedAgentCommand,
+  invokeNextAgentCommand,
+} from '../../../agent-runtime/invoker'
 import { AgentRuntimeRegistry } from '../../../agent-runtime/registry'
 import { TUnitAgentRuntimeAdapter, type TUnitScenario } from '../../../agent-runtime/tunit-adapter'
 import {
@@ -207,6 +211,104 @@ test('ENG-20A: correctly configured command reaches the runtime seam with adapte
   } finally {
     await cleanupStory(storyId)
   }
+
+test('ENG-20B: scheduler two-phase dispatch claims then executes the claimed command through the runtime', async () => {
+  const storyId = `TMP-GUARD-${Date.now()}-${++seq}`
+  try {
+    await createStory(storyId)
+    const work = new SqlAgentWorkRepository(() => executor)
+    const runs = new SqlAgentRunRepository(() => executor)
+    await work.enqueue({
+      storyId,
+      role: 'builder',
+      modelProfile: 'builder-flash',
+      executionPolicy: 'Unattended OK',
+      executionEnvironment: 'DEV',
+      priority: 100,
+      maxAttempts: 2,
+    })
+
+    const registry = new AgentRuntimeRegistry()
+    registry.registerAdapter({
+      adapterId: 'tunit',
+      description: 'deterministic reference adapter',
+      capabilities: CORE_CAPABILITIES,
+      factory: (deps) => new TUnitAgentRuntimeAdapter(deps, handoffScenario()),
+    })
+    registry.registerProfile({
+      profile: 'builder-flash',
+      adapterId: 'tunit',
+      capabilities: CORE_CAPABILITIES,
+    })
+
+    // Phase 1 — claim (exactly what the scheduler/poller does).
+    const claim = await claimNextAgentCommand('scheduler-worker', { work, runs, registry })
+    assert.ok(claim, 'a configured Ready item is claimed atomically')
+
+    // Single-slot invariant: a second claim in the same cycle is refused.
+    const second = await claimNextAgentCommand('scheduler-worker', { work, runs, registry })
+    assert.equal(second, null, 'no double-claim while an item is active')
+
+    // Phase 2 — execute the ALREADY-CLAIMED command (no story-specific launch).
+    const result = await executeClaimedAgentCommand('scheduler-worker', claim, { work, runs, registry })
+    assert.equal(result.runtimeAdapter, 'tunit')
+    assert.equal(result.modelProfile, 'builder-flash')
+    assert.equal(result.evidence.resultStatus, 'Complete')
+
+    const item = await getAgentWorkItem(result.workItemId, executor)
+    assert.equal(item!.state, 'Done')
+    assert.equal(item!.runtimeAdapter, 'tunit', 'adapter persisted pre-Running')
+    assert.equal(item!.attempts, 1)
+    assert.equal(item!.executionEnvironment, 'DEV')
+
+    const runRows = await listStoryRuns(storyId, executor)
+    assert.equal(runRows.length, 1)
+    assert.equal(runRows[0].executionEnvironment, 'DEV')
+  } finally {
+    await cleanupStory(storyId)
+  }
+})
+
+test('ENG-20B: invokeNextAgentCommand is the composition of claim + execute (no duplicate mechanism)', async () => {
+  const storyId = `TMP-GUARD-${Date.now()}-${++seq}`
+  try {
+    await createStory(storyId)
+    const work = new SqlAgentWorkRepository(() => executor)
+    const runs = new SqlAgentRunRepository(() => executor)
+    await work.enqueue({
+      storyId,
+      role: 'builder',
+      modelProfile: 'builder-flash',
+      executionPolicy: 'Unattended OK',
+      executionEnvironment: 'DEV',
+      priority: 100,
+      maxAttempts: 2,
+    })
+
+    const registry = new AgentRuntimeRegistry()
+    registry.registerAdapter({
+      adapterId: 'tunit',
+      description: 'deterministic reference adapter',
+      capabilities: CORE_CAPABILITIES,
+      factory: (deps) => new TUnitAgentRuntimeAdapter(deps, handoffScenario()),
+    })
+    registry.registerProfile({
+      profile: 'builder-flash',
+      adapterId: 'tunit',
+      capabilities: CORE_CAPABILITIES,
+    })
+
+    const composed = await invokeNextAgentCommand('debug-worker', { work, runs, registry })
+    assert.ok(composed, 'composed poll cycle executes one command')
+    assert.equal(composed!.runtimeAdapter, 'tunit')
+    assert.equal(composed!.evidence.resultStatus, 'Complete')
+    const item = await getAgentWorkItem(composed!.workItemId, executor)
+    assert.equal(item!.state, 'Done')
+  } finally {
+    await cleanupStory(storyId)
+  }
+})
+
 })
 
 function handoffScenario(): TUnitScenario {

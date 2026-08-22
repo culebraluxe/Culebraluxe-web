@@ -19,6 +19,7 @@ import { AgentRuntimeRegistry } from './registry'
 import {
   rejectAgentWorkConfiguration,
   validateAgentWorkLaunchConfig,
+  type AgentWorkClaim,
 } from '../db/agent-work'
 import type {
   AgentExecutionContext,
@@ -46,13 +47,35 @@ export interface AgentInvokerDeps {
   requiredCapabilities?: AgentCapability[]
 }
 
-export async function invokeNextAgentCommand(
+/**
+ * Phase 1 — atomically claim the next eligible work item (single-worker rule).
+ * Returns null when there is no Ready work or another item is already active.
+ * Used directly by the scheduler/poller so it can invoke the runtime on an
+ * already-claimed command without a story-specific launch command.
+ */
+export async function claimNextAgentCommand(
   workerId: string,
   deps: AgentInvokerDeps,
-): Promise<InvokerResult | null> {
-  const claim = await deps.work.claimNext(workerId)
-  if (!claim) return null
+): Promise<AgentWorkClaim | null> {
+  return deps.work.claimNext(workerId)
+}
 
+/**
+ * Phase 2 — drive an ALREADY-CLAIMED command through the runtime:
+ *   - hard launch guard (missing/invalid envelope terminalized, slot released)
+ *   - resolve adapter from the persisted model profile (no silent default)
+ *   - capability gate
+ *   - persist runtime_adapter before the Running transition
+ *   - execution-target fail-fast guard
+ *   - adapter.execute (heartbeat / session / evidence / finalization unchanged)
+ * This is the SAME code path `invokeNextAgentCommand` uses — no duplicate
+ * execution mechanism.
+ */
+export async function executeClaimedAgentCommand(
+  workerId: string,
+  claim: AgentWorkClaim,
+  deps: AgentInvokerDeps,
+): Promise<InvokerResult> {
   const workItem = claim.workItem
   const story = claim.story
 
@@ -152,4 +175,16 @@ export async function invokeNextAgentCommand(
     runtimeAdapter: adapter.runtimeAdapterId,
     evidence,
   }
+}
+
+/** Full poll cycle: atomically claim the next item, then execute it through the
+ * runtime. Used by the manual/debug driver; the scheduler uses the two phases
+ * directly on its already-claimed command. */
+export async function invokeNextAgentCommand(
+  workerId: string,
+  deps: AgentInvokerDeps,
+): Promise<InvokerResult | null> {
+  const claim = await claimNextAgentCommand(workerId, deps)
+  if (!claim) return null
+  return executeClaimedAgentCommand(workerId, claim, deps)
 }

@@ -820,6 +820,39 @@ export async function failAgentWork(
   return mapWorkItem(row)
 }
 
+/**
+ * Escalate a runtime/worker failure (ENG-20B): terminalize a non-terminal work
+ * item as Error with the concise failure text through the existing durable
+ * failure path, so the global slot is released and evidence is preserved.
+ * Idempotent: already-terminal items are left untouched. Used by the scheduler
+ * poller and the debug driver so a failed launch never leaves a zombie item or
+ * corrupts queue state.
+ */
+export async function escalateAgentWorkFailure(
+  workItemId: string,
+  error: unknown,
+  note?: string,
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) return
+  if (item.state === 'Done' || item.state === 'Error' || item.state === 'Cancelled') {
+    return
+  }
+  const msg = String((error as Error)?.message ?? error).slice(0, 2000)
+  await failAgentWork(
+    workItemId,
+    msg,
+    {
+      note:
+        note ??
+        `ESCALATION: what failed: ${msg.slice(0, 300)} | what was tried: claim + runtime dispatch | recommended human action: review the error and run evidence, then set the story back to Ready to retry.`,
+    },
+    q,
+  )
+}
+
 export type AgentWorkCancelInput = {
   note?: string
 }

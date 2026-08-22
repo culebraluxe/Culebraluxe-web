@@ -1,9 +1,13 @@
 // ---------------------------------------------------------------------------
-// Agent work command — single-worker dispatch between the authoritative
-// (PRODUCTION) Story Board and the coding agent.
+// Agent work command — single-worker autonomous dispatch between the
+// authoritative (PRODUCTION) Story Board and the coding agent.
 //
-//   pnpm agent:work                          claim next Ready item, begin the
-//                                            story run, print the spec, exit
+//   pnpm agent:work                          claim the next configured Ready
+//                                            item, VALIDATE the runtime
+//                                            envelope, and dispatch it through
+//                                            the existing AgentRuntimeAdapter
+//                                            -> DeepSeekHarnessAdapter path
+//                                            (runs to completion in-process)
 //   pnpm agent:work --progress <workItemId> [--completion <n>]
 //        [--note <text>] [--tests <text>]
 //                                            persist live progress on the run
@@ -30,14 +34,15 @@
 //   - always targets the PRODUCTION control-plane database (refuses otherwise)
 //   - claims AT MOST ONE Ready work item per invocation; exits cleanly with
 //     "no work" when the queue is empty or another item is already active
-//   - displays the selected story execution specification
-//   - transitions it into the existing run lifecycle (story -> In Progress,
-//     run created with an immutable spec snapshot, work item -> Running)
+//   - validates the runtime envelope (role / model profile / execution target /
+//     execution policy / test mode) BEFORE Running; missing config fails fast
+//     through the durable Error+Hold path and releases the global slot
+//   - dispatches the claimed command through the shared invoker runtime phase
+//     (the EXACT same path the debug driver uses) so the local DeepSeek Harness
+//     launches without any story-specific launch command
+//   - DEV remains the execution target; PROD remains control plane only
 //   - NEVER loops into a second story in one invocation
-//   - the coding agent implements/tests against DEV, records telemetry via
-//     --progress (heartbeat + completion + milestone notes), then records the
-//     result via --finish (story/run/result + work item Done), --error
-//     (infra failure), or --cancel (operator decision)
+//   - existing heartbeat/session/evidence/finalization behavior is unchanged
 //   - commits repository changes itself; never pushes
 // ---------------------------------------------------------------------------
 
@@ -84,15 +89,29 @@ function value(args: string[], flag: string): string | undefined {
 async function runClaimCommand(): Promise<void> {
   const {
     claimNextAgentWork,
-    beginAgentWorkRun,
     getActiveAgentWorkItem,
     listStaleAgentWork,
-    rejectAgentWorkConfiguration,
     validateAgentWorkLaunchConfig,
+    rejectAgentWorkConfiguration,
+    escalateAgentWorkFailure,
   } = await import('../db/agent-work')
   const { workstreamName } = await import('../lib/storyboard-data')
+  const { executeClaimedAgentCommand } = await import('../agent-runtime/invoker')
+  const { createAgentRuntimeRegistry } = await import('../agent-runtime/factory')
+  const {
+    SqlAgentWorkRepository,
+    SqlAgentRunRepository,
+  } = await import('../agent-runtime/repositories')
+  const { interactiveSql } = await import('../lib/neon-interactive')
+  const {
+    assertExecutionTargetSafe,
+    parseExecutionEnvironment,
+    verifyWorkspaceEnvFile,
+  } = await import('../lib/execution-target')
+  const { resolve } = await import('node:path')
 
-  const claim = await claimNextAgentWork(process.env.AGENT_WORKER_ID ?? 'coding-agent')
+  const workerId = process.env.AGENT_WORKER_ID ?? 'coding-agent'
+  const claim = await claimNextAgentWork(workerId)
   if (!claim) {
     const active = await getActiveAgentWorkItem()
     if (!active) {
@@ -143,43 +162,38 @@ async function runClaimCommand(): Promise<void> {
     process.exit(1)
   }
 
-  // Begin the run lifecycle: story -> In Progress, run + spec snapshot,
-  // work item -> Running with story_run_id.
-  const begun = await beginAgentWorkRun(workItem.id)
+  // DEV remains the execution target; PROD remains control plane only. The
+  // workspace .env.local must not resolve a DEV execution to the PROD DB.
+  const target = parseExecutionEnvironment(process.env.EXECUTION_ENV, 'DEV')
+  assertExecutionTargetSafe(target)
+  verifyWorkspaceEnvFile(resolve(process.cwd()), target)
 
-  console.log('work item:', begun.workItem.id, 'state:', begun.workItem.state)
-  console.log('run:', begun.workItem.storyRunId)
+  // Dispatch the ALREADY-CLAIMED command through the EXISTING runtime path
+  // (AgentRuntimeAdapter -> DeepSeekHarnessAdapter). No duplicate mechanism:
+  // executeClaimedAgentCommand is the exact phase 2 of the debug driver.
+  const work = new SqlAgentWorkRepository(() => interactiveSql as any)
+  const runs = new SqlAgentRunRepository(() => interactiveSql as any)
+  const registry = createAgentRuntimeRegistry()
 
-  console.log('--- story specification ---')
-  const spec = [
-    ['Goal', story.goal],
-    ['Human notes', story.notes],
-    ['Dependencies', story.dependencies],
-    ['Preconditions', story.preconditions],
-    ['Architect brief', story.architectBrief],
-    ['Context refs', story.contextRefs],
-    ['Acceptance criteria', story.acceptanceCriteria],
-    ['Postconditions', story.postconditions],
-  ] as const
-  for (const [label, entry] of spec) {
-    console.log(`${label}: ${entry ?? '(none)'}`)
+  try {
+    const result = await executeClaimedAgentCommand(workerId, claim, {
+      work,
+      runs,
+      registry,
+    })
+    console.log('=== autonomous dispatch result ===')
+    console.log('story:', result.storyId)
+    console.log('role:', result.role, '| profile:', result.modelProfile, '| adapter:', result.runtimeAdapter)
+    console.log('evidence:', result.evidence.resultStatus, result.evidence.completion + '%')
+    console.log('external_run_id:', result.evidence.externalRunId)
+    console.log('execution_target:', result.evidence.executionEnvironment ?? 'unset')
+  } catch (e) {
+    // Fail safely: terminalize the claimed item (Error, slot released) and
+    // exit; the next scheduler cycle continues with the next eligible item.
+    console.error('dispatch escalation:', String((e as Error)?.message ?? e).slice(0, 2000))
+    await escalateAgentWorkFailure(workItem.id, e)
+    process.exit(1)
   }
-  console.log('---')
-  console.log(
-    'persist progress + heartbeat with: pnpm agent:work --progress <workItemId> --completion <0-100> --note "<milestone>" [--tests "<tests summary>"]',
-  )
-  console.log(
-    'execute this story (at most one per invocation); then record the result with:',
-  )
-  console.log(
-    `pnpm agent:work --finish ${begun.workItem.id} --result <Complete|Partial|Blocked|Failed|Deferred|Hold> --completion <0-100> --notes "<execution notes>" --commit <hash> --tests "<tests summary>"`,
-  )
-  console.log(
-    `on infra failure: pnpm agent:work --error ${begun.workItem.id} --error-text "<why>"`,
-  )
-  console.log(
-    `to cancel: pnpm agent:work --cancel ${begun.workItem.id} --note "<why>"`,
-  )
 }
 
 async function runProgressCommand(args: string[]): Promise<void> {

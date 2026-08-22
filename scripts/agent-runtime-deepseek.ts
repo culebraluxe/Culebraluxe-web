@@ -35,21 +35,19 @@
 // ---------------------------------------------------------------------------
 
 import { invokeNextAgentCommand } from '../agent-runtime/invoker'
-import { AgentRuntimeRegistry } from '../agent-runtime/registry'
-import { TUnitAgentRuntimeAdapter, type TUnitScenario } from '../agent-runtime/tunit-adapter'
-import { DeepSeekHarnessAdapter, type DeepSeekHarnessConfig } from '../agent-runtime/deepseek/deepseek-harness-adapter'
+import { createAgentRuntimeRegistry } from '../agent-runtime/factory'
+import type { DeepSeekHarnessConfig } from '../agent-runtime/deepseek/deepseek-harness-adapter'
 import {
   SqlAgentWorkRepository,
   SqlAgentRunRepository,
 } from '../agent-runtime/repositories'
-import { CORE_CAPABILITIES } from '../agent-runtime/capabilities'
 import { interactiveSql } from '../lib/neon-interactive'
 import {
   assertExecutionTargetSafe,
   parseExecutionEnvironment,
   verifyWorkspaceEnvFile,
 } from '../lib/execution-target'
-import { enqueueAgentWorkCommand, failAgentWork } from '../db/agent-work'
+import { enqueueAgentWorkCommand, escalateAgentWorkFailure } from '../db/agent-work'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -96,26 +94,7 @@ async function main(): Promise<void> {
   })
   console.log('queued work item', item.id, 'state=' + item.state, 'policy=' + item.executionPolicy, 'target=' + item.executionEnvironment)
 
-  const registry = new AgentRuntimeRegistry()
-  registry.registerAdapter({
-    adapterId: 'tunit',
-    description: 'deterministic reference adapter',
-    capabilities: CORE_CAPABILITIES,
-    factory: (deps) => new TUnitAgentRuntimeAdapter(deps, scenario()),
-  })
-  registry.registerAdapter({
-    adapterId: 'deepseek-harness',
-    description: 'DeepSeek Harness headless CLI adapter',
-    capabilities: CORE_CAPABILITIES,
-    factory: (deps) => new DeepSeekHarnessAdapter(deps, deepseekConfig()),
-  })
-  // Logical profiles resolve below the boundary; the generic command only
-  // carries the LOGICAL profile id.
-  registry.registerProfile({
-    profile: 'builder-flash',
-    adapterId: 'deepseek-harness',
-    capabilities: CORE_CAPABILITIES,
-  })
+  const registry = createAgentRuntimeRegistry(deepseekConfig())
 
   let result
   try {
@@ -125,21 +104,10 @@ async function main(): Promise<void> {
       registry,
     })
   } catch (e) {
-    // ESCALATION (ENG-20 fail-fast policy): mark the work item Error with
-    // concise evidence instead of leaving it active. The claim was made, so
-    // the run (if begun) is terminalized Failed by failAgentWork.
-    const msg = String((e as Error)?.message ?? e).slice(0, 2000)
-    console.error('driver escalation:', msg)
-    const stored = await work.get(item.id)
-    if (stored && stored.state !== 'Done' && stored.state !== 'Error' && stored.state !== 'Cancelled') {
-      try {
-        await failAgentWork(item.id, msg, {
-          note: 'ESCALATION: what failed: ' + msg.slice(0, 300) + ' | what was tried: claim + execute via deepseek-harness | likely root cause: execution guard or harness start failure | recommended human action: review DATABASE_URL_DEV/PROD config and run notes, then set the story back to Ready and retry.',
-        })
-      } catch (e2) {
-        console.error('escalation record failed:', String((e2 as Error)?.message ?? e2))
-      }
-    }
+    // ESCALATION (ENG-20/ENG-20B fail-fast policy): mark the work item Error
+    // with concise evidence instead of leaving it active (slot released).
+    console.error('driver escalation:', String((e as Error)?.message ?? e).slice(0, 2000))
+    await escalateAgentWorkFailure(item.id, e, 'ESCALATION: what failed: dispatch via deepseek-harness | what was tried: claim + execute | likely root cause: execution guard or harness start failure | recommended human action: review the error and run notes, then set the story back to Ready and retry.')
     process.exit(1)
   }
   if (!result) {
@@ -162,24 +130,6 @@ async function main(): Promise<void> {
   console.log('--- storyboard_story ---', JSON.stringify(story))
   console.log('--- storyboard_story_run ---', JSON.stringify(runRows))
   console.log('--- agent_work_item ---', JSON.stringify(workRows))
-}
-
-function scenario(): TUnitScenario {
-  return {
-    mode: 'success',
-    steps: [
-      { lifecycle: 'running', note: 'executing', completion: 20 },
-      { lifecycle: 'running', note: 'running_tests', completion: 60 },
-      { lifecycle: 'running', note: 'collecting_evidence', completion: 90 },
-    ],
-    result: {
-      resultStatus: 'Complete',
-      completion: 100,
-      notes: 'tunit fallback (not used when deepseek profile is active)',
-      testsSummary: 'tunit 1/1',
-      commitHash: null,
-    },
-  }
 }
 
 main().catch((e) => {
