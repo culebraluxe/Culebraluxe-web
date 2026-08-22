@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PageHeader } from "@/components/portal/page-header"
 import { InteractionLogForm } from "@/components/portal/write/interaction-log"
 import { PersonActions } from "@/components/portal/write/person-actions"
 import { CreateTaskForm, TaskActions } from "@/components/portal/write/task-actions"
@@ -82,15 +83,7 @@ export function RelationshipDossier({
   if (!person) {
     return (
       <div>
-        <div className="mb-8">
-          <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-            Relationships
-          </p>
-
-          <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-            Relationship Dossier
-          </h1>
-        </div>
+        <PageHeader eyebrow="Relationships" title="Relationship Dossier" />
 
         <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10">
           <p className="text-sm font-light text-black/45">
@@ -103,15 +96,7 @@ export function RelationshipDossier({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Relationships
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          {person.displayName}
-        </h1>
-
+      <PageHeader eyebrow="Relationships" title={person.displayName}>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm font-light text-black/45">
           <span>{roleLabel(person.role)}</span>
           <span>·</span>
@@ -130,7 +115,7 @@ export function RelationshipDossier({
         >
           <span aria-hidden>←</span> Back to Client Manager
         </Link>
-      </div>
+      </PageHeader>
 
       <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">

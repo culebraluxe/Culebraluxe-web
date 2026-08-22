@@ -49,9 +49,19 @@ export function OperatingShell({
         <div className="flex min-h-12 items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           <Link
             href="/portal/dashboard"
-            className="font-serif text-base font-light uppercase tracking-[0.08em] text-white transition hover:text-white/80"
+            className="group flex items-center gap-3"
           >
-            CulebraLuxe
+            {/* PORTAL-04 — gold monogram seal; presentation-level graphics. */}
+            <span
+              aria-hidden
+              className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#c6a15b]/60 font-serif text-base font-light leading-none text-[#c6a15b] transition-colors group-hover:border-[#c6a15b] group-hover:text-white"
+            >
+              C
+            </span>
+
+            <span className="font-serif text-base font-light uppercase tracking-[0.08em] text-white transition-colors group-hover:text-white/80">
+              CulebraLuxe
+            </span>
           </Link>
 
           <div className="flex shrink-0 items-center gap-4">

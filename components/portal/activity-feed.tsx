@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PageHeader } from "@/components/portal/page-header"
 import type { ActivityFeedEntry } from "@/db/activity-feed"
 
 function channelLabel(channel: string) {
@@ -36,19 +37,11 @@ export function ActivityFeed({
 }) {
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Portal
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          Activity
-        </h1>
-
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Every interaction across the book, ordered by when it happened.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Portal"
+        title="Activity"
+        subtitle="Every interaction across the book, ordered by when it happened."
+      />
 
       <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">

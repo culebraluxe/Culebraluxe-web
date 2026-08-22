@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PageHeader } from "@/components/portal/page-header"
 import {
   CreateShowingPanel,
   ShowingActions,
@@ -145,18 +146,11 @@ export function Showings({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Operations & Reporting
-        </p>
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          Showings
-        </h1>
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Showing lifecycle records — requested, scheduled, completed, and
-          cancelled — drawn from the canonical showing table.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Operations & Reporting"
+        title="Showings"
+        subtitle="Showing lifecycle records — requested, scheduled, completed, and cancelled — drawn from the canonical showing table."
+      />
 
       <section className="mb-6 rounded-sm border border-[var(--portal-border)] bg-white">
         <div className="border-b border-[var(--portal-border)] px-6 py-5">

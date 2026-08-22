@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PageHeader } from "@/components/portal/page-header"
 import type {
   DealParticipant,
   DealWorkspace,
@@ -122,14 +123,7 @@ export function DealWorkspace({
   if (!deal) {
     return (
       <div>
-        <div className="mb-8">
-          <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-            Portfolio
-          </p>
-          <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-            Deal Workspace
-          </h1>
-        </div>
+        <PageHeader eyebrow="Portfolio" title="Deal Workspace" />
         <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10">
           <p className="text-sm font-light text-black/45">Deal not found.</p>
         </div>
@@ -141,15 +135,7 @@ export function DealWorkspace({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Portfolio
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          {property?.name ?? "Deal"}
-        </h1>
-
+      <PageHeader eyebrow="Portfolio" title={property?.name ?? "Deal"}>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
             {stageLabel(deal.stage)}
@@ -167,7 +153,7 @@ export function DealWorkspace({
         >
           <span aria-hidden>←</span> Back to Deals Portfolio
         </Link>
-      </div>
+      </PageHeader>
 
       <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">

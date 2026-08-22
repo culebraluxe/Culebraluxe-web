@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PageHeader } from "@/components/portal/page-header"
 import { TaskActions } from "@/components/portal/write/task-actions"
 import type { AttentionSnapshot } from "@/db/attention"
 
@@ -74,20 +75,11 @@ export function Attention({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Portal
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          Attention
-        </h1>
-
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Follow-up work that matters right now — derived from open tasks,
-          activity, and relationships already on file.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Portal"
+        title="Attention"
+        subtitle="Follow-up work that matters right now — derived from open tasks, activity, and relationships already on file."
+      />
 
       <div className="mb-6 flex items-center justify-between border-b border-[var(--portal-border)] pb-5">
         <p className="text-xs font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">

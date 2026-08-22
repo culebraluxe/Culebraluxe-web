@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
+import { PageHeader } from "@/components/portal/page-header"
 import type { Deal, DealStage } from "@/lib/portal/types"
 
 const stageOrder: DealStage[] = [
@@ -100,20 +101,11 @@ export function DealsPortfolio({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Portfolio
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          Deals Portfolio
-        </h1>
-
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          A working view of active opportunities, properties, and transaction
-          progress.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Portfolio"
+        title="Deals Portfolio"
+        subtitle="A working view of active opportunities, properties, and transaction progress."
+      />
 
       <div className="mb-6 flex flex-wrap gap-2">
         <button

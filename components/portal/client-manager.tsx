@@ -10,6 +10,7 @@ import type {
 } from "@/lib/portal/types"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
+import { PageHeader } from "@/components/portal/page-header"
 
 function formatCurrency(value?: number) {
   if (!value) return "—"
@@ -125,19 +126,11 @@ export function ClientManager({
   if (!selectedClient) {
     return (
       <div>
-        <div className="mb-8">
-          <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-            Relationships
-          </p>
-
-          <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-            Client Manager
-          </h1>
-
-          <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-            Relationship intelligence across buyers, sellers, and island introductions.
-          </p>
-
+        <PageHeader
+          eyebrow="Relationships"
+          title="Client Manager"
+          subtitle="Relationship intelligence across buyers, sellers, and island introductions."
+        >
           <button
             type="button"
             onClick={() => setShowCreate(true)}
@@ -145,7 +138,7 @@ export function ClientManager({
           >
             New client
           </button>
-        </div>
+        </PageHeader>
 
         {showCreate && (
           <div className="mb-6">

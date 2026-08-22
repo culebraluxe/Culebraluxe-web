@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PageHeader } from "@/components/portal/page-header"
 import type {
   Client,
   Deal,
@@ -110,19 +111,11 @@ export function Dashboard({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Portal
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          Dashboard
-        </h1>
-
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          What needs your attention, what is moving, and what happened recently — at a glance.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Portal"
+        title="Dashboard"
+        subtitle="What needs your attention, what is moving, and what happened recently — at a glance."
+      />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -485,17 +478,21 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
-      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-        {label}
-      </div>
+    <div className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="h-0.5 bg-[#c6a15b]" aria-hidden />
 
-      <div className="mt-4 font-serif text-3xl font-light text-[var(--portal-navy)]">
-        {value}
-      </div>
+      <div className="p-6">
+        <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+          {label}
+        </div>
 
-      <div className="mt-2 text-xs font-light text-black/40">
-        {detail}
+        <div className="mt-4 font-serif text-3xl font-light text-[var(--portal-navy)]">
+          {value}
+        </div>
+
+        <div className="mt-2 text-xs font-light text-black/40">
+          {detail}
+        </div>
       </div>
     </div>
   )
