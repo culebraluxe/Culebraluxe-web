@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PR-PNS — Purchase and Sale Agreement (DOC-08/10 pressure test).
+
+  A representative model of a real Puerto Rico P&S, expressed in the tiny XML
+  vocabulary. Rules followed:
+    stable business facts    = structured <field>
+    negotiated language      = broad editable <section> prose (draft JSONB)
+    document shape           = this XML
+    runtime draft state      = existing JSONB form instance
+    issued truth             = immutable PDF via the existing DOC-06 path
+
+  NO conditionals are used: financing/appraisal/survey/inspection are
+  structured flags/dates plus editable negotiated-language sections. If a real
+  form later proves a conditional section is required, exactly one declarative
+  primitive would be added — this template does not need it.
+-->
+<form
+  id="PR-PNS"
+  version="1"
+  title="PURCHASE AND SALE AGREEMENT"
+  documentType="Purchase and Sale Agreement"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+    <participant role="SELLER_BROKER" label="Seller's Broker"/>
+  </participants>
+
+  <!-- structured parties -->
+  <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
+  <field id="sellerName" label="Seller" type="text" required="true"/>
+  <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
+  <field id="sellerBrokerName" label="Seller's Broker" type="text"/>
+
+  <!-- structured property identifiers -->
+  <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
+  <field id="municipality" label="Municipality" type="text"/>
+  <field id="catastroNumber" label="Catastro Number" type="text"/>
+  <field id="registryEntry" label="Registry Entry" type="text"/>
+
+  <!-- structured price / deposit / closing -->
+  <field id="purchasePrice" label="Purchase Price" type="money" required="true" source="deal.offer.amount"/>
+  <field id="deposit" label="Deposit (Escrow)" type="money" required="true"/>
+  <field id="closingDate" label="Closing Date" type="date" required="true" source="deal.closing.date"/>
+
+  <!-- structured financing / appraisal / survey / inspection -->
+  <field id="financing" label="Financing" type="select" options="Cash, Financed" required="true" source="deal.financing.type"/>
+  <field id="financingDeadline" label="Financing Commitment Deadline" type="date"/>
+  <field id="appraisalWaived" label="Appraisal Waived" type="select" options="Yes, No"/>
+  <field id="surveyDeadline" label="Survey Deadline" type="date"/>
+  <field id="inspectionDeadline" label="Inspection Deadline" type="date"/>
+
+  <!-- parties + property: structured values bound into boilerplate prose -->
+  <section id="parties" title="Parties" editable="false">
+    This Purchase and Sale Agreement is made between
+    <value field="buyerName"/> (the "Buyer") and
+    <value field="sellerName"/> (the "Seller"),
+    through their respective brokers.
+  </section>
+
+  <section id="propertyDescription" title="Property" editable="false">
+    The property subject to this Agreement is located at
+    <value field="property"/>,
+    Municipality of <value field="municipality"/>,
+    identified as Catastro Number <value field="catastroNumber"/>
+    and Registry Entry <value field="registryEntry"/>.
+  </section>
+
+  <section id="purchasePrice" title="Purchase Price and Deposit" editable="false">
+    The purchase price is <value field="purchasePrice"/>,
+    payable as follows: a deposit of <value field="deposit"/>
+    upon execution of this Agreement, with the balance payable at closing.
+  </section>
+
+  <section id="closing" title="Closing" editable="false">
+    Closing shall take place on or before <value field="closingDate"/>
+    at a time and place mutually agreed by the parties.
+  </section>
+
+  <!-- __PART2__ -->
+  <section id="titleInsurance" title="Title and Title Insurance" editable="false">
+    Seller shall deliver good and marketable title, free and clear of all
+    liens and encumbrances, and shall provide a standard title insurance
+    commitment at Seller's expense.
+  </section>
+
+  <section id="taxes" title="Taxes and Assessments" editable="false">
+    Real estate taxes and municipal assessments shall be prorated as of the
+    date of closing. Seller shall pay all taxes due through the day of closing.
+  </section>
+
+  <section id="closingCosts" title="Closing Costs" editable="false">
+    The parties shall bear their respective closing costs in accordance with
+    prevailing custom and practice, including notarial and registry fees as
+    provided by law.
+  </section>
+
+  <section id="risk" title="Risk of Loss" editable="false">
+    Risk of loss or damage to the Property shall remain with Seller until the
+    closing, after which it shall pass to Buyer.
+  </section>
+
+  <section id="default" title="Default" editable="false">
+    In the event of Buyer's default, the deposit may be retained by Seller as
+    liquidated damages. In the event of Seller's default, Buyer may terminate
+    this Agreement and receive a refund of the deposit.
+  </section>
+
+  <section id="notices" title="Notices" editable="false">
+    All notices required under this Agreement shall be in writing and delivered
+    to the parties at the addresses stated herein.
+  </section>
+
+  <section id="governingLaw" title="Governing Law" editable="false">
+    This Agreement shall be governed by and construed in accordance with the
+    laws of the Commonwealth of Puerto Rico.
+  </section>
+
+  <!-- broad negotiated language (editable) -->
+  <section id="financingTerms" title="Financing" editable="true">
+    Describe the financing commitment, lender, loan amount and the deadline to
+    obtain the financing commitment letter.
+  </section>
+
+  <section id="appraisalSurveyInspection" title="Appraisal, Survey and Inspection" editable="true">
+    Describe whether the appraisal is waived, the survey requirements and the
+    inspection period and resolution.
+  </section>
+
+  <section id="additionalTerms" title="Additional Terms" editable="true">
+    Additional negotiated terms of the transaction.
+  </section>
+
+  <section id="specialConditions" title="Special Conditions" editable="true">
+    Special conditions negotiated by the parties.
+  </section>
+
+  <!-- signature blocks (DOC-09 will consume this structure) -->
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+    <signature-group role="SELLER" label="Seller" field="sellerName" initials="true"/>
+    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName"/>
+  </signatures>
+
+</form>
+

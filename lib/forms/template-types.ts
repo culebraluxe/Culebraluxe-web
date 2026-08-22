@@ -52,7 +52,21 @@ export type TemplateSectionDefinition = {
   name: string
   label: string
   editable: boolean
+  /**
+   * DOC-08 — ordered default-text segments: literal text plus declared
+   * `<value field="X"/>` substitutions. Boilerplate legal text lives here in
+   * the XML template; the runtime DRAFT (JSONB) is plain text and — when
+   * non-empty — takes precedence at render time (editable sections).
+   */
+  segments: TemplateSectionSegment[]
+  /** Field ids referenced by `<value>` segments (validated to exist). */
+  values: string[]
 }
+
+/** One ordered default-text segment inside a section. */
+export type TemplateSectionSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'value'; field: string }
 
 /** Rendering metadata sufficient for the POC PDF renderer + preview. */
 export type TemplateRendering = {
@@ -60,6 +74,32 @@ export type TemplateRendering = {
   title: string
   /** Party heading / issuer line. */
   issuer: string
+}
+
+/**
+ * DOC-08/DOC-09 — a role-driven participant collection (BUYER, SELLER,
+ * BUYER_BROKER, SELLER_BROKER, ...). Never buyer1/buyer2 hardcoding; multiple
+ * participants per role are allowed. DOC-09/10 consume this structure.
+ */
+export type TemplateParticipantRole = {
+  /** Stable role code (e.g. 'BUYER'). */
+  role: string
+  label: string
+  /** Whether more than one participant may hold this role. */
+  multiple: boolean
+}
+
+/**
+ * DOC-08/DOC-09 — a signature block for a participant role. `field` names the
+ * form field carrying the signer's displayed name (validated to exist).
+ */
+export type TemplateSignatureGroup = {
+  role: string
+  label: string
+  /** Form field id whose value names the signer (null = no name line). */
+  field: string | null
+  /** Whether initials are required on the block. */
+  initials: boolean
 }
 
 /**
@@ -75,6 +115,10 @@ export type TemplateDefinition = {
   fields: TemplateFieldDefinition[]
   sections: TemplateSectionDefinition[]
   rendering: TemplateRendering
+  /** DOC-08/DOC-09 — role-driven participant collections (may be empty). */
+  participants: TemplateParticipantRole[]
+  /** DOC-08/DOC-09 — signature blocks (may be empty). */
+  signatureGroups: TemplateSignatureGroup[]
 }
 
 /** A field value map keyed by TemplateFieldDefinition.name. */

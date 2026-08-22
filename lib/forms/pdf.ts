@@ -125,8 +125,12 @@ const PAGE_WIDTH = 612
 const PAGE_HEIGHT = 792
 const MARGIN = 56
 const MAX_LINE_WIDTH = PAGE_WIDTH - MARGIN * 2
+// DOC-08 multi-page: content flows between these margins; overflow emits a
+// deterministic page break (isolated behind this renderer seam, NOT a general
+// document engine).
+const TOP_MARGIN = 72
+const BOTTOM_MARGIN = 72
 
-// __PART2__
 class PdfLayout {
   private ops: Op[] = []
   private y = PAGE_HEIGHT - 90
@@ -144,7 +148,22 @@ class PdfLayout {
     this.y -= 2
   }
 
+  /**
+   * Ensure at least `needed` points remain below the current cursor; otherwise
+   * emit a deterministic page break and reset to the top margin. Returns true
+   * when a break was emitted (so a caller can re-emit a running header).
+   */
+  ensureSpace(needed: number): boolean {
+    if (this.y - needed < BOTTOM_MARGIN) {
+      this.ops.push({ font: 'F1', size: 1, x: MARGIN, y: this.y, text: '\u0000BREAK' })
+      this.y = PAGE_HEIGHT - TOP_MARGIN
+      return true
+    }
+    return false
+  }
+
   text(font: PdfFont, size: number, text: string, x = MARGIN) {
+    this.ensureSpace(size)
     this.ops.push({ font, size, x, y: this.y, text })
     this.lineGap(size)
   }
@@ -158,6 +177,7 @@ class PdfLayout {
     lineHeight = size * 1.45,
   ) {
     for (const line of wrapText(text, size, width)) {
+      this.ensureSpace(lineHeight)
       this.ops.push({ font, size, x, y: this.y, text: line })
       this.y -= lineHeight
     }
@@ -172,6 +192,7 @@ class PdfLayout {
   build(ops: Op[]): string[] {
     const lines: string[] = []
     for (const op of ops) {
+      if (op.text === '\u0000BREAK') continue
       if (op.text === '\u0000RULE') {
         const h = 0.6
         const yBottom = op.y - h
@@ -223,11 +244,15 @@ export function buildOfferLetterPdf(
   }
 
   for (const section of template.sections) {
+    // DOC-08: the runtime draft (JSONB) is authoritative for editable prose;
+    // otherwise the template's default segments (boilerplate + <value>
+    // substitutions) render.
     const raw = (sections[section.name] ?? '').trim()
-    if (!raw) continue
+    const text = raw || interpolateSectionText(section, values, formatFieldValue)
+    if (!text.trim()) continue
     layout.space(4)
     layout.text('F2', 11, section.label.toUpperCase())
-    layout.paragraph('F1', 10.5, raw)
+    layout.paragraph('F1', 10.5, text.trim())
   }
 
   layout.space(18)
@@ -245,21 +270,136 @@ export function buildOfferLetterPdf(
   return assemblePdf(layout.getOps())
 }
 
+/** Format one field value for rendering (money/date aware). */
+export function formatFieldValue(field: { type: string; name: string }, raw: string): string {
+  if (field.type === 'money' && raw.trim()) return formatMoney(raw)
+  if (field.type === 'date' && raw.trim()) return formatDate(raw)
+  return raw
+}
+
+/**
+ * DOC-08 — interpolate a section's default segments: literal text plus the
+ * declared `<value field="X"/>` substitutions (a declarative binding, NOT an
+ * expression engine). The runtime draft, when present, takes precedence.
+ */
+export function interpolateSectionText(
+  section: { segments: readonly { kind: 'text' | 'value'; text?: string; field?: string }[] },
+  values: TemplateFieldValues,
+  format: (field: { type: string; name: string }, raw: string) => string,
+  fields: readonly { type: string; name: string }[] = [],
+): string {
+  let out = ''
+  for (const segment of section.segments ?? []) {
+    if (segment.kind === 'text') {
+      out += segment.text ?? ''
+    } else {
+      const field = fields.find((f) => f.name === segment.field)
+      const raw = (values[segment.field ?? ''] ?? '').trim()
+      out += field ? format(field, raw) : raw
+    }
+  }
+  return out.replace(/\s+/g, ' ').trim()
+}
+
+function emitHeader(
+  layout: PdfLayout,
+  template: TemplateDefinition,
+  issuedVersion: number,
+) {
+  layout.text('F1', 9, template.rendering.issuer.toUpperCase())
+  layout.text('F2', 16, template.rendering.title, MARGIN)
+  layout.text('F1', 8, `Issued document v${issuedVersion}`, MARGIN)
+  layout.rule()
+  layout.space(8)
+}
+
+/**
+ * DOC-08 — P&S proof renderer. Section-centric, multi-page (deterministic
+ * page breaks), boilerplate sections render their default segments with
+ * `<value>` substitutions; negotiated sections render the runtime draft prose;
+ * signature blocks render at the end. This is a bounded proof renderer behind
+ * the same seam — not a general document engine.
+ */
+export function buildPurchaseSalePdf(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+  sections: TemplateSectionValues,
+  issuedVersion: number,
+): Buffer {
+  const layout = new PdfLayout()
+  emitHeader(layout, template, issuedVersion)
+
+  for (const section of template.sections) {
+    const broke = layout.ensureSpace(34)
+    if (broke) emitHeader(layout, template, issuedVersion)
+    layout.text('F2', 11, section.label.toUpperCase())
+    const raw = (sections[section.name] ?? '').trim()
+    const text =
+      raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
+    if (text.trim()) layout.paragraph('F1', 10, text.trim())
+    layout.space(8)
+  }
+
+  if (template.signatureGroups.length > 0) {
+    if (layout.ensureSpace(70)) emitHeader(layout, template, issuedVersion)
+    layout.text('F2', 13, 'SIGNATURES')
+    layout.space(4)
+    for (const group of template.signatureGroups) {
+      layout.ensureSpace(52)
+      const name = group.field ? (values[group.field] ?? '').trim() : ''
+      layout.text('F1', 10, `${group.label}${name ? ` — ${name}` : ''}`)
+      layout.text('F1', 10, 'By: ____________________________________')
+      if (group.initials) layout.text('F1', 10, 'Initials: ________')
+      layout.space(12)
+    }
+  }
+
+  return assemblePdf(layout.getOps())
+}
+
+/** Split ops into page segments at deterministic page-break markers. */
+function splitPages(ops: Op[]): Op[][] {
+  const pages: Op[][] = []
+  let current: Op[] = []
+  for (const op of ops) {
+    if (op.text === '\u0000BREAK') {
+      if (current.length > 0) pages.push(current)
+      current = []
+      continue
+    }
+    current.push(op)
+  }
+  if (current.length > 0) pages.push(current)
+  if (pages.length === 0) pages.push([])
+  return pages
+}
+
 /** Assemble a minimal PDF 1.4 document with the given content operations. */
 function assemblePdf(ops: Op[]): Buffer {
-  const contentLines = new PdfLayout().build(ops)
-  const content = `${contentLines.join('\n')}\n`
+  const pages = splitPages(ops)
+  const pageCount = pages.length
+  const builder = new PdfLayout()
 
   const objects: string[] = []
-  objects.push('<< /Type /Catalog /Pages 2 0 R >>')
-  objects.push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>')
-  objects.push(
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
-      '/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>',
-  )
-  objects.push(
-    `<< /Length ${content.length} >>\nstream\n${content}endstream`,
-  )
+  objects.push('<< /Type /Catalog /Pages 2 0 R >>') // 1
+  const pageRefs = Array.from({ length: pageCount }, (_, i) => 3 + i * 2).join(' ')
+  objects.push(`<< /Type /Pages /Kids [${pageRefs}] /Count ${pageCount} >>`) // 2
+
+  const font1 = 3 + pageCount * 2
+  const font2 = font1 + 1
+
+  for (let i = 0; i < pageCount; i++) {
+    const content = `${builder.build(pages[i]).join('\n')}\n`
+    const pageObj = 3 + i * 2
+    const contentObj = pageObj + 1
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
+        `/Resources << /Font << /F1 ${font1} 0 R /F2 ${font2} 0 R >> >> ` +
+        `/Contents ${contentObj} 0 R >>`,
+    )
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}endstream`)
+  }
+
   objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
   objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>')
 

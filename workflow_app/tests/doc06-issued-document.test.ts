@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
 import { getTemplate } from '../../lib/forms/template-registry'
-import { OFFER_LETTER_TEMPLATE } from '../../lib/forms/offer-letter'
 import {
   prefillFieldValues,
   emptySectionValues,
@@ -15,6 +14,11 @@ import { listIssuedDocuments } from '../../db/transaction-document'
 import type { QueryExecutor, QueryRow } from '../../db/query-executor'
 import type { FormInstance } from '../../db/document-form-instance'
 import type { TxRunner } from '../../db/tx'
+
+// DOC-08: the Offer Letter now originates from XML (lib/forms/templates/
+// OFFER-01.xml) through the TemplateDefinition seam; these proofs exercise the
+// same effective definition the UI/renderer/issuance consume.
+const OFFER_LETTER_TEMPLATE = getTemplate('OFFER-01')!
 
 // ---------------------------------------------------------------------------
 // DOC-06 / DOC-07 — POC proof suite.

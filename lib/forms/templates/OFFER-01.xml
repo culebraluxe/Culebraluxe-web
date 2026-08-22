@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OFFER-01 — Offer Letter (DOC-07 proof form).
+  Authoring contract: the XML is canonical; the runtime consumes the parsed
+  TemplateDefinition. Fields/sections below mirror the original TypeScript
+  fixture exactly (order, labels, types, bindings) so issued PDFs stay
+  byte-identical.
+-->
+<form
+  id="OFFER-01"
+  version="1"
+  title="OFFER LETTER"
+  documentType="Offer Letter"
+  issuer="CulebraLuxe Real Estate">
+
+  <field id="buyerName" label="Buyer / Client" type="text" required="true" source="deal.client.name"/>
+  <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
+  <field id="offerAmount" label="Offer amount" type="money" required="true" source="deal.offer.amount"/>
+  <field id="deposit" label="Deposit" type="money"/>
+  <field id="financing" label="Cash / Financing" type="select" required="true" source="deal.financing.type" options="Cash, Financed"/>
+  <field id="closingDate" label="Proposed closing date" type="date" required="true" source="deal.closing.date"/>
+  <field id="expiration" label="Offer expiration" type="date" required="true"/>
+  <field id="contingencies" label="Contingencies" type="textarea"/>
+
+  <section id="specialTerms" title="Special Terms" editable="true"/>
+
+</form>
