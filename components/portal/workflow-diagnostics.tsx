@@ -56,7 +56,7 @@ function SeverityPill({ severity }: { severity: WorkflowAnomaly["severity"] }) {
     severity === "critical"
       ? "bg-red-50 text-red-700 border-red-200"
       : severity === "warning"
-        ? "bg-amber-50 text-amber-700 border-amber-200"
+        ? "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)] border-[var(--portal-border)]"
         : "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)] border-[var(--portal-border)]"
 
   return (
@@ -81,7 +81,7 @@ function StatusPill({
   } else if (status === "error" || outcome === "failed" || outcome === "conflict") {
     tone = "bg-red-50 text-red-700 border-red-200"
   } else if (outcome === "cancelled" || status === "suspended") {
-    tone = "bg-amber-50 text-amber-700 border-amber-200"
+    tone = "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)] border-[var(--portal-border)]"
   }
 
   const label = outcome && status !== "active" ? outcome : status

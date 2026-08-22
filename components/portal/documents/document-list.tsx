@@ -54,7 +54,7 @@ export function DocumentList({
           <h1 className="font-serif text-4xl font-light leading-[1.1]">
             Documents
           </h1>
-          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+          <span className="rounded-full bg-[var(--portal-blue-gray)]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)]">
             Issued repository
           </span>
         </div>
@@ -140,7 +140,7 @@ export function DocumentList({
                         className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
                           d.state === "superseded"
                             ? "border border-black/10 text-black/35"
-                            : "border border-[#c6a15b]/40 text-[#8a6d2f]"
+                            : "border border-[var(--portal-blue-gray)]/40 text-[var(--portal-navy-soft)]"
                         }`}
                       >
                         {d.state}

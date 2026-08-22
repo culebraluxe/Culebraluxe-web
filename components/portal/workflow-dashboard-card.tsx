@@ -21,12 +21,12 @@ export function WorkflowDashboardCard({
     <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
       <div className="flex items-center justify-between">
         <h2 className="flex items-center gap-2 font-serif text-xl font-light text-[var(--portal-navy)]">
-          <GitBranch className="h-4 w-4 text-[#c6a15b]" />
+          <GitBranch className="h-4 w-4 text-[var(--portal-blue-gray)]" />
           Transactions in motion
         </h2>
         <Link
           href="/portal/workflows"
-          className="text-xs font-light uppercase tracking-[0.16em] text-[#c6a15b] hover:text-[var(--portal-navy)]"
+          className="text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)] hover:text-[var(--portal-navy)]"
         >
           View all
         </Link>
@@ -63,7 +63,7 @@ function Metric({
         <span className="font-serif text-2xl font-light text-[var(--portal-navy)]">
           {value}
         </span>
-        {alert && <AlertCircle className="h-4 w-4 text-amber-600" />}
+        {alert && <AlertCircle className="h-4 w-4 text-[var(--portal-blue-gray)]" />}
       </div>
       <div className="mt-1 text-[11px] font-light uppercase tracking-[0.14em] text-black/50">
         {label}

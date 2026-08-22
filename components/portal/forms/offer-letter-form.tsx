@@ -101,8 +101,8 @@ export function OfferLetterForm({
           <span
             className={`rounded-full px-3 py-1 text-xs font-light uppercase tracking-[0.16em] ${
               isIssued
-                ? "border border-[#c6a15b]/40 text-[#8a6d2f]"
-                : "bg-[#c6a15b]/15 text-[#8a6d2f]"
+                ? "border border-[var(--portal-blue-gray)]/40 text-[var(--portal-navy-soft)]"
+                : "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]"
             }`}
           >
             {isIssued ? "Issued" : form.status}
@@ -116,7 +116,7 @@ export function OfferLetterForm({
       </header>
 
       {issued && (
-        <section className="mb-6 rounded-sm border border-[#c6a15b]/40 bg-white p-6">
+        <section className="mb-6 rounded-sm border border-[var(--portal-blue-gray)]/40 bg-white p-6">
           <h2 className="font-serif text-xl font-light">
             Document issued — v{issued.issuedVersion}
           </h2>

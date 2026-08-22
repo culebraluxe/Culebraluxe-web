@@ -479,7 +479,7 @@ function MetricCard({
 }) {
   return (
     <div className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
-      <div className="h-0.5 bg-[#c6a15b]" aria-hidden />
+      <div className="h-0.5 bg-[var(--portal-navy)]" aria-hidden />
 
       <div className="p-6">
         <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">

@@ -36,12 +36,12 @@ function toDateInput(value: string | null): string {
 const priorityClasses: Record<string, string> = {
   Critical: 'bg-red-50 text-red-700',
   High: 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]',
-  'High-ish': 'bg-[#c6a15b]/15 text-[#8a6d2f]',
+  'High-ish': 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]',
   'Medium-High': 'bg-black/5 text-black/60',
   Medium: 'bg-black/5 text-black/50',
   Low: 'bg-black/5 text-black/40',
   Later: 'bg-black/5 text-black/40',
-  'High-value polish': 'bg-[#c6a15b]/15 text-[#8a6d2f]',
+  'High-value polish': 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]',
 }
 
 const primaryButton =
@@ -381,7 +381,7 @@ function StoryForm({
           </label>
 
           <label className="block md:col-span-2">
-            <span className="text-[10px] font-light uppercase tracking-[0.18em] text-[#8a6d2f]">
+            <span className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
               Architect brief — AI-to-AI technical direction
             </span>
             <textarea
@@ -389,7 +389,7 @@ function StoryForm({
               onChange={(event) => setField('architectBrief', event.target.value)}
               rows={4}
               placeholder="Constraints, direction, reuse points, known traps, boundaries…"
-              className={`${textInput} resize-y border-[#c6a15b]/40`}
+              className={`${textInput} resize-y border-[var(--portal-blue-gray)]/40`}
             />
             <span className="mt-1.5 block text-xs font-light text-black/40">
               Architecture guidance for the coding agent; distinct from human
@@ -493,7 +493,7 @@ function StoryRow({
           <span
             className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
               story.operatingSurface
-                ? 'border border-[#c6a15b]/40 text-[#8a6d2f]'
+                ? 'border border-[var(--portal-blue-gray)]/40 text-[var(--portal-navy-soft)]'
                 : 'border border-black/10 text-black/35'
             }`}
           >

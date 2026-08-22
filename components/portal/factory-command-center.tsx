@@ -134,7 +134,7 @@ export function FactoryCommandCenter({
     return (
       <div className="min-h-screen bg-[#0a0f1a] text-slate-200">
         <div className="mx-auto max-w-[1600px] px-5 py-24 text-center">
-          <Layers className="mx-auto h-9 w-9 text-[#c6a15b]" />
+          <Layers className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
           <h1 className="mt-5 font-serif text-2xl font-light text-white">
             Factory command center not ready
           </h1>
@@ -162,7 +162,7 @@ export function FactoryCommandCenter({
   const workerPill = (() => {
     const level = kpis?.health.level ?? "healthy"
     if (level === "escalate") return { label: "Forge unhealthy", cls: "border-red-400/60 text-red-300" }
-    if (level === "watch") return { label: "Forge watch", cls: "border-amber-400/50 text-amber-300" }
+    if (level === "watch") return { label: "Forge watch", cls: "border-slate-400/50 text-slate-300" }
     if (busyWorker) return { label: "Forge busy", cls: "border-emerald-400/40 text-emerald-300" }
     if (waitingWorker) return { label: "Forge waiting", cls: "border-slate-400/40 text-slate-300" }
     if (blockedWorker) return { label: "Forge needs human", cls: "border-red-400/50 text-red-300" }
@@ -203,7 +203,7 @@ export function FactoryCommandCenter({
       <header className="border-b border-white/10 bg-[#0d1424]">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
           <div className="flex items-center gap-3">
-            <TerminalSquare className="h-5 w-5 text-[#c6a15b]" />
+            <TerminalSquare className="h-5 w-5 text-[var(--portal-blue-gray)]" />
             <h1 className="font-serif text-xl font-light uppercase tracking-[0.14em] text-white">
               Factory Command Center
             </h1>
@@ -220,7 +220,7 @@ export function FactoryCommandCenter({
                   : kpis.health.level === "escalate"
                     ? "bg-red-500"
                     : kpis.health.level === "watch"
-                      ? "bg-amber-400"
+                      ? "bg-slate-400"
                       : "bg-emerald-400"
               }`}
             />
@@ -247,8 +247,8 @@ export function FactoryCommandCenter({
             <Clock className="h-3.5 w-3.5 text-slate-500" />
             <span className="tabular-nums">{kpis?.decision.readyEligibleCount ?? snapshot.pipeline.readyWork.length}</span> ready eligible
           </div>
-          <div className="flex items-center gap-2 text-xs font-light text-amber-300">
-            <Hourglass className="h-3.5 w-3.5 text-amber-400/70" />
+          <div className="flex items-center gap-2 text-xs font-light text-slate-300">
+            <Hourglass className="h-3.5 w-3.5 text-slate-400/70" />
             <span className="tabular-nums">{snapshot.humanGateCount}</span> human gates
           </div>
           <div className="flex items-center gap-2 text-xs font-light text-slate-300">
@@ -270,7 +270,7 @@ export function FactoryCommandCenter({
           <main className="min-w-0">
             <section className="rounded-sm border border-white/10 bg-[#0d1424]">
               <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3">
-                <span className="text-[#c6a15b]">
+                <span className="text-[var(--portal-blue-gray)]">
                   <GitBranch className="h-4 w-4" />
                 </span>
                 <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -287,13 +287,13 @@ export function FactoryCommandCenter({
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Story id or title…"
-                      className="w-52 rounded-sm border border-white/10 bg-[#0a0f1a] py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-[#c6a15b]/60 focus:outline-none"
+                      className="w-52 rounded-sm border border-white/10 bg-[#0a0f1a] py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
                     />
                   </div>
                   <select
                     value={workstream}
                     onChange={(e) => setWorkstream(e.target.value as typeof workstream)}
-                    className="rounded-sm border border-white/10 bg-[#0a0f1a] px-2.5 py-1.5 text-xs text-slate-300 focus:border-[#c6a15b]/60 focus:outline-none"
+                    className="rounded-sm border border-white/10 bg-[#0a0f1a] px-2.5 py-1.5 text-xs text-slate-300 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
                   >
                     {WORKSTREAM_FILTERS.map((w) => (
                       <option key={w} value={w}>
@@ -429,7 +429,7 @@ function ExecutiveRollup({
     {
       label: "Ready",
       value: rollup.totalReady,
-      cls: "text-[#e3c98a]",
+      cls: "text-[#cbd5e1]",
       hint: `${snapshot.pipeline.readyWork.length} dependency-ready now`,
     },
     {
@@ -443,7 +443,7 @@ function ExecutiveRollup({
   return (
     <section className="rounded-sm border border-white/10 bg-[#0d1424]">
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <Gauge className="h-4 w-4 text-[#c6a15b]" />
+        <Gauge className="h-4 w-4 text-[var(--portal-blue-gray)]" />
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
           Executive rollup
         </h2>
@@ -485,7 +485,7 @@ function ExecutiveRollup({
               </span>
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
                 <div
-                  className="h-full rounded-full bg-[#c6a15b]/80"
+                  className="h-full rounded-full bg-[var(--portal-blue-gray)]/80"
                   style={{ width: `${Math.max(0, Math.min(100, ws.completionPercent))}%` }}
                 />
               </div>
@@ -526,16 +526,16 @@ function PipelineCard({
     <article
       id={`pipeline-card-${node.storyId}`}
       onClick={onOpen}
-      className="group cursor-pointer rounded-sm border border-white/10 bg-[#0a0f1a] p-3.5 transition-colors hover:border-[#c6a15b]/50 hover:bg-[#0d1424]"
+      className="group cursor-pointer rounded-sm border border-white/10 bg-[#0a0f1a] p-3.5 transition-colors hover:border-[var(--portal-blue-gray)]/50 hover:bg-[#0d1424]"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs font-medium tracking-wide text-[#e3c98a]">
+        <span className="font-mono text-xs font-medium tracking-wide text-[#cbd5e1]">
           {node.storyId}
         </span>
         <div className="flex items-center gap-1.5">
           {gated && (
             <span
-              className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[9px] font-light uppercase tracking-wide text-amber-300"
+              className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[9px] font-light uppercase tracking-wide text-slate-300"
               title={`${node.gate} — requires human presence before/while executing`}
             >
               {node.gate}
@@ -669,7 +669,7 @@ function PipelineCard({
       )}
 
       <div className="mt-2 flex items-center justify-between text-[9px] font-light text-slate-600">
-        <span className="inline-flex items-center gap-1 text-[#c6a15b]/80 opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="inline-flex items-center gap-1 text-[var(--portal-blue-gray)]/80 opacity-0 transition-opacity group-hover:opacity-100">
           Open cockpit <ExternalLink className="h-3 w-3" />
         </span>
         {node.blockedBy.length > 0 && (
@@ -725,7 +725,7 @@ function FactoryKpisPanel({
   return (
     <section className="rounded-sm border border-white/10 bg-[#0d1424]">
       <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-3">
-        <Gauge className="h-4 w-4 text-[#c6a15b]" />
+        <Gauge className="h-4 w-4 text-[var(--portal-blue-gray)]" />
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
           KPI + dispatch model
         </h2>
@@ -741,7 +741,7 @@ function FactoryKpisPanel({
             health.level === "escalate"
               ? "border-red-400/40 bg-red-400/5 text-red-200/90"
               : health.level === "watch"
-                ? "border-amber-400/30 bg-amber-400/5 text-amber-200/90"
+                ? "border-white/20 bg-white/5 text-slate-200/90"
                 : "border-emerald-400/20 bg-emerald-400/5 text-emerald-200/80"
           }`}
         >
@@ -750,7 +750,7 @@ function FactoryKpisPanel({
               health.level === "escalate"
                 ? "bg-red-500"
                 : health.level === "watch"
-                  ? "bg-amber-400"
+                  ? "bg-slate-400"
                   : "bg-emerald-400"
             }`}
           />
@@ -792,8 +792,8 @@ function FactoryKpisPanel({
 
         {/* Decision signals — recommended dispatch + critical pressure */}
         <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-sm border border-[#c6a15b]/25 bg-[#0a0f1a] p-3">
-            <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-[#c6a15b]">
+          <div className="rounded-sm border border-[var(--portal-blue-gray)]/25 bg-[#0a0f1a] p-3">
+            <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
               <Activity className="h-3 w-3" /> Recommended next dispatch
             </div>
             {rec ? (
@@ -802,7 +802,7 @@ function FactoryKpisPanel({
                   onClick={() => onOpenStory(rec.storyId)}
                   className="mt-2 flex w-full items-baseline gap-2 text-left"
                 >
-                  <span className="font-mono text-sm font-medium text-[#e3c98a] hover:underline">
+                  <span className="font-mono text-sm font-medium text-[#cbd5e1] hover:underline">
                     {rec.storyId}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-xs font-light text-slate-300" title={rec.title}>
@@ -829,7 +829,7 @@ function FactoryKpisPanel({
 
           <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3">
             <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-slate-500">
-              <AlertTriangle className="h-3 w-3 text-amber-400" /> Critical dependency pressure
+              <AlertTriangle className="h-3 w-3 text-slate-400" /> Critical dependency pressure
             </div>
             {kpis.decision.criticalDependencyCount > 0 ? (
               <div className="mt-2 space-y-1">
@@ -839,7 +839,7 @@ function FactoryKpisPanel({
                     onClick={() => onOpenStory(p.storyId)}
                     className="flex w-full items-center gap-2 text-left text-[11px] font-light text-slate-300 hover:text-white"
                   >
-                    <span className="font-mono text-[10px] text-[#e3c98a]">{p.storyId}</span>
+                    <span className="font-mono text-[10px] text-[#cbd5e1]">{p.storyId}</span>
                     <span className="text-[10px] text-slate-500">
                       blocked by {p.blockedBy.map((b) => `${b.storyId} (${b.status})`).join(", ")}
                     </span>
@@ -879,7 +879,7 @@ function KpiMiniCard({
       <div className="mt-0.5 truncate text-[9px] font-light uppercase tracking-[0.14em] text-slate-500">
         {label}
       </div>
-      {v.missing && <div className="mt-0.5 text-[9px] font-light text-amber-400/70">no data</div>}
+      {v.missing && <div className="mt-0.5 text-[9px] font-light text-slate-400/70">no data</div>}
     </div>
   )
 }
@@ -909,7 +909,7 @@ function AgentCapacity({
     <>
       <section className="rounded-sm border border-white/10 bg-[#0d1424]">
         <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-          <UserCheck className="h-4 w-4 text-[#c6a15b]" />
+          <UserCheck className="h-4 w-4 text-[var(--portal-blue-gray)]" />
           <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
             Agent dispatch / capacity
           </h2>
@@ -926,7 +926,7 @@ function AgentCapacity({
               </div>
               <button
                 onClick={() => busyWorker.storyId && onOpenStory(busyWorker.storyId)}
-                className="mt-1 block truncate font-mono text-[11px] text-[#e3c98a] hover:underline"
+                className="mt-1 block truncate font-mono text-[11px] text-[#cbd5e1] hover:underline"
               >
                 {busyWorker.storyId}
               </button>
@@ -955,7 +955,7 @@ function AgentCapacity({
               </div>
               <button
                 onClick={() => waitingWorker.storyId && onOpenStory(waitingWorker.storyId)}
-                className="mt-1 block truncate font-mono text-[11px] text-[#e3c98a] hover:underline"
+                className="mt-1 block truncate font-mono text-[11px] text-[#cbd5e1] hover:underline"
               >
                 {waitingWorker.storyId}
               </button>
@@ -975,7 +975,7 @@ function AgentCapacity({
               </div>
               <button
                 onClick={() => blockedWorker.storyId && onOpenStory(blockedWorker.storyId)}
-                className="mt-1 block truncate font-mono text-[11px] text-[#e3c98a] hover:underline"
+                className="mt-1 block truncate font-mono text-[11px] text-[#cbd5e1] hover:underline"
               >
                 {blockedWorker.storyId}
               </button>
@@ -1012,7 +1012,7 @@ function AgentCapacity({
       {/* Next eligible */}
       <section className="rounded-sm border border-white/10 bg-[#0d1424]">
         <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-          <Activity className="h-4 w-4 text-[#c6a15b]" />
+          <Activity className="h-4 w-4 text-[var(--portal-blue-gray)]" />
           <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
             Eligible next
           </h2>
@@ -1029,7 +1029,7 @@ function AgentCapacity({
                 onClick={() => onOpenStory(s.storyId)}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-white/5"
               >
-                <span className="font-mono text-[10px] text-[#e3c98a]">{s.storyId}</span>
+                <span className="font-mono text-[10px] text-[#cbd5e1]">{s.storyId}</span>
                 <span className="min-w-0 flex-1 truncate text-[11px] font-light text-slate-300" title={s.title}>
                   {s.title}
                 </span>
@@ -1044,13 +1044,13 @@ function AgentCapacity({
 
       {/* Human gates */}
       {gatedNodes.length > 0 && (
-        <section className="rounded-sm border border-amber-400/20 bg-[#0d1424]">
+        <section className="rounded-sm border border-white/20 bg-[#0d1424]">
           <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-            <ShieldAlert className="h-4 w-4 text-amber-400" />
+            <ShieldAlert className="h-4 w-4 text-slate-400" />
             <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
               Human gates
             </h2>
-            <span className="ml-auto tabular-nums text-[10px] font-light text-amber-300/80">
+            <span className="ml-auto tabular-nums text-[10px] font-light text-slate-300/80">
               {gatedNodes.length}
             </span>
           </div>
@@ -1061,11 +1061,11 @@ function AgentCapacity({
                 onClick={() => onOpenStory(n.storyId)}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-white/5"
               >
-                <span className="font-mono text-[10px] text-[#e3c98a]">{n.storyId}</span>
+                <span className="font-mono text-[10px] text-[#cbd5e1]">{n.storyId}</span>
                 <span className="min-w-0 flex-1 truncate text-[11px] font-light text-slate-300" title={n.title}>
                   {n.title}
                 </span>
-                <span className="shrink-0 rounded-full border border-amber-400/30 px-1.5 py-0.5 text-[9px] font-light text-amber-300">
+                <span className="shrink-0 rounded-full border border-white/30 px-1.5 py-0.5 text-[9px] font-light text-slate-300">
                   {n.gate}
                 </span>
               </button>
@@ -1094,7 +1094,7 @@ function WorkflowCockpits({ summaries }: { summaries: WorkflowSummary[] }) {
   return (
     <section className="rounded-sm border border-white/10 bg-[#0d1424]">
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <GitBranch className="h-4 w-4 text-[#c6a15b]" />
+        <GitBranch className="h-4 w-4 text-[var(--portal-blue-gray)]" />
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
           Deep workflow cockpits
         </h2>
@@ -1112,7 +1112,7 @@ function WorkflowCockpits({ summaries }: { summaries: WorkflowSummary[] }) {
             <Link
               key={s.instanceId}
               href={`/portal/workflows/${s.instanceId}`}
-              className="group rounded-sm border border-white/10 bg-[#0a0f1a] p-3 transition-colors hover:border-[#c6a15b]/50"
+              className="group rounded-sm border border-white/10 bg-[#0a0f1a] p-3 transition-colors hover:border-[var(--portal-blue-gray)]/50"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -1138,7 +1138,7 @@ function WorkflowCockpits({ summaries }: { summaries: WorkflowSummary[] }) {
                   <span>{s.responsibleParty ?? "no active milestone"}</span>
                 )}
                 {s.blockerCount > 0 && (
-                  <span className="flex items-center gap-1 text-amber-300">
+                  <span className="flex items-center gap-1 text-slate-300">
                     <AlertTriangle className="h-3 w-3" /> {s.blockerCount} blocker{s.blockerCount > 1 ? "s" : ""}
                   </span>
                 )}
@@ -1147,7 +1147,7 @@ function WorkflowCockpits({ summaries }: { summaries: WorkflowSummary[] }) {
                     <CheckCircle2 className="h-3 w-3" /> {s.openTaskCount} open
                   </span>
                 )}
-                <span className="ml-auto inline-flex items-center gap-1 text-[#c6a15b]/80 opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="ml-auto inline-flex items-center gap-1 text-[var(--portal-blue-gray)]/80 opacity-0 transition-opacity group-hover:opacity-100">
                   Open cockpit <ExternalLink className="h-3 w-3" />
                 </span>
               </div>

@@ -17,8 +17,8 @@ import type {
 export const OPERATING_SURFACE_ORDER: readonly OperatingSurface[] = [
   'NEXUS',
   'OPS',
-  'TECH',
   'SUPPORT',
+  'TECH',
 ]
 
 export const OPERATING_SURFACES: Record<

@@ -50,7 +50,7 @@ function Section({
   return (
     <section className="rounded-sm border border-white/10 bg-[#0d1424]">
       <header className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <span className="text-[#c6a15b]">{icon}</span>
+        <span className="text-[var(--portal-blue-gray)]">{icon}</span>
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">{title}</h2>
       </header>
       <div className="px-4 py-4">{children}</div>
@@ -60,7 +60,7 @@ function Section({
 
 function MonoSpan({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
-    <span title={title} className="font-mono text-[11px] text-[#e3c98a]">
+    <span title={title} className="font-mono text-[11px] text-[#cbd5e1]">
       {children}
     </span>
   )
@@ -83,7 +83,7 @@ function WorkItemGrid({ item }: { item: AgentWorkItem }) {
       <Row label="Execution target">
         <span className="inline-flex items-center gap-1.5">
           <Server className="h-3 w-3 text-slate-500" />
-          <span className="font-mono text-xs text-[#e3c98a]">{item.executionEnvironment ?? "unset"}</span>
+          <span className="font-mono text-xs text-[#cbd5e1]">{item.executionEnvironment ?? "unset"}</span>
         </span>
       </Row>
       <Row label="Claimed at">{formatTime(item.claimedAt)}</Row>
@@ -130,7 +130,7 @@ function RunSummary({ run }: { run: StoryRun }) {
       <Row label="Started">{formatTime(run.startedAt)}</Row>
       <Row label="Ended">{formatTime(run.endedAt)}</Row>
       <Row label="Execution target">
-        <span className="font-mono text-xs text-[#e3c98a]">{run.executionEnvironment ?? "—"}</span>
+        <span className="font-mono text-xs text-[#cbd5e1]">{run.executionEnvironment ?? "—"}</span>
       </Row>
       <Row label="Tests">{run.testsSummary ?? "—"}</Row>
       <Row label="Commit hash">
@@ -209,7 +209,7 @@ function LifecycleProjection({ item }: { item: AgentWorkItem | null }) {
         {terminalLabel}
       </span>
       {state === "Paused" && (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[11px] font-light tracking-wide text-amber-300">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-light tracking-wide text-slate-300">
           PAUSED
         </span>
       )}
@@ -252,21 +252,21 @@ export function StoryExecutionCockpit({ model }: { model: StoryExecutionCockpit 
       <header className="border-b border-white/10 bg-[#0d1424]">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
           <div className="flex items-center gap-3">
-            <Gauge className="h-5 w-5 text-[#c6a15b]" />
+            <Gauge className="h-5 w-5 text-[var(--portal-blue-gray)]" />
             <h1 className="font-serif text-xl font-light uppercase tracking-[0.14em] text-white">
               Story Execution Cockpit
             </h1>
           </div>
           <Link
             href={`/portal/command-center?focus=${encodeURIComponent(story.id)}`}
-            className="rounded-sm border border-[#c6a15b]/40 px-3 py-1.5 text-xs font-light text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
+            className="rounded-sm border border-white/20 px-3 py-1.5 text-xs font-light text-slate-200 transition hover:border-white/40 hover:bg-white/10"
             title="Back to the Factory Command Center with this story in context"
           >
             ← Factory
           </Link>
           <Link
             href="/portal/command-console"
-            className="rounded-sm border border-white/10 px-3 py-1.5 text-xs font-light text-slate-400 transition hover:border-[#c6a15b]/50 hover:text-[#e3c98a]"
+            className="rounded-sm border border-white/10 px-3 py-1.5 text-xs font-light text-slate-400 transition hover:border-white/30 hover:text-slate-200"
           >
             ← Command Console
           </Link>
@@ -360,7 +360,7 @@ export function StoryExecutionCockpit({ model }: { model: StoryExecutionCockpit 
                     ? "The run was cancelled by an operator; the story was set to Hold."
                     : `Story status is ${story.status}.`}
               </p>
-              <p className="mt-2 text-xs font-light leading-5 text-amber-200/90">
+              <p className="mt-2 text-xs font-light leading-5 text-slate-300/90">
                 Recommended human action: review the run notes and error below, resolve the blocker, then set the story
                 back to Ready to re-queue deliberate retry.
               </p>

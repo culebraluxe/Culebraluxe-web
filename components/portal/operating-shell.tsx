@@ -16,10 +16,10 @@ import {
 // UI-01 — Operating shell: one application, four operating worlds, ONE
 // navigation model on every screen size.
 //
-//   Tier 1  NEXUS | OPS | TECH | SUPPORT   (sticky, always visible — never a
+//   Tier 1  NEXUS | OPS | SUPPORT | TECH   (sticky, always visible — never a
 //                                          hamburger-only model)
-//   Tier 2  contextual nav for the active surface (horizontally scrollable on
-//          phone; wraps on desktop)
+//   Tier 2  contextual tab rail for the active surface (horizontally scrollable
+//          on narrow screens)
 //
 // The active surface is DERIVED from the current route (longest-prefix match),
 // so route changes never reset or corrupt navigation state. Cosmetic UI gating
@@ -51,10 +51,10 @@ export function OperatingShell({
             href="/portal/dashboard"
             className="group flex items-center gap-3"
           >
-            {/* PORTAL-04 — gold monogram seal; presentation-level graphics. */}
+            {/* PORTAL-04 — monogram seal; presentation-level graphics. */}
             <span
               aria-hidden
-              className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#c6a15b]/60 font-serif text-base font-light leading-none text-[#c6a15b] transition-colors group-hover:border-[#c6a15b] group-hover:text-white"
+              className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/35 font-serif text-base font-light leading-none text-white/90 transition-colors group-hover:border-white group-hover:text-white"
             >
               C
             </span>
@@ -95,7 +95,7 @@ export function OperatingShell({
                 className={[
                   'flex min-h-12 items-center justify-center border-b-2 text-xs font-light uppercase tracking-[0.2em] transition-colors',
                   active
-                    ? 'border-[#c6a15b] text-[var(--portal-navy)]'
+                    ? 'border-[var(--portal-navy)] text-[var(--portal-navy)]'
                     : 'border-transparent text-black/45 hover:text-[var(--portal-navy)]',
                 ].join(' ')}
               >
@@ -105,10 +105,10 @@ export function OperatingShell({
           })}
         </nav>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto px-3 pb-3 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <nav
             aria-label={`${activeSurface} navigation`}
-            className="flex items-center gap-1 px-3 py-2 lg:flex-wrap"
+            className="flex w-max min-w-full items-center gap-1 rounded-lg border border-[var(--portal-border)] bg-white p-1 shadow-sm"
           >
             {visibleItems.map((item) => {
               const activeItem =
@@ -119,10 +119,10 @@ export function OperatingShell({
                   href={item.href}
                   aria-current={activeItem ? 'page' : undefined}
                   className={[
-                    'whitespace-nowrap rounded-sm px-3 py-2 text-[11px] font-light uppercase tracking-[0.14em] transition-colors',
+                    'flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-3.5 text-[11px] font-medium uppercase tracking-[0.12em] transition-colors',
                     activeItem
-                      ? 'bg-[var(--portal-navy)] text-white'
-                      : 'text-black/50 hover:bg-black/5 hover:text-[var(--portal-navy)]',
+                      ? 'bg-[var(--portal-navy)] text-white shadow-sm'
+                      : 'text-[var(--portal-navy)] hover:bg-[var(--portal-blue-pale)] active:bg-[var(--portal-blue-pale)]',
                   ].join(' ')}
                 >
                   {item.label}

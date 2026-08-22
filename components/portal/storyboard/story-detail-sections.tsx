@@ -75,12 +75,12 @@ function DetailField({
     <div>
       <div
         className={`text-[10px] font-light uppercase tracking-[0.18em] ${
-          distinct ? "text-[#8a6d2f]" : "text-black/35"
+          distinct ? "text-[var(--portal-blue-gray)]" : "text-black/35"
         }`}
       >
         {label}
       </div>
-      <p className={`mt-1 whitespace-pre-wrap ${distinct ? "text-[#8a6d2f]" : ""}`}>
+      <p className={`mt-1 whitespace-pre-wrap ${distinct ? "text-[var(--portal-blue-gray)]" : ""}`}>
         {value}
       </p>
     </div>

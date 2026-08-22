@@ -70,7 +70,7 @@ export function CommandConsole({ snapshot }: { snapshot: ConsoleSnapshot }) {
   if (!snapshot.ready) {
     return (
       <div className="min-h-[70vh] rounded-sm border border-[var(--portal-border)] bg-[var(--portal-surface)] px-10 py-16 text-center">
-        <Layers className="mx-auto h-9 w-9 text-[#c6a15b]" />
+        <Layers className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
         <h1 className="mt-5 font-serif text-2xl font-light text-[var(--portal-navy)]">
           Command console not ready
         </h1>
@@ -152,7 +152,7 @@ function HealthStrip({ snapshot }: { snapshot: ConsoleSnapshot }) {
   const workerPill = {
     idle: { label: "Worker idle", cls: "border-slate-500/40 text-slate-400" },
     busy: { label: "Worker busy", cls: "border-emerald-400/40 text-emerald-300" },
-    paused: { label: "Worker paused", cls: "border-amber-400/40 text-amber-300" },
+    paused: { label: "Worker paused", cls: "border-slate-400/40 text-slate-300" },
     stale: { label: "Worker stale", cls: "border-red-400/50 text-red-300" },
   }[snapshot.workerState]
 
@@ -160,7 +160,7 @@ function HealthStrip({ snapshot }: { snapshot: ConsoleSnapshot }) {
     <header className="border-b border-white/10 bg-[#0d1424]">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
         <div className="flex items-center gap-3">
-          <TerminalSquare className="h-5 w-5 text-[#c6a15b]" />
+          <TerminalSquare className="h-5 w-5 text-[var(--portal-blue-gray)]" />
           <h1 className="font-serif text-xl font-light uppercase tracking-[0.14em] text-white">
             SDLC Command Console
           </h1>
@@ -240,7 +240,7 @@ function StorySelector({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by story ID or title…"
-          className="mt-2 w-full rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-[#c6a15b]/60 focus:outline-none"
+          className="mt-2 w-full rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
         />
         <div className="mt-3 flex flex-wrap gap-1.5">
           {(["All", "Ready", "Planned", "Active", "Complete"] as const).map((f) => (
@@ -249,7 +249,7 @@ function StorySelector({
               onClick={() => setFilter(f)}
               className={`rounded-full border px-2.5 py-1 text-[11px] font-light transition-colors ${
                 filter === f
-                  ? "border-[#c6a15b]/70 bg-[#c6a15b]/15 text-[#e3c98a]"
+                  ? "border-[var(--portal-blue-gray)]/70 bg-[var(--portal-blue-gray)]/15 text-[#cbd5e1]"
                   : "border-white/10 text-slate-500 hover:border-white/25 hover:text-slate-300"
               }`}
             >
@@ -276,11 +276,11 @@ function StorySelector({
                 router.push(`/portal/command-console/${encodeURIComponent(s.id)}`)
               }
               className={`block w-full border-b border-white/5 px-4 py-3 text-left transition-colors ${
-                active ? "bg-[#c6a15b]/10" : "hover:bg-white/5"
+                active ? "bg-[var(--portal-blue-gray)]/10" : "hover:bg-white/5"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-medium tracking-wide text-[#e3c98a]">
+                <span className="font-mono text-xs font-medium tracking-wide text-[#cbd5e1]">
                   {s.id}
                 </span>
                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-light ${pill.cls}`}>
@@ -370,7 +370,7 @@ function StoryWorkspace({
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <span className="font-mono text-sm font-medium tracking-wide text-[#e3c98a]">
+              <span className="font-mono text-sm font-medium tracking-wide text-[#cbd5e1]">
                 {story.id}
               </span>
               <span className={`rounded-full border px-2 py-0.5 text-[10px] font-light ${storyPill.cls}`}>
@@ -392,7 +392,7 @@ function StoryWorkspace({
             </div>
             <Link
               href={`/portal/command-console/${encodeURIComponent(story.id)}`}
-              className="mt-2 inline-block rounded-sm border border-[#c6a15b]/40 px-3 py-1.5 text-[11px] font-light text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
+              className="mt-2 inline-block rounded-sm border border-[var(--portal-blue-gray)]/40 px-3 py-1.5 text-[11px] font-light text-[#cbd5e1] transition hover:border-[var(--portal-blue-gray)] hover:bg-[var(--portal-blue-gray)]/10"
             >
               Open Cockpit ↗
             </Link>
@@ -511,7 +511,7 @@ function StoryWorkspace({
                   key={p.value}
                   className={`flex cursor-pointer items-start gap-2 rounded-sm border px-3 py-2 transition-colors ${
                     policy === p.value
-                      ? "border-[#c6a15b]/60 bg-[#c6a15b]/10"
+                      ? "border-[var(--portal-blue-gray)]/60 bg-[var(--portal-blue-gray)]/10"
                       : "border-white/10 hover:border-white/25"
                   }`}
                 >
@@ -520,7 +520,7 @@ function StoryWorkspace({
                     name="policy"
                     checked={policy === p.value}
                     onChange={() => setPolicy(p.value)}
-                    className="mt-0.5 accent-[#c6a15b]"
+                    className="mt-0.5 accent-[var(--portal-blue-gray)]"
                   />
                   <span>
                     <span className="block text-xs font-light text-slate-200">{p.value}</span>
@@ -541,7 +541,7 @@ function StoryWorkspace({
                 busy
                   ? "cursor-wait bg-slate-700 text-slate-300"
                   : isReady
-                    ? "bg-[#c6a15b] text-[#0a0f1a] hover:bg-[#d8b877]"
+                    ? "bg-[var(--portal-blue-gray)] text-[#0a0f1a] hover:bg-[#d8b877]"
                     : "cursor-not-allowed bg-white/5 text-slate-600"
               }`}
             >
@@ -549,7 +549,7 @@ function StoryWorkspace({
               {busy ? "Queuing…" : "Queue command"}
             </button>
             {!isReady && (
-              <span className="text-[11px] font-light text-amber-300/80">
+              <span className="text-[11px] font-light text-slate-300/80">
                 Story must be Ready to queue. Set it Ready on the Story Board first.
               </span>
             )}
@@ -561,7 +561,7 @@ function StoryWorkspace({
 }
 
 const inputCls =
-  "w-full rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-1.5 text-sm text-slate-200 focus:border-[#c6a15b]/60 focus:outline-none"
+  "w-full rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-1.5 text-sm text-slate-200 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -656,7 +656,7 @@ function ExecutionPanel({
           <Row label="Story">
             <Link
               href={`/portal/command-console/${encodeURIComponent(activeCommand.storyId)}`}
-              className="inline-block rounded-sm border border-[#c6a15b]/40 px-2 py-1 font-mono text-xs text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
+              className="inline-block rounded-sm border border-[var(--portal-blue-gray)]/40 px-2 py-1 font-mono text-xs text-[#cbd5e1] transition hover:border-[var(--portal-blue-gray)] hover:bg-[var(--portal-blue-gray)]/10"
               title="Open Story Execution Cockpit"
             >
               {activeCommand.storyId} ↗
@@ -690,7 +690,7 @@ function ExecutionPanel({
             <button
               onClick={() => run("pause")}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-sm border border-amber-400/40 px-3 py-1.5 text-xs font-light text-amber-300 hover:bg-amber-400/10 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-sm border border-white/20 px-3 py-1.5 text-xs font-light text-slate-300 hover:bg-white/10 disabled:opacity-50"
             >
               <Pause className="h-3.5 w-3.5" /> Pause
             </button>
@@ -755,7 +755,7 @@ function ExecutionLog({
             onClick={() => setTab(t.id)}
             className={`inline-flex items-center gap-1.5 border-b-2 px-4 py-3 text-xs font-light tracking-wide transition-colors ${
               tab === t.id
-                ? "border-[#c6a15b] text-slate-200"
+                ? "border-[var(--portal-blue-gray)] text-slate-200"
                 : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
@@ -820,7 +820,7 @@ function ActivityLog({
     <ul className="space-y-2">
       {events.map((e, i) => (
         <li key={i} className="flex items-start gap-3 text-sm font-light">
-          <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#c6a15b]/70" />
+          <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--portal-blue-gray)]/70" />
           <div className="min-w-0 flex-1">
             <p className="break-words text-slate-300">{e.text}</p>
             {e.time && (

@@ -63,7 +63,7 @@ export function FormsOverview({
           <h1 className="font-serif text-4xl font-light leading-[1.1]">
             Forms
           </h1>
-          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+          <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)]">
             POC — {template ? `${template.displayName} v${template.version}` : "Offer Letter"}
           </span>
         </div>
@@ -168,7 +168,7 @@ export function FormsOverview({
                       <span
                         className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
                           f.status === "issued"
-                            ? "border border-[#c6a15b]/40 text-[#8a6d2f]"
+                            ? "border border-[var(--portal-blue-gray)]/40 text-[var(--portal-navy-soft)]"
                             : "border border-black/10 text-black/45"
                         }`}
                       >

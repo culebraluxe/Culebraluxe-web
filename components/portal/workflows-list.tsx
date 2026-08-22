@@ -18,12 +18,12 @@ function WorkflowCard({ summary }: { summary: WorkflowSummary }) {
   return (
     <Link
       href={`/portal/workflows/${summary.instanceId}`}
-      className="block rounded-sm border border-[var(--portal-border)] bg-white p-6 transition-colors hover:border-[#c6a15b]/60"
+      className="block rounded-sm border border-[var(--portal-border)] bg-white p-6 transition-colors hover:border-[var(--portal-blue-gray)]/50"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-light uppercase tracking-[0.22em] text-black/45">
-            <GitBranch className="h-3.5 w-3.5 text-[#c6a15b]" />
+            <GitBranch className="h-3.5 w-3.5 text-[var(--portal-blue-gray)]" />
             {summary.workflowName} · v{summary.workflowVersion}
           </div>
           <h2 className="mt-2 font-serif text-xl font-light text-[var(--portal-navy)]">
@@ -43,7 +43,7 @@ function WorkflowCard({ summary }: { summary: WorkflowSummary }) {
             : summary.responsibleParty ?? "No active milestone"}
         </span>
         {summary.blockerCount > 0 && (
-          <span className="flex items-center gap-1.5 text-amber-700">
+          <span className="flex items-center gap-1.5 text-[var(--portal-blue-gray)]">
             <AlertCircle className="h-3.5 w-3.5" />
             {summary.blockerCount} blocker{summary.blockerCount > 1 ? "s" : ""}
           </span>
@@ -81,7 +81,7 @@ export function WorkflowsList({
 
       {!configured ? (
         <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
-          <GitBranch className="mx-auto h-9 w-9 text-[#c6a15b]" />
+          <GitBranch className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
           <h2 className="mt-5 font-serif text-2xl font-light text-[var(--portal-navy)]">
             Workflow runtime not ready
           </h2>
@@ -96,7 +96,7 @@ export function WorkflowsList({
         </section>
       ) : summaries.length === 0 ? (
         <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
-          <GitBranch className="mx-auto h-9 w-9 text-[#c6a15b]" />
+          <GitBranch className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
           <h2 className="mt-5 font-serif text-2xl font-light text-[var(--portal-navy)]">
             No transaction workflows yet
           </h2>
