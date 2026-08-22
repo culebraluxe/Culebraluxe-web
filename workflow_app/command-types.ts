@@ -20,6 +20,10 @@
 //       the financingApplicable fact (facts.ts); this model never sets
 //       financing via a workflow command. Routed for application use; this is
 //       NOT a workflow command gap.
+//     deal.set_appraisal_required -> db/deal-appraisal.ts — appraisal
+//       applicability is READ as the appraisalApplicable fact (facts.ts) from
+//       the canonical deal.appraisal_required column; resolved by this
+//       explicit application command (CRM-19), never by a workflow command.
 //     offer.accept, task.create, task.complete, task.cancel — application /
 //       engine-integration commands outside the workflow XML.
 //
@@ -43,6 +47,9 @@ export const XML_COMMAND_NODE_TYPES: ReadonlySet<string> = new Set([
 /** Routed command type for application-only financing writes. */
 export const DEAL_SET_FINANCING_TYPE = 'deal.set_financing_type'
 
+/** Routed command type for application-only appraisal-applicability writes. */
+export const DEAL_SET_APPRAISAL_REQUIRED = 'deal.set_appraisal_required'
+
 /**
  * Routed command types NOT referenced by any XML command-node. Each is routed
  * for application/engine integration, never for a workflow command-node.
@@ -50,6 +57,7 @@ export const DEAL_SET_FINANCING_TYPE = 'deal.set_financing_type'
 export const ROUTED_BUT_UNREFERENCED_COMMAND_TYPES: ReadonlySet<string> = new Set([
   'offer.accept',
   DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_APPRAISAL_REQUIRED,
   'task.create',
   'task.complete',
   'task.cancel',

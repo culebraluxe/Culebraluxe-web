@@ -306,7 +306,7 @@ Operating differences are expressed **only as facts/capabilities** supplied by
 | `requiresHoaClearance` | HOA/condo clearance required |
 | `requiresSurvey` | survey required |
 | `financingApplicable` | financing branch active (bool/null) |
-| `appraisalApplicable` | appraisal branch active (bool/null) |
+| `appraisalApplicable` | appraisal branch active (bool/null); canonical deal.appraisal_required fact (CRM-19) |
 | `inspectionApplicable` | inspection branch active (bool/null) |
 | `insuranceApplicable` | insurance branch active (bool/null) |
 | `closingConfirmationRequired` | optional final brokerage confirmation |
@@ -324,6 +324,27 @@ a complexity reference/stress model, not the current production jurisdiction.
   (scenario D)
 
 Neither "financed ⇒ appraisal" nor "cash ⇒ no appraisal" is encoded.
+
+## 10b. Appraisal applicability resolution (Story CRM-19)
+
+`appraisalApplicable` is a canonical deal-level fact, never derived from
+provider-specific logic:
+
+- durable source: `deal.appraisal_required` (bool, null = unresolved)
+  — migration `db/migrations/031_deal_appraisal_required.sql`
+- explicit resolution: the application-only command `deal.set_appraisal_required`
+  (`db/deal-appraisal.ts`), routed but never referenced by a workflow
+  command-node, mirroring `deal.set_financing_type`
+- the workflow decision reads the fact from the application projection
+  (`workflow_app/facts.ts` → `appraisalApplicableFromRequired`); the generic
+  engine only evaluates the decision
+
+`null`/unknown is handled explicitly, never silently skipped: the
+`appraisal_applicable` decision routes `appraisalApplicable == null` to the
+`appraisal_applicability_unresolved` task ("Resolve Appraisal Applicability",
+brokerage). `resolved` re-evaluates the decision with refreshed facts (a
+blocker loop until a human/application resolves the fact); `escalate`
+terminates the transaction as failed.
 
 ## 11. Closing readiness (Story 124 / 136)
 

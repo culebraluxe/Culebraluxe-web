@@ -5,6 +5,7 @@ import {
   reSupermodelXmlSource,
 } from '../definitions/re-supermodel'
 import {
+  DEAL_SET_APPRAISAL_REQUIRED,
   DEAL_SET_FINANCING_TYPE,
   ROUTED_COMMAND_TYPES,
   ROUTED_BUT_UNREFERENCED_COMMAND_TYPES,
@@ -102,6 +103,26 @@ test('CRM-14G: deal.set_financing_type is routed but unreferenced by the XML (ap
   assert.ok(
     !xmlCommandNodeTypes.includes(DEAL_SET_FINANCING_TYPE),
     'the XML must not reference deal.set_financing_type',
+  )
+})
+
+test('CRM-19: deal.set_appraisal_required is routed but unreferenced by the XML (application-only)', () => {
+  const parsed = parseReSupermodel()
+  const xmlCommandNodeTypes = Object.values(parsed.graph.nodes)
+    .filter((n) => n.type === 'command')
+    .map((n) => n.commandType!)
+
+  assert.ok(
+    ROUTED_COMMAND_TYPES.has(DEAL_SET_APPRAISAL_REQUIRED),
+    'deal.set_appraisal_required stays routed for application use (db/deal-appraisal.ts)',
+  )
+  assert.ok(
+    !XML_COMMAND_NODE_TYPES.has(DEAL_SET_APPRAISAL_REQUIRED),
+    'deal.set_appraisal_required must not be documented as an XML command-node',
+  )
+  assert.ok(
+    !xmlCommandNodeTypes.includes(DEAL_SET_APPRAISAL_REQUIRED),
+    'the XML must not reference deal.set_appraisal_required',
   )
 })
 

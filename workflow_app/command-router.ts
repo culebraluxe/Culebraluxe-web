@@ -13,6 +13,7 @@ import {
 import { acceptOffer } from '../db/offer-acceptance'
 import { setDealStage } from '../db/deal-stage'
 import { setDealFinancingType } from '../db/deal-financing'
+import { setDealAppraisalRequired } from '../db/deal-appraisal'
 import { setDealClosingDate } from '../db/deal-closing-date'
 
 // ---------------------------------------------------------------------------
@@ -151,6 +152,25 @@ export async function routeCommand(
       return setDealFinancingType({
         dealId,
         financingType,
+        commandId: envelope.commandId,
+      })
+    }
+    case 'deal.set_appraisal_required': {
+      const { appraisalRequired } = envelope.input as { appraisalRequired?: unknown }
+      const dealId = envelope.aggregateId
+      if (!dealId || typeof appraisalRequired !== 'boolean') {
+        return {
+          commandId: envelope.commandId,
+          outcome: 'validation_failure',
+          emittedEvents: [],
+          aggregateId: dealId ?? null,
+          message: 'deal.set_appraisal_required requires dealId and a boolean appraisalRequired.',
+          replayed: false,
+        }
+      }
+      return setDealAppraisalRequired({
+        dealId,
+        appraisalRequired,
         commandId: envelope.commandId,
       })
     }

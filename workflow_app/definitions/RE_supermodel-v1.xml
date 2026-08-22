@@ -25,6 +25,14 @@
       inspectionApplicable        bool | null
       insuranceApplicable         bool | null
 
+  appraisalApplicable (CRM-19) is the canonical deal.appraisal_required fact
+  (workflow_app/facts.ts), resolved by the explicit application command
+  deal.set_appraisal_required (routed, application-only — like
+  deal.set_financing_type, never a workflow command-node). NULL is never
+  silently skipped: the appraisal_applicable decision routes null to the
+  explicit appraisal_applicability_unresolved task for human/application
+  resolution, which re-evaluates on resolved.
+
   Closing-readiness and closing-date facts (Story 122 / 124 / 125 / 135 / 136):
 
       closingConfirmationRequired  bool   when set, closing_readiness_gate adds a
@@ -46,6 +54,10 @@
       deal.set_financing_type         -> db/deal-financing.ts  (financing is read as the
                                           financingApplicable fact; never set via a
                                           workflow command in this model)
+      deal.set_appraisal_required     -> db/deal-appraisal.ts (appraisal is read as the
+                                          appraisalApplicable fact from
+                                          deal.appraisal_required; resolved by this
+                                          explicit application command — CRM-19)
 
   There is NO command-node deal.set_closing_readiness_verified: closing readiness
   is the human task-node `closing_readiness` (resolved -> ready_to_close), gated
@@ -227,11 +239,18 @@
 
   <!-- Appraisal (conditional; INDEPENDENT of financing — Story 123) -->
   <decision id="appraisal_applicable" label="Appraisal Applicable" refresh-facts="true"
-    description="Appraisal runs only when appraisalApplicable is true. It is not coupled to financing: cash deals may appraise, financed deals may skip.">
+    description="Appraisal runs only when appraisalApplicable is true. It is not coupled to financing: cash deals may appraise, financed deals may skip. NULL is never silently skipped: it routes to the explicit appraisal_applicability_unresolved task for human/application resolution (CRM-19).">
     <on condition="appraisalApplicable == true" transition="run"/>
+    <on condition="appraisalApplicable == null" transition="unresolved"/>
     <transition name="skip" to="join_tracks"/>
     <transition name="run" to="appraisal"/>
+    <transition name="unresolved" to="appraisal_applicability_unresolved"/>
   </decision>
+  <task-node id="appraisal_applicability_unresolved" label="Resolve Appraisal Applicability" responsibility="brokerage"
+    description="The canonical deal.appraisal_required fact is unresolved (null). A human/application must resolve whether an appraisal is required (lender/buyer/seller request) before the branch may proceed. resolved re-evaluates the decision with refreshed facts; escalate terminates the transaction (CRM-19).">
+    <transition name="resolved" to="appraisal_applicable"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
   <task-node id="appraisal" label="Appraisal" responsibility="appraiser"
     description="Independent appraiser performs the appraisal. Value may become a canonical fact later.">
     <transition name="done" to="join_tracks"/>

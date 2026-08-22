@@ -279,6 +279,88 @@ test('D. financed transaction with appraisalApplicable=false skips appraisal', a
 })
 
 // ---------------------------------------------------------------------------
+// D2. null appraisalApplicable — handled explicitly, never silently skipped
+// (CRM-19). The unresolved applicability surfaces a resolution task; resolving
+// it to false skips deterministically only after the explicit resolution.
+// ---------------------------------------------------------------------------
+test('D2. unresolved appraisalApplicable surfaces an explicit resolution task and skips only after resolution', async () => {
+  const { fake, engine, re } = setup(simpleCashFacts({ appraisalApplicable: null }))
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  // null must NOT silently skip: an explicit resolution task appears instead.
+  assert.ok(hasTask(fake, 'Resolve Appraisal Applicability'), 'null applicability must surface the resolution task')
+  assert.equal(hasTask(fake, 'Appraisal'), false, 'appraisal must not run while unresolved')
+
+  // Completing "resolved" with the fact STILL null loops back to the decision,
+  // which re-surfaces the same explicit task (blocker loop, never a skip).
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Resolve Appraisal Applicability').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasTask(fake, 'Resolve Appraisal Applicability'), 'still unresolved: the resolution task must reappear')
+  assert.equal(hasTask(fake, 'Appraisal'), false)
+
+  // A human/application resolves the canonical fact to false.
+  re.setFact('appraisalApplicable', false)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Resolve Appraisal Applicability').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasTask(fake, 'Appraisal'), false, 'resolved to false: appraisal skips deterministically')
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+  ])
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+// ---------------------------------------------------------------------------
+// D3. unresolved appraisalApplicable resolved to true — the branch executes
+// (CRM-19). Proves the explicit-resolution path activates the appraisal branch.
+// ---------------------------------------------------------------------------
+test('D3. unresolved appraisalApplicable resolved to true runs the appraisal branch', async () => {
+  const { fake, engine, re } = setup(simpleCashFacts({ appraisalApplicable: null }))
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  assert.ok(hasTask(fake, 'Resolve Appraisal Applicability'), 'null applicability must surface the resolution task')
+
+  // A human/application resolves the canonical fact to true (lender/buyer/seller request).
+  re.setFact('appraisalApplicable', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Resolve Appraisal Applicability').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasTask(fake, 'Appraisal'), 'resolved to true: the appraisal branch must execute')
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Appraisal',
+  ])
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+// ---------------------------------------------------------------------------
 // E. inspection issue resolved via the repair loop
 // ---------------------------------------------------------------------------
 test('E. inspection issue is resolved through the blocker loop', async () => {

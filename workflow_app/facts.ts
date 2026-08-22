@@ -1,5 +1,6 @@
 import { sql } from '../db/client'
 import { financingApplicableFromType } from './financing'
+import { appraisalApplicableFromRequired } from './appraisal'
 import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 
 // ---------------------------------------------------------------------------
@@ -11,15 +12,17 @@ import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 // Story 134 classification:
 //   A — derived from canonical data:
 //       financingApplicable (deal.financing_type), closingDate /
-//       closingDateScheduled (deal.closing_date)
+//       closingDateScheduled (deal.closing_date), appraisalApplicable
+//       (deal.appraisal_required)
 //   B — CulebraLuxe configuration default (configuration.ts):
 //       closingAgentRole, requiresNotario, requiresTitleCompany,
 //       requiresCrimClearance, requiresRegistryFollowup,
 //       inspectionApplicable, insuranceApplicable, requiresSurvey,
 //       requiresHoaClearance, closingConfirmationRequired
 //   C — unresolved (never invented; requires human/application resolution):
-//       appraisalApplicable (lender/buyer/seller request; independent of
-//       financing)
+//       none for V1 (appraisal moved from Class C to Class A in CRM-19: the
+//       durable deal-level source deal.appraisal_required is resolved by the
+//       explicit application command deal.set_appraisal_required)
 //   D — not yet necessary for V1: none
 // ---------------------------------------------------------------------------
 
@@ -57,6 +60,12 @@ export type DealWorkflowFacts = {
   financingApplicable: boolean | null
   /** true when a canonical target closing date exists. */
   closingDateScheduled: boolean
+  /**
+   * Appraisal branch active. Canonical deal.appraisal_required fact
+   * (CRM-19): true = appraisal required, false = not required,
+   * null = unresolved (never coerced to a boolean).
+   */
+  appraisalApplicable: boolean | null
 
   // Class B (CulebraLuxe configuration defaults)
   closingAgentRole: string
@@ -69,9 +78,6 @@ export type DealWorkflowFacts = {
   requiresSurvey: boolean
   requiresHoaClearance: boolean
   closingConfirmationRequired: boolean
-
-  // Class C (unresolved — never coerced to a boolean)
-  appraisalApplicable: boolean | null
 }
 
 export { financingApplicableFromType }
@@ -83,6 +89,7 @@ type DealRow = {
   offer_price: string | null
   closing_date: string | null
   financing_type: string | null
+  appraisal_required: boolean | null
   property_id: string
   property_name: string
   property_type: string | null
@@ -102,6 +109,7 @@ export async function getDealWorkflowFacts(
       d.offer_price::text as offer_price,
       d.closing_date::text as closing_date,
       d.financing_type,
+      d.appraisal_required,
       p.id as property_id,
       p.name as property_name,
       p.property_type,
@@ -151,6 +159,11 @@ export async function getDealWorkflowFacts(
     closingDate,
     financingApplicable: financingApplicableFromType(deal.financing_type),
     closingDateScheduled: closingDate !== null,
+    // CRM-19 — canonical deal-level source (deal.appraisal_required), resolved
+    // by the explicit application command deal.set_appraisal_required. Never
+    // invented: null means unresolved, and the XML decision surfaces it
+    // explicitly (appraisal_applicability_unresolved) instead of skipping.
+    appraisalApplicable: appraisalApplicableFromRequired(deal.appraisal_required),
     // Class B — Culebra operating defaults.
     closingAgentRole: cfg.closingAgentRole,
     requiresNotario: cfg.requiresNotario,
@@ -162,8 +175,6 @@ export async function getDealWorkflowFacts(
     requiresSurvey: cfg.requiresSurvey,
     requiresHoaClearance: cfg.requiresHoaClearance,
     closingConfirmationRequired: cfg.closingConfirmationRequired,
-    // Class C — unresolved; never invented.
-    appraisalApplicable: null,
     property: {
       id: deal.property_id,
       name: deal.property_name,
