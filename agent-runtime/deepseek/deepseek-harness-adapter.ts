@@ -134,7 +134,12 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     const target = (context.executionEnvironment ?? 'DEV') as never
     const { assertExecutionTargetSafe, buildChildProcessEnv, verifyWorkspaceEnvFile } = await import('../../lib/execution-target')
     assertExecutionTargetSafe(target)
-    verifyWorkspaceEnvFile(this.config.workspace, target)
+    // ENG-21 — the harness operates in the worker's ISOLATED worktree when the
+    // invoker provisioned one (context.executionCwd); otherwise the configured
+    // workspace. The environment boundary guard runs against the SAME path the
+    // harness will spawn into.
+    const workspace = context.executionCwd ?? this.config.workspace
+    verifyWorkspaceEnvFile(workspace, target)
 
     const task = this.taskBuilder(context.command, context)
     const startRun = this.config.startRun ?? startDshRun
@@ -146,7 +151,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     const childEnv = buildChildProcessEnv(target)
     this.handle = startRun({
       cliBin: this.config.cliBin,
-      cwd: this.config.workspace,
+      cwd: workspace,
       task,
       env: { ...childEnv, ...(this.config.env ?? {}) },
     })
@@ -156,16 +161,19 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     // statusExternal and persisted immediately (no longer only at finalization).
     // Baseline = the newest session already present BEFORE spawn, so in-run
     // discovery never mistakes a stale pre-run session for this run's session.
-    this.sessionBaseline = discoverLatestSession(this.config.workspace)
+    this.sessionBaseline = discoverLatestSession(workspace)
     this.externalRunId = `deepseek-pending-${Date.now()}`
     return { externalRunId: this.externalRunId }
   }
 
   protected async statusExternal(
     command: AgentWorkCommand,
-    _context: AgentExecutionContext,
+    context: AgentExecutionContext,
   ): Promise<ExternalStatusResult> {
     if (!this.handle) return { lifecycle: 'failed' }
+    // ENG-21 — in-run session discovery uses the SAME isolated workspace the
+    // harness was spawned into.
+    const workspace = context.executionCwd ?? this.config.workspace
     // Cancellation is requested first: SIGTERM sent. The child may not have
     // exited yet; map directly to the canonical cancelled lifecycle so the
     // shared loop terminalizes without racing the process exit.
@@ -176,7 +184,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       // the REAL session id while the story is still Running (the pending id is
       // only a short-lived bootstrap value).
       if (this.externalRunId?.startsWith('deepseek-pending-')) {
-        const session = discoverLatestSession(this.config.workspace)
+        const session = discoverLatestSession(workspace)
         if (session && session !== this.sessionBaseline) {
           this.externalRunId = session
           try {
@@ -232,7 +240,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
   protected async resultExternal(
     command: AgentWorkCommand,
-    _context: AgentExecutionContext,
+    context: AgentExecutionContext,
   ): Promise<AgentRunEvidence | null> {
     if (!this.handle) return null
     const result = await this.handle.promise
@@ -260,11 +268,12 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
     // The harness works inside the repo, so the parent may read the actual
     // HEAD commit the model created (factual, never inferred from the model's
-    // self-report).
+    // self-report). ENG-21: read from the isolated workspace the harness ran in.
+    const workspace = context.executionCwd ?? this.config.workspace
     let commitHash: string | null = null
     try {
       commitHash = execFileSync('git', ['log', '-1', '--format=%H'], {
-        cwd: this.config.workspace,
+        cwd: workspace,
         encoding: 'utf8',
       }).trim() || null
     } catch {

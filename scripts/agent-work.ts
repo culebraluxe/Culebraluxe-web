@@ -46,6 +46,8 @@
 //   - commits repository changes itself; never pushes
 // ---------------------------------------------------------------------------
 
+import type { AgentInvokerWorkspaces } from '../agent-runtime/invoker'
+
 async function main(): Promise<void> {
   if ((process.env.APP_ENV ?? 'development') !== 'production') {
     console.error(
@@ -176,10 +178,33 @@ async function runClaimCommand(): Promise<void> {
   const registry = createAgentRuntimeRegistry()
 
   try {
+    // ENG-21 — optional isolated worker workspace execution. Explicitly enabled
+    // by the operator (AGENT_WORKSPACE_ENABLED=1) with an EXPLICIT approved
+    // base ref (AGENT_WORKSPACE_BASE_REF). Absent = the existing shared-checkout
+    // path byte-for-byte. When enabled, the worker executes in its OWN branch +
+    // worktree; the primary checkout is never a worker scratch directory.
+    let workspaces: AgentInvokerWorkspaces | undefined
+    if (process.env.AGENT_WORKSPACE_ENABLED === '1') {
+      const baseRef = process.env.AGENT_WORKSPACE_BASE_REF
+      if (!baseRef) {
+        console.error(
+          'AGENT_WORKSPACE_ENABLED=1 requires AGENT_WORKSPACE_BASE_REF (the explicit approved integration base ref).',
+        )
+        process.exit(1)
+      }
+      const { provisionWorkerWorkspace } = await import('../lib/worker-workspace')
+      workspaces = {
+        workerId,
+        baseRef,
+        provision: provisionWorkerWorkspace,
+      }
+    }
+
     const result = await executeClaimedAgentCommand(workerId, claim, {
       work,
       runs,
       registry,
+      ...(workspaces ? { workspaces } : {}),
     })
     console.log('=== autonomous dispatch result ===')
     console.log('story:', result.storyId)

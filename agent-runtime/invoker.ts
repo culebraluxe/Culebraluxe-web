@@ -28,6 +28,10 @@ import type {
 } from './types'
 import type { AgentRunRepository, AgentWorkRepository } from './repositories'
 import type { AgentCapability } from './capabilities'
+import type {
+  WorkerWorkspace,
+  WorkerWorkspaceSpec,
+} from '../lib/worker-workspace/types'
 
 export type InvokerResult = {
   workItemId: string
@@ -38,6 +42,21 @@ export type InvokerResult = {
   evidence: AgentRunEvidence
 }
 
+/**
+ * ENG-21 — isolated worker workspace provisioning config. Absent = the legacy
+ * shared-checkout execution path (byte-for-byte unchanged). Present = the
+ * worker executes in its OWN branch + worktree from an EXPLICIT approved base
+ * ref; the primary checkout is never a worker scratch directory.
+ */
+export interface AgentInvokerWorkspaces {
+  /** The worker identity that owns the workspace branch. */
+  workerId: string
+  /** EXPLICIT approved integration base ref (branch/tag/commit) — never HEAD-derived. */
+  baseRef: string
+  /** Provision branch + worktree; returns the isolated workspace. */
+  provision: (spec: WorkerWorkspaceSpec) => Promise<WorkerWorkspace>
+}
+
 export interface AgentInvokerDeps {
   work: AgentWorkRepository
   runs: AgentRunRepository
@@ -45,6 +64,8 @@ export interface AgentInvokerDeps {
   /** Capability gate: if the profile's adapter lacks a required capability, the
    * command is NOT eligible and is left Ready (deterministic eligibility). */
   requiredCapabilities?: AgentCapability[]
+  /** Optional isolated-worker workspace provisioning (ENG-21). */
+  workspaces?: AgentInvokerWorkspaces
 }
 
 /**
@@ -166,7 +187,34 @@ export async function executeClaimedAgentCommand(
     assertExecutionTargetSafe(workItem.executionEnvironment as never)
   }
 
-  const evidence = await adapter.execute(command, context)
+  // ENG-21 — isolated worker workspace (branch + worktree). Absent config keeps
+  // the legacy shared-checkout path byte-for-byte. When configured, the worker
+  // executes in its OWN worktree from an EXPLICIT approved base ref; the
+  // primary checkout is never a worker scratch directory. The environment
+  // boundary guard then runs against the isolated workspace's .env.local so a
+  // DEV-intended command can never resolve to the PROD application DB through
+  // the worker's shared local configuration.
+  let executionCwd: string | null = null
+  if (deps.workspaces) {
+    const ws = await deps.workspaces.provision({
+      storyId: workItem.storyId,
+      workerId: deps.workspaces.workerId,
+      baseRef: deps.workspaces.baseRef,
+    })
+    if (workItem.executionEnvironment) {
+      const { verifyWorkspaceEnvFile, parseExecutionEnvironment } =
+        await import('../lib/execution-target')
+      verifyWorkspaceEnvFile(
+        ws.worktreePath,
+        parseExecutionEnvironment(workItem.executionEnvironment),
+      )
+    }
+    executionCwd = ws.worktreePath
+  }
+  const finalContext: AgentExecutionContext =
+    executionCwd !== null ? { ...context, executionCwd } : context
+
+  const evidence = await adapter.execute(command, finalContext)
   return {
     workItemId: workItem.id,
     storyId: workItem.storyId,

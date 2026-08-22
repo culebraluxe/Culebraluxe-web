@@ -82,6 +82,12 @@ export interface AgentExecutionContext {
   capabilities: AgentCapability[]
   /** Intended execution target (DEV|PROD|TEST|LOCAL) for this attempt. */
   executionEnvironment?: string | null
+  /**
+   * ENG-21 — isolated worker worktree path when the invoker provisioned one.
+   * Adapters run external processes HERE (cwd = isolated worktree); absent
+   * keeps the legacy shared-checkout workspace. Execution infrastructure only.
+   */
+  executionCwd?: string | null
   /** The storyboard_story_run id for this attempt (created by the invoker). */
   storyRunId: string
 }
