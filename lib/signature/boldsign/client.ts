@@ -51,6 +51,13 @@ export type BoldSignDocumentProperties = {
   fileIds: string[]
 }
 
+/** Decoded signed-artifact bytes + storage metadata (DOC-05 download). */
+export type BoldSignDocumentDownload = {
+  bytes: Uint8Array
+  filename: string
+  mimeType: string
+}
+
 export type BoldSignClientDeps = {
   fetchFn?: typeof fetch
   sleep?: (ms: number) => Promise<void>
@@ -124,6 +131,42 @@ export class BoldSignClient {
       body: JSON.stringify({ documentId, reason }),
       parse: () => undefined,
       acceptEmpty: true,
+    })
+  }
+
+  /**
+   * Download a signed document. BoldSign returns the file content base64-encoded
+   * in the JSON body (`{ file: <base64> }` — see developers.boldsign.com,
+   * "Download a Document as Base64"); this decodes it to bytes for the DOC-05
+   * signed-artifact append. `fileName`/`mimeType` are honored when present and
+   * default to deterministic PDF naming otherwise.
+   */
+  async downloadDocument(documentId: string): Promise<BoldSignDocumentDownload> {
+    const query = new URLSearchParams({ documentId })
+    return this.requestWithRetry<BoldSignDocumentDownload>({
+      method: 'GET',
+      path: `/v1/document/download?${query.toString()}`,
+      parse: (json) => {
+        const body = json as { file?: unknown; fileName?: unknown; mimeType?: unknown }
+        if (typeof body?.file !== 'string' || body.file.trim() === '') {
+          throw new Error('BoldSign document download response is missing file (base64).')
+        }
+        const bytes = Buffer.from(body.file, 'base64')
+        if (bytes.length === 0) {
+          throw new Error('BoldSign document download returned an empty file.')
+        }
+        return {
+          bytes,
+          filename:
+            typeof body.fileName === 'string' && body.fileName.trim() !== ''
+              ? body.fileName
+              : `${documentId}-signed.pdf`,
+          mimeType:
+            typeof body.mimeType === 'string' && body.mimeType.trim() !== ''
+              ? body.mimeType
+              : 'application/pdf',
+        }
+      },
     })
   }
 

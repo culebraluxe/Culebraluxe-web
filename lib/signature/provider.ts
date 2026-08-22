@@ -16,6 +16,7 @@ import type {
   ProviderSendRequest,
   ProviderSendResult,
   ProviderStatusResult,
+  SignedArtifactDownload,
   WebhookVerificationResult,
 } from './contracts'
 
@@ -40,4 +41,14 @@ export interface SignatureProvider {
     payload: unknown,
     signature: string,
   ): Promise<WebhookVerificationResult>
+
+  /**
+   * DOC-05 — Download the FINAL signed artifact bytes for a neutral signature
+   * request id, exactly once per reconciliation. The adapter resolves its own
+   * provider envelope through its provider table (never a provider id across
+   * the seam) and returns neutral bytes + storage metadata. Throws on
+   * provider failures — the reconciliation retries later and keeps the
+   * document in its current (sent) state.
+   */
+  downloadSignedArtifact(requestId: string): Promise<SignedArtifactDownload>
 }

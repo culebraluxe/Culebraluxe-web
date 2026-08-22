@@ -35,6 +35,7 @@ import type {
   ProviderSendRequest,
   ProviderSendResult,
   ProviderStatusResult,
+  SignedArtifactDownload,
   WebhookVerificationResult,
 } from '../contracts'
 import { BOLD_SIGN_PROVIDER, mapProviderStatus } from '../status-mapping'
@@ -208,6 +209,23 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       const classified = classifyBoldSignError(err)
       return { ok: false, error: classified.message }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // DOC-05 — one-time signed-artifact download (via the provider table)
+  // -------------------------------------------------------------------------
+
+  async downloadSignedArtifact(requestId: string): Promise<SignedArtifactDownload> {
+    const row = await getBoldSignRequestBySignatureRequestId(requestId, this.deps.execute)
+    if (!row?.envelopeId) {
+      throw new Error(
+        `BoldSign: no envelope exists for signature request ${requestId}; the signed artifact cannot be downloaded.`,
+      )
+    }
+    // The adapter resolves its own provider envelope id through its provider
+    // table (DOC-04); no provider id crosses the seam. The download is
+    // read-only — provider state is never written here.
+    return this.client.downloadDocument(row.envelopeId)
   }
 
   // -------------------------------------------------------------------------

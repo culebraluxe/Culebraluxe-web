@@ -282,3 +282,23 @@ export type WebhookVerificationResult = {
   event: SignatureProviderEvent
   signatureRequestId: string
 }
+
+// ---------------------------------------------------------------------------
+// DOC-05 — Signed artifact download (the neutral surface of the one-time
+// signed-bytes retrieval the reconciliation handler performs via DOC-04).
+// ---------------------------------------------------------------------------
+
+/**
+ * The final signed artifact bytes, downloaded once from the provider (DOC-04
+ * adapter) so DOC-05 reconciliation can append them as a NEW media row.
+ * Provider-specific wire shapes never cross the seam — only these neutral
+ * bytes and storage metadata do.
+ */
+export type SignedArtifactDownload = {
+  /** The signed artifact bytes (PDF/document), appended as a NEW media row. */
+  bytes: Uint8Array
+  /** Storage filename for the signed artifact media row. */
+  filename: string
+  /** Storage mime type for the signed artifact media row. */
+  mimeType: string
+}

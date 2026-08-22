@@ -233,6 +233,28 @@ class FakeBoldSignServer {
       return
     }
 
+    // DOC-05 — signed-artifact download: base64-encoded file per BoldSign's
+    // "Download a Document as Base64" response shape.
+    if (req.method === 'GET' && url.pathname === '/v1/document/download') {
+      const documentId = url.searchParams.get('documentId')
+      const envelope = documentId ? this.envelopes.get(documentId) : undefined
+      if (!envelope) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ message: 'Document not found' }))
+        return
+      }
+      const bytes = Buffer.from(`signed:${envelope.documentId}:pdf`, 'utf8')
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          file: bytes.toString('base64'),
+          fileName: `${envelope.documentId}-signed.pdf`,
+          mimeType: 'application/pdf',
+        }),
+      )
+      return
+    }
+
     res.writeHead(404, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ message: `Fake BoldSign: no route ${req.method} ${url.pathname}` }))
   }
@@ -919,6 +941,36 @@ test('adapter: webhook replays dedupe by provider event id (unique key)', async 
     const stored = await getBoldSignWebhookEventByProviderEventId('evt-completed', db.tx)
     assert.equal(stored?.neutralEvent, 'completed')
     assert.equal(stored?.signatureRequestId, 'sig-1')
+  } finally {
+    await server.stop()
+  }
+})
+
+// DOC-05 — the adapter resolves its own envelope through the provider table
+// and downloads the signed bytes (base64 per BoldSign's documented download
+// shape); provider ids never cross the seam.
+test('adapter: downloadSignedArtifact fetches the signed bytes via the provider table', async () => {
+  const db = new FakeDb()
+  seedDocument(db)
+  const server = await FakeBoldSignServer.start()
+  try {
+    const provider = makeProvider(db, server)
+    await provider.send({ signatureRequestId: 'sig-1', transactionDocumentId: 'doc-1', recipients: RECIPIENTS, message: null })
+    const row = await getBoldSignRequestBySignatureRequestId('sig-1', db.tx)
+    const envelopeId = row!.envelopeId!
+
+    const download = await provider.downloadSignedArtifact('sig-1')
+    assert.equal(Buffer.from(download.bytes).equals(Buffer.from(`signed:${envelopeId}:pdf`, 'utf8')), true)
+    assert.equal(download.filename, `${envelopeId}-signed.pdf`)
+    assert.equal(download.mimeType, 'application/pdf')
+
+    // The download hits the provider for the envelope, and the provider table
+    // is only READ (no provider state written by the download).
+    assert.ok(server.requestCount('GET', '/v1/document/download') >= 1)
+    assert.equal(server.requests.find((r) => r.path === '/v1/document/download')?.query.get('documentId'), envelopeId)
+
+    // Unknown requests fail closed.
+    await assert.rejects(() => provider.downloadSignedArtifact('sig-unknown'), /no envelope exists/)
   } finally {
     await server.stop()
   }

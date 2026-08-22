@@ -19,6 +19,7 @@ import type {
   ProviderSendRequest,
   ProviderSendResult,
   ProviderStatusResult,
+  SignedArtifactDownload,
   WebhookVerificationResult,
 } from './contracts'
 import {
@@ -44,6 +45,8 @@ export class FakeSignatureProvider implements SignatureProvider {
   private readonly requests = new Map<string, FakeProviderRecord>()
   private readonly sharedSecret: string
   private nextSendError: string | null = null
+  private nextDownloadError: string | null = null
+  private readonly signedArtifacts = new Map<string, Uint8Array>()
 
   constructor(options: { sharedSecret?: string } = {}) {
     this.sharedSecret = options.sharedSecret ?? 'fake-signing-secret'
@@ -64,6 +67,20 @@ export class FakeSignatureProvider implements SignatureProvider {
   /** Make the next send fail (delivery error), then clear the flag. */
   failNextSendWith(error: string): void {
     this.nextSendError = error
+  }
+
+  /** Set the signed artifact bytes a request's download returns (defaults to
+   *  a deterministic buffer). */
+  setSignedArtifact(requestId: string, bytes: Uint8Array): void {
+    if (!this.requests.has(requestId)) {
+      throw new Error(`Fake provider: unknown request ${requestId}.`)
+    }
+    this.signedArtifacts.set(requestId, bytes)
+  }
+
+  /** Make the next signed-artifact download fail, then clear the flag. */
+  failNextDownloadWith(error: string): void {
+    this.nextDownloadError = error
   }
 
   /** Deterministic webhook signature over a payload (models provider signing). */
@@ -145,6 +162,28 @@ export class FakeSignatureProvider implements SignatureProvider {
       )
     }
     return { event: neutralStatusForProviderEvent(neutral), signatureRequestId }
+  }
+
+  // DOC-05 — one-time signed-artifact download (neutral bytes + storage
+  // metadata; provider state never crosses the seam).
+  async downloadSignedArtifact(requestId: string): Promise<SignedArtifactDownload> {
+    const record = this.requests.get(requestId)
+    if (!record) {
+      throw new Error(`Fake provider: unknown request ${requestId}; cannot download the signed artifact.`)
+    }
+    const failure = this.nextDownloadError
+    this.nextDownloadError = null
+    if (failure) {
+      throw new Error(failure)
+    }
+    const bytes =
+      this.signedArtifacts.get(requestId) ??
+      new Uint8Array(Buffer.from(`signed:${requestId}:pdf`, 'utf8'))
+    return {
+      bytes,
+      filename: `${requestId}-signed.pdf`,
+      mimeType: 'application/pdf',
+    }
   }
 }
 

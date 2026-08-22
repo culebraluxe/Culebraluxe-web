@@ -36,6 +36,7 @@ import {
   mapProviderStatus,
   neutralStatusForProviderEvent,
 } from './status-mapping'
+import type { SignatureReconciliationHandler } from './reconciliation'
 
 export type SignatureApplicationDeps = {
   /** The canonical command seam (all four neutral commands route here). */
@@ -43,6 +44,10 @@ export type SignatureApplicationDeps = {
   /** The CONFIGURED provider — the router dispatches by it, never by
    *  provider-specific command. */
   provider: SignatureProvider
+  /** DOC-05 — the neutral completed-event subscriber. When wired, the router
+   *  invokes it strictly AFTER a status command that committed the neutral
+   *  completed event (never before commit, never inside the transaction). */
+  reconciler?: SignatureReconciliationHandler | null
   /** Application clock (injectable for deterministic tests). */
   now?: () => Date
 }
@@ -60,6 +65,10 @@ export type WebhookResult = {
   /** The normalized neutral event (never a provider payload). */
   event: SignatureProviderEvent
   result: CommandResult
+  /** DOC-05 — the reconciliation outcome for the neutral completed event, when
+   *  this webhook completed a signature request. Null when no completion
+   *  occurred or no reconciler is wired. */
+  reconciliation?: CommandResult | null
 }
 
 export class SignatureApplication {
@@ -89,6 +98,37 @@ export class SignatureApplication {
   private withoutCommandId(ctx: SignatureEnvelopeContext): SignatureEnvelopeContext {
     const { commandId: _dropped, ...rest } = ctx
     return rest
+  }
+
+  /**
+   * DOC-05 — POST-COMMIT subscription to the neutral completed event. Called
+   * only AFTER a status command has committed; when the command emitted
+   * SIGNATURE_REQUEST_COMPLETED and a reconciler is wired, the neutral event
+   * is handed to it (never the provider payload). A reconciliation failure
+   * (e.g. a signed-artifact download error) is recorded as a retryable
+   * result — the canonical status is already committed, and the event can be
+   * re-delivered/re-polled to retry.
+   */
+  private async reconcileIfCompleted(result: CommandResult): Promise<CommandResult | null> {
+    if (!this.deps.reconciler) return null
+    const event = result.emittedEvents.find(
+      (e) => e.eventType === 'SIGNATURE_REQUEST_COMPLETED',
+    )
+    if (!event) return null
+    try {
+      return await this.deps.reconciler.onCompletedEvent(event)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        commandId: event.eventId,
+        outcome: 'conflict',
+        emittedEvents: [],
+        aggregateId: event.aggregateId,
+        message: `Signed-artifact reconciliation failed (retry later): ${message}`,
+        replayed: false,
+        error: { code: 'reconciliation_failed', message, retryable: true },
+      }
+    }
   }
 
   /**
@@ -124,12 +164,16 @@ export class SignatureApplication {
     })
     const target = mapProviderStatus(this.deps.provider.name, delivery.providerStatus)
 
-    return this.deps.dispatcher.execute(
+    const statusResult = await this.deps.dispatcher.execute(
       this.envelope(SIGNATURE_REQUEST_STATUS, request.id, {
         signatureRequestId: request.id,
         targetStatus: target,
       }, this.withoutCommandId(ctx)),
     )
+    // Post-commit subscription: if the provider already reports completed, the
+    // neutral event is reconciled after commit.
+    await this.reconcileIfCompleted(statusResult)
+    return statusResult
   }
 
   /** Poll the provider and apply the observed status (already mapped to
@@ -139,12 +183,16 @@ export class SignatureApplication {
     ctx: SignatureEnvelopeContext = {},
   ): Promise<CommandResult> {
     const observed = await this.deps.provider.status(signatureRequestId)
-    return this.deps.dispatcher.execute(
+    const result = await this.deps.dispatcher.execute(
       this.envelope(SIGNATURE_REQUEST_STATUS, signatureRequestId, {
         signatureRequestId,
         targetStatus: observed.status,
       }, ctx),
     )
+    // Post-commit subscription: a poll that lands on completed reconciles the
+    // signed artifact into the transaction document after commit.
+    await this.reconcileIfCompleted(result)
+    return result
   }
 
   /** Cancel: record neutral 'voided' (idempotent), then best-effort cancel at
@@ -199,6 +247,9 @@ export class SignatureApplication {
         targetStatus: target,
       }, ctx),
     )
-    return { event: verification.event, result }
+    // DOC-05 — subscribe to the NEUTRAL completed event AFTER commit; the
+    // provider payload is never passed to the reconciler.
+    const reconciliation = await this.reconcileIfCompleted(result)
+    return { event: verification.event, result, reconciliation }
   }
 }
