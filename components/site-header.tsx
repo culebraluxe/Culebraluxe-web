@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { FavoritesLink } from "@/components/property/favorites-link";
 
 // Temporary visual-review switch. Set to false to restore the text wordmark.
 const USE_IMAGE_LOGO = true;
@@ -63,6 +64,7 @@ export function SiteHeader() {
                 <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-[#c6a15b] transition-all duration-500 ease-out group-hover:w-full" />
               </a>
             ))}
+            <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-[#c6a15b] focus-visible:text-[#c6a15b] focus-visible:outline-none lg:px-2" />
           </nav>
 
           <button
@@ -111,6 +113,10 @@ export function SiteHeader() {
                 {link.label}
               </a>
             ))}
+            <FavoritesLink
+              onNavigate={() => setMenuOpen(false)}
+              className="flex items-center gap-2 border-b border-[#f8f5ec]/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-[#f8f5ec]/80 transition-colors hover:text-[#d8c39a] last:border-0"
+            />
           </nav>
         </div>
       </header>

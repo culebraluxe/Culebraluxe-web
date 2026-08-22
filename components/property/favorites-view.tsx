@@ -3,9 +3,14 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { Heart } from 'lucide-react'
 
 import type { PropertySummary } from '@/db/properties'
-import { readSaved } from '@/components/property/save-property'
+import {
+  FAVORITES_CHANGED_EVENT,
+  pruneFavorites,
+  removeFavorite,
+} from '@/lib/favorites'
 import { formatArea, formatPrice, isLand } from '@/lib/property'
 
 function propertyFacts(property: PropertySummary): string {
@@ -39,20 +44,36 @@ export function FavoritesView({ properties }: FavoritesViewProps) {
 
   useEffect(() => {
     setMounted(true)
+
     const byId = new Map(properties.map((property) => [property.id, property]))
     const bySlug = new Map(properties.map((property) => [property.slug, property]))
-    const matched: PropertySummary[] = []
-    const seen = new Set<string>()
 
-    for (const entry of readSaved()) {
-      const property = byId.get(entry.id) ?? bySlug.get(entry.slug)
-      if (property && !seen.has(property.id)) {
-        seen.add(property.id)
-        matched.push(property)
+    const refresh = () => {
+      // Drop saved entries that no longer correspond to a live public
+      // listing (canonical id or slug) so delisted properties cannot
+      // permanently occupy the saved set.
+      const pruned = pruneFavorites(
+        properties.map((property) => property.id),
+        properties.map((property) => property.slug),
+      )
+
+      const matched: PropertySummary[] = []
+      const seen = new Set<string>()
+
+      for (const entry of pruned) {
+        const property = byId.get(entry.id) ?? bySlug.get(entry.slug)
+        if (property && !seen.has(property.id)) {
+          seen.add(property.id)
+          matched.push(property)
+        }
       }
+
+      setItems(matched)
     }
 
-    setItems(matched)
+    refresh()
+    window.addEventListener(FAVORITES_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(FAVORITES_CHANGED_EVENT, refresh)
   }, [properties])
 
   if (!mounted) {
@@ -108,6 +129,15 @@ export function FavoritesView({ properties }: FavoritesViewProps) {
                     ) : (
                       <div className="h-full w-full bg-gradient-to-br from-[#d9dde0] via-[#eef0f1] to-[#c4cbd0]" />
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => removeFavorite(property.id)}
+                      aria-label={`Remove ${property.name} from saved`}
+                      className="absolute right-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background"
+                    >
+                      <Heart className="h-4 w-4 fill-accent text-accent" />
+                    </button>
                   </div>
 
                   <Link

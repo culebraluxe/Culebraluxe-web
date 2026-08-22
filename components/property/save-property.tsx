@@ -3,57 +3,11 @@
 import { useEffect, useState } from 'react'
 import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const STORAGE_KEY = 'culebraluxe:saved-properties'
-
-export type SavedPropertyEntry = {
-  id: string
-  slug: string
-  name: string
-}
-
-// Backward compatible: reads both the legacy array-of-id format and the
-// current array-of-{id,slug,name} format. Canonical ids only; no sensitive data.
-export function readSaved(): SavedPropertyEntry[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .map((entry): SavedPropertyEntry | null => {
-        if (typeof entry === 'string') {
-          return entry ? { id: entry, slug: '', name: '' } : null
-        }
-        if (entry && typeof (entry as SavedPropertyEntry).id === 'string') {
-          return {
-            id: (entry as SavedPropertyEntry).id,
-            slug:
-              typeof (entry as SavedPropertyEntry).slug === 'string'
-                ? (entry as SavedPropertyEntry).slug
-                : '',
-            name:
-              typeof (entry as SavedPropertyEntry).name === 'string'
-                ? (entry as SavedPropertyEntry).name
-                : '',
-          }
-        }
-        return null
-      })
-      .filter((entry): entry is SavedPropertyEntry => Boolean(entry))
-  } catch {
-    return []
-  }
-}
-
-function writeSaved(entries: SavedPropertyEntry[]) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch {
-    // ignore storage failures (private mode, etc.)
-  }
-}
+import {
+  FAVORITES_CHANGED_EVENT,
+  isFavorite,
+  toggleFavorite,
+} from '@/lib/favorites'
 
 type SavePropertyProps = {
   propertyId: string
@@ -75,17 +29,16 @@ export function SaveProperty({
 
   useEffect(() => {
     setMounted(true)
-    setSaved(readSaved().some((entry) => entry.id === propertyId))
+
+    const sync = () => setSaved(isFavorite(propertyId))
+
+    sync()
+    window.addEventListener(FAVORITES_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(FAVORITES_CHANGED_EVENT, sync)
   }, [propertyId])
 
   const toggle = () => {
-    const current = readSaved()
-    const exists = current.some((entry) => entry.id === propertyId)
-    const next = exists
-      ? current.filter((entry) => entry.id !== propertyId)
-      : [...current, { id: propertyId, slug, name }]
-    writeSaved(next)
-    setSaved(!exists)
+    setSaved(toggleFavorite({ id: propertyId, slug, name }))
   }
 
   const label = saved ? 'Saved' : 'Save Property'
