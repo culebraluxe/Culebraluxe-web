@@ -43,6 +43,7 @@ import {
   getWorkflowSummaries,
   type WorkflowSummary,
 } from '../workflow_app/read-service'
+import { buildFactoryKpis } from './factory-kpi'
 
 // ---------------------------------------------------------------------------
 // Dependency parsing (tolerant, case-insensitive, deduplicated)
@@ -150,7 +151,9 @@ export type FactoryPipeline = {
 export type WorkerCapacityEntry = {
   workerId: string | null
   role: string | null
-  kind: 'assigned' | 'idle' | 'blocked'
+  modelProfile: string | null
+  /** ENG-17 four-state dispatch vocabulary (busy / waiting / blocked / available). */
+  kind: 'busy' | 'waiting' | 'blocked' | 'available'
   storyId: string | null
   workState: AgentWorkState | null
   since: string | null
@@ -158,9 +161,10 @@ export type WorkerCapacityEntry = {
 
 export type FactoryCapacity = {
   workers: WorkerCapacityEntry[]
-  assignedCount: number
-  idleCount: number
+  busyCount: number
+  waitingCount: number
   blockedCount: number
+  availableCount: number
   nextEligible: Array<{
     storyId: string
     title: string
@@ -177,6 +181,8 @@ export type FactorySnapshot = {
   /** Engine workflow instances (deep workflow cockpit drill-down targets). */
   workflowCockpits: WorkflowSummary[]
   humanGateCount: number
+  /** ENG-17 KPI + dispatch model (null only when the board tables are absent). */
+  kpis: import('./factory-kpi').FactoryKpis | null
 }
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -367,6 +373,21 @@ export function buildFactoryPipeline(
 // ---------------------------------------------------------------------------
 // Agent dispatch / capacity (pure — derived from the durable queue, never a
 // second roster)
+//
+// ENG-17 four-state vocabulary (acceptance criterion: capacity distinguishes
+// busy, available, blocked and waiting):
+//   busy      — Claimed / Running: the execution slot is actively working.
+//   waiting   — Paused: the slot is held but the command is paused awaiting an
+//               operator (resume/cancel) — not busy, not free.
+//   blocked   — Error / Cancelled: a TERMINAL command. The execution slot is
+//               released (claimNextAgentWork only refuses Claimed/Running) but
+//               the story needs a human before it can flow again.
+//   available — no busy and no waiting: the slot can take a new claim right
+//               now, even when a blocked story still needs human attention.
+//
+// A failed command therefore shows BOTH a blocked card (needs human) and an
+// available slot (the factory can keep producing) — one failed story costs one
+// story, not the shift (PIPPIN WATCH SOP).
 // ---------------------------------------------------------------------------
 
 export function buildFactoryCapacity(
@@ -376,8 +397,8 @@ export function buildFactoryCapacity(
 ): FactoryCapacity {
   const workers: WorkerCapacityEntry[] = []
 
-  // Assigned: the single active command (Claimed / Running / Paused — the
-  // system enforces at most one system-wide by migration 025).
+  // Busy + waiting: the active command (system enforces at most one active
+  // item system-wide by migration 025; Paused holds the slot too).
   const active = workItems.filter(
     (i) => i.state === 'Claimed' || i.state === 'Running' || i.state === 'Paused',
   )
@@ -385,15 +406,16 @@ export function buildFactoryCapacity(
     workers.push({
       workerId: item.claimedBy,
       role: item.role,
-      kind: 'assigned',
+      modelProfile: item.modelProfile,
+      kind: item.state === 'Paused' ? 'waiting' : 'busy',
       storyId: item.storyId,
       workState: item.state,
       since: item.claimedAt,
     })
   }
 
-  // Blocked: most recent terminal failure/cancellation per worker — the slot
-  // is occupied by a blocked outcome until a human resolves it.
+  // Blocked: most recent terminal failure/cancellation per worker — the story
+  // is stuck until a human resolves it (the execution slot itself is free).
   const failedByWorker = new Map<string, AgentWorkItem>()
   for (const item of workItems) {
     if (
@@ -410,6 +432,7 @@ export function buildFactoryCapacity(
     workers.push({
       workerId: item.claimedBy,
       role: item.role,
+      modelProfile: item.modelProfile,
       kind: 'blocked',
       storyId: item.storyId,
       workState: item.state,
@@ -417,12 +440,18 @@ export function buildFactoryCapacity(
     })
   }
 
-  // Idle: no active command and no blocked slot → the factory has capacity.
-  if (workers.length === 0) {
+  // Available: the execution slot is free (no busy, no waiting) — a new claim
+  // can proceed. Terminal blocked stories do NOT occupy the slot.
+  const slotBusy = active.some(
+    (i) => i.state === 'Claimed' || i.state === 'Running',
+  )
+  const slotWaiting = active.some((i) => i.state === 'Paused')
+  if (!slotBusy && !slotWaiting) {
     workers.push({
       workerId: null,
       role: null,
-      kind: 'idle',
+      modelProfile: null,
+      kind: 'available',
       storyId: null,
       workState: null,
       since: null,
@@ -447,9 +476,10 @@ export function buildFactoryCapacity(
 
   return {
     workers,
-    assignedCount: workers.filter((w) => w.kind === 'assigned').length,
-    idleCount: workers.filter((w) => w.kind === 'idle').length,
+    busyCount: workers.filter((w) => w.kind === 'busy').length,
+    waitingCount: workers.filter((w) => w.kind === 'waiting').length,
     blockedCount: workers.filter((w) => w.kind === 'blocked').length,
+    availableCount: workers.filter((w) => w.kind === 'available').length,
     nextEligible,
   }
 }
@@ -465,9 +495,10 @@ function emptyPipeline(): FactoryPipeline {
 function emptyCapacity(): FactoryCapacity {
   return {
     workers: [],
-    assignedCount: 0,
-    idleCount: 0,
+    busyCount: 0,
+    waitingCount: 0,
     blockedCount: 0,
+    availableCount: 0,
     nextEligible: [],
   }
 }
@@ -488,6 +519,7 @@ export async function getFactoryCommandCenterSnapshot(): Promise<FactorySnapshot
       capacity: emptyCapacity(),
       workflowCockpits: [],
       humanGateCount: 0,
+      kpis: null,
     }
   }
 
@@ -503,6 +535,7 @@ export async function getFactoryCommandCenterSnapshot(): Promise<FactorySnapshot
   }
 
   const pipeline = buildFactoryPipeline(stories, workItems, latestRunByStory)
+  const capacity = buildFactoryCapacity(stories, workItems, pipeline)
 
   let workflowCockpits: WorkflowSummary[] = []
   try {
@@ -515,8 +548,35 @@ export async function getFactoryCommandCenterSnapshot(): Promise<FactorySnapshot
     ready: true,
     rollup: buildStoryBoardModel(stories),
     pipeline,
-    capacity: buildFactoryCapacity(stories, workItems, pipeline),
+    capacity,
     workflowCockpits,
     humanGateCount: pipeline.nodes.filter((n) => n.gated).length,
+    // ENG-17: the KPI + dispatch model over the same reads (pure derivation).
+    kpis: buildFactoryKpis({
+      stories,
+      workItems,
+      runs: allRuns,
+      pipeline: {
+        readyWork: pipeline.readyWork,
+        gatedWork: pipeline.gatedWork,
+        blockedWork: pipeline.blockedWork,
+        nodes: pipeline.nodes.map((n) => ({
+          storyId: n.storyId,
+          blockedBy: n.blockedBy,
+          gated: n.gated,
+          gate: n.gate,
+        })),
+      },
+      slots: capacity.workers.map((w) => ({
+        kind: w.kind,
+        workerId: w.workerId,
+        role: w.role,
+        modelProfile: w.modelProfile,
+        storyId: w.storyId,
+        workState: w.workState,
+        since: w.since,
+      })),
+      rollup: buildStoryBoardModel(stories),
+    }),
   }
 }

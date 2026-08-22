@@ -304,18 +304,18 @@ test('dependency edges explain satisfaction and external refs never block', () =
 // Agent dispatch / capacity
 // ---------------------------------------------------------------------------
 
-test('factory is idle with capacity when no command is in flight', () => {
+test('factory is available with capacity when no command is in flight', () => {
   const stories = [story({ id: 'ENG-16', status: 'Ready' })]
   const pipeline = buildFactoryPipeline(stories, [], new Map())
   const capacity = buildFactoryCapacity(stories, [], pipeline)
-  assert.equal(capacity.assignedCount, 0)
+  assert.equal(capacity.busyCount, 0)
   assert.equal(capacity.blockedCount, 0)
-  assert.equal(capacity.idleCount, 1)
-  assert.equal(capacity.workers[0].kind, 'idle')
+  assert.equal(capacity.availableCount, 1)
+  assert.equal(capacity.workers[0].kind, 'available')
   assert.deepEqual(capacity.nextEligible.map((s) => s.storyId), ['ENG-16'])
 })
 
-test('assigned worker is derived from the active command', () => {
+test('busy worker is derived from the active command', () => {
   const stories = [story({ id: 'ENG-16', status: 'In Progress' })]
   const items = [
     work({
@@ -329,16 +329,37 @@ test('assigned worker is derived from the active command', () => {
   ]
   const pipeline = buildFactoryPipeline(stories, items, new Map())
   const capacity = buildFactoryCapacity(stories, items, pipeline)
-  assert.equal(capacity.assignedCount, 1)
-  const worker = capacity.workers.find((w) => w.kind === 'assigned')!
+  assert.equal(capacity.busyCount, 1)
+  const worker = capacity.workers.find((w) => w.kind === 'busy')!
   assert.equal(worker.workerId, 'deepseek-runtime')
   assert.equal(worker.storyId, 'ENG-16')
   assert.equal(worker.workState, 'Running')
   assert.equal(worker.since, '2026-08-22T10:00:00Z')
-  assert.equal(capacity.idleCount, 0)
+  assert.equal(capacity.availableCount, 0)
 })
 
-test('a failed command occupies a blocked worker slot', () => {
+test('a paused command holds a waiting slot (not busy, not available)', () => {
+  const stories = [story({ id: 'ENG-16', status: 'In Progress' })]
+  const items = [
+    work({
+      id: 'w1',
+      storyId: 'ENG-16',
+      state: 'Paused',
+      claimedBy: 'deepseek-runtime',
+      claimedAt: '2026-08-22T10:00:00Z',
+    }),
+  ]
+  const pipeline = buildFactoryPipeline(stories, items, new Map())
+  const capacity = buildFactoryCapacity(stories, items, pipeline)
+  assert.equal(capacity.waitingCount, 1)
+  assert.equal(capacity.busyCount, 0)
+  assert.equal(capacity.availableCount, 0)
+  const worker = capacity.workers.find((w) => w.kind === 'waiting')!
+  assert.equal(worker.storyId, 'ENG-16')
+  assert.equal(worker.workState, 'Paused')
+})
+
+test('a failed command blocks a story but releases the execution slot', () => {
   const stories = [story({ id: 'ENG-08', status: 'Failed' })]
   const items = [
     work({
@@ -352,6 +373,8 @@ test('a failed command occupies a blocked worker slot', () => {
   const pipeline = buildFactoryPipeline(stories, items, new Map())
   const capacity = buildFactoryCapacity(stories, items, pipeline)
   assert.equal(capacity.blockedCount, 1)
+  // One failed story costs one story, not the shift: the slot is free again.
+  assert.equal(capacity.availableCount, 1)
   const worker = capacity.workers.find((w) => w.kind === 'blocked')!
   assert.equal(worker.workerId, 'builder-flash')
   assert.equal(worker.storyId, 'ENG-08')

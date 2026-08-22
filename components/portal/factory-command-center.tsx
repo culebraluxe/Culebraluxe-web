@@ -150,15 +150,24 @@ export function FactoryCommandCenter({
 
   const rollup = snapshot.rollup!
   const capacity = snapshot.capacity
-  const activeWorker = capacity.workers.find((w) => w.kind === "assigned") ?? null
+  const kpis = snapshot.kpis
+  const busyWorker = capacity.workers.find((w) => w.kind === "busy") ?? null
+  const waitingWorker = capacity.workers.find((w) => w.kind === "waiting") ?? null
   const blockedWorker = capacity.workers.find((w) => w.kind === "blocked") ?? null
-  const idle = capacity.workers.find((w) => w.kind === "idle") ?? null
+  const availableWorker = capacity.workers.find((w) => w.kind === "available") ?? null
 
-  const workerPill = activeWorker
-    ? { label: "Worker busy", cls: "border-emerald-400/40 text-emerald-300" }
-    : blockedWorker
-      ? { label: "Worker blocked", cls: "border-red-400/50 text-red-300" }
-      : { label: "Worker idle", cls: "border-slate-500/40 text-slate-400" }
+  // PIPPIN WATCH SOP: the header pill reflects the health classification, not
+  // just the busiest-looking worker. Isolated story failures never read as a
+  // factory emergency (health.level stays healthy when the slot was released).
+  const workerPill = (() => {
+    const level = kpis?.health.level ?? "healthy"
+    if (level === "escalate") return { label: "Forge unhealthy", cls: "border-red-400/60 text-red-300" }
+    if (level === "watch") return { label: "Forge watch", cls: "border-amber-400/50 text-amber-300" }
+    if (busyWorker) return { label: "Forge busy", cls: "border-emerald-400/40 text-emerald-300" }
+    if (waitingWorker) return { label: "Forge waiting", cls: "border-slate-400/40 text-slate-300" }
+    if (blockedWorker) return { label: "Forge needs human", cls: "border-red-400/50 text-red-300" }
+    return { label: "Forge available", cls: "border-slate-500/40 text-slate-400" }
+  })()
 
   const filteredNodes = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -200,9 +209,24 @@ export function FactoryCommandCenter({
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-light text-slate-400">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-            control plane healthy
+          <div
+            className="flex max-w-[520px] items-center gap-2 text-xs font-light text-slate-400"
+            title={kpis?.health.summary ?? "control plane healthy"}
+          >
+            <span
+              className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                !kpis
+                  ? "bg-emerald-400"
+                  : kpis.health.level === "escalate"
+                    ? "bg-red-500"
+                    : kpis.health.level === "watch"
+                      ? "bg-amber-400"
+                      : "bg-emerald-400"
+              }`}
+            />
+            <span className="truncate">
+              {kpis?.health.summary ?? "control plane healthy"}
+            </span>
           </div>
 
           <div className={`rounded-full border px-3 py-1 text-[11px] font-light tracking-wide ${workerPill.cls}`}>
@@ -211,11 +235,17 @@ export function FactoryCommandCenter({
 
           <div className="flex items-center gap-2 text-xs font-light text-slate-300">
             <Activity className="h-3.5 w-3.5 text-slate-500" />
-            <span className="tabular-nums">{capacity.assignedCount}</span> assigned
+            <span className="tabular-nums">{capacity.busyCount}</span> busy
+            {capacity.waitingCount > 0 && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="tabular-nums text-slate-400">{capacity.waitingCount}</span> waiting
+              </>
+            )}
           </div>
           <div className="flex items-center gap-2 text-xs font-light text-slate-300">
             <Clock className="h-3.5 w-3.5 text-slate-500" />
-            <span className="tabular-nums">{snapshot.pipeline.readyWork.length}</span> ready work
+            <span className="tabular-nums">{kpis?.decision.readyEligibleCount ?? snapshot.pipeline.readyWork.length}</span> ready eligible
           </div>
           <div className="flex items-center gap-2 text-xs font-light text-amber-300">
             <Hourglass className="h-3.5 w-3.5 text-amber-400/70" />
@@ -231,6 +261,9 @@ export function FactoryCommandCenter({
       <div className="mx-auto max-w-[1680px] space-y-5 px-5 py-5">
         {/* Layer 1 detail — executive rollup */}
         <ExecutiveRollup snapshot={snapshot} rollup={rollup} />
+
+        {/* ENG-17 — KPI + dispatch model (outcome / flow / decision + health) */}
+        {kpis && <FactoryKpisPanel kpis={kpis} onOpenStory={(id) => router.push(`/portal/command-console/${encodeURIComponent(id)}`)} />}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           {/* Layer 3 — dependency-aware factory pipeline */}
@@ -336,9 +369,10 @@ export function FactoryCommandCenter({
           <aside className="space-y-5">
             <AgentCapacity
               snapshot={snapshot}
-              activeWorker={activeWorker}
+              busyWorker={busyWorker}
+              waitingWorker={waitingWorker}
               blockedWorker={blockedWorker}
-              idle={idle}
+              availableWorker={availableWorker}
               gatedNodes={gatedNodes}
               onOpenStory={(id) =>
                 router.push(`/portal/command-console/${encodeURIComponent(id)}`)
@@ -353,8 +387,9 @@ export function FactoryCommandCenter({
         )}
 
         <p className="pb-4 text-center text-[10px] font-light tracking-[0.18em] text-slate-700">
-          ENG-16 factory command center — every number is a read projection over the canonical
-          Story Board control plane. No duplicate state is introduced.
+          ENG-16/17 factory command center — every number is a read projection over the canonical
+          Story Board control plane. No duplicate state is introduced; KPI formulas live in
+          docs/workflow/factory-kpi-contract.md.
         </p>
       </div>
     </div>
@@ -648,21 +683,225 @@ function PipelineCard({
 }
 
 // ---------------------------------------------------------------------------
+// ENG-17 — KPI + dispatch model panel (outcome / flow / decision + health)
+// ---------------------------------------------------------------------------
+
+function FactoryKpisPanel({
+  kpis,
+  onOpenStory,
+}: {
+  kpis: NonNullable<FactorySnapshot["kpis"]>
+  onOpenStory: (id: string) => void
+}) {
+  const health = kpis.health
+  const rec = kpis.decision.recommended
+
+  const all = [...kpis.outcome, ...kpis.flow]
+  const val = (id: string) => {
+    const k = all.find((x) => x.id === id)
+    return k ? { value: k.value, missing: k.missingReason } : { value: null, missing: null }
+  }
+
+  const outcomeCards = [
+    { label: "Net-net", v: val("net-net completion"), unit: "%" },
+    { label: "Completion rate", v: val("completion rate"), unit: "%" },
+    { label: "Completed (30d)", v: val("throughput (window)"), unit: "" },
+    { label: "Cycle time", v: val("cycle time"), unit: "h" },
+    { label: "Lead time", v: val("lead time"), unit: "h" },
+    { label: "Pass rate", v: val("run pass rate"), unit: "%" },
+    { label: "Failure rate", v: val("run failure rate"), unit: "%" },
+    { label: "Retry rate", v: val("retry rate"), unit: "%" },
+  ]
+  const flowCards = [
+    { label: "WIP", v: val("wip"), unit: "" },
+    { label: "Ready eligible", v: val("ready eligible"), unit: "" },
+    { label: "Ready on deps", v: val("ready waiting on deps"), unit: "" },
+    { label: "Queue age", v: val("queue age (oldest eligible)"), unit: "h" },
+    { label: "Blocked work", v: val("blocked work"), unit: "" },
+    { label: "Blocked age", v: val("blocked age (max)"), unit: "h" },
+    { label: "Stale active", v: val("stale active"), unit: "" },
+  ]
+
+  return (
+    <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-3">
+        <Gauge className="h-4 w-4 text-[#c6a15b]" />
+        <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
+          KPI + dispatch model
+        </h2>
+        <span className="ml-auto text-[10px] font-light text-slate-600">
+          {kpis.scope.rollupStoryCount} rollup stories · {kpis.scope.parentStoryCount} parent/non-rollup tracked separately
+        </span>
+      </div>
+
+      <div className="space-y-4 px-4 py-4">
+        {/* PIPPIN health line — STORY vs FACTORY language */}
+        <div
+          className={`flex items-start gap-2 rounded-sm border px-3 py-2.5 text-[11px] font-light leading-5 ${
+            health.level === "escalate"
+              ? "border-red-400/40 bg-red-400/5 text-red-200/90"
+              : health.level === "watch"
+                ? "border-amber-400/30 bg-amber-400/5 text-amber-200/90"
+                : "border-emerald-400/20 bg-emerald-400/5 text-emerald-200/80"
+          }`}
+        >
+          <span
+            className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${
+              health.level === "escalate"
+                ? "bg-red-500"
+                : health.level === "watch"
+                  ? "bg-amber-400"
+                  : "bg-emerald-400"
+            }`}
+          />
+          <div className="min-w-0">
+            <div>{health.summary}</div>
+            {health.reasons.length > 0 && (
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-slate-500">
+                {health.reasons.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* Outcome KPIs */}
+        <div>
+          <div className="mb-1.5 text-[9px] font-light uppercase tracking-[0.2em] text-slate-600">
+            Outcome — delivery + quality
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+            {outcomeCards.map((c) => (
+              <KpiMiniCard key={c.label} label={c.label} v={c.v} unit={c.unit} />
+            ))}
+          </div>
+        </div>
+
+        {/* Flow KPIs */}
+        <div>
+          <div className="mb-1.5 text-[9px] font-light uppercase tracking-[0.2em] text-slate-600">
+            Flow — WIP / queue / age / blocking
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            {flowCards.map((c) => (
+              <KpiMiniCard key={c.label} label={c.label} v={c.v} unit={c.unit} />
+            ))}
+          </div>
+        </div>
+
+        {/* Decision signals — recommended dispatch + critical pressure */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-sm border border-[#c6a15b]/25 bg-[#0a0f1a] p-3">
+            <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-[#c6a15b]">
+              <Activity className="h-3 w-3" /> Recommended next dispatch
+            </div>
+            {rec ? (
+              <>
+                <button
+                  onClick={() => onOpenStory(rec.storyId)}
+                  className="mt-2 flex w-full items-baseline gap-2 text-left"
+                >
+                  <span className="font-mono text-sm font-medium text-[#e3c98a] hover:underline">
+                    {rec.storyId}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-light text-slate-300" title={rec.title}>
+                    {rec.title}
+                  </span>
+                  <span className="shrink-0 text-[9px] font-light uppercase tracking-wide text-slate-500">
+                    {rec.priority}
+                  </span>
+                </button>
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[10px] font-light text-slate-500">
+                  {rec.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="mt-2 text-[11px] font-light text-slate-500">
+                {kpis.decision.readyEligibleCount > 0
+                  ? "All ready work is human-gated — no unattended dispatch is authorized right now."
+                  : "Nothing dependency-ready is queued. Set a story to Ready on the Story Board."}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3">
+            <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-slate-500">
+              <AlertTriangle className="h-3 w-3 text-amber-400" /> Critical dependency pressure
+            </div>
+            {kpis.decision.criticalDependencyCount > 0 ? (
+              <div className="mt-2 space-y-1">
+                {kpis.decision.criticalDependencyPressure.slice(0, 6).map((p) => (
+                  <button
+                    key={p.storyId}
+                    onClick={() => onOpenStory(p.storyId)}
+                    className="flex w-full items-center gap-2 text-left text-[11px] font-light text-slate-300 hover:text-white"
+                  >
+                    <span className="font-mono text-[10px] text-[#e3c98a]">{p.storyId}</span>
+                    <span className="text-[10px] text-slate-500">
+                      blocked by {p.blockedBy.map((b) => `${b.storyId} (${b.status})`).join(", ")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-[11px] font-light text-slate-600">
+                No story waits on a Blocked/Failed dependency — no wedge on the critical path.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function KpiMiniCard({
+  label,
+  v,
+  unit,
+}: {
+  label: string
+  v: { value: number | null; missing: string | null }
+  unit: string
+}) {
+  return (
+    <div
+      className="rounded-sm border border-white/10 bg-[#0a0f1a] px-2.5 py-2"
+      title={v.missing ?? `${label}: ${v.value ?? "—"}${unit}`}
+    >
+      <div className={`text-lg font-light tabular-nums ${v.value === null ? "text-slate-600" : "text-slate-100"}`}>
+        {v.value === null ? "—" : v.value}
+        {v.value !== null && unit && <span className="text-[10px] text-slate-500"> {unit}</span>}
+      </div>
+      <div className="mt-0.5 truncate text-[9px] font-light uppercase tracking-[0.14em] text-slate-500">
+        {label}
+      </div>
+      {v.missing && <div className="mt-0.5 text-[9px] font-light text-amber-400/70">no data</div>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Agent dispatch / capacity (layer 2)
 // ---------------------------------------------------------------------------
 
 function AgentCapacity({
   snapshot,
-  activeWorker,
+  busyWorker,
+  waitingWorker,
   blockedWorker,
-  idle,
+  availableWorker,
   gatedNodes,
   onOpenStory,
 }: {
   snapshot: FactorySnapshot
-  activeWorker: import("@/lib/factory-command-center-data").WorkerCapacityEntry | null
+  busyWorker: import("@/lib/factory-command-center-data").WorkerCapacityEntry | null
+  waitingWorker: import("@/lib/factory-command-center-data").WorkerCapacityEntry | null
   blockedWorker: import("@/lib/factory-command-center-data").WorkerCapacityEntry | null
-  idle: import("@/lib/factory-command-center-data").WorkerCapacityEntry | null
+  availableWorker: import("@/lib/factory-command-center-data").WorkerCapacityEntry | null
   gatedNodes: import("@/lib/factory-command-center-data").FactoryPipelineNode[]
   onOpenStory: (id: string) => void
 }) {
@@ -677,26 +916,51 @@ function AgentCapacity({
         </div>
 
         <div className="space-y-2.5 px-4 py-4">
-          {activeWorker && (
+          {busyWorker && (
             <div className="rounded-sm border border-emerald-400/25 bg-emerald-400/5 p-3">
               <div className="flex items-center gap-2 text-[10px] font-light uppercase tracking-[0.16em] text-emerald-300">
-                <UserCheck className="h-3.5 w-3.5" /> Assigned · busy
+                <UserCheck className="h-3.5 w-3.5" /> Busy · executing
               </div>
               <div className="mt-1.5 text-sm font-light text-slate-100">
-                {activeWorker.workerId ?? "unnamed worker"}
+                {busyWorker.workerId ?? "unnamed worker"}
               </div>
               <button
-                onClick={() => activeWorker.storyId && onOpenStory(activeWorker.storyId)}
+                onClick={() => busyWorker.storyId && onOpenStory(busyWorker.storyId)}
                 className="mt-1 block truncate font-mono text-[11px] text-[#e3c98a] hover:underline"
               >
-                {activeWorker.storyId}
+                {busyWorker.storyId}
               </button>
               <div className="mt-2 flex items-center gap-2 text-[10px] font-light text-slate-500">
-                <span className={`rounded-full border px-1.5 py-0.5 ${activeWorker.workState ? statePill(activeWorker.workState).cls : ""}`}>
-                  {activeWorker.workState ?? "active"}
+                <span className={`rounded-full border px-1.5 py-0.5 ${busyWorker.workState ? statePill(busyWorker.workState).cls : ""}`}>
+                  {busyWorker.workState ?? "active"}
                 </span>
-                {activeWorker.role && <span>{activeWorker.role}</span>}
-                <span className="ml-auto tabular-nums">{formatTime(activeWorker.since)}</span>
+                {busyWorker.role && <span>{busyWorker.role}</span>}
+                {busyWorker.modelProfile && (
+                  <span className="rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] text-slate-500">
+                    {busyWorker.modelProfile}
+                  </span>
+                )}
+                <span className="ml-auto tabular-nums">{formatTime(busyWorker.since)}</span>
+              </div>
+            </div>
+          )}
+
+          {waitingWorker && (
+            <div className="rounded-sm border border-slate-400/25 bg-slate-400/5 p-3">
+              <div className="flex items-center gap-2 text-[10px] font-light uppercase tracking-[0.16em] text-slate-300">
+                <Hourglass className="h-3.5 w-3.5" /> Waiting · paused
+              </div>
+              <div className="mt-1.5 text-sm font-light text-slate-100">
+                {waitingWorker.workerId ?? "unnamed worker"}
+              </div>
+              <button
+                onClick={() => waitingWorker.storyId && onOpenStory(waitingWorker.storyId)}
+                className="mt-1 block truncate font-mono text-[11px] text-[#e3c98a] hover:underline"
+              >
+                {waitingWorker.storyId}
+              </button>
+              <div className="mt-2 text-[10px] font-light text-slate-500">
+                Command paused — resume or cancel before the slot can take new work.
               </div>
             </div>
           )}
@@ -721,10 +985,10 @@ function AgentCapacity({
             </div>
           )}
 
-          {idle && (
+          {availableWorker && (
             <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3">
               <div className="flex items-center gap-2 text-[10px] font-light uppercase tracking-[0.16em] text-slate-400">
-                <User className="h-3.5 w-3.5" /> Available · idle
+                <User className="h-3.5 w-3.5" /> Available · slot free
               </div>
               <div className="mt-1.5 text-sm font-light text-slate-300">
                 No command in flight
@@ -737,7 +1001,7 @@ function AgentCapacity({
             </div>
           )}
 
-          {!activeWorker && !blockedWorker && !idle && (
+          {!busyWorker && !waitingWorker && !blockedWorker && !availableWorker && (
             <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3 text-[10px] font-light text-slate-600">
               No worker state to show.
             </div>
