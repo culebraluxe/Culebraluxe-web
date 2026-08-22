@@ -97,6 +97,13 @@ export async function logManualInteraction(input: {
 
 // ---------------------------------------------------------------
 // STORY 3 — Showing create / schedule / cancel
+//
+// request_source_interaction_id records the viewing-request interaction a
+// showing originates from (schema column 013). It is OPTIONAL and only set
+// when the showing is created from an existing source interaction; otherwise
+// it stays null. The portal has no automatic viewing-request -> showing
+// conversion flow, so this is populated by callers that have the source
+// interaction at hand.
 // ---------------------------------------------------------------
 
 type ShowingRow = {
@@ -132,12 +139,22 @@ export async function createShowing(input: {
   propertyId?: string
   dealId?: string
   requestedAt?: string
+  requestSourceInteractionId?: string
 }) {
+  // Defect fix (CRM-11): requested_at is NOT NULL with DEFAULT now().
+  // Passing an explicit NULL for the omitted optional requestedAt would
+  // override the column default and violate the constraint — coalesce to
+  // now() so the documented default semantics hold for the portal path
+  // (which never supplies requestedAt).
   const rows = await sql`
-    insert into showing (person_id, property_id, deal_id, status, requested_at)
+    insert into showing (
+      person_id, property_id, deal_id, status, requested_at,
+      request_source_interaction_id
+    )
     values (
       ${input.personId}, ${input.propertyId ?? null}, ${input.dealId ?? null},
-      'requested', ${input.requestedAt ?? null}
+      'requested', coalesce(${input.requestedAt ?? null}::timestamptz, now()),
+      ${input.requestSourceInteractionId ?? null}
     )
     returning id, person_id, property_id, deal_id, status,
       requested_at, scheduled_at, completed_at, cancelled_at, feedback
@@ -188,6 +205,13 @@ export async function cancelShowing(showingId: string) {
 
 // ---------------------------------------------------------------
 // STORY 4 — Showing complete (atomic dual-write, idempotent)
+//
+// Canonical completion rule (migration 013, documented): on `completed` emit
+// exactly ONE interaction with channel = 'showing', occurred_at =
+// completed_at ?? scheduled_at, person/property/deal copied from the showing
+// row, idempotent via source_system='showing' / source_external_id=showing.id
+// (partial unique index interaction_source_identity_unique). requested /
+// scheduled / cancelled transitions emit no timeline interaction.
 // ---------------------------------------------------------------
 
 export async function completeShowing(showingId: string, completedAt?: string) {
@@ -234,7 +258,16 @@ export async function completeShowing(showingId: string, completedAt?: string) {
 }
 
 // ---------------------------------------------------------------
-// STORY 5 — Offer operations (no accept)
+// STORY 5 — Offer operations (submit / withdraw / reject)
+//
+// Recorded asymmetry (CRM-11): offer ACCEPT is intentionally NOT a portal
+// server action here. Accept is the canonical application command
+// offer.accept (db/offer-acceptance.ts, thin handler lib/commands/offer/
+// accept-offer.ts) reachable through the command seam (workflow_app command
+// router -> canonical dispatcher) with claim-first receipts, idempotency and
+// the one-accepted/primary-offer-per-deal invariant. submit/withdraw/reject
+// are plain portal writes (this file). Deal stage is NEVER auto-advanced by
+// any of these writes — it changes only via explicit deal.set_stage commands.
 // ---------------------------------------------------------------
 
 export async function submitOffer(input: {

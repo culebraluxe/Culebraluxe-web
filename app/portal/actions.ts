@@ -328,6 +328,7 @@ export async function createShowingAction(input: {
   propertyId?: string
   dealId?: string
   requestedAt?: string
+  requestSourceInteractionId?: string
 }): Promise<PortalWriteResult<{ id: string }>> {
   if (!isUuid(input.personId)) {
     return {
@@ -351,6 +352,16 @@ export async function createShowingAction(input: {
     }
   }
   if (
+    input.requestSourceInteractionId &&
+    !isUuid(input.requestSourceInteractionId)
+  ) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid source interaction identifier.',
+    }
+  }
+  if (
     input.requestedAt &&
     Number.isNaN(new Date(input.requestedAt).getTime())
   ) {
@@ -370,6 +381,8 @@ export async function createShowingAction(input: {
           input.requestedAt !== undefined
             ? toPortalInstant(input.requestedAt)
             : undefined,
+        requestSourceInteractionId:
+          input.requestSourceInteractionId ?? undefined,
       })
       revalidatePortal()
       return { ok: true, data: { id: result.id } }
@@ -466,7 +479,15 @@ export async function completeShowingAction(
 }
 
 // ---------------------------------------------------------------
-// STORY 5 — Offer operations (no accept)
+// STORY 5 — Offer operations (submit / withdraw / reject)
+//
+// Recorded asymmetry (CRM-11): there is intentionally NO portal accept action.
+// Offer accept is the canonical application command offer.accept, reachable
+// only through the command seam (workflow command-router -> canonical
+// dispatcher -> db/offer-acceptance.ts) with claim-first receipts, idempotency
+// and the one-accepted/primary-offer-per-deal invariant. reject/withdraw stay
+// portal actions here. Accepting an offer NEVER auto-advances the deal stage —
+// deal stage changes only via explicit deal.set_stage commands.
 // ---------------------------------------------------------------
 
 export async function submitOfferAction(input: {

@@ -23,6 +23,21 @@ export type DomainCommand = {
 // Canonical inventory of existing consequential commands. No command behavior
 // is redesigned; this is a descriptive catalog.
 export const DOMAIN_COMMANDS: DomainCommand[] = [
+  // Recorded asymmetry (CRM-11): acceptOffer is NOT a portal server action —
+  // it is the canonical offer.accept application command behind the command
+  // seam (lib/commands/offer/accept-offer.ts -> db/offer-acceptance.ts),
+  // reachable via the workflow_app command router. submit/withdraw/reject are
+  // portal writes. Accepting never auto-advances the deal stage.
+  {
+    name: 'acceptOffer',
+    aggregate: 'offer',
+    authority: 'deal.write',
+    changesBusinessState: true,
+    workflowAware: true,
+    idempotency: 'B',
+    idempotencyNote: 'Claim-first command receipt (command_id); the same commandId executes the accept at most once and replays the winner result.',
+    precondition: 'Offer exists and belongs to the deal; offer.status is submitted; no other offer is accepted for the deal (one accepted/primary per deal).',
+  },
   {
     name: 'submitOffer',
     aggregate: 'offer',
