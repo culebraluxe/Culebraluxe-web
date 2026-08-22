@@ -336,6 +336,17 @@ override blockers because it comes AFTER the join. (Story 135/136 improved
 this: the `closingReadinessVerified` boolean and its command were removed as the
 wrong semantic shape — confirmation is a task, not a persisted fact.)
 
+The command inventory for `RE_supermodel-v1.xml` is complete and guarded
+(CRM-14G): the only command-nodes are `mark_under_contract`
+(`deal.set_stage_under_contract`), `mark_closed` (`deal.set_stage_closed`), and
+`set_closing_date` (`deal.set_closing_date`) — each has a router case in
+`workflow_app/command-router.ts`. `deal.set_financing_type` is routed but
+application-only (financing is read as the `financingApplicable` fact, never
+set via a workflow command), and there is no `deal.set_closing_readiness_verified`
+command. The authoritative registry is `workflow_app/command-types.ts`; a
+command-node added to the XML without a router case fails
+`workflow_app/tests/command-inventory.test.ts` and `parseReSupermodel()`.
+
 ## 12. P&S / closing date semantics (Story 122)
 
 `closing_date_timer` uses `dueAtVariable="closingDate"` (the canonical deal

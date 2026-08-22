@@ -3,6 +3,7 @@ import type {
   CommandResult,
   CommandOutcome,
 } from '../lib/workflow/contracts'
+import { ROUTED_COMMAND_TYPES } from './command-types'
 import { PortalWriteError } from '../lib/portal-write-error'
 import { createTask as createCanonicalTask } from '../db/tasks'
 import {
@@ -83,6 +84,21 @@ function success(
 export async function routeCommand(
   envelope: CommandEnvelope,
 ): Promise<CommandResult> {
+  // Inventory guard (CRM-14G): the routed inventory in command-types.ts is
+  // authoritative — every XML command-node must be covered by it, enforced by
+  // tests/command-inventory.test.ts and parseReSupermodel(). Command types
+  // outside the inventory are rejected before dispatch; the switch below is
+  // defense-in-depth for inventory members lacking a case (should not happen).
+  if (!ROUTED_COMMAND_TYPES.has(envelope.commandType)) {
+    return {
+      commandId: envelope.commandId,
+      outcome: 'not_found',
+      emittedEvents: [],
+      aggregateId: null,
+      message: `Unknown command type: ${envelope.commandType}`,
+      replayed: false,
+    }
+  }
   switch (envelope.commandType) {
     case 'offer.accept': {
       const { offerId } = envelope.input as { offerId?: string }

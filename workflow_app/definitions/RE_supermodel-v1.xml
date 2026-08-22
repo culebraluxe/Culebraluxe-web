@@ -25,18 +25,33 @@
       inspectionApplicable        bool | null
       insuranceApplicable         bool | null
 
-  Closing-readiness and closing-date facts (Story 122 / 124 / 125):
+  Closing-readiness and closing-date facts (Story 122 / 124 / 125 / 135 / 136):
 
-      closingReadinessVerified    bool   gate that all applicable work cleared
-      closingDateScheduled        bool   a canonical target closing date exists
-      closingDate                 ISO-8601 string (timer dueAtVariable)
+      closingConfirmationRequired  bool   when set, closing_readiness_gate adds a
+                                          final brokerage confirmation task before
+                                          ready_to_close — readiness is a human
+                                          task, never a persisted fact or command
+      closingDateScheduled         bool   a canonical target closing date exists
+      closingDate                  ISO-8601 string (timer dueAtVariable)
 
-  Commands referenced (workflow_app must route them to canonical services):
+  Command inventory — COMPLETE for this XML (reconciliation only; see
+  workflow_app/command-types.ts, the authoritative registry):
 
-      deal.set_stage_under_contract          (exists in command-router)
-      deal.set_stage_closed                  (exists in command-router)
-      deal.set_closing_readiness_verified    (NEW — application gap)
-      deal.set_closing_date                  (NEW — application gap)
+      deal.set_stage_under_contract   command-node mark_under_contract  -> db/deal-stage.ts
+      deal.set_stage_closed           command-node mark_closed          -> db/deal-stage.ts
+      deal.set_closing_date           command-node set_closing_date     -> db/deal-closing-date.ts
+
+  Routed but NOT referenced by any command-node (application-only):
+
+      deal.set_financing_type         -> db/deal-financing.ts  (financing is read as the
+                                          financingApplicable fact; never set via a
+                                          workflow command in this model)
+
+  There is NO command-node deal.set_closing_readiness_verified: closing readiness
+  is the human task-node `closing_readiness` (resolved -> ready_to_close), gated
+  by the closing_readiness_gate decision on closingConfirmationRequired. Every
+  command-node above has a router case — enforced by
+  workflow_app/tests/command-inventory.test.ts and parseReSupermodel().
 
   Simple cash/clean transactions take the short path: title/legal, tax /
   municipal (CRIM) clearance, funds ready, closing documents, closing
