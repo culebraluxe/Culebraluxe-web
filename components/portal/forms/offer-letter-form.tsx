@@ -125,7 +125,7 @@ export function OfferLetterForm({
           </p>
           <Link
             href={`/portal/documents/${issued.documentId}/download`}
-            className="mt-4 inline-flex text-sm font-light text-[var(--portal-navy)] underline underline-offset-4 hover:text-[#8a4b2a]"
+            className="mt-4 inline-flex text-sm font-light text-[var(--portal-navy)] underline underline-offset-4 hover:text-[var(--portal-archive)]"
           >
             Download the issued PDF
           </Link>
@@ -208,7 +208,7 @@ export function OfferLetterForm({
             )}
           </div>
           {error && (
-            <p className="px-6 pb-5 text-xs font-light text-[#8a4b2a]">{error}</p>
+            <p className="px-6 pb-5 text-xs font-light text-[var(--portal-archive)]">{error}</p>
           )}
         </section>
 // __PART3__

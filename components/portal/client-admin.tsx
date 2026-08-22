@@ -84,7 +84,7 @@ export function ClientAdmin({
                       {row.primaryEmail ?? "—"}
                     </div>
                     {!row.primaryEmail && (
-                      <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[#8a4b2a]">
+                      <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
                         No email
                       </div>
                     )}
@@ -92,7 +92,7 @@ export function ClientAdmin({
                   <td className="px-4 py-4 align-top">
                     <div className="text-sm font-light">{row.primaryPhone ?? "—"}</div>
                     {!row.primaryPhone && (
-                      <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[#8a4b2a]">
+                      <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
                         No phone
                       </div>
                     )}

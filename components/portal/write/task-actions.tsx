@@ -19,7 +19,7 @@ const secondaryButton =
   'inline-flex min-h-11 items-center justify-center rounded-sm border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40'
 
 const ghostButton =
-  'inline-flex min-h-11 items-center justify-center rounded-sm px-3 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[#8a4b2a] disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex min-h-11 items-center justify-center rounded-sm px-3 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[var(--portal-archive)] disabled:cursor-not-allowed disabled:opacity-40'
 
 export function TaskActions({ taskId }: { taskId: string }) {
   const [isPending, startTransition] = useTransition()
@@ -99,7 +99,7 @@ export function TaskActions({ taskId }: { taskId: string }) {
       {message && (
         <span
           className={`text-xs font-light ${
-            message.ok ? 'text-black/50' : 'text-[#8a4b2a]'
+            message.ok ? 'text-black/50' : 'text-[var(--portal-archive)]'
           }`}
         >
           {message.text}
@@ -203,7 +203,7 @@ export function CreateTaskForm({
         {message && (
           <span
             className={`text-xs font-light ${
-              message.ok ? 'text-black/50' : 'text-[#8a4b2a]'
+              message.ok ? 'text-black/50' : 'text-[var(--portal-archive)]'
             }`}
           >
             {message.text}

@@ -62,11 +62,11 @@ function stageClasses(stage: DealStage) {
     case "qualified":
       return "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]"
     case "showing":
-      return "bg-[#dfe8ef] text-[var(--portal-navy-soft)]"
+      return "bg-[var(--portal-mist-2)] text-[var(--portal-navy-soft)]"
     case "offer":
-      return "bg-[#e8edf2] text-[var(--portal-navy)]"
+      return "bg-[var(--portal-mist)] text-[var(--portal-navy)]"
     case "under_contract":
-      return "bg-[#dfe9e3] text-[#40584b]"
+      return "bg-[var(--portal-success-pale)] text-[var(--portal-success)]"
     case "closed":
       return "bg-[var(--portal-navy)] text-white"
   }
@@ -213,7 +213,7 @@ export function DealsPortfolio({
                             className="h-14 w-20 shrink-0 rounded-sm object-cover"
                           />
                         ) : (
-                          <div className="h-14 w-20 shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-blue-gray)]" />
+                          <div className="h-14 w-20 shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[var(--portal-mist-4)] to-[var(--portal-blue-gray)]" />
                         )}
 
                         <div>

@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -16,8 +17,9 @@ import {
 // UI-01 — Operating shell: one application, four operating worlds, ONE
 // navigation model on every screen size.
 //
-//   Tier 1  NEXUS | OPS | SUPPORT | TECH   (sticky, always visible — never a
-//                                          hamburger-only model)
+//   Tier 1  NEXUS | MAIN | OPPS | SUPPORT | TECH   (sticky, always visible —
+//                                          never a hamburger-only model; MAIN
+//                                          returns to the public CulebraLuxe site)
 //   Tier 2  contextual tab rail for the active surface (horizontally scrollable
 //          on narrow screens)
 //
@@ -42,35 +44,58 @@ export function OperatingShell({
     (item) => !item.authority || actor.authorityCodes.includes(item.authority),
   )
 
+  // Tier-1 chrome: the four operating surfaces (NEXUS | OPPS | SUPPORT | TECH)
+  // plus MAIN, which returns to the public CulebraLuxe site. Exact display
+  // order: NEXUS | MAIN | OPPS | SUPPORT | TECH.
+  const tier1Items: Array<{
+    key: string
+    label: string
+    href: string
+    external: boolean
+  }> = [
+    {
+      key: 'NEXUS',
+      label: OPERATING_SURFACES.NEXUS.label,
+      href: surfaceHome('NEXUS'),
+      external: false,
+    },
+    { key: 'MAIN', label: 'MAIN', href: '/', external: true },
+    ...OPERATING_SURFACE_ORDER.filter((s) => s !== 'NEXUS').map((s) => ({
+      key: s,
+      label: OPERATING_SURFACES[s].label,
+      href: surfaceHome(s),
+      external: false,
+    })),
+  ]
+
   return (
     <div className="min-h-screen bg-[var(--portal-bg)] text-[var(--portal-text)]">
       {/* Brand / account row (shallow chrome) */}
-      <header className="border-b border-white/10 bg-[var(--portal-navy)] text-white">
+      <header className="border-b border-white/10 bg-brand-navy text-white">
         <div className="flex min-h-12 items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           <Link
             href="/portal/dashboard"
-            className="group flex items-center gap-3"
+            aria-label="CulebraLuxe home"
+            className="flex h-7 w-[250px] flex-none items-center"
           >
-            {/* PORTAL-04 — monogram seal; presentation-level graphics. */}
-            <span
-              aria-hidden
-              className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/35 font-serif text-base font-light leading-none text-white/90 transition-colors group-hover:border-white group-hover:text-white"
-            >
-              C
-            </span>
-
-            <span className="font-serif text-base font-light uppercase tracking-[0.08em] text-white transition-colors group-hover:text-white/80">
-              CulebraLuxe
-            </span>
+            {/* Exact main-site logo asset — brand must match the public site. */}
+            <Image
+              src="/images/culebraluxe-header-logo-test.png"
+              alt="CulebraLuxe"
+              width={2050}
+              height={300}
+              priority
+              className="h-9 max-h-9 w-auto max-w-full flex-none object-contain"
+            />
           </Link>
 
           <div className="flex shrink-0 items-center gap-4">
-            <span className="hidden text-[10px] font-light uppercase tracking-[0.22em] text-white/50 sm:inline">
+            <span className="hidden text-[10px] font-light uppercase tracking-[0.22em] text-[var(--portal-ivory)]/70 sm:inline">
               {actor.displayName}
             </span>
             <Link
               href="/api/auth/signout"
-              className="text-[10px] font-light uppercase tracking-[0.2em] text-white/60 transition hover:text-white"
+              className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-ivory)]/60 transition hover:text-[var(--portal-ivory)]"
             >
               Sign out
             </Link>
@@ -82,24 +107,23 @@ export function OperatingShell({
       <div className="sticky top-0 z-20 border-b border-[var(--portal-border)] bg-[var(--portal-bg)]">
         <nav
           aria-label="Operating surface"
-          className="grid grid-cols-4"
+          className="grid grid-cols-5"
         >
-          {OPERATING_SURFACE_ORDER.map((surface) => {
-            const active = surface === activeSurface
-            const definition = OPERATING_SURFACES[surface]
+          {tier1Items.map((item) => {
+            const active = !item.external && item.key === activeSurface
             return (
               <Link
-                key={surface}
-                href={surfaceHome(surface)}
+                key={item.key}
+                href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={[
                   'flex min-h-12 items-center justify-center border-b-2 text-xs font-light uppercase tracking-[0.2em] transition-colors',
                   active
-                    ? 'border-[var(--portal-navy)] text-[var(--portal-navy)]'
+                    ? 'border-[var(--portal-gold)] text-[var(--portal-navy)]'
                     : 'border-transparent text-black/45 hover:text-[var(--portal-navy)]',
                 ].join(' ')}
               >
-                {definition.label}
+                {item.label}
               </Link>
             )
           })}

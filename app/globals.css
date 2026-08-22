@@ -6,6 +6,7 @@
 
 @theme inline {
   --color-brand-navy: var(--brand-navy);
+  --color-brand-gold: var(--brand-gold);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,29 +51,34 @@
 
 :root {
   color-scheme: light;
+  /* Finalized CulebraLuxe brand palette — luxury navy + gold. The public site
+     renders through these semantic tokens (accent/primary/foreground/ring), so
+     both brand colors carry consistently across every public surface. The
+     portal has its own portal-* tokens and is unaffected by these values. */
   --brand-navy: #030f23;
+  --brand-gold: #c6a15b;
   /* warm bone / off-white background */
   --background: oklch(0.966 0.006 85);
-  --foreground: oklch(0.245 0.008 260);
+  --foreground: #030f23;
   --card: oklch(0.982 0.005 85);
   --card-foreground: oklch(0.245 0.008 260);
   --popover: oklch(0.982 0.005 85);
   --popover-foreground: oklch(0.245 0.008 260);
-  /* deep ink primary */
-  --primary: oklch(0.245 0.008 260);
+  /* brand navy primary */
+  --primary: #030f23;
   --primary-foreground: oklch(0.966 0.006 85);
   --secondary: oklch(0.93 0.008 85);
   --secondary-foreground: oklch(0.245 0.008 260);
   --muted: oklch(0.93 0.008 85);
   --muted-foreground: oklch(0.5 0.012 255);
-  /* muted ocean teal accent */
-  --accent: oklch(0.56 0.055 205);
+  /* brand gold accent */
+  --accent: #c6a15b;
   --accent-foreground: oklch(0.98 0.006 85);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.87 0.008 85);
   --input: oklch(0.87 0.008 85);
-  --ring: oklch(0.56 0.055 205);
-  --chart-1: oklch(0.56 0.055 205);
+  --ring: #c6a15b;
+  --chart-1: #c6a15b;
   --chart-2: oklch(0.5 0.012 255);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
@@ -198,18 +204,47 @@
    ============================================================ */
 
 :root {
-  --portal-bg: #f6f7f9;
+  /* Portal theme — shared visual tokens. A change here propagates across the
+     whole portal (pages consume these tokens; no per-page one-off hexes). */
+  --portal-bg: #eef2f6;
   --portal-surface: #ffffff;
-  --portal-sidebar: #eef1f4;
+  --portal-sidebar: #e9edf2;
 
+  /* deep navy structural surfaces */
   --portal-navy: #182b40;
   --portal-navy-soft: #29445f;
+  --portal-navy-deep: #0a0f1a;
+  --portal-navy-deep-2: #0d1424;
 
+  /* cool blue-gray accents / pale fills */
   --portal-blue-gray: #64798d;
   --portal-blue-pale: #e7edf2;
+  --portal-mist: #e8edf2;
+  --portal-mist-2: #dfe8ef;
+  --portal-mist-3: #cbd6df;
+  --portal-mist-4: #b9c9d5;
 
+  /* restrained brand-gold accents */
+  --portal-gold: #c6a15b;
+  --portal-gold-soft: #d8b877;
+  --portal-gold-muted: #8a6d2f;
+  --portal-gold-pale: rgba(198, 161, 91, 0.14);
+
+  /* semantic status tones (cool-leaning, no mustard/tan/beige) */
+  --portal-archive: #8a4b2a;
+  --portal-archive-pale: #f3e3d8;
+  --portal-danger: #b0542f;
+  --portal-success: #40584b;
+  --portal-success-pale: #dfe9e3;
+  --portal-neutral: #5d5870;
+  --portal-neutral-pale: #e5e2ec;
+
+  /* text + light text on navy */
   --portal-text: #20262b;
   --portal-muted: #747b81;
+  --portal-on-navy: #cbd5e1;
+  --portal-ivory: #f8f5ec;
 
-  --portal-border: rgba(24, 43, 64, 0.12);
+  /* strong visible card boundary (not a faint hairline) */
+  --portal-border: #ccd6e0;
 }

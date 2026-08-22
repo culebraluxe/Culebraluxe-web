@@ -149,7 +149,7 @@ export function DocumentList({
                     <td className="px-6 py-4">
                       <Link
                         href={`/portal/documents/${d.id}/download`}
-                        className="text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] underline underline-offset-4 hover:text-[#8a4b2a]"
+                        className="text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] underline underline-offset-4 hover:text-[var(--portal-archive)]"
                       >
                         Download
                       </Link>

@@ -298,7 +298,7 @@ export function Dashboard({
                 className="h-52 w-full object-cover"
               />
             ) : (
-              <div className="h-52 bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#b9c9d5] to-[var(--portal-navy-soft)]" />
+              <div className="h-52 bg-gradient-to-br from-[var(--portal-blue-pale)] via-[var(--portal-mist-4)] to-[var(--portal-navy-soft)]" />
             )}
 
             <div className="p-6">

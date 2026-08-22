@@ -32,7 +32,7 @@ function statusLabel(status: NeedsReviewItem["status"]) {
 function statusClasses(status: NeedsReviewItem["status"]) {
   switch (status) {
     case "resolution_required":
-      return "bg-[#f3e3d8] text-[#8a4b2a]"
+      return "bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]"
     case "processing":
       return "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]"
     default:

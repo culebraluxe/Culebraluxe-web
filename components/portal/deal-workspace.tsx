@@ -315,7 +315,7 @@ export function DealWorkspace({
                   <div className="flex items-start justify-between gap-4">
                     <div className="font-serif text-lg font-light">{task.title}</div>
                     {task.isOverdue && (
-                      <span className="rounded-full bg-[#f3e3d8] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[#8a4b2a]">
+                      <span className="rounded-full bg-[var(--portal-archive-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
                         Overdue
                       </span>
                     )}

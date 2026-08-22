@@ -25,7 +25,7 @@ export function PageHeader({
 }) {
   return (
     <div className="mb-8">
-      <div className="h-px w-9 bg-[var(--portal-blue-gray)]" aria-hidden />
+      <div className="h-px w-9 bg-[var(--portal-gold)]" aria-hidden />
 
       <p className="mt-4 text-xs font-light uppercase tracking-[0.28em] text-black/40">
         {eyebrow}

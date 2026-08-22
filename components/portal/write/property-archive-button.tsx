@@ -71,13 +71,13 @@ export function PropertyArchiveButton({
           type="button"
           onClick={archive}
           disabled={isPending}
-          className="rounded-full border border-[var(--portal-border)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] text-[#8a4b2a] transition hover:border-[#8a4b2a] disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-full border border-[var(--portal-border)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-archive)] transition hover:border-[var(--portal-archive)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isPending ? "Archiving…" : "Archive"}
         </button>
       )}
       {error && (
-        <span className="text-[10px] font-light text-[#8a4b2a]">{error}</span>
+        <span className="text-[10px] font-light text-[var(--portal-archive)]">{error}</span>
       )}
     </span>
   )

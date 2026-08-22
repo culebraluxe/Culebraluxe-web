@@ -17,7 +17,7 @@ function typeBadge(type: string) {
       className={`rounded-sm px-2 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
         internal
           ? "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]"
-          : "bg-[#e5e2ec] text-[#5d5870]"
+          : "bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]"
       }`}
     >
       {type}
@@ -136,9 +136,9 @@ export function SettingsUsers({ users }: { users: SettingsUser[] }) {
                   </td>
                   <td className="px-4 py-4 align-top text-sm font-light">
                     {user.active ? (
-                      <span className="text-[#40584b]">Active</span>
+                      <span className="text-[var(--portal-success)]">Active</span>
                     ) : (
-                      <span className="text-[#8a4b2a]">Inactive</span>
+                      <span className="text-[var(--portal-archive)]">Inactive</span>
                     )}
                   </td>
                   <td className="px-4 py-4 align-top text-sm font-light text-black/60">
@@ -303,7 +303,7 @@ export function SecurityStatusPanel({
         <span
           className={`rounded-sm px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.14em] ${
             status.ownerRoleAssignments === 0
-              ? "bg-[#8a4b2a]/10 text-[#8a4b2a]"
+              ? "bg-[var(--portal-archive)]/10 text-[var(--portal-archive)]"
               : "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]"
           }`}
         >
@@ -364,7 +364,7 @@ export function BreakGlassStatusPanel({
             </div>
             <div
               className={`mt-2 text-sm font-light ${
-                item.ready ? "text-[#40584b]" : "text-[#8a4b2a]"
+                item.ready ? "text-[var(--portal-success)]" : "text-[var(--portal-archive)]"
               }`}
             >
               {item.ready ? "Ready" : "Not configured"}

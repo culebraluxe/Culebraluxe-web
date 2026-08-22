@@ -99,7 +99,7 @@ export function FormsOverview({
             </select>
           </label>
           {error && (
-            <p className="mt-3 text-xs font-light text-[#8a4b2a]">{error}</p>
+            <p className="mt-3 text-xs font-light text-[var(--portal-archive)]">{error}</p>
           )}
           <button
             type="button"
@@ -153,7 +153,7 @@ export function FormsOverview({
                     <td className="px-6 py-4">
                       <Link
                         href={`/portal/forms/${f.id}`}
-                        className="font-light text-[var(--portal-navy)] transition hover:text-[#8a4b2a]"
+                        className="font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-archive)]"
                       >
                         {f.templateId}
                       </Link>

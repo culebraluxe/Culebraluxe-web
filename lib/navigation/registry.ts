@@ -62,7 +62,7 @@ export const OPERATING_SURFACES: Record<
   },
   OPS: {
     surface: 'OPS',
-    label: 'OPS',
+    label: 'OPPS',
     description:
       'Office and business administration — users, property/deal admin, intake resolution, content, data correction and configuration.',
     home: '/portal/needs-review',

@@ -135,9 +135,9 @@ export function MediaAdmin({
                     </td>
                     <td className="px-4 py-4 text-sm font-light">
                       {row.hasHero ? (
-                        <span className="text-[#40584b]">✓</span>
+                        <span className="text-[var(--portal-success)]">✓</span>
                       ) : (
-                        <span className="text-[#8a4b2a]">Missing</span>
+                        <span className="text-[var(--portal-archive)]">Missing</span>
                       )}
                     </td>
                     <td className="px-4 py-4 text-sm font-light">{row.imageCount}</td>

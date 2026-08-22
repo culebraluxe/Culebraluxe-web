@@ -276,7 +276,7 @@ function EnvironmentReadinessPanel({
             className={`rounded-sm px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.14em] ${
               readiness.allProductionRequiredConfigured
                 ? "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]"
-                : "bg-[#8a4b2a]/10 text-[#8a4b2a]"
+                : "bg-[var(--portal-archive)]/10 text-[var(--portal-archive)]"
             }`}
           >
             {readiness.allProductionRequiredConfigured
@@ -296,7 +296,7 @@ function EnvironmentReadinessPanel({
             </div>
             <div
               className={`mt-2 text-sm font-light ${
-                item.ready ? "text-[#40584b]" : "text-[#8a4b2a]"
+                item.ready ? "text-[var(--portal-success)]" : "text-[var(--portal-archive)]"
               }`}
             >
               {item.ready ? "Ready" : "Not configured"}

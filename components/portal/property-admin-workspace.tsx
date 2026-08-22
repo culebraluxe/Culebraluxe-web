@@ -45,10 +45,10 @@ const secondaryButton =
   'inline-flex min-h-11 items-center justify-center rounded-sm border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40'
 
 const ghostButton =
-  'inline-flex min-h-11 items-center justify-center rounded-sm px-3 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[#8a4b2a] disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex min-h-11 items-center justify-center rounded-sm px-3 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[var(--portal-archive)] disabled:cursor-not-allowed disabled:opacity-40'
 
 const dangerButton =
-  'inline-flex min-h-11 items-center justify-center rounded-sm border border-[#b0542f] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[#8a4b2a] transition hover:bg-[#8a4b2a] hover:text-white disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex min-h-11 items-center justify-center rounded-sm border border-[var(--portal-danger)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-archive)] transition hover:bg-[var(--portal-archive)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40'
 
 const fieldInput =
   'mt-1 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]'
@@ -155,7 +155,7 @@ function ActionMessage({ message }: { message: { ok: boolean; text: string } | n
   return (
     <span
       className={`min-h-5 text-xs font-light ${
-        message.ok ? 'text-[#40584b]' : 'text-[#8a4b2a]'
+        message.ok ? 'text-[var(--portal-success)]' : 'text-[var(--portal-archive)]'
       }`}
     >
       {message.text}
@@ -452,7 +452,7 @@ function VisibilityControls({
               <span className="text-sm font-light text-black/60">
                 {statusLabel(property.status)}
               </span>
-              <span className="text-xs font-light text-[#8a4b2a]">
+              <span className="text-xs font-light text-[var(--portal-archive)]">
                 {isCrm14
                   ? 'Transaction status — managed by CRM-14 workflow.'
                   : 'Read-only in listing administration.'}
@@ -896,7 +896,7 @@ function TasksPanel({
                   )}
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-light text-black/45">
                     {task.dueAtLabel ? (
-                      <span className={task.isOverdue ? 'text-[#8a4b2a]' : undefined}>
+                      <span className={task.isOverdue ? 'text-[var(--portal-archive)]' : undefined}>
                         Due {task.dueAtLabel}
                         {task.isOverdue ? ' · overdue' : ''}
                       </span>
@@ -1084,7 +1084,7 @@ function InterestPanel({
               <span
                 className={`rounded-sm px-2 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
                   item.status === 'received' || item.status === 'resolution_required'
-                    ? 'bg-[#8a4b2a]/10 text-[#8a4b2a]'
+                    ? 'bg-[var(--portal-archive)]/10 text-[var(--portal-archive)]'
                     : 'bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]'
                 }`}
               >

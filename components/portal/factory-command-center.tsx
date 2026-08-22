@@ -132,7 +132,7 @@ export function FactoryCommandCenter({
 
   if (!snapshot.ready) {
     return (
-      <div className="min-h-screen bg-[#0a0f1a] text-slate-200">
+      <div className="min-h-screen bg-[var(--portal-navy-deep)] text-slate-200">
         <div className="mx-auto max-w-[1600px] px-5 py-24 text-center">
           <Layers className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
           <h1 className="mt-5 font-serif text-2xl font-light text-white">
@@ -198,9 +198,9 @@ export function FactoryCommandCenter({
   const readyStoryIds = new Set(snapshot.pipeline.readyWork)
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a] text-slate-200">
+    <div className="min-h-screen bg-[var(--portal-navy-deep)] text-slate-200">
       {/* Layer 1 — executive health strip */}
-      <header className="border-b border-white/10 bg-[#0d1424]">
+      <header className="border-b border-white/10 bg-[var(--portal-navy-deep-2)]">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
           <div className="flex items-center gap-3">
             <TerminalSquare className="h-5 w-5 text-[var(--portal-blue-gray)]" />
@@ -268,7 +268,7 @@ export function FactoryCommandCenter({
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           {/* Layer 3 — dependency-aware factory pipeline */}
           <main className="min-w-0">
-            <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+            <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
               <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3">
                 <span className="text-[var(--portal-blue-gray)]">
                   <GitBranch className="h-4 w-4" />
@@ -287,13 +287,13 @@ export function FactoryCommandCenter({
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Story id or title…"
-                      className="w-52 rounded-sm border border-white/10 bg-[#0a0f1a] py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
+                      className="w-52 rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
                     />
                   </div>
                   <select
                     value={workstream}
                     onChange={(e) => setWorkstream(e.target.value as typeof workstream)}
-                    className="rounded-sm border border-white/10 bg-[#0a0f1a] px-2.5 py-1.5 text-xs text-slate-300 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
+                    className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] px-2.5 py-1.5 text-xs text-slate-300 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
                   >
                     {WORKSTREAM_FILTERS.map((w) => (
                       <option key={w} value={w}>
@@ -429,7 +429,7 @@ function ExecutiveRollup({
     {
       label: "Ready",
       value: rollup.totalReady,
-      cls: "text-[#cbd5e1]",
+      cls: "text-[var(--portal-on-navy)]",
       hint: `${snapshot.pipeline.readyWork.length} dependency-ready now`,
     },
     {
@@ -441,7 +441,7 @@ function ExecutiveRollup({
   ]
 
   return (
-    <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
         <Gauge className="h-4 w-4 text-[var(--portal-blue-gray)]" />
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -467,7 +467,7 @@ function ExecutiveRollup({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {kpis.map((kpi) => (
-            <div key={kpi.label} className="rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-2.5">
+            <div key={kpi.label} className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] px-3 py-2.5">
               <div className={`text-2xl font-light tabular-nums ${kpi.cls}`}>{kpi.value}</div>
               <div className="mt-0.5 text-[10px] font-light uppercase tracking-[0.16em] text-slate-500">
                 {kpi.label}
@@ -526,10 +526,10 @@ function PipelineCard({
     <article
       id={`pipeline-card-${node.storyId}`}
       onClick={onOpen}
-      className="group cursor-pointer rounded-sm border border-white/10 bg-[#0a0f1a] p-3.5 transition-colors hover:border-[var(--portal-blue-gray)]/50 hover:bg-[#0d1424]"
+      className="group cursor-pointer rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3.5 transition-colors hover:border-[var(--portal-blue-gray)]/50 hover:bg-[var(--portal-navy-deep-2)]"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs font-medium tracking-wide text-[#cbd5e1]">
+        <span className="font-mono text-xs font-medium tracking-wide text-[var(--portal-on-navy)]">
           {node.storyId}
         </span>
         <div className="flex items-center gap-1.5">
@@ -723,7 +723,7 @@ function FactoryKpisPanel({
   ]
 
   return (
-    <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-3">
         <Gauge className="h-4 w-4 text-[var(--portal-blue-gray)]" />
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -792,7 +792,7 @@ function FactoryKpisPanel({
 
         {/* Decision signals — recommended dispatch + critical pressure */}
         <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-sm border border-[var(--portal-blue-gray)]/25 bg-[#0a0f1a] p-3">
+          <div className="rounded-sm border border-[var(--portal-blue-gray)]/25 bg-[var(--portal-navy-deep)] p-3">
             <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
               <Activity className="h-3 w-3" /> Recommended next dispatch
             </div>
@@ -802,7 +802,7 @@ function FactoryKpisPanel({
                   onClick={() => onOpenStory(rec.storyId)}
                   className="mt-2 flex w-full items-baseline gap-2 text-left"
                 >
-                  <span className="font-mono text-sm font-medium text-[#cbd5e1] hover:underline">
+                  <span className="font-mono text-sm font-medium text-[var(--portal-on-navy)] hover:underline">
                     {rec.storyId}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-xs font-light text-slate-300" title={rec.title}>
@@ -827,7 +827,7 @@ function FactoryKpisPanel({
             )}
           </div>
 
-          <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3">
+          <div className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3">
             <div className="flex items-center gap-2 text-[9px] font-light uppercase tracking-[0.2em] text-slate-500">
               <AlertTriangle className="h-3 w-3 text-slate-400" /> Critical dependency pressure
             </div>
@@ -839,7 +839,7 @@ function FactoryKpisPanel({
                     onClick={() => onOpenStory(p.storyId)}
                     className="flex w-full items-center gap-2 text-left text-[11px] font-light text-slate-300 hover:text-white"
                   >
-                    <span className="font-mono text-[10px] text-[#cbd5e1]">{p.storyId}</span>
+                    <span className="font-mono text-[10px] text-[var(--portal-on-navy)]">{p.storyId}</span>
                     <span className="text-[10px] text-slate-500">
                       blocked by {p.blockedBy.map((b) => `${b.storyId} (${b.status})`).join(", ")}
                     </span>
@@ -869,7 +869,7 @@ function KpiMiniCard({
 }) {
   return (
     <div
-      className="rounded-sm border border-white/10 bg-[#0a0f1a] px-2.5 py-2"
+      className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] px-2.5 py-2"
       title={v.missing ?? `${label}: ${v.value ?? "—"}${unit}`}
     >
       <div className={`text-lg font-light tabular-nums ${v.value === null ? "text-slate-600" : "text-slate-100"}`}>
@@ -907,7 +907,7 @@ function AgentCapacity({
 }) {
   return (
     <>
-      <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+      <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
         <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
           <UserCheck className="h-4 w-4 text-[var(--portal-blue-gray)]" />
           <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -926,7 +926,7 @@ function AgentCapacity({
               </div>
               <button
                 onClick={() => busyWorker.storyId && onOpenStory(busyWorker.storyId)}
-                className="mt-1 block truncate font-mono text-[11px] text-[#cbd5e1] hover:underline"
+                className="mt-1 block truncate font-mono text-[11px] text-[var(--portal-on-navy)] hover:underline"
               >
                 {busyWorker.storyId}
               </button>
@@ -955,7 +955,7 @@ function AgentCapacity({
               </div>
               <button
                 onClick={() => waitingWorker.storyId && onOpenStory(waitingWorker.storyId)}
-                className="mt-1 block truncate font-mono text-[11px] text-[#cbd5e1] hover:underline"
+                className="mt-1 block truncate font-mono text-[11px] text-[var(--portal-on-navy)] hover:underline"
               >
                 {waitingWorker.storyId}
               </button>
@@ -975,7 +975,7 @@ function AgentCapacity({
               </div>
               <button
                 onClick={() => blockedWorker.storyId && onOpenStory(blockedWorker.storyId)}
-                className="mt-1 block truncate font-mono text-[11px] text-[#cbd5e1] hover:underline"
+                className="mt-1 block truncate font-mono text-[11px] text-[var(--portal-on-navy)] hover:underline"
               >
                 {blockedWorker.storyId}
               </button>
@@ -986,7 +986,7 @@ function AgentCapacity({
           )}
 
           {availableWorker && (
-            <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3">
+            <div className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3">
               <div className="flex items-center gap-2 text-[10px] font-light uppercase tracking-[0.16em] text-slate-400">
                 <User className="h-3.5 w-3.5" /> Available · slot free
               </div>
@@ -1002,7 +1002,7 @@ function AgentCapacity({
           )}
 
           {!busyWorker && !waitingWorker && !blockedWorker && !availableWorker && (
-            <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-3 text-[10px] font-light text-slate-600">
+            <div className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3 text-[10px] font-light text-slate-600">
               No worker state to show.
             </div>
           )}
@@ -1010,7 +1010,7 @@ function AgentCapacity({
       </section>
 
       {/* Next eligible */}
-      <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+      <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
         <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
           <Activity className="h-4 w-4 text-[var(--portal-blue-gray)]" />
           <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -1029,7 +1029,7 @@ function AgentCapacity({
                 onClick={() => onOpenStory(s.storyId)}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-white/5"
               >
-                <span className="font-mono text-[10px] text-[#cbd5e1]">{s.storyId}</span>
+                <span className="font-mono text-[10px] text-[var(--portal-on-navy)]">{s.storyId}</span>
                 <span className="min-w-0 flex-1 truncate text-[11px] font-light text-slate-300" title={s.title}>
                   {s.title}
                 </span>
@@ -1044,7 +1044,7 @@ function AgentCapacity({
 
       {/* Human gates */}
       {gatedNodes.length > 0 && (
-        <section className="rounded-sm border border-white/20 bg-[#0d1424]">
+        <section className="rounded-sm border border-white/20 bg-[var(--portal-navy-deep-2)]">
           <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
             <ShieldAlert className="h-4 w-4 text-slate-400" />
             <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -1061,7 +1061,7 @@ function AgentCapacity({
                 onClick={() => onOpenStory(n.storyId)}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-white/5"
               >
-                <span className="font-mono text-[10px] text-[#cbd5e1]">{n.storyId}</span>
+                <span className="font-mono text-[10px] text-[var(--portal-on-navy)]">{n.storyId}</span>
                 <span className="min-w-0 flex-1 truncate text-[11px] font-light text-slate-300" title={n.title}>
                   {n.title}
                 </span>
@@ -1092,7 +1092,7 @@ function workflowOutcomePill(summary: WorkflowSummary): { label: string; cls: st
 
 function WorkflowCockpits({ summaries }: { summaries: WorkflowSummary[] }) {
   return (
-    <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
         <GitBranch className="h-4 w-4 text-[var(--portal-blue-gray)]" />
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">
@@ -1112,7 +1112,7 @@ function WorkflowCockpits({ summaries }: { summaries: WorkflowSummary[] }) {
             <Link
               key={s.instanceId}
               href={`/portal/workflows/${s.instanceId}`}
-              className="group rounded-sm border border-white/10 bg-[#0a0f1a] p-3 transition-colors hover:border-[var(--portal-blue-gray)]/50"
+              className="group rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3 transition-colors hover:border-[var(--portal-blue-gray)]/50"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">

@@ -48,7 +48,7 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <header className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
         <span className="text-[var(--portal-blue-gray)]">{icon}</span>
         <h2 className="text-[11px] font-light uppercase tracking-[0.2em] text-slate-400">{title}</h2>
@@ -60,7 +60,7 @@ function Section({
 
 function MonoSpan({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
-    <span title={title} className="font-mono text-[11px] text-[#cbd5e1]">
+    <span title={title} className="font-mono text-[11px] text-[var(--portal-on-navy)]">
       {children}
     </span>
   )
@@ -83,7 +83,7 @@ function WorkItemGrid({ item }: { item: AgentWorkItem }) {
       <Row label="Execution target">
         <span className="inline-flex items-center gap-1.5">
           <Server className="h-3 w-3 text-slate-500" />
-          <span className="font-mono text-xs text-[#cbd5e1]">{item.executionEnvironment ?? "unset"}</span>
+          <span className="font-mono text-xs text-[var(--portal-on-navy)]">{item.executionEnvironment ?? "unset"}</span>
         </span>
       </Row>
       <Row label="Claimed at">{formatTime(item.claimedAt)}</Row>
@@ -130,7 +130,7 @@ function RunSummary({ run }: { run: StoryRun }) {
       <Row label="Started">{formatTime(run.startedAt)}</Row>
       <Row label="Ended">{formatTime(run.endedAt)}</Row>
       <Row label="Execution target">
-        <span className="font-mono text-xs text-[#cbd5e1]">{run.executionEnvironment ?? "—"}</span>
+        <span className="font-mono text-xs text-[var(--portal-on-navy)]">{run.executionEnvironment ?? "—"}</span>
       </Row>
       <Row label="Tests">{run.testsSummary ?? "—"}</Row>
       <Row label="Commit hash">
@@ -248,8 +248,8 @@ export function StoryExecutionCockpit({ model }: { model: StoryExecutionCockpit 
   const hasAcceptance = Boolean(story.acceptanceCriteria && story.acceptanceCriteria.length > 0)
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a] text-slate-200">
-      <header className="border-b border-white/10 bg-[#0d1424]">
+    <div className="min-h-screen bg-[var(--portal-navy-deep)] text-slate-200">
+      <header className="border-b border-white/10 bg-[var(--portal-navy-deep-2)]">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
           <div className="flex items-center gap-3">
             <Gauge className="h-5 w-5 text-[var(--portal-blue-gray)]" />
@@ -323,7 +323,7 @@ export function StoryExecutionCockpit({ model }: { model: StoryExecutionCockpit 
           {hasAcceptance && (
             <div className="mt-3">
               <p className="text-[10px] font-light uppercase tracking-[0.16em] text-slate-500">Acceptance criteria</p>
-              <p className="mt-1 whitespace-pre-wrap rounded-sm border border-white/10 bg-[#0a0f1a] p-3 text-xs font-light leading-5 text-slate-300">
+              <p className="mt-1 whitespace-pre-wrap rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3 text-xs font-light leading-5 text-slate-300">
                 {story.acceptanceCriteria}
               </p>
             </div>
@@ -388,7 +388,7 @@ export function StoryExecutionCockpit({ model }: { model: StoryExecutionCockpit 
                 <p className="mb-1 text-[10px] font-light uppercase tracking-[0.16em] text-slate-500">
                   Evidence / notes
                 </p>
-                <p className="whitespace-pre-wrap rounded-sm border border-white/10 bg-[#0a0f1a] p-3 text-xs font-light leading-5 text-slate-300">
+                <p className="whitespace-pre-wrap rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3 text-xs font-light leading-5 text-slate-300">
                   {latestRun.notes ?? "—"}
                 </p>
               </div>
@@ -420,7 +420,7 @@ function RunHistoryRow({ run }: { run: StoryRun }) {
   const [open, setOpen] = useState(false)
   const pill = runResultPill(run.resultStatus)
   return (
-    <li className="rounded-sm border border-white/10 bg-[#0a0f1a]">
+    <li className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)]">
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-white/5"
@@ -454,7 +454,7 @@ function RunHistoryRow({ run }: { run: StoryRun }) {
           </dl>
           <div className="mt-3">
             <p className="mb-1 text-[10px] font-light uppercase tracking-[0.16em] text-slate-500">Evidence / notes</p>
-            <p className="whitespace-pre-wrap rounded-sm border border-white/10 bg-[#0a0f1a] p-3 text-xs font-light leading-5 text-slate-300">
+            <p className="whitespace-pre-wrap rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3 text-xs font-light leading-5 text-slate-300">
               {run.notes ?? "—"}
             </p>
           </div>

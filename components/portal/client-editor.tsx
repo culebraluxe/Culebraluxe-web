@@ -392,7 +392,7 @@ export function ClientEditor({
       {message && (
         <p
           className={`mt-6 text-xs font-light ${
-            message.ok ? "text-black/50" : "text-[#8a4b2a]"
+            message.ok ? "text-black/50" : "text-[var(--portal-archive)]"
           }`}
         >
           {message.text}

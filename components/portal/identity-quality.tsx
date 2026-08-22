@@ -136,7 +136,7 @@ export function IdentityQuality({
                   <div className="mt-1 text-xs font-light text-black/45">
                     {item.identityType}: {item.value}
                   </div>
-                  <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[#8a4b2a]">
+                  <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
                     {item.issue}
                   </div>
                 </div>

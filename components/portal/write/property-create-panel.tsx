@@ -236,7 +236,7 @@ export function PropertyCreatePanel() {
             {message ? (
               <span
                 className={`min-h-5 text-xs font-light ${
-                  message.ok ? "text-[#40584b]" : "text-[#8a4b2a]"
+                  message.ok ? "text-[var(--portal-success)]" : "text-[var(--portal-archive)]"
                 }`}
               >
                 {message.text}

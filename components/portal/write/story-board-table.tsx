@@ -51,7 +51,7 @@ const secondaryButton =
   'inline-flex min-h-11 items-center justify-center rounded-sm border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40'
 
 const ghostButton =
-  'inline-flex items-center rounded-sm px-2 py-1 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[#8a4b2a] disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex items-center rounded-sm px-2 py-1 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[var(--portal-archive)] disabled:cursor-not-allowed disabled:opacity-40'
 
 const fieldLabel =
   'text-[10px] font-light uppercase tracking-[0.18em] text-black/40'
@@ -423,7 +423,7 @@ function StoryForm({
           Cancel
         </button>
         {localError && (
-          <span className="text-xs font-light text-[#8a4b2a]">
+          <span className="text-xs font-light text-[var(--portal-archive)]">
             {localError}
           </span>
         )}
@@ -456,7 +456,7 @@ function StoryRow({
         <td className="px-6 py-4 align-top font-mono text-xs text-[var(--portal-navy)]">
           <Link
             href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
-            className="transition hover:text-[#8a4b2a]"
+            className="transition hover:text-[var(--portal-archive)]"
           >
             {story.id}
           </Link>
@@ -660,7 +660,7 @@ export function StoryBoardTable({
             {message && (
               <span
                 className={`max-w-xs text-xs font-light ${
-                  message.ok ? 'text-black/50' : 'text-[#8a4b2a]'
+                  message.ok ? 'text-black/50' : 'text-[var(--portal-archive)]'
                 }`}
               >
                 {message.text}

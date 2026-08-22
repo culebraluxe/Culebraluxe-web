@@ -113,7 +113,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
   }
   assert.deepEqual(
     OPERATING_SURFACE_ORDER.map((s) => OPERATING_SURFACES[s].label),
-    ['NEXUS', 'OPS', 'SUPPORT', 'TECH'],
+    ['NEXUS', 'OPPS', 'SUPPORT', 'TECH'],
   )
   for (const surface of OPERATING_SURFACE_ORDER) {
     const labels = navigationForSurface(surface).map((item) => item.label)

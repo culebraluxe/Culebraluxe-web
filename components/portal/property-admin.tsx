@@ -178,9 +178,9 @@ export function PropertyAdmin({
                     </td>
                     <td className="px-4 py-4 align-top text-sm font-light">
                       {row.heroMediaId ? (
-                        <span className="text-[#40584b]">✓</span>
+                        <span className="text-[var(--portal-success)]">✓</span>
                       ) : (
-                        <span className="text-[#8a4b2a]">Missing</span>
+                        <span className="text-[var(--portal-archive)]">Missing</span>
                       )}
                     </td>
                     <td className="px-4 py-4 align-top text-sm font-light">
@@ -188,10 +188,10 @@ export function PropertyAdmin({
                     </td>
                     <td className="px-4 py-4 align-top text-sm font-light">
                       {row.issueCount === 0 ? (
-                        <span className="text-[#40584b]">✓ Complete</span>
+                        <span className="text-[var(--portal-success)]">✓ Complete</span>
                       ) : (
                         <div>
-                          <span className="font-light text-[#8a4b2a]">
+                          <span className="font-light text-[var(--portal-archive)]">
                             {row.issueCount} issue{row.issueCount === 1 ? "" : "s"}
                           </span>
                           <div className="mt-1 max-w-[220px] text-[11px] leading-4 text-black/45">

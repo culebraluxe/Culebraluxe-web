@@ -34,11 +34,11 @@ function statusLabel(status: ClientStatus) {
 function statusClasses(status: ClientStatus) {
   switch (status) {
     case "active":
-      return "bg-[#dfe9e3] text-[#40584b]"
+      return "bg-[var(--portal-success-pale)] text-[var(--portal-success)]"
     case "warm":
       return "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]"
     case "referral":
-      return "bg-[#e5e2ec] text-[#5d5870]"
+      return "bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]"
     default:
       return "bg-black/5 text-black/50"
   }
@@ -209,7 +209,7 @@ export function ClientManager({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search clients..."
-              className="w-full rounded-sm border border-black/10 bg-[#faf9f6] px-4 py-3 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+              className="w-full rounded-sm border border-black/10 bg-[var(--portal-surface)] px-4 py-3 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
             />
 
             <div className="mt-4 flex items-center justify-between">
@@ -236,7 +236,7 @@ export function ClientManager({
                     "w-full border-b border-black/5 px-5 py-5 text-left transition",
                     selected
                       ? "bg-[var(--portal-blue-pale)]"
-                      : "bg-white hover:bg-[#faf8f4]",
+                      : "bg-white hover:bg-[var(--portal-surface)]",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
@@ -397,7 +397,7 @@ export function ClientManager({
                           className="h-20 w-full shrink-0 rounded-sm object-cover md:w-28"
                         />
                       ) : (
-                        <div className="h-20 w-full shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[#cbd6df] to-[var(--portal-blue-gray)] md:w-28" />
+                        <div className="h-20 w-full shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[var(--portal-mist-3)] to-[var(--portal-blue-gray)] md:w-28" />
                       )}
 
                       <div className="min-w-0 flex-1">

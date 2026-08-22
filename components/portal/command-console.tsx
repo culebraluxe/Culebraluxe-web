@@ -84,7 +84,7 @@ export function CommandConsole({ snapshot }: { snapshot: ConsoleSnapshot }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a] text-slate-200">
+    <div className="min-h-screen bg-[var(--portal-navy-deep)] text-slate-200">
       <HealthStrip snapshot={snapshot} />
 
       {notice && (
@@ -157,7 +157,7 @@ function HealthStrip({ snapshot }: { snapshot: ConsoleSnapshot }) {
   }[snapshot.workerState]
 
   return (
-    <header className="border-b border-white/10 bg-[#0d1424]">
+    <header className="border-b border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
         <div className="flex items-center gap-3">
           <TerminalSquare className="h-5 w-5 text-[var(--portal-blue-gray)]" />
@@ -230,7 +230,7 @@ function StorySelector({
   }, [stories, query, filter])
 
   return (
-    <section className="flex h-full flex-col overflow-hidden rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="flex h-full flex-col overflow-hidden rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2 text-[11px] font-light uppercase tracking-[0.2em] text-slate-500">
           <Search className="h-3.5 w-3.5" />
@@ -240,7 +240,7 @@ function StorySelector({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by story ID or title…"
-          className="mt-2 w-full rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
+          className="mt-2 w-full rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
         />
         <div className="mt-3 flex flex-wrap gap-1.5">
           {(["All", "Ready", "Planned", "Active", "Complete"] as const).map((f) => (
@@ -249,7 +249,7 @@ function StorySelector({
               onClick={() => setFilter(f)}
               className={`rounded-full border px-2.5 py-1 text-[11px] font-light transition-colors ${
                 filter === f
-                  ? "border-[var(--portal-blue-gray)]/70 bg-[var(--portal-blue-gray)]/15 text-[#cbd5e1]"
+                  ? "border-[var(--portal-blue-gray)]/70 bg-[var(--portal-blue-gray)]/15 text-[var(--portal-on-navy)]"
                   : "border-white/10 text-slate-500 hover:border-white/25 hover:text-slate-300"
               }`}
             >
@@ -280,7 +280,7 @@ function StorySelector({
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-medium tracking-wide text-[#cbd5e1]">
+                <span className="font-mono text-xs font-medium tracking-wide text-[var(--portal-on-navy)]">
                   {s.id}
                 </span>
                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-light ${pill.cls}`}>
@@ -308,7 +308,7 @@ function StorySelector({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="flex h-full min-h-[40vh] items-center justify-center rounded-sm border border-white/10 bg-[#0d1424]">
+    <div className="flex h-full min-h-[40vh] items-center justify-center rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="max-w-sm text-center">
         <TerminalSquare className="mx-auto h-8 w-8 text-slate-600" />
         <p className="mt-4 text-sm font-light text-slate-500">{text}</p>
@@ -364,13 +364,13 @@ function StoryWorkspace({
   }
 
   return (
-    <section className="flex h-full flex-col rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="flex h-full flex-col rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       {/* Header */}
       <div className="border-b border-white/10 px-5 py-4">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <span className="font-mono text-sm font-medium tracking-wide text-[#cbd5e1]">
+              <span className="font-mono text-sm font-medium tracking-wide text-[var(--portal-on-navy)]">
                 {story.id}
               </span>
               <span className={`rounded-full border px-2 py-0.5 text-[10px] font-light ${storyPill.cls}`}>
@@ -392,7 +392,7 @@ function StoryWorkspace({
             </div>
             <Link
               href={`/portal/command-console/${encodeURIComponent(story.id)}`}
-              className="mt-2 inline-block rounded-sm border border-[var(--portal-blue-gray)]/40 px-3 py-1.5 text-[11px] font-light text-[#cbd5e1] transition hover:border-[var(--portal-blue-gray)] hover:bg-[var(--portal-blue-gray)]/10"
+              className="mt-2 inline-block rounded-sm border border-[var(--portal-blue-gray)]/40 px-3 py-1.5 text-[11px] font-light text-[var(--portal-on-navy)] transition hover:border-[var(--portal-blue-gray)] hover:bg-[var(--portal-blue-gray)]/10"
             >
               Open Cockpit ↗
             </Link>
@@ -452,7 +452,7 @@ function StoryWorkspace({
         </div>
 
         {/* Command configuration */}
-        <div className="mt-5 rounded-sm border border-white/10 bg-[#0a0f1a] p-4">
+        <div className="mt-5 rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-4">
           <div className="flex items-center gap-2 text-[11px] font-light uppercase tracking-[0.2em] text-slate-500">
             <TerminalSquare className="h-3.5 w-3.5" />
             Queue command
@@ -541,7 +541,7 @@ function StoryWorkspace({
                 busy
                   ? "cursor-wait bg-slate-700 text-slate-300"
                   : isReady
-                    ? "bg-[var(--portal-blue-gray)] text-[#0a0f1a] hover:bg-[#d8b877]"
+                    ? "bg-[var(--portal-blue-gray)] text-[var(--portal-navy-deep)] hover:bg-[var(--portal-gold-soft)]"
                     : "cursor-not-allowed bg-white/5 text-slate-600"
               }`}
             >
@@ -561,7 +561,7 @@ function StoryWorkspace({
 }
 
 const inputCls =
-  "w-full rounded-sm border border-white/10 bg-[#0a0f1a] px-3 py-1.5 text-sm text-slate-200 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
+  "w-full rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] px-3 py-1.5 text-sm text-slate-200 focus:border-[var(--portal-blue-gray)]/60 focus:outline-none"
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -574,7 +574,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function ContextCard({ label, body }: { label: string; body: string }) {
   return (
-    <div className="rounded-sm border border-white/10 bg-[#0a0f1a] p-4">
+    <div className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-4">
       <div className="text-[10px] font-light uppercase tracking-[0.2em] text-slate-500">{label}</div>
       <p className="mt-1.5 text-sm font-light leading-5 text-slate-300">{body}</p>
     </div>
@@ -595,7 +595,7 @@ function ExecutionPanel({
 
   if (!activeCommand) {
     return (
-      <section className="flex h-full flex-col rounded-sm border border-white/10 bg-[#0d1424]">
+      <section className="flex h-full flex-col rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
         <div className="border-b border-white/10 px-4 py-3">
           <div className="flex items-center gap-2 text-[11px] font-light uppercase tracking-[0.2em] text-slate-500">
             <Activity className="h-3.5 w-3.5" />
@@ -638,7 +638,7 @@ function ExecutionPanel({
   }
 
   return (
-    <section className="flex h-full flex-col rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="flex h-full flex-col rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[11px] font-light uppercase tracking-[0.2em] text-slate-500">
@@ -656,7 +656,7 @@ function ExecutionPanel({
           <Row label="Story">
             <Link
               href={`/portal/command-console/${encodeURIComponent(activeCommand.storyId)}`}
-              className="inline-block rounded-sm border border-[var(--portal-blue-gray)]/40 px-2 py-1 font-mono text-xs text-[#cbd5e1] transition hover:border-[var(--portal-blue-gray)] hover:bg-[var(--portal-blue-gray)]/10"
+              className="inline-block rounded-sm border border-[var(--portal-blue-gray)]/40 px-2 py-1 font-mono text-xs text-[var(--portal-on-navy)] transition hover:border-[var(--portal-blue-gray)] hover:bg-[var(--portal-blue-gray)]/10"
               title="Open Story Execution Cockpit"
             >
               {activeCommand.storyId} ↗
@@ -741,7 +741,7 @@ function ExecutionLog({
   commandsForStory: Array<import("@/db/agent-work").AgentWorkItem>
 }) {
   return (
-    <section className="rounded-sm border border-white/10 bg-[#0d1424]">
+    <section className="rounded-sm border border-white/10 bg-[var(--portal-navy-deep-2)]">
       <div className="flex items-center gap-1 border-b border-white/10 px-4">
         {(
           [
@@ -850,7 +850,7 @@ function EvidenceView({ story }: { story: ConsoleStory }) {
       <Row label="Commit">{run.commitHash ? shortId(run.commitHash) : "—"}</Row>
       <div className="sm:col-span-2">
         <dt className="mb-1 text-[11px] font-light uppercase tracking-[0.14em] text-slate-500">Notes</dt>
-        <dd className="whitespace-pre-wrap rounded-sm border border-white/10 bg-[#0a0f1a] p-3 text-xs font-light leading-5 text-slate-300">
+        <dd className="whitespace-pre-wrap rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] p-3 text-xs font-light leading-5 text-slate-300">
           {run.notes ?? "—"}
         </dd>
       </div>
@@ -870,7 +870,7 @@ function RunHistory({ story }: { story: ConsoleStory }) {
   }
   return (
     <ul className="space-y-2">
-      <li className="flex items-center justify-between gap-4 rounded-sm border border-white/10 bg-[#0a0f1a] px-4 py-3 text-sm font-light">
+      <li className="flex items-center justify-between gap-4 rounded-sm border border-white/10 bg-[var(--portal-navy-deep)] px-4 py-3 text-sm font-light">
         <span className="flex items-center gap-2">
           <span
             className={`rounded-full border px-2 py-0.5 text-[10px] font-light ${statePill(runResultPill(story.latestRun.resultStatus)).cls}`}
