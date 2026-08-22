@@ -46,12 +46,46 @@ export function isFakeProviderStatus(value: string): value is FakeProviderStatus
   return (FAKE_PROVIDER_STATUSES as readonly string[]).includes(value)
 }
 
+// ---------------------------------------------------------------------------
+// DOC-04 — BoldSign vocabulary (BoldSign DocumentStatus enum, per
+// developers.boldsign.com): InProgress / Completed / Declined / Expired /
+// Revoked / Draft / Scheduled. Everything BoldSign-specific maps onto the
+// neutral model HERE at the boundary; BoldSign strings never cross the seam.
+// ---------------------------------------------------------------------------
+
+export const BOLD_SIGN_PROVIDER = 'bold-sign'
+
+export const BOLD_SIGN_DOCUMENT_STATUSES = [
+  'InProgress',
+  'Completed',
+  'Declined',
+  'Expired',
+  'Revoked',
+  'Draft',
+  'Scheduled',
+] as const
+
+export type BoldSignDocumentStatus = (typeof BOLD_SIGN_DOCUMENT_STATUSES)[number]
+
+const BOLD_SIGN_STATUS_TO_NEUTRAL: Record<BoldSignDocumentStatus, SignatureRequestStatus> = {
+  InProgress: 'sent',
+  Completed: 'completed',
+  Declined: 'declined',
+  Expired: 'expired',
+  Revoked: 'voided',
+  // Pre-send states: created/scheduled but not yet out for signature.
+  Draft: 'requested',
+  Scheduled: 'requested',
+}
+
+export function isBoldSignDocumentStatus(value: string): value is BoldSignDocumentStatus {
+  return (BOLD_SIGN_DOCUMENT_STATUSES as readonly string[]).includes(value)
+}
+
 /**
  * Map a raw provider status onto the neutral model. The provider's name picks
  * its vocabulary; an unknown status (or unknown provider) fails closed to
  * 'error' so it is never cast to a false success.
- *
- * DOC-04 adds a BoldSign branch here behind the same function.
  */
 export function mapProviderStatus(
   providerName: string,
@@ -59,6 +93,9 @@ export function mapProviderStatus(
 ): SignatureRequestStatus {
   if (providerName === FAKE_SIGNATURE_PROVIDER && isFakeProviderStatus(providerStatus)) {
     return FAKE_STATUS_TO_NEUTRAL[providerStatus]
+  }
+  if (providerName === BOLD_SIGN_PROVIDER && isBoldSignDocumentStatus(providerStatus)) {
+    return BOLD_SIGN_STATUS_TO_NEUTRAL[providerStatus]
   }
   return 'error'
 }
