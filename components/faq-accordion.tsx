@@ -12,13 +12,17 @@ export function FaqAccordion({ items }: { items: QA[] }) {
     <ul className="mx-auto max-w-3xl">
       {items.map((item, i) => {
         const isOpen = open === i
+        const buttonId = `faq-question-${i}`
+        const panelId = `faq-answer-${i}`
         return (
           <Reveal key={item.q} delay={i * 60}>
             <li className="border-b border-border">
               <button
+                id={buttonId}
                 type="button"
                 onClick={() => setOpen(isOpen ? null : i)}
                 aria-expanded={isOpen}
+                aria-controls={panelId}
                 className="flex w-full items-start justify-between gap-8 py-7 text-left"
               >
                 <span className="font-serif text-lg font-light leading-snug text-foreground md:text-xl">
@@ -37,6 +41,9 @@ export function FaqAccordion({ items }: { items: QA[] }) {
                 </span>
               </button>
               <div
+                id={panelId}
+                role="region"
+                aria-labelledby={buttonId}
                 className={`grid transition-all duration-400 ease-out ${
                   isOpen ? 'grid-rows-[1fr] pb-7 opacity-100' : 'grid-rows-[0fr] opacity-0'
                 }`}

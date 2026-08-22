@@ -139,7 +139,7 @@ export function CompareBar({ properties }: CompareBarProps) {
                       type="button"
                       onClick={() => removeCompare(property.id)}
                       aria-label={`Remove ${property.name} from compare`}
-                      className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background"
+                      className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>

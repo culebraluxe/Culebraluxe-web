@@ -27,7 +27,7 @@ export function PropertyDocuments({
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-5">
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+        <p className="text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
           Property Documents
         </p>
       </div>
@@ -43,7 +43,7 @@ export function PropertyDocuments({
               className="flex flex-col gap-4 border border-brand-navy/30 bg-card/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
             >
               <div className="flex min-w-0 items-center gap-3.5">
-                <span className="flex h-10 w-10 flex-none items-center justify-center border border-[#c6a15b]/55 bg-[#c6a15b]/10 text-[#c6a15b]">
+                <span className="flex h-10 w-10 flex-none items-center justify-center border border-brand-gold/55 bg-brand-gold/10 text-brand-gold">
                   <FileText className="h-5 w-5" aria-hidden />
                 </span>
 
@@ -65,7 +65,7 @@ export function PropertyDocuments({
                   href={route}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-11 items-center justify-center gap-2 border border-brand-navy/35 px-4 text-xs font-semibold uppercase tracking-[0.1em] text-brand-navy transition-colors hover:bg-brand-navy/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 border border-brand-navy/35 px-4 text-xs font-semibold uppercase tracking-[0.1em] text-brand-navy transition-colors hover:bg-brand-navy/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
                   aria-label={`View ${document.title}`}
                 >
                   View
@@ -74,7 +74,7 @@ export function PropertyDocuments({
 
                 <a
                   href={`${route}?download=1`}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 bg-brand-navy px-4 text-xs font-semibold uppercase tracking-[0.1em] text-[#f8f5ec] transition-colors hover:bg-brand-navy/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 bg-brand-navy px-4 text-xs font-semibold uppercase tracking-[0.1em] text-brand-ivory transition-colors hover:bg-brand-navy/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
                   aria-label={`Download ${document.title}`}
                 >
                   Download

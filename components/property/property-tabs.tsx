@@ -248,10 +248,10 @@ export function PropertyTabs({
             onClick={() => setActive(tab)}
             aria-current={active === tab ? 'page' : undefined}
             className={cn(
-              'relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-[#c6a15b] px-6 font-serif text-sm tracking-[0.04em] transition-colors duration-300 sm:min-w-[132px] sm:px-8 sm:text-[15px]',
+              'relative flex min-h-12 min-w-[116px] flex-none self-stretch items-center justify-center border-r border-brand-gold px-6 font-serif text-sm tracking-[0.04em] transition-colors duration-300 sm:min-w-[132px] sm:px-8 sm:text-[15px]',
               active === tab
-                ? 'bg-brand-navy font-semibold text-[#c6a15b]'
-                : 'bg-brand-navy font-medium text-[#f8f5ec]/85 hover:text-[#f8f5ec]',
+                ? 'bg-brand-navy font-semibold text-brand-gold'
+                : 'bg-brand-navy font-medium text-brand-ivory/85 hover:text-brand-ivory',
             )}
           >
             {tab}
@@ -259,7 +259,7 @@ export function PropertyTabs({
             <span
               className={cn(
                 'absolute inset-x-0 bottom-0 h-0.5 transition-colors duration-300',
-                active === tab ? 'bg-[#c6a15b]' : 'bg-transparent',
+                active === tab ? 'bg-brand-gold' : 'bg-transparent',
               )}
             />
           </button>
@@ -277,7 +277,7 @@ export function PropertyTabs({
             )}
           >
             <div className="min-w-0">
-              <p className="mb-4 text-xs font-medium uppercase tracking-[0.34em] text-[#c6a15b]">
+              <p className="mb-4 text-xs font-medium uppercase tracking-[0.34em] text-brand-gold">
                 The Property
               </p>
 
@@ -297,7 +297,7 @@ export function PropertyTabs({
 
               {hasLeftHighlights && (
                 <div className="mt-7 border-t border-brand-navy/20 pt-6">
-                  <p className="mb-5 text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+                  <p className="mb-5 text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
                     Property Highlights
                   </p>
 
@@ -306,7 +306,7 @@ export function PropertyTabs({
                       <section className="min-w-0">
                         <div className="mb-3 flex items-center gap-2.5">
                           <Sparkles
-                            className="h-4 w-4 flex-none text-[#c6a15b]"
+                            className="h-4 w-4 flex-none text-brand-gold"
                             aria-hidden
                           />
 
@@ -320,7 +320,7 @@ export function PropertyTabs({
                             {compactAmenities.map((item) => (
                               <li
                                 key={item}
-                                className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-[#c6a15b]/70"
+                                className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-brand-gold/70"
                               >
                                 {item}
                               </li>
@@ -332,7 +332,7 @@ export function PropertyTabs({
                           <p
                             key={note}
                             className={cn(
-                              'border-l border-[#c6a15b]/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82',
+                              'border-l border-brand-gold/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82',
                               compactAmenities.length > 0 && 'mt-4',
                             )}
                           >
@@ -346,7 +346,7 @@ export function PropertyTabs({
                       <section className="min-w-0">
                         <div className="mb-3 flex items-center gap-2.5">
                           <Landmark
-                            className="h-4 w-4 flex-none text-[#c6a15b]"
+                            className="h-4 w-4 flex-none text-brand-gold"
                             aria-hidden
                           />
 
@@ -355,7 +355,7 @@ export function PropertyTabs({
                           </h3>
                         </div>
 
-                        <p className="border-l border-[#c6a15b]/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82">
+                        <p className="border-l border-brand-gold/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82">
                           {property.architecture}
                         </p>
                       </section>
@@ -389,7 +389,7 @@ export function PropertyTabs({
                   (overviewFacts.length === 1 &&
                     overviewFacts[0].label !== 'Neighborhood')) && (
                   <section className="border-t border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
-                    <p className="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+                    <p className="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
                       Key Facts
                     </p>
 
@@ -411,7 +411,7 @@ export function PropertyTabs({
 
                 {listingFacts.length > 0 && (
                   <section className="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
-                    <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-[#c6a15b]">
+                    <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-brand-gold">
                       Listing Information
                     </p>
 
@@ -438,7 +438,7 @@ export function PropertyTabs({
                   <section className="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
                     <div className="mb-3 flex items-center gap-2.5">
                       <Eye
-                        className="h-4 w-4 flex-none text-[#c6a15b]"
+                        className="h-4 w-4 flex-none text-brand-gold"
                         aria-hidden
                       />
 
@@ -451,7 +451,7 @@ export function PropertyTabs({
                       {views.map((view) => (
                         <li
                           key={view}
-                          className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-[#c6a15b]/70"
+                          className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-brand-gold/70"
                         >
                           {view}
                         </li>
@@ -464,7 +464,7 @@ export function PropertyTabs({
                   <section className="border-t border-brand-navy/40 bg-card/50 px-5 py-5 ring-1 ring-inset ring-brand-navy/20 sm:px-6">
                     <div className="mb-3 flex items-center gap-2.5">
                       <Compass
-                        className="h-4 w-4 flex-none text-[#c6a15b]"
+                        className="h-4 w-4 flex-none text-brand-gold"
                         aria-hidden
                       />
 
@@ -478,7 +478,7 @@ export function PropertyTabs({
                         {compactLifestyleTags.map((tag) => (
                           <li
                             key={tag}
-                            className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-[#c6a15b]/70"
+                            className="relative text-sm font-normal leading-snug text-brand-navy/90 before:absolute before:-left-4 before:top-[0.55em] before:h-px before:w-1.5 before:bg-brand-gold/70"
                           >
                             {tag}
                           </li>
@@ -490,7 +490,7 @@ export function PropertyTabs({
                       <p
                         key={note}
                         className={cn(
-                          'border-l border-[#c6a15b]/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82',
+                          'border-l border-brand-gold/50 pl-4 text-sm font-normal leading-relaxed text-brand-navy/82',
                           compactLifestyleTags.length > 0 && 'mt-4',
                         )}
                       >

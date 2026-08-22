@@ -47,7 +47,7 @@ export function FavoritesLink({ className, onNavigate }: FavoritesLinkProps) {
       {count > 0 && (
         <span
           aria-hidden
-          className="text-[#c6a15b]"
+          className="text-brand-gold"
         >
           {count}
         </span>

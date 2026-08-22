@@ -7,6 +7,7 @@
 @theme inline {
   --color-brand-navy: var(--brand-navy);
   --color-brand-gold: var(--brand-gold);
+  --color-brand-ivory: var(--brand-ivory);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -57,6 +58,8 @@
      portal has its own portal-* tokens and is unaffected by these values. */
   --brand-navy: #030f23;
   --brand-gold: #c6a15b;
+  /* light ivory used for text on the brand-navy surfaces */
+  --brand-ivory: #f8f5ec;
   /* warm bone / off-white background */
   --background: oklch(0.966 0.006 85);
   --foreground: #030f23;

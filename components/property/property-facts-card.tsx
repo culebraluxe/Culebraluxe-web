@@ -152,7 +152,7 @@ export function PropertyFactsCard({
               key={fact.label}
               className="flex min-h-12 items-center gap-2 border border-brand-navy/35 bg-brand-navy/[0.04] px-2 py-1.5"
             >
-              <span className="flex h-6 w-6 flex-none items-center justify-center border border-[#c6a15b]/35 bg-[#c6a15b]/[0.09] text-[#c6a15b]">
+              <span className="flex h-6 w-6 flex-none items-center justify-center border border-brand-gold/35 bg-brand-gold/[0.09] text-brand-gold">
                 <fact.icon
                   className="h-3.5 w-3.5"
                   aria-hidden

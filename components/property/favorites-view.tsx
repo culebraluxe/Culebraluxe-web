@@ -134,7 +134,7 @@ export function FavoritesView({ properties }: FavoritesViewProps) {
                       type="button"
                       onClick={() => removeFavorite(property.id)}
                       aria-label={`Remove ${property.name} from saved`}
-                      className="absolute right-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background"
+                      className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background"
                     >
                       <Heart className="h-4 w-4 fill-accent text-accent" />
                     </button>

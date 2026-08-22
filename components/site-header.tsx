@@ -44,7 +44,7 @@ export function SiteHeader() {
             /* Previous text logo retained for easy rollback. */
             <a
               href="/"
-              className="font-serif text-xl font-medium uppercase tracking-[0.35em] text-[#f8f5ec] transition-colors duration-500 hover:text-[#d8c39a]"
+              className="font-serif text-xl font-medium uppercase tracking-[0.35em] text-brand-ivory transition-colors duration-500 hover:text-[#d8c39a]"
             >
               CulebraLuxe
             </a>
@@ -58,21 +58,22 @@ export function SiteHeader() {
               <a
                 key={link.href}
                 href={link.href}
-                className="group relative flex h-12 items-center px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none lg:px-2"
+                className="group relative flex h-12 items-center px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-ivory/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2"
               >
                 {link.label}
                 <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-brand-gold transition-all duration-500 ease-out group-hover:w-full" />
               </a>
             ))}
-            <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none lg:px-2" />
+            <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-ivory/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2" />
           </nav>
 
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex flex-col items-end gap-1.5 text-[#f8f5ec] md:hidden"
+            className="flex flex-col items-end gap-1.5 text-brand-ivory md:hidden"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
+            aria-controls="site-mobile-menu"
           >
             <span
               className={cn(
@@ -97,9 +98,12 @@ export function SiteHeader() {
 
         {/* Mobile menu */}
         <div
+          id="site-mobile-menu"
           className={cn(
-            "overflow-hidden bg-brand-navy backdrop-blur-md transition-all duration-500 ease-out md:hidden",
-            menuOpen ? "max-h-96 border-t border-brand-gold/25" : "max-h-0",
+            "max-h-0 overflow-hidden bg-brand-navy backdrop-blur-md transition-all duration-500 ease-out md:hidden",
+            menuOpen
+              ? "max-h-[75svh] overflow-y-auto border-t border-brand-gold/25"
+              : "",
           )}
         >
           <nav className="flex flex-col px-6 py-4" aria-label="Mobile">
@@ -108,14 +112,14 @@ export function SiteHeader() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMenuOpen(false)}
-                className="border-b border-[#f8f5ec]/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-[#f8f5ec]/80 transition-colors hover:text-[#d8c39a] last:border-0"
+                className="border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/80 transition-colors hover:text-[#d8c39a] last:border-0"
               >
                 {link.label}
               </a>
             ))}
             <FavoritesLink
               onNavigate={() => setMenuOpen(false)}
-              className="flex items-center gap-2 border-b border-[#f8f5ec]/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-[#f8f5ec]/80 transition-colors hover:text-[#d8c39a] last:border-0"
+              className="flex items-center gap-2 border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/80 transition-colors hover:text-[#d8c39a] last:border-0"
             />
           </nav>
         </div>

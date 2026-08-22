@@ -60,7 +60,7 @@ export function PropertyLocation({
 
       {hasLocationContext && (
         <aside className="border border-brand-navy/40 bg-brand-navy/[0.05] px-5 py-5 sm:px-6 sm:py-6">
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
             Location
           </p>
 

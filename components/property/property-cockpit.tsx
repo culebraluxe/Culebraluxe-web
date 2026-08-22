@@ -38,7 +38,7 @@ export function PropertyCockpit({
           <div className="mb-2 flex items-center gap-2">
             {locationLine && (
               <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-brand-navy/65">
-                <MapPin className="h-3.5 w-3.5 text-[#c6a15b]" aria-hidden />
+                <MapPin className="h-3.5 w-3.5 text-brand-gold" aria-hidden />
                 {locationLine}
               </p>
             )}
@@ -61,7 +61,7 @@ export function PropertyCockpit({
               )}
 
               {property.standardStatus && (
-                <span className="border-l border-[#c6a15b]/40 pl-3 text-[#c6a15b]">
+                <span className="border-l border-brand-gold/40 pl-3 text-brand-gold">
                   {property.standardStatus}
                 </span>
               )}

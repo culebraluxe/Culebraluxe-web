@@ -20,7 +20,7 @@ export function PropertyVideos({ videos }: { videos: PropertyVideo[] }) {
     <div className="flex flex-col gap-16">
       {films.length > 0 && (
         <section className="mx-auto w-full max-w-[860px]">
-          <p className="mb-6 text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+          <p className="mb-6 text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
             Property Film
           </p>
 
@@ -63,7 +63,7 @@ export function PropertyVideos({ videos }: { videos: PropertyVideo[] }) {
 
       {shorts.length > 0 && (
         <section>
-          <p className="mx-auto mb-6 w-full max-w-[1188px] text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+          <p className="mx-auto mb-6 w-full max-w-[1188px] text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
             Short Films
           </p>
 

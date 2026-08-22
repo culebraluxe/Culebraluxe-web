@@ -51,7 +51,7 @@ export function SaveProperty({
         aria-pressed={mounted ? saved : undefined}
         aria-label={label}
         className={cn(
-          'flex h-9 w-9 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background',
+          'flex h-10 w-10 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background',
           className,
         )}
       >

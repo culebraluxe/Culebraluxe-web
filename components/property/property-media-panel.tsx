@@ -170,7 +170,7 @@ export function PropertyMediaPanel({
 
   return (
     <div
-      className="absolute inset-0 flex flex-col gap-1 bg-brand-navy/[0.08] p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#c6a15b]/70"
+      className="absolute inset-0 flex flex-col gap-1 bg-brand-navy/[0.08] p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-gold/70"
       tabIndex={0}
       role="group"
       aria-label="Property photo gallery"
@@ -233,7 +233,7 @@ export function PropertyMediaPanel({
           <button
             type="button"
             onClick={() => setActiveIndex(0)}
-            className="absolute right-3 top-3 z-10 border border-[#c6a15b]/45 bg-brand-navy/90 px-3 py-1.5 text-[9px] font-medium uppercase tracking-[0.16em] text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]/60"
+            className="absolute right-3 top-3 z-10 border border-brand-gold/45 bg-brand-navy/90 px-3 py-1.5 text-[9px] font-medium uppercase tracking-[0.16em] text-brand-ivory shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60"
             aria-label="Return to the original hero image"
           >
             Hero Image
@@ -254,7 +254,7 @@ export function PropertyMediaPanel({
               onClick={showPreviousImage}
               aria-label="Previous photo"
               className={cn(
-                'absolute left-2 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]',
+                'absolute left-2 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-brand-gold/30 bg-brand-navy/55 text-brand-ivory shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold',
                 navigationVisible && 'pointer-events-auto',
               )}
             >
@@ -266,7 +266,7 @@ export function PropertyMediaPanel({
               onClick={showNextImage}
               aria-label="Next photo"
               className={cn(
-                'absolute right-2 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/30 bg-brand-navy/55 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]',
+                'absolute right-2 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-brand-gold/30 bg-brand-navy/55 text-brand-ivory shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold',
                 navigationVisible && 'pointer-events-auto',
               )}
             >
@@ -279,7 +279,7 @@ export function PropertyMediaPanel({
           <button
             type="button"
             onClick={() => openLightbox(normalizedActiveIndex)}
-            className="absolute bottom-3 left-3 z-10 inline-flex min-h-11 items-center gap-2 border border-[#c6a15b]/45 bg-brand-navy/80 px-3.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]/60"
+            className="absolute bottom-3 left-3 z-10 inline-flex min-h-11 items-center gap-2 border border-brand-gold/45 bg-brand-navy/80 px-3.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-brand-ivory shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60"
             aria-label="View all photos"
           >
             View all photos
@@ -289,7 +289,7 @@ export function PropertyMediaPanel({
 
         {mediaImages.length > 0 && (
           <p
-            className="absolute bottom-3 right-3 z-10 bg-brand-navy/70 px-2.5 py-1 text-[10px] font-medium tabular-nums tracking-[0.12em] text-[#f8f5ec] backdrop-blur-sm"
+            className="absolute bottom-3 right-3 z-10 bg-brand-navy/70 px-2.5 py-1 text-[10px] font-medium tabular-nums tracking-[0.12em] text-brand-ivory backdrop-blur-sm"
             aria-live="polite"
           >
             {normalizedActiveIndex + 1} / {mediaImages.length}
@@ -325,9 +325,9 @@ export function PropertyMediaPanel({
                 }
                 aria-current={isSelected ? 'true' : undefined}
                 className={cn(
-                  'relative h-[68px] overflow-hidden bg-muted transition-opacity sm:h-[78px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#c6a15b]/70',
+                  'relative h-[68px] overflow-hidden bg-muted transition-opacity sm:h-[78px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-gold/70',
                   isSelected
-                    ? 'opacity-100 ring-2 ring-inset ring-[#c6a15b]/70'
+                    ? 'opacity-100 ring-2 ring-inset ring-brand-gold/70'
                     : 'opacity-85 hover:opacity-100',
                 )}
               >
@@ -341,7 +341,7 @@ export function PropertyMediaPanel({
                 />
 
                 {showRemaining && (
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-brand-navy/80 text-sm font-medium uppercase tracking-[0.16em] text-[#f8f5ec] backdrop-blur-[1px]">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-brand-navy/80 text-sm font-medium uppercase tracking-[0.16em] text-brand-ivory backdrop-blur-[1px]">
                     +{remainingCount}
                   </div>
                 )}
@@ -357,10 +357,10 @@ export function PropertyMediaPanel({
             role="dialog"
             aria-modal="true"
             aria-label="All photos"
-            className="fixed inset-0 z-[70] flex flex-col bg-brand-navy/95 text-[#f8f5ec]"
+            className="fixed inset-0 z-[70] flex flex-col bg-brand-navy/95 text-brand-ivory"
           >
             <header className="flex items-center justify-between gap-4 px-4 py-3 sm:px-6">
-              <p className="text-xs font-medium uppercase tracking-[0.24em] text-[#c6a15b]">
+              <p className="text-xs font-medium uppercase tracking-[0.24em] text-brand-gold">
                 {lightboxTotal > 0
                   ? `${(lightboxIndex % lightboxTotal) + 1} / ${lightboxTotal}`
                   : ''}
@@ -370,7 +370,7 @@ export function PropertyMediaPanel({
                 ref={closeButtonRef}
                 type="button"
                 onClick={() => setLightboxOpen(false)}
-                className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-full border border-[#c6a15b]/40 bg-brand-navy/60 text-[#f8f5ec] shadow-sm transition hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+                className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-full border border-brand-gold/40 bg-brand-navy/60 text-brand-ivory shadow-sm transition hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
                 aria-label="Close photo viewer"
               >
                 <X className="h-5 w-5" aria-hidden />
@@ -396,7 +396,7 @@ export function PropertyMediaPanel({
                     type="button"
                     onClick={() => moveLightbox(-1)}
                     aria-label="Previous photo"
-                    className="absolute left-2 top-1/2 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/40 bg-brand-navy/70 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+                    className="absolute left-2 top-1/2 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-brand-gold/40 bg-brand-navy/70 text-brand-ivory shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
                   >
                     <ChevronLeft className="h-7 w-7" aria-hidden />
                   </button>
@@ -405,7 +405,7 @@ export function PropertyMediaPanel({
                     type="button"
                     onClick={() => moveLightbox(1)}
                     aria-label="Next photo"
-                    className="absolute right-2 top-1/2 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-[#c6a15b]/40 bg-brand-navy/70 text-[#f8f5ec] shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c6a15b]"
+                    className="absolute right-2 top-1/2 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-brand-gold/40 bg-brand-navy/70 text-brand-ivory shadow-sm backdrop-blur-sm transition-colors hover:bg-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
                   >
                     <ChevronRight className="h-7 w-7" aria-hidden />
                   </button>
@@ -426,9 +426,9 @@ export function PropertyMediaPanel({
                       aria-label={`View ${image.alt || `photo ${index + 1}`}`}
                       aria-current={selected ? 'true' : undefined}
                       className={cn(
-                        'relative h-16 w-24 flex-none overflow-hidden rounded-sm bg-brand-navy transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#c6a15b]',
+                        'relative h-16 w-24 flex-none overflow-hidden rounded-sm bg-brand-navy transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-gold',
                         selected
-                          ? 'ring-2 ring-inset ring-[#c6a15b]'
+                          ? 'ring-2 ring-inset ring-brand-gold'
                           : 'opacity-70 hover:opacity-100',
                       )}
                     >
