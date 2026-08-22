@@ -11,6 +11,7 @@ import {
   AddOtherParticipantForm,
   OtherParticipantActions,
 } from "@/components/portal/write/participant-actions"
+import { StructuralParticipantControls } from "@/components/portal/write/structural-participant-actions"
 
 function stageLabel(stage: string) {
   switch (stage) {
@@ -111,8 +112,10 @@ function Empty({ text }: { text: string }) {
 
 export function DealWorkspace({
   workspace,
+  ownerCandidates = [],
 }: {
   workspace: DealWorkspace
+  ownerCandidates?: { id: string; displayName: string; email: string | null }[]
 }) {
   const deal = workspace.deal
 
@@ -295,6 +298,11 @@ export function DealWorkspace({
             <Empty text="No participants on record." />
           )}
           <AddOtherParticipantForm dealId={deal.id} />
+          <StructuralParticipantControls
+            dealId={deal.id}
+            participants={workspace.participants}
+            ownerCandidates={ownerCandidates}
+          />
         </section>
       </div>
 

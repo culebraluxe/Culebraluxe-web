@@ -41,6 +41,15 @@ import {
   endParticipant,
   updateParticipantRoleLabel,
 } from '@/db/deal-participants'
+import {
+  createDeal,
+  endStructuralParticipant,
+  setStructuralParticipant,
+} from '@/db/deal-admin-writes'
+import type {
+  DealCreateInput,
+  StructuralParticipantInput,
+} from '@/lib/deal-admin'
 import { resolveIntake } from '@/db/needs-review-resolution'
 import type {
   ResolveIntakeAction,
@@ -717,6 +726,86 @@ export async function updateParticipantRoleLabelAction(
   return portalWrite('deal.write', async () => {
     try {
       const result = await updateParticipantRoleLabel(participantId, roleLabel)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+// ---------------------------------------------------------------
+// OPS-05 — Deal / Participant Administration (create + structural
+// participant lifecycle). deal_participant is THE canonical participant model
+// (migration 034); these writes operate on it and keep the per-deal legacy FK
+// mirrors (deal.client_person_id / deal.owner_user_id) consistent in the same
+// transaction. Validation is the shared pure contract in lib/deal-admin.ts;
+// the action layer re-checks identifiers for a friendly result before any
+// authority-bound write runs.
+// ---------------------------------------------------------------
+
+export async function createDealAction(
+  input: DealCreateInput,
+): Promise<PortalWriteResult<{ id: string }>> {
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await createDeal(input)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function setStructuralParticipantAction(
+  input: StructuralParticipantInput,
+): Promise<PortalWriteResult<{ participantId: string }>> {
+  if (!isUuid(input.dealId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid deal identifier.',
+    }
+  }
+  if (input.personId && !isUuid(input.personId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid person identifier.',
+    }
+  }
+  if (input.userId && !isUuid(input.userId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid user identifier.',
+    }
+  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await setStructuralParticipant(input)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function endStructuralParticipantAction(
+  participantId: string,
+): Promise<PortalWriteResult<{ participantId: string }>> {
+  if (!isUuid(participantId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid participant identifier.',
+    }
+  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await endStructuralParticipant(participantId)
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {

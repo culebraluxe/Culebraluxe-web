@@ -268,3 +268,30 @@ export async function getDeals(
     latestOfferStatus: row.latest_offer_status ?? undefined,
   }))
 }
+// ---------------------------------------------------------------------------
+// OPS-05 — light property picker for deal creation. Active (non-archived)
+// properties only: an archived property is off the public site (OPS-03 soft
+// archive) and cannot start a deal.
+// ---------------------------------------------------------------------------
+
+export type DealableProperty = {
+  id: string
+  name: string
+  location: string | null
+}
+
+export async function listDealableProperties(): Promise<DealableProperty[]> {
+  const rows = await sql`
+    select id, name, location
+    from property
+    where archived_at is null
+    order by name asc
+  `
+  return (rows as { id: string; name: string; location: string | null }[]).map(
+    (row) => ({
+      id: row.id,
+      name: row.name,
+      location: row.location ?? null,
+    }),
+  )
+}

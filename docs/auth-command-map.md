@@ -21,6 +21,7 @@ Coarse authorities only. No per-button authorities. Business-state legality stay
 | `createShowingAction`, `scheduleShowingAction`, `cancelShowingAction`, `completeShowingAction` | `deal.write` |
 | `submitOfferAction`, `withdrawOfferAction`, `rejectOfferAction` | `deal.write` |
 | `addOtherParticipantAction`, `endParticipantAction`, `updateParticipantRoleLabelAction` | `deal.write` |
+| `createDealAction`, `setStructuralParticipantAction`, `endStructuralParticipantAction` | `deal.write` |
 | `updatePropertyFactsAction`, `updatePropertyVisibilityAction` | `listing.write` |
 | `setPropertyMediaOrderAction`, `setPropertyHeroAction`, `unlinkPropertyMediaAction`, `updateMediaMetadataAction` | `listing.write` |
 | `createPropertyAction`, `archivePropertyAction`, `restorePropertyAction` | `listing.write` |
