@@ -20,7 +20,8 @@
     "agent:scheduler:status": "node scripts/agent-scheduler.mjs status",
     "agent:scheduler:run": "node scripts/agent-scheduler.mjs run",
     "agent:scheduler:stop": "node scripts/agent-scheduler.mjs stop",
-    "agent:scheduler:uninstall": "node scripts/agent-scheduler.mjs uninstall"
+    "agent:scheduler:uninstall": "node scripts/agent-scheduler.mjs uninstall",
+    "mq:worker": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
