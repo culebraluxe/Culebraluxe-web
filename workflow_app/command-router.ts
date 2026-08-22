@@ -14,6 +14,7 @@ import { acceptOffer } from '../db/offer-acceptance'
 import { setDealStage } from '../db/deal-stage'
 import { setDealFinancingType } from '../db/deal-financing'
 import { setDealAppraisalRequired } from '../db/deal-appraisal'
+import { setDealLenderClearToClose } from '../db/deal-lender-clearance'
 import { setDealClosingDate } from '../db/deal-closing-date'
 
 // ---------------------------------------------------------------------------
@@ -171,6 +172,25 @@ export async function routeCommand(
       return setDealAppraisalRequired({
         dealId,
         appraisalRequired,
+        commandId: envelope.commandId,
+      })
+    }
+    case 'deal.set_lender_clear_to_close': {
+      const { lenderClearToClose } = envelope.input as { lenderClearToClose?: unknown }
+      const dealId = envelope.aggregateId
+      if (!dealId || typeof lenderClearToClose !== 'boolean') {
+        return {
+          commandId: envelope.commandId,
+          outcome: 'validation_failure',
+          emittedEvents: [],
+          aggregateId: dealId ?? null,
+          message: 'deal.set_lender_clear_to_close requires dealId and a boolean lenderClearToClose.',
+          replayed: false,
+        }
+      }
+      return setDealLenderClearToClose({
+        dealId,
+        lenderClearToClose,
         commandId: envelope.commandId,
       })
     }

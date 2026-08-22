@@ -22,6 +22,7 @@
       requiresSurvey              bool
       financingApplicable         bool | null
       appraisalApplicable         bool | null
+      lenderClearToClose          bool | null
       inspectionApplicable        bool | null
       insuranceApplicable         bool | null
 
@@ -32,6 +33,15 @@
   silently skipped: the appraisal_applicable decision routes null to the
   explicit appraisal_applicability_unresolved task for human/application
   resolution, which re-evaluates on resolved.
+
+  lenderClearToClose (CRM-20) is the canonical deal.lender_clear_to_close fact
+  (workflow_app/facts.ts), recorded by the explicit application command
+  deal.set_lender_clear_to_close (routed, application-only — never a workflow
+  command-node; lender provider behavior is never modeled in the engine).
+  Consumed ONLY for financed deals (financingApplicable == true) at the
+  closing-readiness gate: true = cleared, false = pending (blocks readiness),
+  null = explicit resolution task. Cash/non-financed deals are routed around
+  the fact entirely, so they are unaffected.
 
   Closing-readiness and closing-date facts (Story 122 / 124 / 125 / 135 / 136):
 
@@ -58,12 +68,19 @@
                                           appraisalApplicable fact from
                                           deal.appraisal_required; resolved by this
                                           explicit application command — CRM-19)
+      deal.set_lender_clear_to_close  -> db/deal-lender-clearance.ts (lender clear-to-close
+                                          is read as the lenderClearToClose fact from
+                                          deal.lender_clear_to_close; recorded by this
+                                          explicit application command — CRM-20)
 
   There is NO command-node deal.set_closing_readiness_verified: closing readiness
   is the human task-node `closing_readiness` (resolved -> ready_to_close), gated
-  by the closing_readiness_gate decision on closingConfirmationRequired. Every
-  command-node above has a router case — enforced by
-  workflow_app/tests/command-inventory.test.ts and parseReSupermodel().
+  by the closing_readiness_gate decision (financed deals first clear the
+  lender_clearance_gate on lenderClearToClose == true, then an optional
+  closing_confirmation_gate adds the brokerage confirmation when
+  closingConfirmationRequired is set). Every command-node above has a router
+  case — enforced by workflow_app/tests/command-inventory.test.ts and
+  parseReSupermodel().
 
   Simple cash/clean transactions take the short path: title/legal, tax /
   municipal (CRIM) clearance, funds ready, closing documents, closing
@@ -321,21 +338,55 @@
   </task-node>
 
   <!-- =====================================================================
-       Segment 3 — Closing Readiness (Story 124 / 136)
+       Segment 3 — Closing Readiness (Story 124 / 136 / CRM-20)
        Closing readiness is structural + optional confirmation, never a magic
        boolean. The fork/join already guarantees every applicable required
-       obligation is cleared/waived/resolved before this gate is reached. The
-       gate then only adds the final brokerage confirmation when the
-       closingConfirmationRequired fact is set; otherwise it proceeds straight
-       to ready-to-close. The confirmation cannot override blockers because it
-       comes AFTER the join.
+       obligation is cleared/waived/resolved before this gate is reached. For
+       financed deals (financingApplicable == true) the canonical lender
+       clear-to-close fact (deal.lender_clear_to_close) must be true before
+       readiness: null routes to an explicit resolution task, false is a
+       pending state that blocks readiness (CRM-20). Cash/non-financed deals
+       are routed around the lender fact entirely. The gate then only adds the
+       final brokerage confirmation when the closingConfirmationRequired fact
+       is set; otherwise it proceeds straight to ready-to-close. Confirmation
+       cannot override blockers because it comes AFTER the join.
        ===================================================================== -->
   <join id="join_tracks" label="Transaction Tracks Joined">
     <transition name="assess" to="closing_readiness_gate"/>
   </join>
 
   <decision id="closing_readiness_gate" label="Closing Readiness Gate" refresh-facts="true"
-    description="Eligibility is enforced by the join (all applicable required work cleared). A final brokerage confirmation is added only when closingConfirmationRequired is true.">
+    description="Eligibility is enforced by the join (all applicable required work cleared). Financed deals are routed through the lender clear-to-close gate first; a final brokerage confirmation is added only when closingConfirmationRequired is true.">
+    <on condition="financingApplicable == true" transition="lender"/>
+    <on condition="closingConfirmationRequired == true" transition="confirm"/>
+    <transition name="ready" to="ready_to_close"/>
+    <transition name="lender" to="lender_clearance_gate"/>
+    <transition name="confirm" to="closing_readiness"/>
+  </decision>
+
+  <decision id="lender_clearance_gate" label="Lender Clear-to-Close Gate" refresh-facts="true"
+    description="Financed deals only: the canonical deal.lender_clear_to_close fact must be true before closing readiness. NULL (unresolved) routes to an explicit resolution task; false is a pending state that blocks readiness (CRM-20).">
+    <on condition="lenderClearToClose == true" transition="cleared"/>
+    <on condition="lenderClearToClose == null" transition="unresolved"/>
+    <transition name="pending" to="lender_clearance_pending"/>
+    <transition name="cleared" to="closing_confirmation_gate"/>
+    <transition name="unresolved" to="lender_clearance_resolution"/>
+  </decision>
+
+  <task-node id="lender_clearance_resolution" label="Resolve Lender Clear-to-Close" responsibility="brokerage"
+    description="The canonical deal.lender_clear_to_close fact is unresolved (null). A human/application must record whether the lender has cleared the transaction (true) or not (false) before closing readiness may proceed. resolved re-evaluates the gate with refreshed facts; escalate terminates the transaction (CRM-20).">
+    <transition name="resolved" to="lender_clearance_gate"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <task-node id="lender_clearance_pending" label="Lender Clearance Pending" responsibility="lender"
+    description="The lender has not cleared the transaction (deal.lender_clear_to_close = false); the deal cannot be closing-ready. When the lender clears, record it (deal.set_lender_clear_to_close) and mark this resolved; the gate re-evaluates with refreshed facts. escalate terminates the transaction (CRM-20).">
+    <transition name="resolved" to="lender_clearance_gate"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
+  <decision id="closing_confirmation_gate" label="Closing Confirmation Gate" refresh-facts="true"
+    description="Reached after lender clearance (financed) or directly (cash): the final brokerage confirmation is added only when closingConfirmationRequired is true.">
     <on condition="closingConfirmationRequired == true" transition="confirm"/>
     <transition name="ready" to="ready_to_close"/>
     <transition name="confirm" to="closing_readiness"/>

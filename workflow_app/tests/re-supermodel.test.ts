@@ -88,6 +88,13 @@ function hasTask(fake: FakeSql, name: string): boolean {
   return fake.store.tasks.some((t) => t.name === name)
 }
 
+/** True when a task with `name` currently exists and is still actionable. */
+function hasOpenTask(fake: FakeSql, name: string): boolean {
+  return fake.store.tasks.some(
+    (t) => t.name === name && ['ready', 'reserved', 'in_progress'].includes(t.status),
+  )
+}
+
 async function startAndSignContract(engine: WorkflowEngine, fake: FakeSql): Promise<string> {
   const { processInstanceId } = await engine.startProcess({
     definitionKey: RE_SUPERMODEL_KEY,
@@ -175,6 +182,9 @@ test('B. financed transaction completes with all applicable tracks', async () =>
   const { fake, engine } = setup(
     simpleCashFacts({
       financingApplicable: true,
+      // CRM-20: a financed deal must clear lender clear-to-close before
+      // closing readiness can succeed.
+      lenderClearToClose: true,
       appraisalApplicable: true,
       inspectionApplicable: true,
       insuranceApplicable: true,
@@ -254,6 +264,8 @@ test('D. financed transaction with appraisalApplicable=false skips appraisal', a
   const { fake, engine } = setup(
     simpleCashFacts({
       financingApplicable: true,
+      // CRM-20: financed deals clear lender clear-to-close before readiness.
+      lenderClearToClose: true,
       appraisalApplicable: false,
     }),
   )
@@ -718,6 +730,252 @@ test('closing confirmation is optional and added only when required', async () =
 
   // Confirmation releases straight to ready-to-close, then closing.
   assert.ok(hasTask(fake, 'Closing'), 'closing task must appear after confirmation')
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+// ---------------------------------------------------------------------------
+// CRM-20 — lender clear-to-close (canonical deal.lender_clear_to_close fact).
+// Financed deals must clear the lender gate before closing readiness can
+// succeed; cash/non-financed deals are unaffected. True/false/unknown each
+// produce the documented workflow path.
+// ---------------------------------------------------------------------------
+test('CRM-20: financed deal with lender clear-to-close true reaches closing readiness', async () => {
+  const { fake, engine } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      lenderClearToClose: true,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Financing',
+  ])
+
+  // Cleared: no lender-clearance tasks surface; readiness proceeds.
+  assert.equal(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), false)
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'cleared: closing must be reachable')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+test('CRM-20: financed deal without lender clear-to-close (false) cannot be closing-ready', async () => {
+  const { fake, engine, re } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      lenderClearToClose: false,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Financing',
+  ])
+
+  // The deal must NOT appear closing-ready while the lender has not cleared.
+  assert.ok(hasOpenTask(fake, 'Lender Clearance Pending'), 'not cleared: pending task must surface')
+  assert.equal(hasTask(fake, 'Closing'), false, 'closing must not start before lender clearance')
+
+  // Re-attempt with the fact still false: the pending task reappears (a
+  // blocker loop, never a silent pass).
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Lender Clearance Pending').id,
+    userId: 'lender',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasOpenTask(fake, 'Lender Clearance Pending'), 'still not cleared: pending must reappear')
+  assert.equal(hasTask(fake, 'Closing'), false)
+
+  // The lender clears (application command deal.set_lender_clear_to_close -> true).
+  re.setFact('lenderClearToClose', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Lender Clearance Pending').id,
+    userId: 'lender',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'cleared: closing becomes reachable')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+test('CRM-20: unresolved lender clear-to-close (null) surfaces an explicit resolution task, never a silent pass', async () => {
+  const { fake, engine, re } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      lenderClearToClose: null,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Financing',
+  ])
+
+  // null must NOT silently pass: an explicit resolution task appears instead.
+  assert.ok(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), 'null must surface the resolution task')
+  assert.equal(hasTask(fake, 'Closing'), false, 'closing must not start while lender clearance is unresolved')
+
+  // Completing "resolved" while the fact is STILL null loops back to the same
+  // explicit task (blocker loop, never a silent pass).
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Resolve Lender Clear-to-Close').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), 'still unresolved: the resolution task must reappear')
+  assert.equal(hasTask(fake, 'Closing'), false)
+
+  // A human/application records lender clearance (true).
+  re.setFact('lenderClearToClose', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Resolve Lender Clear-to-Close').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'cleared: closing becomes reachable')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+test('CRM-20: resolving unresolved lender clearance to false lands in the pending state, not readiness', async () => {
+  const { fake, engine, re } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      lenderClearToClose: null,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Financing',
+  ])
+
+  assert.ok(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), 'null must surface the resolution task')
+
+  // A human/application records that the lender has NOT cleared (false).
+  re.setFact('lenderClearToClose', false)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Resolve Lender Clear-to-Close').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasOpenTask(fake, 'Lender Clearance Pending'), 'not cleared: the pending state must take over')
+  assert.equal(hasTask(fake, 'Closing'), false, 'closing must not start while the lender has not cleared')
+
+  // The lender eventually clears -> readiness proceeds.
+  re.setFact('lenderClearToClose', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Lender Clearance Pending').id,
+    userId: 'lender',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'cleared: closing becomes reachable')
+})
+
+test('CRM-20: cash deals are unaffected by lender clear-to-close (fact null)', async () => {
+  const { fake, engine } = setup(
+    simpleCashFacts({ lenderClearToClose: null }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+  ])
+
+  // Cash: no financing branch and no lender-clearance gate — readiness proceeds
+  // straight through even though the canonical fact is null (never recorded).
+  assert.equal(hasTask(fake, 'Financing'), false)
+  assert.equal(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), false, 'cash deals never surface lender-clearance tasks')
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'cash deal reaches closing without lender clearance')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+test('CRM-20: financed deal with lender clearance still honors the optional closing confirmation', async () => {
+  const { fake, engine } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      lenderClearToClose: true,
+      closingConfirmationRequired: true,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Financing',
+  ])
+
+  // Cleared, but the optional brokerage confirmation still applies.
+  assert.equal(hasOpenTask(fake, 'Resolve Lender Clear-to-Close'), false)
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.ok(hasOpenTask(fake, 'Confirm Closing Readiness'), 'confirmation must still be requested after lender clearance')
+  assert.equal(hasTask(fake, 'Closing'), false, 'closing must not start before confirmation')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Confirm Closing Readiness').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasTask(fake, 'Closing'), 'closing task must appear after confirmation')
+
   await engine.completeTask({
     taskId: taskByName(fake, 'Closing').id,
     userId: 'broker',

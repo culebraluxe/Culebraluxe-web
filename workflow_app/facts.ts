@@ -1,6 +1,7 @@
 import { sql } from '../db/client'
 import { financingApplicableFromType } from './financing'
 import { appraisalApplicableFromRequired } from './appraisal'
+import { lenderClearToCloseFromFact } from './lender-clearance'
 import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 
 // ---------------------------------------------------------------------------
@@ -13,7 +14,8 @@ import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 //   A — derived from canonical data:
 //       financingApplicable (deal.financing_type), closingDate /
 //       closingDateScheduled (deal.closing_date), appraisalApplicable
-//       (deal.appraisal_required)
+//       (deal.appraisal_required), lenderClearToClose
+//       (deal.lender_clear_to_close)
 //   B — CulebraLuxe configuration default (configuration.ts):
 //       closingAgentRole, requiresNotario, requiresTitleCompany,
 //       requiresCrimClearance, requiresRegistryFollowup,
@@ -22,7 +24,10 @@ import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 //   C — unresolved (never invented; requires human/application resolution):
 //       none for V1 (appraisal moved from Class C to Class A in CRM-19: the
 //       durable deal-level source deal.appraisal_required is resolved by the
-//       explicit application command deal.set_appraisal_required)
+//       explicit application command deal.set_appraisal_required; lender
+//       clear-to-close moved from Class C to Class A in CRM-20: the durable
+//       deal-level source deal.lender_clear_to_close is resolved by the
+//       explicit application command deal.set_lender_clear_to_close)
 //   D — not yet necessary for V1: none
 // ---------------------------------------------------------------------------
 
@@ -66,6 +71,13 @@ export type DealWorkflowFacts = {
    * null = unresolved (never coerced to a boolean).
    */
   appraisalApplicable: boolean | null
+  /**
+   * Lender clear-to-close (CRM-20). Canonical deal.lender_clear_to_close
+   * fact: true = lender cleared the transaction to close, false = not
+   * cleared, null = unresolved. Only consumed when financingApplicable is
+   * true (financed deals); cash/non-financed deals are unaffected.
+   */
+  lenderClearToClose: boolean | null
 
   // Class B (CulebraLuxe configuration defaults)
   closingAgentRole: string
@@ -90,6 +102,7 @@ type DealRow = {
   closing_date: string | null
   financing_type: string | null
   appraisal_required: boolean | null
+  lender_clear_to_close: boolean | null
   property_id: string
   property_name: string
   property_type: string | null
@@ -110,6 +123,7 @@ export async function getDealWorkflowFacts(
       d.closing_date::text as closing_date,
       d.financing_type,
       d.appraisal_required,
+      d.lender_clear_to_close,
       p.id as property_id,
       p.name as property_name,
       p.property_type,
@@ -164,6 +178,13 @@ export async function getDealWorkflowFacts(
     // invented: null means unresolved, and the XML decision surfaces it
     // explicitly (appraisal_applicability_unresolved) instead of skipping.
     appraisalApplicable: appraisalApplicableFromRequired(deal.appraisal_required),
+    // CRM-20 — canonical deal-level source (deal.lender_clear_to_close),
+    // resolved by the explicit application command deal.set_lender_clear_to_close.
+    // Never invented: null means unresolved, and the XML closing-readiness gate
+    // surfaces it explicitly (lender_clearance_resolution / _pending) instead
+    // of letting a financed deal appear closing-ready. Cash deals are routed
+    // around the fact entirely.
+    lenderClearToClose: lenderClearToCloseFromFact(deal.lender_clear_to_close),
     // Class B — Culebra operating defaults.
     closingAgentRole: cfg.closingAgentRole,
     requiresNotario: cfg.requiresNotario,

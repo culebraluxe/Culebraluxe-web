@@ -7,6 +7,7 @@ import {
 import {
   DEAL_SET_APPRAISAL_REQUIRED,
   DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_LENDER_CLEAR_TO_CLOSE,
   ROUTED_COMMAND_TYPES,
   ROUTED_BUT_UNREFERENCED_COMMAND_TYPES,
   XML_COMMAND_NODE_TYPES,
@@ -123,6 +124,26 @@ test('CRM-19: deal.set_appraisal_required is routed but unreferenced by the XML 
   assert.ok(
     !xmlCommandNodeTypes.includes(DEAL_SET_APPRAISAL_REQUIRED),
     'the XML must not reference deal.set_appraisal_required',
+  )
+})
+
+test('CRM-20: deal.set_lender_clear_to_close is routed but unreferenced by the XML (application-only)', () => {
+  const parsed = parseReSupermodel()
+  const xmlCommandNodeTypes = Object.values(parsed.graph.nodes)
+    .filter((n) => n.type === 'command')
+    .map((n) => n.commandType!)
+
+  assert.ok(
+    ROUTED_COMMAND_TYPES.has(DEAL_SET_LENDER_CLEAR_TO_CLOSE),
+    'deal.set_lender_clear_to_close stays routed for application use (db/deal-lender-clearance.ts)',
+  )
+  assert.ok(
+    !XML_COMMAND_NODE_TYPES.has(DEAL_SET_LENDER_CLEAR_TO_CLOSE),
+    'deal.set_lender_clear_to_close must not be documented as an XML command-node',
+  )
+  assert.ok(
+    !xmlCommandNodeTypes.includes(DEAL_SET_LENDER_CLEAR_TO_CLOSE),
+    'the XML must not reference deal.set_lender_clear_to_close',
   )
 })
 

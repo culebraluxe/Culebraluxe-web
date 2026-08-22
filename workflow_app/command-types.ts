@@ -24,6 +24,11 @@
 //       applicability is READ as the appraisalApplicable fact (facts.ts) from
 //       the canonical deal.appraisal_required column; resolved by this
 //       explicit application command (CRM-19), never by a workflow command.
+//     deal.set_lender_clear_to_close -> db/deal-lender-clearance.ts — lender
+//       clear-to-close is READ as the lenderClearToClose fact (facts.ts) from
+//       the canonical deal.lender_clear_to_close column; recorded by this
+//       explicit application command (CRM-20), never by a workflow command.
+//       Lender provider behavior is never modeled inside the engine.
 //     offer.accept, task.create, task.complete, task.cancel — application /
 //       engine-integration commands outside the workflow XML.
 //
@@ -50,6 +55,9 @@ export const DEAL_SET_FINANCING_TYPE = 'deal.set_financing_type'
 /** Routed command type for application-only appraisal-applicability writes. */
 export const DEAL_SET_APPRAISAL_REQUIRED = 'deal.set_appraisal_required'
 
+/** Routed command type for application-only lender clear-to-close writes. */
+export const DEAL_SET_LENDER_CLEAR_TO_CLOSE = 'deal.set_lender_clear_to_close'
+
 /**
  * Routed command types NOT referenced by any XML command-node. Each is routed
  * for application/engine integration, never for a workflow command-node.
@@ -58,6 +66,7 @@ export const ROUTED_BUT_UNREFERENCED_COMMAND_TYPES: ReadonlySet<string> = new Se
   'offer.accept',
   DEAL_SET_FINANCING_TYPE,
   DEAL_SET_APPRAISAL_REQUIRED,
+  DEAL_SET_LENDER_CLEAR_TO_CLOSE,
   'task.create',
   'task.complete',
   'task.cancel',

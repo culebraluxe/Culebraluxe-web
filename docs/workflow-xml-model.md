@@ -307,6 +307,7 @@ Operating differences are expressed **only as facts/capabilities** supplied by
 | `requiresSurvey` | survey required |
 | `financingApplicable` | financing branch active (bool/null) |
 | `appraisalApplicable` | appraisal branch active (bool/null); canonical deal.appraisal_required fact (CRM-19) |
+| `lenderClearToClose` | lender clear-to-close (bool/null); canonical deal.lender_clear_to_close fact (CRM-20) |
 | `inspectionApplicable` | inspection branch active (bool/null) |
 | `insuranceApplicable` | insurance branch active (bool/null) |
 | `closingConfirmationRequired` | optional final brokerage confirmation |
@@ -346,27 +347,57 @@ brokerage). `resolved` re-evaluates the decision with refreshed facts (a
 blocker loop until a human/application resolves the fact); `escalate`
 terminates the transaction as failed.
 
+## 10c. Lender clear-to-close (Story CRM-20)
+
+`lenderClearToClose` is a canonical deal-level fact, never provider behavior:
+
+- durable source: `deal.lender_clear_to_close` (bool, null = unresolved /
+  not-applicable) — migration `db/migrations/032_deal_lender_clear_to_close.sql`
+- explicit resolution: the application-only command
+  `deal.set_lender_clear_to_close` (`db/deal-lender-clearance.ts`), routed but
+  never referenced by a workflow command-node, mirroring
+  `deal.set_financing_type` / `deal.set_appraisal_required`
+- the workflow decision reads the fact from the application projection
+  (`workflow_app/facts.ts` → `lenderClearToCloseFromFact`); the generic engine
+  only evaluates the decision
+
+Consumed **only for financed deals** (`financingApplicable == true`): the
+closing-readiness gate routes financed deals through `lender_clearance_gate`,
+where `lenderClearToClose == true` proceeds, `null` surfaces the explicit
+`lender_clearance_resolution` task ("Resolve Lender Clear-to-Close",
+brokerage), and `false` lands in `lender_clearance_pending` ("Lender Clearance
+Pending", lender) — the deal can never appear closing-ready before lender
+clearance. Cash/non-financed deals are routed around the fact entirely, so they
+are unaffected.
+
 ## 11. Closing readiness (Story 124 / 136)
 
 Eligibility is structural, never a magic boolean. The fork/join already
 guarantees every applicable required obligation is cleared/waived/resolved
-before `closing_readiness_gate` is reached. The gate then only adds the final
-brokerage confirmation when the `closingConfirmationRequired` fact is set;
-otherwise it proceeds straight to `ready_to_close`. The confirmation cannot
-override blockers because it comes AFTER the join. (Story 135/136 improved
-this: the `closingReadinessVerified` boolean and its command were removed as the
-wrong semantic shape — confirmation is a task, not a persisted fact.)
+before `closing_readiness_gate` is reached. Financed deals
+(`financingApplicable == true`) are then routed through `lender_clearance_gate`
+(CRM-20, §10c): lender clear-to-close must be `true` before readiness — `null`
+surfaces an explicit resolution task, `false` is a pending state that blocks
+readiness. Cash/non-financed deals skip the lender fact entirely. The gate then
+only adds the final brokerage confirmation when the `closingConfirmationRequired`
+fact is set; otherwise it proceeds straight to `ready_to_close`. The
+confirmation cannot override blockers because it comes AFTER the join. (Story
+135/136 improved this: the `closingReadinessVerified` boolean and its command
+were removed as the wrong semantic shape — confirmation is a task, not a
+persisted fact.)
 
 The command inventory for `RE_supermodel-v1.xml` is complete and guarded
 (CRM-14G): the only command-nodes are `mark_under_contract`
 (`deal.set_stage_under_contract`), `mark_closed` (`deal.set_stage_closed`), and
 `set_closing_date` (`deal.set_closing_date`) — each has a router case in
-`workflow_app/command-router.ts`. `deal.set_financing_type` is routed but
-application-only (financing is read as the `financingApplicable` fact, never
-set via a workflow command), and there is no `deal.set_closing_readiness_verified`
-command. The authoritative registry is `workflow_app/command-types.ts`; a
-command-node added to the XML without a router case fails
-`workflow_app/tests/command-inventory.test.ts` and `parseReSupermodel()`.
+`workflow_app/command-router.ts`. `deal.set_financing_type`,
+`deal.set_appraisal_required` (CRM-19), and `deal.set_lender_clear_to_close`
+(CRM-20) are routed but application-only (their facts are read by the workflow,
+never set via a workflow command), and there is no
+`deal.set_closing_readiness_verified` command. The authoritative registry is
+`workflow_app/command-types.ts`; a command-node added to the XML without a
+router case fails `workflow_app/tests/command-inventory.test.ts` and
+`parseReSupermodel()`.
 
 ## 12. P&S / closing date semantics (Story 122)
 
