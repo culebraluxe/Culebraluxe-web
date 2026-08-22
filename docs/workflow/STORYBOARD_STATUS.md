@@ -596,7 +596,7 @@
 | S-036 | Engine Optimistic Concurrency Guard Enforcement | PENDING | — |
 | S-037 | Application Command Inventory Completion | PENDING | — |
 | S-038 | Operational Seams: Alerts / Deadlines / SME / Audit | PENDING | Reviewed deferral acceptable |
-| S-039 | Domain Event Persistence & Audit Trail | PENDING | Decision required |
+| S-039 | Domain Event Persistence & Audit Trail | PASS | Decision recorded: DEFER (no new subsystem) |
 | S-040 | Media / Attachment & Retention Policy | PENDING | Policy before ingestion |
 | S-041 | Workflow Visual Modeler (Story 129) | PENDING | Held by "no UI yet" constraint |
 
@@ -624,17 +624,56 @@
 - **S-038 — Operational Seams: Alerts / Deadlines / SME / Audit.** PENDING.
   Depends on S-018/S-020/S-022. A reviewed deferral of a specific seam is an
   acceptable outcome.
-- **S-039 — Domain Event Persistence & Audit Trail.** PENDING. Depends on
-  S-018/S-024. A documented decision not to persist application events is an
-  acceptable outcome.
+- **S-039 — Domain Event Persistence & Audit Trail.** PASS. Depends on
+  S-018/S-024. Decision recorded in
+  [`docs/domain-event-persistence-decision.md`](../domain-event-persistence-decision.md):
+  **DEFER** — no application `domain_event` table; canonical tables + engine
+  `process_events`/`process_commands` + command receipts + `security_audit_event`
+  already cover audit, correlation/causation, and replay. See the detailed
+  record below.
 - **S-040 — Media / Attachment & Retention Policy.** PENDING. Depends on
   S-005/S-006 boundaries and S-009. Policy must precede any byte ingestion.
 - **S-041 — Workflow Visual Modeler (legacy Story 129).** PENDING. Depends on
   S-020/S-031. Held by the "no UI yet" constraint; editor round-trips the same
   XML grammar.
 
+### S-039 — Domain Event Persistence & Audit Trail (CRM-14I)
+
+- **Status:** `PASS`
+- **Files changed:** `docs/domain-event-persistence-decision.md` (new decision
+  record); `docs/workflow/STORYBOARD_STATUS.md` (this record + change log);
+  `docs/workflow-integration-contract.md` (pointer from persistence posture).
+  Documentation only — no code, no schema, no migration.
+- **Tests/checks run:** scoped per ENG-20A runtime policy (SCOPED mode; full
+  regression not authorized). `git diff --check` clean; `domain_event` grep
+  across the repo confirms no table/code reference exists; every claim in the
+  decision record line-checked against the cited seams
+  (`workflow_engine/lib/workflow/engine.ts` `_handleCommand`/`_event`,
+  `workflow_app/engine-bridge.ts`, `db/workflow-command-receipt.ts`,
+  `db/offer-acceptance.ts`, `db/deal-stage.ts`, migrations 005/013/014/017/018,
+  `docs/workflow-engine-archaeology.md`, `docs/workflow-integration-contract.md`).
+  No tsc/build run — no code touched to warrant it.
+- **Database mutations:** none (decision is DEFER; no migration recorded).
+- **Defects found:** none. The archaeology §12 "no join event" note is a
+  framework-event completeness item tracked by S-035, not an application
+  domain-event persistence gap.
+- **Decisions made:** **DEFER** — no application `domain_event` table now.
+  Canonical immutable domain rows are the business audit trail;
+  `workflow_command_receipt` provides idempotent command replay;
+  `process_events`/`process_commands` are the durable engine-side execution log;
+  `security_audit_event` covers auth/break-glass. The correlation/causation
+  chain (instance id → `CommandEnvelope.correlationId` → `commandId` →
+  `emittedEvents[].causationId` → `DomainEvent.eventId`) is preserved by
+  existing seams and partly already durable. None of the three change-conditions
+  (cross-cutting consumer; archaeology insufficiency; event-sourced replay
+  requirement) is demonstrated. If one ever holds, the reviewed narrow
+  append-only `domain_event` table design (invariants + same-transaction write
+  via the existing claim-first pattern) is recorded in the decision doc.
+- **Blocking dependency:** none.
+
 ## 8. Change log
 
 | Date | Change | Author | Status impact |
 |---|---|---|---|
 | 2026-08-20 | Seed version 1: created `MASTER_STORYBOARD.md` (S-001…S-041, 4 batches) and this status file at main @ `fddcd26`. Documentation only. | Lead (storyboard story) | Established baseline; no stories `CURRENT` |
+| 2026-08-22 | S-039 (CRM-14I) recorded `PASS`: decision documented in `docs/domain-event-persistence-decision.md` — DEFER, no application `domain_event` table; consumer-gap analysis + correlation/causation proof + change-condition evaluation recorded. Documentation only; no code/schema. | Builder (CRM-14I) | S-039 PENDING → PASS |

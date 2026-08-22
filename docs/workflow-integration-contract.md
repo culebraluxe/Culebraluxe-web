@@ -74,6 +74,9 @@ The engine may keep its own runtime task state and correlate via
 - `security_audit_event` covers auth/break-glass events only.
 - Domain events are initially transient (returned on `CommandResult`); the
   engine keeps its own event log. No `application_event` table is created now.
+- Decision recorded (CRM-14I): [domain-event-persistence-decision.md](domain-event-persistence-decision.md)
+  — DEFER; the conditions that would trigger a narrow append-only `domain_event`
+  table are documented there.
 
 ## Explicit non-goals for this batch
 
