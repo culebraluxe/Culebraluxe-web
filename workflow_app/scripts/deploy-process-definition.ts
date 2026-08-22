@@ -1,9 +1,19 @@
 // ---------------------------------------------------------------------------
-// Generic workflow definition deployment command (Story 127 / 133).
+// Generic workflow definition deployment command (Story 127 / 133, ENG-14).
 //
 // Canonical path:
 //
-//   XML file -> parse -> validate -> ProcessGraph -> upsertProcessDefinition
+//   XML file -> parse -> validate (4 layers) -> ProcessGraph -> upsertProcessDefinition
+//
+// ENG-14 — Workflow Definition Validation / Static Analysis: deployment runs
+// ALL four explicit validation layers and fails fast with actionable
+// diagnostics before anything becomes runnable:
+//
+//   Layer 1  XML well-formedness       mini-xml.parseXml
+//   Layer 2  Engine grammar            xml-parser
+//   Layer 3  Generic graph semantics   graph-validator (unreachable nodes,
+//                                     unsupported nodes, fork/join analysis)
+//   Layer 4  Application contract      application-contract (command routability)
 //
 // Usage:
 //
@@ -18,26 +28,27 @@
 // instances; once instances exist the version is immutable and a new version
 // must be deployed (see version-policy.ts).
 //
-// --dry-run parses and validates the definition and prints the deployment plan
-// WITHOUT importing the database layer or performing any write.
+// --dry-run parses and validates the definition (all four layers) and prints
+// the deployment plan WITHOUT importing the database layer or performing any
+// write.
 // ---------------------------------------------------------------------------
 
 import { readFile } from 'node:fs/promises'
-import { parseProcessDefinitionXml, validateProcessGraph } from '../xml'
+import { validateWorkflowDefinitionXml } from '../definitions/validate-definition'
 
 async function main(filePath: string, dryRun: boolean): Promise<void> {
   const source = await readFile(filePath, 'utf-8')
-  const parsed = parseProcessDefinitionXml(source)
-  const validation = validateProcessGraph(parsed.graph)
+  const report = validateWorkflowDefinitionXml(source)
 
-  if (!validation.valid) {
-    for (const err of validation.errors) console.error(`  ✗ ${err}`)
+  if (!report.valid) {
+    for (const err of report.errors) console.error(`  ✗ ${err}`)
     throw new Error(
-      `'${filePath}' failed validation (${validation.errors.length} error(s))`,
+      `'${filePath}' failed validation (${report.errors.length} error(s))`,
     )
   }
-  for (const warn of validation.warnings) console.warn(`  ⚠ ${warn}`)
+  for (const warn of report.warnings) console.warn(`  ⚠ ${warn}`)
 
+  const parsed = report.parsed!
   const nodeCount = Object.keys(parsed.graph.nodes).length
   const startNodeId = parsed.graph.startNodeId
 

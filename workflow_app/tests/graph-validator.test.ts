@@ -177,3 +177,231 @@ test('decision node with an unsupported condition expression is rejected', () =>
   const result = validateProcessGraph(g)
   assert.ok(result.errors.some((e) => /unsupported condition expression/.test(e)))
 })
+
+// ---------------------------------------------------------------------------
+// ENG-14 — Workflow Definition Validation / Static Analysis.
+// ---------------------------------------------------------------------------
+
+test('ENG-14: unreachable nodes are reported', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'work' }] },
+    work: {
+      id: 'work',
+      type: 'task',
+      name: 'Work',
+      transitions: [{ name: 'done', to: 'end' }],
+    },
+    orphan: {
+      id: 'orphan',
+      type: 'task',
+      name: 'Never executed',
+      transitions: [{ name: 'done', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, false)
+  assert.ok(
+    result.errors.some((e) => /node 'orphan' is unreachable/.test(e)),
+    `expected an unreachable diagnostic, got: ${result.errors.join('; ')}`,
+  )
+})
+
+test('ENG-14: a node only reachable via a cycle back to itself is still reachable', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'work' }] },
+    work: {
+      id: 'work',
+      type: 'task',
+      transitions: [
+        { name: 'again', to: 'blocker' },
+        { name: 'done', to: 'end' },
+      ],
+    },
+    blocker: {
+      id: 'blocker',
+      type: 'task',
+      transitions: [{ name: 'resolved', to: 'work' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, true, result.errors.join('; '))
+})
+
+test('ENG-14: unsupported node types are rejected (no silent passthrough)', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'magic' }] },
+    magic: { id: 'magic', type: 'teleport', transitions: [{ name: 'go', to: 'end' }] },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, false)
+  assert.ok(
+    result.errors.some((e) => /unsupported type 'teleport'/.test(e)),
+    `expected an unsupported-type diagnostic, got: ${result.errors.join('; ')}`,
+  )
+  assert.ok(
+    result.errors.some((e) => /silently treat it as a passthrough/.test(e)),
+    'the diagnostic must explain the silent passthrough risk',
+  )
+})
+
+test('ENG-14: subprocess is declared but unimplemented — rejected with a targeted diagnostic', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'sub' }] },
+    sub: {
+      id: 'sub',
+      type: 'subprocess',
+      subprocessKey: 'some_flow',
+      transitions: [{ name: 'go', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, false)
+  assert.ok(
+    result.errors.some((e) => /'subprocess'.*no runtime implementation/.test(e)),
+    `expected a subprocess-specific diagnostic, got: ${result.errors.join('; ')}`,
+  )
+})
+
+test('ENG-14: a required fork branch that is a closed loop makes the join impossible — rejected', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'fork' }] },
+    fork: {
+      id: 'fork',
+      type: 'fork',
+      transitions: [
+        { name: 'loop', to: 'loop_node' },
+        { name: 'ok', to: 'join' },
+      ],
+    },
+    // loop_node -> loop_node is a pure cycle with no exit: the token can never
+    // complete, so the join can never release and the process would hang.
+    loop_node: {
+      id: 'loop_node',
+      type: 'task',
+      transitions: [{ name: 'again', to: 'loop_node' }],
+    },
+    join: {
+      id: 'join',
+      type: 'join',
+      transitions: [{ name: 'go', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, false)
+  assert.ok(
+    result.errors.some((e) => /required branch 'loop' of fork 'fork'.*closed loop with no exit/.test(e)),
+    `expected a closed-loop diagnostic, got: ${result.errors.join('; ')}`,
+  )
+  assert.ok(
+    result.errors.some((e) => /can never release/.test(e)),
+    'the diagnostic must state the join can never release',
+  )
+})
+
+test('ENG-14: an intentional blocker loop inside a fork branch with an exit stays valid', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'fork' }] },
+    fork: {
+      id: 'fork',
+      type: 'fork',
+      transitions: [
+        { name: 'work', to: 'work' },
+        { name: 'ok', to: 'join' },
+      ],
+    },
+    work: {
+      id: 'work',
+      type: 'task',
+      transitions: [
+        { name: 'issue', to: 'blocker' },
+        { name: 'done', to: 'join' },
+      ],
+    },
+    blocker: {
+      id: 'blocker',
+      type: 'task',
+      transitions: [{ name: 'resolved', to: 'work' }],
+    },
+    join: {
+      id: 'join',
+      type: 'join',
+      transitions: [{ name: 'go', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(
+    result.valid,
+    true,
+    `intentional blocker loops with an exit must stay valid: ${result.errors.join('; ')}`,
+  )
+})
+
+test('ENG-14: a required fork branch that never reaches a join is a warning, not an error', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'fork' }] },
+    fork: {
+      id: 'fork',
+      type: 'fork',
+      transitions: [
+        { name: 'escape', to: 'escaped' },
+        { name: 'ok', to: 'join' },
+      ],
+    },
+    // 'escape' reaches only an end node — the join-wait for it is trivially
+    // satisfied by termination. Warn, but the graph is still deployable.
+    escaped: {
+      id: 'escaped',
+      type: 'task',
+      transitions: [{ name: 'done', to: 'end' }],
+    },
+    join: {
+      id: 'join',
+      type: 'join',
+      transitions: [{ name: 'go', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, true)
+  assert.ok(
+    result.warnings.some((w) => /required branch 'escape' of fork 'fork' never reaches a join/.test(w)),
+    `expected a bypass warning, got: ${result.warnings.join('; ')}`,
+  )
+})
+
+test('ENG-14: a required fork branch entering a nested fork before any join is a warning, not an error', () => {
+  const g = graph({
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'fork' }] },
+    fork: {
+      id: 'fork',
+      type: 'fork',
+      transitions: [
+        { name: 'nested', to: 'fork2' },
+        { name: 'ok', to: 'join' },
+      ],
+    },
+    fork2: {
+      id: 'fork2',
+      type: 'fork',
+      transitions: [{ name: 'a', to: 'end' }],
+    },
+    join: {
+      id: 'join',
+      type: 'join',
+      transitions: [{ name: 'go', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  })
+  const result = validateProcessGraph(g)
+  assert.equal(result.valid, true)
+  assert.ok(
+    result.warnings.some((w) => /required branch 'nested' of fork 'fork' passes through nested fork/.test(w)),
+    `expected a nested-fork warning, got: ${result.warnings.join('; ')}`,
+  )
+})

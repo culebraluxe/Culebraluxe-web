@@ -1,17 +1,21 @@
 # Workflow XML Model — RE_supermodel
 
-Status: **CRM-14E — XML RE_SUPERMODEL**. The XML definition format is the
-authoritative source for workflow definitions. The workflow engine remains a
-generic, domain-neutral runtime.
+Status: **CRM-14E + ENG-14 — XML RE_SUPERMODEL + definition validation**. The
+XML definition format is the authoritative source for workflow definitions.
+The workflow engine remains a generic, domain-neutral runtime. ENG-14 makes
+invalid definitions fail deterministically at deployment via four explicit
+validation layers (see §2b).
 
 ```
 XML source
   ↓
-generic XML parser  (workflow_app/xml/mini-xml.ts + xml-parser.ts)
+Layer 1: generic XML parser     (workflow_app/xml/mini-xml.ts)        — well-formedness
+Layer 2: engine grammar         (workflow_app/xml/xml-parser.ts)      — grammar
   ↓
 ProcessGraph
   ↓
-generic validator   (workflow_app/xml/graph-validator.ts)
+Layer 3: generic graph validator (workflow_app/xml/graph-validator.ts) — graph semantics
+Layer 4: application contract    (workflow_app/definitions/application-contract.ts) — command routability
   ↓
 versioned process_definitions row in Neon  (upsertProcessDefinition)
   ↓
@@ -109,6 +113,49 @@ engine cannot run plus unambiguous authoring errors:
 - cycles are allowed (blocker loops are intentional — the engine handles them)
 
 The validator deliberately does **not** invent stylistic constraints.
+
+---
+
+## 2b. ENG-14 — Four validation layers / static analysis
+
+Invalid workflow definitions fail deterministically at **deployment**, never
+during live execution. The deploy pipeline
+(`workflow_app/definitions/validate-definition.ts`, used by the generic deploy
+command and by `parseReSupermodel()`) composes four explicit layers; each
+reports actionable diagnostics:
+
+| Layer | Module | Rejects |
+|---|---|---|
+| 1. XML well-formedness | `xml/mini-xml.ts` (`parseXml`) | non-well-formed input (unterminated/mismatched tags, unknown entities, processing instructions, DOCTYPE/DTD, trailing garbage) |
+| 2. Engine grammar | `xml/xml-parser.ts` | unknown elements/attributes, duplicate node ids, missing/extra `start-state`, invalid attribute values, transition targets that do not exist |
+| 3. Generic graph semantics | `xml/graph-validator.ts` | structures the engine cannot run (see below) — operates on `ProcessGraph`, so any future authoring format reuses it |
+| 4. Application contract | `definitions/application-contract.ts` | `<command-node>` types with **no router case** in the canonical command inventory (`workflow_app/command-types.ts` / `lib/commands/register.ts`) |
+
+Layer 3 additions (ENG-14):
+
+- **Unreachable-node reporting** — any node with no path of transitions from
+  the start node is an error (dead weight; usually a typo or leftover).
+- **Unsupported-node diagnostics** — node types the engine has no handler for
+  are rejected instead of silently degrading to passthrough behavior. The
+  supported set is exactly the engine's dispatch surface: `start`, `end`,
+  `task`, `decision`, `fork`, `join`, `timer`, `command`, and `state` (the
+  explicit passthrough). `subprocess` gets a targeted diagnostic (declared in
+  the engine type union but unimplemented).
+- **Impossible-join / fork-join analysis, only where safely determinable** —
+  a required fork branch that is a closed loop with no exit (no end/leaf/fork/
+  join reachable) is an error: its token can never complete, so the process
+  would hang and any join it feeds can never release. Required branches that
+  never reach a join (or pass through a nested fork first) are **warnings**,
+  not errors — the engine runs them, but the join-wait is trivially satisfied.
+- **Cycles-allowed policy** — cycles are allowed and never reported as errors.
+  Blocker loops (`work → issue → blocker → resolved → work`) are intentional
+  and the engine handles them; only a cycle with **no exit** is rejected (it
+  can never complete, which hangs the process).
+
+Fail-fast contract: `deploy-process-definition.ts` (and every test consumer)
+runs all four layers; any error aborts the deploy with `[layer]`-prefixed
+diagnostics before the definition becomes runnable. `--dry-run` runs the same
+validation without touching the database.
 
 ---
 
