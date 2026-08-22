@@ -258,6 +258,13 @@ export function StoryExecutionCockpit({ model }: { model: StoryExecutionCockpit 
             </h1>
           </div>
           <Link
+            href={`/portal/command-center?focus=${encodeURIComponent(story.id)}`}
+            className="rounded-sm border border-[#c6a15b]/40 px-3 py-1.5 text-xs font-light text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
+            title="Back to the Factory Command Center with this story in context"
+          >
+            ← Factory
+          </Link>
+          <Link
             href="/portal/command-console"
             className="rounded-sm border border-white/10 px-3 py-1.5 text-xs font-light text-slate-400 transition hover:border-[#c6a15b]/50 hover:text-[#e3c98a]"
           >

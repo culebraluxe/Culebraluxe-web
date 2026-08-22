@@ -42,6 +42,7 @@ export const PORTAL_NAVIGATION: PortalNavGroup[] = [
       { label: 'Media Audit', href: '/portal/media-admin', authority: 'portal.read' },
       { label: 'Reporting', href: '/portal/reporting', authority: 'portal.read' },
       { label: 'Story Board', href: '/portal/storyboard', authority: 'portal.read' },
+      { label: 'Command Center', href: '/portal/command-center', authority: 'portal.read' },
       { label: 'Command Console', href: '/portal/command-console', authority: 'portal.read' },
       { label: 'Identity Quality', href: '/portal/identity-quality', authority: 'portal.read' },
       { label: 'System Health', href: '/portal/system-health', authority: 'portal.read' },
