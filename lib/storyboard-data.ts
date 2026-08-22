@@ -197,6 +197,8 @@ export type StoryBoardFilter = {
   priority: 'all' | StoryPriority
   view: StoryBoardView
   rollup: 'all' | 'in' | 'out'
+  /** SB-01: operating-surface filter; 'unclassified' = NULL operating_surface. */
+  surface: 'all' | OperatingSurface | 'unclassified'
 }
 
 export function defaultStoryBoardFilter(): StoryBoardFilter {
@@ -207,6 +209,7 @@ export function defaultStoryBoardFilter(): StoryBoardFilter {
     priority: 'all',
     view: 'all',
     rollup: 'all',
+    surface: 'all',
   }
 }
 
@@ -251,6 +254,15 @@ export function parseStoryBoardFilter(
   const rollup = firstParam(params, 'rollup')
   if (rollup === 'in' || rollup === 'out') filter.rollup = rollup
 
+  const surface = firstParam(params, 'surface')
+  if (
+    surface &&
+    (surface === 'unclassified' ||
+      (OPERATING_SURFACE_CODES as readonly string[]).includes(surface))
+  ) {
+    filter.surface = surface as StoryBoardFilter['surface']
+  }
+
   return filter
 }
 
@@ -262,6 +274,9 @@ export function storyBoardFilterToQuery(filter: StoryBoardFilter): string {
   if (filter.priority !== 'all') params.set('priority', filter.priority)
   if (filter.view !== 'all') params.set('view', filter.view)
   if (filter.rollup !== 'all') params.set('rollup', filter.rollup)
+  // Defensive: older callers may omit the field entirely (undefined == 'all').
+  if (filter.surface && filter.surface !== 'all')
+    params.set('surface', filter.surface)
   return params.toString()
 }
 
@@ -315,6 +330,14 @@ export function filterStories(
     }
     if (filter.rollup === 'in' && !story.rollup) return false
     if (filter.rollup === 'out' && story.rollup) return false
+    // Defensive: older callers may omit the field entirely (undefined == 'all').
+    if (filter.surface && filter.surface !== 'all') {
+      if (filter.surface === 'unclassified') {
+        if (story.operatingSurface !== null) return false
+      } else if (story.operatingSurface !== filter.surface) {
+        return false
+      }
+    }
     return storyMatchesQuery(story, filter.q)
   })
 }
@@ -352,6 +375,29 @@ export type WorkstreamRollup = {
   storedCount: number
 }
 
+/**
+ * SB-01 — per-surface completion projection (NEXUS | OPS | SUPPORT | TECH).
+ *
+ * Uses the SAME completion semantics as the workstream rollup: completionPercent
+ * is the AVG of the stored completion over ROLLUP-participating stories
+ * (rollup=true) classified to that surface. Reference / rollup=false rows are
+ * never in the percentage or count columns (they cannot pollute the
+ * projection); they are only reflected in storedCount. Stories with a NULL
+ * operating surface are excluded from every surface projection entirely.
+ */
+export type SurfaceRollup = {
+  surface: OperatingSurface
+  /** AVG stored completion over rollup-participating stories, 0–100. */
+  completionPercent: number
+  /** Rollup-participating story count for this surface. */
+  storyCount: number
+  /** All stored stories carrying this surface, including rollup=false parents. */
+  storedCount: number
+  completeCount: number
+  openCount: number
+  blockedCount: number
+}
+
 export type StoryBoardModel = {
   stories: StoryRecord[]
   workstreams: WorkstreamRollup[]
@@ -364,6 +410,10 @@ export type StoryBoardModel = {
   totalBlockedFailed: number
   /** Stories explicitly authorized for coding-agent execution. */
   totalReady: number
+  /** SB-01: per-surface completion projections, in Tier-1 order. */
+  surfaceRollups: SurfaceRollup[]
+  /** Stories deliberately left unclassified (operating_surface IS NULL). */
+  unclassifiedCount: number
 }
 
 function round(value: number, digits = 1) {
@@ -434,6 +484,38 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     ),
   )
 
+  // SB-01 — per-surface completion projection. SAME completion semantics as the
+  // workstream rollup (AVG over rollup-participating stories); reference /
+  // rollup=false rows never pollute the percentage and count columns. NULL
+  // operating_surface stories are excluded from every surface projection.
+  const surfaceRollups: SurfaceRollup[] = OPERATING_SURFACE_ORDER.map(
+    (surface) => {
+      const stored = stories.filter((s) => s.operatingSurface === surface)
+      const group = stored.filter((s) => s.rollup)
+      const storyCount = group.length
+      return {
+        surface,
+        completionPercent:
+          storyCount > 0
+            ? round(
+                group.reduce((sum, s) => sum + s.completion, 0) / storyCount,
+              )
+            : 0,
+        storyCount,
+        storedCount: stored.length,
+        completeCount: group.filter(
+          (s) => statusBucket(s.status) === 'complete',
+        ).length,
+        openCount: group.filter(
+          (s) => statusBucket(s.status) === 'open',
+        ).length,
+        blockedCount: group.filter(
+          (s) => statusBucket(s.status) === 'blocked',
+        ).length,
+      }
+    },
+  )
+
   return {
     stories,
     workstreams,
@@ -445,5 +527,9 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     ).length,
     totalBlockedFailed: stories.filter((s) => isBlockedFailed(s.status)).length,
     totalReady: stories.filter((s) => s.status === 'Ready').length,
+    surfaceRollups,
+    unclassifiedCount: stories.filter(
+      (s) => s.operatingSurface === null,
+    ).length,
   }
 }

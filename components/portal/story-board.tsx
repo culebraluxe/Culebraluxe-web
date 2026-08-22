@@ -94,6 +94,70 @@ function SummaryStrip({ model }: { model: StoryBoardModel }) {
   )
 }
 
+const SURFACE_JOB_NOTE: Record<string, string> = {
+  NEXUS: 'do the real-estate work',
+  OPS: 'administer the business',
+  SUPPORT: 'operate & secure the product',
+  TECH: 'build the platform',
+}
+
+/**
+ * SB-01 — the four operating-surface completion projections. One canonical
+ * board, additional projection: the same stored completion / AVG semantics as
+ * the workstream dashboard, grouped by operating surface. Reference /
+ * rollup=false rows never pollute the percentage; NULL rows are excluded.
+ */
+function SurfaceCompletionStrip({ model }: { model: StoryBoardModel }) {
+  return (
+    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="border-b border-[var(--portal-border)] px-6 py-6">
+        <h2 className="font-serif text-2xl font-light">
+          Operating Surface Completion
+        </h2>
+        <p className="mt-1 text-sm font-light leading-6 text-black/50">
+          Projection over the authoritative backlog, classified by primary job.
+          Workstream grouping, weights and the Net-Net formula are unchanged.
+        </p>
+      </div>
+      <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-4">
+        {model.surfaceRollups.map((surface) => (
+          <div
+            key={surface.surface}
+            className="rounded-sm border border-[var(--portal-border)] p-5"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+                {surface.surface}
+              </span>
+              <span className="text-[10px] font-light uppercase tracking-[0.14em] text-black/35">
+                {surface.storyCount} in rollup
+              </span>
+            </div>
+            <div className="mt-3 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
+              {surface.completionPercent.toFixed(1)}%
+            </div>
+            <div className="mt-2 text-xs font-light leading-5 text-black/40">
+              {SURFACE_JOB_NOTE[surface.surface]} — {surface.storedCount} stored
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-[var(--portal-border)] px-6 py-4 text-xs font-light leading-5 text-black/40">
+        {model.unclassifiedCount > 0 ? (
+          <>
+            {model.unclassifiedCount} stored story
+            {model.unclassifiedCount === 1 ? ' is' : 's are'} deliberately
+            unclassified (reference / undecided) and excluded from every surface
+            projection.
+          </>
+        ) : (
+          <>Every stored story is deliberately classified.</>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function WorkstreamRow({ model }: { model: StoryBoardModel }) {
   return (
     <tbody>
@@ -170,6 +234,8 @@ export function StoryBoard({
 
       <SummaryStrip model={model} />
 
+      <SurfaceCompletionStrip model={model} />
+
       <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
         <div className="border-b border-[var(--portal-border)] px-6 py-6">
           <h2 className="font-serif text-2xl font-light">
@@ -228,12 +294,16 @@ export function StoryBoard({
           (0–100) over rollup-participating stories — status is categorical and
           does not drive the percentage. Net-Net = Σ (workstream completion ×
           weight) with weights Public Website 20, CRM Foundation 20, Portal 20,
-          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Each story
-          carries its execution specification (goal, dependencies,
-          preconditions, architect brief, context refs, acceptance criteria,
-          postconditions); runs snapshot that specification when they start
-          (migration 024). Open any story to inspect the full detail and
-          execution history, or filter/search the list above. No
+          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Operating
+          Surface Completion uses the same stored completion average over the
+          rollup-participating stories classified to that surface (SB-01);
+          reference / rollup=false rows never pollute the percentage and
+          deliberately unclassified (NULL) stories are excluded from every
+          surface projection. Each story carries its execution specification
+          (goal, dependencies, preconditions, architect brief, context refs,
+          acceptance criteria, postconditions); runs snapshot that specification
+          when they start (migration 024). Open any story to inspect the full
+          detail and execution history, or filter/search the list above. No
           workflow_engine changes.
         </p>
       </footer>

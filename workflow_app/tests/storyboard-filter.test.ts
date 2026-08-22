@@ -218,6 +218,7 @@ test('storyBoardFilterToQuery round-trips through parse', () => {
     priority: 'High',
     view: 'blocked-failed',
     rollup: 'all',
+    surface: 'all',
   }
   const qs = storyBoardFilterToQuery(f)
   const parsed = parseStoryBoardFilter(
