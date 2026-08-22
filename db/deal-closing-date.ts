@@ -15,12 +15,16 @@ import { neonTx, type TxRunner } from './tx'
 // canonical command seam (lib/commands — thin wrapper
 // SetDealClosingDateCommand registered for deal.set_closing_date), never by
 // one-off direct service calls.
+//
+// AUTH-05: the optional actorAppUserId is threaded into the receipt so the
+// receipt itself records WHO changed the closing date.
 // ---------------------------------------------------------------------------
 
 export type SetDealClosingDateInput = {
   dealId: string
   closingDate: string
   commandId: string
+  actorAppUserId?: string | null
 }
 
 function isIsoDate(value: string): boolean {
@@ -45,7 +49,11 @@ export async function setDealClosingDate(
   }
 
   return run(async (tx) => {
-    const claimed = await claimReceipt(tx, input.commandId)
+    const claimed = await claimReceipt(
+      tx,
+      input.commandId,
+      input.actorAppUserId ?? null,
+    )
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
       const replay = replayOutcome(receipt)
@@ -75,7 +83,14 @@ export async function setDealClosingDate(
       message = 'Deal not found.'
     }
 
-    await finalizeReceipt(tx, input.commandId, outcome, aggregateId, message)
+    await finalizeReceipt(
+      tx,
+      input.commandId,
+      outcome,
+      aggregateId,
+      message,
+      input.actorAppUserId ?? null,
+    )
 
     return {
       commandId: input.commandId,

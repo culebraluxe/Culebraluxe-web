@@ -40,7 +40,14 @@ export class SetDealClosingDateCommand
       }
     }
     return setDealClosingDate(
-      { dealId, closingDate, commandId: envelope.commandId },
+      {
+        dealId,
+        closingDate,
+        commandId: envelope.commandId,
+        // AUTH-05: thread the acting user into the receipt so the receipt
+        // itself records who changed the closing date.
+        actorAppUserId: envelope.actorAppUserId ?? null,
+      },
       ctx.run,
     )
   }

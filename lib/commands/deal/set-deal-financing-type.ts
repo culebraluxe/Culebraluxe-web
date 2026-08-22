@@ -41,7 +41,14 @@ export class SetDealFinancingTypeCommand
       }
     }
     return setDealFinancingType(
-      { dealId, financingType, commandId: envelope.commandId },
+      {
+        dealId,
+        financingType,
+        commandId: envelope.commandId,
+        // AUTH-05: thread the acting user into the receipt so the receipt
+        // itself records who set the financing type.
+        actorAppUserId: envelope.actorAppUserId ?? null,
+      },
       ctx.run,
     )
   }

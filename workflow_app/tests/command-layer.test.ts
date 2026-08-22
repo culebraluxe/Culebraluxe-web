@@ -60,21 +60,22 @@ class FakeCommandDb {
 
       if (t.includes('insert into workflow_command_receipt') && t.includes('on conflict')) {
         if (working.receipts.some((r) => r.command_id === p[0])) return Promise.resolve([])
-        working.receipts.push({ command_id: p[0], outcome: 'pending', aggregate_id: null, message: null })
+        working.receipts.push({ command_id: p[0], outcome: 'pending', aggregate_id: null, message: null, actor_app_user_id: p[1] ?? null })
         return Promise.resolve([{ command_id: p[0] }])
       }
       if (t.includes('update workflow_command_receipt set outcome =')) {
-        const r = working.receipts.find((x) => x.command_id === p[3])
+        const r = working.receipts.find((x) => x.command_id === p[4])
         if (r) {
           r.outcome = p[0]
           r.aggregate_id = p[1]
           r.message = p[2]
+          r.actor_app_user_id = p[3] ?? null
         }
         return Promise.resolve([])
       }
       if (t.includes('select command_id, outcome, aggregate_id, message from workflow_command_receipt') && t.includes('where command_id')) {
         const r = working.receipts.find((x) => x.command_id === p[0])
-        return Promise.resolve(r ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message }] : [])
+        return Promise.resolve(r ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message, actor_app_user_id: r.actor_app_user_id ?? null }] : [])
       }
       if (t.includes('update deal set stage =') && t.includes('returning id, stage')) {
         const row = working.deals.find((d) => d.id === p[2] && d.stage === p[3])

@@ -17,6 +17,9 @@ import { neonTx, type TxRunner } from './tx'
 // SetDealStageUnderContractCommand / SetDealStageClosedCommand), never by
 // one-off direct service calls. The canonical dispatcher reads the receipt for
 // its replay fast-path; this service's claim-first write stays authoritative.
+//
+// AUTH-05: the optional actorAppUserId is threaded into the receipt so the
+// receipt itself records WHO changed the stage.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_TRANSITIONS: Array<[string, string]> = [
@@ -29,6 +32,7 @@ export type SetDealStageInput = {
   from: string
   to: string
   commandId: string
+  actorAppUserId?: string | null
 }
 
 export async function setDealStage(
@@ -50,7 +54,11 @@ export async function setDealStage(
   }
 
   return run(async (tx) => {
-    const claimed = await claimReceipt(tx, input.commandId)
+    const claimed = await claimReceipt(
+      tx,
+      input.commandId,
+      input.actorAppUserId ?? null,
+    )
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
       const replay = replayOutcome(receipt)
@@ -91,7 +99,14 @@ export async function setDealStage(
       }
     }
 
-    await finalizeReceipt(tx, input.commandId, outcome, aggregateId, message)
+    await finalizeReceipt(
+      tx,
+      input.commandId,
+      outcome,
+      aggregateId,
+      message,
+      input.actorAppUserId ?? null,
+    )
 
     return {
       commandId: input.commandId,

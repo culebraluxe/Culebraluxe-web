@@ -70,15 +70,16 @@ class FakeDb {
     // ---- workflow_command_receipt (claim-first) ----
     if (t.includes('insert into workflow_command_receipt') && t.includes('on conflict')) {
       if (this.receipts.some((r) => r.command_id === p[0])) return Promise.resolve([])
-      this.receipts.push({ command_id: p[0], outcome: 'pending', aggregate_id: null, message: null })
+      this.receipts.push({ command_id: p[0], outcome: 'pending', aggregate_id: null, message: null, actor_app_user_id: p[1] ?? null })
       return Promise.resolve([{ command_id: p[0] }])
     }
     if (t.includes('update workflow_command_receipt set outcome =')) {
-      const r = this.receipts.find((x) => x.command_id === p[3])
+      const r = this.receipts.find((x) => x.command_id === p[4])
       if (r) {
         r.outcome = p[0]
         r.aggregate_id = p[1]
         r.message = p[2]
+        r.actor_app_user_id = p[3] ?? null
       }
       return Promise.resolve([])
     }
@@ -89,7 +90,7 @@ class FakeDb {
       const r = this.receipts.find((x) => x.command_id === p[0])
       return Promise.resolve(
         r
-          ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message }]
+          ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message, actor_app_user_id: r.actor_app_user_id ?? null }]
           : [],
       )
     }

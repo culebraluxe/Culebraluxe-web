@@ -41,7 +41,14 @@ export class AcceptOfferCommand
       }
     }
     return acceptOffer(
-      { dealId, offerId, commandId: envelope.commandId },
+      {
+        dealId,
+        offerId,
+        commandId: envelope.commandId,
+        // AUTH-05: thread the acting user into the receipt so the receipt
+        // itself records who accepted.
+        actorAppUserId: envelope.actorAppUserId ?? null,
+      },
       ctx.run,
     )
   }
