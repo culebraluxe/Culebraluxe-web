@@ -66,7 +66,13 @@ export type ResolveIntakeAction =
 export type ResolveIntakeInput = {
   submissionId: string
   action: ResolveIntakeAction
-  /** AUTH-05 acting app_user; null until the runtime session wiring lands. */
+  /**
+   * AUTH-05 acting app_user. The Portal server action derives this from the
+   * authenticated session (portalWrite -> acting user) and threads it in, so
+   * resolved_by_user_id on the durable receipt records WHO resolved the item.
+   * Null when the service is invoked outside the session path (tests,
+   * automated pipeline) — resolved_by_user_id stays null then.
+   */
   actorAppUserId?: string | null
 }
 

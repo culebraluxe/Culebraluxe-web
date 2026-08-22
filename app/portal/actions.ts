@@ -594,12 +594,17 @@ export async function rejectOfferAction(
 
 // ---------------------------------------------------------------
 // STORY 6 — Needs Review resolution (single seam)
+//
+// AUTH-05 actor capture: the acting app_user is derived from the session by
+// portalWrite and threaded into resolveIntake, so resolved_by_user_id on the
+// durable receipt records WHO resolved the item. The action intentionally does
+// NOT accept a client-supplied actor id — audit attribution must come from the
+// authenticated session, never from the caller.
 // ---------------------------------------------------------------
 
 export async function resolveIntakeAction(input: {
   submissionId: string
   action: ResolveIntakeAction
-  actorAppUserId?: string | null
 }): Promise<PortalWriteResult<ResolveIntakeResult>> {
   if (!isUuid(input.submissionId)) {
     return {
@@ -615,19 +620,12 @@ export async function resolveIntakeAction(input: {
       message: 'Invalid person identifier.',
     }
   }
-  if (input.actorAppUserId != null && !isUuid(input.actorAppUserId)) {
-    return {
-      ok: false,
-      code: 'validation',
-      message: 'Invalid acting user identifier.',
-    }
-  }
-  return portalWrite('crm.write', async () => {
+  return portalWrite('crm.write', async (actor) => {
     try {
       const result = await resolveIntake({
         submissionId: input.submissionId,
         action: input.action,
-        actorAppUserId: input.actorAppUserId ?? undefined,
+        actorAppUserId: actor.appUserId,
       } satisfies ResolveIntakeInput)
       revalidatePortal()
       return { ok: true, data: result }
