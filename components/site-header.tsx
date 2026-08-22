@@ -23,7 +23,7 @@ export function SiteHeader() {
 
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-[#c6a15b]/15 bg-brand-navy py-6">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-brand-gold/15 bg-brand-navy py-6">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between px-6 md:px-12">
           {USE_IMAGE_LOGO ? (
             <a
@@ -58,13 +58,13 @@ export function SiteHeader() {
               <a
                 key={link.href}
                 href={link.href}
-                className="group relative flex h-12 items-center px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-[#c6a15b] focus-visible:text-[#c6a15b] focus-visible:outline-none lg:px-2"
+                className="group relative flex h-12 items-center px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none lg:px-2"
               >
                 {link.label}
-                <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-[#c6a15b] transition-all duration-500 ease-out group-hover:w-full" />
+                <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-brand-gold transition-all duration-500 ease-out group-hover:w-full" />
               </a>
             ))}
-            <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-[#c6a15b] focus-visible:text-[#c6a15b] focus-visible:outline-none lg:px-2" />
+            <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-[#f8f5ec]/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none lg:px-2" />
           </nav>
 
           <button
@@ -99,7 +99,7 @@ export function SiteHeader() {
         <div
           className={cn(
             "overflow-hidden bg-brand-navy backdrop-blur-md transition-all duration-500 ease-out md:hidden",
-            menuOpen ? "max-h-96 border-t border-[#c6a15b]/25" : "max-h-0",
+            menuOpen ? "max-h-96 border-t border-brand-gold/25" : "max-h-0",
           )}
         >
           <nav className="flex flex-col px-6 py-4" aria-label="Mobile">
