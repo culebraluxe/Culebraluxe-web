@@ -30,6 +30,19 @@ export type CommandReceipt = {
   outcome: ReceiptOutcome
   aggregateId: string | null
   message: string | null
+  // CMD-01 (migration 051): envelope chain metadata persisted on the row.
+  actorAppUserId?: string | null
+  commandType?: string | null
+  correlationId?: string | null
+  causationId?: string | null
+}
+
+/** CMD-01 — envelope chain facts recorded on an existing receipt row. */
+export type ReceiptMetadata = {
+  actorAppUserId?: string | null
+  commandType?: string | null
+  correlationId?: string | null
+  causationId?: string | null
 }
 
 export type ReplayDecision = {
@@ -94,7 +107,8 @@ export async function readFinalReceipt(
   commandId: string,
 ): Promise<CommandReceipt | null> {
   const rows = await tx`
-    select command_id, outcome, aggregate_id, message
+    select command_id, outcome, aggregate_id, message, actor_app_user_id,
+      command_type, correlation_id, causation_id
     from workflow_command_receipt
     where command_id = ${commandId}
     limit 1
@@ -106,5 +120,30 @@ export async function readFinalReceipt(
     outcome: r.outcome as ReceiptOutcome,
     aggregateId: (r.aggregate_id as string | null) ?? null,
     message: (r.message as string | null) ?? null,
+    actorAppUserId: (r.actor_app_user_id as string | null) ?? null,
+    commandType: (r.command_type as string | null) ?? null,
+    correlationId: (r.correlation_id as string | null) ?? null,
+    causationId: (r.causation_id as string | null) ?? null,
   }
+}
+
+/**
+ * CMD-01 — record envelope chain metadata on an existing receipt row in the
+ * SAME transaction as the mutation + receipt outcome. Outcome/aggregateId/
+ * message stay untouched (owned by the executing service). No-op when the
+ * commandId has no receipt row.
+ */
+export async function recordReceiptMetadata(
+  tx: QueryExecutor,
+  commandId: string,
+  metadata: ReceiptMetadata,
+): Promise<void> {
+  await tx`
+    update workflow_command_receipt
+    set actor_app_user_id = ${metadata.actorAppUserId ?? null},
+        command_type = ${metadata.commandType ?? null},
+        correlation_id = ${metadata.correlationId ?? null},
+        causation_id = ${metadata.causationId ?? null}
+    where command_id = ${commandId}
+  `
 }

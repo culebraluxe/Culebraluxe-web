@@ -47,6 +47,7 @@ import type {
   CommandRegistry,
   CommandReceiptRepository,
   CommandResult,
+  CommandFailureCategory,
   DomainEvent,
   TypedCommandEnvelope,
   TypedCommandResult,
@@ -73,11 +74,18 @@ export type CommandDispatcherOptions = {
 function unknownCommandResult(envelope: CommandEnvelope): CommandResult {
   return {
     commandId: envelope.commandId,
+    commandType: envelope.commandType,
     outcome: 'not_found',
     emittedEvents: [],
     aggregateId: null,
     message: `Unknown command type: ${envelope.commandType}`,
     replayed: false,
+    error: {
+      code: 'unknown_command_type',
+      message: `Unknown command type: ${envelope.commandType}`,
+      retryable: false,
+      category: 'validation',
+    },
   }
 }
 
@@ -93,30 +101,54 @@ function mergeEvents(a: DomainEvent[], b: DomainEvent[]): DomainEvent[] {
   return out
 }
 
+function failureCategory(
+  outcome: CommandResult['outcome'],
+  replayed: boolean,
+): CommandFailureCategory {
+  if (replayed) return 'replay'
+  switch (outcome) {
+    case 'validation_failure':
+    case 'not_found':
+    case 'unauthorized':
+    case 'precondition_failure':
+    case 'conflict':
+      return 'validation'
+    default:
+      return 'unknown'
+  }
+}
+
 function normalizeResult(
   envelope: CommandEnvelope,
   result: CommandResult,
   emitted: DomainEvent[],
   hasReceipt: boolean,
 ): CommandResult {
+  const replayed = result.replayed ?? false
+  const outcome = result.outcome
+  // CMD-01 — explicit failure taxonomy + guaranteed non-empty failure message.
   const error =
-    result.error ??
-    (result.outcome === 'success'
-      ? undefined
-      : {
-          code: result.outcome,
+    result.error !== undefined || outcome !== 'success'
+      ? {
+          code: result.error?.code ?? outcome,
           message:
-            result.message ??
-            `Command '${envelope.commandType}' failed with outcome '${result.outcome}'.`,
-          retryable: result.outcome === 'conflict',
-        })
+            result.error?.message?.trim() ||
+            result.message?.trim() ||
+            `Command '${envelope.commandType}' failed with outcome '${outcome}'.`,
+          retryable: result.error?.retryable ?? outcome === 'conflict',
+          category: result.error?.category ?? failureCategory(outcome, replayed),
+        }
+      : undefined
   return {
     commandId: envelope.commandId,
-    outcome: result.outcome,
+    // CMD-01 — the dispatcher stamps the envelope's stable command type on
+    // every result (the receipt row carries it durably as well).
+    commandType: envelope.commandType,
+    outcome,
     emittedEvents: mergeEvents(result.emittedEvents, emitted),
     aggregateId: result.aggregateId ?? null,
     message: result.message ?? null,
-    replayed: result.replayed ?? false,
+    replayed,
     value: result.value,
     error,
     receiptId: result.receiptId ?? (hasReceipt ? envelope.commandId : undefined),
@@ -129,6 +161,33 @@ export class CommandDispatcherImpl implements CommandDispatcher {
   async execute<TPayload extends Record<string, unknown>, TResult = unknown>(
     command: TypedCommandEnvelope<TPayload>,
   ): Promise<TypedCommandResult<TResult>> {
+    // CMD-01 — the durable receipt is keyed on commandId; a caller-supplied
+    // idempotency key MUST be the commandId (no second identity is ever
+    // introduced). Deterministic contract rejection, not a technical failure.
+    if (
+      command.idempotencyKey !== undefined &&
+      command.idempotencyKey !== command.commandId
+    ) {
+      const message =
+        `idempotencyKey '${command.idempotencyKey}' must equal commandId ` +
+        `'${command.commandId}'; the durable receipt is keyed on commandId.`
+      return {
+        commandId: command.commandId,
+        commandType: command.commandType,
+        outcome: 'validation_failure',
+        emittedEvents: [],
+        aggregateId: command.aggregateId ?? null,
+        message,
+        replayed: false,
+        error: {
+          code: 'invalid_idempotency_key',
+          message,
+          retryable: false,
+          category: 'validation',
+        },
+      } as TypedCommandResult<TResult>
+    }
+
     // 1. Resolve handler by commandType.
     const handler = this.options.registry.resolve(command.commandType)
     if (!handler) {
@@ -160,6 +219,22 @@ export class CommandDispatcherImpl implements CommandDispatcher {
       }
       const result = await handler.handle(command, ctx)
 
+      // CMD-01 — persist the envelope chain facts (actor, command type,
+      // correlation/causation) on the receipt row in the SAME transaction as
+      // the mutation. Outcome/aggregateId/message stay owned by the executing
+      // service; this only enriches the durable proof (no-op when the handler
+      // wrote no receipt row).
+      await this.options.receipts.recordMetadata(
+        command.commandId,
+        {
+          actorAppUserId: command.actorAppUserId,
+          commandType: command.commandType,
+          correlationId: command.correlationId,
+          causationId: command.causationId,
+        },
+        tx,
+      )
+
       // 8. Outbox rows in the SAME transaction when the seam is enabled.
       const emitted = collector.drain()
       if (this.options.eventSink && emitted.length > 0) {
@@ -187,13 +262,28 @@ export class CommandDispatcherImpl implements CommandDispatcher {
       aggregateId: receipt.aggregateId,
       message: receipt.message,
     })
+    const outcome = decision.outcome
+    // CMD-01 — replay failures are explicit, categorized and never blank.
+    const message =
+      decision.message?.trim() ||
+      `Command '${command.commandType}' was replayed from its committed receipt with outcome '${outcome}'.`
     return {
       commandId: command.commandId,
-      outcome: decision.outcome,
+      commandType: command.commandType,
+      outcome,
       emittedEvents: [],
       aggregateId: receipt.aggregateId ?? null,
-      message: decision.message,
+      message,
       replayed: true,
+      error:
+        outcome === 'success'
+          ? undefined
+          : {
+              code: outcome,
+              message,
+              retryable: outcome === 'conflict',
+              category: 'replay',
+            },
       receiptId: command.commandId,
     }
   }

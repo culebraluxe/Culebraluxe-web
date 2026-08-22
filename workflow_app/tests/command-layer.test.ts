@@ -72,9 +72,33 @@ class FakeCommandDb {
         }
         return Promise.resolve([])
       }
-      if (t.includes('select command_id, outcome, aggregate_id, message from workflow_command_receipt') && t.includes('where command_id')) {
+      if (t.includes('update workflow_command_receipt set actor_app_user_id =')) {
+        // CMD-01 recordMetadata: UPDATE ... set actor_app_user_id = $1,
+        // command_type = $2, correlation_id = $3, causation_id = $4
+        // where command_id = $5
+        const r = working.receipts.find((x) => x.command_id === p[4])
+        if (r) {
+          r.actor_app_user_id = p[0]
+          r.command_type = p[1]
+          r.correlation_id = p[2]
+          r.causation_id = p[3]
+        }
+        return Promise.resolve([])
+      }
+      if (t.includes('select command_id, outcome, aggregate_id, message, actor_app_user_id') && t.includes('where command_id')) {
         const r = working.receipts.find((x) => x.command_id === p[0])
-        return Promise.resolve(r ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message }] : [])
+        return Promise.resolve(r
+          ? [{
+              command_id: r.command_id,
+              outcome: r.outcome,
+              aggregate_id: r.aggregate_id,
+              message: r.message,
+              actor_app_user_id: r.actor_app_user_id ?? null,
+              command_type: r.command_type ?? null,
+              correlation_id: r.correlation_id ?? null,
+              causation_id: r.causation_id ?? null,
+            }]
+          : [])
       }
       if (t.includes('update deal set stage =') && t.includes('returning id, stage')) {
         const row = working.deals.find((d) => d.id === p[2] && d.stage === p[3])

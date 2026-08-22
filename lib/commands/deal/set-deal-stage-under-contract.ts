@@ -16,6 +16,7 @@ import type {
   CommandResult,
 } from '../contracts'
 import { DEAL_SET_STAGE_UNDER_CONTRACT } from '../command-types'
+import { createDomainEventFromCommand } from '../domain-events'
 
 export { DEAL_SET_STAGE_UNDER_CONTRACT }
 
@@ -26,14 +27,29 @@ export class SetDealStageUnderContractCommand
     envelope: CommandEnvelope,
     ctx: CommandExecutionContext,
   ): Promise<CommandResult> {
-    return setDealStage(
+    const from = 'offer'
+    const to = 'under_contract'
+    const result = await setDealStage(
       {
         dealId: envelope.aggregateId ?? '',
-        from: 'offer',
-        to: 'under_contract',
+        from,
+        to,
         commandId: envelope.commandId,
       },
       ctx.run,
     )
+    // CMD-01 — a COMMITTED stage change is a FACT. Emit the existing
+    // DEAL_STAGE_CHANGED domain event through the dispatcher's collector so it
+    // is appended to the outbox in the SAME transaction as the mutation +
+    // receipt. Only on success — a failed command never emits a fact.
+    if (result.outcome === 'success') {
+      ctx.events.add(
+        createDomainEventFromCommand(envelope, {
+          eventType: 'DEAL_STAGE_CHANGED',
+          payload: { dealId: envelope.aggregateId ?? '', from, to },
+        }),
+      )
+    }
+    return result
   }
 }

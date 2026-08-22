@@ -11,6 +11,9 @@
 export type DomainEventType =
   | 'DEAL_CREATED'
   | 'DEAL_STAGE_CHANGED'
+  // CMD-01 — canonical accept fact emitted through the transactional outbox by
+  // the offer.accept command when its business effect commits.
+  | 'OFFER_ACCEPTED'
   | 'OFFER_CREATED'
   | 'OFFER_COUNTERED'
   | 'OFFER_WITHDRAWN'
@@ -66,6 +69,15 @@ export type CommandType = string // stable machine identifier (see command inven
 
 export type CommandEnvelope = {
   commandId: string
+  /**
+   * CMD-01 — caller-facing idempotency identity. The durable command receipt is
+   * keyed on commandId (the dedupe key): retrying with the SAME commandId
+   * replays the committed outcome and never duplicates a business effect. When
+   * a caller also supplies an idempotencyKey it MUST equal commandId — the
+   * dispatcher rejects a mismatch as an invalid envelope. No second identity is
+   * ever introduced.
+   */
+  idempotencyKey?: string
   commandType: CommandType
   actorAppUserId: string | null
   aggregateType: AggregateType
@@ -88,8 +100,19 @@ export type CommandOutcome =
   | 'unauthorized'
   | 'precondition_failure'
 
+/** CMD-01 — explicit failure taxonomy (distinguishes rejection kinds). */
+export type CommandFailureCategory =
+  | 'validation' // deterministic business-rule rejection (validation_failure,
+  //   not_found, unauthorized, precondition_failure, conflict)
+  | 'replay' // idempotent replay of a committed receipt
+  | 'technical' // normalized infrastructure/database failure (unexpected
+  //   technical failures still THROW and roll back the whole transaction)
+  | 'unknown' // unexpected outcome — always paired with a non-empty message
+
 export type CommandResult = {
   commandId: string
+  /** CMD-01 — the dispatcher stamps the envelope's stable command type. */
+  commandType?: string
   outcome: CommandOutcome
   emittedEvents: DomainEvent[]
   aggregateId: string | null
@@ -102,8 +125,14 @@ export type CommandResult = {
   // -------------------------------------------------------------------------
   /** Structured success payload carried by a canonical command handler. */
   value?: unknown
-  /** Structured error detail: stable code + message + retryability hint. */
-  error?: { code: string; message: string; retryable?: boolean }
+  /** Structured error detail: stable code + non-empty message + retryability
+   *  hint + explicit failure category (CMD-01). */
+  error?: {
+    code: string
+    message: string
+    retryable?: boolean
+    category?: CommandFailureCategory
+  }
   /** Durable receipt identity when this execution wrote a command receipt. */
   receiptId?: string
 }

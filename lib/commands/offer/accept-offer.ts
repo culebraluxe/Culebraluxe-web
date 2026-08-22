@@ -18,6 +18,7 @@ import type {
   CommandResult,
 } from '../contracts'
 import { OFFER_ACCEPT } from '../command-types'
+import { createDomainEventFromCommand } from '../domain-events'
 
 export { OFFER_ACCEPT }
 
@@ -40,9 +41,22 @@ export class AcceptOfferCommand
         replayed: false,
       }
     }
-    return acceptOffer(
+    const result = await acceptOffer(
       { dealId, offerId, commandId: envelope.commandId },
       ctx.run,
     )
+    // CMD-01 — a COMMITTED acceptance is a FACT. Emit the OFFER_ACCEPTED
+    // domain event through the dispatcher's collector so it is appended to the
+    // outbox in the SAME transaction as the mutation + receipt. Only on
+    // success — a failed command never emits a fact.
+    if (result.outcome === 'success') {
+      ctx.events.add(
+        createDomainEventFromCommand(envelope, {
+          eventType: 'OFFER_ACCEPTED',
+          payload: { dealId, offerId },
+        }),
+      )
+    }
+    return result
   }
 }

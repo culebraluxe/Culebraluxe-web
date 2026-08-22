@@ -56,6 +56,7 @@ export type {
   CommandOutcome,
   DomainEvent,
   AggregateType,
+  CommandFailureCategory,
 } from '../workflow/contracts'
 
 /** Envelope typed over its payload (`input` narrowed). */
@@ -100,13 +101,14 @@ export function commandReceiptStatus(
 }
 
 /**
- * Durable command receipt — proof, replay, idempotency. The current
- * `workflow_command_receipt` table stores command_id / outcome / aggregate_id /
- * message / created_at; the richer fields below (commandType, correlationId,
- * causationId, aggregateType, resultPayload, errorCode, errorMessage) are
- * compile-ready contract surface carried on the canonical envelope today and
- * persisted by the same receipt row when a durable consumer needs them
- * (additive migration — CRM-14I defer decision preserved).
+ * Durable command receipt — proof, replay, idempotency. The `workflow_command_receipt`
+ * table stores command_id / outcome / aggregate_id / message / created_at plus,
+ * since CMD-01 (migration 051), actor_app_user_id / command_type /
+ * correlation_id / causation_id. The richer fields below that are still
+ * carried on the canonical envelope but NOT yet persisted (aggregateType,
+ * resultPayload, errorCode, errorMessage) remain compile-ready contract surface
+ * — an additive migration can persist them when a durable consumer needs them
+ * (CRM-14I defer decision preserved).
  */
 export type CommandReceipt = {
   commandId: string
@@ -117,13 +119,31 @@ export type CommandReceipt = {
   aggregateId: string | null
   message: string | null
   createdAt: string | null
+  /**
+   * CMD-01 — acting app_user recorded on the durable receipt (column
+   * actor_app_user_id, migration 051). Null when the caller supplied no actor
+   * (e.g. engine-driven commands).
+   */
+  actorAppUserId?: string | null
+  /** CMD-01 — persisted command type (column command_type, migration 051). */
   commandType?: string
+  /** CMD-01 — persisted correlation chain (column correlation_id, migration 051). */
   correlationId?: string | null
+  /** CMD-01 — persisted causation chain (column causation_id, migration 051). */
   causationId?: string | null
   aggregateType?: string | null
   resultPayload?: unknown
   errorCode?: string | null
   errorMessage?: string | null
+}
+
+/** CMD-01 — envelope-level chain facts persisted on the durable receipt row
+ *  (migration 051 columns) in the SAME transaction as the mutation. */
+export type ReceiptChainMetadata = {
+  actorAppUserId?: string | null
+  commandType?: string | null
+  correlationId?: string | null
+  causationId?: string | null
 }
 
 /** Read/persist command receipts inside a transaction (idempotent replay). */
@@ -149,6 +169,18 @@ export interface CommandReceiptRepository {
    * new-style handlers may use it directly.
    */
   claim(commandId: string, tx: ApplicationTransaction): Promise<boolean>
+  /**
+   * CMD-01 — persist envelope-level chain metadata (actor, command type,
+   * correlation/causation) on the existing receipt row in the SAME transaction
+   * as the mutation. Never touches outcome/aggregateId/message (those stay
+   * owned by the executing service). No-op when the commandId has no receipt
+   * row.
+   */
+  recordMetadata(
+    commandId: string,
+    metadata: ReceiptChainMetadata,
+    tx: ApplicationTransaction,
+  ): Promise<void>
 }
 
 /** Collects domain events produced by a command execution (in-memory). */
@@ -194,11 +226,38 @@ export interface CommandHandler<
 }
 
 /**
- * Business command object flavor (blueprint). `type` is the stable command
- * identifier and `payload` the intent; `execute` runs against a context whose
- * transaction is owned by the dispatcher. Prefer CommandHandler for new
- * commands; this shape is provided for contract completeness and can be
- * adapted with `fromBusinessCommand`.
+ * CMD-01 — canonical BusinessCommand contract (object flavor).
+ *
+ * A COMMAND IS BUSINESS INTENT ("please do X"); a DOMAIN EVENT IS A FACT
+ * ("X happened"). Do not blur them. Every caller — UI, workflow, agents, batch
+ * intake, realtime observers, MQ consumers — expresses intent through ONE seam:
+ *
+ *   caller -> CommandEnvelope (the 12 envelope properties) ->
+ *             CommandDispatcher.execute() -> CommandResult
+ *
+ * Envelope properties (repository conventions):
+ *   1. commandId        stable identity (also the receipt/dedupe key)
+ *   2. commandType      stable machine command identifier
+ *   3. input            typed payload
+ *   4. actorAppUserId   actor identity/context
+ *   5. correlationId    correlation chain
+ *   6. causationId      causation chain
+ *   7. idempotencyKey   caller-facing idempotency identity (MUST equal commandId)
+ *   8. requestedAt      occurred/requested timestamp
+ *   9. aggregateType/Id business resource the intent targets
+ *  10. CommandResult    explicit success/failure result (never throws for
+ *                       deterministic business outcomes)
+ *  11. receipt          durable replay-safe proof keyed on commandId
+ *  12. outbox           committed facts appended in the SAME transaction
+ *
+ * No caller needs to know internal CRM service details; no workflow-engine
+ * types leak into the app layer (the only workflow import is the neutral
+ * engine-free seam lib/workflow/contracts.ts).
+ *
+ * `type` is the stable command identifier and `payload` the intent; `execute`
+ * runs against a context whose transaction is owned by the dispatcher. Prefer
+ * CommandHandler for new commands; this shape is provided for contract
+ * completeness and can be adapted with `fromBusinessCommand`.
  */
 export interface BusinessCommand<
   TPayload extends Record<string, unknown> = Record<string, unknown>,
