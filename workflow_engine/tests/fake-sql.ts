@@ -229,11 +229,21 @@ export class FakeSql {
       const pid = params[0];
       return st.jobs.filter((r) => r.process_instance_id === pid && ['pending', 'locked'].includes(r.status)).map((r) => ({ id: r.id }));
     }
+    if (t.startsWith('select id, token_id, type from jobs where process_instance_id =') && t.includes("status in ('pending', 'locked')")) {
+      const pid = params[0];
+      return st.jobs
+        .filter((r) => r.process_instance_id === pid && ['pending', 'locked'].includes(r.status))
+        .map((r) => ({ id: r.id, token_id: r.token_id, type: r.type }));
+    }
     if (t.startsWith('select * from jobs where token_id =') && t.includes("status in ('pending', 'locked')")) {
       const tid = params[0];
       return st.jobs.filter((r) => r.token_id === tid && ['pending', 'locked'].includes(r.status));
     }
     if (t.startsWith('select * from jobs where id =') && t.includes('for update')) {
+      const row = st.jobs.find((r) => r.id === params[0]);
+      return row ? [row] : [];
+    }
+    if (t.startsWith('select * from jobs where id =')) {
       const row = st.jobs.find((r) => r.id === params[0]);
       return row ? [row] : [];
     }

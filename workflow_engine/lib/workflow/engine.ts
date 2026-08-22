@@ -208,19 +208,25 @@ export class WorkflowEngine {
     const { tokenId, transitionName, variables = {}, actor } = params;
 
     await this.sql.begin(async (tx: SqlClient) => {
+      // Non-locking peek to find the owning instance; the locked re-read
+      // happens after the instance lock (ENG-11 lock ordering).
+      const peekRows = await tx`SELECT * FROM tokens WHERE id = ${tokenId}`;
+      const peek = this._mapToken(peekRows[0]);
+      if (!peek) throw new Error(`Token not found: ${tokenId}`);
+
+      const instanceRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${peek.processInstanceId} FOR UPDATE
+      `;
+      const instance = this._mapInstance(instanceRows[0]);
+      if (!instance || instance.status !== 'active') {
+        throw new Error('Process instance is not active');
+      }
+
       const tokenRows = await tx`SELECT * FROM tokens WHERE id = ${tokenId} FOR UPDATE`;
       const token = this._mapToken(tokenRows[0]);
       if (!token) throw new Error(`Token not found: ${tokenId}`);
       if (token.status !== 'active') {
         throw new Error(`Token ${tokenId} is not active`);
-      }
-
-      const instanceRows = await tx`
-        SELECT * FROM process_instances WHERE id = ${token.processInstanceId} FOR UPDATE
-      `;
-      const instance = this._mapInstance(instanceRows[0]);
-      if (instance.status !== 'active') {
-        throw new Error('Process instance is not active');
       }
 
       const defRows = await tx`
@@ -338,6 +344,24 @@ export class WorkflowEngine {
     const { taskId, userId, formData = {}, transitionName } = params;
 
     await this.sql.begin(async (tx: SqlClient) => {
+      // Non-locking peek to find the owning instance. The authoritative
+      // (locked) re-read happens below, after the instance lock is taken.
+      const peekRows = await tx`SELECT * FROM tasks WHERE id = ${taskId}`;
+      const peek = this._mapTask(peekRows[0]);
+      if (!peek) throw new Error(`Task not found: ${taskId}`);
+
+      // ENG-11 — serialize the step on the instance row FIRST. Every engine
+      // operation that can terminate OR advance an instance (cancelProcess,
+      // completeTask, signalToken, fireTimerJob, ...) takes the instance row
+      // lock before any token/task/job row. One global lock order removes the
+      // AB-BA deadlock between termination and advancement, so overlapping
+      // cancel-vs-complete races resolve deterministically and no work created
+      // before termination can later advance a terminal instance.
+      const instanceRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${peek.processInstanceId} FOR UPDATE
+      `;
+      const instance = this._mapInstance(instanceRows[0]);
+
       const taskRows = await tx`SELECT * FROM tasks WHERE id = ${taskId} FOR UPDATE`;
       const task = this._mapTask(taskRows[0]);
       if (!task) throw new Error(`Task not found: ${taskId}`);
@@ -347,6 +371,15 @@ export class WorkflowEngine {
       }
       if (task.assignee && task.assignee !== userId) {
         throw new Error(`Task is assigned to ${task.assignee}`);
+      }
+
+      // ENG-11 — the instance must still be active before any mutation: no
+      // work created before termination may advance a terminal instance.
+      if (!instance || instance.status !== 'active') {
+        throw new WorkflowConflictError(
+          `Process ${peek.processInstanceId} is not active (status=${instance?.status ?? 'none'})`,
+          'PROCESS_NOT_ACTIVE',
+        );
       }
 
       await tx`
@@ -376,11 +409,6 @@ export class WorkflowEngine {
         if (!token || token.status !== 'active') {
           throw new Error('Linked token is not active');
         }
-
-        const instanceRows = await tx`
-          SELECT * FROM process_instances WHERE id = ${task.processInstanceId} FOR UPDATE
-        `;
-        const instance = this._mapInstance(instanceRows[0]);
 
         const defRows = await tx`
           SELECT * FROM process_definitions WHERE id = ${instance.definitionId}
@@ -474,6 +502,12 @@ export class WorkflowEngine {
       const job = this._mapJob(jobRows[0]);
       if (!job) throw new Error(`Job not found: ${jobId}`);
       if (job.lockedBy !== workerId) {
+        // ENG-11 — the lock may have been revoked by process termination
+        // (the terminator cancels pending/locked jobs). A settled job is
+        // never actionable; completing it is a harmless no-op.
+        if (job.status === 'cancelled' || job.status === 'completed' || job.status === 'failed') {
+          return;
+        }
         throw new Error('Job is not locked by this worker');
       }
 
@@ -506,6 +540,12 @@ export class WorkflowEngine {
       const job = this._mapJob(jobRows[0]);
       if (!job) throw new Error(`Job not found: ${jobId}`);
       if (job.lockedBy !== workerId) {
+        // ENG-11 — the lock may have been revoked by process termination
+        // (the terminator cancels pending/locked jobs). A settled job is
+        // never actionable; failing it is a harmless no-op.
+        if (job.status === 'cancelled' || job.status === 'completed' || job.status === 'failed') {
+          return;
+        }
         throw new Error('Job is not locked by this worker');
       }
 
@@ -549,6 +589,22 @@ export class WorkflowEngine {
     payload?: Record<string, any>;
     maxAttempts?: number;
   }): Promise<string> {
+    // ENG-11 — never manufacture actionable work on a terminal instance. A
+    // job anchored to a process that no longer exists or is already terminal
+    // would be pending work on a dead instance.
+    if (params.processInstanceId) {
+      const instRows = await this.sql`
+        SELECT * FROM process_instances WHERE id = ${params.processInstanceId} FOR UPDATE
+      `;
+      const inst = this._mapInstance(instRows[0]);
+      if (!inst || inst.status !== 'active') {
+        throw new WorkflowConflictError(
+          `Process ${params.processInstanceId} is not active (status=${inst?.status ?? 'none'}); cannot create job`,
+          'PROCESS_NOT_ACTIVE',
+        );
+      }
+    }
+
     const rows = await this.sql`
       INSERT INTO jobs (
         tenant_id, process_instance_id, token_id, type, due_at, payload, max_attempts
@@ -573,9 +629,30 @@ export class WorkflowEngine {
     const { jobId, workerId, variables = {} } = params;
 
     await this.sql.begin(async (tx: SqlClient) => {
+      // Non-locking peek to find the owning instance; the locked re-read
+      // happens after the instance lock (ENG-11 lock ordering).
+      const peekRows = await tx`SELECT * FROM jobs WHERE id = ${jobId}`;
+      const peek = this._mapJob(peekRows[0]);
+      if (!peek) throw new Error(`Job not found: ${jobId}`);
+
+      let instance: ProcessInstance | null = null;
+      if (peek.processInstanceId) {
+        const instanceRows = await tx`
+          SELECT * FROM process_instances WHERE id = ${peek.processInstanceId} FOR UPDATE
+        `;
+        instance = this._mapInstance(instanceRows[0]);
+        if (!instance) {
+          throw new Error(`Process instance not found: ${peek.processInstanceId}`);
+        }
+      }
+
       const jobRows = await tx`SELECT * FROM jobs WHERE id = ${jobId} FOR UPDATE`;
       const job = this._mapJob(jobRows[0]);
       if (!job) throw new Error(`Job not found: ${jobId}`);
+
+      // Job-level guards first: duplicate fire (completed) and lost lock
+      // (cancelled/other-owner) are deterministic signals the caller (poller)
+      // must be able to distinguish from a live fire.
       if (job.status === 'completed') {
         throw new WorkflowConflictError(
           `Timer job ${jobId} already fired`,
@@ -595,6 +672,19 @@ export class WorkflowEngine {
         );
       }
 
+      // ENG-11 — terminal-instance guard: this worker owns the lock but the
+      // process is already terminal. The job can never legally fire; settle it
+      // as cancelled (never left locked/actionable) and bail WITHOUT advancing
+      // the token. No work created before termination may resurrect or advance
+      // a terminal instance.
+      if (instance && instance.status !== 'active') {
+        await tx`
+          UPDATE jobs SET status = 'cancelled', locked_by = null, locked_until = null
+          WHERE id = ${jobId}
+        `;
+        return;
+      }
+
       await tx`
         UPDATE jobs
         SET status = 'completed',
@@ -612,10 +702,8 @@ export class WorkflowEngine {
         const tokenRows = await tx`SELECT * FROM tokens WHERE id = ${job.tokenId} FOR UPDATE`;
         const token = this._mapToken(tokenRows[0]);
         if (token && token.status === 'active') {
-          const instanceRows = await tx`
-            SELECT * FROM process_instances WHERE id = ${token.processInstanceId} FOR UPDATE
-          `;
-          const instance = this._mapInstance(instanceRows[0]);
+          // The instance was locked and verified active above; re-check only
+          // for jobs not anchored to an instance (defense-in-depth).
           if (instance && instance.status === 'active') {
             const defRows = await tx`
               SELECT * FROM process_definitions WHERE id = ${instance.definitionId}
@@ -809,6 +897,23 @@ export class WorkflowEngine {
         );
       }
 
+      // ENG-11 — a job of a terminal instance must never be made actionable
+      // again: requeueing would resurrect work on a terminated process. The
+      // instance row is locked so this serializes with any concurrent
+      // termination.
+      if (job.processInstanceId) {
+        const instRows = await tx`
+          SELECT * FROM process_instances WHERE id = ${job.processInstanceId} FOR UPDATE
+        `;
+        const inst = this._mapInstance(instRows[0]);
+        if (!inst || inst.status !== 'active') {
+          throw new WorkflowConflictError(
+            `Process ${job.processInstanceId} is not active (status=${inst?.status ?? 'none'}); job ${jobId} cannot be requeued`,
+            'JOB_NOT_REQUEUEABLE',
+          );
+        }
+      }
+
       const now = this.now();
       await tx`
         UPDATE jobs
@@ -888,12 +993,39 @@ export class WorkflowEngine {
           failed += 1;
         }
       } catch (e) {
-        await this.failJob(job.id, workerId, String((e as Error)?.message ?? e).slice(0, 2000));
-        failed += 1;
+        // ENG-11 — the job may have been cancelled/reclaimed concurrently
+        // (e.g. its process was terminated while this worker held it). Only
+        // fail jobs this worker still owns and that are not already terminal;
+        // a settled job must never crash the poller and is never actionable.
+        const settled = await this._settleFailedJob(
+          job.id,
+          workerId,
+          String((e as Error)?.message ?? e).slice(0, 2000),
+        );
+        if (settled) failed += 1;
       }
     }
 
     return { reclaimed, claimed: jobs, fired, completed, failed };
+  }
+
+  /**
+   * Tolerant failure settlement (ENG-11): fail the job only if this worker
+   * still owns it and it is not already terminal (cancelled/completed/failed).
+   * Returns true when the job was genuinely failed/retried by this call.
+   */
+  private async _settleFailedJob(
+    jobId: string,
+    workerId: string,
+    error: string,
+  ): Promise<boolean> {
+    try {
+      await this.failJob(jobId, workerId, error);
+      const job = await this.getJob(jobId);
+      return job ? job.status === 'pending' || job.status === 'failed' : false;
+    } catch {
+      return false;
+    }
   }
 
   /** Read-only: pending jobs whose due_at has passed (overdue deadline query). */
@@ -1185,7 +1317,15 @@ export class WorkflowEngine {
     // Serialize terminalization on the instance row (ENG-09): two tokens
     // completing concurrently must not both observe a zero active count
     // (double-complete) or both observe a non-zero count (stuck process).
-    await tx`SELECT id FROM process_instances WHERE id = ${processInstanceId} FOR UPDATE`;
+    const guardRows = await tx`
+      SELECT * FROM process_instances WHERE id = ${processInstanceId} FOR UPDATE
+    `;
+    const guard = this._mapInstance(guardRows[0]);
+    // ENG-11 — never mark a terminated process 'completed': a terminal
+    // instance (cancelled/aborted/failed/error) must not be resurrected into
+    // a completed state by late-arriving token completion.
+    if (!guard || guard.status !== 'active') return;
+
     if (this.hooks?.beforeProcessTerminal) {
       await this.hooks.beforeProcessTerminal(processInstanceId);
     }
@@ -1221,6 +1361,15 @@ export class WorkflowEngine {
     outcome: ProcessOutcome,
     reason?: string,
   ) {
+    // ENG-11 — idempotency guard: the caller holds the instance row lock.
+    // Re-read the disposition; if a concurrent terminator already closed the
+    // instance, skip entirely (no duplicate closure, no duplicate events).
+    const guardRows = await tx`
+      SELECT * FROM process_instances WHERE id = ${processInstanceId} FOR UPDATE
+    `;
+    const guard = this._mapInstance(guardRows[0]);
+    if (!guard || guard.status !== 'active') return;
+
     const status: ProcessStatus =
       outcome === 'cancelled'
         ? 'aborted'
@@ -1283,9 +1432,9 @@ export class WorkflowEngine {
       });
     }
 
-    // Cancel open jobs.
+    // Cancel open jobs (audited, like the branch-skip path).
     const openJobs = await tx`
-      SELECT id FROM jobs
+      SELECT id, token_id, type FROM jobs
       WHERE process_instance_id = ${processInstanceId}
         AND status IN ('pending', 'locked')
     `;
@@ -1294,6 +1443,14 @@ export class WorkflowEngine {
         UPDATE jobs SET status = 'cancelled', locked_by = null, locked_until = null
         WHERE id = ${j.id}
       `;
+      await this._event(tx, {
+        processInstanceId,
+        tokenId: j.token_id,
+        jobId: j.id,
+        eventType: 'job.cancelled',
+        actor,
+        data: { type: j.type, reason: reason ?? null },
+      });
     }
 
     const eventType =
