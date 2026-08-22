@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import { PageHeader } from "@/components/portal/page-header"
+import { Panel } from "@/components/portal/panel"
 import type { Deal, DealStage } from "@/lib/portal/types"
 
 const stageOrder: DealStage[] = [
@@ -164,24 +165,19 @@ export function DealsPortfolio({
         />
       </section>
 
-      <section className="mt-6 overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
-        <div className="border-b border-[var(--portal-border)] px-6 py-5">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="font-serif text-2xl font-light">
-                Active Portfolio
-              </h2>
-
-              <p className="mt-1 text-xs font-light text-black/40">
-                Client, property, stage, value and next milestone.
-              </p>
-            </div>
-
-            <div className="text-xs font-light text-black/35">
-              {filteredDeals.length} deals
-            </div>
+      <Panel
+        className="mt-6"
+        variant="standard"
+        heading="Active Portfolio"
+        subtitle="Client, property, stage, value and next milestone."
+        action={
+          <div className="text-xs font-light text-black/35">
+            {filteredDeals.length} deals
           </div>
-        </div>
+        }
+        divider
+        flush
+      >
 
         <div className="overflow-x-auto">
           <table className="min-w-[1100px] w-full border-collapse">
@@ -327,7 +323,7 @@ export function DealsPortfolio({
             </tbody>
           </table>
         </div>
-      </section>
+      </Panel>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.5fr)]">
         <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
@@ -396,16 +392,7 @@ export function DealsPortfolio({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-navy)] p-6 text-white">
-          <div>
-            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-white/50">
-              Deal Watchlist
-            </p>
-
-            <h2 className="mt-3 font-serif text-2xl font-light">
-              Priority Closings
-            </h2>
-          </div>
+        <Panel variant="feature" eyebrow="Deal Watchlist" heading="Priority Closings">
 
           <div className="mt-6 divide-y divide-white/10">
             {closingSoon.length > 0 ? (
@@ -437,7 +424,7 @@ export function DealsPortfolio({
               </div>
             )}
           </div>
-        </section>
+        </Panel>
       </div>
     </div>
   )

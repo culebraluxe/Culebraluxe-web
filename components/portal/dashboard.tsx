@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { PageHeader } from "@/components/portal/page-header"
+import { Panel } from "@/components/portal/panel"
 import type {
   Client,
   Deal,
@@ -144,18 +145,11 @@ export function Dashboard({
       </section>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_360px]">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-          <div className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5">
-            <div>
-              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-                Needs Attention
-              </p>
-
-              <h2 className="mt-2 font-serif text-2xl font-light">
-                Client Follow-Up
-              </h2>
-            </div>
-
+        <Panel
+          variant="attention"
+          eyebrow="Needs Attention"
+          heading="Client Follow-Up"
+          action={
             <Link
               href="/portal/attention"
               className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
@@ -163,8 +157,10 @@ export function Dashboard({
               View all
               <span aria-hidden>→</span>
             </Link>
-          </div>
-
+          }
+          divider
+          flush
+        >
           <div>
             {attentionTasks.length > 0 ? (
               attentionTasks.map((task) => (
@@ -218,20 +214,13 @@ export function Dashboard({
               <EmptyState text="No follow-ups need attention." />
             )}
           </div>
-        </section>
+        </Panel>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-          <div className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5">
-            <div>
-              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-                Upcoming
-              </p>
-
-              <h2 className="mt-2 font-serif text-2xl font-light">
-                Next on the Calendar
-              </h2>
-            </div>
-
+        <Panel
+          variant="standard"
+          eyebrow="Upcoming"
+          heading="Next on the Calendar"
+          action={
             <Link
               href="/portal/attention"
               className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
@@ -239,7 +228,10 @@ export function Dashboard({
               View all
               <span aria-hidden>→</span>
             </Link>
-          </div>
+          }
+          divider
+          flush
+        >
 
           <div className="px-6">
             {calendarTasks.length > 0 ? (
@@ -287,7 +279,7 @@ export function Dashboard({
               </div>
             )}
           </div>
-        </section>
+        </Panel>
 
         {featuredDeal ? (
           <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
@@ -355,18 +347,11 @@ export function Dashboard({
       </div>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-                Portfolio Snapshot
-              </p>
-
-              <h2 className="mt-2 font-serif text-2xl font-light">
-                Deal Pipeline
-              </h2>
-            </div>
-
+        <Panel
+          variant="standard"
+          eyebrow="Portfolio Snapshot"
+          heading="Deal Pipeline"
+          action={
             <Link
               href="/portal/deals"
               className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
@@ -374,7 +359,8 @@ export function Dashboard({
               View all
               <span aria-hidden>→</span>
             </Link>
-          </div>
+          }
+        >
 
           <div className="mt-7 space-y-4">
             {stageOrder.map((stage) => {
@@ -409,20 +395,13 @@ export function Dashboard({
               )
             })}
           </div>
-        </section>
+        </Panel>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-          <div className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5">
-            <div>
-              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-                Recent Activity
-              </p>
-
-              <h2 className="mt-2 font-serif text-2xl font-light">
-                Relationship Timeline
-              </h2>
-            </div>
-
+        <Panel
+          variant="soft"
+          eyebrow="Recent Activity"
+          heading="Relationship Timeline"
+          action={
             <Link
               href="/portal/activity"
               className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
@@ -430,7 +409,10 @@ export function Dashboard({
               View all
               <span aria-hidden>→</span>
             </Link>
-          </div>
+          }
+          divider
+          flush
+        >
 
           <div>
             {recentInteractions.length > 0 ? (
@@ -462,7 +444,7 @@ export function Dashboard({
               <EmptyState text="No recent relationship activity." />
             )}
           </div>
-        </section>
+        </Panel>
       </div>
     </div>
   )

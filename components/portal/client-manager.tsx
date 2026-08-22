@@ -8,6 +8,7 @@ import type {
   InteractionChannel,
   PropertyInterestStatus,
 } from "@/lib/portal/types"
+import { Panel } from "@/components/portal/panel"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
 import { PageHeader } from "@/components/portal/page-header"
@@ -454,10 +455,7 @@ export function ClientManager({
                 )}
               </section>
 
-              <section className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-navy)] p-6 text-white">
-                <p className="text-[10px] font-light uppercase tracking-[0.2em] text-white/50">
-                  Next Action
-                </p>
+              <Panel variant="feature" eyebrow="Next Action">
 
                 <div className="mt-4 font-serif text-xl font-light">
                   {selectedClient.nextAction?.title ?? "Nothing scheduled"}
@@ -472,21 +470,18 @@ export function ClientManager({
                     {selectedClient.nextAction.detail}
                   </p>
                 )}
-              </section>
+              </Panel>
             </div>
           </div>
 
           <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
-            <section className="rounded-sm border border-black/10 bg-white">
-              <div className="border-b border-black/10 px-6 py-5">
-                <h3 className="font-serif text-xl font-light">
-                  Interaction Timeline
-                </h3>
-
-                <p className="mt-1 text-xs font-light text-black/40">
-                  Calls, messages, email, meetings, showings and notes.
-                </p>
-              </div>
+            <Panel
+              variant="standard"
+              heading="Interaction Timeline"
+              subtitle="Calls, messages, email, meetings, showings and notes."
+              divider
+              flush
+            >
 
               <div>
                 {selectedClient.interactions.length > 0 ? (
@@ -522,12 +517,9 @@ export function ClientManager({
                   </div>
                 )}
               </div>
-            </section>
+            </Panel>
 
-            <section className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)] p-6">
-              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-                Relationship Notes
-              </p>
+            <Panel variant="soft" eyebrow="Relationship Notes">
 
               <p className="mt-5 text-sm font-light leading-7 text-[var(--portal-text)]/70">
                 {selectedClient.notes ?? "No notes yet."}
@@ -546,7 +538,7 @@ export function ClientManager({
                     ))}
                   </div>
                 )}
-            </section>
+            </Panel>
           </div>
         </div>
       </div>

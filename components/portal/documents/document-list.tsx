@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 
 import { dateLabel } from "@/components/portal/storyboard/story-detail-sections"
+import { Panel } from "@/components/portal/panel"
 
 const inputClass =
   "min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
@@ -65,27 +66,24 @@ export function DocumentList({
         </p>
       </header>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-        <div className="border-b border-[var(--portal-border)] px-6 py-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 className="font-serif text-2xl font-light">Repository</h2>
-              <p className="mt-1 text-sm font-light text-black/50">
-                {documents.length} issued document
-                {documents.length === 1 ? "" : "s"}
-              </p>
-            </div>
-            <label className="block w-full max-w-xs">
-              <span className={labelClass}>Filter by deal / client / property</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search…"
-                className={`${inputClass} mt-2`}
-              />
-            </label>
-          </div>
-        </div>
+      <Panel
+        variant="standard"
+        heading="Repository"
+        subtitle={`${documents.length} issued document${documents.length === 1 ? "" : "s"}`}
+        action={
+          <label className="block w-full max-w-xs">
+            <span className={labelClass}>Filter by deal / client / property</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search…"
+              className={`${inputClass} mt-2`}
+            />
+          </label>
+        }
+        divider
+        flush
+      >
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
@@ -160,7 +158,7 @@ export function DocumentList({
             </tbody>
           </table>
         </div>
-      </section>
+      </Panel>
     </div>
   )
 }

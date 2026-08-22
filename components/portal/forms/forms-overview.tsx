@@ -6,6 +6,7 @@ import { useState, useTransition } from "react"
 
 import { createOfferLetterFormAction } from "@/app/portal/forms/actions"
 import { dateLabel } from "@/components/portal/storyboard/story-detail-sections"
+import { Panel } from "@/components/portal/panel"
 
 const selectClass =
   "min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
@@ -74,14 +75,13 @@ export function FormsOverview({
         </p>
       </header>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white">
-        <div className="border-b border-[var(--portal-border)] px-6 py-6">
-          <h2 className="font-serif text-2xl font-light">New Offer Letter</h2>
-          <p className="mt-1 text-sm font-light text-black/50">
-            Choose the deal; known client, property and deal facts are prefilled
-            automatically.
-          </p>
-        </div>
+      <Panel
+        variant="standard"
+        heading="New Offer Letter"
+        subtitle="Choose the deal; known client, property and deal facts are prefilled automatically."
+        divider
+        flush
+      >
         <div className="px-6 py-6">
           <label className="block max-w-md">
             <span className={labelClass}>Deal</span>
@@ -110,15 +110,15 @@ export function FormsOverview({
             {isPending ? "Creating…" : "Create form"}
           </button>
         </div>
-      </section>
+      </Panel>
 // __PART2__
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
-        <div className="border-b border-[var(--portal-border)] px-6 py-6">
-          <h2 className="font-serif text-2xl font-light">Form instances</h2>
-          <p className="mt-1 text-sm font-light text-black/50">
-            Mutable working drafts. A draft becomes immutable once issued.
-          </p>
-        </div>
+      <Panel
+        variant="standard"
+        heading="Form instances"
+        subtitle="Mutable working drafts. A draft becomes immutable once issued."
+        divider
+        flush
+      >
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
@@ -184,7 +184,7 @@ export function FormsOverview({
             </tbody>
           </table>
         </div>
-      </section>
+      </Panel>
     </div>
   )
 }
