@@ -45,7 +45,11 @@
 // documentTypeLabel, and presence is matched on the exact label.
 // ---------------------------------------------------------------------------
 
-import type { TransactionDocument, TransactionDocumentType } from '../db/transaction-document'
+import type {
+  TransactionDocument,
+  TransactionDocumentState,
+  TransactionDocumentType,
+} from '../db/transaction-document'
 import { listTransactionDocumentsByDeal } from '../db/transaction-document'
 import type { QueryExecutor } from '../db/query-executor'
 
@@ -361,6 +365,114 @@ export function buildTransactionPacket(
     missingCount,
     unresolvedCount,
     complete: presentCount === items.length && unresolvedCount === 0,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CRM-21 — Closing-document readiness (the workflow fact).
+//
+// DOC-02's packet presence is deliberately signature-state-free. CRM-21 adds
+// the readiness dimension ON TOP of the packet: a required closing item counts
+// as ready only when a matching document row is in the FINAL (signed) state of
+// the DOC-01 draft -> ready -> sent -> signed lineage. The derived fact is
+// deterministic and never invents requirements: the required set IS the packet
+// catalog's closing package (see requiredClosingDocumentPackage).
+// ---------------------------------------------------------------------------
+
+/** The packet stage whose requirements define the closing-document package. */
+const CLOSING_PACKET_STAGE = 'closed'
+
+/**
+ * Document states that count as final (signed) for closing-document
+ * readiness — the terminal state of the DOC-01 draft -> ready -> sent ->
+ * signed lineage. Pre-signed states (draft/ready/sent) are NOT final;
+ * voided/superseded are terminal-invalid and never match a required item
+ * (matchesRequiredItem), so a superseded signed artifact no longer counts
+ * while its replacement is still a draft — lineage is preserved.
+ */
+const CLOSING_DOCUMENT_FINAL_STATES: ReadonlySet<TransactionDocumentState> =
+  new Set<TransactionDocumentState>(['signed'])
+
+export type ClosingDocumentReadinessItemStatus = 'ready' | 'missing' | 'unsigned'
+
+export type ClosingDocumentReadinessItem = RequiredTransactionDocumentType & {
+  status: ClosingDocumentReadinessItemStatus
+  /** Ids of matching non-terminal rows satisfying this item (missing → []). */
+  documentIds: string[]
+  /** Ids of matching rows in a final (signed) state (ready → non-empty). */
+  finalDocumentIds: string[]
+}
+
+export type ClosingDocumentReadiness = {
+  /**
+   * The deterministic derived fact (exposed as DealWorkflowFacts.closingDocumentsReady):
+   * true ONLY when every required closing item is present AND in a final
+   * (signed) state; false while any required closing document is missing or
+   * still pre-signed.
+   */
+  ready: boolean
+  /** Each required closing item with its own readiness status. */
+  items: ClosingDocumentReadinessItem[]
+  /** Keys of required closing items with no matching document row. */
+  missing: string[]
+  /** Keys of required closing items present but not yet signed/final. */
+  unsigned: string[]
+}
+
+/**
+ * The packet's closing-document package: the required items at the closing
+ * stage whose documentType is 'closing' (deed / closing package, closing
+ * statement). Post-closing items (registry / recording follow-up, which is
+ * documentType 'other') are deliberately excluded: closing-document readiness
+ * is assessed BEFORE the closing, while recording/registry follow-up happens
+ * after it. The set is derived from the packet catalog — the fact never
+ * invents a required document.
+ */
+export function requiredClosingDocumentPackage(
+  facts: PacketFacts,
+): RequiredTransactionDocumentType[] {
+  return requiredTransactionDocumentTypes(CLOSING_PACKET_STAGE, facts).filter(
+    (item) => item.documentType === 'closing',
+  )
+}
+
+/**
+ * CRM-21 — deterministic closing-document readiness over the canonical
+ * transaction_document rows. Pure: never writes, never invents documents, and
+ * duplicate/replayed rows cannot change the result (any matching non-terminal
+ * row satisfies presence; only a matching row in a final signed state flips an
+ * item to ready).
+ */
+export function deriveClosingDocumentReadiness(
+  facts: PacketFacts,
+  documents: readonly TransactionDocument[],
+): ClosingDocumentReadiness {
+  const required = requiredClosingDocumentPackage(facts)
+  const items: ClosingDocumentReadinessItem[] = required.map((req) => {
+    const matched = documents.filter((doc) => matchesRequiredItem(doc, req))
+    const finalDocumentIds = matched
+      .filter((doc) => CLOSING_DOCUMENT_FINAL_STATES.has(doc.state))
+      .map((doc) => doc.id)
+    const status: ClosingDocumentReadinessItemStatus =
+      matched.length === 0
+        ? 'missing'
+        : finalDocumentIds.length > 0
+          ? 'ready'
+          : 'unsigned'
+    return {
+      ...req,
+      status,
+      documentIds: matched.map((doc) => doc.id),
+      finalDocumentIds,
+    }
+  })
+  const missing = items.filter((item) => item.status === 'missing').map((item) => item.key)
+  const unsigned = items.filter((item) => item.status === 'unsigned').map((item) => item.key)
+  return {
+    ready: items.length > 0 && missing.length === 0 && unsigned.length === 0,
+    items,
+    missing,
+    unsigned,
   }
 }
 

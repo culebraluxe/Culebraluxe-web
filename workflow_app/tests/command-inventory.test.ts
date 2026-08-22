@@ -87,6 +87,40 @@ test('CRM-14G: deal.set_closing_readiness_verified is NOT a command-node (readin
   )
 })
 
+test('CRM-21: closing-document readiness is a derived fact consumed by a gate — never a command or a bare human checkmark', () => {
+  const parsed = parseReSupermodel()
+
+  // No command-node may represent closing-document readiness (it is derived
+  // from the packet catalog + transaction_document signed lineage, never set).
+  const commandNodeTypes = Object.values(parsed.graph.nodes)
+    .filter((n) => n.type === 'command')
+    .map((n) => n.commandType!)
+  assert.ok(
+    !commandNodeTypes.some((t) => t.includes('closing_document')),
+    'no command-node may exist for closing-document readiness',
+  )
+
+  // The closing_documents_gate is a decision on the derived fact, with an
+  // explicit pending task for the not-ready path (blocks readiness).
+  const gate = parsed.graph.nodes.closing_documents_gate as NodeDefinition & {
+    decisions?: Array<{ condition: string; transition: string }>
+  }
+  assert.equal(
+    parsed.graph.nodes.closing_documents_pending?.type,
+    'task',
+    'closing_documents_pending must be a human task-node',
+  )
+  assert.equal(gate?.type, 'decision', 'closing_documents_gate must be a decision')
+  assert.ok(
+    gate.decisions?.some((d) => d.condition === 'closingDocumentsReady == true'),
+    'closing_documents_gate must decide on the derived closingDocumentsReady fact',
+  )
+  assert.ok(
+    gate.transitions?.some((t) => t.name === 'pending' && t.to === 'closing_documents_pending'),
+    'closing_documents_gate must route not-ready to the pending task',
+  )
+})
+
 test('CRM-14G: deal.set_financing_type is routed but unreferenced by the XML (application-only)', () => {
   const parsed = parseReSupermodel()
   const xmlCommandNodeTypes = Object.values(parsed.graph.nodes)

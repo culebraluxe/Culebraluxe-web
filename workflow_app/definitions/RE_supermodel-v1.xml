@@ -23,6 +23,7 @@
       financingApplicable         bool | null
       appraisalApplicable         bool | null
       lenderClearToClose          bool | null
+      closingDocumentsReady       bool
       inspectionApplicable        bool | null
       insuranceApplicable         bool | null
 
@@ -51,6 +52,16 @@
                                           task, never a persisted fact or command
       closingDateScheduled         bool   a canonical target closing date exists
       closingDate                  ISO-8601 string (timer dueAtVariable)
+
+  closingDocumentsReady (CRM-21) is the derived closing-document readiness
+  fact. It is NOT a human checkmark and never a persisted boolean: the
+  application derives it deterministically from the required packet contents
+  (workflow_app/transaction-packet.ts — the DOC-02 rule catalog) and the
+  signed/final states of the canonical transaction_document rows (the DOC-01
+  draft -> ready -> sent -> signed lineage; only 'signed' is final). The
+  closing_documents_gate consumes it before closing readiness: false lands in
+  the closing_documents_pending task and blocks readiness until the packet is
+  complete and signed; the gate re-evaluates with refreshed facts on resolved.
 
   Command inventory — COMPLETE for this XML (reconciliation only; see
   workflow_app/command-types.ts, the authoritative registry):
@@ -338,25 +349,43 @@
   </task-node>
 
   <!-- =====================================================================
-       Segment 3 — Closing Readiness (Story 124 / 136 / CRM-20)
-       Closing readiness is structural + optional confirmation, never a magic
-       boolean. The fork/join already guarantees every applicable required
-       obligation is cleared/waived/resolved before this gate is reached. For
-       financed deals (financingApplicable == true) the canonical lender
-       clear-to-close fact (deal.lender_clear_to_close) must be true before
-       readiness: null routes to an explicit resolution task, false is a
-       pending state that blocks readiness (CRM-20). Cash/non-financed deals
-       are routed around the lender fact entirely. The gate then only adds the
-       final brokerage confirmation when the closingConfirmationRequired fact
-       is set; otherwise it proceeds straight to ready-to-close. Confirmation
-       cannot override blockers because it comes AFTER the join.
+       Segment 3 — Closing Readiness (Story 124 / 136 / CRM-20 / CRM-21)
+       Closing readiness is structural + fact-backed + optional confirmation,
+       never a magic boolean. The fork/join already guarantees every applicable
+       required obligation is cleared/waived/resolved before this segment is
+       reached. The closing_documents_gate first requires the canonical
+       closing-document packet to be complete AND signed/final
+       (closingDocumentsReady == true, CRM-21 — derived from the packet catalog
+       + transaction_document signed lineage; false lands in
+       closing_documents_pending and blocks readiness). For financed deals
+       (financingApplicable == true) the canonical lender clear-to-close fact
+       (deal.lender_clear_to_close) must also be true before readiness: null
+       routes to an explicit resolution task, false is a pending state that
+       blocks readiness (CRM-20). Cash/non-financed deals are routed around the
+       lender fact entirely. The gate then only adds the final brokerage
+       confirmation when the closingConfirmationRequired fact is set; otherwise
+       it proceeds straight to ready-to-close. Confirmation cannot override
+       blockers because it comes AFTER the join.
        ===================================================================== -->
   <join id="join_tracks" label="Transaction Tracks Joined">
-    <transition name="assess" to="closing_readiness_gate"/>
+    <transition name="assess" to="closing_documents_gate"/>
   </join>
 
+  <decision id="closing_documents_gate" label="Closing Documents Gate" refresh-facts="true"
+    description="CRM-21: closing readiness requires the canonical closing-document packet to be complete AND signed/final. closingDocumentsReady is a deterministic derived fact — from required packet contents and the DOC-01 signed lineage — never a bare human checkmark. false lands in closing_documents_pending and blocks readiness; the gate re-evaluates on resolved.">
+    <on condition="closingDocumentsReady == true" transition="cleared"/>
+    <transition name="pending" to="closing_documents_pending"/>
+    <transition name="cleared" to="closing_readiness_gate"/>
+  </decision>
+
+  <task-node id="closing_documents_pending" label="Closing Documents Pending" responsibility="brokerage"
+    description="The canonical closing-document packet is not yet complete/signed (closingDocumentsReady == false): required closing documents are missing or still in a pre-signed state. Prepare/sign the required closing documents (deed, settlement statement, closing package) and mark this resolved; the gate re-evaluates with refreshed facts. escalate terminates the transaction (CRM-21).">
+    <transition name="resolved" to="closing_documents_gate"/>
+    <transition name="escalate" to="transaction_failed"/>
+  </task-node>
+
   <decision id="closing_readiness_gate" label="Closing Readiness Gate" refresh-facts="true"
-    description="Eligibility is enforced by the join (all applicable required work cleared). Financed deals are routed through the lender clear-to-close gate first; a final brokerage confirmation is added only when closingConfirmationRequired is true.">
+    description="Eligibility is enforced by the join (all applicable required work cleared) and the closing_documents_gate (closingDocumentsReady == true). Financed deals are routed through the lender clear-to-close gate first; a final brokerage confirmation is added only when closingConfirmationRequired is true.">
     <on condition="financingApplicable == true" transition="lender"/>
     <on condition="closingConfirmationRequired == true" transition="confirm"/>
     <transition name="ready" to="ready_to_close"/>

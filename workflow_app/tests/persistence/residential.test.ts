@@ -17,7 +17,12 @@ test('CRM-14B: RE_supermodel 10-way fork releases exactly once under concurrent 
   const f = new PersistenceFixture()
   try {
     await f.seedDefinition(parsed.key, parsed.version, parsed.graph)
-    const engine = f.makeEngine()
+    // CRM-21: the closing_documents_gate consumes the derived
+    // closingDocumentsReady fact; this scenario simulates a complete signed
+    // closing packet so the joined flow proceeds to the closing task.
+    const engine = f.makeEngine({
+      app: { readFacts: async () => ({ closingDocumentsReady: true }) },
+    })
 
     const { processInstanceId } = await engine.startProcess({
       definitionKey: parsed.key,

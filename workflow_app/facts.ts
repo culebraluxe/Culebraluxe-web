@@ -2,6 +2,8 @@ import { sql } from '../db/client'
 import { financingApplicableFromType } from './financing'
 import { appraisalApplicableFromRequired } from './appraisal'
 import { lenderClearToCloseFromFact } from './lender-clearance'
+import { listTransactionDocumentsByDeal } from '../db/transaction-document'
+import { deriveClosingDocumentReadiness, type PacketFacts } from './transaction-packet'
 import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 
 // ---------------------------------------------------------------------------
@@ -15,7 +17,9 @@ import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 //       financingApplicable (deal.financing_type), closingDate /
 //       closingDateScheduled (deal.closing_date), appraisalApplicable
 //       (deal.appraisal_required), lenderClearToClose
-//       (deal.lender_clear_to_close)
+//       (deal.lender_clear_to_close), closingDocumentsReady (CRM-21 — derived
+//       from the packet catalog + canonical transaction_document rows; never
+//       stored, never invented)
 //   B — CulebraLuxe configuration default (configuration.ts):
 //       closingAgentRole, requiresNotario, requiresTitleCompany,
 //       requiresCrimClearance, requiresRegistryFollowup,
@@ -78,6 +82,15 @@ export type DealWorkflowFacts = {
    * true (financed deals); cash/non-financed deals are unaffected.
    */
   lenderClearToClose: boolean | null
+  /**
+   * Closing-document readiness (CRM-21). DERIVED, never stored: true only
+   * when the packet's required closing package (closing documents + closing
+   * statement) is complete AND every required item is in a final (signed)
+   * state of the DOC-01 draft -> ready -> sent -> signed lineage. Sourced
+   * from the packet rule catalog + canonical transaction_document rows; the
+   * fact never invents a required document.
+   */
+  closingDocumentsReady: boolean
 
   // Class B (CulebraLuxe configuration defaults)
   closingAgentRole: string
@@ -148,31 +161,56 @@ export async function getDealWorkflowFacts(
   const deal = dealRows[0] as DealRow | undefined
   if (!deal) return null
 
-  const [offerRows, showingRows, taskRows, participantRows] = await Promise.all([
-    sql`
-      select id, amount::text as amount, status, parent_offer_id
-      from offer where deal_id = ${dealId}
-      order by submitted_at asc
-    `,
-    sql`
-      select id, status from showing where deal_id = ${dealId}
-      order by requested_at asc
-    `,
-    sql`
-      select id, title, due_at::text as due_at
-      from task where deal_id = ${dealId} and status = 'open'
-      order by due_at asc nulls last, created_at asc
-    `,
-    sql`
-      select id, role, role_label, person_id, user_id
-      from deal_participant
-      where deal_id = ${dealId} and active = true
-      order by started_at asc
-    `,
-  ])
+  const [offerRows, showingRows, taskRows, participantRows, documentRows] =
+    await Promise.all([
+      sql`
+        select id, amount::text as amount, status, parent_offer_id
+        from offer where deal_id = ${dealId}
+        order by submitted_at asc
+      `,
+      sql`
+        select id, status from showing where deal_id = ${dealId}
+        order by requested_at asc
+      `,
+      sql`
+        select id, title, due_at::text as due_at
+        from task where deal_id = ${dealId} and status = 'open'
+        order by due_at asc nulls last, created_at asc
+      `,
+      sql`
+        select id, role, role_label, person_id, user_id
+        from deal_participant
+        where deal_id = ${dealId} and active = true
+        order by started_at asc
+      `,
+      listTransactionDocumentsByDeal(dealId),
+    ])
 
   const cfg = CULEBRA_JURISDICTION_CONFIG
   const closingDate = deal.closing_date
+  const financingApplicable = financingApplicableFromType(deal.financing_type)
+  const appraisalApplicable = appraisalApplicableFromRequired(deal.appraisal_required)
+
+  // CRM-21 — the closing-document readiness fact is DERIVED from the packet
+  // rule catalog + the canonical transaction_document rows (never stored,
+  // never invented). PacketFacts is a structural subset of this projection.
+  const packetFacts: PacketFacts = {
+    financingApplicable,
+    closingDateScheduled: closingDate !== null,
+    appraisalApplicable,
+    requiresNotario: cfg.requiresNotario,
+    requiresTitleCompany: cfg.requiresTitleCompany,
+    requiresCrimClearance: cfg.requiresCrimClearance,
+    requiresRegistryFollowup: cfg.requiresRegistryFollowup,
+    inspectionApplicable: cfg.inspectionApplicable,
+    insuranceApplicable: cfg.insuranceApplicable,
+    requiresSurvey: cfg.requiresSurvey,
+    requiresHoaClearance: cfg.requiresHoaClearance,
+  }
+  const closingDocumentReadiness = deriveClosingDocumentReadiness(
+    packetFacts,
+    documentRows,
+  )
 
   return {
     dealId: deal.id,
@@ -180,13 +218,13 @@ export async function getDealWorkflowFacts(
     listPrice: deal.list_price === null ? null : Number(deal.list_price),
     offerPrice: deal.offer_price === null ? null : Number(deal.offer_price),
     closingDate,
-    financingApplicable: financingApplicableFromType(deal.financing_type),
+    financingApplicable,
     closingDateScheduled: closingDate !== null,
     // CRM-19 — canonical deal-level source (deal.appraisal_required), resolved
     // by the explicit application command deal.set_appraisal_required. Never
     // invented: null means unresolved, and the XML decision surfaces it
     // explicitly (appraisal_applicability_unresolved) instead of skipping.
-    appraisalApplicable: appraisalApplicableFromRequired(deal.appraisal_required),
+    appraisalApplicable,
     // CRM-20 — canonical deal-level source (deal.lender_clear_to_close),
     // resolved by the explicit application command deal.set_lender_clear_to_close.
     // Never invented: null means unresolved, and the XML closing-readiness gate
@@ -194,6 +232,10 @@ export async function getDealWorkflowFacts(
     // of letting a financed deal appear closing-ready. Cash deals are routed
     // around the fact entirely.
     lenderClearToClose: lenderClearToCloseFromFact(deal.lender_clear_to_close),
+    // CRM-21 — derived closing-document readiness (packet catalog + canonical
+    // transaction_document rows; signed/final lineage only). Consumed by the
+    // XML closing_documents_gate before closing readiness.
+    closingDocumentsReady: closingDocumentReadiness.ready,
     // Class B — Culebra operating defaults.
     closingAgentRole: cfg.closingAgentRole,
     requiresNotario: cfg.requiresNotario,

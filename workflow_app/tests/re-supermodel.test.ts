@@ -73,6 +73,10 @@ function simpleCashFacts(overrides: Record<string, any> = {}) {
     requiresRegistryFollowup: false,
     closingConfirmationRequired: false,
     closingDateScheduled: false,
+    // CRM-21: the canonical closing-document packet is complete and signed
+    // (derived fact). Scenarios that need to test the not-ready path override
+    // this to false.
+    closingDocumentsReady: true,
     ...overrides,
   }
 }
@@ -975,6 +979,136 @@ test('CRM-20: financed deal with lender clearance still honors the optional clos
     transitionName: 'resolved',
   })
   assert.ok(hasTask(fake, 'Closing'), 'closing task must appear after confirmation')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+// ---------------------------------------------------------------------------
+// CRM-21 — closing-document readiness (derived fact, consumed by the
+// closing_documents_gate before closing readiness). The fact is true only when
+// the canonical closing-document packet is complete AND signed/final; false
+// blocks readiness with an explicit pending task, never a silent pass.
+// ---------------------------------------------------------------------------
+test('CRM-21: missing/incomplete closing documents (fact false) block closing readiness', async () => {
+  const { fake, engine, re } = setup(simpleCashFacts({ closingDocumentsReady: false }))
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+  ])
+
+  // The canonical closing-document packet is not ready: the pending task must
+  // surface and closing must NOT be reachable — the bare "Closing Documents"
+  // human task alone cannot make the deal closing-ready.
+  assert.ok(hasOpenTask(fake, 'Closing Documents Pending'), 'not ready: pending must surface')
+  assert.equal(hasTask(fake, 'Closing'), false, 'closing must not start before the packet is signed/final')
+
+  // Completing "resolved" while the fact is STILL false loops back to the same
+  // pending task (blocker loop, never a silent pass).
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing Documents Pending').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.ok(hasOpenTask(fake, 'Closing Documents Pending'), 'still not ready: pending must reappear')
+  assert.equal(hasTask(fake, 'Closing'), false)
+
+  // The closing documents become complete and signed (packet + DOC-01 signed
+  // lineage -> derived fact true); the gate re-evaluates on resolved.
+  re.setFact('closingDocumentsReady', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing Documents Pending').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasOpenTask(fake, 'Closing Documents Pending'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'ready: closing becomes reachable')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+test('CRM-21: a complete signed closing packet passes the gate for cash deals', async () => {
+  const { fake, engine } = setup(simpleCashFacts()) // closingDocumentsReady: true
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+  ])
+
+  assert.equal(hasOpenTask(fake, 'Closing Documents Pending'), false, 'ready: no pending task')
+  assert.ok(hasTask(fake, 'Closing'), 'ready: closing reachable')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing').id,
+    userId: 'broker',
+    transitionName: 'closed',
+  })
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.outcome, 'completed')
+})
+
+test('CRM-21: closing documents gate runs BEFORE the lender gate (financed deals)', async () => {
+  const { fake, engine, re } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      lenderClearToClose: false,
+      closingDocumentsReady: false,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  await completeTasks(engine, fake, [
+    'Title / Legal',
+    'Tax / Municipal Clearance',
+    'Funds Ready',
+    'Closing Documents',
+    'Financing',
+  ])
+
+  // Both facts are not ready; the closing-document gate is evaluated first, so
+  // the documents pending task surfaces and the lender gate is not reached yet.
+  assert.ok(hasOpenTask(fake, 'Closing Documents Pending'), 'docs gate precedes the lender gate')
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.equal(hasTask(fake, 'Closing'), false)
+
+  // Documents become ready; re-evaluation now surfaces the lender pending task.
+  re.setFact('closingDocumentsReady', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Closing Documents Pending').id,
+    userId: 'broker',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasOpenTask(fake, 'Closing Documents Pending'), false)
+  assert.ok(hasOpenTask(fake, 'Lender Clearance Pending'), 'lender gate now surfaces')
+  assert.equal(hasTask(fake, 'Closing'), false)
+
+  // Lender clears; readiness proceeds to closing.
+  re.setFact('lenderClearToClose', true)
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Lender Clearance Pending').id,
+    userId: 'lender',
+    transitionName: 'resolved',
+  })
+  assert.equal(hasOpenTask(fake, 'Lender Clearance Pending'), false)
+  assert.ok(hasTask(fake, 'Closing'), 'cleared: closing becomes reachable')
 
   await engine.completeTask({
     taskId: taskByName(fake, 'Closing').id,

@@ -308,6 +308,7 @@ Operating differences are expressed **only as facts/capabilities** supplied by
 | `financingApplicable` | financing branch active (bool/null) |
 | `appraisalApplicable` | appraisal branch active (bool/null); canonical deal.appraisal_required fact (CRM-19) |
 | `lenderClearToClose` | lender clear-to-close (bool/null); canonical deal.lender_clear_to_close fact (CRM-20) |
+| `closingDocumentsReady` | derived closing-document readiness (bool); packet catalog + transaction_document signed lineage (CRM-21) |
 | `inspectionApplicable` | inspection branch active (bool/null) |
 | `insuranceApplicable` | insurance branch active (bool/null) |
 | `closingConfirmationRequired` | optional final brokerage confirmation |
@@ -370,11 +371,43 @@ Pending", lender) — the deal can never appear closing-ready before lender
 clearance. Cash/non-financed deals are routed around the fact entirely, so they
 are unaffected.
 
+## 10d. Closing-document readiness (Story CRM-21)
+
+`closingDocumentsReady` is a **derived** fact, never a persisted boolean and
+never a bare human checkmark:
+
+- required set: the packet catalog's closing package
+  (`workflow_app/transaction-packet.ts` → `requiredClosingDocumentPackage`:
+  the required items at the closing stage whose `documentType` is `closing` —
+  deed / closing package and closing statement). Post-closing items (registry /
+  recording follow-up) are excluded: closing-document readiness is assessed
+  before the closing. The fact never invents a required document.
+- signed/final lineage: an item is ready only when a matching
+  `transaction_document` row is in the final `signed` state of the DOC-01
+  `draft -> ready -> sent -> signed` lineage (DOC-05 reconciliation appends a
+  NEW signed media row and transitions to `signed`). Pre-signed states
+  (`draft`/`ready`/`sent`) are not ready; `voided`/`superseded` rows never
+  count, so a superseded signed artifact loses readiness while its replacement
+  is still a draft.
+- deterministic: duplicate/replayed rows cannot change the result.
+- consumption: `closing_documents_gate` (a decision, `refresh-facts="true"`)
+  sits between the fork/join and `closing_readiness_gate`. It routes
+  `closingDocumentsReady == true` to readiness; `false` lands in
+  `closing_documents_pending` ("Closing Documents Pending", brokerage) and
+  blocks readiness — `resolved` re-evaluates the gate with refreshed facts (a
+  blocker loop until the packet is complete and signed), `escalate` terminates
+  the transaction as failed. The gate runs before the lender gate, so a
+  financed deal cannot reach lender clearance while its closing documents are
+  not ready.
+
 ## 11. Closing readiness (Story 124 / 136)
 
 Eligibility is structural, never a magic boolean. The fork/join already
 guarantees every applicable required obligation is cleared/waived/resolved
-before `closing_readiness_gate` is reached. Financed deals
+before the readiness segment is reached. The `closing_documents_gate` first
+requires the canonical closing-document packet to be complete AND signed/final
+(`closingDocumentsReady == true`, CRM-21, §10d); `false` lands in
+`closing_documents_pending` and blocks readiness. Financed deals
 (`financingApplicable == true`) are then routed through `lender_clearance_gate`
 (CRM-20, §10c): lender clear-to-close must be `true` before readiness — `null`
 surfaces an explicit resolution task, `false` is a pending state that blocks
