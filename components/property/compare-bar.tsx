@@ -1,10 +1,16 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 
 import type { PropertySummary } from '@/db/properties'
-import { pruneCompare } from '@/lib/compare'
+import {
+  COMPARE_CHANGED_EVENT,
+  pruneCompare,
+  removeCompare,
+} from '@/lib/compare'
 import { formatArea, formatPrice, isLand } from '@/lib/property'
 
 type CompareBarProps = {
@@ -26,11 +32,18 @@ export function CompareBar({ properties }: CompareBarProps) {
 
   useEffect(() => {
     setMounted(true)
-    const pruned = pruneCompare(properties.map((property) => property.slug))
-    const matched = pruned
-      .map((entry) => properties.find((property) => property.slug === entry.slug))
-      .filter((property): property is PropertySummary => Boolean(property))
-    setSelected(matched)
+
+    const refresh = () => {
+      const pruned = pruneCompare(properties.map((property) => property.slug))
+      const matched = pruned
+        .map((entry) => properties.find((property) => property.slug === entry.slug))
+        .filter((property): property is PropertySummary => Boolean(property))
+      setSelected(matched)
+    }
+
+    refresh()
+    window.addEventListener(COMPARE_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(COMPARE_CHANGED_EVENT, refresh)
   }, [properties])
 
   if (!mounted || selected.length < 2) {
@@ -108,6 +121,30 @@ export function CompareBar({ properties }: CompareBarProps) {
                   key={property.id}
                   className="border-b border-border pb-4 pr-6 text-left align-bottom"
                 >
+                  <div className="relative mb-4 aspect-[4/3] w-44 overflow-hidden bg-muted">
+                    {property.heroUrl ? (
+                      <Image
+                        src={property.heroUrl}
+                        alt={property.heroAlt}
+                        fill
+                        unoptimized
+                        sizes="176px"
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-gradient-to-br from-[#d9dde0] via-[#eef0f1] to-[#c4cbd0]" />
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => removeCompare(property.id)}
+                      aria-label={`Remove ${property.name} from compare`}
+                      className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur-sm transition-colors duration-300 hover:bg-background"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
                   <Link
                     href={`/properties/${property.slug}`}
                     className="font-serif text-xl font-light leading-tight text-foreground transition-colors hover:text-accent"

@@ -4,7 +4,11 @@ import { useEffect, useState } from 'react'
 import { Scale } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { readCompare, toggleCompare } from '@/lib/compare'
+import {
+  COMPARE_CHANGED_EVENT,
+  readCompare,
+  toggleCompare,
+} from '@/lib/compare'
 
 type ComparePropertyProps = {
   id: string
@@ -24,7 +28,13 @@ export function CompareProperty({
 
   useEffect(() => {
     setMounted(true)
-    setSelected(readCompare().some((entry) => entry.id === id))
+
+    const sync = () =>
+      setSelected(readCompare().some((entry) => entry.id === id))
+
+    sync()
+    window.addEventListener(COMPARE_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(COMPARE_CHANGED_EVENT, sync)
   }, [id])
 
   const toggle = () => {
