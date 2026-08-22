@@ -90,6 +90,9 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Workflows',
       'Activity',
       'Property Media',
+      // DOC-06 / DOC-07 — NEXUS Forms + Documents (issued-document repository).
+      'Forms',
+      'Documents',
     ],
     OPS: [
       'Needs Review',

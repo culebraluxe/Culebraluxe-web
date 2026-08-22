@@ -45,6 +45,8 @@ export type AggregateType =
   | 'person'
   // DOC-03 — canonical signature_request aggregate (provider-free).
   | 'signature_request'
+  // DOC-06 — canonical issued transaction document aggregate.
+  | 'transaction_document'
 
 export type DomainEvent = {
   eventId: string

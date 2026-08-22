@@ -65,6 +65,7 @@ import {
   SendSignatureRequestCommand,
   StatusSignatureRequestCommand,
 } from './signature/signature-commands'
+import { DOCUMENT_ISSUE, IssueDocumentCommand } from './document/issue-document'
 
 /** Register every canonical command handler into the given registry. */
 export function registerCanonicalCommands(registry: CommandRegistry): void {
@@ -90,6 +91,8 @@ export function registerCanonicalCommands(registry: CommandRegistry): void {
   registry.register(SIGNATURE_REQUEST_STATUS, new StatusSignatureRequestCommand())
   registry.register(SIGNATURE_REQUEST_CANCEL, new CancelSignatureRequestCommand())
   registry.register(SIGNATURE_REQUEST_DECLINE, new DeclineSignatureRequestCommand())
+  // DOC-06 — canonical issuance command (immutable issued transaction document).
+  registry.register(DOCUMENT_ISSUE, new IssueDocumentCommand())
 }
 
 /** A fresh registry with every canonical command registered. */

@@ -1,5 +1,6 @@
 import { PortalWriteError } from '../lib/portal-write-error'
 import type { CommandResult, CommandOutcome } from '../lib/workflow/contracts'
+import type { ActingUser } from '../lib/auth/types'
 import { neonTx, type TxRunner } from './tx'
 import type { QueryExecutor, QueryRow } from './query-executor'
 import {
@@ -76,6 +77,13 @@ export type TransactionDocument = {
   signedMediaId: string | null
   signedAt: string | null
   supersedesDocumentId: string | null
+  /** DOC-06 issued-evidence (set together or all null — migration 054). */
+  issuedChecksumSha256: string | null
+  templateId: string | null
+  templateVersion: number | null
+  sourceSnapshot: Record<string, unknown> | null
+  issuedVersion: number | null
+  formInstanceId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -96,6 +104,12 @@ type TransactionDocumentRow = QueryRow & {
   signed_media_id: string | null
   signed_at: string | null
   supersedes_document_id: string | null
+  issued_checksum_sha256: string | null
+  template_id: string | null
+  template_version: number | null
+  source_snapshot: unknown
+  issued_version: number | null
+  form_instance_id: string | null
   created_at: string
   updated_at: string
 }
@@ -136,6 +150,18 @@ function mapTransactionDocument(row: TransactionDocumentRow): TransactionDocumen
     signedMediaId: row.signed_media_id ?? null,
     signedAt: dateOrNull(row.signed_at),
     supersedesDocumentId: row.supersedes_document_id ?? null,
+    issuedChecksumSha256: row.issued_checksum_sha256 ?? null,
+    templateId: row.template_id ?? null,
+    templateVersion:
+      row.template_version === null || row.template_version === undefined
+        ? null
+        : Number(row.template_version),
+    sourceSnapshot: (row.source_snapshot ?? null) as Record<string, unknown> | null,
+    issuedVersion:
+      row.issued_version === null || row.issued_version === undefined
+        ? null
+        : Number(row.issued_version),
+    formInstanceId: row.form_instance_id ?? null,
     createdAt: dateOrNull(row.created_at) ?? '',
     updatedAt: dateOrNull(row.updated_at) ?? '',
   }
@@ -171,6 +197,13 @@ export type CreateTransactionDocumentInput = {
   signedMediaId?: string | null
   signedAt?: string | null
   supersedesDocumentId?: string | null
+  /** DOC-06 issued-evidence (migration 054): set together or all omitted. */
+  issuedChecksumSha256?: string | null
+  templateId?: string | null
+  templateVersion?: number | null
+  sourceSnapshot?: Record<string, unknown> | null
+  issuedVersion?: number | null
+  formInstanceId?: string | null
 }
 
 /**
@@ -213,19 +246,60 @@ export async function createTransactionDocument(
   }
   validateSignedPair(input.signedMediaId, input.signedAt, 'createTransactionDocument')
 
+  // DOC-06: issued evidence is atomic — all present or all absent.
+  const issuedFields = [
+    input.issuedChecksumSha256,
+    input.templateId,
+    input.templateVersion,
+    input.sourceSnapshot,
+    input.issuedVersion,
+    input.formInstanceId,
+  ]
+  const issuedPresent = issuedFields.some((v) => v !== undefined && v !== null)
+  const issuedAbsent = issuedFields.every(
+    (v) => v === undefined || v === null,
+  )
+  if (!issuedPresent && !issuedAbsent) {
+    throw new PortalWriteError(
+      'validation',
+      'Issued document evidence must be set together or all omitted.',
+    )
+  }
+  if (
+    issuedPresent &&
+    (typeof input.issuedChecksumSha256 !== 'string' ||
+      typeof input.templateId !== 'string' ||
+      typeof input.templateVersion !== 'number' ||
+      input.sourceSnapshot === null ||
+      input.sourceSnapshot === undefined ||
+      typeof input.issuedVersion !== 'number' ||
+      input.issuedVersion < 1)
+  ) {
+    throw new PortalWriteError(
+      'validation',
+      'Issued document evidence is incomplete or invalid.',
+    )
+  }
+
   const q = execute ?? (await executor())
   const rows = await q`
     insert into transaction_document (
       deal_id, document_type, document_type_label, title, state, source,
       source_system, source_external_id, prepared_by_user_id, party_person_id,
-      media_id, signed_media_id, signed_at, supersedes_document_id
+      media_id, signed_media_id, signed_at, supersedes_document_id,
+      issued_checksum_sha256, template_id, template_version, source_snapshot,
+      issued_version, form_instance_id
     ) values (
       ${input.dealId}, ${input.documentType}, ${input.documentTypeLabel ?? null},
       ${input.title ?? null}, ${state}, ${input.source},
       ${input.sourceSystem ?? null}, ${input.sourceExternalId ?? null},
       ${input.preparedByUserId ?? null}, ${input.partyPersonId ?? null},
       ${input.mediaId ?? null}, ${input.signedMediaId ?? null},
-      ${input.signedAt ?? null}, ${input.supersedesDocumentId ?? null}
+      ${input.signedAt ?? null}, ${input.supersedesDocumentId ?? null},
+      ${input.issuedChecksumSha256 ?? null}, ${input.templateId ?? null},
+      ${input.templateVersion ?? null},
+      ${input.sourceSnapshot ? JSON.stringify(input.sourceSnapshot) : null}::jsonb,
+      ${input.issuedVersion ?? null}, ${input.formInstanceId ?? null}
     )
     on conflict (deal_id, source_system, source_external_id)
       where source_external_id is not null
@@ -233,7 +307,9 @@ export async function createTransactionDocument(
     returning id, deal_id, document_type, document_type_label, title, state,
       source, source_system, source_external_id, prepared_by_user_id,
       party_person_id, media_id, signed_media_id, signed_at,
-      supersedes_document_id, created_at, updated_at
+      supersedes_document_id, issued_checksum_sha256, template_id,
+      template_version, source_snapshot, issued_version, form_instance_id,
+      created_at, updated_at
   `
   const row = rows[0] as TransactionDocumentRow | undefined
   if (row) return mapTransactionDocument(row)
@@ -243,7 +319,9 @@ export async function createTransactionDocument(
     select id, deal_id, document_type, document_type_label, title, state,
       source, source_system, source_external_id, prepared_by_user_id,
       party_person_id, media_id, signed_media_id, signed_at,
-      supersedes_document_id, created_at, updated_at
+      supersedes_document_id, issued_checksum_sha256, template_id,
+      template_version, source_snapshot, issued_version, form_instance_id,
+      created_at, updated_at
     from transaction_document
     where deal_id = ${input.dealId}
       and source_system = ${input.sourceSystem ?? null}
@@ -389,7 +467,9 @@ export async function listTransactionDocumentsByDeal(
     select id, deal_id, document_type, document_type_label, title, state,
       source, source_system, source_external_id, prepared_by_user_id,
       party_person_id, media_id, signed_media_id, signed_at,
-      supersedes_document_id, created_at, updated_at
+      supersedes_document_id, issued_checksum_sha256, template_id,
+      template_version, source_snapshot, issued_version, form_instance_id,
+      created_at, updated_at
     from transaction_document
     where deal_id = ${dealId}
     order by created_at asc, id
@@ -406,11 +486,93 @@ export async function getTransactionDocument(
     select id, deal_id, document_type, document_type_label, title, state,
       source, source_system, source_external_id, prepared_by_user_id,
       party_person_id, media_id, signed_media_id, signed_at,
-      supersedes_document_id, created_at, updated_at
+      supersedes_document_id, issued_checksum_sha256, template_id,
+      template_version, source_snapshot, issued_version, form_instance_id,
+      created_at, updated_at
     from transaction_document
     where id = ${id}
   `
   const row = rows[0] as TransactionDocumentRow | undefined
   return row ? mapTransactionDocument(row) : null
+}
+
+/** Issued-document listing row (DOC-06 repository view). */
+export type IssuedDocumentListItem = {
+  id: string
+  dealId: string
+  documentTypeLabel: string | null
+  title: string | null
+  state: TransactionDocumentState
+  templateId: string | null
+  templateVersion: number | null
+  issuedVersion: number | null
+  issuedChecksumSha256: string | null
+  issuedByDisplayName: string | null
+  partyName: string | null
+  propertyName: string | null
+  dealName: string | null
+  createdAt: string
+}
+
+/**
+ * DOC-06 — canonical issued-document repository query. Lists issued (generated)
+ * documents, newest first. AUTH-02 scoping mirrors the deal read rule: external
+ * actors see only issued documents for deals their own person participates in.
+ */
+export async function listIssuedDocuments(
+  execute?: QueryExecutor,
+  actor?: Pick<ActingUser, 'accountType' | 'personId'>,
+): Promise<IssuedDocumentListItem[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select td.id, td.deal_id, td.document_type_label, td.title, td.state,
+      td.template_id, td.template_version, td.issued_version,
+      td.issued_checksum_sha256,
+      u.display_name as issued_by_display_name,
+      p.display_name as party_name,
+      pr.name as property_name,
+      d.name as deal_name,
+      td.created_at
+    from transaction_document td
+    left join app_user u on u.id = td.prepared_by_user_id
+    left join person p on p.id = td.party_person_id
+    left join deal d on d.id = td.deal_id
+    left join property pr on pr.id = d.property_id
+    where td.source = 'generated'
+      and td.template_id is not null
+      ${
+        actor && actor.accountType === 'external' && actor.personId
+          ? `and td.deal_id in (
+               select dp.deal_id from deal_participant dp
+               where dp.person_id = ${actor.personId} and dp.ended_at is null
+             )`
+          : actor && actor.accountType === 'external'
+            ? 'and false'
+            : ''
+      }
+    order by td.created_at desc, td.id
+  `
+  return rows.map((row) => ({
+    id: row.id as string,
+    dealId: row.deal_id as string,
+    documentTypeLabel: (row.document_type_label as string | null) ?? null,
+    title: (row.title as string | null) ?? null,
+    state: (row.state as TransactionDocumentState) ?? 'ready',
+    templateId: (row.template_id as string | null) ?? null,
+    templateVersion:
+      row.template_version === null || row.template_version === undefined
+        ? null
+        : Number(row.template_version),
+    issuedVersion:
+      row.issued_version === null || row.issued_version === undefined
+        ? null
+        : Number(row.issued_version),
+    issuedChecksumSha256: (row.issued_checksum_sha256 as string | null) ?? null,
+    issuedByDisplayName: (row.issued_by_display_name as string | null) ?? null,
+    partyName: (row.party_name as string | null) ?? null,
+    propertyName: (row.property_name as string | null) ?? null,
+    dealName: (row.deal_name as string | null) ?? null,
+    createdAt: new Date(row.created_at as string).toISOString(),
+  }))
 }
 

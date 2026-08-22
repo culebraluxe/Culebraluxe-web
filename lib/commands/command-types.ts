@@ -43,3 +43,10 @@ export const SIGNATURE_REQUEST_SEND = 'signature.request.send'
 export const SIGNATURE_REQUEST_STATUS = 'signature.request.status'
 export const SIGNATURE_REQUEST_CANCEL = 'signature.request.cancel'
 export const SIGNATURE_REQUEST_DECLINE = 'signature.request.decline'
+
+// DOC-06 — canonical issuance command. Issuing a form instance as an immutable
+// transaction document is a meaningful business action routed through the
+// Business Command seam (claim-first receipt, durable transaction boundary).
+// Draft-field editing stays OUTSIDE the command layer (plain form-instance
+// updates — no durable business record is created).
+export const DOCUMENT_ISSUE = 'document.issue'

@@ -48,6 +48,16 @@ export const OPERATING_SURFACES: Record<
         href: '/portal/property-media',
         authority: 'portal.read',
       },
+      {
+        label: 'Forms',
+        href: '/portal/forms',
+        authority: 'deal.read',
+      },
+      {
+        label: 'Documents',
+        href: '/portal/documents',
+        authority: 'deal.read',
+      },
     ],
   },
   OPS: {
