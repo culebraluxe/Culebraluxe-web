@@ -4,6 +4,7 @@ import {
   buildStoryBoardModel,
   filterStories,
   parseStoryBoardFilter,
+  selectNextWork,
 } from "@/lib/storyboard-data"
 
 export const dynamic = "force-dynamic"
@@ -23,12 +24,15 @@ export default async function StoryBoardPage({
   const model = buildStoryBoardModel(stories)
   const filter = parseStoryBoardFilter(params)
   const visibleStories = filterStories(model.stories, filter)
+  // OPS-08: bounded Next Work projection derived from the authoritative board.
+  const nextWork = selectNextWork(stories)
 
   return (
     <StoryBoard
       model={model}
       filter={filter}
       visibleStories={visibleStories}
+      nextWork={nextWork}
     />
   )
 }

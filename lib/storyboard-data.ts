@@ -343,6 +343,156 @@ export function filterStories(
 }
 
 // ---------------------------------------------------------------------------
+// Next Work selection (OPS-08) — bounded, deterministic work-selection
+// projection ("Next 20 without building Jira").
+//
+// A pure projection over the authoritative stored stories: no assignments, no
+// sprints, no new tables. The board stays the single source of truth; this
+// derives the next bounded slice of actionable work from it.
+//
+// Eligibility (an actionable story):
+//   - rollup = true — reference / parent rows (rollup=false) are never
+//     selected as work; their children carry the weight
+//   - status ∈ { Planned, Ready, In Progress, Partial } — Complete, Blocked,
+//     Failed, Deferred and Hold are not actionable
+//   - every board story referenced in `dependencies` is Complete. References
+//     to stories the board does not know are unverifiable and never block.
+//
+// Ordering (deterministic): batch ascending (unbatched last) → priority rank
+// (ENG-16 ladder) → planned start (earliest first, unplanned last) → id.
+// The selection is capped (default 20, max 50); `truncated` reports when
+// eligible work exists beyond the cap.
+// ---------------------------------------------------------------------------
+
+export const NEXT_WORK_DEFAULT_LIMIT = 20
+export const NEXT_WORK_MAX_LIMIT = 50
+
+/** ENG-16 priority ladder — Critical first; unknown priorities rank last. */
+const PRIORITY_RANK: Record<string, number> = {
+  Critical: 0,
+  High: 1,
+  'High-ish': 2,
+  'Medium-High': 3,
+  Medium: 4,
+  Low: 5,
+  Later: 6,
+  'High-value polish': 7,
+}
+
+export function priorityRankOf(priority: string): number {
+  return PRIORITY_RANK[priority] ?? 99
+}
+
+/** Statuses whose work is actionable now (eligible for Next Work). */
+const ACTIONABLE_STATUSES: ReadonlySet<string> = new Set([
+  'Planned',
+  'Ready',
+  'In Progress',
+  'Partial',
+])
+
+export function isStoryActionable(story: StoryRecord): boolean {
+  return story.rollup && ACTIONABLE_STATUSES.has(story.status)
+}
+
+/** Story-ID-like tokens inside free-text dependency notes (e.g. CRM-14B). */
+const STORY_ID_TOKEN = /[A-Z]{2,}-\d+[A-Z]?/g
+
+export function dependencyStoryIds(dependencies: string | null): string[] {
+  if (!dependencies) return []
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const match of dependencies.toUpperCase().matchAll(STORY_ID_TOKEN)) {
+    const id = match[0]
+    if (!seen.has(id)) {
+      seen.add(id)
+      ids.push(id)
+    }
+  }
+  return ids
+}
+
+export type NextWorkEntry = {
+  story: StoryRecord
+  /** 1-based position within the returned selection. */
+  rank: number
+}
+
+export type NextWorkSelection = {
+  entries: NextWorkEntry[]
+  /** Actionable stories before the cap (dependency-blocked ones excluded). */
+  totalEligible: number
+  /** Actionable-status stories held back ONLY by unmet dependencies. */
+  totalBlockedByDependency: number
+  /** The applied cap (1..NEXT_WORK_MAX_LIMIT). */
+  limit: number
+  /** True when eligible stories exist beyond the returned cap. */
+  truncated: boolean
+}
+
+function unmetDependenciesOf(
+  story: StoryRecord,
+  byId: Map<string, StoryRecord>,
+): string[] {
+  return dependencyStoryIds(story.dependencies).filter((id) => {
+    const dep = byId.get(id)
+    return dep !== undefined && dep.status !== 'Complete'
+  })
+}
+
+export function selectNextWork(
+  stories: StoryRecord[],
+  opts?: { limit?: number },
+): NextWorkSelection {
+  const requested = opts?.limit
+  const limit =
+    typeof requested === 'number' && Number.isFinite(requested)
+      ? Math.min(Math.max(Math.floor(requested), 1), NEXT_WORK_MAX_LIMIT)
+      : NEXT_WORK_DEFAULT_LIMIT
+
+  const byId = new Map<string, StoryRecord>(
+    stories.map((s) => [s.id.toUpperCase(), s]),
+  )
+
+  let totalBlockedByDependency = 0
+  const eligible: StoryRecord[] = []
+  for (const story of stories) {
+    if (!isStoryActionable(story)) continue
+    if (unmetDependenciesOf(story, byId).length > 0) {
+      totalBlockedByDependency += 1
+      continue
+    }
+    eligible.push(story)
+  }
+
+  const ordered = [...eligible].sort((a, b) => {
+    const aBatch = a.batch ?? Number.POSITIVE_INFINITY
+    const bBatch = b.batch ?? Number.POSITIVE_INFINITY
+    if (aBatch !== bBatch) return aBatch - bBatch
+    const pr = priorityRankOf(a.priority) - priorityRankOf(b.priority)
+    if (pr !== 0) return pr
+    const aStart = a.plannedStartAt ?? ''
+    const bStart = b.plannedStartAt ?? ''
+    if (aStart !== bStart) {
+      if (aStart === '') return 1
+      if (bStart === '') return -1
+      return aStart < bStart ? -1 : 1
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
+
+  return {
+    entries: ordered
+      .slice(0, limit)
+      .map((story, index) => ({ story, rank: index + 1 })),
+    totalEligible: eligible.length,
+    totalBlockedByDependency,
+    limit,
+    truncated: eligible.length > limit,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Rollup model
 //
 // Per workstream (matching the required rollup fields):

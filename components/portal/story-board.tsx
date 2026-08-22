@@ -1,6 +1,8 @@
-import { type StoryBoardFilter, type StoryBoardModel, type StoryRecord } from "@/lib/storyboard-data"
+import { type StoryBoardFilter, type StoryBoardModel, type StoryRecord, type NextWorkSelection } from "@/lib/storyboard-data"
 import { StoryBoardControls } from "@/components/portal/storyboard/story-board-controls"
 import { StoryBoardTable } from "@/components/portal/write/story-board-table"
+import { statusPillClasses } from "@/components/portal/storyboard/story-detail-sections"
+import Link from "next/link"
 
 // ---------------------------------------------------------------------------
 // Story Board — server view. Rollup counts and the Net-Net completion are
@@ -158,6 +160,92 @@ function SurfaceCompletionStrip({ model }: { model: StoryBoardModel }) {
   )
 }
 
+function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
+  const { entries, totalEligible, totalBlockedByDependency, limit, truncated } =
+    selection
+
+  return (
+    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="border-b border-[var(--portal-border)] px-6 py-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="font-serif text-2xl font-light">Next Work</h2>
+          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+            Next {limit}
+          </span>
+        </div>
+        <p className="mt-1 text-sm font-light leading-6 text-black/50">
+          Bounded, deterministic work-selection projection (OPS-08) — no Jira.
+          Actionable stories (rollup-participating, not Complete/Blocked/
+          Failed/Deferred/Hold) ranked by batch → priority → planned start.
+          {totalBlockedByDependency > 0 && (
+            <>
+              {" "}
+              {totalBlockedByDependency} more wait on unmet dependencies.
+            </>
+          )}{" "}
+          {totalEligible} eligible
+          {truncated ? ` — capped at ${limit}.` : "."}
+        </p>
+      </div>
+
+      {entries.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm font-light italic text-black/40">
+          No actionable next work right now — the board has no eligible
+          stories.
+        </div>
+      ) : (
+        <ol className="divide-y divide-[var(--portal-border)]">
+          {entries.map(({ story, rank }) => (
+            <li
+              key={story.id}
+              className="flex flex-wrap items-center gap-x-5 gap-y-2 px-6 py-4"
+            >
+              <span className="w-7 font-serif text-lg font-light leading-none text-black/30">
+                {rank}
+              </span>
+              <div className="min-w-56 flex-1">
+                <Link
+                  href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
+                  className="font-mono text-xs text-[var(--portal-navy)] transition hover:text-[#8a4b2a]"
+                >
+                  {story.id}
+                </Link>
+                <div className="mt-0.5 text-sm font-light leading-5 text-black/70">
+                  {story.title}
+                </div>
+              </div>
+              <span className="text-xs font-light uppercase tracking-[0.14em] text-black/35">
+                {story.workstream}
+              </span>
+              {story.batch !== null && (
+                <span className="rounded-full border border-[#c6a15b]/40 px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em] text-[#8a6d2f]">
+                  Batch {story.batch}
+                </span>
+              )}
+              <span className="rounded-full border border-black/10 px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
+                {story.priority}
+              </span>
+              <span
+                className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${statusPillClasses(story.status)}`}
+              >
+                {story.status}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <div className="border-t border-[var(--portal-border)] px-6 py-4 text-xs font-light leading-5 text-black/40">
+        Reference / parent rows (rollup = false) are never selected as work;
+        stories referenced in a candidate's dependencies must be Complete
+        before the candidate becomes eligible. The selection is derived at
+        render time from the stored stories — open any entry for its full
+        execution specification.
+      </div>
+    </section>
+  )
+}
+
 function WorkstreamRow({ model }: { model: StoryBoardModel }) {
   return (
     <tbody>
@@ -204,10 +292,12 @@ export function StoryBoard({
   model,
   filter,
   visibleStories,
+  nextWork,
 }: {
   model: StoryBoardModel
   filter: StoryBoardFilter
   visibleStories: StoryRecord[]
+  nextWork: NextWorkSelection
 }) {
   return (
     <div>
@@ -276,6 +366,8 @@ export function StoryBoard({
           </table>
         </div>
       </section>
+
+      <NextWorkSection selection={nextWork} />
 
       <StoryBoardControls
         filter={filter}
