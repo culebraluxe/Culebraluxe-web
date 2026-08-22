@@ -122,11 +122,32 @@ export async function getDeals(): Promise<Deal[]> {
     join property p
       on p.id = d.property_id
 
-    join person
-      on person.id = d.client_person_id
+    join lateral (
+      select
+        person.id,
+        person.display_name
+      from deal_participant dp
+      join person
+        on person.id = dp.person_id
+      where dp.deal_id = d.id
+        and dp.role = 'client'
+        and dp.active = true
+      order by dp.created_at asc
+      limit 1
+    ) person on true
 
-    left join app_user owner
-      on owner.id = d.owner_user_id
+    left join lateral (
+      select
+        app_user.display_name
+      from deal_participant dp
+      join app_user
+        on app_user.id = dp.user_id
+      where dp.deal_id = d.id
+        and dp.role = 'owner'
+        and dp.active = true
+      order by dp.created_at asc
+      limit 1
+    ) owner on true
 
     left join lateral (
       select

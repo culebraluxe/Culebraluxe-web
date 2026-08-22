@@ -106,7 +106,9 @@ export interface ResolvedProperty {
 
 export interface ResolvedDeal {
   id: string
-  personId: string
+  /** The deal's client person (active deal_participant role='client'); null
+   * when the deal has no active client participant. */
+  personId: string | null
   propertyId: string
 }
 

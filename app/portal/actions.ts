@@ -8,23 +8,25 @@ import { searchPeople } from '@/db/people'
 import type { PersonSearchResult } from '@/db/people'
 import { createTask } from '@/db/tasks'
 import {
-  addOtherParticipant,
   cancelShowing,
   cancelTask,
   completeShowing,
   completeTask,
   createShowing,
-  endParticipant,
   logManualInteraction,
   rejectOffer,
   scheduleShowing,
   submitOffer,
-  updateParticipantRoleLabel,
   updatePersonNotes,
   updatePersonStatus,
   updateTaskDue,
   withdrawOffer,
 } from '@/db/portal-writes'
+import {
+  addOtherParticipant,
+  endParticipant,
+  updateParticipantRoleLabel,
+} from '@/db/deal-participants'
 import { resolveIntake } from '@/db/needs-review-resolution'
 import type {
   ResolveIntakeAction,

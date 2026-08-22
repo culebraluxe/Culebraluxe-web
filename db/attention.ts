@@ -155,8 +155,15 @@ export async function getAttentionSnapshot(): Promise<AttentionSnapshot> {
         (
           select count(*)::int
           from deal d
-          where d.client_person_id = p.id
-            and d.stage <> 'closed'
+          where d.stage <> 'closed'
+            and exists (
+              select 1
+              from deal_participant dp
+              where dp.deal_id = d.id
+                and dp.person_id = p.id
+                and dp.role = 'client'
+                and dp.active = true
+            )
         ) as active_deal_count,
         (
           select count(*)::int
@@ -181,8 +188,15 @@ export async function getAttentionSnapshot(): Promise<AttentionSnapshot> {
           (
             select count(*)::int
             from deal d
-            where d.client_person_id = p.id
-              and d.stage <> 'closed'
+            where d.stage <> 'closed'
+              and exists (
+                select 1
+                from deal_participant dp
+                where dp.deal_id = d.id
+                  and dp.person_id = p.id
+                  and dp.role = 'client'
+                  and dp.active = true
+              )
           ) > 0
           or (
             select count(*)::int

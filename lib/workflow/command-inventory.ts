@@ -100,7 +100,7 @@ export const DOMAIN_COMMANDS: DomainCommand[] = [
     changesBusinessState: true,
     workflowAware: true,
     idempotency: 'C',
-    idempotencyNote: 'No unique constraint on (deal, person, role); retries can duplicate.',
+    idempotencyNote: 'Dedupe invariant (CRM-13): one active role=other participant per role_label per deal (case-insensitive); retries with the same label conflict.',
     precondition: 'Deal must exist.',
   },
   {

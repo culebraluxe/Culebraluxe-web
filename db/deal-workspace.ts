@@ -2,9 +2,10 @@ import { sql } from './client'
 
 // Read-only Deal Workspace projection (CRM-12B + CRM-13). Composes canonical
 // deal, property, person, app_user, task, interaction, deal_participant, and
-// offer data. Participants are read from the canonical deal_participant table
-// (active rows), resolving person vs app_user deterministically; the legacy
-// deal/client/owner/seller FKs remain untouched for existing read paths.
+// offer data. The client card and the participant list are both read from the
+// canonical deal_participant table (active rows), resolving person vs
+// app_user deterministically; the legacy deal/owner/seller FKs are not read
+// here.
 
 export type DealParticipant = {
   id: string
@@ -120,9 +121,6 @@ type DealRow = {
   client_status: string
   client_email: string | null
   client_phone: string | null
-  owner_name: string | null
-  seller_id: string | null
-  seller_name: string | null
 }
 
 type TaskRow = {
@@ -227,19 +225,21 @@ export async function getDealWorkspace(
         client.role as client_role,
         client.status as client_status,
         client_email.identity_value as client_email,
-        client_phone.identity_value as client_phone,
-        owner.display_name as owner_name,
-        seller.id as seller_id,
-        seller.display_name as seller_name
+        client_phone.identity_value as client_phone
       from deal d
       join property
         on property.id = d.property_id
-      join person client
-        on client.id = d.client_person_id
-      left join app_user owner
-        on owner.id = d.owner_user_id
-      left join person seller
-        on seller.id = property.seller_person_id
+      join lateral (
+        select person.id, person.display_name, person.role, person.status
+        from deal_participant dp
+        join person
+          on person.id = dp.person_id
+        where dp.deal_id = d.id
+          and dp.role = 'client'
+          and dp.active = true
+        order by dp.created_at asc
+        limit 1
+      ) client on true
       left join lateral (
         select pi.identity_value
         from person_identity pi

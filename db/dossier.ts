@@ -307,9 +307,25 @@ export async function getRelationshipDossier(
         from deal d
         join property
           on property.id = d.property_id
-        left join app_user owner
-          on owner.id = d.owner_user_id
-        where d.client_person_id = ${personId}
+        left join lateral (
+          select
+            app_user.display_name
+          from deal_participant dp
+          join app_user
+            on app_user.id = dp.user_id
+          where dp.deal_id = d.id
+            and dp.role = 'owner'
+            and dp.active = true
+          order by dp.created_at asc
+          limit 1
+        ) owner on true
+        where exists (
+          select 1
+          from deal_participant dp_client
+          where dp_client.deal_id = d.id
+            and dp_client.person_id = ${personId}
+            and dp_client.role = 'client'
+        )
         order by
           case d.stage
             when 'under_contract' then 1

@@ -128,11 +128,20 @@ export async function getDealWorkflowFacts(
       p.name as property_name,
       p.property_type,
       p.status as property_status,
-      person.id as client_id,
-      person.display_name as client_name
+      client_participant.id as client_id,
+      client_participant.display_name as client_name
     from deal d
     join property p on p.id = d.property_id
-    left join person on person.id = d.client_person_id
+    left join lateral (
+      select person.id, person.display_name
+      from deal_participant dp
+      join person on person.id = dp.person_id
+      where dp.deal_id = d.id
+        and dp.role = 'client'
+        and dp.active = true
+      order by dp.created_at asc
+      limit 1
+    ) client_participant on true
     where d.id = ${dealId}
     limit 1
   `

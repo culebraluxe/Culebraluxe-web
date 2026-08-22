@@ -322,94 +322,11 @@ export async function rejectOffer(
 
 // ---------------------------------------------------------------
 // STORY 7 — Participant role='other' writes
+// Refactored into the canonical CRM-13 seam db/deal-participants.ts
+// (addOtherParticipant / endParticipant / updateParticipantRoleLabel),
+// which enforces the one-active-structural-role and one-active-role_label
+// invariants. See that module.
 // ---------------------------------------------------------------
-
-export async function addOtherParticipant(input: {
-  dealId: string
-  personId?: string
-  userId?: string
-  roleLabel: string
-}) {
-  if (!input.personId && !input.userId) {
-    throw new PortalWriteError(
-      'validation',
-      'Exactly one of person or user is required.',
-    )
-  }
-  if (input.personId && input.userId) {
-    throw new PortalWriteError(
-      'validation',
-      'Exactly one of person or user is required.',
-    )
-  }
-  const roleLabel = input.roleLabel.trim()
-  if (!roleLabel) {
-    throw new PortalWriteError(
-      'validation',
-      'A role label is required for other participants.',
-    )
-  }
-  if (roleLabel.length > 120) {
-    throw new PortalWriteError('validation', 'Role label is too long.')
-  }
-
-  const rows = await sql`
-    insert into deal_participant (deal_id, person_id, user_id, role, role_label, active)
-    values (
-      ${input.dealId}, ${input.personId ?? null}, ${input.userId ?? null},
-      'other', ${roleLabel}, true
-    )
-    returning id
-  `
-  const id = (rows[0] as { id: string } | undefined)?.id
-  if (!id) throw new Error('Participant could not be created.')
-  return { participantId: id }
-}
-
-export async function endParticipant(participantId: string) {
-  const rows = await sql`
-    update deal_participant
-    set active = false, ended_at = now(), updated_at = now()
-    where id = ${participantId}
-      and active = true
-    returning id
-  `
-  if (rows.length === 0) {
-    throw new PortalWriteError(
-      'conflict',
-      'Participant not found or already ended.',
-    )
-  }
-  return { participantId }
-}
-
-export async function updateParticipantRoleLabel(
-  participantId: string,
-  roleLabel: string,
-) {
-  const normalized = roleLabel.trim()
-  if (!normalized) {
-    throw new PortalWriteError('validation', 'Role label is required.')
-  }
-  if (normalized.length > 120) {
-    throw new PortalWriteError('validation', 'Role label is too long.')
-  }
-
-  const rows = await sql`
-    update deal_participant
-    set role_label = ${normalized}, updated_at = now()
-    where id = ${participantId}
-      and role = 'other'
-    returning id
-  `
-  if (rows.length === 0) {
-    throw new PortalWriteError(
-      'conflict',
-      'Participant not found or not role=other.',
-    )
-  }
-  return { participantId }
-}
 
 // ---------------------------------------------------------------
 // STORY 8 — Client note / relationship status
