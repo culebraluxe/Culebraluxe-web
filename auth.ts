@@ -26,6 +26,7 @@ import type { DefaultSession } from 'next-auth'
 
 import { authenticateBreakGlass } from '@/lib/auth/break-glass-authenticate'
 import { getAuthProviderConfig } from '@/lib/auth/provider-config'
+import { getSessionAuthoritySnapshot } from '@/lib/auth/session-capability-snapshot'
 
 // Stable provider identifiers surfaced through the session adapter.
 export const AUTH_PROVIDER_GOOGLE = 'google'
@@ -97,7 +98,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     maxAge: SESSION_MAX_AGE_SECONDS,
   },
   callbacks: {
-    jwt({ token, user, account }) {
+    async jwt({ token, user, account }) {
       if (user?.id) token.sub = user.id
       if (account?.provider) {
         token.provider = account.provider
@@ -105,6 +106,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Credentials sign-in may not carry an account object; derive the
         // provider deterministically from the stable subject prefix.
         token.provider = AUTH_PROVIDER_BREAK_GLASS
+      }
+      // AUTH-02: stamp the coarse authority snapshot for the Edge middleware
+      // gate. Runs ONLY at sign-in (user present, Node runtime) — the snapshot
+      // then rides in the JWT and is never re-resolved on subsequent requests.
+      // The snapshot is not authoritative (server-side guards re-resolve from
+      // the DB on every protected request), so a resolution failure degrades to
+      // null: the cheap gate passes through and the layout guard decides.
+      if (user?.id && token.provider) {
+        token.capabilities = await getSessionAuthoritySnapshot(
+          token.provider as string,
+          token.sub as string,
+        ).catch(() => null)
       }
       return token
     },

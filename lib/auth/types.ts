@@ -39,3 +39,12 @@ export type AuthenticatedIdentity = {
   providerSubject: string
   providerEmail: string | null
 }
+
+// Serialized actor projection for client-side UI gating only (hiding buttons /
+// nav items). Cosmetic — never the security boundary. The authoritative checks
+// are server-side (requirePortalAccess / getActingUser + requireAuthority).
+export type PortalActorSnapshot = {
+  displayName: string
+  accountType: AccountType
+  authorityCodes: string[]
+}

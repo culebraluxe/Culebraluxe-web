@@ -1,6 +1,10 @@
 import Link from "next/link"
 
-export function PortalHeader() {
+import type { PortalActorSnapshot } from "@/lib/auth/types"
+
+// AUTH-02: receives the server-resolved actor snapshot (cosmetic UI projection
+// only — the security boundary is the server-side layout guard).
+export function PortalHeader({ actor }: { actor: PortalActorSnapshot }) {
   return (
     <header className="border-b border-white/10 bg-[var(--portal-navy)] text-white">
       <div className="flex min-h-20 items-center justify-between gap-6 px-6 lg:px-10 xl:px-14">
@@ -35,7 +39,7 @@ export function PortalHeader() {
             </div>
 
             <div className="mt-1 text-[9px] font-light uppercase tracking-[0.25em] text-white/45">
-              Portal
+              {actor.displayName}
             </div>
           </div>
         </div>

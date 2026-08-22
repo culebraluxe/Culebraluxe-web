@@ -1,6 +1,8 @@
 # CulebraLuxe Server Command → Authority Map
 
-Status: AUTH-03 classification (PREPARED — not enforced until provider auth + owner bootstrap exist).
+Status: AUTH-02 route/portal enforcement is ACTIVE (middleware cheap gate +
+authoritative server-side layout guards). Per-action server-action enforcement
+is AUTH-03 (PREPARED — not wired to `runAuthorized` yet).
 
 Coarse authorities only. No per-button authorities. Business-state legality stays with domain/workflow services.
 
@@ -31,3 +33,33 @@ Coarse authorities only. No per-button authorities. Business-state legality stay
 
 - `resolveIntakeAction` remains `crm.write` at the authority layer, but the *business* decision to attach or create a person is identity-sensitive and will additionally be workflow-gated (not expressed as a separate authority).
 - `completeShowingAction`, `submitOfferAction`/`rejectOfferAction`/`withdrawOfferAction`, and `endParticipantAction` are consequential commands; they are `deal.write` at the authority layer and will carry CRM-14 business-state gating separately.
+
+## Enforcement layers (AUTH-02)
+
+- **Route/resource (coarse, Edge)**: `middleware.ts` applies `PORTAL_ROUTE_POLICY`
+  (`lib/auth/route-policy.ts`): unauthenticated `/portal*` → `/login`;
+  authenticated-but-missing the required authority (from the JWT capability
+  snapshot) → `/login/unauthorized`; `/portal/settings*` additionally requires
+  `settings.read`. Cheap first gate only — the Edge runtime does not resolve
+  authorities from the DB.
+- **Route/resource (authoritative, server-side)**: the Portal layout
+  (`app/portal/layout.tsx`) calls `getActingUser` + `requireAuthority('portal.read')`
+  through `resolvePortalAccess` and redirects on AuthError; the settings layout
+  (`app/portal/settings/layout.tsx`) re-checks `settings.read` server-side.
+- **UI projections**: client components receive a serialized actor snapshot
+  (authority codes) from the server to hide nav/buttons. Cosmetic only — never
+  the security boundary; a direct call to a protected surface still fails
+  server-side.
+- **Server actions**: `runAuthorized` (AUTH-03) is the seam; per-action wiring
+  is out of scope for AUTH-02.
+
+## Read-scoping rule (deal reads)
+
+Internal coarse reads (`portal.read` / `deal.read`) return all rows. External
+clients hold only `external.deal.read_own` (never `portal.read`) and their deal
+reads are scoped in the deal read services to deals linked to the actor's own
+person (`app_user.person_id`) via active `deal_participant` rows — not a new
+authority. An external actor without a linked person gets no rows; an external
+actor requesting a deal they do not participate in gets the empty workspace.
+Applied at: `db/deals.ts getDeals(actor?)`, `db/deal-workspace.ts
+getDealWorkspace(dealId, actor?)`.

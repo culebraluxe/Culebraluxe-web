@@ -1,4 +1,5 @@
 import { sql } from './client'
+import type { ActingUser } from '@/lib/auth/types'
 
 // Read-only Deal Workspace projection (CRM-12B + CRM-13). Composes canonical
 // deal, property, person, app_user, task, interaction, deal_participant, and
@@ -182,9 +183,55 @@ function toNumber(value: string | null) {
   return value === null ? null : Number(value)
 }
 
+function emptyWorkspace(): DealWorkspace {
+  return {
+    deal: null,
+    property: null,
+    client: null,
+    participants: [],
+    openTasks: [],
+    activity: [],
+    offers: [],
+    showings: [],
+  }
+}
+
+// AUTH-02 read-scoping rule for deal workspace reads (same rule as getDeals):
+// internal actors (deal.read) get the coarse read; external actors
+// (external.deal.read_own) are scoped to deals linked to their own person
+// (app_user.person_id) via active deal_participant rows. An external actor who
+// is not a participant on the requested deal gets the empty workspace and NO
+// other workspace query (tasks/activity/participants/offers/showings) runs for
+// that deal — fail closed.
 export async function getDealWorkspace(
   dealId: string,
+  actor?: Pick<ActingUser, 'accountType' | 'personId'>,
 ): Promise<DealWorkspace> {
+  const external = actor?.accountType === 'external'
+  const externalScope = external
+    ? sql`
+      and d.id in (
+        select dp.deal_id
+        from deal_participant dp
+        where dp.person_id = ${actor.personId}
+          and dp.active = true
+      )
+    `
+    : sql``
+
+  if (external) {
+    const scopedDeal = await sql`
+      select d.id
+      from deal d
+      where d.id = ${dealId}
+      ${externalScope}
+      limit 1
+    `
+    if ((scopedDeal as { id: string }[]).length === 0) {
+      return emptyWorkspace()
+    }
+  }
+
   const [
     dealRows,
     taskRows,
@@ -257,6 +304,7 @@ export async function getDealWorkspace(
         limit 1
       ) client_phone on true
       where d.id = ${dealId}
+      ${externalScope}
       limit 1
     `,
     sql`
@@ -403,16 +451,7 @@ export async function getDealWorkspace(
   const now = Date.now()
 
   if (!dealRow) {
-    return {
-      deal: null,
-      property: null,
-      client: null,
-      participants: [],
-      openTasks: [],
-      activity: [],
-      offers: [],
-      showings: [],
-    }
+    return emptyWorkspace()
   }
 
   const participants: DealParticipant[] = (

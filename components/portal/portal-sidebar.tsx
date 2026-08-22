@@ -3,85 +3,12 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-const navigationGroups = [
-  {
-    label: "Work",
-    items: [
-      {
-        label: "Dashboard",
-        href: "/portal/dashboard",
-      },
-      {
-        label: "Attention",
-        href: "/portal/attention",
-      },
-      {
-        label: "Needs Review",
-        href: "/portal/needs-review",
-      },
-      {
-        label: "Activity",
-        href: "/portal/activity",
-      },
-    ],
-  },
-  {
-    label: "Operations & Reporting",
-    items: [
-      {
-        label: "Deals",
-        href: "/portal/deals",
-      },
-      {
-        label: "Workflows",
-        href: "/portal/workflows",
-      },
-      {
-        label: "Showings",
-        href: "/portal/showings",
-      },
-      {
-        label: "Clients",
-        href: "/portal/clients",
-      },
-      {
-        label: "Property Admin",
-        href: "/portal/property-admin",
-      },
-      {
-        label: "Media Audit",
-        href: "/portal/media-admin",
-      },
-      {
-        label: "Reporting",
-        href: "/portal/reporting",
-      },
-      {
-        label: "Story Board",
-        href: "/portal/storyboard",
-      },
-      {
-        label: "Command Console",
-        href: "/portal/command-console",
-      },
-      {
-        label: "Identity Quality",
-        href: "/portal/identity-quality",
-      },
-      {
-        label: "System Health",
-        href: "/portal/system-health",
-      },
-      {
-        label: "Settings",
-        href: "/portal/settings",
-      },
-    ],
-  },
-]
+import type { PortalActorSnapshot } from "@/lib/auth/types"
+import { filterPortalNavigation } from "@/lib/auth/portal-navigation"
 
-export function PortalSidebar() {
+export function PortalSidebar({ actor }: { actor: PortalActorSnapshot }) {
   const pathname = usePathname()
+  const navigationGroups = filterPortalNavigation(actor.authorityCodes)
 
   return (
     <aside className="hidden w-64 shrink-0 border-r border-[var(--portal-border)] bg-[var(--portal-navy)] text-white lg:flex lg:flex-col">

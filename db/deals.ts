@@ -1,5 +1,6 @@
 import { sql } from "./client"
 import type { Deal, DealStage } from "@/lib/portal/types"
+import type { ActingUser } from "@/lib/auth/types"
 
 type DealRow = {
   id: string
@@ -59,7 +60,28 @@ function propertyDescriptor(row: DealRow) {
   return parts.length > 0 ? parts.join(" · ") : undefined
 }
 
-export async function getDeals(): Promise<Deal[]> {
+// AUTH-02 read-scoping rule for deal reads:
+//   - internal actors (portal.read / deal.read) → coarse read, all deals.
+//   - external actors (external.deal.read_own)  → rows scoped to deals linked
+//     to the actor's own person (app_user.person_id) via active deal_participant
+//     rows. External accounts never hold portal.read; this is the row-scoping
+//     applied in deal read services, not a new authority.
+//   - external actor without a linked person → no deals (fail closed).
+export async function getDeals(
+  actor?: Pick<ActingUser, "accountType" | "personId">,
+): Promise<Deal[]> {
+  const externalScope =
+    actor?.accountType === "external"
+      ? sql`
+        and d.id in (
+          select dp.deal_id
+          from deal_participant dp
+          where dp.person_id = ${actor.personId}
+            and dp.active = true
+        )
+      `
+      : sql``
+
   const rows = await sql`
     select
       d.id,
@@ -194,6 +216,9 @@ export async function getDeals(): Promise<Deal[]> {
       order by o.submitted_at desc
       limit 1
     ) latest_offer on true
+
+    where 1 = 1
+    ${externalScope}
 
     order by
       case d.stage
