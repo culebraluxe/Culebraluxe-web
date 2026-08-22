@@ -23,14 +23,18 @@ export function statePill(state: string): { label: string; cls: string } {
   return map[state] ?? { label: state, cls: 'bg-white/5 text-white/50 border-white/10' }
 }
 
-export function shortId(id: string): string {
+export function shortId(id: string | null | undefined): string {
+  if (!id) return '—'
   if (id.length <= 24) return id
   return `${id.slice(0, 10)}…${id.slice(-6)}`
 }
 
-export function formatTime(iso: string | null): string {
+export function formatTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
+  // Defensive: legacy/malformed timestamps must never crash the cockpit
+  // (RangeError: Invalid time value).
+  if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',

@@ -25,6 +25,12 @@ import type {
 } from './repositories'
 import type { AgentCapability } from './capabilities'
 
+/** Minimum wall-clock interval between heartbeat progress writes (ms).
+ * Bounds the DB write cadence of the status-poll loop while keeping liveness
+ * fresh well inside the stale-recovery threshold. Meaningful note/step changes
+ * persist immediately regardless of this interval. */
+export const HEARTBEAT_MIN_INTERVAL_MS = 5000
+
 export type AdapterLifecycle =
   | 'not_started'
   | 'starting'
@@ -141,15 +147,25 @@ export abstract class AgentRuntimeAdapter {
 
 
     // Heartbeat/progress loop until the vendor runtime reaches a terminal
-    // lifecycle. Every pass refreshes liveness (heartbeat) via the work repo.
+    // lifecycle. Every pass refreshes liveness (heartbeat) via the work repo,
+    // but identical heartbeat content is coalesced (HEARTBEAT IS STATE, NOT
+    // HISTORY): the durable layer dedupes unchanged notes, and this loop
+    // throttles the DB write cadence so a fast vendor status poll cannot become
+    // a write amplifier. Meaningful note/step changes still persist immediately.
     let status = await this.statusExternal(command, ctxWithRun)
+    let lastHeartbeatAt = 0
     while (status.lifecycle === 'running') {
       const prog = this.progressFromStatus(status, command)
-      await this.deps.work.progress(command.workItemId, {
-        step: prog?.step,
-        completion: prog?.completion,
-        note: prog?.note,
-      })
+      const now = Date.now()
+      const changed = Boolean(prog?.note) || Boolean(prog?.step) || prog?.completion != null
+      if (changed || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS) {
+        lastHeartbeatAt = now
+        await this.deps.work.progress(command.workItemId, {
+          step: prog?.step,
+          completion: prog?.completion,
+          note: prog?.note,
+        })
+      }
       status = await this.statusExternal(command, ctxWithRun)
     }
 

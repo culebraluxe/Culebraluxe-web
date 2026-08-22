@@ -139,10 +139,13 @@ export function discoverLatestSession(workspacePath: string): string | null {
 export function startDshRun(opts: DshStartOptions): DshHandle {
   const workspace = resolve(opts.cwd)
   const sessionBefore = discoverLatestSession(workspace)
-  const env = {
-    ...process.env,
-    ...(opts.env ?? {}),
-  }
+  // The child env is the AUTHORITATIVE env passed by the caller (the adapter
+  // passes the execution-target sanitized env — APP_ENV/DATABASE_URL forced to
+  // the DEV target, PROD url removed). Never blindly re-merge process.env here:
+  // that would resurrect DATABASE_URL_PROD in a DEV child.
+  const env: NodeJS.ProcessEnv = opts.env
+    ? ({ ...opts.env } as NodeJS.ProcessEnv)
+    : { ...process.env }
   const proc = spawn(opts.cliBin, ['--profile', 'headless', opts.task], {
     cwd: opts.cwd,
     env,

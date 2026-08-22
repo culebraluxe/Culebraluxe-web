@@ -38,6 +38,11 @@ import { formatTime, runResultPill, shortId, statePill } from "@/lib/command-con
 const ROLE_OPTIONS = ["architect", "builder", "reviewer", "verifier"]
 const PROFILE_OPTIONS = ["architect-pro", "builder-flash", "reviewer", "local-builder"]
 const ENV_OPTIONS = ["DEV", "PROD", "TEST", "LOCAL"]
+const TEST_MODE_OPTIONS = [
+  { value: "SCOPED", hint: "targeted + adjacent tests only; full regression forbidden (default)" },
+  { value: "FULL", hint: "full regression explicitly authorized" },
+  { value: "NONE", hint: "no test execution — narrow non-code verification" },
+] as const
 const POLICY_OPTIONS = [
   { value: "Unattended OK", hint: "deterministic backend/infra/test work — safe for overnight dispatch" },
   { value: "Daytime Only", hint: "needs human observation/judgment (UI/UX/polish/browser-heavy)" },
@@ -329,6 +334,7 @@ function StoryWorkspace({
   const [instructions, setInstructions] = useState("")
   const [policy, setPolicy] = useState<string>(POLICY_OPTIONS[0].value)
   const [environment, setEnvironment] = useState("DEV")
+  const [testMode, setTestMode] = useState<string>("SCOPED")
   const [busy, setBusy] = useState(false)
 
   const storyStatus = story.status
@@ -346,6 +352,7 @@ function StoryWorkspace({
       specialInstructions: instructions,
       executionPolicy: policy,
       executionEnvironment: environment,
+      testMode,
     })
     setBusy(false)
     if (res.ok) {
@@ -467,6 +474,19 @@ function StoryWorkspace({
                 {ENV_OPTIONS.map((e) => <option key={e} value={e}>{e}</option>)}
               </select>
             </Field>
+            <Field label="Test execution mode (runtime-authoritative)">
+              <select value={testMode} onChange={(e) => setTestMode(e.target.value)} className={inputCls}>
+                {TEST_MODE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.value}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {TEST_MODE_OPTIONS.map((t) => (
+              <span key={t.value} className="rounded-sm border border-white/10 px-2 py-1 text-[10px] font-light text-slate-500">
+                {t.value}: {t.hint}
+              </span>
+            ))}
           </div>
 
           <div className="mt-3">
@@ -634,7 +654,13 @@ function ExecutionPanel({
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <dl className="space-y-3 text-sm font-light">
           <Row label="Story">
-            <span className="font-mono text-xs text-[#e3c98a]">{activeCommand.storyId}</span>
+            <Link
+              href={`/portal/command-console/${encodeURIComponent(activeCommand.storyId)}`}
+              className="inline-block rounded-sm border border-[#c6a15b]/40 px-2 py-1 font-mono text-xs text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
+              title="Open Story Execution Cockpit"
+            >
+              {activeCommand.storyId} ↗
+            </Link>
           </Row>
           <Row label="Worker">{activeCommand.claimedBy ?? "—"}</Row>
           <Row label="Runtime adapter">{activeCommand.runtimeAdapter ?? "not started"}</Row>

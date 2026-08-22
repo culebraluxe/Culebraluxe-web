@@ -26,9 +26,16 @@ import type {
 import type { AgentCapability } from '../capabilities'
 import {
   startDshRun,
+  discoverLatestSession,
   type DshHandle,
   type DshRunResult,
 } from './dsh-client'
+import {
+  detectFullRegressionAttempt,
+  resolveTestModeFromInstructions,
+  testModeTaskPolicy,
+} from '../test-mode'
+import { buildChildProcessEnv } from '../../lib/execution-target'
 import { execFileSync } from 'node:child_process'
 
 const DEEPSEEK_CAPABILITIES: AgentCapability[] = [
@@ -68,16 +75,23 @@ export function buildTaskText(
   context: AgentExecutionContext,
 ): string {
   const s = context.story
+  // The runtime test execution mode is authoritative and OUTRANKS story prose.
+  // The directive is consumed here (stripped) so the model never sees the token.
+  const { mode, instructions } = resolveTestModeFromInstructions(
+    command.specialInstructions,
+    process.env.AGENT_TEST_MODE ?? null,
+  )
   const parts: string[] = []
   parts.push(`Execute SDLC story ${s.id}: ${s.title}.`)
   if (s.goal) parts.push(`Goal: ${s.goal}`)
-  if (context.command.specialInstructions) {
-    parts.push(`Special instructions (additive, do not replace the architect brief): ${context.command.specialInstructions}`)
+  if (instructions) {
+    parts.push(`Special instructions (additive, do not replace the architect brief): ${instructions}`)
   }
   if (s.architectBrief) parts.push(`Architect brief: ${s.architectBrief}`)
   if (s.acceptanceCriteria) parts.push(`Acceptance criteria (do not mark Complete unless these are satisfied): ${s.acceptanceCriteria}`)
+  parts.push(testModeTaskPolicy(mode))
   parts.push(
-    'Work in the current repository. Verify your work by running tests/typecheck/build. ' +
+    'Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. ' +
     'Create a local git commit with the intended changes when the story requires it. ' +
     'Do NOT push. Do NOT mutate production data or schema. Report what you did.',
   )
@@ -90,6 +104,9 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
   private handle: DshHandle | null = null
   private lastResult: DshRunResult | null = null
+  /** Newest DSH session present in the workspace BEFORE this run spawned —
+   * used to reject a stale pre-run session during in-run discovery. */
+  private sessionBaseline: string | null = null
 
   constructor(
     deps: ConstructorParameters<typeof AgentRuntimeAdapter>[0],
@@ -109,34 +126,43 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
   protected async startExternal(
     context: AgentExecutionContext,
   ): Promise<ExternalStartResult> {
-    // Defensive FAIL-FAST (ENG-20): the adapter must never spawn external work
-    // for an execution target whose application/domain DB configuration would
-    // resolve to the production database. The invoker already guards before
-    // calling execute; this is the second, adapter-level barrier directly
-    // before the harness process is started.
-    if (context.executionEnvironment) {
-      const { assertExecutionTargetSafe } = await import('../../lib/execution-target')
-      assertExecutionTargetSafe(context.executionEnvironment as never)
-    }
+    // Defensive FAIL-FAST (ENG-20/ENG-20A): the adapter must never spawn
+    // external work for an execution target whose application/domain DB
+    // configuration would resolve to the production database. The invoker
+    // already guards before calling execute; this is the second, adapter-level
+    // barrier directly before the harness process is started.
+    const target = (context.executionEnvironment ?? 'DEV') as never
+    const { assertExecutionTargetSafe, buildChildProcessEnv, verifyWorkspaceEnvFile } = await import('../../lib/execution-target')
+    assertExecutionTargetSafe(target)
+    verifyWorkspaceEnvFile(this.config.workspace, target)
 
     const task = this.taskBuilder(context.command, context)
     const startRun = this.config.startRun ?? startDshRun
+    // DEV safety: the spawned harness (and any test process it spawns) must
+    // NOT inherit an APP_ENV/DATABASE_URL set that resolves to the production
+    // application database. buildChildProcessEnv builds a sanitized child env
+    // (APP_ENV/EXECUTION_ENV/DATABASE_URL forced to the DEV target; the PROD
+    // url removed) and FAILS FAST on a DEV->PROD mismatch before spawn.
+    const childEnv = buildChildProcessEnv(target)
     this.handle = startRun({
       cliBin: this.config.cliBin,
       cwd: this.config.workspace,
       task,
-      env: this.config.env,
+      env: { ...childEnv, ...(this.config.env ?? {}) },
     })
 
     // Opaque correlation: the harness generates session-<uuid> internally and
-    // does NOT print it. The client discovers it after completion. Until then
-    // we use a provisional id; resultExternal updates it to the real session.
+    // does NOT print it. The real session is discovered during the run by
+    // statusExternal and persisted immediately (no longer only at finalization).
+    // Baseline = the newest session already present BEFORE spawn, so in-run
+    // discovery never mistakes a stale pre-run session for this run's session.
+    this.sessionBaseline = discoverLatestSession(this.config.workspace)
     this.externalRunId = `deepseek-pending-${Date.now()}`
     return { externalRunId: this.externalRunId }
   }
 
   protected async statusExternal(
-    _command: AgentWorkCommand,
+    command: AgentWorkCommand,
     _context: AgentExecutionContext,
   ): Promise<ExternalStatusResult> {
     if (!this.handle) return { lifecycle: 'failed' }
@@ -145,6 +171,24 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     // shared loop terminalizes without racing the process exit.
     if (this.handle.cancelled) return { lifecycle: 'cancelled' }
     if (this.handle.proc.exitCode === null) {
+      // In-run DSH session discovery: once the real session-<uuid> directory
+      // exists for this workspace, persist it immediately so the operator sees
+      // the REAL session id while the story is still Running (the pending id is
+      // only a short-lived bootstrap value).
+      if (this.externalRunId?.startsWith('deepseek-pending-')) {
+        const session = discoverLatestSession(this.config.workspace)
+        if (session && session !== this.sessionBaseline) {
+          this.externalRunId = session
+          try {
+            await this.deps.work.setRuntime(command.workItemId, {
+              runtimeAdapter: this.runtimeAdapterId,
+              externalRunId: session,
+            })
+          } catch {
+            // Correlation is evidence only; a terminal race must not break the loop.
+          }
+        }
+      }
       return { lifecycle: 'running', detail: { sessionId: this.externalRunId } }
     }
     // Process exited — resolve the final result exactly once.
@@ -236,11 +280,26 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       .filter(Boolean)
       .join('\n\n')
 
+    // FULL-harness guard (SCOPED mode): if the model reported invoking a known
+    // full-regression command, flag it in the durable evidence so the operator
+    // sees a policy violation instead of silently accepting the tax.
+    const { mode } = resolveTestModeFromInstructions(
+      command.specialInstructions,
+      process.env.AGENT_TEST_MODE ?? null,
+    )
+    const forbidden = mode === 'SCOPED'
+      ? detectFullRegressionAttempt(result.stdout)
+      : null
+
     return {
       resultStatus: 'Complete',
       completion: 100,
-      notes,
-      testsSummary: `dsh exit code ${result.exitCode}`,
+      notes: forbidden
+        ? notes + `\n\nTEST-MODE VIOLATION (SCOPED): the model reported the forbidden FULL-regression command \`${forbidden}\`. The runtime policy is authoritative; FULL requires explicit runtime authorization (test-mode: FULL).`
+        : notes,
+      testsSummary: forbidden
+        ? `dsh exit code ${result.exitCode} | TEST-MODE VIOLATION (SCOPED): ${forbidden}`
+        : `dsh exit code ${result.exitCode}`,
       commitHash,
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,

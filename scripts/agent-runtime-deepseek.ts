@@ -47,6 +47,7 @@ import { interactiveSql } from '../lib/neon-interactive'
 import {
   assertExecutionTargetSafe,
   parseExecutionEnvironment,
+  verifyWorkspaceEnvFile,
 } from '../lib/execution-target'
 import { enqueueAgentWorkCommand, failAgentWork } from '../db/agent-work'
 import { homedir } from 'node:os'
@@ -74,6 +75,10 @@ async function main(): Promise<void> {
   const target = parseExecutionEnvironment(process.env.EXECUTION_ENV, 'DEV')
   console.log('execution target:', target, '| control plane: APP_ENV=' + (process.env.APP_ENV ?? 'development'))
   assertExecutionTargetSafe(target)
+  // DEV-safety: verify the workspace .env.local (the config any spawned test
+  // process would read) cannot resolve a DEV execution to the PROD application
+  // database. The sanitized child env additionally strips DATABASE_URL_PROD.
+  verifyWorkspaceEnvFile(WORKSPACE, target)
 
   const work = new SqlAgentWorkRepository(() => interactiveSql as any)
   const runs = new SqlAgentRunRepository(() => interactiveSql as any)

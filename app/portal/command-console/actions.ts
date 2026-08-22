@@ -18,6 +18,7 @@ const EXECUTION_POLICIES = ['Unattended OK', 'Daytime Only', 'Human Gate', 'Manu
 const ROLES = ['architect', 'builder', 'reviewer', 'verifier']
 const MODEL_PROFILES = ['architect-pro', 'builder-flash', 'reviewer', 'local-builder']
 const EXECUTION_ENVIRONMENTS = ['DEV', 'PROD', 'TEST', 'LOCAL']
+const TEST_MODES = ['SCOPED', 'FULL', 'NONE']
 
 function result<T>(fn: () => Promise<T>): Promise<ConsoleActionResult<T>> {
   return fn().then(
@@ -49,6 +50,7 @@ export async function queueCommandAction(input: {
   specialInstructions: string
   executionPolicy: string
   executionEnvironment: string
+  testMode: string
 }): Promise<ConsoleActionResult<{ workItemId: string }>> {
   if (!input.storyId) return { ok: false, error: 'storyId is required', code: 'validation' }
   if (!ROLES.includes(input.role)) {
@@ -63,6 +65,9 @@ export async function queueCommandAction(input: {
   if (!EXECUTION_ENVIRONMENTS.includes(input.executionEnvironment)) {
     return { ok: false, error: `unknown execution environment: ${input.executionEnvironment}`, code: 'validation' }
   }
+  if (!TEST_MODES.includes(input.testMode)) {
+    return { ok: false, error: `unknown test mode: ${input.testMode}`, code: 'validation' }
+  }
   if (input.specialInstructions.length > 4000) {
     return { ok: false, error: 'special instructions too long (max 4000 chars)', code: 'validation' }
   }
@@ -72,7 +77,12 @@ export async function queueCommandAction(input: {
       storyId: input.storyId,
       role: input.role,
       modelProfile: input.modelProfile,
-      specialInstructions: input.specialInstructions.trim() || null,
+      // The runtime test execution mode is machine-visible and authoritative:
+      // it is carried in the durable special_instructions envelope as a reserved
+      // directive the runtime parses and strips. It OUTRANKS contradictory
+      // story prose.
+      specialInstructions:
+        `[runtime test-mode: ${input.testMode}] ${input.specialInstructions.trim()}`.trim(),
       executionPolicy: input.executionPolicy,
       executionEnvironment: input.executionEnvironment,
     })

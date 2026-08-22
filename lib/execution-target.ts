@@ -22,6 +22,8 @@
 // DATABASE_URL fallback — is refused BEFORE external work begins.
 // ---------------------------------------------------------------------------
 
+import { readFileSync } from 'node:fs'
+
 export type ExecutionEnvironment = 'DEV' | 'PROD' | 'TEST' | 'LOCAL'
 
 export const EXECUTION_ENVIRONMENTS: readonly ExecutionEnvironment[] = [
@@ -143,5 +145,119 @@ export function assertExecutionTargetSafe(target: ExecutionEnvironment): void {
     throw new ExecutionTargetError(
       `execution target is ${target} but the generic DATABASE_URL fallback resolves to the PRODUCTION database; a fallback could silently point a ${target} command at production; refusing to start work (fail-fast).`,
     )
+  }
+}
+
+/**
+ * Build the environment for a SPAWNED child/runtime process for the intended
+ * execution target (ENG-20A DEV-safety). A DEV execution MUST NEVER silently
+ * resolve persistence/application tests to PROD:
+ *   - the target is first asserted safe (fail fast on any DEV->PROD URL
+ *     mismatch BEFORE the child is spawned);
+ *   - for non-PROD targets the PROD application URL is REMOVED from the child
+ *     environment and APP_ENV / EXECUTION_ENV / DATABASE_URL / DATABASE_URL_DEV
+ *     are forced to the DEV application DB, so even inherited .env.local or a
+ *     generic DATABASE_URL fallback cannot resolve tests to PROD;
+ *   - for a PROD target the child resolves the PROD application DB explicitly.
+ * No recovery by guessing another DATABASE_URL: a mismatch throws.
+ */
+export function buildChildProcessEnv(
+  target: ExecutionEnvironment,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string | undefined> {
+  assertExecutionTargetSafe(target)
+
+  const env: Record<string, string | undefined> = { ...baseEnv }
+  if (target === 'PROD') {
+    env.APP_ENV = 'production'
+    env.EXECUTION_ENV = 'PROD'
+    if (process.env.DATABASE_URL_PROD) env.DATABASE_URL = process.env.DATABASE_URL_PROD
+    return env
+  }
+
+  const devUrl =
+    process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL ?? null
+  env.APP_ENV = 'development'
+  env.EXECUTION_ENV = target
+  if (devUrl) {
+    env.DATABASE_URL_DEV = devUrl
+    env.DATABASE_URL = devUrl
+  }
+  // A DEV child must not even see the PROD application URL.
+  delete env.DATABASE_URL_PROD
+  return env
+}
+
+/** Minimal .env file line parser (KEY=value, optional export prefix, # comments). */
+export function parseEnvFile(
+  content: string,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const raw of content.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const body = line.replace(/^export\s+/, '')
+    const eq = body.indexOf('=')
+    if (eq <= 0) continue
+    const key = body.slice(0, eq).trim()
+    let value = body.slice(eq + 1).trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+    if (key) out[key] = value
+  }
+  return out
+}
+
+/**
+ * Verify the WORKSPACE `.env.local` (the config any spawned test process would
+ * read) against the intended execution target. FAILS FAST if a DEV execution
+ * could resolve persistence/application tests to the PROD database through the
+ * workspace file (APP_ENV=production, DATABASE_URL_DEV==DATABASE_URL_PROD, or a
+ * generic DATABASE_URL fallback equal to the PROD url). Missing file = nothing
+ * to verify (the sanitized child env already forces DEV resolution).
+ */
+export function verifyWorkspaceEnvFile(
+  workspacePath: string,
+  target: ExecutionEnvironment,
+  readFile?: (path: string) => string | null,
+): void {
+  const read =
+    readFile ??
+    ((path: string): string | null => {
+      try {
+        return readFileSync(path, 'utf8')
+      } catch {
+        return null
+      }
+    })
+
+  const content = read(`${workspacePath}/.env.local`)
+  if (!content) return
+  const fileEnv = parseEnvFile(content)
+
+  if (target !== 'PROD') {
+    const appEnv = (fileEnv.APP_ENV ?? 'development').trim().toLowerCase()
+    if (appEnv === 'production' || appEnv === 'prod') {
+      throw new ExecutionTargetError(
+        `execution target is ${target} but the workspace .env.local sets APP_ENV=${JSON.stringify(fileEnv.APP_ENV)}; a spawned test process could resolve the PRODUCTION application database; refusing to launch (fail-fast).`,
+      )
+    }
+    const fileDev = fileEnv.DATABASE_URL_DEV ?? null
+    const fileProd = fileEnv.DATABASE_URL_PROD ?? null
+    if (fileDev && fileProd && fileDev === fileProd) {
+      throw new ExecutionTargetError(
+        `execution target is ${target} but the workspace .env.local resolves DATABASE_URL_DEV to the PRODUCTION database; refusing to launch (fail-fast).`,
+      )
+    }
+    const fileGeneric = fileEnv.DATABASE_URL ?? null
+    if (fileGeneric && fileProd && fileGeneric === fileProd) {
+      throw new ExecutionTargetError(
+        `execution target is ${target} but the workspace .env.local generic DATABASE_URL resolves to the PRODUCTION database; a fallback could silently point a ${target} command at production; refusing to launch (fail-fast).`,
+      )
+    }
   }
 }

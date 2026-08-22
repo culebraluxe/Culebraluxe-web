@@ -221,7 +221,8 @@ function latestStep(run: StoryRun | null): string {
   // The run narrative is the persisted heartbeat trail (timestamped lines).
   // "Current step" is derived only when available — never invented.
   if (!run?.notes) return "—"
-  const lines = run.notes
+  const text = typeof run.notes === "string" ? run.notes : String(run.notes ?? "")
+  const lines = text
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)

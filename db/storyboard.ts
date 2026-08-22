@@ -593,6 +593,11 @@ export async function updateStoryRunProgress(
         notes = case
           when ${input.note ?? null}::text is null or ${input.note ?? null}::text = '' then notes
           when notes is null or notes = '' then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note ?? null}
+          -- HEARTBEAT IS STATE, NOT HISTORY (ENG-20A): an unchanged heartbeat note
+          -- (identical content regardless of the minute-level timestamp prefix) is
+          -- NOT appended again. Only meaningful state changes create history.
+          when regexp_replace(split_part(notes, E'\\n', -1), '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} — ', '') = ${input.note ?? null}
+            then notes
           else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note ?? null}
         end,
         tests_summary = case when ${input.testsSummary ?? null}::text is null
