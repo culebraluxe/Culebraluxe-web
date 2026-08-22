@@ -13,11 +13,13 @@ import type { PropertySummary } from '@/db/properties'
 import { SaveProperty } from '@/components/property/save-property'
 import { CompareProperty } from '@/components/property/compare-property'
 import { FeaturedPropertyCarousel } from '@/components/property/featured-property-carousel'
+import { SavedSearchesPanel } from '@/components/property/saved-searches-panel'
 import {
   formatArea,
   formatPrice,
   isLand,
 } from '@/lib/property'
+import type { SearchFilters } from '@/lib/search-contract'
 
 type Category = 'all' | 'homes' | 'land'
 
@@ -31,14 +33,7 @@ type BuyersPropertyShowroomProps = {
   properties: PropertySummary[]
   featured: PropertySummary[]
   viewOptions: string[]
-  initial: {
-    category: Category
-    q: string
-    maxPrice: string
-    beds: string
-    view: string
-    sort: SortMode
-  }
+  initial: SearchFilters
 }
 
 function propertyLocation(property: PropertySummary) {
@@ -513,6 +508,20 @@ export function BuyersPropertyShowroom({
               </select>
             </div>
           </div>
+
+          {/* PX-23 Saved Searches + Alerts: save the current filter state and
+              surface "new matches" alerts against the live inventory. */}
+          <SavedSearchesPanel
+            inventory={showroom}
+            currentFilters={{
+              category,
+              q: search,
+              maxPrice,
+              beds,
+              view,
+              sort,
+            }}
+          />
 
           {filtered.length > 0 ? (
             <div className="grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3">
