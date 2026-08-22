@@ -55,6 +55,7 @@ async function main(): Promise<void> {
       specialInstructions: 'dogfood CLI: deterministic TUnit run',
       priority: 100,
       maxAttempts: 3,
+      executionEnvironment: 'DEV',
     })
 
     const registry = new AgentRuntimeRegistry()
@@ -74,7 +75,6 @@ async function main(): Promise<void> {
       work,
       runs,
       registry,
-      defaultProfile: 'builder-flash',
     })
     if (!result) {
       console.log('no work')

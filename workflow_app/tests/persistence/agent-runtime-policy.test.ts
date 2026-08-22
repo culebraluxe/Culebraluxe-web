@@ -88,7 +88,12 @@ test('console policy: pause preserves assignment; resume continues the same run'
   const storyId = `TMP-POLICY-${Date.now()}-${++seq}`
   try {
     await createStory(storyId)
-    const item = await enqueueAgentWorkCommand({ storyId, modelProfile: 'builder-flash' })
+    const item = await enqueueAgentWorkCommand({
+      storyId,
+      role: 'builder',
+      modelProfile: 'builder-flash',
+      executionEnvironment: 'DEV',
+    })
     const claimed = await claimSpecificAgentWork(item.id, 'console-worker')
     assert.ok(claimed)
     const begun = await beginAgentWorkRun(item.id, executor)

@@ -65,6 +65,7 @@ test('ENG-18 dogfood: invoker executes one command via TUnit adapter and all thr
       specialInstructions: 'dogfood: run the TUnit adapter deterministically',
       priority: 100,
       maxAttempts: 3,
+      executionEnvironment: 'DEV',
     })
 
     // Registry: profile -> adapter.
@@ -89,7 +90,6 @@ test('ENG-18 dogfood: invoker executes one command via TUnit adapter and all thr
       work,
       runs,
       registry,
-      defaultProfile: 'builder-flash',
     })
     assert.ok(result, 'invoker executed one command')
     assert.equal(result.storyId, storyId)
@@ -152,7 +152,7 @@ function dogfoodScenario(): TUnitScenario {
     assert.equal(w.model_profile, 'builder-flash')
     assert.equal(w.runtime_adapter, 'tunit')
     assert.match(w.external_run_id ?? '', /^tunit-run-/, 'opaque external correlation stored')
-    assert.equal(w.attempts, 0)
+    assert.equal(w.attempts, 1, 'one attempt recorded at claim')
     assert.equal(w.max_attempts, 3)
   } finally {
     await interactiveSql`delete from storyboard_story where id = ${storyId}`

@@ -1,5 +1,6 @@
 import { PortalWriteError } from '../lib/portal-write-error'
 import { neonTx, type TxRunner } from './tx'
+import { EXECUTION_ENVIRONMENTS } from '../lib/execution-target'
 import {
   finishStoryRun,
   mapStory,
@@ -144,6 +145,68 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Runtime launch guard (ENG-20A) — the durable command must carry the
+// execution configuration required to launch a runtime. A work item MUST NOT
+// transition to Running with missing/invalid configuration (a command cannot
+// become Running merely because it was claimed). No silent default substitutes
+// operator intent; a bare Ready item created by the dispatch trigger (which
+// stores only story_id/state/priority) is refused until a human configures it
+// through the Command Console.
+// ---------------------------------------------------------------------------
+
+export const EXECUTION_POLICY_VALUES = [
+  'Unattended OK',
+  'Daytime Only',
+  'Human Gate',
+  'Manual Only',
+] as const
+
+/** Concise actionable launch error, or null when the command is launchable. */
+export function validateAgentWorkLaunchConfig(
+  item: Pick<
+    AgentWorkItem,
+    'role' | 'modelProfile' | 'executionPolicy' | 'executionEnvironment'
+  >,
+): string | null {
+  if (!item.executionEnvironment) {
+    return 'missing required execution_environment (set the execution target when queueing the command)'
+  }
+  if (!(EXECUTION_ENVIRONMENTS as readonly string[]).includes(item.executionEnvironment)) {
+    return `invalid execution_environment "${item.executionEnvironment}" (expected DEV|PROD|TEST|LOCAL)`
+  }
+  if (!item.role) return 'missing required role'
+  if (!item.modelProfile) return 'missing required model_profile'
+  if (!item.executionPolicy) return 'missing required execution_policy'
+  if (!(EXECUTION_POLICY_VALUES as readonly string[]).includes(item.executionPolicy)) {
+    return `invalid execution_policy "${item.executionPolicy}"`
+  }
+  return null
+}
+
+/**
+ * Terminalize a claimed-but-not-launchable command (ENG-20A fail-fast):
+ *   - work item -> Error with a concise actionable error (existing durable path)
+ *   - story -> Hold (auto-dispatch must not retry a misconfigured command and a
+ *     human must see it clearly)
+ * No run is created (the guard fires before Running), so there is no fake
+ * successful run and the global slot is released (Error is terminal).
+ */
+export async function rejectAgentWorkConfiguration(
+  workItemId: string,
+  reason: string,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem> {
+  const q = execute ?? (await executor())
+  const item = await getAgentWorkItem(workItemId, q)
+  if (!item) {
+    throw new PortalWriteError('not-found', `Work item "${workItemId}" was not found.`)
+  }
+  const failed = await failAgentWork(workItemId, reason, {}, q)
+  await setStoryboardStatus(item.storyId, 'Hold', q)
+  return failed
+}
+
 export async function isAgentWorkTableReady(
   execute?: QueryExecutor,
 ): Promise<boolean> {
@@ -281,6 +344,7 @@ export async function claimSpecificAgentWork(
       set state = 'Claimed',
           claimed_at = now(),
           claimed_by = ${workerId},
+          attempts = attempts + 1,
           updated_at = now()
       where id = ${workItemId}
         and state = 'Ready'
@@ -540,6 +604,7 @@ export async function claimNextAgentWork(
       set state = 'Claimed',
           claimed_at = now(),
           claimed_by = ${workerId},
+          attempts = attempts + 1,
           updated_at = now()
       where id = (
         select id from agent_work_item
@@ -549,6 +614,8 @@ export async function claimNextAgentWork(
       )
       returning id, story_id, state, priority, queued_at, claimed_at,
         claimed_by, started_at, finished_at, story_run_id, error_text,
+        role, model_profile, special_instructions, runtime_adapter,
+        external_run_id, attempts, max_attempts, execution_policy, execution_environment,
         created_at, updated_at
     `
     const claimedRow = claimedRows[0] as AgentWorkRow | undefined
@@ -596,6 +663,20 @@ export async function beginAgentWorkRun(
     throw new PortalWriteError(
       'conflict',
       `Work item "${workItemId}" is ${item.state}; only a Claimed item can begin.`,
+    )
+  }
+
+  // HARD LAUNCH GUARD (ENG-20A): a command cannot become Running merely
+  // because it was claimed. The durable execution configuration must be
+  // present and valid enough to launch its runtime (role, model profile,
+  // execution policy, execution target). Missing/invalid configuration
+  // throws BEFORE the Running transition; the caller terminalizes via
+  // rejectAgentWorkConfiguration (Error + story Hold + slot released).
+  const launchError = validateAgentWorkLaunchConfig(item)
+  if (launchError) {
+    throw new PortalWriteError(
+      'validation',
+      `cannot launch work item ${workItemId}: ${launchError}. Configure the command in the SDLC Command Console (role / model profile / execution target), then set the story back to Ready.`,
     )
   }
 

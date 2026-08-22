@@ -68,6 +68,7 @@ async function createFixture() {
     specialInstructions: 'special: do the fixture work',
     priority: 50,
     maxAttempts: 1,
+    executionEnvironment: 'DEV',
   })
 
   const command: AgentWorkCommand = {
@@ -88,6 +89,7 @@ async function createFixture() {
     externalRunId: item.externalRunId,
     attempts: item.attempts,
     maxAttempts: item.maxAttempts,
+    executionEnvironment: item.executionEnvironment,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
@@ -111,6 +113,7 @@ function makeContext(command: AgentWorkCommand, story: StoryboardStory): AgentEx
     story,
     policy: { allowCommit: true, allowDevDbWrite: true, allowControlPlaneWrite: true },
     capabilities: [],
+    executionEnvironment: command.executionEnvironment,
     storyRunId: '',
   }
 }

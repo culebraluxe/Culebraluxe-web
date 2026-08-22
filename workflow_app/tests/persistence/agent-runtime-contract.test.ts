@@ -73,6 +73,7 @@ async function createFixture(): Promise<ContractFixture> {
     specialInstructions: 'special: do the fixture work',
     priority: 50,
     maxAttempts: 3,
+    executionEnvironment: 'DEV',
   })
 
   const command = toCommandFromItem(item)

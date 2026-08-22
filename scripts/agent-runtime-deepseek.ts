@@ -118,7 +118,6 @@ async function main(): Promise<void> {
       work,
       runs,
       registry,
-      defaultProfile: 'builder-flash',
     })
   } catch (e) {
     // ESCALATION (ENG-20 fail-fast policy): mark the work item Error with

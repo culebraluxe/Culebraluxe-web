@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   Activity,
   AlertTriangle,
@@ -200,6 +201,7 @@ function StorySelector({
   selectedId: string | null
   onSelect: (id: string) => void
 }) {
+  const router = useRouter()
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<"Ready" | "Planned" | "Active" | "Complete" | "All">("All")
 
@@ -265,6 +267,9 @@ function StorySelector({
             <button
               key={s.id}
               onClick={() => onSelect(s.id)}
+              onDoubleClick={() =>
+                router.push(`/portal/command-console/${encodeURIComponent(s.id)}`)
+              }
               className={`block w-full border-b border-white/5 px-4 py-3 text-left transition-colors ${
                 active ? "bg-[#c6a15b]/10" : "hover:bg-white/5"
               }`}
@@ -382,7 +387,7 @@ function StoryWorkspace({
               href={`/portal/command-console/${encodeURIComponent(story.id)}`}
               className="mt-2 inline-block rounded-sm border border-[#c6a15b]/40 px-3 py-1.5 text-[11px] font-light text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
             >
-              Execution Cockpit ↗
+              Open Cockpit ↗
             </Link>
           </div>
         </div>

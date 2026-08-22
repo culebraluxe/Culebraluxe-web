@@ -139,7 +139,7 @@ test('ENG-18: completed work remains queryable; Error/Cancelled remain traceable
     const storyA = `TMP-Q-${Date.now()}-${++seq}`
     await createStory(storyA)
     ids.push(storyA)
-    await work.enqueue({ storyId: storyA, modelProfile: 'builder-flash' })
+    await work.enqueue({ storyId: storyA, role: 'builder', modelProfile: 'builder-flash', executionEnvironment: 'DEV' })
     const adapter = new TUnitAgentRuntimeAdapter(
       { work, runs: new SqlAgentRunRepository(executor) },
       scenario(),

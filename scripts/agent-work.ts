@@ -87,6 +87,8 @@ async function runClaimCommand(): Promise<void> {
     beginAgentWorkRun,
     getActiveAgentWorkItem,
     listStaleAgentWork,
+    rejectAgentWorkConfiguration,
+    validateAgentWorkLaunchConfig,
   } = await import('../db/agent-work')
   const { workstreamName } = await import('../lib/storyboard-data')
 
@@ -119,6 +121,27 @@ async function runClaimCommand(): Promise<void> {
   console.log('claimed', workItem.id, '->', story.id)
   console.log('story:', story.id, '—', story.title)
   console.log('workstream:', workstreamName(story.workstream), '| priority:', story.priority)
+  console.log(
+    'command:', workItem.role ?? '(no role)', '|',
+    workItem.modelProfile ?? '(no model profile)', '|',
+    'target', workItem.executionEnvironment ?? '(no execution target)', '|',
+    'policy', workItem.executionPolicy ?? '(no execution policy)',
+  )
+
+  // HARD LAUNCH GUARD (ENG-20A): a claimed command with missing/invalid
+  // execution configuration must NOT transition to Running. Fail fast through
+  // the durable path (work Error + story Hold + global slot released) with a
+  // concise actionable error instead of creating a zombie Running item.
+  const launchError = validateAgentWorkLaunchConfig(workItem)
+  if (launchError) {
+    console.error('launch guard:', launchError)
+    console.error(
+      `work item ${workItem.id} marked Error; story ${story.id} set to Hold. ` +
+        'Configure the command in the SDLC Command Console (role / model profile / execution target), then set the story back to Ready.',
+    )
+    await rejectAgentWorkConfiguration(workItem.id, launchError)
+    process.exit(1)
+  }
 
   // Begin the run lifecycle: story -> In Progress, run + spec snapshot,
   // work item -> Running with story_run_id.

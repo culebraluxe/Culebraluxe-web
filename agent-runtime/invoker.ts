@@ -16,6 +16,10 @@
 // ---------------------------------------------------------------------------
 
 import { AgentRuntimeRegistry } from './registry'
+import {
+  rejectAgentWorkConfiguration,
+  validateAgentWorkLaunchConfig,
+} from '../db/agent-work'
 import type {
   AgentExecutionContext,
   AgentRunEvidence,
@@ -37,8 +41,6 @@ export interface AgentInvokerDeps {
   work: AgentWorkRepository
   runs: AgentRunRepository
   registry: AgentRuntimeRegistry
-  /** Default model profile used when a command carries none. */
-  defaultProfile?: string
   /** Capability gate: if the profile's adapter lacks a required capability, the
    * command is NOT eligible and is left Ready (deterministic eligibility). */
   requiredCapabilities?: AgentCapability[]
@@ -54,8 +56,21 @@ export async function invokeNextAgentCommand(
   const workItem = claim.workItem
   const story = claim.story
 
-  // Resolve the logical profile (default when absent).
-  const modelProfile = workItem.modelProfile ?? deps.defaultProfile ?? 'builder-flash'
+  // HARD LAUNCH GUARD (ENG-20A): the durable command must carry the execution
+  // configuration required to launch a runtime. A work item cannot become
+  // Running merely because it was claimed — missing/invalid configuration is
+  // terminalized (work Error + story Hold + global slot released) and the
+  // invoker aborts BEFORE any runtime work begins. No silent default
+  // substitutes operator intent.
+  const launchError = validateAgentWorkLaunchConfig(workItem)
+  if (launchError) {
+    await rejectAgentWorkConfiguration(workItem.id, launchError)
+    throw new Error(`launch guard: ${launchError}`)
+  }
+
+  // The guard guarantees the durable command carries a logical model profile;
+  // the invoker consumes ONLY persisted configuration (no in-memory default).
+  const modelProfile = workItem.modelProfile as string
   const profileConfig = deps.registry.resolveProfile(modelProfile)
 
   // Deterministic eligibility: capability gate.
@@ -73,6 +88,13 @@ export async function invokeNextAgentCommand(
   const adapter = deps.registry.resolveAdapter(modelProfile, {
     work: deps.work,
     runs: deps.runs,
+  })
+
+  // Persist the resolved runtime adapter BEFORE the Running transition
+  // (no later than the pre-Running launch boundary) so the durable command
+  // always answers "which adapter will execute this".
+  await deps.work.setRuntime(workItem.id, {
+    runtimeAdapter: adapter.runtimeAdapterId,
   })
 
   const command: AgentWorkCommand = {
