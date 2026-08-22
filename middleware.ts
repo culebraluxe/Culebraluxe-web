@@ -59,6 +59,17 @@ async function readPortalToken(req: NextRequest): Promise<PortalToken | null> {
 }
 
 export default async function middleware(req: NextRequest) {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ⚠️ TEMP STARTUP AUTH BYPASS — REMOVE ME.  (startup dev flow only)
+  // Skipping the /portal/:path* Edge gate while PORTAL_AUTH_BYPASS=1; the
+  // server-side sibling in resolvePortalAccess covers the authoritative check.
+  // NEVER set PORTAL_AUTH_BYPASS on production. Delete this block to restore
+  // the real Edge gate.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (process.env.PORTAL_AUTH_BYPASS === '1') {
+    return NextResponse.next()
+  }
+
   const { pathname } = req.nextUrl
 
   const token = await readPortalToken(req)
