@@ -760,3 +760,78 @@
 | 2026-08-20 | Seed version 1: created `MASTER_STORYBOARD.md` (S-001…S-041, 4 batches) and this status file at main @ `fddcd26`. Documentation only. | Lead (storyboard story) | Established baseline; no stories `CURRENT` |
 | 2026-08-22 | S-039 (CRM-14I) recorded `PASS`: decision documented in `docs/domain-event-persistence-decision.md` — DEFER, no application `domain_event` table; consumer-gap analysis + correlation/causation proof + change-condition evaluation recorded. Documentation only; no code/schema. | Builder (CRM-14I) | S-039 PENDING → PASS |
 | 2026-08-22 | S-042 (CRM-14J) recorded `PASS`: canonical business command layer implemented (`lib/commands/*` — contracts, registry, dispatcher, domain-event collector, thin deal/offer/task wrappers, generalized receipt repository); workflow_app command router is now a translation seam to the canonical dispatcher; transactional outbox/subscriber contracts defined in `lib/events/outbox-contracts.ts` with implementation deferred (S-039 decision preserved). Verified with targeted unit + real-Postgres persistence tests, tsc, next build, and adjacent regression files. | Builder (CRM-14J) | S-042 added → PASS |
+| 2026-08-22 | INTAKE-01 recorded `PASS` (appended story, Batch 5): canonical intake message contract established — `lib/intake/*` (source-neutral envelope, realtime + batch lane adapters, single durable-inbox projection) and the realtime integration-inbox processor rewired to emit through the canonical envelope. Both lanes converge into the existing integration inbox → identity resolution → `interaction.record` BusinessCommand; no new state model. Verified with the new contract suite + CRM-23 adjacent regression + tsc. | Builder (INTAKE-01) | INTAKE-01 added → PASS |
+
+## 9. INTAKE-01 — Canonical Intake Message Contract (appended story)
+
+- **Status:** `PASS` (acceptance criteria met; evidence below)
+- **Goal:** Establish one canonical normalized intake contract so batch
+  imports and real-time external observers converge into the same downstream
+  identity-resolution and BusinessCommand pipeline. Two acquisition lanes are
+  allowed; two transformation stacks are not. Batch and realtime differ only
+  at the edge: source-specific adapter → normalized intake message → durable
+  intake transport/inbox → identity resolution → BusinessCommand → canonical
+  CRM truth.
+- **Files changed:**
+  - New: `lib/intake/contracts.ts` (canonical envelope — stable source
+    system, source item/event id, batch/import id, occurred_at, participant/
+    source identities, event type, raw/provenance reference, correlation/
+    causation metadata, bounded opaque `sourcePayload`; `intakeDedupeKey`
+    duplicate/replay identity; `intakeSourceIdentity` durable-inbox key;
+    `validateIntakeMessage`/`assertValidIntakeMessage` source-neutral
+    validation with a 32 KB payload bound), `lib/intake/realtime.ts`
+    (realtime lane adapter output — lowers `ExternalActivityEvent` into the
+    canonical envelope), `lib/intake/batch.ts` (batch lane adapter —
+    `IntakeBatchManifest` + `lowerBatchItemToIntakeMessage`), `lib/intake/inbox.ts`
+    (the ONE projection into the existing durable integration inbox),
+    `lib/intake/index.ts` (public seam), `workflow_app/tests/intake-contract.test.ts`
+    (9 targeted tests, zero Neon).
+  - Modified: `lib/integration-inbox/processor.ts` (the realtime lane now
+    lowers through the canonical message and projects through `toInboxInsert`),
+    `lib/integration-inbox/mapper.ts` (removed the superseded
+    `attachmentMetadataFor`/`ContactsInteractionInput` projections — one
+    transformation stack), `docs/workflow/MASTER_STORYBOARD.md` (Batch 5 /
+    INTAKE-01 definition), `docs/workflow/STORYBOARD_STATUS.md` (this record +
+    change log), `docs/agent/RUNLOG.md` (this run's entry).
+- **Tests/checks run:** scoped per ENG-20A runtime policy (SCOPED mode; full
+  regression not authorized):
+  - New `workflow_app/tests/intake-contract.test.ts` 9/9 pass — same canonical
+    surface from both lanes; duplicate/replay identity lane/account/batch-
+    agnostic; durable-inbox key derivation; provenance/raw ownership;
+    equivalent batch+realtime facts project to identical neutral inbox inserts
+    (downstream needs no source-specific parsing); inbox insert surface is
+    exactly the EXISTING integration-inbox contract; validation invariants +
+    32 KB bounded payload; lib/intake contains no SQL/table (no new state
+    model); the realtime processor's durable insert equals the canonical
+    projection (convergence at the seam).
+  - Adjacent regression: `workflow_app/tests/mac-observer-inbox.test.ts`
+    17/17 pass — the rewired realtime path through the canonical message is
+    byte-faithful to CRM-23 (calendar/mail/contacts completion, dedupe,
+    poison isolation, retention).
+  - `pnpm exec tsc --noEmit` clean (exit 0). `git diff --check` clean. No
+    `next build` run: touched code is server/lib only (no app/component
+    surface; tsc covers the changed TypeScript). Full regression not run per
+    runtime policy.
+- **Database mutations:** none. No migration, no schema change, no Neon
+  access — the canonical message lowers into the EXISTING `integration_inbox`
+  (migration 044) and existing intake stubs/command seams.
+- **Defects found:** none.
+- **Decisions made:**
+  - `CanonicalIntakeMessage` is the one normalized intake message; every
+    future edge gets its own adapter and still emits this envelope — batch
+    and realtime differ only at the edge.
+  - Duplicate/replay identity is `(source.system, source.itemId)` — the batch/
+    import id is provenance/correlation, never identity, so re-running an
+    import replays instead of duplicating; the durable inbox key is derived
+    from it (realtime scopes by account namespace; batch leaves it empty).
+  - Raw-source ownership is explicit (`provenance.adapter`/`adapterVersion`/
+    `rawReference`); canonical CRM stores references only; `sourcePayload` is
+    bounded (≤ 32 KB, matching CRM-23's metadata bound) and never reaches the
+    inbox projection.
+  - No new canonical CRM state model: the envelope feeds the existing
+    integration inbox → existing intake stubs (identity resolution) →
+    existing `interaction.record` BusinessCommand.
+  - Batch-import routing into per-source intake stubs (event-type → channel
+    stub mapping for the batch lane) is a follow-on story; INTAKE-01 delivers
+    the contract + both lane adapters + the shared inbox projection.
+- **Blocking dependency:** none.

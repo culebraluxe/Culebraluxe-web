@@ -52,13 +52,17 @@ import type {
   IntegrationInboxTerminalStatus,
 } from './contracts'
 import {
-  attachmentMetadataFor,
   mapCalendarEvent,
   mapContactsEvent,
   mapMailEvent,
   mapMessagesEvent,
   mapWhatsAppEvent,
 } from './mapper'
+// INTAKE-01 — the realtime lane emits the canonical intake message and the
+// durable inbox insert is the single projection both lanes share (batch and
+// realtime differ only at the edge).
+import { toInboxInsert } from '../intake/inbox'
+import { lowerExternalActivityEventToIntakeMessage } from '../intake/realtime'
 
 export type MacIntakeRepositories = IntakeRepositories & PersonCreationRepositories
 
@@ -88,29 +92,14 @@ function insertInputFromEvent(
   event: ExternalActivityEvent,
   maxAttempts: number,
 ): InsertIntegrationInboxInput {
-  return {
-    source: event.source,
-    sourceAccount: event.sourceAccount,
-    externalEventId: event.externalEventId,
-    eventType: event.eventType,
-    occurredAt: event.occurredAt,
-    observedAt: event.observedAt,
-    direction: event.direction ?? null,
-    correlationId: event.correlationId ?? null,
-    threadId: event.thread?.id ?? event.thread?.conversationId ?? null,
-    subject: event.content?.subject ?? null,
-    summary: event.content?.summary ?? null,
-    contentReference: event.content?.contentReference ?? null,
-    provenanceReference: event.provenance.rawReference ?? null,
-    participantIdentities: event.participants.map(({ kind, value, displayName }) => ({
-      kind,
-      value,
-      ...(displayName ? { displayName } : {}),
-    })),
-    contactCandidates: event.contactCandidates ?? null,
-    attachmentMetadata: attachmentMetadataFor(event),
+  // INTAKE-01 — lower the neutral realtime fact into the canonical intake
+  // message, then project through the SAME inbox bridge the batch lane uses.
+  // The durable receipt therefore always derives from the canonical envelope:
+  // one normalized intake contract, one transformation stack.
+  return toInboxInsert(
+    lowerExternalActivityEventToIntakeMessage(event),
     maxAttempts,
-  }
+  )
 }
 
 function isTerminal(status: IntegrationInboxRecord['status']): boolean {

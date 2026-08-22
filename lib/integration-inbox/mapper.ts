@@ -27,7 +27,6 @@ import type { EmailProviderMessage } from '../crm-email-types'
 import type { CommunicationsProviderEvent } from '../crm-communications-types'
 import type { WhatsAppProviderEvent } from '../crm-whatsapp-types'
 import type { ExternalActivityEvent, ExternalIdentity } from '../mac-observer/contracts'
-import type { CreateInteractionInput } from '../crm-types'
 
 /** The canonical source token the existing intake contracts require
  *  (lowercase, 1-64 chars, [a-z0-9_-]). Mac-observed events belong to the
@@ -284,27 +283,3 @@ export function mapContactsEvent(event: ExternalActivityEvent): InboundEvent {
     },
   }
 }
-
-/** Neutral attachment metadata projection for the inbox row. */
-export function attachmentMetadataFor(
-  event: ExternalActivityEvent,
-): IntegrationInboxAttachmentMetadata {
-  return (event.attachments ?? []).map((a) => ({
-    referenceId: a.referenceId,
-    filename: a.filename,
-    mimeType: a.mimeType,
-    sizeBytes: a.sizeBytes,
-  }))
-}
-
-/** Interaction input projection used by the contacts path (never written in
- *  V1 — contacts converge on person identity, not interactions). Kept typed
- *  for contract completeness and future identity-convergence writes. */
-export type ContactsInteractionInput = CreateInteractionInput
-
-type IntegrationInboxAttachmentMetadata = Array<{
-  referenceId: string
-  filename?: string
-  mimeType?: string
-  sizeBytes?: number
-}>

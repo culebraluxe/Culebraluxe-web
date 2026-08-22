@@ -819,6 +819,45 @@ Every story, present or future, must preserve:
 
 ---
 
+## Batch 5 — Intake Convergence (INTAKE-01)
+
+> INTAKE-01 is an appended story outside the S-* numbering (the persistent
+> `/portal/storyboard` is the authoritative backlog; this entry records the
+> definition for history, matching the S-042 precedent).
+
+### INTAKE-01 — Canonical Intake Message Contract
+
+- **Goal:** Establish ONE canonical normalized intake contract so batch
+  imports and real-time external observers converge into the same downstream
+  identity-resolution and BusinessCommand pipeline. Two acquisition lanes are
+  allowed; two transformation stacks are not. Batch and realtime differ only
+  at the edge.
+- **Canonical flow:** source-specific adapter → normalized intake message →
+  durable intake transport/inbox → identity resolution → BusinessCommand →
+  canonical CRM truth.
+- **Scope:** `lib/intake/` (canonical envelope contract, realtime + batch
+  lane adapters, the single durable-inbox projection), rewiring the realtime
+  integration-inbox processor to emit through the canonical envelope, and a
+  targeted contract suite. The envelope carries stable source system, source
+  item/event id, batch/import id when relevant, occurred_at, participant/
+  source identities, event type, raw/provenance reference, correlation/
+  causation metadata, and only bounded source-specific payload.
+- **Acceptance criteria:**
+  - The contract is explicit and source-neutral.
+  - Duplicate/replay identity is defined (source.system + source.itemId,
+    lane/account/batch-agnostic).
+  - Ownership of provenance/raw source is clear (adapter owns raw; canonical
+    CRM stores references only).
+  - Batch and realtime can both emit the same envelope.
+  - Downstream code needs no source-specific parsing rules (one inbox
+    projection; bounded sourcePayload never leaks).
+  - No new canonical CRM state model is created (reuses the existing
+    integration inbox + intake stubs + `interaction.record` command).
+- **Dependencies:** CRM-23 (realtime observer + durable inbox, migrations
+  044), CRM-14J (BusinessCommand layer, S-042).
+
+---
+
 ## 5. How this backlog is maintained
 
 - Add new work as a new numbered story in the next free S-ID slot; never reuse
