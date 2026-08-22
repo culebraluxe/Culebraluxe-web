@@ -319,6 +319,8 @@ export type StoryRun = {
   notes: string | null
   commitHash: string | null
   testsSummary: string | null
+  /** Execution target this run actually executed against (DEV|PROD|TEST|LOCAL). */
+  executionEnvironment: string | null
   goalSnapshot: string | null
   preconditionsSnapshot: string | null
   architectBriefSnapshot: string | null
@@ -336,6 +338,7 @@ export type FinishRunInput = {
   notes: string
   commitHash: string | null
   testsSummary: string | null
+  executionEnvironment?: string | null
 }
 
 type RunRow = QueryRow & {
@@ -348,6 +351,7 @@ type RunRow = QueryRow & {
   notes: string | null
   commit_hash: string | null
   tests_summary: string | null
+  execution_environment: string | null
   goal_snapshot: string | null
   preconditions_snapshot: string | null
   architect_brief_snapshot: string | null
@@ -369,6 +373,7 @@ function mapRun(row: RunRow): StoryRun {
     notes: row.notes,
     commitHash: row.commit_hash,
     testsSummary: row.tests_summary,
+    executionEnvironment: row.execution_environment ?? null,
     goalSnapshot: row.goal_snapshot,
     preconditionsSnapshot: row.preconditions_snapshot,
     architectBriefSnapshot: row.architect_brief_snapshot,
@@ -379,6 +384,7 @@ function mapRun(row: RunRow): StoryRun {
     updatedAt: dateOrNull(row.updated_at) ?? '',
   }
 }
+
 
 export async function isRunTableReady(
   execute?: QueryExecutor,
@@ -399,7 +405,7 @@ export async function listStoryboardRuns(
 
   const rows = await q`
     select id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary,
+      notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at,
@@ -417,7 +423,7 @@ export async function listStoryRuns(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary,
+      notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at,
@@ -441,6 +447,7 @@ export async function listStoryRuns(
 export async function startStoryRun(
   storyId: string,
   execute?: QueryExecutor,
+  opts?: { executionEnvironment?: string | null },
 ): Promise<{ run: StoryRun; story: StoryboardStory }> {
   const q = execute ?? (await executor())
   const storyRows = await q`
@@ -462,18 +469,18 @@ export async function startStoryRun(
 
   const runRows = await q`
     insert into storyboard_story_run (
-      story_id, started_at,
+      story_id, started_at, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot
     ) values (
-      ${storyId}, now(),
+      ${storyId}, now(), ${opts?.executionEnvironment ?? null},
       ${storyRow.goal ?? null}, ${storyRow.preconditions ?? null},
       ${storyRow.architect_brief ?? null}, ${storyRow.context_refs ?? null},
       ${storyRow.acceptance_criteria ?? null}, ${storyRow.postconditions ?? null}
     )
     returning id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary,
+      notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at,
@@ -512,10 +519,11 @@ export async function finishStoryRun(
         end,
         commit_hash = ${input.commitHash ?? null},
         tests_summary = ${input.testsSummary ?? null},
+        execution_environment = coalesce(${input.executionEnvironment ?? null}, execution_environment),
         updated_at = now()
     where id = ${runId}
     returning id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary,
+      notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at,
@@ -592,7 +600,7 @@ export async function updateStoryRunProgress(
         updated_at = now()
     where id = ${runId}
     returning id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary,
+      notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at, updated_at
@@ -638,7 +646,7 @@ export async function terminateStoryRun(
         updated_at = now()
     where id = ${runId}
     returning id, story_id, started_at, ended_at, result_status, completion,
-      notes, commit_hash, tests_summary,
+      notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at, updated_at

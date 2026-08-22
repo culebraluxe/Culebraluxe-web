@@ -43,6 +43,8 @@ export interface AgentWorkRepository {
     specialInstructions?: string | null
     priority?: number
     maxAttempts?: number
+    executionPolicy?: string
+    executionEnvironment?: string | null
   }): Promise<AgentWorkItem>
   beginRun(workItemId: string): Promise<{ workItem: AgentWorkItem; story: StoryboardStory }>
   progress(workItemId: string, input: AgentProgressUpdate): Promise<AgentWorkItem>
@@ -100,6 +102,8 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     specialInstructions?: string | null
     priority?: number
     maxAttempts?: number
+    executionPolicy?: string
+    executionEnvironment?: string | null
   }) {
     const q = await this.executor()
     return enqueueAgentWorkCommand(input, q)

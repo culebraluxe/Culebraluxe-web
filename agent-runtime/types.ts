@@ -64,6 +64,9 @@ export interface AgentWorkCommand {
   externalRunId: string | null
   attempts: number
   maxAttempts: number
+  /** Intended execution target (DEV|PROD|TEST|LOCAL) — never inferred from
+   * the control-plane database; set explicitly on the durable command. */
+  executionEnvironment?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -77,6 +80,8 @@ export interface AgentExecutionContext {
   policy: AgentExecutionPolicy
   /** Capabilities the selected runtime advertises/requires. */
   capabilities: AgentCapability[]
+  /** Intended execution target (DEV|PROD|TEST|LOCAL) for this attempt. */
+  executionEnvironment?: string | null
   /** The storyboard_story_run id for this attempt (created by the invoker). */
   storyRunId: string
 }
@@ -100,6 +105,8 @@ export interface AgentRunEvidence {
   runtimeAdapter: string | null
   modelProfile: ModelProfile | null
   externalRunId: string | null
+  /** Execution target this run actually executed against (DEV|PROD|TEST|LOCAL). */
+  executionEnvironment?: string | null
   startedAt: string
   endedAt: string | null
 }

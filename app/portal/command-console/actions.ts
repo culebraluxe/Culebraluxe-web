@@ -17,6 +17,7 @@ export type ConsoleActionResult<T> =
 const EXECUTION_POLICIES = ['Unattended OK', 'Daytime Only', 'Human Gate', 'Manual Only']
 const ROLES = ['architect', 'builder', 'reviewer', 'verifier']
 const MODEL_PROFILES = ['architect-pro', 'builder-flash', 'reviewer', 'local-builder']
+const EXECUTION_ENVIRONMENTS = ['DEV', 'PROD', 'TEST', 'LOCAL']
 
 function result<T>(fn: () => Promise<T>): Promise<ConsoleActionResult<T>> {
   return fn().then(
@@ -47,6 +48,7 @@ export async function queueCommandAction(input: {
   modelProfile: string
   specialInstructions: string
   executionPolicy: string
+  executionEnvironment: string
 }): Promise<ConsoleActionResult<{ workItemId: string }>> {
   if (!input.storyId) return { ok: false, error: 'storyId is required', code: 'validation' }
   if (!ROLES.includes(input.role)) {
@@ -57,6 +59,9 @@ export async function queueCommandAction(input: {
   }
   if (!EXECUTION_POLICIES.includes(input.executionPolicy)) {
     return { ok: false, error: `unknown execution policy: ${input.executionPolicy}`, code: 'validation' }
+  }
+  if (!EXECUTION_ENVIRONMENTS.includes(input.executionEnvironment)) {
+    return { ok: false, error: `unknown execution environment: ${input.executionEnvironment}`, code: 'validation' }
   }
   if (input.specialInstructions.length > 4000) {
     return { ok: false, error: 'special instructions too long (max 4000 chars)', code: 'validation' }
@@ -69,6 +74,7 @@ export async function queueCommandAction(input: {
       modelProfile: input.modelProfile,
       specialInstructions: input.specialInstructions.trim() || null,
       executionPolicy: input.executionPolicy,
+      executionEnvironment: input.executionEnvironment,
     })
     revalidatePath('/portal/command-console')
     return { workItemId: item.id }

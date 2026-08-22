@@ -11,10 +11,12 @@
 // ---------------------------------------------------------------------------
 
 import {
+  listAgentWorkForStory,
   listAgentWorkItems,
   type AgentWorkItem,
 } from '../db/agent-work'
 import {
+  getStoryboardStory,
   listStoryboardStories,
   listStoryRuns,
   type StoryboardStory,
@@ -103,5 +105,45 @@ export async function getCommandConsoleSnapshot(): Promise<ConsoleSnapshot> {
     })),
     commands,
     runCount: latestRunByStory.size,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Story Execution Cockpit read model (ENG-20) — child/detail projection over
+// the REAL control-plane tables only:
+//   storyboard_story       (authoritative story specification)
+//   agent_work_item        (durable command/queue for this story)
+//   storyboard_story_run   (execution evidence for this story)
+// No second queue/run model. This is a read projection — the lifecycle is
+// never derived here into a new state machine.
+// ---------------------------------------------------------------------------
+
+export type StoryExecutionCockpit = {
+  ready: boolean
+  story: StoryboardStory | null
+  workItems: AgentWorkItem[]
+  runs: StoryRun[]
+}
+
+/**
+ * Load the per-story execution cockpit. `ready:false` when the story does not
+ * exist (unknown id / table absent) so the page can render a clean not-found.
+ */
+export async function getStoryExecutionCockpit(
+  storyId: string,
+): Promise<StoryExecutionCockpit> {
+  const story = await getStoryboardStory(storyId)
+  if (!story) {
+    return { ready: false, story: null, workItems: [], runs: [] }
+  }
+  const [workItems, runs] = await Promise.all([
+    listAgentWorkForStory(storyId),
+    listStoryRuns(storyId),
+  ])
+  return {
+    ready: true,
+    story,
+    workItems: workItems ?? [],
+    runs,
   }
 }

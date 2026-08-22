@@ -68,6 +68,8 @@ export type AgentWorkItem = {
   maxAttempts: number
   /** SDLC execution policy (unattended eligibility). */
   executionPolicy: string
+  /** Intended execution target for this command (DEV|PROD|TEST|LOCAL). */
+  executionEnvironment: string | null
   createdAt: string
   updatedAt: string
 }
@@ -97,6 +99,7 @@ type AgentWorkRow = QueryRow & {
   attempts: number
   max_attempts: number
   execution_policy: string
+  execution_environment: string | null
   created_at: string
   updated_at: string
 }
@@ -135,6 +138,7 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
     attempts: row.attempts ?? 0,
     maxAttempts: row.max_attempts ?? 3,
     executionPolicy: row.execution_policy ?? 'Unattended OK',
+    executionEnvironment: row.execution_environment ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -159,7 +163,7 @@ export async function listAgentWorkItems(
 
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
     from agent_work_item
     order by queued_at desc, id
   `
@@ -173,7 +177,7 @@ export async function listAgentWorkForStory(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
     from agent_work_item
     where story_id = ${storyId}
     order by queued_at desc, id
@@ -189,7 +193,7 @@ export async function listActiveAgentWorkForStory(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
     from agent_work_item
     where story_id = ${storyId}
       and state in ('Ready', 'Claimed', 'Running')
@@ -205,7 +209,7 @@ export async function getAgentWorkItem(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
     from agent_work_item
     where id = ${workItemId}
   `
@@ -220,7 +224,7 @@ export async function getActiveAgentWorkItem(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
     from agent_work_item
     where state in ('Claimed', 'Running')
     limit 1
@@ -242,7 +246,7 @@ export async function listStaleAgentWork(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
     from agent_work_item
     where state in ('Claimed', 'Running')
       and updated_at < now() - (${staleAfterMinutes} || ' minutes')::interval
@@ -311,7 +315,7 @@ export async function pauseAgentWork(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -340,7 +344,7 @@ export async function resumeAgentWork(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -373,7 +377,7 @@ export async function setAgentWorkRuntime(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -400,6 +404,7 @@ export async function enqueueAgentWorkCommand(
     priority?: number
     maxAttempts?: number
     executionPolicy?: string
+    executionEnvironment?: string | null
   },
   execute?: QueryExecutor,
 ): Promise<AgentWorkItem> {
@@ -412,12 +417,12 @@ export async function enqueueAgentWorkCommand(
   const rows = await q`
     insert into agent_work_item (
       story_id, state, priority, role, model_profile, special_instructions,
-      max_attempts, execution_policy
+      max_attempts, execution_policy, execution_environment
     ) values (
       ${input.storyId}, 'Ready', ${input.priority ?? 0},
       ${input.role ?? null}, ${input.modelProfile ?? null},
       ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3},
-      ${input.executionPolicy ?? 'Unattended OK'}
+      ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null}
     )
     on conflict (story_id) where state in ('Ready', 'Claimed', 'Running')
     do update set
@@ -426,11 +431,12 @@ export async function enqueueAgentWorkCommand(
       special_instructions = coalesce(excluded.special_instructions, agent_work_item.special_instructions),
       max_attempts = excluded.max_attempts,
       execution_policy = excluded.execution_policy,
+      execution_environment = coalesce(excluded.execution_environment, agent_work_item.execution_environment),
       updated_at = now()
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -485,7 +491,7 @@ export async function updateAgentWorkProgress(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const heartbeatRow = heartbeats[0] as AgentWorkRow | undefined
   if (!heartbeatRow) {
@@ -593,7 +599,9 @@ export async function beginAgentWorkRun(
     )
   }
 
-  const { run, story } = await startStoryRun(item.storyId, q)
+  const { run, story } = await startStoryRun(item.storyId, q, {
+    executionEnvironment: item.executionEnvironment,
+  })
 
   const rows = await q`
     update agent_work_item
@@ -605,7 +613,7 @@ export async function beginAgentWorkRun(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -661,7 +669,7 @@ export async function finishAgentWork(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -722,7 +730,7 @@ export async function failAgentWork(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {
@@ -778,7 +786,7 @@ export async function cancelAgentWork(
     returning id, story_id, state, priority, queued_at, claimed_at,
       claimed_by, started_at, finished_at, story_run_id, error_text,
       role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, created_at, updated_at
+      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
   `
   const row = rows[0] as AgentWorkRow | undefined
   if (!row) {

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import {
   Activity,
   AlertTriangle,
@@ -25,6 +26,7 @@ import {
   resumeCommandAction,
 } from "@/app/portal/command-console/actions"
 import type { ConsoleSnapshot, ConsoleStory } from "@/lib/command-console-data"
+import { formatTime, runResultPill, shortId, statePill } from "@/lib/command-console-ui"
 
 // ---------------------------------------------------------------------------
 // SDLC Command Console — thin operational cockpit over ENG-18.
@@ -34,6 +36,7 @@ import type { ConsoleSnapshot, ConsoleStory } from "@/lib/command-console-data"
 
 const ROLE_OPTIONS = ["architect", "builder", "reviewer", "verifier"]
 const PROFILE_OPTIONS = ["architect-pro", "builder-flash", "reviewer", "local-builder"]
+const ENV_OPTIONS = ["DEV", "PROD", "TEST", "LOCAL"]
 const POLICY_OPTIONS = [
   { value: "Unattended OK", hint: "deterministic backend/infra/test work — safe for overnight dispatch" },
   { value: "Daytime Only", hint: "needs human observation/judgment (UI/UX/polish/browser-heavy)" },
@@ -42,40 +45,6 @@ const POLICY_OPTIONS = [
 ] as const
 
 type Tab = "activity" | "evidence" | "history"
-
-function statePill(state: string) {
-  const map: Record<string, { label: string; cls: string }> = {
-    Ready: { label: "Ready", cls: "bg-sky-400/15 text-sky-300 border-sky-400/30" },
-    Claimed: { label: "Claimed", cls: "bg-amber-400/15 text-amber-300 border-amber-400/30" },
-    Running: { label: "Running", cls: "bg-emerald-400/15 text-emerald-300 border-emerald-400/30" },
-    Paused: { label: "Paused", cls: "bg-slate-400/15 text-slate-300 border-slate-400/30" },
-    Done: { label: "Done", cls: "bg-emerald-400/15 text-emerald-300 border-emerald-400/30" },
-    Error: { label: "Error", cls: "bg-red-400/15 text-red-300 border-red-400/40" },
-    Cancelled: { label: "Cancelled", cls: "bg-slate-500/15 text-slate-400 border-slate-500/30" },
-    Planned: { label: "Planned", cls: "bg-white/5 text-white/45 border-white/10" },
-    Complete: { label: "Complete", cls: "bg-emerald-400/15 text-emerald-300 border-emerald-400/30" },
-    Partial: { label: "Partial", cls: "bg-amber-400/15 text-amber-300 border-amber-400/30" },
-    Blocked: { label: "Blocked", cls: "bg-red-400/15 text-red-300 border-red-400/40" },
-    "In Progress": { label: "In Progress", cls: "bg-emerald-400/15 text-emerald-300 border-emerald-400/30" },
-  }
-  return map[state] ?? { label: state, cls: "bg-white/5 text-white/50 border-white/10" }
-}
-
-function shortId(id: string): string {
-  if (id.length <= 24) return id
-  return `${id.slice(0, 10)}…${id.slice(-6)}`
-}
-
-function formatTime(iso: string | null): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
 
 
 
@@ -354,6 +323,7 @@ function StoryWorkspace({
   const [profile, setProfile] = useState(PROFILE_OPTIONS[1])
   const [instructions, setInstructions] = useState("")
   const [policy, setPolicy] = useState<string>(POLICY_OPTIONS[0].value)
+  const [environment, setEnvironment] = useState("DEV")
   const [busy, setBusy] = useState(false)
 
   const storyStatus = story.status
@@ -370,6 +340,7 @@ function StoryWorkspace({
       modelProfile: profile,
       specialInstructions: instructions,
       executionPolicy: policy,
+      executionEnvironment: environment,
     })
     setBusy(false)
     if (res.ok) {
@@ -407,6 +378,12 @@ function StoryWorkspace({
               {story.completion}
               <span className="text-sm text-slate-500">%</span>
             </div>
+            <Link
+              href={`/portal/command-console/${encodeURIComponent(story.id)}`}
+              className="mt-2 inline-block rounded-sm border border-[#c6a15b]/40 px-3 py-1.5 text-[11px] font-light text-[#e3c98a] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/10"
+            >
+              Execution Cockpit ↗
+            </Link>
           </div>
         </div>
 
@@ -478,6 +455,11 @@ function StoryWorkspace({
             <Field label="Model profile (logical)">
               <select value={profile} onChange={(e) => setProfile(e.target.value)} className={inputCls}>
                 {PROFILE_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="Execution target">
+              <select value={environment} onChange={(e) => setEnvironment(e.target.value)} className={inputCls}>
+                {ENV_OPTIONS.map((e) => <option key={e} value={e}>{e}</option>)}
               </select>
             </Field>
           </div>
@@ -872,10 +854,4 @@ function RunHistory({ story }: { story: ConsoleStory }) {
       </li>
     </ul>
   )
-}
-
-function runResultPill(status: string | null): string {
-  if (status === "Complete") return "Complete"
-  if (status === "Failed" || status === "Cancelled") return status
-  return status ?? "Pending"
 }

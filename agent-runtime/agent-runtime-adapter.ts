@@ -318,6 +318,7 @@ export abstract class AgentRuntimeAdapter {
       notes: string | null
       testsSummary: string | null
       commitHash: string | null
+      executionEnvironment?: string | null
     },
     command: AgentWorkCommand,
   ): AgentRunEvidence {
@@ -330,6 +331,7 @@ export abstract class AgentRuntimeAdapter {
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
       externalRunId: this.externalRunId,
+      executionEnvironment: run.executionEnvironment ?? command.executionEnvironment ?? null,
       startedAt: run.startedAt,
       endedAt: run.endedAt,
     }

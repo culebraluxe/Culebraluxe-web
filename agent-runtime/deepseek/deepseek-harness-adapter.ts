@@ -109,6 +109,16 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
   protected async startExternal(
     context: AgentExecutionContext,
   ): Promise<ExternalStartResult> {
+    // Defensive FAIL-FAST (ENG-20): the adapter must never spawn external work
+    // for an execution target whose application/domain DB configuration would
+    // resolve to the production database. The invoker already guards before
+    // calling execute; this is the second, adapter-level barrier directly
+    // before the harness process is started.
+    if (context.executionEnvironment) {
+      const { assertExecutionTargetSafe } = await import('../../lib/execution-target')
+      assertExecutionTargetSafe(context.executionEnvironment as never)
+    }
+
     const task = this.taskBuilder(context.command, context)
     const startRun = this.config.startRun ?? startDshRun
     this.handle = startRun({
@@ -235,6 +245,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
       externalRunId: this.externalRunId,
+      executionEnvironment: command.executionEnvironment ?? null,
       startedAt: new Date().toISOString(),
       endedAt: new Date().toISOString(),
     }

@@ -93,6 +93,7 @@ export async function invokeNextAgentCommand(
     externalRunId: workItem.externalRunId,
     attempts: workItem.attempts,
     maxAttempts: workItem.maxAttempts,
+    executionEnvironment: workItem.executionEnvironment ?? null,
     createdAt: workItem.createdAt,
     updatedAt: workItem.updatedAt,
   }
@@ -106,7 +107,18 @@ export async function invokeNextAgentCommand(
       allowControlPlaneWrite: true,
     },
     capabilities: profileConfig.capabilities,
+    executionEnvironment: workItem.executionEnvironment ?? null,
     storyRunId: '',
+  }
+
+  // FAIL-FAST (ENG-20): before any database-affecting SDLC work begins,
+  // verify the application/domain DB configuration matches the command's
+  // intended execution target. A DEV command that would resolve to the
+  // production application DB (including through a generic DATABASE_URL
+  // fallback) is refused here — BEFORE the external runtime is started.
+  if (workItem.executionEnvironment) {
+    const { assertExecutionTargetSafe } = await import('../lib/execution-target')
+    assertExecutionTargetSafe(workItem.executionEnvironment as never)
   }
 
   const evidence = await adapter.execute(command, context)
