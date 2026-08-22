@@ -1,4 +1,5 @@
 import type { SystemHealthSnapshot } from "@/db/system-health"
+import type { EnvironmentReadiness } from "@/lib/environment-readiness"
 
 function MetricCard({
   label,
@@ -28,8 +29,10 @@ function MetricCard({
 
 export function SystemHealth({
   health,
+  environmentReadiness,
 }: {
   health: SystemHealthSnapshot
+  environmentReadiness: EnvironmentReadiness
 }) {
   return (
     <div>
@@ -220,7 +223,92 @@ export function SystemHealth({
           />
         </div>
       </section>
+
+      <EnvironmentReadinessPanel readiness={environmentReadiness} />
     </div>
+  )
+}
+
+function EnvironmentReadinessPanel({
+  readiness,
+}: {
+  readiness: EnvironmentReadiness
+}) {
+  const items: Array<{ label: string; ready: boolean }> = [
+    { label: "Database configured", ready: readiness.databaseConfigured },
+    {
+      label: "DEV / PROD database separated",
+      ready: readiness.databaseDevProdSeparated,
+    },
+    { label: "Auth secret configured", ready: readiness.authSecretConfigured },
+    {
+      label: "Auth provider configured",
+      ready: readiness.authProviderConfigured,
+    },
+    { label: "Break-glass configured", ready: readiness.breakGlassConfigured },
+    { label: "Break-glass enabled", ready: readiness.breakGlassEnabled },
+    {
+      label: "Google Maps key configured",
+      ready: readiness.googleMapsKeyConfigured,
+    },
+    {
+      label: "Demo key absent (production)",
+      ready: readiness.googleMapsDemoKeyAbsentInProduction,
+    },
+    { label: "Mux tokens configured", ready: readiness.muxConfigured },
+    {
+      label: "Sanity project configured",
+      ready: readiness.sanityProjectConfigured,
+    },
+  ]
+
+  return (
+    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-serif text-2xl font-light">
+            Environment & Secrets Readiness
+          </h2>
+          <p className="mt-1 text-xs font-light text-black/40">
+            Non-secret configuration posture — configured booleans only, never
+            values. A missing production secret reports "Not configured" (fail
+            closed) instead of falling back to a DEV/demo value.
+          </p>
+        </div>
+        {readiness.isProduction && (
+          <span
+            className={`rounded-sm px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.14em] ${
+              readiness.allProductionRequiredConfigured
+                ? "bg-[var(--portal-blue-pale)] text-[var(--portal-navy)]"
+                : "bg-[#8a4b2a]/10 text-[#8a4b2a]"
+            }`}
+          >
+            {readiness.allProductionRequiredConfigured
+              ? "Production secrets ready"
+              : "Production secrets incomplete"}
+          </span>
+        )}
+      </div>
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/30 p-4"
+          >
+            <div className="text-[10px] font-light uppercase tracking-[0.16em] text-black/45">
+              {item.label}
+            </div>
+            <div
+              className={`mt-2 text-sm font-light ${
+                item.ready ? "text-[#40584b]" : "text-[#8a4b2a]"
+              }`}
+            >
+              {item.ready ? "Ready" : "Not configured"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

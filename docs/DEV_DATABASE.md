@@ -4,6 +4,9 @@ How this workspace points at the **disposable DEV Neon database** and how to
 apply schema changes there. The DEV database is a Neon branch — safe to
 recreate, reset, and mutate freely. **Never touch the `production` branch.**
 
+> Env/secret classification, fail-closed behavior, and the pre-release
+> verification checklist live in `docs/environment-audit.md` (AUTH-04).
+
 ## Current setup (as of 2026-08-21)
 
 - Neon project: `snowy-salad-48970537` (org `org-bitter-darkness-09990307`).
