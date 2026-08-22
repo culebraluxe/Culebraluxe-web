@@ -203,7 +203,10 @@ test('ENG-19: DeepSeekHarnessAdapter success path persists Complete evidence + o
           fakeHandle({
             status: 'success',
             exitCode: 0,
-            stdout: 'Invariant check: 0 violations.',
+            stdout: [
+              'Invariant check: 0 violations.',
+              'Tests: workflow_app/tests/evidence-summary.test.ts 8/8 pass; tsc --noEmit clean',
+            ].join('\n'),
             stderr: '',
             sessionId: 'session-11111111-2222-3333-4444-555555555555',
             sessionDir: '/tmp/session-11111111-2222-3333-4444-555555555555',
@@ -217,6 +220,12 @@ test('ENG-19: DeepSeekHarnessAdapter success path persists Complete evidence + o
     assert.equal(evidence.resultStatus, 'Complete')
     assert.equal(evidence.completion, 100)
     assert.match(evidence.notes, /Invariant check/)
+    // ENG-08: the concise Tests line in the assistant report becomes the
+    // durable tests_summary — not just the harness exit code.
+    assert.equal(
+      evidence.testsSummary,
+      'workflow_app/tests/evidence-summary.test.ts 8/8 pass; tsc --noEmit clean',
+    )
     assert.equal(evidence.runtimeAdapter, 'deepseek-harness')
     assert.equal(evidence.externalRunId, 'session-11111111-2222-3333-4444-555555555555')
 
@@ -270,6 +279,42 @@ test('ENG-19: DeepSeekHarnessAdapter failure path persists Error terminal state'
     `
     assert.equal(rows[0].state, 'Error')
     assert.match(rows[0].error_text, /model provider error/)
+  } finally {
+    await fx.cleanup()
+  }
+})
+
+test('ENG-08: SCOPED full-regression report flags the violation and replaces the tests summary', async () => {
+  const fx = await createFixture()
+  try {
+    const work = fx.work
+    const claimed = await work.claimSpecific(fx.command.workItemId, 'eng19-test')
+    assert.ok(claimed, 'claim succeeds')
+
+    const adapter = new DeepSeekHarnessAdapter(
+      { work, runs: new SqlAgentRunRepository(executor) },
+      {
+        cliBin: '/fake/dsh/lib/bin.js',
+        workspace: process.cwd(),
+        startRun: () =>
+          fakeHandle({
+            status: 'success',
+            exitCode: 0,
+            stdout: [
+              'I ran pnpm test and it passed.',
+              'Tests: full suite 124/124 pass',
+            ].join('\n'),
+            stderr: '',
+            sessionId: null,
+            sessionDir: null,
+          }),
+      },
+    )
+
+    const evidence = await adapter.execute(fx.command, makeContext(fx.command, fx.story))
+    assert.equal(evidence.resultStatus, 'Complete')
+    assert.match(evidence.notes, /TEST-MODE VIOLATION \(SCOPED\)/)
+    assert.match(evidence.testsSummary ?? '', /TEST-MODE VIOLATION \(SCOPED\): pnpm test/)
   } finally {
     await fx.cleanup()
   }

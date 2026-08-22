@@ -95,7 +95,53 @@ export function buildTaskText(
     'Create a local git commit with the intended changes when the story requires it. ' +
     'Do NOT push. Do NOT mutate production data or schema. Report what you did.',
   )
+  // ENG-08 — story execution evidence: ask the model to END its final report
+  // with one concise machine-scannable tests line so the harness can persist a
+  // concrete tests/checks summary (not just an exit code) against the story
+  // run. The example deliberately names targeted single-file suites only —
+  // never the forbidden full-regression globs.
+  parts.push(
+    'End your final report with one concise "Tests: <summary>" line (e.g. "Tests: workflow_app/tests/evidence-summary.test.ts 8/8 pass; tsc --noEmit clean") so the harness can record a concrete tests/checks summary against this story.',
+  )
   return parts.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// ENG-08 — concise tests/checks summary extraction (story execution evidence).
+// ---------------------------------------------------------------------------
+
+/** Marker the task text asks the model to end its report with. */
+export const TESTS_SUMMARY_MARKER = 'Tests:'
+
+/** Upper bound for the persisted tests summary — concise by contract, never a
+ *  transcript dump. Longer summaries are truncated with an ellipsis. */
+export const TESTS_SUMMARY_MAX_LENGTH = 300
+
+/**
+ * Extract the concise tests/checks summary from the assistant's final report.
+ *
+ * The task text asks the model to END the report with a single `Tests:
+ * <summary>` line. This scans each line for the marker and keeps the LAST
+ * non-empty match (a late, deliberate evidence line wins over earlier prose
+ * mentions), returning its trimmed content. Absent or malformed markers fall
+ * back to the caller-provided factual fallback (the harness exit code) — the
+ * tests summary is never fabricated from free-form prose.
+ */
+export function extractTestsSummary(
+  output: string | null | undefined,
+  fallback: string,
+): string {
+  if (!output) return fallback
+  let summary: string | null = null
+  for (const rawLine of output.split(/\r?\n/)) {
+    const match = rawLine.match(new RegExp(`\\b${TESTS_SUMMARY_MARKER}\\s+(.+)$`))
+    if (!match) continue
+    const value = match[1].trim()
+    if (value) summary = value
+  }
+  if (summary === null) return fallback
+  if (summary.length <= TESTS_SUMMARY_MAX_LENGTH) return summary
+  return `${summary.slice(0, TESTS_SUMMARY_MAX_LENGTH - 1)}…`
 }
 
 export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
@@ -291,6 +337,15 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       ? detectFullRegressionAttempt(result.stdout)
       : null
 
+    // ENG-08 — concise tests/checks summary: prefer the model's deliberate
+    // `Tests: ...` evidence line (see buildTaskText); fall back to the factual
+    // harness exit code. A SCOPED violation is the headline fact and still
+    // replaces the summary so the operator sees the policy breach first.
+    const testsSummary = extractTestsSummary(
+      result.stdout,
+      `dsh exit code ${result.exitCode}`,
+    )
+
     return {
       resultStatus: 'Complete',
       completion: 100,
@@ -299,7 +354,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
         : notes,
       testsSummary: forbidden
         ? `dsh exit code ${result.exitCode} | TEST-MODE VIOLATION (SCOPED): ${forbidden}`
-        : `dsh exit code ${result.exitCode}`,
+        : testsSummary,
       commitHash,
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
