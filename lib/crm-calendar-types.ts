@@ -12,13 +12,14 @@ export interface CalendarAttendee {
 }
 
 /**
- * Provider-neutral calendar appointment facts, ready for a future connector
- * to lower Google/Apple calendar payloads into. Only normalized transport
- * facts cross into CRM; provider SDK objects and credentials never do.
+ * Provider-neutral calendar appointment facts — the ONLY transport facts that
+ * cross the CalendarProvider seam (lib/calendar/contracts.ts) into CRM. The
+ * Google adapter (lib/calendar/google) lowers raw Google payloads into this;
+ * provider SDK objects and credentials never do.
  *
- * This is CRM-08 readiness scaffolding: it produces canonical in-memory
- * inputs only. No interaction, task, interest, or person write is reachable,
- * and no calendar provider is contacted.
+ * Calendar readiness scaffolding produces canonical in-memory inputs only; no
+ * interaction, task, interest, or person write is reachable from this pure
+ * layer, and no calendar provider is contacted here.
  *
  * Provider authentication authenticates the owned business calendar
  * account/transport — not ownership of an external attendee email or phone.

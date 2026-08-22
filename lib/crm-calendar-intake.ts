@@ -26,9 +26,10 @@ export interface CalendarIntakeRepositories
  *
  * This returns canonical in-memory inputs only and never writes an
  * interaction, task, interest, or person. No requested action is inferred,
- * so no follow-up task noise is derived from a calendar event. Live ingestion
- * additionally requires a reviewed provider connector and a durable
- * receipt/cursor boundary before any persistence is authorized.
+ * so no follow-up task noise is derived from a calendar event. The LIVE
+ * durability layer (lib/calendar/lowering.ts + calendar_intake_receipt,
+ * migration 040) composes this coordinator with a provider adapter
+ * (lib/calendar/google) and persists only 'ready' outcomes.
  */
 export async function prepareCalendarIntake(
   event: CalendarProviderEvent,
