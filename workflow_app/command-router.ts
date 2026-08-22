@@ -1,26 +1,25 @@
 import type {
   CommandEnvelope,
   CommandResult,
-  CommandOutcome,
 } from '../lib/workflow/contracts'
 import { ROUTED_COMMAND_TYPES } from './command-types'
-import { PortalWriteError } from '../lib/portal-write-error'
-import { createTask as createCanonicalTask } from '../db/tasks'
-import {
-  completeTask as completeCanonicalTask,
-  cancelTask as cancelCanonicalTask,
-} from '../db/portal-writes'
-import { acceptOffer } from '../db/offer-acceptance'
-import { setDealStage } from '../db/deal-stage'
-import { setDealFinancingType } from '../db/deal-financing'
-import { setDealAppraisalRequired } from '../db/deal-appraisal'
-import { setDealLenderClearToClose } from '../db/deal-lender-clearance'
-import { setDealClosingDate } from '../db/deal-closing-date'
+import { commandDispatcher } from '../lib/commands'
 
 // ---------------------------------------------------------------------------
-// Command router — maps workflow command types to canonical application
-// services. The engine never imports this file; the application remains
-// authoritative for authority and domain validation.
+// CRM-14J — Command router: a translation seam, not a rule holder.
+//
+// workflow_app maps an engine command request -> canonical CommandEnvelope ->
+// canonical CommandDispatcher. All business legality, invariant enforcement,
+// receipt/replay behavior and canonical mutation live in the canonical domain
+// services (db/*), reached through the thin command handlers registered in
+// lib/commands/register.ts. The workflow engine never knows command internals;
+// this file no longer hosts business rules or per-command switch cases.
+//
+// The ROUTED_COMMAND_TYPES guard below is defense-in-depth for inventory
+// members lacking a registered handler (should not happen): command types
+// outside the inventory are rejected before dispatch, preserving the CRM-14G
+// inventory contract enforced by tests/command-inventory.test.ts and
+// parseReSupermodel().
 // ---------------------------------------------------------------------------
 
 export type GapContract = {
@@ -53,44 +52,14 @@ export const SET_DEAL_STAGE_CONTRACT: GapContract = {
   schemaChange: 'none required — deal.stage already exists.',
 }
 
-function outcomeFromError(err: unknown): CommandOutcome {
-  if (err instanceof PortalWriteError) {
-    switch (err.code) {
-      case 'conflict':
-        return 'conflict'
-      case 'not-found':
-        return 'not_found'
-      case 'validation':
-        return 'validation_failure'
-      default:
-        return 'precondition_failure'
-    }
-  }
-  return 'precondition_failure'
-}
-
-function success(
-  envelope: CommandEnvelope,
-  aggregateId: string | null,
-): CommandResult {
-  return {
-    commandId: envelope.commandId,
-    outcome: 'success',
-    emittedEvents: [],
-    aggregateId,
-    message: null,
-    replayed: false,
-  }
-}
-
+/**
+ * Translate a workflow command envelope through the canonical dispatcher.
+ * Returns the same CommandResult contract the router always returned (same
+ * outcomes, messages, replayed flags) — no business behavior change.
+ */
 export async function routeCommand(
   envelope: CommandEnvelope,
 ): Promise<CommandResult> {
-  // Inventory guard (CRM-14G): the routed inventory in command-types.ts is
-  // authoritative — every XML command-node must be covered by it, enforced by
-  // tests/command-inventory.test.ts and parseReSupermodel(). Command types
-  // outside the inventory are rejected before dispatch; the switch below is
-  // defense-in-depth for inventory members lacking a case (should not happen).
   if (!ROUTED_COMMAND_TYPES.has(envelope.commandType)) {
     return {
       commandId: envelope.commandId,
@@ -101,192 +70,5 @@ export async function routeCommand(
       replayed: false,
     }
   }
-  switch (envelope.commandType) {
-    case 'offer.accept': {
-      const { offerId } = envelope.input as { offerId?: string }
-      const dealId = envelope.aggregateId
-      if (!dealId || !offerId) {
-        return {
-          commandId: envelope.commandId,
-          outcome: 'validation_failure',
-          emittedEvents: [],
-          aggregateId: dealId,
-          message: 'offer.accept requires dealId and offerId.',
-          replayed: false,
-        }
-      }
-      return acceptOffer({
-        dealId,
-        offerId,
-        commandId: envelope.commandId,
-      })
-    }
-    case 'deal.set_stage_under_contract': {
-      return setDealStage({
-        dealId: envelope.aggregateId ?? '',
-        from: 'offer',
-        to: 'under_contract',
-        commandId: envelope.commandId,
-      })
-    }
-    case 'deal.set_stage_closed': {
-      return setDealStage({
-        dealId: envelope.aggregateId ?? '',
-        from: 'under_contract',
-        to: 'closed',
-        commandId: envelope.commandId,
-      })
-    }
-    case 'deal.set_financing_type': {
-      const { financingType } = envelope.input as { financingType?: string }
-      const dealId = envelope.aggregateId
-      if (!dealId || (financingType !== 'cash' && financingType !== 'financed')) {
-        return {
-          commandId: envelope.commandId,
-          outcome: 'validation_failure',
-          emittedEvents: [],
-          aggregateId: dealId ?? null,
-          message: 'deal.set_financing_type requires dealId and a cash|financed value.',
-          replayed: false,
-        }
-      }
-      return setDealFinancingType({
-        dealId,
-        financingType,
-        commandId: envelope.commandId,
-      })
-    }
-    case 'deal.set_appraisal_required': {
-      const { appraisalRequired } = envelope.input as { appraisalRequired?: unknown }
-      const dealId = envelope.aggregateId
-      if (!dealId || typeof appraisalRequired !== 'boolean') {
-        return {
-          commandId: envelope.commandId,
-          outcome: 'validation_failure',
-          emittedEvents: [],
-          aggregateId: dealId ?? null,
-          message: 'deal.set_appraisal_required requires dealId and a boolean appraisalRequired.',
-          replayed: false,
-        }
-      }
-      return setDealAppraisalRequired({
-        dealId,
-        appraisalRequired,
-        commandId: envelope.commandId,
-      })
-    }
-    case 'deal.set_lender_clear_to_close': {
-      const { lenderClearToClose } = envelope.input as { lenderClearToClose?: unknown }
-      const dealId = envelope.aggregateId
-      if (!dealId || typeof lenderClearToClose !== 'boolean') {
-        return {
-          commandId: envelope.commandId,
-          outcome: 'validation_failure',
-          emittedEvents: [],
-          aggregateId: dealId ?? null,
-          message: 'deal.set_lender_clear_to_close requires dealId and a boolean lenderClearToClose.',
-          replayed: false,
-        }
-      }
-      return setDealLenderClearToClose({
-        dealId,
-        lenderClearToClose,
-        commandId: envelope.commandId,
-      })
-    }
-    case 'deal.set_closing_date': {
-      const { closingDate } = envelope.input as { closingDate?: string }
-      const dealId = envelope.aggregateId
-      if (!dealId || !closingDate) {
-        return {
-          commandId: envelope.commandId,
-          outcome: 'validation_failure',
-          emittedEvents: [],
-          aggregateId: dealId ?? null,
-          message: 'deal.set_closing_date requires dealId and a closingDate.',
-          replayed: false,
-        }
-      }
-      return setDealClosingDate({
-        dealId,
-        closingDate,
-        commandId: envelope.commandId,
-      })
-    }
-    case 'task.create': {
-      const input = envelope.input as {
-        title: string
-        detail?: string
-        personId?: string
-        propertyId?: string
-        dealId?: string
-        dueAt?: string
-        priority?: number
-        taskKind?: 'human' | 'system'
-      }
-      try {
-        const task = await createCanonicalTask({
-          title: input.title,
-          detail: input.detail,
-          personId: input.personId,
-          propertyId: input.propertyId,
-          dealId: input.dealId,
-          dueAt: input.dueAt,
-          priority: input.priority,
-          taskKind: input.taskKind,
-        })
-        return success(envelope, task.id)
-      } catch (err) {
-        return {
-          commandId: envelope.commandId,
-          outcome: outcomeFromError(err),
-          emittedEvents: [],
-          aggregateId: null,
-          message: err instanceof Error ? err.message : 'task.create failed',
-          replayed: false,
-        }
-      }
-    }
-    case 'task.complete': {
-      const { taskId } = envelope.input as { taskId: string }
-      try {
-        await completeCanonicalTask(taskId)
-        return success(envelope, taskId)
-      } catch (err) {
-        return {
-          commandId: envelope.commandId,
-          outcome: outcomeFromError(err),
-          emittedEvents: [],
-          aggregateId: taskId,
-          message: err instanceof Error ? err.message : 'task.complete failed',
-          replayed: false,
-        }
-      }
-    }
-    case 'task.cancel': {
-      const { taskId } = envelope.input as { taskId: string }
-      try {
-        await cancelCanonicalTask(taskId)
-        return success(envelope, taskId)
-      } catch (err) {
-        return {
-          commandId: envelope.commandId,
-          outcome: outcomeFromError(err),
-          emittedEvents: [],
-          aggregateId: taskId,
-          message: err instanceof Error ? err.message : 'task.cancel failed',
-          replayed: false,
-        }
-      }
-    }
-    default:
-      return {
-        commandId: envelope.commandId,
-        outcome: 'not_found',
-        emittedEvents: [],
-        aggregateId: null,
-        message: `Unknown command type: ${envelope.commandType}`,
-        replayed: false,
-      }
-  }
+  return commandDispatcher.execute(envelope)
 }

@@ -10,6 +10,11 @@ import { neonTx, type TxRunner } from './tx'
 // the claim-first receipt; safe retry; no unrelated deal mutation. The SAME
 // workflow instance continues — the workflow never restarts because a date
 // changed; reconciliation reschedules the closing-deadline timer.
+//
+// CRM-14J: callers (UI/API/agent/workflow) reach this service through the
+// canonical command seam (lib/commands — thin wrapper
+// SetDealClosingDateCommand registered for deal.set_closing_date), never by
+// one-off direct service calls.
 // ---------------------------------------------------------------------------
 
 export type SetDealClosingDateInput = {

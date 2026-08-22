@@ -197,6 +197,21 @@ A future implementation would additionally record an additive migration in
 `db/migrations` and keep `interaction(source_system, source_external_id)`
 untouched (storyboard S-039 acceptance criteria).
 
+> **CRM-14J (S-042) pointer:** the outbox/subscriber contract surface for the
+> "if ever built" design is now DEFINED (compile-ready) in
+> [`lib/events/outbox-contracts.ts`](lib/events/outbox-contracts.ts) —
+> `OutboxEventRepository.append(events, tx)` is the same-transaction write
+> described here, plus `claimBatch`/`markDelivered`/`markFailed`, `EventSubscriber`,
+> `OutboxDispatcher`, and `DeliveryReceiptRepository` ((eventId, subscriberId)
+> idempotency). This DEFER decision is UNCHANGED: no outbox table, no dispatcher
+> loop, no subscriber registry exist until a real cross-cutting consumer
+> (alerting/notifications, external integration, cross-workflow triggers,
+> multiple independent subscribers, durable event-driven automation) is built in
+> the same batch. The canonical command dispatcher already carries the pluggable
+> `eventSink` hook that appends collected domain events in the SAME transaction
+> as the mutation + receipt (proven by
+> `workflow_app/tests/persistence/command-layer.test.ts`).
+
 ## 7. Risks
 
 - **Building now** would create unused infrastructure plus dual-truth drift:

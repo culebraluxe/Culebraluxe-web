@@ -599,6 +599,7 @@
 | S-039 | Domain Event Persistence & Audit Trail | PASS | Decision recorded: DEFER (no new subsystem) |
 | S-040 | Media / Attachment & Retention Policy | PENDING | Policy before ingestion |
 | S-041 | Workflow Visual Modeler (Story 129) | PENDING | Held by "no UI yet" constraint |
+| S-042 | Canonical Business Command Layer + Transactional Domain Event Outbox (CRM-14J) | PASS | See detailed record below |
 
 - **S-029 — TUNIT Formal Suite.** PENDING. Depends on S-027/S-028. *Recommended
   next story.*
@@ -636,6 +637,10 @@
 - **S-041 — Workflow Visual Modeler (legacy Story 129).** PENDING. Depends on
   S-020/S-031. Held by the "no UI yet" constraint; editor round-trips the same
   XML grammar.
+- **S-042 — Canonical Business Command Layer + Transactional Domain Event
+  Outbox (CRM-14J).** PASS. Canonical command seam implemented
+  (`lib/commands/*`); outbox/subscriber contracts defined, implementation
+  deferred per S-039/CRM-14I. See the detailed record below.
 
 ### S-039 — Domain Event Persistence & Audit Trail (CRM-14I)
 
@@ -671,9 +676,87 @@
   via the existing claim-first pattern) is recorded in the decision doc.
 - **Blocking dependency:** none.
 
+### S-042 — Canonical Business Command Layer + Transactional Domain Event Outbox (CRM-14J)
+
+- **Status:** `PASS`
+- **Goal:** Establish a canonical application command boundary for business
+  intent (COMMAND = INTENT; DOMAIN = TRUTH + RULES; RECEIPT = PROOF; EVENT =
+  FACT; OUTBOX = DURABLE HANDOFF; SUBSCRIBER = REACTION) and define the future
+  transactional domain-event outbox architecture so CRM/workflow mapping,
+  alerting, integrations and automation share one durable replayable execution
+  model. Postgres is the V1 transport; an external broker is a future option
+  below the (unchanged) contracts.
+- **Files changed:**
+  - New: `lib/commands/contracts.ts` (canonical contracts — reuses existing
+    `CommandEnvelope`/`CommandResult`/`DomainEvent`), `lib/commands/command-types.ts`
+    (shared stable command-type constants), `lib/commands/registry.ts`,
+    `lib/commands/dispatcher.ts` (10-step dispatcher algorithm), `lib/commands/domain-events.ts`
+    (collector + factory), `lib/commands/result.ts` (transport result helpers),
+    `lib/commands/register.ts` + `lib/commands/index.ts` (public seam +
+    singleton), `lib/commands/deal/*` + `lib/commands/offer/accept-offer.ts` +
+    `lib/commands/task/task-commands.ts` (thin wrappers around existing
+    canonical services), `db/command-receipt-repository.ts` (generalized
+    receipt repository over `workflow_command_receipt`), `lib/events/outbox-contracts.ts`
+    (outbox/subscriber interfaces ONLY — no table, no loop),
+    `workflow_app/tests/command-layer.test.ts` (unit) and
+    `workflow_app/tests/persistence/command-layer.test.ts` (real Postgres).
+  - Modified: `lib/workflow/contracts.ts` (additive `value`/`error`/`receiptId`
+    on `CommandResult`), `workflow_app/command-router.ts` (translation seam:
+    envelope -> canonical dispatcher; business rules removed), `workflow_app/command-types.ts`
+    (re-exports shared constants), `workflow_app/application-port.ts` (comment),
+    `db/deal-appraisal.ts` + `db/deal-lender-clearance.ts` (CRM-19/CRM-20
+    implementation notes point at the canonical seam),
+    `docs/workflow/MASTER_STORYBOARD.md` (S-042 entry),
+    `docs/workflow/STORYBOARD_STATUS.md` (this record + change log),
+    `docs/domain-event-persistence-decision.md` (pointer to the defined-but-
+    deferred outbox contracts).
+- **Tests/checks run:** scoped per ENG-20A runtime policy (SCOPED mode; full
+  regression not authorized):
+  - `tsc --noEmit` — clean.
+  - `pnpm exec next build --webpack` — clean.
+  - `git diff --check` — clean.
+  - New unit suite `workflow_app/tests/command-layer.test.ts` (14 tests) — pass
+    (replay, new-commandId validation, domain-validation-in-service, dispatcher
+    ignorance of node/provider names, multi-caller convergence, correlation/
+    causation preservation, rollback atomicity, poisoned-pending, failed-
+    receipt replay, registry contract).
+  - New persistence suite `workflow_app/tests/persistence/command-layer.test.ts`
+    (4 tests, real Postgres on the DEV branch) — pass (mutation + receipt +
+    outbox rows commit atomically; rollback after mutation before commit leaves
+    nothing; infra failure -> same-commandId retry re-executes exactly once;
+    correlation/causation survive into the committed outbox row).
+  - Adjacent regression files run individually: `command-receipt.test.ts`,
+    `deal-closing-date.test.ts`, `financing.test.ts`, `command-inventory.test.ts`,
+    `appraisal.test.ts`, `lender-clearance.test.ts`, `acceptance.test.ts`,
+    `concurrency.test.ts` (unit) and `persistence/command-boundary.test.ts`
+    (real Postgres) — all pass. No behavior drift.
+- **Database mutations:** none in production. The persistence test creates and
+  drops test-only tables (`tunit_dispatcher_effect`, `tunit_dispatcher_outbox`)
+  on the DEV branch and cleans up every receipt/row it writes.
+- **Defects found:** none.
+- **Decisions made:**
+  - Commands never host business rules; canonical services (db/*) keep truth
+    and validation; handlers are thin adapters.
+  - The dispatcher owns the transaction, the replay fast-path (terminal receipt
+    -> normalized replay without re-running the mutation), correlation/causation
+    propagation and the (deferred) outbox append inside the SAME transaction;
+    receipt persistence stays in the canonical services (claim-first), so
+    current workflow replay behavior is preserved exactly.
+  - The outbox/subscriber seam is DEFINED in `lib/events/outbox-contracts.ts`
+    and NOT implemented — S-039/CRM-14I defer decision preserved (no table, no
+    loop, no subscriber registry until a real cross-cutting consumer exists).
+  - Postgres remains the V1 durable transport; no external broker.
+  - No event sourcing; relational domain state stays the source of truth.
+- **Horse-race exit criteria:** adding a new business command now requires only
+  payload/result types + a thin handler calling an existing canonical service +
+  registration in `lib/commands/register.ts` + targeted tests. No new replay,
+  transaction, routing, correlation or audit infrastructure.
+- **Blocking dependency:** none.
+
 ## 8. Change log
 
 | Date | Change | Author | Status impact |
 |---|---|---|---|
 | 2026-08-20 | Seed version 1: created `MASTER_STORYBOARD.md` (S-001…S-041, 4 batches) and this status file at main @ `fddcd26`. Documentation only. | Lead (storyboard story) | Established baseline; no stories `CURRENT` |
 | 2026-08-22 | S-039 (CRM-14I) recorded `PASS`: decision documented in `docs/domain-event-persistence-decision.md` — DEFER, no application `domain_event` table; consumer-gap analysis + correlation/causation proof + change-condition evaluation recorded. Documentation only; no code/schema. | Builder (CRM-14I) | S-039 PENDING → PASS |
+| 2026-08-22 | S-042 (CRM-14J) recorded `PASS`: canonical business command layer implemented (`lib/commands/*` — contracts, registry, dispatcher, domain-event collector, thin deal/offer/task wrappers, generalized receipt repository); workflow_app command router is now a translation seam to the canonical dispatcher; transactional outbox/subscriber contracts defined in `lib/events/outbox-contracts.ts` with implementation deferred (S-039 decision preserved). Verified with targeted unit + real-Postgres persistence tests, tsc, next build, and adjacent regression files. | Builder (CRM-14J) | S-042 added → PASS |

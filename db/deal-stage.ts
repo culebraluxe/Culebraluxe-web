@@ -11,6 +11,12 @@ import { neonTx, type TxRunner } from './tx'
 //
 // Idempotency uses the claim-first receipt: the same commandId executes its
 // business effect at most once, and every caller observes the winner's result.
+//
+// CRM-14J: callers (UI/API/agent/workflow) reach this service through the
+// canonical command seam (lib/commands — thin wrappers
+// SetDealStageUnderContractCommand / SetDealStageClosedCommand), never by
+// one-off direct service calls. The canonical dispatcher reads the receipt for
+// its replay fast-path; this service's claim-first write stays authoritative.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_TRANSITIONS: Array<[string, string]> = [

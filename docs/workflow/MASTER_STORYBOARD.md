@@ -595,7 +595,7 @@ Every story, present or future, must preserve:
     candidate (a separate documentation story, not this one).
 - **Dependencies:** S-024, S-027.
 
-## Batch 4 — Workflow Road Ahead (S-029 – S-041)
+## Batch 4 — Workflow Road Ahead (S-029 – S-042)
 
 > All stories in this batch are **PENDING** at seed time. None are authorized to
 > start by this document; see `STORYBOARD_STATUS.md` for next-story guidance.
@@ -787,6 +787,35 @@ Every story, present or future, must preserve:
   - No engine change is required; the deploy pipeline is reused.
   - XML remains source-controlled, diffable, and reviewable.
 - **Dependencies:** S-020, S-031.
+
+### S-042 — Canonical Business Command Layer + Transactional Domain Event Outbox (CRM-14J)
+
+- **Goal:** Establish the canonical application command boundary for business
+  intent and define the future transactional domain-event outbox architecture,
+  so CRM/workflow mapping, alerting, integrations, and automation share one
+  durable replayable execution model.
+- **Scope:** `lib/commands/` (contracts, registry, dispatcher, domain-event
+  collector, thin deal/offer/task command wrappers, receipt repository
+  adapter), `lib/events/outbox-contracts.ts` (interfaces only — DEFERRED
+  implementation per S-039/CRM-14I), and `workflow_app/command-router.ts`
+  (translation seam to the canonical dispatcher). Existing
+  `CommandEnvelope`/`CommandResult`/`workflow_command_receipt` are reused and
+  generalized, never duplicated; canonical domain services (db/*) remain the
+  owners of truth and rules; the engine stays ignorant of command internals.
+- **Acceptance criteria:**
+  - UI/workflow/API/agent/recovery invoke the same canonical command seam.
+  - Stable commandId + receipt make duplicate/replayed execution idempotent.
+  - Domain validation stays in canonical services, not command handlers.
+  - All existing command types route through the seam without behavior drift.
+  - correlationId/causationId survive execution and normalized result.
+  - Domain event = committed fact; outbox = durable handoff written atomically
+    with the business mutation (defined, not implemented).
+  - Subscriber failure can never roll back committed business truth.
+  - No event sourcing, no aggregate rebuild, no external broker for V1.
+  - Adding a new business command requires only payload/result types + a thin
+    handler + registration + targeted tests.
+- **Dependencies:** S-018/S-019/S-024 (command seams), S-037 (inventory), S-039
+  (defer decision preserved), S-020 (workflow routing).
 
 ---
 

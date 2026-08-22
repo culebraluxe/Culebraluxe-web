@@ -17,6 +17,11 @@ import { neonTx, type TxRunner } from './tx'
 // reads the fact as the lenderClearToClose decision input
 // (workflow_app/facts.ts). Lender provider behavior is never modeled inside
 // the workflow engine.
+//
+// CRM-14J: callers (UI/API/agent/workflow) reach this service through the
+// canonical command seam (lib/commands — thin wrapper
+// SetDealLenderClearToCloseCommand registered for
+// deal.set_lender_clear_to_close), never by one-off direct service calls.
 // ---------------------------------------------------------------------------
 
 export type SetDealLenderClearToCloseInput = {

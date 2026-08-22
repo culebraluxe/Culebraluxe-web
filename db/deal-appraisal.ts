@@ -14,6 +14,11 @@ import { neonTx, type TxRunner } from './tx'
 // Mirrors db/deal-financing.ts (deal.set_financing_type): appraisal
 // applicability is INDEPENDENT of financing (Story 123) — a cash deal may
 // require an appraisal (buyer/seller request) and a financed deal may not.
+//
+// CRM-14J: callers (UI/API/agent/workflow) reach this service through the
+// canonical command seam (lib/commands — thin wrapper
+// SetDealAppraisalRequiredCommand registered for deal.set_appraisal_required),
+// never by one-off direct service calls.
 // ---------------------------------------------------------------------------
 
 export type SetDealAppraisalRequiredInput = {

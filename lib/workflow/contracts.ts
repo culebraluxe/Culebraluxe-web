@@ -86,6 +86,17 @@ export type CommandResult = {
   aggregateId: string | null
   message: string | null
   replayed: boolean // true when an idempotent command was recognized as a replay
+  // -------------------------------------------------------------------------
+  // CRM-14J canonical command layer — additive normalized-result fields. All
+  // optional so every existing producer keeps compiling; the canonical
+  // dispatcher (lib/commands) fills them for the shared seam.
+  // -------------------------------------------------------------------------
+  /** Structured success payload carried by a canonical command handler. */
+  value?: unknown
+  /** Structured error detail: stable code + message + retryability hint. */
+  error?: { code: string; message: string; retryable?: boolean }
+  /** Durable receipt identity when this execution wrote a command receipt. */
+  receiptId?: string
 }
 
 // ---------------------------------------------------------------------------

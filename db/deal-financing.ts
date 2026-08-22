@@ -10,6 +10,11 @@ import { neonTx, type TxRunner } from './tx'
 // retry via the claim-first receipt; no unrelated deal mutation. Financing
 // type can be changed later by an explicit application command if business
 // circumstances change.
+//
+// CRM-14J: callers (UI/API/agent/workflow) reach this service through the
+// canonical command seam (lib/commands — thin wrapper
+// SetDealFinancingTypeCommand registered for deal.set_financing_type), never
+// by one-off direct service calls.
 // ---------------------------------------------------------------------------
 
 export type SetDealFinancingTypeInput = {

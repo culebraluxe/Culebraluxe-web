@@ -11,8 +11,9 @@ import { getDealWorkflowFacts } from './facts'
 // CulebraLuxe ApplicationPort — the concrete adapter behind the engine's
 // generic integration seam. The engine never imports this file.
 //
-// executeCommand: engine request -> CommandEnvelope -> router -> canonical
-//                 service -> CommandResult -> engine result.
+// executeCommand: engine request -> CommandEnvelope -> routeCommand (canonical
+//                 CommandDispatcher, CRM-14J) -> canonical service ->
+//                 CommandResult -> engine result.
 // readFacts:      subject -> canonical DealWorkflowFacts projection.
 // ---------------------------------------------------------------------------
 

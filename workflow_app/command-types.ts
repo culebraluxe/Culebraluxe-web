@@ -3,14 +3,21 @@
 //
 // Single source of truth for which command types workflow_app routes and which
 // of those are referenced by <command-node> elements in RE_supermodel-v1.xml.
-// This module imports nothing from the database layer, so the guard tests run
-// in the main unit suite and the RE_supermodel loader can assert routability at
-// deploy time without an environment.
+// This module imports nothing from the database layer (the shared command-type
+// constants in lib/commands/command-types.ts are pure strings), so the guard
+// tests run in the main unit suite and the RE_supermodel loader can assert
+// routability at deploy time without an environment.
+//
+// CRM-14J: the command-type identifiers are now the canonical layer's
+// constants (lib/commands/command-types.ts) re-exported here, so the workflow
+// inventory and the canonical command registry can never drift apart. Routing
+// itself now flows through the canonical CommandDispatcher
+// (workflow_app/command-router.ts is a translation seam, not a rule holder).
 //
 // Command inventory for the CURRENT XML — complete; remaining work is
 // reconciliation, not new command implementation:
 //
-//   XML command-nodes (exactly three; each has a router case):
+//   XML command-nodes (exactly three; each has a registered handler):
 //     mark_under_contract -> deal.set_stage_under_contract -> db/deal-stage.ts
 //     mark_closed         -> deal.set_stage_closed         -> db/deal-stage.ts
 //     set_closing_date    -> deal.set_closing_date         -> db/deal-closing-date.ts
@@ -38,41 +45,59 @@
 //   (Stories 135/136 removed the boolean as the wrong semantic shape).
 //
 // Boundary: command routing is workflow_app (mapping engine request -> canonical
-// app service). Canonical business validation lives in db/deal-*.ts. The engine
-// never knows command names.
+// CommandEnvelope -> canonical CommandDispatcher). Canonical business
+// validation lives in db/deal-*.ts. The engine never knows command names.
 // ---------------------------------------------------------------------------
+
+import {
+  DEAL_SET_APPRAISAL_REQUIRED,
+  DEAL_SET_CLOSING_DATE,
+  DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_LENDER_CLEAR_TO_CLOSE,
+  DEAL_SET_STAGE_CLOSED,
+  DEAL_SET_STAGE_UNDER_CONTRACT,
+  OFFER_ACCEPT,
+  TASK_CANCEL,
+  TASK_COMPLETE,
+  TASK_CREATE,
+} from '../lib/commands/command-types'
+
+// Re-export the canonical identifiers (public API unchanged from CRM-14G).
+export {
+  DEAL_SET_APPRAISAL_REQUIRED,
+  DEAL_SET_CLOSING_DATE,
+  DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_LENDER_CLEAR_TO_CLOSE,
+  DEAL_SET_STAGE_CLOSED,
+  DEAL_SET_STAGE_UNDER_CONTRACT,
+  OFFER_ACCEPT,
+  TASK_CANCEL,
+  TASK_COMPLETE,
+  TASK_CREATE,
+}
 
 /** Command-node types referenced by RE_supermodel-v1.xml (source: the XML). */
 export const XML_COMMAND_NODE_TYPES: ReadonlySet<string> = new Set([
-  'deal.set_stage_under_contract',
-  'deal.set_stage_closed',
-  'deal.set_closing_date',
+  DEAL_SET_STAGE_UNDER_CONTRACT,
+  DEAL_SET_STAGE_CLOSED,
+  DEAL_SET_CLOSING_DATE,
 ])
-
-/** Routed command type for application-only financing writes. */
-export const DEAL_SET_FINANCING_TYPE = 'deal.set_financing_type'
-
-/** Routed command type for application-only appraisal-applicability writes. */
-export const DEAL_SET_APPRAISAL_REQUIRED = 'deal.set_appraisal_required'
-
-/** Routed command type for application-only lender clear-to-close writes. */
-export const DEAL_SET_LENDER_CLEAR_TO_CLOSE = 'deal.set_lender_clear_to_close'
 
 /**
  * Routed command types NOT referenced by any XML command-node. Each is routed
  * for application/engine integration, never for a workflow command-node.
  */
 export const ROUTED_BUT_UNREFERENCED_COMMAND_TYPES: ReadonlySet<string> = new Set([
-  'offer.accept',
+  OFFER_ACCEPT,
   DEAL_SET_FINANCING_TYPE,
   DEAL_SET_APPRAISAL_REQUIRED,
   DEAL_SET_LENDER_CLEAR_TO_CLOSE,
-  'task.create',
-  'task.complete',
-  'task.cancel',
+  TASK_CREATE,
+  TASK_COMPLETE,
+  TASK_CANCEL,
 ])
 
-/** Every command type with a router case in workflow_app/command-router.ts. */
+/** Every command type with a registered handler in the canonical registry. */
 export const ROUTED_COMMAND_TYPES: ReadonlySet<string> = new Set([
   ...XML_COMMAND_NODE_TYPES,
   ...ROUTED_BUT_UNREFERENCED_COMMAND_TYPES,
