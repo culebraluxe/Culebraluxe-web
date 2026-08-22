@@ -18,8 +18,12 @@ before both normal owner login and break-glass recovery are proven.
    then set `AUTH_BREAK_GLASS_ENABLED=true`, `AUTH_BREAK_GLASS_APP_USER_ID` (the
    deliberately bootstrapped owner), and `AUTH_BREAK_GLASS_SECRET_HASH` (the hash).
    Run `db/manual/2026-08-20_v6_security_audit_event.sql` (migration 017) first.
-9. Verify break-glass login via `/login/recovery`.
-10. Only now activate Portal route enforcement and server-command authorization.
+9. Link the break-glass provider identity to the same root app_user using
+   `db/manual/2026-08-20_v7_break_glass_identity.sql` (provider `break-glass`,
+   subject derived as `break-glass:<app_user id>`), so recovery sessions resolve
+   through the same canonical projection as normal logins.
+10. Verify break-glass login via `/login/recovery`.
+11. Only now activate Portal route enforcement and server-command authorization.
 
 There is no window where route protection is active before both normal owner
 login and recovery login are proven.

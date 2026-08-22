@@ -9,6 +9,9 @@ __v0_jsx-dev-runtime.ts
 # Environment variables
 .env*.local
 
+# Local pnpm store (workspace-local store used by the sandboxed toolchain)
+.pnpm-store/
+
 # Agent worker scheduler local overrides (optional, machine-specific)
 .env.scheduler
 

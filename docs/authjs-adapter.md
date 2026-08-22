@@ -1,60 +1,63 @@
-# Auth.js Session Adapter — Import-Ready Implementation
+# Auth.js Session Adapter — Implementation Notes
 
-The working tree holds a compile-safe stub at `lib/auth/authjs-session-adapter.ts`
-because `next-auth` is not installed. After running `pnpm add next-auth@beta`,
-replace the stub body with this implementation (do NOT fake sessions).
+Auth.js (next-auth v5 beta) is installed and wired. This document records the
+implemented design and the two deviations from the original import-ready sketch.
 
-```ts
-// lib/auth/authjs-session-adapter.ts
-import { auth } from '@/auth'                 // Auth.js instance (see below)
-import type { SessionAdapter } from './session-adapter'
-import type { AuthenticatedIdentity } from './types'
+## Implemented files
 
-export function createAuthJsSessionAdapter(): SessionAdapter {
-  return {
-    async getSession(): Promise<AuthenticatedIdentity | null> {
-      const session = await auth()
-      const user = session?.user
-      if (!user?.sub) return null          // sub = stable provider subject
-      return {
-        provider: 'google',                // or from session/token
-        providerSubject: user.sub,
-        providerEmail: user.email ?? null,
-      }
-    },
-  }
-}
-```
+| File | Purpose |
+|------|---------|
+| `auth.ts` | Auth.js v5 instance: `{ handlers, auth, signIn, signOut }`, Google/OIDC + break-glass Credentials providers, JWT strategy. |
+| `app/api/auth/[...nextauth]/route.ts` | Exports `handlers` (`GET`/`POST`). |
+| `lib/auth/authjs-session-adapter.ts` | `createAuthJsSessionAdapter()` → `AuthenticatedIdentity` from the Auth.js session. |
+| `app/login/recovery/actions.ts` | `breakGlassLoginAction` verifies the secret and establishes the Auth.js Credentials session via `signIn('break-glass', …)`, then audits success. |
 
-`@/auth` is the Auth.js v5 instance:
+## Adapter contract
 
 ```ts
-// auth.ts
-import NextAuth from 'next-auth'
-import Google from 'next-auth/providers/google'
-
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET,
-    }),
-  ],
-  callbacks: {
-    jwt({ token, user }) {
-      if (user) token.sub = user.id
-      return token
-    },
-    session({ session, token }) {
-      session.user.sub = (token.sub as string | undefined) ?? null
-      return session
-    },
-  },
-  // The provider `sub` is the stable subject. Do NOT use email as identity.
-})
+createAuthJsSessionAdapter().getSession()
+// → { provider: 'google' | 'break-glass', providerSubject: <stable sub>, providerEmail }
+// → null when no valid session / no stable subject
 ```
 
-`app/api/auth/[...nextauth]/route.ts` exports `handlers`.
+The provider `sub` is the stable identity key — email is informational only.
+`auth` is injectable (`deps.auth`) for targeted tests; production always uses
+the `@/auth` instance. Cookies/tokens never leave Auth.js; business services
+consume only `getActingUser(adapter)`.
 
-The application must only ever consume `getActingUser(adapter)` — never the
-`auth()` primitive in business services.
+## Session / identity lifecycle
+
+- JWT strategy (no Auth.js database adapter — canonical identity lives in
+  `auth_identity`). `session.maxAge = 7 days` (`SESSION_MAX_AGE_SECONDS`).
+- The jwt callback stamps `token.sub` (provider subject) and `token.provider`
+  (`account.provider`, with a deterministic fallback to `'break-glass'` when the
+  subject carries the `break-glass:` prefix).
+- `signOut` via `/api/auth/signout` clears the cookie; the portal header shows a
+  static "Sign out" link (no protection activated in AUTH-01).
+- Unmapped/inactive identities resolve to `UnmappedIdentityError` /
+  `InactiveAccountError` in `resolveProviderSubject` — no account auto-creation,
+  no email fallback.
+
+## Deviation 1 — generic OIDC provider
+
+`next-auth@5.0.0-beta.32` does not ship `next-auth/providers/oidc` (no
+`oidc.js` in the package). The generic OIDC provider is therefore constructed
+inline in `auth.ts` using Auth.js's native OAuth config shape
+(`type: 'oidc'` + `issuer` + `clientId`/`clientSecret`), selected when
+`AUTH_PROVIDER=oidc` and `AUTH_ISSUER` is set. `AUTH_PROVIDER` defaults to
+`google` → the built-in Google provider. Credentials come from environment only
+(`AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`).
+
+## Deviation 2 — provider comes from the session, not a constant
+
+The adapter reads `provider` from `session.user.provider` (stamped by the jwt
+callback) instead of hardcoding `'google'`, so normal (google/oidc) and
+break-glass sessions flow through the identical adapter contract.
+
+## Break-glass
+
+The Credentials provider calls `authenticateBreakGlass(secret)` and returns a
+stable subject `break-glass:<root app_user id>` (see `breakGlassSubject()`).
+That subject is mapped in `auth_identity` by
+`db/manual/2026-08-20_v7_break_glass_identity.sql`, so recovery sessions resolve
+through the SAME canonical projection as normal logins.

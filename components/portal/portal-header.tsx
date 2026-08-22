@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 export function PortalHeader() {
   return (
     <header className="border-b border-white/10 bg-[var(--portal-navy)] text-white">
@@ -19,6 +21,13 @@ export function PortalHeader() {
           >
             Notifications
           </button>
+
+          <Link
+            href="/api/auth/signout"
+            className="text-xs font-light uppercase tracking-[0.16em] text-white/55 transition hover:text-white"
+          >
+            Sign out
+          </Link>
 
           <div className="hidden border-l border-white/15 pl-6 text-right sm:block">
             <div className="font-serif text-base font-light uppercase tracking-[0.08em] text-white">

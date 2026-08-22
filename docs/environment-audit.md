@@ -53,7 +53,7 @@ Classification legend:
 
 | Variable | Classification | Read by | Fail-closed behavior when missing |
 | --- | --- | --- | --- |
-| `AUTH_SECRET` | **production-required** (Auth.js session secret) | `lib/environment-readiness.ts`; documented in `docs/auth-bootstrap-order.md` | Not yet read by production code (Auth.js not installed). Readiness probe reports "Not configured"; the future adapter must fail loudly (see §3). |
+| `AUTH_SECRET` | **production-required** (Auth.js session secret) | `auth.ts`, `lib/environment-readiness.ts`; documented in `docs/auth-bootstrap-order.md` | Auth.js (installed in AUTH-01) fails closed at sign-in/session time when the secret is missing or unusable. Readiness probe reports "Not configured". |
 | `AUTH_PROVIDER` | optional with default | `lib/auth/provider-config.ts` | Defaults to `google`. |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | **production-required** (OAuth client pair) | `lib/auth/provider-config.ts`, `lib/environment-readiness.ts` | `clientId` / `clientSecret` resolve to `null`; readiness reports "Not configured". |
 | `AUTH_ISSUER` | optional | `lib/auth/provider-config.ts` | `null` (Google OIDC default). |
@@ -132,7 +132,7 @@ Production boot/requests that require a secret must **fail loudly or report
 | `workflow_engine/lib/workflow/db.ts` | Throws when `DATABASE_URL` is not set. |
 | Public property page (Google Maps) | Renders without a map (`googleMapsApiKey === null`); never uses `GOOGLE_MAPS_DEMO_KEY` in production. |
 | `lib/execution-target.ts` | `assertExecutionTargetSafe` throws before any database-affecting work when DEV/PROD URLs collide; `parseExecutionEnvironment` throws on unknown values. |
-| Auth.js (future) | Contract: the adapter must fail loudly when `AUTH_SECRET` / provider credentials are missing in production (`docs/authjs-adapter.md`); until Auth.js is installed, the readiness probe reports not-configured. |
+| Auth.js (`auth.ts`, `app/api/auth/[...nextauth]`) | Auth.js v5 fails closed when `AUTH_SECRET` is missing in production; provider credentials missing → sign-in fails at the provider step. `AUTH_TRUST_HOST=true` is required on Vercel so the host header is trusted. Readiness probe reports not-configured for each missing item. |
 | `lib/environment-readiness.ts` | Returns booleans only; each production-required secret reports `false` ("Not configured") when absent, and the aggregate `allProductionRequiredConfigured` is `false` until every production-required item is present. |
 
 Rejected behaviors (per the AUTH-04 brief): printing/persisting secret values,
@@ -164,9 +164,10 @@ production, and loading `.env.local` into production.
 Run before any production deploy. Booleans only — never print values.
 
 - [ ] **Vercel production env**: `APP_ENV=production`.
-- [ ] **Auth**: `AUTH_SECRET` set; `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` set;
-      break-glass vars (`AUTH_BREAK_GLASS_*`) present if the bootstrap owner is
-      configured.
+- [ ] **Auth**: `AUTH_SECRET` set; `AUTH_TRUST_HOST=true`; `AUTH_GOOGLE_ID` +
+      `AUTH_GOOGLE_SECRET` set (or `AUTH_PROVIDER=oidc` + `AUTH_ISSUER` for a
+      generic OIDC issuer); break-glass vars (`AUTH_BREAK_GLASS_*`) present if
+      the bootstrap owner is configured.
 - [ ] **Database**: `DATABASE_URL_PROD` set to the **production** Neon branch
       (never the dev branch); `DATABASE_URL_DEV` and generic `DATABASE_URL` are
       absent (or, if present, provably not the production URL).

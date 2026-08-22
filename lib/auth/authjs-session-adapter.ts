@@ -1,19 +1,34 @@
-// AUTH-02 concrete Auth.js session adapter factory.
+// AUTH-01 concrete Auth.js session adapter factory.
 //
-// Auth.js (next-auth) is NOT installed yet, so this module deliberately does
-// NOT import it. It never fakes an authenticated session. Once
-// `pnpm add next-auth@beta` is run, replace this stub with the import-ready
-// implementation documented in docs/authjs-adapter.md.
+// Bridges the Auth.js JWT session to the provider-neutral application adapter
+// contract (AuthenticatedIdentity). Provider cookies/tokens stay inside Auth.js;
+// business services only ever consume getActingUser(adapter) downstream.
+//
+// The provider `sub` (stable, provider-verified) is the identity key — email is
+// informational only. `auth` is injectable for targeted tests; the production
+// path always uses the @/auth instance.
 
+import { auth } from '@/auth'
 import type { SessionAdapter } from './session-adapter'
 import type { AuthenticatedIdentity } from './types'
 
-export function createAuthJsSessionAdapter(): SessionAdapter {
+type AuthFn = typeof auth
+
+export function createAuthJsSessionAdapter(
+  deps: { auth: AuthFn } = { auth },
+): SessionAdapter {
+  const getSession = deps.auth
   return {
     async getSession(): Promise<AuthenticatedIdentity | null> {
-      throw new Error(
-        'Auth.js is not installed. Run "pnpm add next-auth@beta" and implement docs/authjs-adapter.md.',
-      )
+      const session = await getSession()
+      const sub = session?.user?.sub
+      const provider = session?.user?.provider
+      if (!sub || !provider) return null
+      return {
+        provider,
+        providerSubject: sub,
+        providerEmail: session.user.email ?? null,
+      }
     },
   }
 }

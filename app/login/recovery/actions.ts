@@ -1,13 +1,16 @@
 'use server'
 
+import { signIn } from '@/auth'
 import { authenticateBreakGlass } from '@/lib/auth/break-glass-authenticate'
 import { recordSecurityAuditEvent } from '@/db/security-audit'
 
 export type BreakGlassLoginResult = { ok: boolean }
 
-// Break-glass application-root login. Verification + resolution + audit happen
-// here; establishing the session cookie is the Auth.js credentials-provider
-// integration point (see docs/authjs-adapter.md). Generic failure only — no
+// Break-glass application-root login. Verifies the submitted secret through the
+// canonical authenticateBreakGlass() projection, then establishes an Auth.js
+// Credentials session via signIn('break-glass', ...) so the rest of the
+// application sees the SAME AuthenticatedIdentity → getActingUser pipeline as a
+// normal provider login. Success is audited; failures stay generic — no
 // root-identifier enumeration, no reason surfaced.
 export async function breakGlassLoginAction(
   secret: string,
@@ -18,6 +21,12 @@ export async function breakGlassLoginAction(
 
   const result = await authenticateBreakGlass(secret)
   if (!result.ok) {
+    return { ok: false }
+  }
+
+  try {
+    await signIn('break-glass', { secret, redirect: false })
+  } catch {
     return { ok: false }
   }
 
