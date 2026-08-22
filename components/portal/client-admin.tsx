@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import type { ClientAdminRow } from "@/db/client-admin"
+import { ClientArchiveButton } from "@/components/portal/write/client-archive-button"
 
 function roleLabel(role: string) {
   if (role === "both") return "Buyer & Seller"
@@ -49,6 +50,7 @@ export function ClientAdmin({
               <TableHeading>Open Tasks</TableHeading>
               <TableHeading>Active Deals</TableHeading>
               <TableHeading>Interests</TableHeading>
+              <TableHeading>Actions</TableHeading>
             </tr>
           </thead>
           <tbody>
@@ -110,12 +112,18 @@ export function ClientAdmin({
                   <td className="px-4 py-4 align-top text-sm font-light">
                     {row.interestCount}
                   </td>
+                  <td className="px-4 py-4 align-top">
+                    <ClientArchiveButton
+                      personId={row.id}
+                      displayName={row.displayName}
+                    />
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={10}
                   className="px-4 py-12 text-center text-sm font-light text-black/40"
                 >
                   No people on file.

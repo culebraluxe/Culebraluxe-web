@@ -8,6 +8,8 @@ import type {
   InteractionChannel,
   PropertyInterestStatus,
 } from "@/lib/portal/types"
+import { ClientEditor } from "@/components/portal/client-editor"
+import type { ClientEditorAgent } from "@/components/portal/client-editor"
 
 function formatCurrency(value?: number) {
   if (!value) return "—"
@@ -83,13 +85,17 @@ function channelLabel(channel: InteractionChannel) {
 
 export function ClientManager({
   clients,
+  agents,
 }: {
   clients: Client[]
+  agents: ClientEditorAgent[]
 }) {
   const [query, setQuery] = useState("")
   const [selectedClientId, setSelectedClientId] = useState(
     clients[0]?.id ?? ""
   )
+  const [showCreate, setShowCreate] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
 
   const filteredClients = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -131,7 +137,29 @@ export function ClientManager({
           <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
             Relationship intelligence across buyers, sellers, and island introductions.
           </p>
+
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--portal-navy)] px-5 text-[11px] font-light uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
+          >
+            New client
+          </button>
         </div>
+
+        {showCreate && (
+          <div className="mb-6">
+            <ClientEditor
+              mode="create"
+              agents={agents}
+              onSaved={(personId) => {
+                setSelectedClientId(personId)
+                setShowCreate(false)
+              }}
+              onCancel={() => setShowCreate(false)}
+            />
+          </div>
+        )}
 
         <div className="rounded-sm border border-black/10 bg-white p-10">
           <p className="text-sm font-light text-black/45">
@@ -156,7 +184,29 @@ export function ClientManager({
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
           Relationship intelligence across buyers, sellers, and island introductions.
         </p>
+
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="mt-6 inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--portal-navy)] px-5 text-[11px] font-light uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
+        >
+          New client
+        </button>
       </div>
+
+      {showCreate && (
+        <div className="mb-6">
+          <ClientEditor
+            mode="create"
+            agents={agents}
+            onSaved={(personId) => {
+              setSelectedClientId(personId)
+              setShowCreate(false)
+            }}
+            onCancel={() => setShowCreate(false)}
+          />
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
         <aside className="overflow-hidden rounded-sm border border-black/10 bg-white">
@@ -273,9 +323,10 @@ export function ClientManager({
 
                 <button
                   type="button"
+                  onClick={() => setShowEdit(!showEdit)}
                   className="self-start rounded-full border border-[var(--portal-border)] px-5 py-2.5 text-xs font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
                 >
-                  Edit profile
+                  {showEdit ? "Close editor" : "Edit profile"}
                 </button>
               </div>
             </div>
@@ -307,6 +358,18 @@ export function ClientManager({
                 value={selectedClient.assignedAgent ?? "—"}
               />
             </div>
+
+            {showEdit && (
+              <div className="mt-8">
+                <ClientEditor
+                  mode="edit"
+                  client={selectedClient}
+                  agents={agents}
+                  onSaved={() => setShowEdit(false)}
+                  onCancel={() => setShowEdit(false)}
+                />
+              </div>
+            )}
           </section>
 
           <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.75fr)]">

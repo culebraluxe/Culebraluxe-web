@@ -52,6 +52,7 @@ type ClientRow = {
   notes: string | null
 
   assigned_user_name: string | null
+  assigned_user_id: string | null
 
   email: string | null
   phone: string | null
@@ -125,6 +126,7 @@ export async function getClients(): Promise<Client[]> {
       p.notes,
 
       u.display_name as assigned_user_name,
+      u.id as assigned_user_id,
 
       (
         select pi.identity_value
@@ -328,6 +330,7 @@ export async function getClients(): Promise<Client[]> {
 
       timeline: row.timeline ?? undefined,
       assignedAgent: row.assigned_user_name ?? undefined,
+      assignedUserId: row.assigned_user_id ?? undefined,
       notes: row.notes ?? undefined,
 
       propertyInterests,

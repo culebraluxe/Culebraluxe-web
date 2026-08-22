@@ -76,6 +76,7 @@ export interface Client {
   timeline?: string
 
   assignedAgent?: string
+  assignedUserId?: string
 
   lastContact?: {
     channel: InteractionChannel

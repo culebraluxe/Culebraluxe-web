@@ -9,6 +9,17 @@ import { PortalWriteError } from '@/lib/portal-write-error'
 import { toPortalInstant } from '@/lib/portal-time'
 import { searchPeople } from '@/db/people'
 import type { PersonSearchResult } from '@/db/people'
+import {
+  archiveClient,
+  createClient,
+  setClientIdentity,
+  updateClientProfile,
+} from '@/db/person-admin'
+import type {
+  ClientCreateInput,
+  ClientIdentityKind,
+  ClientProfileFields,
+} from '@/lib/person-admin'
 import { createTask } from '@/db/tasks'
 import {
   cancelShowing,
@@ -759,6 +770,100 @@ export async function updatePersonStatusAction(
   return portalWrite('crm.write', async () => {
     try {
       const result = await updatePersonStatus(personId, status)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+// ---------------------------------------------------------------
+// OPS-02 — Client Administration CRUD (create / update / archive /
+// contact identity). Validation is the shared pure contract in
+// lib/person-admin.ts (canonical email / E.164 phone, closed role/status
+// vocabularies); identity ownership conflicts surface as 'conflict'.
+// ---------------------------------------------------------------
+
+export async function createClientAction(
+  input: ClientCreateInput,
+): Promise<PortalWriteResult<{ personId: string }>> {
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await createClient(input)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function updateClientProfileAction(
+  personId: string,
+  input: ClientProfileFields,
+): Promise<PortalWriteResult<{ personId: string }>> {
+  if (!isUuid(personId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid person identifier.',
+    }
+  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await updateClientProfile(personId, input)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function archiveClientAction(
+  personId: string,
+): Promise<PortalWriteResult<{ personId: string }>> {
+  if (!isUuid(personId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid person identifier.',
+    }
+  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await archiveClient(personId)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function updateClientIdentityAction(
+  personId: string,
+  kind: ClientIdentityKind,
+  value: string | null,
+): Promise<PortalWriteResult<{ personId: string; kind: ClientIdentityKind }>> {
+  if (!isUuid(personId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid person identifier.',
+    }
+  }
+  if (kind !== 'email' && kind !== 'phone') {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Contact kind must be email or phone.',
+    }
+  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await setClientIdentity(personId, kind, value)
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {
