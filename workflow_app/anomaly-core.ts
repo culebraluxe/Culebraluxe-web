@@ -19,6 +19,90 @@ export type WorkflowAnomaly = {
   message: string
 }
 
+// ---------------------------------------------------------------------------
+// Instance health classification (ENG-15).
+//
+// One deterministic mapping from the operational anomaly rules to a
+// per-instance health classification. `classifyInstanceHealth` is pure: the
+// caller supplies the instance's canonical status/outcome plus the anomalies
+// that fired for it (from the global sweep or an instance-scoped collection),
+// and receives the classification plus the reasons behind it. This is the
+// single source of the stuck/healthy vocabulary; the query contract and any
+// future operator surface must go through it rather than inventing their own.
+//
+// Ordering is deliberate:
+//   1. failed   — critical failure rules dominate everything
+//   2. terminal — a normally-finished instance is never "stuck"
+//   3. stuck    — operational anomaly rules that halt progress on an active
+//                 instance (wedged, stale lease, job on closed token, orphan
+//                 token, poisoned command receipt)
+//   4. healthy  — active with no operational anomaly
+// ---------------------------------------------------------------------------
+
+export type WorkflowHealthClassification =
+  | 'healthy'
+  | 'stuck'
+  | 'failed'
+  | 'terminal'
+
+export type WorkflowHealth = {
+  classification: WorkflowHealthClassification
+  /** Human-readable reasons behind the classification (anomaly rule messages). */
+  reasons: string[]
+  /** The anomalies that fired for this instance (empty when healthy). */
+  anomalies: WorkflowAnomaly[]
+}
+
+/** Failure rules — always classify the instance as failed. */
+export const FAILED_HEALTH_KINDS = new Set([
+  'failed-process',
+  'error-instance-missing-outcome',
+])
+
+/** Stuck rules — an active instance halted by an operational anomaly. */
+export const STUCK_HEALTH_KINDS = new Set([
+  'wedged-instance',
+  'stale-locked-job',
+  'open-job-on-closed-token',
+  'orphan-token',
+  'pending-receipt',
+])
+
+/** Normally-terminal instance statuses (never classified as stuck). */
+const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'aborted'])
+
+export function classifyInstanceHealth(input: {
+  status: string
+  outcome: string | null
+  anomalies: WorkflowAnomaly[]
+}): WorkflowHealth {
+  const anomalies = input.anomalies
+  const failed = anomalies.filter((a) => FAILED_HEALTH_KINDS.has(a.kind))
+  if (failed.length > 0) {
+    return {
+      classification: 'failed',
+      reasons: failed.map((a) => a.message),
+      anomalies,
+    }
+  }
+  if (TERMINAL_STATUSES.has(input.status)) {
+    return {
+      classification: 'terminal',
+      reasons: [`Instance reached terminal disposition '${input.status}'`],
+      anomalies,
+    }
+  }
+  const stuck = anomalies.filter((a) => STUCK_HEALTH_KINDS.has(a.kind))
+  if (stuck.length > 0) {
+    return {
+      classification: 'stuck',
+      reasons: stuck.map((a) => a.message),
+      anomalies,
+    }
+  }
+  return { classification: 'healthy', reasons: [], anomalies }
+}
+
 /** The instance fields the anomaly detectors need. */
 export type AnomalyInstanceInput = {
   instanceId: string

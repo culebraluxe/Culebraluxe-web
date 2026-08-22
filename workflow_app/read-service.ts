@@ -2,7 +2,13 @@ import { sql } from '../db/client'
 import { engineConfigured, engineSql, isMissingRelation } from './engine-client'
 import { resolveResponsibility } from './responsibility'
 import { deadlineLabelFor } from './deadlines'
-import type { ProcessGraph, NodeDefinition } from '../workflow_engine/lib/workflow/types'
+import {
+  graphViews,
+  milestoneState,
+  optionalNodeIds,
+  type MilestoneTokenRow,
+} from './query'
+import type { ProcessGraph } from '../workflow_engine/lib/workflow/types'
 
 // ---------------------------------------------------------------------------
 // Portal-facing workflow read projections.
@@ -81,84 +87,13 @@ type EngineInstanceRow = {
   definition: ProcessGraph
 }
 
-type EngineTokenRow = {
-  process_instance_id: string
-  node_id: string
-  status: string
-  outcome: string | null
-}
+// Definition-graph presentation semantics (graphViews / optionalNodeIds /
+// milestoneState / CONTROL_TYPES / MilestoneTokenRow) are shared with the
+// ENG-15 generic query contract — see workflow_app/query.ts (single
+// implementation; do not fork).
 
-const CONTROL_TYPES = new Set([
-  'start',
-  'end',
-  'decision',
-  'fork',
-  'join',
-  'timer',
-  'command',
-])
-
-/** Derive per-node presentation metadata from the definition graph. */
-function graphViews(graph: ProcessGraph) {
-  const nodeLabels: Record<string, string> = {}
-  const nodeDescriptions: Record<string, string> = {}
-  const nodeResponsibility: Record<string, string> = {}
-  for (const id of Object.keys(graph.nodes)) {
-    const node: NodeDefinition = graph.nodes[id]
-    nodeLabels[id] = node.name ?? id
-    if (node.description) nodeDescriptions[id] = node.description
-    if (node.responsibility) nodeResponsibility[id] = node.responsibility
-  }
-  return { nodeLabels, nodeDescriptions, nodeResponsibility }
-}
-
-/**
- * Generic "is this node conditional?" analysis.
- * A node is optional/conditional when it is the target of a decision rule
- * (non-default decision transition) or of a fork branch marked required=false.
- */
-function optionalNodeIds(graph: ProcessGraph): string[] {
-  const optional = new Set<string>()
-  for (const node of Object.values(graph.nodes)) {
-    if (node.type === 'decision') {
-      const defaultName = node.transitions?.[0]?.name
-      for (const d of node.decisions ?? []) {
-        const t = node.transitions?.find((x) => x.name === d.transition)
-        if (t && t.name !== defaultName) optional.add(t.to)
-      }
-    }
-    if (node.type === 'fork') {
-      for (const t of node.transitions ?? []) {
-        if (t.required === false) optional.add(t.to)
-      }
-    }
-  }
-  return [...optional]
-}
-
-function milestoneState(tokens: EngineTokenRow[], graph: ProcessGraph) {
-  const active = new Set<string>()
-  const activeNodeIds = new Set<string>()
-  const completed = new Set<string>()
-  const blockers = new Set<string>()
-  const completedNodes = new Set<string>()
-  for (const t of tokens) {
-    const node = graph.nodes[t.node_id]
-    if (!node) continue
-    if (t.outcome === 'completed') completedNodes.add(t.node_id)
-    if (CONTROL_TYPES.has(node.type)) continue
-    const isBlocker = node.type === 'task' && t.node_id.endsWith('_blocker')
-    if (t.status === 'active' && isBlocker) {
-      blockers.add(node.name ?? t.node_id)
-      continue
-    }
-    if (t.status === 'active') {
-      active.add(node.name ?? t.node_id)
-      activeNodeIds.add(t.node_id)
-    } else if (t.outcome === 'completed') completed.add(node.name ?? t.node_id)
-  }
-  return { active, activeNodeIds, completed, blockers, completedNodes }
-}
+/** Summary-path token row (the summaries query selects process_instance_id). */
+type SummaryTokenRow = MilestoneTokenRow & { process_instance_id: string }
 
 function responsiblePartyFor(nodes: string[], graph: ProcessGraph): string | null {
   for (const nodeId of nodes) {
@@ -236,8 +171,8 @@ export async function getWorkflowSummaries(): Promise<WorkflowSummary[]> {
     where pi.subject_type = 'deal' and j.status in ('pending', 'locked')
   `
 
-  const tokensByInstance = new Map<string, EngineTokenRow[]>()
-  for (const t of tokenRows as EngineTokenRow[]) {
+  const tokensByInstance = new Map<string, SummaryTokenRow[]>()
+  for (const t of tokenRows as SummaryTokenRow[]) {
     const list = tokensByInstance.get(t.process_instance_id) ?? []
     list.push(t)
     tokensByInstance.set(t.process_instance_id, list)
@@ -343,10 +278,10 @@ export async function getWorkflowDetail(
     from tokens
     where process_instance_id = ${instanceId}
   `
-  const completedNodes = (tokenRows as EngineTokenRow[])
+  const completedNodes = (tokenRows as MilestoneTokenRow[])
     .filter((t) => t.outcome === 'completed')
     .map((t) => t.node_id)
-  const milestones = milestoneState(tokenRows as EngineTokenRow[], graph)
+  const milestones = milestoneState(tokenRows as MilestoneTokenRow[], graph)
 
   return {
     ...summary,

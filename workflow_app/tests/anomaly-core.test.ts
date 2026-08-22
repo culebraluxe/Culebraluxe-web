@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  classifyInstanceHealth,
   collectAnomalies,
   type AnomalyInstanceInput,
   type WorkflowAnomaly,
@@ -346,4 +347,65 @@ test('error-instance-missing-outcome detector flags impossible error state', asy
   assert.equal(anomalies[0].kind, 'error-instance-missing-outcome')
   assert.equal(anomalies[0].severity, 'critical')
   assert.equal(anomalies[0].instanceId, 'inst-5')
+})
+
+// ---------------------------------------------------------------------------
+// ENG-15 — classifyInstanceHealth: the single stuck/healthy classification
+// mapping from the operational anomaly rules (pure, no SQL).
+// ---------------------------------------------------------------------------
+
+const anomaly = (kind: string): WorkflowAnomaly => ({
+  kind,
+  severity: 'warning',
+  instanceId: 'inst-1',
+  subjectId: null,
+  message: `anomaly: ${kind}`,
+})
+
+test('classifyInstanceHealth: healthy when active with no anomalies', () => {
+  const h = classifyInstanceHealth({
+    status: 'active',
+    outcome: null,
+    anomalies: [],
+  })
+  assert.equal(h.classification, 'healthy')
+  assert.deepEqual(h.reasons, [])
+})
+
+test('classifyInstanceHealth: failed rules dominate', () => {
+  const h = classifyInstanceHealth({
+    status: 'active',
+    outcome: null,
+    anomalies: [anomaly('wedged-instance'), anomaly('failed-process')],
+  })
+  assert.equal(h.classification, 'failed')
+  assert.ok(h.reasons.some((r) => r.includes('failed-process')))
+})
+
+test('classifyInstanceHealth: terminal instances are never stuck', () => {
+  const h = classifyInstanceHealth({
+    status: 'completed',
+    outcome: 'completed',
+    anomalies: [anomaly('orphan-token')],
+  })
+  assert.equal(h.classification, 'terminal')
+  assert.equal(h.anomalies.length, 1) // anomaly still surfaced for operators
+})
+
+test('classifyInstanceHealth: stuck rules on an active instance', () => {
+  for (const kind of [
+    'wedged-instance',
+    'stale-locked-job',
+    'open-job-on-closed-token',
+    'orphan-token',
+    'pending-receipt',
+  ]) {
+    const h = classifyInstanceHealth({
+      status: 'active',
+      outcome: null,
+      anomalies: [anomaly(kind)],
+    })
+    assert.equal(h.classification, 'stuck', `expected stuck for ${kind}`)
+    assert.ok(h.reasons.some((r) => r.includes(kind)))
+  }
 })
