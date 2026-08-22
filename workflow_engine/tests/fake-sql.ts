@@ -510,7 +510,7 @@ export class FakeSql {
       row.assignee = params[0];
       row.claimed_at = params[1];
       row.version += 1;
-      return [];
+      return [{ id: row.id }];
     }
     if (t.startsWith('update tasks set status =') && t.includes("'ready'")) {
       const row = st.tasks.find((r) => r.id === params[0] && r.version === params[1]);
@@ -519,7 +519,7 @@ export class FakeSql {
       row.assignee = null;
       row.claimed_at = null;
       row.version += 1;
-      return [];
+      return [{ id: row.id }];
     }
     if (t.startsWith('update tasks set status =') && t.includes("'completed'") && t.includes('form_data =')) {
       const row = st.tasks.find((r) => r.id === params[4] && r.version === params[5]);
@@ -530,7 +530,7 @@ export class FakeSql {
       row.completed_at = params[2];
       row.completed_by = params[3];
       row.version += 1;
-      return [];
+      return [{ id: row.id }];
     }
     if (t.startsWith('update tasks set status =') && t.includes("'obsolete'")) {
       const row = st.tasks.find((r) => r.id === params[0]);

@@ -260,14 +260,50 @@ export class WorkflowEngine {
   // ----------------------------------------------------------------
   // Task methods
   // ----------------------------------------------------------------
+  /**
+   * Human-task lifecycle (ENG-13).
+   *
+   * The engine owns the generic task RUNTIME: claim/release/reassign/complete
+   * mechanics, persisted state, version guards and audit events. Identity and
+   * authorization live in the embedding application — the engine only ever
+   * records the actor strings the application passes in and validates the
+   * task-level mechanics (status, assignment, candidate eligibility). Every
+   * operation follows the ENG-11 lock discipline: the owning instance row is
+   * locked FIRST (so termination serializes with all task mutations), then the
+   * task row is locked and re-read, and the mutation is a compare-and-set on
+   * the task version whose affected-row count is verified before any event is
+   * recorded. A task update that matched no row is a STALE_TASK conflict —
+   * the operation never "succeeds" silently and never emits an event for a
+   * mutation that did not take effect.
+   */
   async claimTask(taskId: string, userId: string): Promise<void> {
     await this.sql.begin(async (tx: SqlClient) => {
+      // Non-locking peek to find the owning instance; the locked re-read
+      // happens after the instance lock (ENG-11 lock ordering).
+      const peekRows = await tx`SELECT * FROM tasks WHERE id = ${taskId}`;
+      const peek = this._mapTask(peekRows[0]);
+      if (!peek) throw new Error(`Task not found: ${taskId}`);
+
+      const instanceRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${peek.processInstanceId} FOR UPDATE
+      `;
+      const instance = this._mapInstance(instanceRows[0]);
+      if (!instance || instance.status !== 'active') {
+        throw new WorkflowConflictError(
+          `Process ${peek.processInstanceId} is not active (status=${instance?.status ?? 'none'})`,
+          'PROCESS_NOT_ACTIVE',
+        );
+      }
+
       const taskRows = await tx`SELECT * FROM tasks WHERE id = ${taskId} FOR UPDATE`;
       const task = this._mapTask(taskRows[0]);
       if (!task) throw new Error(`Task not found: ${taskId}`);
 
       if (task.status !== 'ready' && task.status !== 'reserved') {
-        throw new Error(`Task cannot be claimed in status: ${task.status}`);
+        throw new WorkflowConflictError(
+          `Task cannot be claimed in status: ${task.status}`,
+          'TASK_NOT_CLAIMABLE',
+        );
       }
 
       const canClaim =
@@ -276,20 +312,33 @@ export class WorkflowEngine {
         task.candidates.length === 0;
 
       if (!canClaim) {
-        throw new Error(`User ${userId} is not allowed to claim this task`);
+        throw new WorkflowConflictError(
+          `User ${userId} is not allowed to claim this task`,
+          'TASK_CANDIDATE_ONLY',
+        );
       }
       if (task.assignee && task.assignee !== userId) {
-        throw new Error(`Task is already claimed by ${task.assignee}`);
+        throw new WorkflowConflictError(
+          `Task is already claimed by ${task.assignee}`,
+          'TASK_ALREADY_ASSIGNED',
+        );
       }
 
-      await tx`
+      const claimed = await tx`
         UPDATE tasks
         SET status = 'reserved',
             assignee = ${userId},
             claimed_at = ${this.now()},
             version = version + 1
         WHERE id = ${taskId} AND version = ${task.version}
+        RETURNING id
       `;
+      if (!claimed[0]) {
+        throw new WorkflowConflictError(
+          `Task ${taskId} state changed concurrently`,
+          'STALE_TASK',
+        );
+      }
 
       if (this.hooks?.beforeTaskCompleteEvent) {
         await this.hooks.beforeTaskCompleteEvent(taskId);
@@ -309,24 +358,52 @@ export class WorkflowEngine {
 
   async releaseTask(taskId: string, userId: string): Promise<void> {
     await this.sql.begin(async (tx: SqlClient) => {
+      const peekRows = await tx`SELECT * FROM tasks WHERE id = ${taskId}`;
+      const peek = this._mapTask(peekRows[0]);
+      if (!peek) throw new Error(`Task not found: ${taskId}`);
+
+      const instanceRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${peek.processInstanceId} FOR UPDATE
+      `;
+      const instance = this._mapInstance(instanceRows[0]);
+      if (!instance || instance.status !== 'active') {
+        throw new WorkflowConflictError(
+          `Process ${peek.processInstanceId} is not active (status=${instance?.status ?? 'none'})`,
+          'PROCESS_NOT_ACTIVE',
+        );
+      }
+
       const taskRows = await tx`SELECT * FROM tasks WHERE id = ${taskId} FOR UPDATE`;
       const task = this._mapTask(taskRows[0]);
       if (!task) throw new Error(`Task not found: ${taskId}`);
       if (task.assignee !== userId) {
-        throw new Error('Only the assignee can release the task');
+        throw new WorkflowConflictError(
+          'Only the assignee can release the task',
+          'TASK_ASSIGNEE_ONLY',
+        );
       }
       if (task.status !== 'reserved' && task.status !== 'in_progress') {
-        throw new Error(`Task cannot be released in status: ${task.status}`);
+        throw new WorkflowConflictError(
+          `Task cannot be released in status: ${task.status}`,
+          'TASK_NOT_RELEASABLE',
+        );
       }
 
-      await tx`
+      const released = await tx`
         UPDATE tasks
         SET status = 'ready',
             assignee = null,
             claimed_at = null,
             version = version + 1
         WHERE id = ${taskId} AND version = ${task.version}
+        RETURNING id
       `;
+      if (!released[0]) {
+        throw new WorkflowConflictError(
+          `Task ${taskId} state changed concurrently`,
+          'STALE_TASK',
+        );
+      }
 
       await this._event(tx, {
         tenantId: task.tenantId,
@@ -336,6 +413,84 @@ export class WorkflowEngine {
         eventType: 'task.released',
         actor: userId,
         data: {},
+      });
+    });
+  }
+
+  /**
+   * Reassign a task to another assignee (ENG-13). Covers both pre-assignment
+   * (from an unclaimed `ready` task) and transfer (from a `reserved` /
+   * `in_progress` task): the task becomes `reserved` with the new assignee and
+   * `claimed_at` refreshed. The new assignee must be an eligible candidate
+   * unless the task is open (empty candidates). Who MAY reassign is an
+   * application-authorization decision — the engine only records the acting
+   * user and the from/to transition in the `task.reassigned` event.
+   */
+  async reassignTask(taskId: string, newAssignee: string, actor: string): Promise<void> {
+    await this.sql.begin(async (tx: SqlClient) => {
+      const peekRows = await tx`SELECT * FROM tasks WHERE id = ${taskId}`;
+      const peek = this._mapTask(peekRows[0]);
+      if (!peek) throw new Error(`Task not found: ${taskId}`);
+
+      const instanceRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${peek.processInstanceId} FOR UPDATE
+      `;
+      const instance = this._mapInstance(instanceRows[0]);
+      if (!instance || instance.status !== 'active') {
+        throw new WorkflowConflictError(
+          `Process ${peek.processInstanceId} is not active (status=${instance?.status ?? 'none'})`,
+          'PROCESS_NOT_ACTIVE',
+        );
+      }
+
+      const taskRows = await tx`SELECT * FROM tasks WHERE id = ${taskId} FOR UPDATE`;
+      const task = this._mapTask(taskRows[0]);
+      if (!task) throw new Error(`Task not found: ${taskId}`);
+
+      if (task.status === 'completed') {
+        throw new WorkflowConflictError(
+          `Task cannot be reassigned in status: completed`,
+          'TASK_ALREADY_COMPLETED',
+        );
+      }
+      if (!['ready', 'reserved', 'in_progress'].includes(task.status)) {
+        throw new WorkflowConflictError(
+          `Task cannot be reassigned in status: ${task.status}`,
+          'TASK_NOT_REASSIGNABLE',
+        );
+      }
+      if (task.candidates.length > 0 && !task.candidates.includes(newAssignee)) {
+        throw new WorkflowConflictError(
+          `User ${newAssignee} is not a candidate for this task`,
+          'TASK_CANDIDATE_ONLY',
+        );
+      }
+
+      const previousAssignee = task.assignee ?? null;
+      const reassigned = await tx`
+        UPDATE tasks
+        SET status = 'reserved',
+            assignee = ${newAssignee},
+            claimed_at = ${this.now()},
+            version = version + 1
+        WHERE id = ${taskId} AND version = ${task.version}
+        RETURNING id
+      `;
+      if (!reassigned[0]) {
+        throw new WorkflowConflictError(
+          `Task ${taskId} state changed concurrently`,
+          'STALE_TASK',
+        );
+      }
+
+      await this._event(tx, {
+        tenantId: task.tenantId,
+        processInstanceId: task.processInstanceId,
+        tokenId: task.tokenId,
+        taskId,
+        eventType: 'task.reassigned',
+        actor,
+        data: { from: previousAssignee, to: newAssignee },
       });
     });
   }
@@ -366,11 +521,27 @@ export class WorkflowEngine {
       const task = this._mapTask(taskRows[0]);
       if (!task) throw new Error(`Task not found: ${taskId}`);
 
+      // ENG-13 — duplicate completion is a DETERMINISTIC conflict: a task is
+      // completed at most once and its token advances exactly once. A second
+      // completion attempt on a completed task (sequential or racing) is
+      // rejected with TASK_ALREADY_COMPLETED before any mutation or event.
+      if (task.status === 'completed') {
+        throw new WorkflowConflictError(
+          `Task cannot be completed in status: completed`,
+          'TASK_ALREADY_COMPLETED',
+        );
+      }
       if (!['ready', 'reserved', 'in_progress'].includes(task.status)) {
-        throw new Error(`Task cannot be completed in status: ${task.status}`);
+        throw new WorkflowConflictError(
+          `Task cannot be completed in status: ${task.status}`,
+          'TASK_NOT_ACTIONABLE',
+        );
       }
       if (task.assignee && task.assignee !== userId) {
-        throw new Error(`Task is assigned to ${task.assignee}`);
+        throw new WorkflowConflictError(
+          `Task is assigned to ${task.assignee}`,
+          'TASK_ASSIGNEE_ONLY',
+        );
       }
 
       // ENG-11 — the instance must still be active before any mutation: no
@@ -382,7 +553,11 @@ export class WorkflowEngine {
         );
       }
 
-      await tx`
+      // Compare-and-set on the task version, verified by affected row. If the
+      // row did not match (state changed under us) we abort BEFORE recording
+      // task.completed or advancing the token — exactly-once completion does
+      // not depend on the caller retrying.
+      const completed = await tx`
         UPDATE tasks
         SET status = 'completed',
             assignee = ${userId},
@@ -391,7 +566,14 @@ export class WorkflowEngine {
             completed_by = ${userId},
             version = version + 1
         WHERE id = ${taskId} AND version = ${task.version}
+        RETURNING id
       `;
+      if (!completed[0]) {
+        throw new WorkflowConflictError(
+          `Task ${taskId} state changed concurrently`,
+          'STALE_TASK',
+        );
+      }
 
       await this._event(tx, {
         tenantId: task.tenantId,

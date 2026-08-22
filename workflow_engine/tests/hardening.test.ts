@@ -150,6 +150,184 @@ test('cancelProcess cannot resurrect a completed process', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Story ENG-13 — generic human-task lifecycle
+// (claim / release / reassign / complete mechanics + deterministic conflicts)
+// ---------------------------------------------------------------------------
+
+const TASK_GRAPH_CANDIDATES = {
+  startNodeId: 'start',
+  nodes: {
+    start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'review' }] },
+    review: {
+      id: 'review',
+      type: 'task',
+      name: 'Review',
+      candidateGroups: ['u1', 'u2'],
+      transitions: [{ name: 'done', to: 'end' }],
+    },
+    end: { id: 'end', type: 'end' },
+  },
+};
+
+function taskRow(fake: FakeSql, processInstanceId: string) {
+  return fake.store.tasks.find((t) => t.process_instance_id === processInstanceId)!;
+}
+
+test('ENG-13: claim -> release -> reassign -> complete lifecycle (deterministic unit)', async () => {
+  const fake = new FakeSql();
+  fake.seedDefinition('t', 1, TASK_GRAPH_CANDIDATES);
+  const engine = new WorkflowEngine(fake.sql, { evaluate: stubEvaluator });
+
+  const { processInstanceId } = await engine.startProcess({ definitionKey: 't', startedBy: 'x' });
+  const taskId = taskRow(fake, processInstanceId).id;
+
+  // Claim by u1.
+  await engine.claimTask(taskId, 'u1');
+  let task = taskRow(fake, processInstanceId);
+  assert.equal(task.status, 'reserved');
+  assert.equal(task.assignee, 'u1');
+  assert.equal(events(fake, 'task.claimed').length, 1);
+
+  // Only the assignee may release; release returns the task to ready.
+  await assert.rejects(
+    engine.releaseTask(taskId, 'u2'),
+    (err: any) => err instanceof WorkflowConflictError && err.code === 'TASK_ASSIGNEE_ONLY',
+  );
+  await engine.releaseTask(taskId, 'u1');
+  task = taskRow(fake, processInstanceId);
+  assert.equal(task.status, 'ready');
+  assert.equal(task.assignee, null);
+  assert.equal(events(fake, 'task.released').length, 1);
+
+  // Reassign pre-assigns the ready task to u2 (recorded from null).
+  await engine.reassignTask(taskId, 'u2', 'manager');
+  task = taskRow(fake, processInstanceId);
+  assert.equal(task.status, 'reserved');
+  assert.equal(task.assignee, 'u2');
+  const reassigned = events(fake, 'task.reassigned');
+  assert.equal(reassigned.length, 1);
+  assert.equal(reassigned[0].data.from, null);
+  assert.equal(reassigned[0].data.to, 'u2');
+  assert.equal(reassigned[0].actor, 'manager');
+
+  // A non-assignee cannot complete; the assignee completes exactly once.
+  await assert.rejects(
+    engine.completeTask({ taskId, userId: 'u1', transitionName: 'done' }),
+    (err: any) => err instanceof WorkflowConflictError && err.code === 'TASK_ASSIGNEE_ONLY',
+  );
+  await engine.completeTask({ taskId, userId: 'u2', transitionName: 'done' });
+  task = taskRow(fake, processInstanceId);
+  assert.equal(task.status, 'completed');
+  assert.equal(task.completed_by, 'u2');
+  assert.equal(events(fake, 'task.completed').length, 1);
+
+  const pi = await engine.getProcessInstance(processInstanceId);
+  assert.equal(pi!.status, 'completed');
+});
+
+test('ENG-13: reassign validates eligibility and refuses terminal tasks', async () => {
+  // A fork keeps the process active after one branch completes, so a
+  // completed task can be observed on an ACTIVE instance — reassign must
+  // report TASK_ALREADY_COMPLETED there (not a process-level conflict).
+  const forkGraph = {
+    startNodeId: 'start',
+    nodes: {
+      start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'fork' }] },
+      fork: {
+        id: 'fork',
+        type: 'fork',
+        transitions: [
+          { name: 'a', to: 'tA', required: true },
+          { name: 'b', to: 'tB', required: true },
+        ],
+      },
+      tA: {
+        id: 'tA',
+        type: 'task',
+        name: 'A',
+        candidateGroups: ['u1', 'u2'],
+        transitions: [{ name: 'done', to: 'endA' }],
+      },
+      tB: {
+        id: 'tB',
+        type: 'task',
+        name: 'B',
+        candidateGroups: ['u1', 'u2'],
+        transitions: [{ name: 'done', to: 'endB' }],
+      },
+      endA: { id: 'endA', type: 'end' },
+      endB: { id: 'endB', type: 'end' },
+    },
+  };
+
+  const fake = new FakeSql();
+  fake.seedDefinition('t', 1, forkGraph);
+  const engine = new WorkflowEngine(fake.sql, { evaluate: stubEvaluator });
+
+  const { processInstanceId } = await engine.startProcess({ definitionKey: 't', startedBy: 'x' });
+  const tasks = fake.store.tasks.filter((t) => t.process_instance_id === processInstanceId);
+  const taskA = tasks.find((t) => t.name === 'A')!;
+
+  // Outsider is not a candidate.
+  await assert.rejects(
+    engine.reassignTask(taskA.id, 'outsider', 'manager'),
+    (err: any) => err instanceof WorkflowConflictError && err.code === 'TASK_CANDIDATE_ONLY',
+  );
+
+  // Complete branch A: process stays active (fork waits for B).
+  await engine.completeTask({ taskId: taskA.id, userId: 'u1', transitionName: 'done' });
+  assert.equal(
+    (await engine.getProcessInstance(processInstanceId))!.status,
+    'active',
+    'fork keeps the process active after one branch completes',
+  );
+
+  // Reassigning a completed task is TASK_ALREADY_COMPLETED; a duplicate
+  // completion of the same task is TASK_ALREADY_COMPLETED too.
+  await assert.rejects(
+    engine.reassignTask(taskA.id, 'u2', 'manager'),
+    (err: any) => err instanceof WorkflowConflictError && err.code === 'TASK_ALREADY_COMPLETED',
+  );
+  await assert.rejects(
+    engine.completeTask({ taskId: taskA.id, userId: 'u1', transitionName: 'done' }),
+    (err: any) => err instanceof WorkflowConflictError && err.code === 'TASK_ALREADY_COMPLETED',
+  );
+  assert.equal(events(fake, 'task.completed').length, 1, 'completion recorded exactly once');
+});
+
+test('ENG-13: claim/release/complete/reassign on an obsoleted (terminal) task are conflicts', async () => {
+  const fake = new FakeSql();
+  fake.seedDefinition('t', 1, TASK_GRAPH_CANDIDATES);
+  const engine = new WorkflowEngine(fake.sql, { evaluate: stubEvaluator });
+
+  const { processInstanceId } = await engine.startProcess({ definitionKey: 't', startedBy: 'x' });
+  const taskId = taskRow(fake, processInstanceId).id;
+
+  await engine.cancelProcess({ processInstanceId, actor: 'boss' });
+  assert.equal(taskRow(fake, processInstanceId).status, 'obsolete');
+
+  // Pre-assignment ops guard the instance first: a dead process is a
+  // PROCESS_NOT_ACTIVE conflict. Completion reports the task-level status
+  // first: an obsolete task is TASK_NOT_ACTIONABLE. Both are deterministic.
+  await assert.rejects(
+    engine.claimTask(taskId, 'u1'),
+    (err: any) => err.code === 'PROCESS_NOT_ACTIVE',
+  );
+  await assert.rejects(
+    engine.releaseTask(taskId, 'u1'),
+    (err: any) => err.code === 'PROCESS_NOT_ACTIVE',
+  );
+  await assert.rejects(
+    engine.reassignTask(taskId, 'u2', 'manager'),
+    (err: any) => err.code === 'PROCESS_NOT_ACTIVE',
+  );
+  await assert.rejects(
+    engine.completeTask({ taskId, userId: 'u1', transitionName: 'done' }),
+    (err: any) => err instanceof WorkflowConflictError && err.code === 'TASK_NOT_ACTIONABLE',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Story 5 — optimistic token guard
 // ---------------------------------------------------------------------------
 

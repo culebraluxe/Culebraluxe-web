@@ -475,7 +475,7 @@ Deliberate END / ERROR / ALERT / CONFLICT concepts discussed earlier are
 | Linear states | SUPPORTED | `state`/`task` nodes + transitions |
 | Conditional transitions | SUPPORTED | `decision` node + expr-eval |
 | Human approval | SUPPORTED | `task` node gate |
-| Human task assignment | PARTIAL | `candidateGroups` free strings; no user FK |
+| Human task assignment | SUPPORTED (ENG-13) | `candidateGroups` free strings; claim/release/reassign/complete lifecycle with locking + version guards (`workflow_engine/docs/human-task-lifecycle.md`); no user FK (identity/authorization app-owned by design) |
 | Deadlines | PARTIAL | `jobs.due_at` exists; no definition-level binding |
 | Timers | PARTIAL | reliable queue; no auto-advance into a process |
 | Retries | SUPPORTED | `failJob` exponential backoff |
