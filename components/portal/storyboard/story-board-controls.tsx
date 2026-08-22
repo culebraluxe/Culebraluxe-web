@@ -7,7 +7,6 @@ import {
   STORY_PRIORITIES,
   STORY_STATUSES,
   WORKSTREAMS,
-  OPERATING_SURFACES,
   isStoryBoardFilterActive,
   storyBoardFilterToQuery,
   type StoryBoardFilter,
@@ -127,28 +126,6 @@ export function StoryBoardControls({
                   {ws.name} ({ws.code})
                 </option>
               ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Operating surface</span>
-            <select
-              value={filter.surface}
-              onChange={(event) =>
-                setPart(
-                  "surface",
-                  event.target.value as StoryBoardFilter["surface"],
-                )
-              }
-              className={`${selectClass} mt-2 w-full`}
-            >
-              <option value="all">All surfaces</option>
-              {OPERATING_SURFACES.map((surface) => (
-                <option key={surface} value={surface}>
-                  {surface}
-                </option>
-              ))}
-              <option value="unclassified">Unclassified (NULL)</option>
             </select>
           </label>
 

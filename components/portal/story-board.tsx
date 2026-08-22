@@ -1,4 +1,13 @@
-import { type StoryBoardFilter, type StoryBoardModel, type StoryRecord, type NextWorkSelection } from "@/lib/storyboard-data"
+import {
+  type NextWorkSelection,
+  type StoryBoardFilter,
+  type StoryBoardModel,
+  type StoryDomainRollup,
+  type StoryDomainSubgroup,
+  type StoryRecord,
+  isExecutionActive,
+  isExecutionError,
+} from "@/lib/storyboard-data"
 import { StoryBoardControls } from "@/components/portal/storyboard/story-board-controls"
 import { StoryBoardTable } from "@/components/portal/write/story-board-table"
 import { statusPillClasses } from "@/components/portal/storyboard/story-detail-sections"
@@ -11,155 +20,149 @@ import Link from "next/link"
 // workflow_engine involvement.
 // ---------------------------------------------------------------------------
 
-function CompletionBar({ percent }: { percent: number }) {
+function ExecutionBadge({ story }: { story: StoryRecord }) {
+  const exec = story.execution ?? null
+  const state = exec?.workItemState ?? null
+  const result = exec?.latestRunResult ?? null
+  const base =
+    "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em]"
+  if (isExecutionActive(state)) {
+    return (
+      <span className={`${base} bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]`}>
+        {state}
+      </span>
+    )
+  }
+  if (isExecutionError({ workItemState: state, latestRunResult: result })) {
+    return (
+      <span className={`${base} bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]`}>
+        {state ?? result}
+      </span>
+    )
+  }
+  if (state === 'Done') {
+    return (
+      <span className={`${base} bg-[var(--portal-success-pale)] text-[var(--portal-success)]`}>
+        Done
+      </span>
+    )
+  }
+  if (state) {
+    return (
+      <span className={`${base} bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]`}>
+        {state}
+      </span>
+    )
+  }
+  if (result) {
+    return (
+      <span className={`${base} bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]`}>
+        {result}
+      </span>
+    )
+  }
   return (
-    <div className="flex items-center gap-3">
-      <div className="h-1.5 w-28 overflow-hidden bg-[var(--portal-blue-pale)]">
+    <span className={`${base} border border-black/10 text-black/35`}>
+      Not run
+    </span>
+  )
+}
+
+function MiniCompletion({ percent }: { percent: number }) {
+  return (
+    <div className="mt-3">
+      <div className="h-1.5 w-full overflow-hidden bg-[var(--portal-blue-pale)]">
         <div
           className="h-full bg-[var(--portal-navy)]"
           style={{ width: `${percent}%` }}
         />
       </div>
-      <span className="font-serif text-lg font-light text-[var(--portal-navy)]">
-        {percent.toFixed(1)}%
-      </span>
+      <div className="mt-1 text-[11px] font-light tabular-nums text-black/45">
+        {percent.toFixed(1)}% complete
+      </div>
     </div>
   )
 }
 
-function SummaryStat({
-  label,
-  value,
-  note,
-}: {
-  label: string
-  value: string
-  note?: string
-}) {
+function DomainCard({ domain }: { domain: StoryDomainRollup }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-5">
-      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-        {label}
-      </div>
-      <div className="mt-3 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
-        {value}
-      </div>
-      {note && (
-        <div className="mt-2 text-xs font-light leading-5 text-black/40">
-          {note}
+    <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-5 shadow-[var(--portal-panel-shadow)]">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+          {domain.domain}
         </div>
-      )}
+        <div className="font-serif text-2xl font-light leading-none text-[var(--portal-navy)]">
+          {domain.storyCount}
+        </div>
+      </div>
+      <MiniCompletion percent={domain.completionPercent} />
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-light text-black/50">
+        <span>{domain.completeCount} complete</span>
+        <span>{domain.inProgressPartialCount} active</span>
+        <span>{domain.blockedFailedCount} blocked/failed</span>
+        <span>{domain.runningCount} running</span>
+      </div>
     </div>
   )
 }
 
 function SummaryStrip({ model }: { model: StoryBoardModel }) {
   return (
-    <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      <div className="rounded-sm border border-[#c6a15b]/40 bg-white p-5">
-        <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[#8a6d2f]">
-          Net-Net Completion
+    <div className="mt-6 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-feature-border)] [background:var(--portal-feature-gradient)] p-5 text-white shadow-[var(--portal-feature-shadow)]">
+          <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-feature-eyebrow)]">
+            Net-Net Completion
+          </div>
+          <div className="mt-2 font-serif text-3xl font-light leading-none">
+            {model.netNet.toFixed(1)}%
+          </div>
+          <div className="mt-2 text-xs font-light leading-5 text-white/55">
+            Simple mean of the five domain completion percentages — no legacy
+            weight table.
+          </div>
         </div>
-        <div className="mt-3 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
-          {model.netNet.toFixed(1)}%
+        <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-5 shadow-[var(--portal-panel-shadow)]">
+          <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+            Authoritative stories
+          </div>
+          <div className="mt-2 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
+            {model.totalStories}
+          </div>
+          <div className="mt-2 text-xs font-light leading-5 text-black/40">
+            {model.unclassifiedCount > 0
+              ? `${model.unclassifiedCount} awaiting human domain classification`
+              : "All stories classified across the five domains"}
+          </div>
         </div>
-        <div className="mt-2 text-xs font-light leading-5 text-black/40">
-          Σ (workstream completion × weight)
+        <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-5 shadow-[var(--portal-panel-shadow)]">
+          <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+            Forge execution
+          </div>
+          <div className="mt-2 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
+            {model.totalRunning}
+          </div>
+          <div className="mt-2 text-xs font-light leading-5 text-black/40">
+            running · {model.totalError} error/cancelled · {model.totalReady}{" "}
+            ready
+          </div>
         </div>
       </div>
-      <SummaryStat
-        label="Authoritative stories"
-        value={String(model.totalStories)}
-        note="All stored stories"
-      />
-      <SummaryStat
-        label="Complete"
-        value={String(model.totalComplete)}
-        note="Status Complete"
-      />
-      <SummaryStat
-        label="In Progress / Partial"
-        value={String(model.totalInProgressPartial)}
-        note="Actively being worked"
-      />
-      <SummaryStat
-        label="Blocked / Failed"
-        value={String(model.totalBlockedFailed)}
-        note="Requires attention"
-      />
-      <SummaryStat
-        label="Ready for execution"
-        value={String(model.totalReady)}
-        note="Authorized for the coding agent"
-      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {model.domains.map((d) => (
+          <DomainCard key={d.domain} domain={d} />
+        ))}
+      </div>
     </div>
   )
 }
 
-const SURFACE_JOB_NOTE: Record<string, string> = {
-  NEXUS: 'do the real-estate work',
-  OPS: 'administer the business',
-  SUPPORT: 'operate & secure the product',
-  TECH: 'build the platform',
-}
-
 /**
- * SB-01 — the four operating-surface completion projections. One canonical
- * board, additional projection: the same stored completion / AVG semantics as
- * the workstream dashboard, grouped by operating surface. Reference /
- * rollup=false rows never pollute the percentage; NULL rows are excluded.
+ * OPS-08 — Next Work projection. A bounded, deterministic slice of actionable
+ * work derived from the authoritative stored stories ("Next 20 without
+ * building Jira"). Pure projection: no assignments, no sprints, no writes.
  */
-function SurfaceCompletionStrip({ model }: { model: StoryBoardModel }) {
-  return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
-      <div className="border-b border-[var(--portal-border)] px-6 py-6">
-        <h2 className="font-serif text-2xl font-light">
-          Operating Surface Completion
-        </h2>
-        <p className="mt-1 text-sm font-light leading-6 text-black/50">
-          Projection over the authoritative backlog, classified by primary job.
-          Workstream grouping, weights and the Net-Net formula are unchanged.
-        </p>
-      </div>
-      <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-4">
-        {model.surfaceRollups.map((surface) => (
-          <div
-            key={surface.surface}
-            className="rounded-sm border border-[var(--portal-border)] p-5"
-          >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-                {surface.surface}
-              </span>
-              <span className="text-[10px] font-light uppercase tracking-[0.14em] text-black/35">
-                {surface.storyCount} in rollup
-              </span>
-            </div>
-            <div className="mt-3 font-serif text-3xl font-light leading-none text-[var(--portal-navy)]">
-              {surface.completionPercent.toFixed(1)}%
-            </div>
-            <div className="mt-2 text-xs font-light leading-5 text-black/40">
-              {SURFACE_JOB_NOTE[surface.surface]} — {surface.storedCount} stored
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="border-t border-[var(--portal-border)] px-6 py-4 text-xs font-light leading-5 text-black/40">
-        {model.unclassifiedCount > 0 ? (
-          <>
-            {model.unclassifiedCount} stored story
-            {model.unclassifiedCount === 1 ? ' is' : 's are'} deliberately
-            unclassified (reference / undecided) and excluded from every surface
-            projection.
-          </>
-        ) : (
-          <>Every stored story is deliberately classified.</>
-        )}
-      </div>
-    </section>
-  )
-}
-
 function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
   const { entries, totalEligible, totalBlockedByDependency, limit, truncated } =
     selection
@@ -169,7 +172,7 @@ function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
       <div className="border-b border-[var(--portal-border)] px-6 py-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="font-serif text-2xl font-light">Next Work</h2>
-          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+          <span className="rounded-full bg-[var(--portal-gold-pale)] px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
             Next {limit}
           </span>
         </div>
@@ -206,7 +209,7 @@ function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
               <div className="min-w-56 flex-1">
                 <Link
                   href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
-                  className="font-mono text-xs text-[var(--portal-navy)] transition hover:text-[#8a4b2a]"
+                  className="font-mono text-xs text-[var(--portal-navy)] transition hover:text-[var(--portal-archive)]"
                 >
                   {story.id}
                 </Link>
@@ -218,7 +221,7 @@ function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
                 {story.workstream}
               </span>
               {story.batch !== null && (
-                <span className="rounded-full border border-[#c6a15b]/40 px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em] text-[#8a6d2f]">
+                <span className="rounded-full border border-[var(--portal-gold)]/40 px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
                   Batch {story.batch}
                 </span>
               )}
@@ -246,45 +249,121 @@ function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
   )
 }
 
-function WorkstreamRow({ model }: { model: StoryBoardModel }) {
+function SubgroupSection({
+  subgroup,
+}: {
+  subgroup: StoryDomainSubgroup
+}) {
   return (
-    <tbody>
-      {model.workstreams.map((ws) => (
-        <tr
-          key={ws.code}
-          className="border-b border-[var(--portal-border)] last:border-b-0"
-        >
-          <td className="px-6 py-4 align-top">
-            <div className="text-sm font-light text-[var(--portal-navy)]">
-              {ws.workstream}
-            </div>
-            <div className="mt-1 text-xs font-light text-black/40">
-              {ws.code} · weight {ws.weight}%
-            </div>
-          </td>
-          <td className="px-6 py-4 align-top">
-            <div className="font-serif text-xl font-light text-[var(--portal-navy)]">
-              {ws.storyCount}
-            </div>
-            <div className="mt-1 text-xs font-light text-black/40">
-              {ws.storedCount} stored
-            </div>
-          </td>
-          <td className="px-6 py-4 align-top font-light text-black/60">
-            {ws.completeCount}
-          </td>
-          <td className="px-6 py-4 align-top font-light text-black/60">
-            {ws.inProgressPartialCount}
-          </td>
-          <td className="px-6 py-4 align-top font-light text-black/60">
-            {ws.blockedFailedCount}
-          </td>
-          <td className="px-6 py-4 align-top">
-            <CompletionBar percent={ws.completionPercent} />
-          </td>
-        </tr>
+    <div className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h3 className="text-xs font-light uppercase tracking-[0.2em] text-[var(--portal-navy-soft)]">
+          {subgroup.subgroup}
+        </h3>
+        <div className="flex items-center gap-4 text-[11px] font-light text-black/45">
+          <span>{subgroup.storyCount} stories</span>
+          <span>{subgroup.completeCount} complete</span>
+          <span>{subgroup.completionPercent.toFixed(1)}%</span>
+        </div>
+      </div>
+
+      {subgroup.stories.length === 0 ? (
+        <p className="mt-3 text-xs font-light italic text-black/35">
+          No stories in this subgroup yet.
+        </p>
+      ) : (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--portal-border)]">
+                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+                  Story
+                </th>
+                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+                  Status
+                </th>
+                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+                  Execution
+                </th>
+                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+                  Latest run
+                </th>
+                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+                  Completion
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {subgroup.stories.map((story) => (
+                <tr
+                  key={story.id}
+                  className="border-b border-[var(--portal-border)] transition-colors last:border-b-0 hover:bg-[var(--portal-blue-pale)]/50"
+                >
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
+                      className="font-mono text-xs text-[var(--portal-navy)] transition hover:text-[var(--portal-archive)]"
+                    >
+                      {story.id}
+                    </Link>
+                    <div className="mt-0.5 max-w-[280px] truncate text-sm font-light text-black/65">
+                      {story.title}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${statusPillClasses(story.status)}`}
+                    >
+                      {story.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <ExecutionBadge story={story} />
+                  </td>
+                  <td className="px-4 py-3 text-xs font-light text-black/45">
+                    {story.execution?.latestRunAt
+                      ? new Date(story.execution.latestRunAt).toLocaleDateString()
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 font-serif text-base font-light text-[var(--portal-navy)]">
+                    {story.completion}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DomainRollupSection({ domain }: { domain: StoryDomainRollup }) {
+  return (
+    <section className="overflow-hidden rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white shadow-[var(--portal-panel-shadow)]">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--portal-panel-border)] px-6 py-5">
+        <div>
+          <h2 className="font-serif text-2xl font-light text-[var(--portal-navy)]">
+            {domain.domain}
+          </h2>
+          <p className="mt-1 text-xs font-light text-black/45">{domain.label}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 text-[11px] font-light text-black/50">
+          <span>{domain.storyCount} stories</span>
+          <span>{domain.completeCount} complete</span>
+          <span>{domain.inProgressPartialCount} active</span>
+          <span>{domain.blockedFailedCount} blocked/failed</span>
+          <span>{domain.runningCount} running</span>
+          <span className="font-serif text-lg font-light text-[var(--portal-navy)]">
+            {domain.completionPercent.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+
+      {domain.subgroups.map((sg) => (
+        <SubgroupSection key={sg.subgroup} subgroup={sg} />
       ))}
-    </tbody>
+    </section>
   )
 }
 
@@ -310,61 +389,24 @@ export function StoryBoard({
           <h1 className="font-serif text-4xl font-light leading-[1.1]">
             Story Board
           </h1>
-          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+          <span className="rounded-full bg-[var(--portal-gold-pale)] px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
             Editable
           </span>
         </div>
 
         <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          The authoritative CulebraLuxe development backlog. Story state,
-          completion, architecture guidance, and execution history persist to
-          Neon and drive the project rollup.
+          The authoritative CulebraLuxe development backlog, rolled up by the
+          five operating domains (NEXUS / MAIN / OPPS / SUPPORT / TECH). Story
+          status, Forge execution state, and stored completion stay distinct.
         </p>
       </header>
 
       <SummaryStrip model={model} />
 
-      <SurfaceCompletionStrip model={model} />
-
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
-        <div className="border-b border-[var(--portal-border)] px-6 py-6">
-          <h2 className="font-serif text-2xl font-light">
-            Executive Workstream Dashboard
-          </h2>
-          <p className="mt-1 text-sm font-light text-black/50">
-            Rollup counts and completion derived from the stored stories.
-            Parent stories (rollup = false) are stored but excluded from the
-            counts; their children carry the rollup weight.
-          </p>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)]">
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Workstream
-                </th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Stories
-                </th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Complete
-                </th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  In Progress / Partial
-                </th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Blocked / Failed
-                </th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                  Completion
-                </th>
-              </tr>
-            </thead>
-            <WorkstreamRow model={model} />
-          </table>
-        </div>
+      <section className="mt-8 space-y-6">
+        {model.domains.map((d) => (
+          <DomainRollupSection key={d.domain} domain={d} />
+        ))}
       </section>
 
       <NextWorkSection selection={nextWork} />
@@ -379,24 +421,23 @@ export function StoryBoard({
 
       <footer className="mt-6 text-xs font-light leading-6 text-black/40">
         <p>
-          Workstream completion is the average of the stored{" "}
+          The board rolls up by the five operating domains — NEXUS, MAIN, OPPS,
+          SUPPORT, TECH — with subgroup sections beneath each parent.{" "}
+          <span className="text-black/55">Rollup formula</span>: domain /
+          subgroup completion is the average of the stored{" "}
           <code className="rounded bg-black/5 px-1.5 py-0.5 text-xs">
             completion
           </code>{" "}
-          (0–100) over rollup-participating stories — status is categorical and
-          does not drive the percentage. Net-Net = Σ (workstream completion ×
-          weight) with weights Public Website 20, CRM Foundation 20, Portal 20,
-          Transaction 15, Admin 10, Auth 5, Content 5, Hardening 5. Operating
-          Surface Completion uses the same stored completion average over the
-          rollup-participating stories classified to that surface (SB-01);
-          reference / rollup=false rows never pollute the percentage and
-          deliberately unclassified (NULL) stories are excluded from every
-          surface projection. Each story carries its execution specification
-          (goal, dependencies, preconditions, architect brief, context refs,
-          acceptance criteria, postconditions); runs snapshot that specification
-          when they start (migration 024). Open any story to inspect the full
-          detail and execution history, or filter/search the list above. No
-          workflow_engine changes.
+          (0–100) over rollup-participating stories (rollup = false parents are
+          counted but carry no completion weight). Net-Net = the simple mean of
+          the five domain completion percentages — the legacy workstream weight
+          table is gone. Story status (categorical), Forge execution state
+          (latest work item / latest run), and completion (stored 0–100) are
+          kept distinct. Domain classification is deterministic from story
+          prefix / workstream / operating surface; unclassified stories are
+          reported explicitly. Open any story for the full detail, execution
+          specification, and run history, or filter/search the editable list
+          below.
         </p>
       </footer>
     </div>
@@ -415,7 +456,7 @@ export function StoryBoardNotReady() {
           <h1 className="font-serif text-4xl font-light leading-[1.1]">
             Story Board
           </h1>
-          <span className="rounded-full bg-[#c6a15b]/15 px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[#8a6d2f]">
+          <span className="rounded-full bg-[var(--portal-gold-pale)] px-3 py-1 text-xs font-light uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
             Not ready
           </span>
         </div>

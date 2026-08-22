@@ -12,16 +12,16 @@
 
 import { OPERATING_SURFACE_ORDER } from './navigation'
 
-/** Workstream code stored on each story, with its rollup name and weight. */
+/** Workstream code stored on each story (editable secondary classification). */
 export const WORKSTREAMS = [
-  { code: 'PUBLIC', name: 'Public Website / Property Experience', weight: 20 },
-  { code: 'CRM', name: 'CRM Foundation / Intake Core', weight: 20 },
-  { code: 'PORTAL', name: 'Portal / Relationship Operations', weight: 20 },
-  { code: 'TXN', name: 'Transaction / Deal Workflow', weight: 15 },
-  { code: 'ADMIN', name: 'Admin / Data Management', weight: 10 },
-  { code: 'AUTH', name: 'Auth / Security / User Access', weight: 5 },
-  { code: 'CONTENT', name: 'Content / Marketing / Source Cleanup', weight: 5 },
-  { code: 'HARDEN', name: 'Integrations / Operational Hardening', weight: 5 },
+  { code: 'PUBLIC', name: 'Public Website / Property Experience' },
+  { code: 'CRM', name: 'CRM Foundation / Intake Core' },
+  { code: 'PORTAL', name: 'Portal / Relationship Operations' },
+  { code: 'TXN', name: 'Transaction / Deal Workflow' },
+  { code: 'ADMIN', name: 'Admin / Data Management' },
+  { code: 'AUTH', name: 'Auth / Security / User Access' },
+  { code: 'CONTENT', name: 'Content / Marketing / Source Cleanup' },
+  { code: 'HARDEN', name: 'Integrations / Operational Hardening' },
 ] as const
 
 export type Workstream = (typeof WORKSTREAMS)[number]['code']
@@ -59,6 +59,168 @@ export function operatingSurfaceName(code: string | null): string {
     return surface
   }
   return 'Unclassified'
+}
+
+// ---------------------------------------------------------------------------
+// Top-level operating DOMAINS (authoritative parent rollup authority).
+//
+// The primary board rollup groups by these five domains. Story status,
+// execution state, and completion stay DISTINCT axes — status is the
+// categorical story state, execution state is the latest Forge work-item
+// state, completion is the stored 0..100.
+// ---------------------------------------------------------------------------
+
+export const STORY_DOMAINS = [
+  'NEXUS',
+  'MAIN',
+  'OPPS',
+  'SUPPORT',
+  'TECH',
+] as const
+
+export type StoryDomain = (typeof STORY_DOMAINS)[number]
+
+export const STORY_DOMAIN_LABELS: Record<StoryDomain, string> = {
+  NEXUS: 'NEXUS — Real-Estate Operations',
+  MAIN: 'MAIN — Public Site / Brand',
+  OPPS: 'OPPS — Business Operations',
+  SUPPORT: 'SUPPORT — Auth / Security / Reliability',
+  TECH: 'TECH — Platform Engineering',
+}
+
+export function storyDomainName(domain: StoryDomain): string {
+  return STORY_DOMAIN_LABELS[domain]
+}
+
+/** Canonical TECH subgroups — shown even when empty (0-story subgroups stay
+ *  visible so the technical-system taxonomy is explicit). */
+export const TECH_SUBGROUPS = [
+  'ARCH',
+  'FRAMEWORKS',
+  'WORKFLOW ENGINE',
+  'MQ MINI',
+  'ALERTS',
+] as const
+
+/** Forge execution state — the latest coding-agent work-item state. */
+export type StoryExecutionState = {
+  workItemState: string | null
+  latestRunResult: string | null
+  latestRunAt: string | null
+}
+
+export const EXECUTION_ACTIVE_STATES = ['Running', 'Claimed'] as const
+export const EXECUTION_ERROR_STATES = ['Error', 'Cancelled'] as const
+export const EXECUTION_RUN_ERROR_RESULTS = ['Failed', 'Cancelled'] as const
+
+function prefixOf(id: string): string {
+  const part = id.split('-')[0]
+  return part ? `${part}-` : id
+}
+
+/** MAIN: public-site / brand work (PX-, POLISH-, PLAT- prefixes or PUBLIC /
+ *  CONTENT workstreams). */
+const MAIN_PREFIXES = ['PX-', 'POLISH-', 'PLAT-']
+const MAIN_WORKSTREAMS = ['PUBLIC', 'CONTENT']
+
+/**
+ * Deterministic DOMAIN classification. Precedence (documented, not silent):
+ *   1. MAIN  — public-site / brand work (PX-/POLISH-/PLAT- prefix or
+ *              PUBLIC/CONTENT workstream). The public site has no operating
+ *              surface, so these are re-homed here.
+ *   2. SUPPORT — AUTH-* prefix. The new model owns auth/security under
+ *              SUPPORT; TECH has no AUTH subgroup, so the old TECH surface
+ *              assignment is overridden.
+ *   3. Otherwise the deliberate operating_surface classification is trusted
+ *              (OPS → OPPS). A story with no operating_surface is UNCLASSIFIED
+ *              and reported explicitly — never guessed.
+ */
+export function storyDomainOf(
+  story: Pick<StoryRecord, 'id' | 'workstream' | 'operatingSurface'>,
+): StoryDomain | 'UNCLASSIFIED' {
+  const prefix = prefixOf(story.id)
+  if (
+    MAIN_PREFIXES.includes(prefix) ||
+    MAIN_WORKSTREAMS.includes(story.workstream)
+  ) {
+    return 'MAIN'
+  }
+  if (prefix === 'AUTH-') return 'SUPPORT'
+  switch (story.operatingSurface) {
+    case 'NEXUS':
+      return 'NEXUS'
+    case 'OPS':
+      return 'OPPS'
+    case 'SUPPORT':
+      return 'SUPPORT'
+    case 'TECH':
+      return 'TECH'
+    default:
+      return 'UNCLASSIFIED'
+  }
+}
+
+/**
+ * Deterministic SUBGROUP classification within a domain, driven by the story
+ * prefix (primary) and workstream (secondary). Old prefixes remain visible as
+ * secondary hints; they are no longer the board rollup authority.
+ */
+export function storySubgroupOf(
+  story: Pick<StoryRecord, 'id' | 'workstream' | 'operatingSurface'>,
+): string {
+  const prefix = prefixOf(story.id)
+  const w = story.workstream
+  switch (storyDomainOf(story)) {
+    case 'MAIN':
+      if (prefix === 'PX-') return 'PX / Public'
+      if (prefix === 'POLISH-') return 'Public Site / Polish'
+      if (prefix === 'PLAT-') return 'Property / Platform Data'
+      return 'Public / Content'
+    case 'NEXUS':
+      if (prefix === 'DOC-') return 'Forms / DOC'
+      if (prefix === 'INTAKE-') return 'CRM / Intake'
+      if (w === 'CRM') return 'CRM / Intake'
+      if (w === 'PORTAL') return 'Portal / Relationship'
+      if (w === 'TXN') return 'Deals / TXN'
+      return 'Other'
+    case 'OPPS':
+      if (w === 'ADMIN') return 'Admin / Process'
+      if (w === 'CRM') return 'CRM / Intake'
+      if (w === 'PORTAL') return 'Portal / Ops'
+      return 'OPS / Operations'
+    case 'SUPPORT':
+      if (prefix === 'AUTH-') return 'AUTH / Security'
+      return 'Support / Ops'
+    case 'TECH':
+      if (prefix === 'ARCH-') return 'ARCH'
+      if (prefix === 'FORGE-') return 'FRAMEWORKS'
+      if (prefix === 'MQ-') return 'MQ MINI'
+      if (prefix === 'ALERT-') return 'ALERTS'
+      if (prefix === 'WORKFLOW-') return 'WORKFLOW ENGINE'
+      if (prefix === 'CRM-') return 'WORKFLOW ENGINE'
+      return 'FRAMEWORKS'
+    default:
+      return 'Other'
+  }
+}
+
+export function isExecutionActive(state: string | null): boolean {
+  return state != null && (EXECUTION_ACTIVE_STATES as readonly string[]).includes(state)
+}
+
+export function isExecutionError(
+  exec: Pick<StoryExecutionState, 'workItemState' | 'latestRunResult'>,
+): boolean {
+  if (
+    exec.workItemState != null &&
+    (EXECUTION_ERROR_STATES as readonly string[]).includes(exec.workItemState)
+  ) {
+    return true
+  }
+  return (
+    exec.latestRunResult != null &&
+    (EXECUTION_RUN_ERROR_RESULTS as readonly string[]).includes(exec.latestRunResult)
+  )
 }
 
 export const STORY_STATUSES = [
@@ -117,6 +279,9 @@ export type StoryRecord = {
   completedAt: string | null
   createdAt: string
   updatedAt: string
+  /** Forge execution projection (latest work item + latest run). Null/absent
+   *  when the board was built without execution data. */
+  execution?: StoryExecutionState | null
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +362,6 @@ export type StoryBoardFilter = {
   priority: 'all' | StoryPriority
   view: StoryBoardView
   rollup: 'all' | 'in' | 'out'
-  /** SB-01: operating-surface filter; 'unclassified' = NULL operating_surface. */
-  surface: 'all' | OperatingSurface | 'unclassified'
 }
 
 export function defaultStoryBoardFilter(): StoryBoardFilter {
@@ -209,7 +372,6 @@ export function defaultStoryBoardFilter(): StoryBoardFilter {
     priority: 'all',
     view: 'all',
     rollup: 'all',
-    surface: 'all',
   }
 }
 
@@ -254,15 +416,6 @@ export function parseStoryBoardFilter(
   const rollup = firstParam(params, 'rollup')
   if (rollup === 'in' || rollup === 'out') filter.rollup = rollup
 
-  const surface = firstParam(params, 'surface')
-  if (
-    surface &&
-    (surface === 'unclassified' ||
-      (OPERATING_SURFACE_CODES as readonly string[]).includes(surface))
-  ) {
-    filter.surface = surface as StoryBoardFilter['surface']
-  }
-
   return filter
 }
 
@@ -274,9 +427,6 @@ export function storyBoardFilterToQuery(filter: StoryBoardFilter): string {
   if (filter.priority !== 'all') params.set('priority', filter.priority)
   if (filter.view !== 'all') params.set('view', filter.view)
   if (filter.rollup !== 'all') params.set('rollup', filter.rollup)
-  // Defensive: older callers may omit the field entirely (undefined == 'all').
-  if (filter.surface && filter.surface !== 'all')
-    params.set('surface', filter.surface)
   return params.toString()
 }
 
@@ -330,14 +480,6 @@ export function filterStories(
     }
     if (filter.rollup === 'in' && !story.rollup) return false
     if (filter.rollup === 'out' && story.rollup) return false
-    // Defensive: older callers may omit the field entirely (undefined == 'all').
-    if (filter.surface && filter.surface !== 'all') {
-      if (filter.surface === 'unclassified') {
-        if (story.operatingSurface !== null) return false
-      } else if (story.operatingSurface !== filter.surface) {
-        return false
-      }
-    }
     return storyMatchesQuery(story, filter.q)
   })
 }
@@ -493,76 +635,68 @@ export function selectNextWork(
 }
 
 // ---------------------------------------------------------------------------
-// Rollup model
+// DOMAIN rollup model (authoritative parent rollup).
 //
-// Per workstream (matching the required rollup fields):
-//   workstream, story_count, complete_count, partial_count, open_count,
-//   blocked_count, completion_percent
+// Primary rollup groups by the five operating DOMAINS (NEXUS / MAIN / OPPS /
+// SUPPORT / TECH); subgroup rollups sit beneath each parent domain.
 //
-// story_count and the four counts cover ROLLUP-participating stories only
-// (parents such as CRM-14, CRM-16, PORTAL-01 are stored with rollup=false and
-// excluded — their children carry the rollup weight). completion_percent is
-// the AVG of the stored completion (0..100) over the workstream's rollup
-// stories — status scoring is NOT used for the percentage.
+// Axes stay DISTINCT:
+//   DOMAIN       — storyDomainOf(story) (deterministic classifier above)
+//   STORY STATUS — the categorical story status (counts only)
+//   EXECUTION    — latest Forge work-item state / latest run (counts only)
+//   COMPLETION   — the stored 0..100 completion (the only percentage input)
 //
-// net_net = SUM(workstream_completion_percent * workstream_weight), with
-// weights as percentages summing to 100.
+// Counts cover ALL stories in a domain (so domain totals always sum to the
+// total story count). completion_percent is the AVG of the stored completion
+// over ROLLUP-participating stories (rollup=false parents are stored and
+// counted but carry no completion weight — their children do).
+//
+// net_net = simple mean of the five domain completion percentages (each
+// operating domain is an equal authoritative pillar). No legacy weight table.
 // ---------------------------------------------------------------------------
 
-export type WorkstreamRollup = {
-  workstream: string
-  code: Workstream
-  weight: number
+export type StoryDomainSubgroup = {
+  subgroup: string
   storyCount: number
   completeCount: number
   inProgressPartialCount: number
   blockedFailedCount: number
-  partialCount: number
-  openCount: number
-  blockedCount: number
   completionPercent: number
-  /** All stored stories for the workstream, including rollup=false parents. */
-  storedCount: number
+  stories: StoryRecord[]
 }
 
-/**
- * SB-01 — per-surface completion projection (NEXUS | OPS | SUPPORT | TECH).
- *
- * Uses the SAME completion semantics as the workstream rollup: completionPercent
- * is the AVG of the stored completion over ROLLUP-participating stories
- * (rollup=true) classified to that surface. Reference / rollup=false rows are
- * never in the percentage or count columns (they cannot pollute the
- * projection); they are only reflected in storedCount. Stories with a NULL
- * operating surface are excluded from every surface projection entirely.
- */
-export type SurfaceRollup = {
-  surface: OperatingSurface
-  /** AVG stored completion over rollup-participating stories, 0–100. */
-  completionPercent: number
-  /** Rollup-participating story count for this surface. */
+export type StoryDomainRollup = {
+  domain: StoryDomain
+  label: string
   storyCount: number
-  /** All stored stories carrying this surface, including rollup=false parents. */
-  storedCount: number
   completeCount: number
-  openCount: number
-  blockedCount: number
+  inProgressPartialCount: number
+  blockedFailedCount: number
+  /** Story status === Ready (authorized for coding-agent execution). */
+  readyStoryCount: number
+  /** Latest Forge work-item is Running/Claimed. */
+  runningCount: number
+  /** Latest work-item Error/Cancelled or latest run Failed/Cancelled. */
+  errorCount: number
+  completionPercent: number
+  subgroups: StoryDomainSubgroup[]
+  stories: StoryRecord[]
 }
 
 export type StoryBoardModel = {
   stories: StoryRecord[]
-  workstreams: WorkstreamRollup[]
-  /** Overall net-net completion, 0–100. */
+  domains: StoryDomainRollup[]
+  /** Overall net-net completion, 0–100 (mean of the five domain percents). */
   netNet: number
   /** Executive summary counts over ALL stored stories. */
   totalStories: number
   totalComplete: number
   totalInProgressPartial: number
   totalBlockedFailed: number
-  /** Stories explicitly authorized for coding-agent execution. */
   totalReady: number
-  /** SB-01: per-surface completion projections, in Tier-1 order. */
-  surfaceRollups: SurfaceRollup[]
-  /** Stories deliberately left unclassified (operating_surface IS NULL). */
+  totalRunning: number
+  totalError: number
+  /** Stories with no determinable domain (reported explicitly, never guessed). */
   unclassifiedCount: number
 }
 
@@ -579,96 +713,108 @@ function isBlockedFailed(status: string): boolean {
   return status === 'Blocked' || status === 'Failed'
 }
 
-export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
-  const workstreams: WorkstreamRollup[] = WORKSTREAMS.map((ws) => {
-    const stored = stories.filter((s) => s.workstream === ws.code)
-    const group = stored.filter((s) => s.rollup)
-    const storyCount = group.length
-
-    const completeCount = group.filter(
-      (s) => statusBucket(s.status) === 'complete',
-    ).length
-    const partialCount = group.filter(
-      (s) => statusBucket(s.status) === 'partial',
-    ).length
-    const openCount = group.filter(
-      (s) => statusBucket(s.status) === 'open',
-    ).length
-    const blockedCount = group.filter(
-      (s) => statusBucket(s.status) === 'blocked',
-    ).length
-    const inProgressPartialCount = group.filter((s) =>
-      isInProgressPartial(s.status),
-    ).length
-    const blockedFailedCount = group.filter((s) =>
-      isBlockedFailed(s.status),
-    ).length
-
-    const completionPercent =
-      storyCount > 0
-        ? round(
-            group.reduce((sum, s) => sum + s.completion, 0) / storyCount,
-          )
-        : 0
-
-    return {
-      workstream: ws.name,
-      code: ws.code,
-      weight: ws.weight,
-      storyCount,
-      completeCount,
-      inProgressPartialCount,
-      blockedFailedCount,
-      partialCount,
-      openCount,
-      blockedCount,
-      completionPercent,
-      storedCount: stored.length,
-    }
-  })
-
-  const netNet = round(
-    workstreams.reduce(
-      (sum, ws) => sum + (ws.completionPercent * ws.weight) / 100,
-      0,
-    ),
+function subgroupCompletion(stories: StoryRecord[]): number {
+  const participating = stories.filter((s) => s.rollup)
+  if (participating.length === 0) return 0
+  return round(
+    participating.reduce((sum, s) => sum + s.completion, 0) /
+      participating.length,
   )
+}
 
-  // SB-01 — per-surface completion projection. SAME completion semantics as the
-  // workstream rollup (AVG over rollup-participating stories); reference /
-  // rollup=false rows never pollute the percentage and count columns. NULL
-  // operating_surface stories are excluded from every surface projection.
-  const surfaceRollups: SurfaceRollup[] = OPERATING_SURFACE_ORDER.map(
-    (surface) => {
-      const stored = stories.filter((s) => s.operatingSurface === surface)
-      const group = stored.filter((s) => s.rollup)
-      const storyCount = group.length
-      return {
-        surface,
-        completionPercent:
-          storyCount > 0
-            ? round(
-                group.reduce((sum, s) => sum + s.completion, 0) / storyCount,
-              )
-            : 0,
-        storyCount,
-        storedCount: stored.length,
+export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
+  const domains: StoryDomainRollup[] = STORY_DOMAINS.map((domain) => {
+    const domainStories = stories.filter((s) => storyDomainOf(s) === domain)
+
+    const bySubgroup = new Map<string, StoryRecord[]>()
+    for (const s of domainStories) {
+      const subgroup = storySubgroupOf(s)
+      const list = bySubgroup.get(subgroup) ?? []
+      list.push(s)
+      bySubgroup.set(subgroup, list)
+    }
+    const subgroups: StoryDomainSubgroup[] = [...bySubgroup]
+      .map(([subgroup, group]) => ({
+        subgroup,
+        storyCount: group.length,
         completeCount: group.filter(
           (s) => statusBucket(s.status) === 'complete',
         ).length,
-        openCount: group.filter(
-          (s) => statusBucket(s.status) === 'open',
+        inProgressPartialCount: group.filter((s) =>
+          isInProgressPartial(s.status),
         ).length,
-        blockedCount: group.filter(
-          (s) => statusBucket(s.status) === 'blocked',
-        ).length,
+        blockedFailedCount: group.filter((s) => isBlockedFailed(s.status))
+          .length,
+        completionPercent: subgroupCompletion(group),
+        stories: group,
+      }))
+      .sort((a, b) => b.storyCount - a.storyCount)
+
+    // TECH shows its canonical five subgroups even when empty (MQ MINI /
+    // ALERTS may have no stories yet — the taxonomy stays explicit).
+    if (domain === 'TECH') {
+      const order = new Map(
+        (TECH_SUBGROUPS as readonly string[]).map((s, i) => [s, i]),
+      )
+      for (const s of TECH_SUBGROUPS) {
+        if (!subgroups.some((x) => x.subgroup === s)) {
+          subgroups.push({
+            subgroup: s,
+            storyCount: 0,
+            completeCount: 0,
+            inProgressPartialCount: 0,
+            blockedFailedCount: 0,
+            completionPercent: 0,
+            stories: [],
+          })
+        }
       }
-    },
+      subgroups.sort((a, b) => {
+        const ia = order.get(a.subgroup) ?? Number.MAX_SAFE_INTEGER
+        const ib = order.get(b.subgroup) ?? Number.MAX_SAFE_INTEGER
+        return ia - ib
+      })
+    }
+
+    return {
+      domain,
+      label: storyDomainName(domain),
+      storyCount: domainStories.length,
+      completeCount: domainStories.filter(
+        (s) => statusBucket(s.status) === 'complete',
+      ).length,
+      inProgressPartialCount: domainStories.filter((s) =>
+        isInProgressPartial(s.status),
+      ).length,
+      blockedFailedCount: domainStories.filter((s) => isBlockedFailed(s.status))
+        .length,
+      readyStoryCount: domainStories.filter((s) => s.status === 'Ready').length,
+      runningCount: domainStories.filter((s) =>
+        isExecutionActive(s.execution?.workItemState ?? null),
+      ).length,
+      errorCount: domainStories.filter((s) =>
+        isExecutionError({
+          workItemState: s.execution?.workItemState ?? null,
+          latestRunResult: s.execution?.latestRunResult ?? null,
+        }),
+      ).length,
+      completionPercent: subgroupCompletion(domainStories),
+      subgroups,
+      stories: domainStories,
+    }
+  })
+
+  const present = domains.filter((d) => d.storyCount > 0)
+  const netNet = round(
+    present.length > 0
+      ? present.reduce((sum, d) => sum + d.completionPercent, 0) /
+          present.length
+      : 0,
   )
 
   return {
     stories,
-    workstreams,
+    domains,
     netNet,
     totalStories: stories.length,
     totalComplete: stories.filter((s) => s.status === 'Complete').length,
@@ -677,9 +823,17 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     ).length,
     totalBlockedFailed: stories.filter((s) => isBlockedFailed(s.status)).length,
     totalReady: stories.filter((s) => s.status === 'Ready').length,
-    surfaceRollups,
+    totalRunning: stories.filter((s) =>
+      isExecutionActive(s.execution?.workItemState ?? null),
+    ).length,
+    totalError: stories.filter((s) =>
+      isExecutionError({
+        workItemState: s.execution?.workItemState ?? null,
+        latestRunResult: s.execution?.latestRunResult ?? null,
+      }),
+    ).length,
     unclassifiedCount: stories.filter(
-      (s) => s.operatingSurface === null,
+      (s) => storyDomainOf(s) === 'UNCLASSIFIED',
     ).length,
   }
 }

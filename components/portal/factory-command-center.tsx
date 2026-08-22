@@ -478,19 +478,19 @@ function ExecutiveRollup({
         </div>
 
         <div className="min-w-[220px] space-y-1.5">
-          {rollup.workstreams.map((ws) => (
-            <div key={ws.code} className="flex items-center gap-2" title={`${ws.completionPercent}% · ${ws.completeCount} complete / ${ws.openCount} open / ${ws.blockedCount} blocked`}>
+          {rollup.domains.map((d) => (
+            <div key={d.domain} className="flex items-center gap-2" title={`${d.completionPercent}% · ${d.completeCount} complete / ${d.inProgressPartialCount} active / ${d.blockedFailedCount} blocked-failed`}>
               <span className="w-14 shrink-0 text-right font-mono text-[10px] text-slate-500">
-                {ws.code}
+                {d.domain}
               </span>
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
                 <div
                   className="h-full rounded-full bg-[var(--portal-blue-gray)]/80"
-                  style={{ width: `${Math.max(0, Math.min(100, ws.completionPercent))}%` }}
+                  style={{ width: `${Math.max(0, Math.min(100, d.completionPercent))}%` }}
                 />
               </div>
               <span className="w-8 shrink-0 tabular-nums text-[10px] text-slate-400">
-                {ws.completionPercent}%
+                {d.completionPercent}%
               </span>
             </div>
           ))}

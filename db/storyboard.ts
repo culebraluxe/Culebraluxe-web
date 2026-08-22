@@ -179,6 +179,61 @@ export async function listStoryboardStories(
   return rows.map((row) => mapStory(row as StoryRow))
 }
 
+export type StoryExecutionSummary = {
+  storyId: string
+  workItemState: string | null
+  latestRunResult: string | null
+  latestRunAt: string | null
+}
+
+/**
+ * Forge execution projection for the Story Board: the latest agent_work_item
+ * state and the latest storyboard_story_run result/timestamp per story. Runs
+ * are ordered by started_at so the board always shows the newest attempt.
+ */
+export async function listStoryExecutionSummaries(
+  execute?: QueryExecutor,
+): Promise<StoryExecutionSummary[]> {
+  const q = execute ?? (await executor())
+  const [workRows, runRows] = await Promise.all([
+    q`
+      select distinct on (story_id) story_id, state
+      from agent_work_item
+      where story_id is not null
+      order by story_id, updated_at desc
+    `,
+    q`
+      select distinct on (story_id) story_id, result_status, started_at
+      from storyboard_story_run
+      order by story_id, started_at desc
+    `,
+  ])
+
+  const workState = new Map<string, string | null>()
+  for (const row of workRows) {
+    workState.set(String(row.story_id), (row.state as string | null) ?? null)
+  }
+
+  const run = new Map<
+    string,
+    { result: string | null; at: string | null }
+  >()
+  for (const row of runRows) {
+    run.set(String(row.story_id), {
+      result: (row.result_status as string | null) ?? null,
+      at: (row.started_at as string | null) ?? null,
+    })
+  }
+
+  const ids = new Set([...workState.keys(), ...run.keys()])
+  return [...ids].map((storyId) => ({
+    storyId,
+    workItemState: workState.get(storyId) ?? null,
+    latestRunResult: run.get(storyId)?.result ?? null,
+    latestRunAt: run.get(storyId)?.at ?? null,
+  }))
+}
+
 export async function getStoryboardStory(
   storyId: string,
   execute?: QueryExecutor,
