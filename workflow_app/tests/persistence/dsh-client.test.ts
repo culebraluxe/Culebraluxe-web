@@ -11,10 +11,9 @@ import {
   sessionRootForWorkspace,
 } from '../../../agent-runtime/deepseek/dsh-client'
 
-test('ENG-19: sessionRootForWorkspace escapes the workspace into a stable project key', () => {
-  const root = sessionRootForWorkspace('/Users/test/Documents/Culebraluxe-web')
-  assert.match(root, /--Users-test-Documents-Culebraluxe-web--$/)
-  assert.ok(root.includes('.dsh'))
+test('ENG-19: sessionRootForWorkspace matches the harness projectKey escaping', () => {
+  const root = sessionRootForWorkspace('/Users/lisapenfieldicloud.com/Documents/Culebraluxe-web')
+  assert.equal(root, '/Users/lisapenfieldicloud.com/.dsh/sessions/--Users-lisapenfieldicloud.com-Documents-Culebraluxe-web--')
   assert.ok(root.startsWith(dshHome()))
 })
 

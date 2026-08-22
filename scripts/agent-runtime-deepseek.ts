@@ -103,7 +103,7 @@ async function main(): Promise<void> {
 
   const [story, runRows, workRows] = await Promise.all([
     interactiveSql`select id, status, completion, completed_at from storyboard_story where id = ${storyId}`,
-    interactiveSql`select id, result_status, completion, commit_hash, external_run_id, notes from storyboard_story_run where story_id = ${storyId}`,
+    interactiveSql`select id, result_status, completion, commit_hash, notes from storyboard_story_run where story_id = ${storyId} order by created_at desc limit 3`,
     interactiveSql`select id, state, claimed_by, runtime_adapter, external_run_id, role, model_profile, execution_policy, attempts from agent_work_item where story_id = ${storyId}`,
   ])
   console.log('--- storyboard_story ---', JSON.stringify(story))

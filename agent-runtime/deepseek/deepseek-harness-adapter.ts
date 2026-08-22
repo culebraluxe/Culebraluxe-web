@@ -29,6 +29,7 @@ import {
   type DshHandle,
   type DshRunResult,
 } from './dsh-client'
+import { execFileSync } from 'node:child_process'
 
 const DEEPSEEK_CAPABILITIES: AgentCapability[] = [
   'workspace.fs.read',
@@ -203,6 +204,19 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       return null
     }
 
+    // The harness works inside the repo, so the parent may read the actual
+    // HEAD commit the model created (factual, never inferred from the model's
+    // self-report).
+    let commitHash: string | null = null
+    try {
+      commitHash = execFileSync('git', ['log', '-1', '--format=%H'], {
+        cwd: this.config.workspace,
+        encoding: 'utf8',
+      }).trim() || null
+    } catch {
+      commitHash = null
+    }
+
     const notes = [
       'DeepSeek Harness run completed.',
       result.stdout.trim() ? `Assistant output:\n${result.stdout.trim()}` : 'No assistant text captured.',
@@ -217,7 +231,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       completion: 100,
       notes,
       testsSummary: `dsh exit code ${result.exitCode}`,
-      commitHash: null,
+      commitHash,
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
       externalRunId: this.externalRunId,

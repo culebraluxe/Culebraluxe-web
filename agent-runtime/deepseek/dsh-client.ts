@@ -79,10 +79,31 @@ export function dshHome(): string {
   return process.env.DSH_HOME ?? join(homedir(), '.dsh')
 }
 
-/** Resolve the project-scoped sessions root for a workspace path. */
+/** Resolve the project-scoped sessions root for a workspace path.
+ * Replicates the harness's exact `projectKey` escaping (verified in
+ * deepseek-harness/packages/session/session-persistence-jsonl/src/format.ts):
+ * separators `/` `\` `:` become a single `-` (runs collapsed), leading `-`
+ * is stripped, other unsafe code units become `~XXXX`, and the result is
+ * wrapped in `--...--`.
+ */
 export function sessionRootForWorkspace(workspacePath: string): string {
-  const escaped = workspacePath.replace(/[^A-Za-z0-9]+/g, '-')
-  return join(dshHome(), 'sessions', `--${escaped}--`)
+  let readable = ''
+  let separatorRun = false
+  for (let i = 0; i < workspacePath.length; i++) {
+    const ch = workspacePath[i]
+    if (ch === '/' || ch === '\\' || ch === ':') {
+      if (!separatorRun) readable += '-'
+      separatorRun = true
+    } else if (ch !== '~' && /^[A-Za-z0-9._-]$/.test(ch)) {
+      readable += ch
+      separatorRun = false
+    } else {
+      readable += '~' + workspacePath.charCodeAt(i).toString(16).toUpperCase().padStart(4, '0')
+      separatorRun = false
+    }
+  }
+  const slug = readable.replace(/^-+/, '') || 'root'
+  return join(dshHome(), 'sessions', `--${slug.slice(0, 251)}--`)
 }
 
 
