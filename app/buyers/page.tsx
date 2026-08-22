@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Suspense } from 'react'
 
 import { getFilteredProperties, getProperties } from '@/db/properties'
+import { searchParamsToFilters } from '@/lib/search-contract'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
@@ -57,41 +58,21 @@ const SERVICES = [
 export default async function BuyersPage({ searchParams }: BuyersPageProps) {
   const query = await searchParams
 
-  const category =
-    query.category === 'land'
-      ? ('land' as const)
-      : query.category === 'homes'
-        ? ('homes' as const)
-        : ('all' as const)
-
-  const sort =
-    query.sort === 'price-high' ||
-    query.sort === 'price-low' ||
-    query.sort === 'name'
-      ? (query.sort as 'price-high' | 'price-low' | 'name')
-      : ('featured' as const)
-
-  const q = typeof query.q === 'string' ? query.q : ''
-  const maxPriceText = typeof query.maxPrice === 'string' ? query.maxPrice : ''
-  const bedsText = typeof query.beds === 'string' ? query.beds : ''
-  const viewText = typeof query.view === 'string' ? query.view : ''
-
-  const initial = {
-    category,
-    q,
-    maxPrice: maxPriceText,
-    beds: bedsText,
-    view: viewText,
-    sort,
+  // Canonical URL -> filters parse (PX-24): the same rule the showroom's URL
+  // reconciliation uses, so the initial seed and every later reconcile agree.
+  const queryParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value === 'string') queryParams.set(key, value)
   }
+  const initial = searchParamsToFilters(queryParams)
 
   const filters = {
-    category,
-    q,
-    maxPrice: /^\d+$/.test(maxPriceText) ? Number(maxPriceText) : null,
-    beds: /^\d+$/.test(bedsText) ? Number(bedsText) : null,
-    view: viewText || undefined,
-    sort,
+    category: initial.category,
+    q: initial.q,
+    maxPrice: /^\d+$/.test(initial.maxPrice) ? Number(initial.maxPrice) : null,
+    beds: /^\d+$/.test(initial.beds) ? Number(initial.beds) : null,
+    view: initial.view || undefined,
+    sort: initial.sort,
   }
 
   // The full inventory feeds the featured carousel and compare; the filtered

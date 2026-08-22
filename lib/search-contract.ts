@@ -1,20 +1,27 @@
-// Canonical buyers search contract (PX-23). The search surface is the
+// Canonical buyers search contract (PX-23 + PX-24). The search surface is the
 // `/buyers` inventory page; its controls are category, free-text q, maxPrice,
 // beds, view, and sort. The server (`db/properties.ts` `getFilteredProperties`)
-// is the AUTHORITATIVE filter for what renders — this module is the pure
-// client-side mirror used only by saved-search bookkeeping:
+// is the AUTHORITATIVE filter for what renders: structured filters are applied
+// in SQL over canonical property fields (PX-24B), and the showroom treats the
+// URL as the source of truth for its controls (PX-24C). This module is the
+// pure client-side mirror consumed by BOTH the showroom and saved-search
+// bookkeeping:
 //
 //   - a canonical signature for dedupe (`searchFiltersToKey`),
 //   - the apply URL (`searchFiltersToQuery`), which reproduces exactly what
-//     the showroom pushes into the URL, and
+//     the showroom pushes into the URL, and its inverse (`searchParamsToFilters`)
+//     so the URL round-trip has ONE parse rule (PX-24),
 //   - the alert matcher (`matchesSearchFilters`), which mirrors the server SQL
 //     contract so "N new matches" is counted over the live inventory without a
-//     server round trip per saved search.
+//     server round trip per saved search,
+//   - the inventory pipeline (`applySearchFilters` + `sortProperties`) that the
+//     showroom uses to keep the list responsive between server round trips on
+//     the SAME contract as the saved-search matcher (PX-24) — no drifted
+//     second implementation.
 //
 // The matcher deliberately ignores `sort` (ordering never changes which
 // properties match) and keeps the same field set the server filters on:
-// category, price, beds, view, free-text. PX-24 owns the next evolution of
-// this contract; PX-23 consumes it as-is.
+// category, price, beds, view, free-text.
 
 import type { PropertySummary } from '@/db/properties'
 import { isLand } from '@/lib/property'
@@ -168,4 +175,80 @@ export function matchesSearchFilters(
   }
 
   return true
+}
+
+/* ============================================================
+   PX-24 inventory pipeline — canonical client-side order/filter
+   ============================================================ */
+
+// Canonical client-side ordering. `featured` (the default) puts Featured
+// properties first and otherwise prices high-to-low with null prices last;
+// `price-high` / `price-low` order purely by list price with null prices last;
+// `name` orders alphabetically. Returns a NEW array — the input is never
+// mutated — so callers can safely sort props-derived lists.
+export function sortProperties(
+  properties: PropertySummary[],
+  sort: SearchSort,
+): PropertySummary[] {
+  const sorted = [...properties]
+  sorted.sort((a, b) => {
+    switch (sort) {
+      case 'price-high':
+        return (b.listPrice ?? -1) - (a.listPrice ?? -1)
+      case 'price-low':
+        return (
+          (a.listPrice ?? Number.MAX_SAFE_INTEGER) -
+          (b.listPrice ?? Number.MAX_SAFE_INTEGER)
+        )
+      case 'name':
+        return a.name.localeCompare(b.name)
+      default:
+        if (a.featured !== b.featured) return a.featured ? -1 : 1
+        return (b.listPrice ?? -1) - (a.listPrice ?? -1)
+    }
+  })
+  return sorted
+}
+
+// The showroom's inventory pipeline: match on the canonical contract, then
+// order canonically, in one step. Because `matchesSearchFilters` mirrors the
+// server SQL exactly, applying this over the already server-filtered list is
+// idempotent — it keeps the list responsive between server round trips
+// without ever contradicting what the server returned.
+export function applySearchFilters(
+  properties: PropertySummary[],
+  filters: SearchFilters,
+): PropertySummary[] {
+  const matched = properties.filter((property) =>
+    matchesSearchFilters(property, filters),
+  )
+  return sortProperties(matched, filters.sort)
+}
+
+// Inverse of `searchFiltersToQuery`: reconciles a URLSearchParams back into
+// the canonical filter shape, with the same defaulting rules the showroom
+// applies (unknown category -> 'all', unknown sort -> 'featured', free-text
+// taken raw so the next push trims it). Used by the showroom's URL
+// reconciliation (PX-24C) and by the page that seeds its initial state.
+export function searchParamsToFilters(
+  params: URLSearchParams,
+): SearchFilters {
+  return {
+    category:
+      params.get('category') === 'land'
+        ? 'land'
+        : params.get('category') === 'homes'
+          ? 'homes'
+          : 'all',
+    q: params.get('q') ?? '',
+    maxPrice: params.get('maxPrice') ?? '',
+    beds: params.get('beds') ?? '',
+    view: params.get('view') ?? '',
+    sort:
+      params.get('sort') === 'price-high' ||
+      params.get('sort') === 'price-low' ||
+      params.get('sort') === 'name'
+        ? (params.get('sort') as SearchSort)
+        : 'featured',
+  }
 }
