@@ -1,14 +1,20 @@
 import Image from 'next/image'
 import { Reveal } from '@/components/reveal'
+import { itemsFor, type MarketingContentBlock } from '@/lib/marketing-content'
 
-export function Culture() {
+export function Culture({ content }: { content: MarketingContentBlock }) {
+  const stats = itemsFor(content, 'stat')
+
   return (
     <section id="culture" className="relative">
       {/* Full-viewport cinematic image */}
       <div className="relative h-[85svh] w-full overflow-hidden">
         <Image
-          src="/images/culture.png"
-          alt="The white sand crescent and clear turquoise water of Flamenco Beach, Culebra"
+          src={content.imagePath ?? '/images/culture.png'}
+          alt={
+            content.imageAlt ??
+            'The white sand crescent and clear turquoise water of Flamenco Beach, Culebra'
+          }
           fill
           sizes="100vw"
           className="object-cover"
@@ -19,10 +25,10 @@ export function Culture() {
           <div className="mx-auto w-full max-w-[1600px]">
             <Reveal>
               <p className="mb-5 text-xs font-light uppercase tracking-[0.4em] text-background/70">
-                Island Culture
+                {content.eyebrow}
               </p>
               <h2 className="max-w-3xl text-balance font-serif text-4xl font-light leading-[1.05] text-background md:text-6xl">
-                A slower rhythm, kept intentionally intact.
+                {content.title}
               </h2>
             </Reveal>
           </div>
@@ -34,25 +40,19 @@ export function Culture() {
         <div className="mx-auto grid max-w-[1600px] gap-14 md:grid-cols-12 md:gap-24">
           <Reveal className="md:col-span-4">
             <p className="text-xs font-light uppercase tracking-[0.28em] text-accent">
-              Life on Culebra
+              {content.subtitle}
             </p>
           </Reveal>
           <Reveal delay={120} className="md:col-span-8">
             <p className="max-w-3xl text-balance font-serif text-2xl font-light leading-[1.4] text-foreground md:text-3xl">
-              No traffic lights. No high-rises. Fishing boats at dawn, reef-clear water by
-              noon, and evenings measured in shades of gold. Culebra rewards those who
-              choose to arrive quietly and stay attentively.
+              {content.body}
             </p>
             <div className="mt-14 grid gap-10 border-t border-border pt-10 sm:grid-cols-3">
-              {[
-                { k: 'Flamenco', v: 'Consistently ranked among the world\u2019s finest beaches.' },
-                { k: 'Marine Reserve', v: 'Protected reefs and cays surround the island.' },
-                { k: '30 Minutes', v: 'A short flight or ferry from mainland Puerto Rico.' },
-              ].map((stat) => (
-                <div key={stat.k}>
-                  <p className="font-serif text-xl font-light text-foreground">{stat.k}</p>
+              {stats.map((stat) => (
+                <div key={stat.label}>
+                  <p className="font-serif text-xl font-light text-foreground">{stat.label}</p>
                   <p className="mt-2 text-sm font-light leading-relaxed text-muted-foreground">
-                    {stat.v}
+                    {stat.value}
                   </p>
                 </div>
               ))}

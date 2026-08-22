@@ -1,7 +1,16 @@
 import Image from 'next/image'
 import { Reveal } from '@/components/reveal'
+import { itemsFor, type MarketingContentBlock } from '@/lib/marketing-content'
 
-export function Services() {
+export function Services({
+  buyers,
+  sellers,
+}: {
+  buyers: MarketingContentBlock
+  sellers: MarketingContentBlock
+}) {
+  const buyerItems = itemsFor(buyers, 'list')
+
   return (
     <div className="bg-primary text-primary-foreground">
       {/* Buyers */}
@@ -9,37 +18,31 @@ export function Services() {
         <div className="mx-auto grid max-w-[1600px] gap-14 md:grid-cols-2 md:gap-24">
           <Reveal>
             <p className="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
-              For Buyers
+              {buyers.eyebrow}
             </p>
             <h2 className="text-balance font-serif text-4xl font-light leading-[1.06] md:text-5xl">
-              A considered path to your place on the island.
+              {buyers.title}
             </h2>
           </Reveal>
           <Reveal delay={120} className="flex flex-col justify-center gap-10">
             <p className="max-w-md text-pretty text-sm font-light leading-relaxed text-primary-foreground/75">
-              We represent a small number of buyers each year, guiding every stage with
-              discretion — from private viewings and title diligence to residency,
-              architecture, and the quiet logistics of island life.
+              {buyers.body}
             </p>
             <ul className="flex flex-col divide-y divide-primary-foreground/10 border-y border-primary-foreground/10">
-              {[
-                'Private, unlisted viewings',
-                'Legal, title & closing guidance',
-                'Architecture & renovation introductions',
-              ].map((item) => (
+              {buyerItems.map((item) => (
                 <li
-                  key={item}
+                  key={item.value}
                   className="py-5 text-sm font-light tracking-wide text-primary-foreground/85"
                 >
-                  {item}
+                  {item.value}
                 </li>
               ))}
             </ul>
             <a
-              href="#contact"
+              href={buyers.ctaHref ?? '#contact'}
               className="group inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.24em]"
             >
-              Begin a search
+              {buyers.ctaLabel}
               <span className="inline-block h-px w-10 bg-primary-foreground transition-all duration-500 group-hover:w-16" />
             </a>
           </Reveal>
@@ -52,8 +55,11 @@ export function Services() {
           <Reveal className="order-2 md:order-1">
             <div className="relative aspect-[4/5] w-full overflow-hidden">
               <Image
-                src="/images/coastline.png"
-                alt="Aerial view of the Culebra coastline with jade and turquoise water"
+                src={sellers.imagePath ?? '/images/coastline.png'}
+                alt={
+                  sellers.imageAlt ??
+                  'Aerial view of the Culebra coastline with jade and turquoise water'
+                }
                 fill
                 sizes="(min-width: 768px) 50vw, 100vw"
                 className="object-cover"
@@ -63,22 +69,20 @@ export function Services() {
           <Reveal delay={120} className="order-1 flex flex-col gap-10 md:order-2">
             <div>
               <p className="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
-                For Sellers
+                {sellers.eyebrow}
               </p>
               <h2 className="text-balance font-serif text-4xl font-light leading-[1.06] md:text-5xl">
-                Presented to the few who truly belong here.
+                {sellers.title}
               </h2>
             </div>
             <p className="max-w-md text-pretty text-sm font-light leading-relaxed text-primary-foreground/75">
-              Your home deserves more than a listing. We craft an editorial presentation —
-              considered photography, measured storytelling, and introductions to a private
-              network of international buyers who understand Culebra.
+              {sellers.body}
             </p>
             <a
-              href="#contact"
+              href={sellers.ctaHref ?? '#contact'}
               className="group inline-flex items-center gap-3 text-xs font-light uppercase tracking-[0.24em]"
             >
-              Request a valuation
+              {sellers.ctaLabel}
               <span className="inline-block h-px w-10 bg-primary-foreground transition-all duration-500 group-hover:w-16" />
             </a>
           </Reveal>

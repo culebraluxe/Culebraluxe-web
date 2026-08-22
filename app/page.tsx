@@ -1,4 +1,6 @@
 import { getProperties } from '@/db/properties'
+import { getMarketingContent } from '@/db/marketing-content'
+import { buildHomeContent } from '@/lib/marketing-content'
 import { SiteHeader } from '@/components/site-header'
 import { Hero } from '@/components/hero'
 import { FeaturedProperties } from '@/components/featured-properties'
@@ -12,7 +14,11 @@ import { SiteFooter } from '@/components/site-footer'
 export const dynamic = 'force-dynamic'
 
 export default async function Page() {
-  const properties = await getProperties()
+  const [properties, content] = await Promise.all([
+    getProperties(),
+    getMarketingContent(),
+  ])
+  const home = buildHomeContent(content)
 
   const featured = properties.filter((property) => property.featured)
 
@@ -20,13 +26,15 @@ export default async function Page() {
     <>
       <SiteHeader />
       <main>
-        <Hero />
+        {home.hero ? <Hero content={home.hero} /> : null}
         <FeaturedProperties properties={featured} />
         <HomeProperties properties={properties} />
-        <Services />
-        <Culture />
-        <About />
-        <Contact />
+        {home.buyers && home.sellers ? (
+          <Services buyers={home.buyers} sellers={home.sellers} />
+        ) : null}
+        {home.culture ? <Culture content={home.culture} /> : null}
+        {home.about ? <About content={home.about} /> : null}
+        {home.contact ? <Contact content={home.contact} /> : null}
       </main>
       <SiteFooter />
     </>

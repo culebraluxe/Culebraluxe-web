@@ -3,6 +3,7 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { Reveal } from '@/components/reveal'
 import { submitWebsiteIntake } from '@/app/actions/website-intake'
+import { itemsFor, type MarketingContentBlock } from '@/lib/marketing-content'
 
 const INTERESTS = ['Buying', 'Selling', 'Both'] as const
 type Interest = (typeof INTERESTS)[number]
@@ -13,7 +14,16 @@ type PropertyContext = {
   propertyName?: string | null
 }
 
-export function Contact({ propertyContext }: { propertyContext?: PropertyContext }) {
+export function Contact({
+  content,
+  propertyContext,
+}: {
+  content: MarketingContentBlock
+  propertyContext?: PropertyContext
+}) {
+  const office = itemsFor(content, 'office')[0]
+  const email = itemsFor(content, 'email')[0]
+
   const [interest, setInterest] = useState<Interest>('Buying')
   const [submitted, setSubmitted] = useState(false)
   const [pending, setPending] = useState(false)
@@ -57,29 +67,29 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
       <div className="mx-auto grid max-w-[1600px] gap-16 md:grid-cols-12 md:gap-24">
         <Reveal className="md:col-span-5">
           <p className="mb-6 text-xs font-light uppercase tracking-[0.34em] text-primary-foreground/50">
-            Contact
+            {content.eyebrow}
           </p>
           <h2 className="text-balance font-serif text-4xl font-light leading-[1.06] md:text-6xl">
-            Let&apos;s begin a quiet conversation.
+            {content.title}
           </h2>
           <div className="mt-14 flex flex-col gap-8 border-t border-primary-foreground/10 pt-10">
             <div>
               <p className="text-xs font-light uppercase tracking-[0.2em] text-primary-foreground/45">
-                Office
+                {office?.label}
               </p>
               <p className="mt-2 text-sm font-light text-primary-foreground/85">
-                Calle Escudero, Dewey, Culebra, PR 00775
+                {office?.value}
               </p>
             </div>
             <div>
               <p className="text-xs font-light uppercase tracking-[0.2em] text-primary-foreground/45">
-                Enquiries
+                {email?.label}
               </p>
               <a
-                href="mailto:hello@culebraluxe.com"
+                href={email?.value ? `mailto:${email.value}` : undefined}
                 className="mt-2 inline-block text-sm font-light text-primary-foreground/85 transition-colors hover:text-primary-foreground"
               >
-                hello@culebraluxe.com
+                {email?.value}
               </a>
             </div>
           </div>

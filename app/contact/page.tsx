@@ -4,12 +4,16 @@ import { SiteFooter } from '@/components/site-footer'
 import { PageHero } from '@/components/page-hero'
 import { Contact } from '@/components/contact'
 import { getPropertyIntroById } from '@/db/properties'
+import { getMarketingContent } from '@/db/marketing-content'
+import { buildContactPageContent } from '@/lib/marketing-content'
 
 export const metadata: Metadata = {
   title: 'Contact — CulebraLuxe',
   description:
     'Begin a quiet conversation with CulebraLuxe about buying or selling on the island of Culebra, Puerto Rico.',
 }
+
+export const dynamic = 'force-dynamic'
 
 type ContactPageProps = {
   searchParams: Promise<{
@@ -35,18 +39,24 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
       }
     : undefined
 
+  const page = buildContactPageContent(await getMarketingContent())
+
   return (
     <>
       <SiteHeader />
       <main>
-        <PageHero
-          eyebrow="Contact"
-          title="Let's begin a quiet conversation."
-          intro="Whether you are considering a purchase, a sale, or simply the possibility of island life, we would be glad to hear from you."
-          image="/images/coastline.png"
-          imageAlt="The Culebra coastline at golden hour"
-        />
-        <Contact propertyContext={propertyContext} />
+        {page.hero ? (
+          <PageHero
+            eyebrow={page.hero.eyebrow ?? ''}
+            title={page.hero.title ?? ''}
+            intro={page.hero.body ?? undefined}
+            image={page.hero.imagePath ?? '/images/coastline.png'}
+            imageAlt={page.hero.imageAlt ?? 'The Culebra coastline at golden hour'}
+          />
+        ) : null}
+        {page.contact ? (
+          <Contact content={page.contact} propertyContext={propertyContext} />
+        ) : null}
       </main>
       <SiteFooter />
     </>
