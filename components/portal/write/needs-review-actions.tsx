@@ -2,10 +2,8 @@
 
 import { useState, useTransition } from 'react'
 
-import {
-  attachIntakeToPersonAction,
-  rejectIntakeAction,
-} from '@/app/portal/actions'
+import { resolveIntakeAction } from '@/app/portal/actions'
+import type { ResolveIntakeAction } from '@/db/needs-review-resolution'
 import { PersonSelector } from '@/components/portal/write/person-selector'
 
 type Result = { ok: boolean; message?: string }
@@ -32,11 +30,17 @@ export function NeedsReviewActions({
     null,
   )
 
-  function run(action: () => Promise<unknown>) {
+  function submit(action: ResolveIntakeAction, successText: string) {
     setMessage(null)
     startTransition(async () => {
-      const result = resolve(await action())
-      if (!result.ok) {
+      const result = resolve(
+        await resolveIntakeAction({ submissionId, action }),
+      )
+      if (result.ok) {
+        setPersonId('')
+        setPersonLabel(null)
+        setMessage({ ok: true, text: successText })
+      } else {
         setMessage({ ok: false, text: result.message ?? 'Action failed.' })
       }
     })
@@ -48,19 +52,7 @@ export function NeedsReviewActions({
       setMessage({ ok: false, text: 'Select an existing person first.' })
       return
     }
-    setMessage(null)
-    startTransition(async () => {
-      const result = resolve(
-        await attachIntakeToPersonAction(submissionId, personId),
-      )
-      if (result.ok) {
-        setPersonId('')
-        setPersonLabel(null)
-        setMessage({ ok: true, text: 'Attached to person.' })
-      } else {
-        setMessage({ ok: false, text: result.message ?? 'Could not attach.' })
-      }
-    })
+    submit({ kind: 'attach', personId }, 'Attached to person.')
   }
 
   return (
@@ -94,15 +86,27 @@ export function NeedsReviewActions({
         </div>
       </form>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={isPending}
-          onClick={() => run(() => rejectIntakeAction(submissionId))}
+          onClick={() =>
+            submit({ kind: 'create' }, 'Person created and intake completed.')
+          }
+          className={secondaryButton}
+        >
+          Create person &amp; complete
+        </button>
+
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => submit({ kind: 'reject' }, 'Rejected.')}
           className={ghostButton}
         >
           Reject & close
         </button>
+
         {message && (
           <span
             className={`text-xs font-light ${

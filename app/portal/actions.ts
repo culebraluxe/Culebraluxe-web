@@ -9,7 +9,6 @@ import type { PersonSearchResult } from '@/db/people'
 import { createTask } from '@/db/tasks'
 import {
   addOtherParticipant,
-  attachIntakeToPerson,
   cancelShowing,
   cancelTask,
   completeShowing,
@@ -17,7 +16,6 @@ import {
   createShowing,
   endParticipant,
   logManualInteraction,
-  rejectIntake,
   rejectOffer,
   scheduleShowing,
   submitOffer,
@@ -27,6 +25,12 @@ import {
   updateTaskDue,
   withdrawOffer,
 } from '@/db/portal-writes'
+import { resolveIntake } from '@/db/needs-review-resolution'
+import type {
+  ResolveIntakeAction,
+  ResolveIntakeInput,
+  ResolveIntakeResult,
+} from '@/db/needs-review-resolution'
 import {
   setPropertyHero,
   setPropertyMediaOrder,
@@ -508,43 +512,41 @@ export async function rejectOfferAction(
 }
 
 // ---------------------------------------------------------------
-// STORY 6 — Needs Review safe resolution
+// STORY 6 — Needs Review resolution (single seam)
 // ---------------------------------------------------------------
 
-export async function rejectIntakeAction(
-  submissionId: string,
-): Promise<PortalWriteResult<{ submissionId: string }>> {
-  if (!isUuid(submissionId)) {
+export async function resolveIntakeAction(input: {
+  submissionId: string
+  action: ResolveIntakeAction
+  actorAppUserId?: string | null
+}): Promise<PortalWriteResult<ResolveIntakeResult>> {
+  if (!isUuid(input.submissionId)) {
     return {
       ok: false,
       code: 'validation',
       message: 'Invalid submission identifier.',
     }
   }
-  try {
-    const result = await rejectIntake(submissionId)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
-}
-
-export async function attachIntakeToPersonAction(
-  submissionId: string,
-  personId: string,
-): Promise<
-  PortalWriteResult<{ submissionId: string; interactionId: string; personId: string }>
-> {
-  if (!isUuid(submissionId) || !isUuid(personId)) {
+  if (input.action.kind === 'attach' && !isUuid(input.action.personId)) {
     return {
       ok: false,
       code: 'validation',
-      message: 'Invalid submission or person identifier.',
+      message: 'Invalid person identifier.',
+    }
+  }
+  if (input.actorAppUserId != null && !isUuid(input.actorAppUserId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid acting user identifier.',
     }
   }
   try {
-    const result = await attachIntakeToPerson(submissionId, personId)
+    const result = await resolveIntake({
+      submissionId: input.submissionId,
+      action: input.action,
+      actorAppUserId: input.actorAppUserId ?? undefined,
+    } satisfies ResolveIntakeInput)
     revalidatePortal()
     return { ok: true, data: result }
   } catch (error) {

@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import { sql } from './client'
 import { PortalWriteError } from '../lib/portal-write-error'
 
@@ -8,6 +6,10 @@ import { PortalWriteError } from '../lib/portal-write-error'
 // creation, no participant client/owner/seller writes, no offer accept, no
 // deal-stage changes, no CRM-14. Multi-row invariants use explicit
 // transactions or a single atomic statement.
+//
+// Needs Review resolution (attach/create/reject) lives behind the single
+// CRM-09B seam db/needs-review-resolution.ts (resolveIntake); the former
+// rejectIntake/attachIntakeToPerson functions were refactored into it.
 
 // ---------------------------------------------------------------
 // STORY 1 — Task operations
@@ -313,137 +315,10 @@ export async function rejectOffer(
 }
 
 // ---------------------------------------------------------------
-// STORY 6 — Needs Review safe resolution (no identity writes)
+// STORY 6 — Needs Review safe resolution
+// Refactored into the single CRM-09B seam db/needs-review-resolution.ts
+// (resolveIntake with action attach | create | reject). See that module.
 // ---------------------------------------------------------------
-
-export async function rejectIntake(submissionId: string) {
-  const rows = await sql`
-    update website_intake_submission
-    set status = 'rejected', processing_started_at = null, updated_at = now()
-    where id = ${submissionId}
-      and status in ('received', 'resolution_required')
-    returning id
-  `
-  if (rows.length === 0) {
-    throw new PortalWriteError(
-      'conflict',
-      'Submission not found or not actionable.',
-    )
-  }
-  return { submissionId, status: 'rejected' }
-}
-
-// Attach an intake submission to an explicitly selected existing person.
-// Single atomic CTE: resolves the canonical interaction id (insert or existing
-// via the partial unique source identity index), inserts exactly one human
-// task tied to that interaction, and completes the receipt with the actual
-// persisted interaction id. No person creation, no identity resolution, no
-// property_interest side effects.
-export async function attachIntakeToPerson(
-  submissionId: string,
-  personId: string,
-) {
-  const intakeRows = await sql`
-    select
-      id, request_type, property_id, display_name, email, message, status
-    from website_intake_submission
-    where id = ${submissionId}
-      and status in ('received', 'resolution_required')
-    limit 1
-  `
-  const intake = intakeRows[0] as
-    | {
-        id: string
-        request_type: string
-        property_id: string | null
-        display_name: string
-        email: string | null
-        message: string | null
-        status: string
-      }
-    | undefined
-  if (!intake) {
-    throw new PortalWriteError(
-      'conflict',
-      'Submission not found or not actionable.',
-    )
-  }
-
-  const personRows = await sql`
-    select id from person where id = ${personId} and archived_at is null limit 1
-  `
-  if (personRows.length === 0) {
-    throw new PortalWriteError('not-found', 'Selected person does not exist.')
-  }
-
-  const candidateInteractionId = randomUUID()
-  const eventType =
-    intake.request_type === 'private_viewing'
-      ? 'private_viewing_requested'
-      : intake.request_type === 'property_information'
-        ? 'property_inquiry_submitted'
-        : 'general_enquiry_submitted'
-  const title =
-    intake.request_type === 'private_viewing'
-      ? 'Private viewing request'
-      : intake.request_type === 'property_information'
-        ? 'Property information request'
-        : 'General enquiry'
-  const taskTitle = `Follow up on ${title.toLowerCase()} from ${intake.display_name}`
-
-  // `resolved` always yields exactly one row: the newly inserted interaction
-  // id or, on source-identity conflict, the existing canonical id.
-  const resolvedRows = await sql`
-    with resolved as (
-      insert into interaction (
-        id, person_id, property_id, channel, event_type, direction,
-        occurred_at, title, summary, source_system, source_external_id,
-        source_metadata
-      ) values (
-        ${candidateInteractionId}, ${personId}, ${intake.property_id ?? null},
-        'website', ${eventType}, 'inbound', now(), ${title},
-        ${intake.message ?? null}, 'website', ${intake.id},
-        ${JSON.stringify({ requestType: intake.request_type })}::jsonb
-      )
-      on conflict (source_system, source_external_id)
-        where source_system is not null and source_external_id is not null
-      do update set id = interaction.id
-      returning id
-    ),
-    task_ins as (
-      insert into task (
-        title, detail, person_id, property_id, source_interaction_id,
-        task_kind, priority
-      )
-      select ${taskTitle}, ${intake.message ?? null}, ${personId},
-        ${intake.property_id ?? null}, r.id, 'human', 0
-      from resolved r
-      where not exists (
-        select 1 from task where source_interaction_id = r.id
-      )
-      returning id
-    ),
-    receipt as (
-      update website_intake_submission
-      set status = 'completed',
-          processing_started_at = null,
-          interaction_id = r.id,
-          updated_at = now()
-      from resolved r
-      where website_intake_submission.id = ${submissionId}
-        and website_intake_submission.status in ('received', 'resolution_required')
-      returning website_intake_submission.id
-    )
-    select id from resolved
-  `
-
-  const resolved = resolvedRows[0] as { id: string } | undefined
-  if (!resolved) {
-    throw new Error('Canonical interaction could not be resolved.')
-  }
-
-  return { submissionId, interactionId: resolved.id, personId }
-}
 
 // ---------------------------------------------------------------
 // STORY 7 — Participant role='other' writes

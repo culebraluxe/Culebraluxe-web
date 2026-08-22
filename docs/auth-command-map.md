@@ -11,7 +11,7 @@ Coarse authorities only. No per-button authorities. Business-state legality stay
 | `createTaskAction`, `completeTaskAction`, `cancelTaskAction`, `updateTaskDueAction` | `crm.write` |
 | `logManualInteractionAction` | `crm.write` |
 | `updatePersonNotesAction`, `updatePersonStatusAction` | `crm.write` |
-| `rejectIntakeAction`, `attachIntakeToPersonAction` | `crm.write` |
+| `resolveIntakeAction` (attach | create | reject) | `crm.write` |
 | `createShowingAction`, `scheduleShowingAction`, `cancelShowingAction`, `completeShowingAction` | `deal.write` |
 | `submitOfferAction`, `withdrawOfferAction`, `rejectOfferAction` | `deal.write` |
 | `addOtherParticipantAction`, `endParticipantAction`, `updateParticipantRoleLabelAction` | `deal.write` |
@@ -29,5 +29,5 @@ Coarse authorities only. No per-button authorities. Business-state legality stay
 
 ## Boundary notes
 
-- `attachIntakeToPersonAction` remains `crm.write` at the authority layer, but the *business* decision to attach a person is identity-sensitive and will additionally be workflow-gated (not expressed as a separate authority).
+- `resolveIntakeAction` remains `crm.write` at the authority layer, but the *business* decision to attach or create a person is identity-sensitive and will additionally be workflow-gated (not expressed as a separate authority).
 - `completeShowingAction`, `submitOfferAction`/`rejectOfferAction`/`withdrawOfferAction`, and `endParticipantAction` are consequential commands; they are `deal.write` at the authority layer and will carry CRM-14 business-state gating separately.
