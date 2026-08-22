@@ -34,7 +34,7 @@
 // recommended human action) instead of being left active or falsely Complete.
 // ---------------------------------------------------------------------------
 
-import { invokeNextAgentCommand } from '../agent-runtime/invoker'
+import { invokeNextAgentCommand, buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
 import { createAgentRuntimeRegistry } from '../agent-runtime/factory'
 import type { DeepSeekHarnessConfig } from '../agent-runtime/deepseek/deepseek-harness-adapter'
 import {
@@ -96,12 +96,29 @@ async function main(): Promise<void> {
 
   const registry = createAgentRuntimeRegistry(deepseekConfig())
 
+  // ENG-21 — isolated worker workspace execution (same default-on rule as the
+  // scheduled worker). The interactive architecture agent executes in its OWN
+  // branch + worktree from the EXPLICIT approved integration base; the primary
+  // checkout is never a worker scratch directory.
+  const workspaces = buildAgentInvokerWorkspaces(workerId)
+  if (workspaces) {
+    console.log(
+      'workspace execution: base ref',
+      workspaces.baseRef,
+      '| worktrees root:',
+      workspaces.worktreesRoot ?? 'default (../Culebraluxe-worktrees)',
+    )
+  } else {
+    console.log('workspace execution: DISABLED (legacy shared-checkout path)')
+  }
+
   let result
   try {
     result = await invokeNextAgentCommand(workerId, {
       work,
       runs,
       registry,
+      ...(workspaces ? { workspaces } : {}),
     })
   } catch (e) {
     // ESCALATION (ENG-20/ENG-20B fail-fast policy): mark the work item Error

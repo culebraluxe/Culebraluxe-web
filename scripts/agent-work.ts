@@ -44,7 +44,14 @@
 //   - NEVER loops into a second story in one invocation
 //   - existing heartbeat/session/evidence/finalization behavior is unchanged
 //   - commits repository changes itself; never pushes
+//   - ENG-21: executes the claimed story in an ISOLATED worker worktree/branch
+//     rooted at an EXPLICIT approved integration base (AGENT_WORKSPACE_BASE_REF,
+//     else the repo's main branch); the primary checkout is never a worker
+//     scratch directory. AGENT_WORKSPACE_DISABLED=1 restores the legacy
+//     shared-checkout path explicitly. Never merges, rebases, or pushes.
 // ---------------------------------------------------------------------------
+
+import { buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
 
 async function main(): Promise<void> {
   if ((process.env.APP_ENV ?? 'development') !== 'production') {
@@ -175,11 +182,29 @@ async function runClaimCommand(): Promise<void> {
   const runs = new SqlAgentRunRepository(() => interactiveSql as any)
   const registry = createAgentRuntimeRegistry()
 
+  // ENG-21 — isolated worker workspace execution (default-on). The claimed
+  // story executes in its OWN branch + worktree from the EXPLICIT approved
+  // integration base; the primary checkout is never a worker scratch
+  // directory. AGENT_WORKSPACE_DISABLED=1 restores the legacy shared-checkout
+  // path explicitly (documented escape hatch).
+  const workspaces = buildAgentInvokerWorkspaces(workerId)
+  if (workspaces) {
+    console.log(
+      'workspace execution: base ref',
+      workspaces.baseRef,
+      '| run id = work item id | worktrees root:',
+      workspaces.worktreesRoot ?? 'default (../Culebraluxe-worktrees)',
+    )
+  } else {
+    console.log('workspace execution: DISABLED (legacy shared-checkout path)')
+  }
+
   try {
     const result = await executeClaimedAgentCommand(workerId, claim, {
       work,
       runs,
       registry,
+      ...(workspaces ? { workspaces } : {}),
     })
     console.log('=== autonomous dispatch result ===')
     console.log('story:', result.storyId)
@@ -187,6 +212,7 @@ async function runClaimCommand(): Promise<void> {
     console.log('evidence:', result.evidence.resultStatus, result.evidence.completion + '%')
     console.log('external_run_id:', result.evidence.externalRunId)
     console.log('execution_target:', result.evidence.executionEnvironment ?? 'unset')
+    console.log('commit:', result.evidence.commitHash ?? '(no worker commit — still at base)')
   } catch (e) {
     // Fail safely: terminalize the claimed item (Error, slot released) and
     // exit; the next scheduler cycle continues with the next eligible item.

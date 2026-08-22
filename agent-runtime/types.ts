@@ -82,8 +82,33 @@ export interface AgentExecutionContext {
   capabilities: AgentCapability[]
   /** Intended execution target (DEV|PROD|TEST|LOCAL) for this attempt. */
   executionEnvironment?: string | null
+  /**
+   * ENG-21 — isolated worker workspace (branch + worktree) when the invoker
+   * provisioned one. Adapters run external processes HERE (cwd = the isolated
+   * worktree path) and record branch/worktree/base in run evidence; absent
+   * keeps the legacy shared-checkout workspace. Execution infrastructure only.
+   */
+  executionWorkspace?: AgentExecutionWorkspace | null
   /** The storyboard_story_run id for this attempt (created by the invoker). */
   storyRunId: string
+}
+
+/**
+ * ENG-21 — one isolated worker execution context (branch + worktree + the
+ * approved base commit it was pinned to). Execution infrastructure only; git
+ * is the repository's own VCS, never a vendor.
+ */
+export interface AgentExecutionWorkspace {
+  /** `agent/<story>/<run>` — the unique local branch owned by this worker. */
+  branchName: string
+  /** Absolute path of the isolated worktree (outside the primary checkout). */
+  worktreePath: string
+  /** The approved base ref as supplied (branch/tag/commit). */
+  baseRef: string
+  /** The fixed commit the workspace was created from. */
+  baseCommit: string
+  /** Deterministic run id for this execution (work-item id when dispatched). */
+  runId: string
 }
 
 export interface AgentExecutionPolicy {

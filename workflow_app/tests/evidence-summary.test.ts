@@ -23,6 +23,7 @@ import {
   TESTS_SUMMARY_MARKER,
   buildTaskText,
   extractTestsSummary,
+  workspaceEvidenceLine,
 } from '../../agent-runtime/deepseek/deepseek-harness-adapter'
 import type { AgentWorkCommand } from '../../agent-runtime/types'
 import type { StoryboardStory } from '../../db/storyboard'
@@ -169,4 +170,52 @@ test('ENG-08: buildTaskText keeps the SCOPED policy authoritative above the evid
   )
   assert.match(text, /FULL regression is NOT authorized/)
   assert.match(text, /Tests: <summary>/)
+})
+
+// ---------------------------------------------------------------------------
+// ENG-21 — isolated worker workspace evidence.
+// ---------------------------------------------------------------------------
+
+test('ENG-21: workspaceEvidenceLine identifies branch, worktree and base commit', () => {
+  const line = workspaceEvidenceLine({
+    branchName: 'agent/eng-21/9f3c2b1a',
+    worktreePath: '/worktrees/eng-21-9f3c2b1a',
+    baseRef: 'main',
+    baseCommit: 'eeb68e2'.padEnd(40, '0'),
+  })
+  assert.equal(
+    line,
+    'Execution workspace: branch=agent/eng-21/9f3c2b1a worktree=/worktrees/eng-21-9f3c2b1a base=main@' +
+      'eeb68e2'.padEnd(40, '0'),
+  )
+})
+
+test('ENG-21: buildTaskText tells the model its isolated branch/base only when a workspace was provisioned', () => {
+  const base = {
+    command: command(),
+    story: story(),
+    policy: { allowCommit: true, allowDevDbWrite: true, allowControlPlaneWrite: true },
+    capabilities: [],
+    executionEnvironment: 'DEV',
+    storyRunId: 'run-1',
+  }
+  const baseCommit = 'eeb68e2'.padEnd(40, '0')
+
+  const isolated = buildTaskText(command(), {
+    ...base,
+    executionWorkspace: {
+      branchName: 'agent/eng-21/9f3c2b1a',
+      worktreePath: '/worktrees/eng-21-9f3c2b1a',
+      baseRef: 'main',
+      baseCommit,
+      runId: '9f3c2b1a',
+    },
+  })
+  assert.match(isolated, /Execution isolation \(ENG-21\)/)
+  assert.match(isolated, /branch agent\/eng-21\/9f3c2b1a/)
+  assert.match(isolated, /approved base main@eeb68e20{33}/)
+  assert.match(isolated, /never push, merge, rebase, or touch files outside this checkout/)
+
+  const shared = buildTaskText(command(), base)
+  assert.doesNotMatch(shared, /Execution isolation/)
 })

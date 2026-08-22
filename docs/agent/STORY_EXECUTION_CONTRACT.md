@@ -175,5 +175,17 @@ Do not overwrite human story notes with execution output.
 
 ## Git
 
-- Commit successful repository changes.
-- Do not push unless explicitly instructed.
+- Each worker execution happens in its OWN isolated Git worktree/branch rooted
+  at an explicit approved integration base (ENG-21, see
+  `docs/agent/WORKTREE_EXECUTION.md`). The primary checkout is never a worker
+  scratch directory, and a worker never manipulates ownership-unknown dirty
+  files in another checkout.
+- Commit successful repository changes on the worker's own branch
+  (`agent/<story>/<run>`); the real hash is recorded in run evidence together
+  with the branch / worktree / base commit. A base commit is never recorded as
+  if the worker had committed.
+- Do not push unless explicitly instructed. No automatic merge, rebase, push,
+  or production promotion is performed by any worker mechanism.
+- Cleanup of an isolated workspace is explicit and safe
+  (`pnpm agent:workspace remove`); it refuses uncommitted work and always
+  preserves the branch.

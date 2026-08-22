@@ -761,6 +761,7 @@
 | 2026-08-22 | S-039 (CRM-14I) recorded `PASS`: decision documented in `docs/domain-event-persistence-decision.md` — DEFER, no application `domain_event` table; consumer-gap analysis + correlation/causation proof + change-condition evaluation recorded. Documentation only; no code/schema. | Builder (CRM-14I) | S-039 PENDING → PASS |
 | 2026-08-22 | S-042 (CRM-14J) recorded `PASS`: canonical business command layer implemented (`lib/commands/*` — contracts, registry, dispatcher, domain-event collector, thin deal/offer/task wrappers, generalized receipt repository); workflow_app command router is now a translation seam to the canonical dispatcher; transactional outbox/subscriber contracts defined in `lib/events/outbox-contracts.ts` with implementation deferred (S-039 decision preserved). Verified with targeted unit + real-Postgres persistence tests, tsc, next build, and adjacent regression files. | Builder (CRM-14J) | S-042 added → PASS |
 | 2026-08-22 | INTAKE-01 recorded `PASS` (appended story, Batch 5): canonical intake message contract established — `lib/intake/*` (source-neutral envelope, realtime + batch lane adapters, single durable-inbox projection) and the realtime integration-inbox processor rewired to emit through the canonical envelope. Both lanes converge into the existing integration inbox → identity resolution → `interaction.record` BusinessCommand; no new state model. Verified with the new contract suite + CRM-23 adjacent regression + tsc. | Builder (INTAKE-01) | INTAKE-01 added → PASS |
+| 2026-08-22 | ENG-21 recorded `PASS` (appended story, Batch 6): isolated worker worktree/branch execution — `lib/worker-workspace/*` (unique `agent/<story>/<run>` branch + worktree from an explicit approved base ref; safe list/remove; honest commit evidence), `pnpm agent:workspace` CLI, invoker + DeepSeek harness adapter integration (`executionWorkspace` drives cwd/session/commit/evidence), default-on for `pnpm agent:work` + the interactive driver. Verified with temp-repo concurrency/isolation/cleanup proofs + CLI/evidence unit tests + real-Postgres adapter suite + tsc. | Builder (ENG-21) | ENG-21 added → PASS |
 
 ## 9. INTAKE-01 — Canonical Intake Message Contract (appended story)
 
@@ -834,4 +835,65 @@
   - Batch-import routing into per-source intake stubs (event-type → channel
     stub mapping for the batch lane) is a follow-on story; INTAKE-01 delivers
     the contract + both lane adapters + the shared inbox projection.
+- **Blocking dependency:** none.
+
+## 10. ENG-21 — Isolated Worktree / Branch Execution per Worker (appended story)
+
+- **Status:** `PASS` (acceptance criteria met; evidence below)
+- **Goal:** Prevent autonomous Forge workers and interactive architecture
+  agents from mutating the same checkout by giving each execution an isolated
+  Git worktree/branch rooted at an approved integration base. Canonical model:
+  approved integration base → story worktree/branch → worker-local changes →
+  local commit/evidence → stop. Boring Git worktree semantics; no auto
+  merge/rebase/push/promotion; one story = one durable command
+  (`pnpm agent:work`).
+- **Files changed:**
+  - New: `lib/worker-workspace/types.ts` (spec/result/list types +
+    `WorkerWorkspaceError`), `lib/worker-workspace/provisioner.ts` (unique
+    `agent/<story>/<run>` branch + worktree outside the primary checkout from
+    an explicit approved base ref pinned to a commit; safe `list`/`remove`
+    with refuse-uncommitted semantics and branch preservation; honest
+    `readWorkerCommitHash` — null when the checkout is still at the base),
+    `lib/worker-workspace/index.ts` (public seam), `scripts/workspace-cli.ts`
+    (`pnpm agent:workspace create|status|remove|help`, injectable dispatch
+    core), `workflow_app/tests/worker-workspace.test.ts` (8 temp-repo proofs,
+    zero Neon), `workflow_app/tests/workspace-cli.test.ts` (6 CLI/env unit
+    tests, zero Neon).
+  - Modified: `agent-runtime/types.ts` (`executionWorkspace` on the execution
+    context — execution infrastructure only), `agent-runtime/invoker.ts`
+    (`AgentInvokerWorkspaces` dep + `buildAgentInvokerWorkspaces` + provision
+    before dispatch), `agent-runtime/deepseek/deepseek-harness-adapter.ts`
+    (spawn cwd / session discovery / commit read / evidence line use the
+    isolated workspace; `workspaceEvidenceLine` + task-text isolation line),
+    `scripts/agent-work.ts` (default-on isolated execution, fail-closed base
+    ref), `scripts/agent-runtime-deepseek.ts` (interactive driver wired the
+    same), `package.json` (`agent:workspace` script),
+    `workflow_app/tests/evidence-summary.test.ts` (2 new ENG-21 evidence
+    tests), `workflow_app/tests/persistence/agent-runtime-deepseek.test.ts`
+    (2 new real-Postgres adapter tests proving isolated-workspace evidence +
+    honest commit), `docs/agent/WORKTREE_EXECUTION.md` (new canonical doc),
+    `docs/agent/AGENT_WORKER_SCHEDULER.md`,
+    `docs/agent/STORY_EXECUTION_CONTRACT.md`, `docs/agent/RUNLOG.md`,
+    `docs/workflow/MASTER_STORYBOARD.md`, `docs/workflow/STORYBOARD_STATUS.md`
+    (this record + change log).
+- **Tests/checks run:** scoped per the ENG-20A runtime policy (SCOPED mode;
+  full regression not authorized): `worker-workspace.test.ts` 8/8 (unique
+  deterministic branch+worktree; two concurrent workers coexist with no
+  cross-contamination and no auto-merge/push; explicit base-ref pinning with
+  unresolvable-ref fail-closed; dirty-primary does not block and is never
+  touched; honest commit evidence; safe cleanup that refuses uncommitted work
+  and preserves the branch; outside-checkout guard; repo-root resolution from
+  a worktree), `workspace-cli.test.ts` 6/6, `evidence-summary.test.ts` 10/10
+  (incl. 2 new ENG-21), `persistence/agent-runtime-deepseek.test.ts` 7/7
+  against real DEV Postgres (incl. 2 new ENG-21 isolated-workspace adapter
+  proofs). `pnpm exec tsc --noEmit` clean (exit 0). `git diff --check` clean
+  on the ENG-21 files. Full regression not run per runtime policy.
+- **Pre-existing environment note:** two stale active work items in the DEV
+  sandbox (a scheduler `Running` claim for OPS-08 and a launch-guard
+  `guard-worker` claim for PORTAL-04) were blocking every claiming suite; both
+  were recovered/terminalized as DEV-sandbox repair via the canonical
+  recovery/failure paths, and the launch-guard suite's order- and
+  environment-sensitive file-run failures (its claim test races leftover Ready
+  items for real DEV stories and leaves claims behind) reproduce with or
+  without the ENG-21 changes — the changed invoker seam passes in isolation.
 - **Blocking dependency:** none.

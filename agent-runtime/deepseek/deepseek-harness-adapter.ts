@@ -36,6 +36,7 @@ import {
   testModeTaskPolicy,
 } from '../test-mode'
 import { buildChildProcessEnv } from '../../lib/execution-target'
+import { readWorkerCommitHash } from '../../lib/worker-workspace'
 import { execFileSync } from 'node:child_process'
 
 const DEEPSEEK_CAPABILITIES: AgentCapability[] = [
@@ -90,6 +91,15 @@ export function buildTaskText(
   if (s.architectBrief) parts.push(`Architect brief: ${s.architectBrief}`)
   if (s.acceptanceCriteria) parts.push(`Acceptance criteria (do not mark Complete unless these are satisfied): ${s.acceptanceCriteria}`)
   parts.push(testModeTaskPolicy(mode))
+  // ENG-21 — when the invoker provisioned an isolated worker workspace, tell
+  // the model WHERE it is executing and what its commit boundary is: its own
+  // branch, never the primary checkout, never a push/merge/rebase.
+  if (context.executionWorkspace) {
+    const w = context.executionWorkspace
+    parts.push(
+      `Execution isolation (ENG-21): you are working in an isolated Git worktree on branch ${w.branchName}, created from approved base ${w.baseRef}@${w.baseCommit}. Commit your changes on this branch only; never push, merge, rebase, or touch files outside this checkout.`,
+    )
+  }
   parts.push(
     'Work in the current repository. Verify your work by running tests/typecheck/build within the runtime policy above. ' +
     'Create a local git commit with the intended changes when the story requires it. ' +
@@ -144,6 +154,24 @@ export function extractTestsSummary(
   return `${summary.slice(0, TESTS_SUMMARY_MAX_LENGTH - 1)}…`
 }
 
+// ---------------------------------------------------------------------------
+// ENG-21 — workspace evidence line (identifies branch / worktree / base commit).
+// ---------------------------------------------------------------------------
+
+/**
+ * One machine-scannable line recording WHERE a run executed, appended to the
+ * durable run narrative. The local commit (persisted separately as commit_hash)
+ * plus this line identify branch / worktree / approved base commit for the run.
+ */
+export function workspaceEvidenceLine(w: {
+  branchName: string
+  worktreePath: string
+  baseRef: string
+  baseCommit: string
+}): string {
+  return `Execution workspace: branch=${w.branchName} worktree=${w.worktreePath} base=${w.baseRef}@${w.baseCommit}`
+}
+
 export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId = 'deepseek-harness'
   readonly capabilities: AgentCapability[] = DEEPSEEK_CAPABILITIES
@@ -180,7 +208,12 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     const target = (context.executionEnvironment ?? 'DEV') as never
     const { assertExecutionTargetSafe, buildChildProcessEnv, verifyWorkspaceEnvFile } = await import('../../lib/execution-target')
     assertExecutionTargetSafe(target)
-    verifyWorkspaceEnvFile(this.config.workspace, target)
+    // ENG-21 — the harness operates in the worker's ISOLATED worktree when the
+    // invoker provisioned one (context.executionWorkspace); otherwise the
+    // configured workspace. The environment boundary guard runs against the
+    // SAME path the harness will spawn into.
+    const workspace = context.executionWorkspace?.worktreePath ?? this.config.workspace
+    verifyWorkspaceEnvFile(workspace, target)
 
     const task = this.taskBuilder(context.command, context)
     const startRun = this.config.startRun ?? startDshRun
@@ -192,7 +225,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     const childEnv = buildChildProcessEnv(target)
     this.handle = startRun({
       cliBin: this.config.cliBin,
-      cwd: this.config.workspace,
+      cwd: workspace,
       task,
       env: { ...childEnv, ...(this.config.env ?? {}) },
     })
@@ -202,16 +235,19 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     // statusExternal and persisted immediately (no longer only at finalization).
     // Baseline = the newest session already present BEFORE spawn, so in-run
     // discovery never mistakes a stale pre-run session for this run's session.
-    this.sessionBaseline = discoverLatestSession(this.config.workspace)
+    this.sessionBaseline = discoverLatestSession(workspace)
     this.externalRunId = `deepseek-pending-${Date.now()}`
     return { externalRunId: this.externalRunId }
   }
 
   protected async statusExternal(
     command: AgentWorkCommand,
-    _context: AgentExecutionContext,
+    context: AgentExecutionContext,
   ): Promise<ExternalStatusResult> {
     if (!this.handle) return { lifecycle: 'failed' }
+    // ENG-21 — in-run session discovery uses the SAME isolated workspace the
+    // harness was spawned into.
+    const workspace = context.executionWorkspace?.worktreePath ?? this.config.workspace
     // Cancellation is requested first: SIGTERM sent. The child may not have
     // exited yet; map directly to the canonical cancelled lifecycle so the
     // shared loop terminalizes without racing the process exit.
@@ -222,7 +258,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       // the REAL session id while the story is still Running (the pending id is
       // only a short-lived bootstrap value).
       if (this.externalRunId?.startsWith('deepseek-pending-')) {
-        const session = discoverLatestSession(this.config.workspace)
+        const session = discoverLatestSession(workspace)
         if (session && session !== this.sessionBaseline) {
           this.externalRunId = session
           try {
@@ -278,7 +314,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
   protected async resultExternal(
     command: AgentWorkCommand,
-    _context: AgentExecutionContext,
+    context: AgentExecutionContext,
   ): Promise<AgentRunEvidence | null> {
     if (!this.handle) return null
     const result = await this.handle.promise
@@ -304,21 +340,36 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
       return null
     }
 
-    // The harness works inside the repo, so the parent may read the actual
-    // HEAD commit the model created (factual, never inferred from the model's
-    // self-report).
+    // ENG-21 — the harness works inside the ISOLATED worktree when the invoker
+    // provisioned one; the parent reads the actual HEAD commit the model
+    // created there (factual, never inferred from the model's self-report).
+    // Honest-by-contract: when the checkout is still exactly at the approved
+    // base commit, no worker commit was created — null is persisted, never a
+    // fabricated hash.
+    const workspace = context.executionWorkspace?.worktreePath ?? this.config.workspace
     let commitHash: string | null = null
-    try {
-      commitHash = execFileSync('git', ['log', '-1', '--format=%H'], {
-        cwd: this.config.workspace,
-        encoding: 'utf8',
-      }).trim() || null
-    } catch {
-      commitHash = null
+    if (context.executionWorkspace) {
+      commitHash = await readWorkerCommitHash(
+        workspace,
+        context.executionWorkspace.baseCommit,
+      )
+    } else {
+      // Legacy shared-checkout path: keep the pre-ENG-21 read byte-for-byte.
+      try {
+        commitHash = execFileSync('git', ['log', '-1', '--format=%H'], {
+          cwd: workspace,
+          encoding: 'utf8',
+        }).trim() || null
+      } catch {
+        commitHash = null
+      }
     }
 
     const notes = [
       'DeepSeek Harness run completed.',
+      context.executionWorkspace
+        ? workspaceEvidenceLine(context.executionWorkspace)
+        : null,
       result.stdout.trim() ? `Assistant output:\n${result.stdout.trim()}` : 'No assistant text captured.',
       result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : null,
       result.sessionDir ? `Session transcript: ${result.sessionDir}` : null,

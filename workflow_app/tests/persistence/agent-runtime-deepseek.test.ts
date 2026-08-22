@@ -27,6 +27,63 @@ import {
 import type { AgentExecutionContext, AgentWorkCommand } from '../../../agent-runtime/types'
 import type { StoryboardStory } from '../../../db/storyboard'
 import type { ChildProcess } from 'node:child_process'
+import { provisionWorkerWorkspace } from '../../../lib/worker-workspace'
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8' })
+  return stdout.trim()
+}
+
+/** Self-contained temp git repo + worktree (never touches the real checkout). */
+async function makeTempWorkspace(): Promise<{
+  workspace: {
+    branchName: string
+    worktreePath: string
+    baseRef: string
+    baseCommit: string
+    runId: string
+  }
+  cleanup: () => Promise<void>
+}> {
+  const parent = await mkdtemp(join(tmpdir(), 'eng21-ds-'))
+  const repoRoot = join(parent, 'repo')
+  const worktreesRoot = join(parent, 'worktrees')
+  await mkdir(repoRoot, { recursive: true })
+  await mkdir(worktreesRoot, { recursive: true })
+  await git(repoRoot, ['init', '-b', 'main', '-q'])
+  await git(repoRoot, ['config', 'user.email', 'eng21@test'])
+  await git(repoRoot, ['config', 'user.name', 'eng21'])
+  await writeFile(join(repoRoot, 'README.md'), 'eng21 fixture\n')
+  await git(repoRoot, ['add', '.'])
+  await git(repoRoot, ['commit', '-m', 'base', '-q'])
+  const ws = await provisionWorkerWorkspace({
+    storyId: 'eng21ds',
+    workerId: 'eng21-ds-worker',
+    baseRef: 'main',
+    runId: 'run-ds',
+    repoRoot,
+    worktreesRoot,
+  })
+  return {
+    workspace: {
+      branchName: ws.branchName,
+      worktreePath: ws.worktreePath,
+      baseRef: ws.baseRef,
+      baseCommit: ws.baseCommit,
+      runId: ws.runId,
+    },
+    cleanup: async () => {
+      await rm(dirname(repoRoot), { recursive: true, force: true })
+    },
+  }
+}
 
 const executor = async () => interactiveSql as any
 
@@ -362,6 +419,106 @@ test('ENG-19: DeepSeekHarnessAdapter cancellation persists Cancelled, never succ
     `
     assert.equal(rows[0].state, 'Cancelled')
   } finally {
+    await fx.cleanup()
+  }
+})
+
+test('ENG-21: adapter executes inside an isolated worktree and evidence identifies branch/worktree/base commit', async () => {
+  const fx = await createFixture()
+  const tmp = await makeTempWorkspace()
+  try {
+    const work = fx.work
+    const claimed = await work.claimSpecific(fx.command.workItemId, 'eng21-test')
+    assert.ok(claimed, 'claim succeeds')
+
+    // Worker commits inside its isolated worktree (the harness would do this).
+    await writeFile(join(tmp.workspace.worktreePath, 'story-work.txt'), 'done\n')
+    await git(tmp.workspace.worktreePath, ['add', '.'])
+    await git(tmp.workspace.worktreePath, ['commit', '-m', 'ENG-21 story work', '-q'])
+    const head = await git(tmp.workspace.worktreePath, ['rev-parse', 'HEAD'])
+
+    const adapter = new DeepSeekHarnessAdapter(
+      { work, runs: new SqlAgentRunRepository(executor) },
+      {
+        cliBin: '/fake/dsh/lib/bin.js',
+        workspace: process.cwd(),
+        startRun: () =>
+          fakeHandle({
+            status: 'success',
+            exitCode: 0,
+            stdout: 'story done.\nTests: worker-workspace.test.ts 8/8 pass; tsc clean',
+            stderr: '',
+            sessionId: 'session-22222222-2222-3333-4444-555555555555',
+            sessionDir: '/tmp/session-22222222-2222-3333-4444-555555555555',
+          }),
+      },
+    )
+
+    const context = {
+      ...makeContext(fx.command, fx.story),
+      executionWorkspace: tmp.workspace,
+    }
+    const evidence = await adapter.execute(fx.command, context)
+    assert.equal(evidence.resultStatus, 'Complete')
+    // Local commit evidence = the worker's own HEAD in the isolated worktree.
+    assert.equal(evidence.commitHash, head)
+    // The durable narrative identifies branch / worktree / approved base commit.
+    assert.match(evidence.notes, /Execution workspace: branch=agent\/eng21ds\/run-ds/)
+    assert.match(evidence.notes, new RegExp(`worktree=${tmp.workspace.worktreePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+    assert.match(evidence.notes, new RegExp(`base=main@${tmp.workspace.baseCommit}`))
+    assert.equal(
+      evidence.testsSummary,
+      'worker-workspace.test.ts 8/8 pass; tsc clean',
+    )
+
+    const runRows = await interactiveSql`
+      select result_status, commit_hash, notes from storyboard_story_run where story_id = ${fx.storyId}
+    `
+    assert.equal(runRows[0].commit_hash, head)
+    assert.match(runRows[0].notes, /Execution workspace: branch=agent\/eng21ds\/run-ds/)
+  } finally {
+    await tmp.cleanup()
+    await fx.cleanup()
+  }
+})
+
+test('ENG-21: adapter persists NO worker commit when the isolated worktree is still at the approved base', async () => {
+  const fx = await createFixture()
+  const tmp = await makeTempWorkspace()
+  try {
+    const work = fx.work
+    const claimed = await work.claimSpecific(fx.command.workItemId, 'eng21-test')
+    assert.ok(claimed, 'claim succeeds')
+
+    // The worker left the checkout exactly at the approved base (no commit).
+    const adapter = new DeepSeekHarnessAdapter(
+      { work, runs: new SqlAgentRunRepository(executor) },
+      {
+        cliBin: '/fake/dsh/lib/bin.js',
+        workspace: process.cwd(),
+        startRun: () =>
+          fakeHandle({
+            status: 'success',
+            exitCode: 0,
+            stdout: 'inspected only.\nTests: no changes, no tests run',
+            stderr: '',
+            sessionId: null,
+            sessionDir: null,
+          }),
+      },
+    )
+
+    const context = {
+      ...makeContext(fx.command, fx.story),
+      executionWorkspace: tmp.workspace,
+    }
+    const evidence = await adapter.execute(fx.command, context)
+    assert.equal(evidence.resultStatus, 'Complete')
+    // Honest-by-contract: the base commit is NOT persisted as a worker commit.
+    assert.equal(evidence.commitHash, null)
+    assert.match(evidence.notes, /Execution workspace: branch=agent\/eng21ds\/run-ds/)
+  } finally {
+    await tmp.cleanup()
     await fx.cleanup()
   }
 })

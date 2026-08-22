@@ -54,6 +54,27 @@ development-host worker.
 | `pnpm agent:scheduler:run` | run the exact same wrapper once (manual single-story claim) |
 | `pnpm agent:scheduler:stop` | **kill switch** — boot out now + persist disabled across login |
 | `pnpm agent:scheduler:uninstall` | stop + delete the plist |
+| `pnpm agent:workspace status` | list isolated worker workspaces (ENG-21) |
+
+## Isolated worker workspaces (ENG-21)
+
+Every claimed story executes in its OWN Git worktree/branch rooted at an
+explicit approved integration base — the primary checkout is never a worker
+scratch directory. See `docs/agent/WORKTREE_EXECUTION.md` for the full model,
+naming, evidence, and cleanup semantics. Summary:
+
+- `pnpm agent:work` provisions `agent/<story>/<work-item-id>` +
+  `../Culebraluxe-worktrees/<story>-<work-item-id>` from the approved base
+  (`AGENT_WORKSPACE_BASE_REF`, else the repo's `main` branch, pinned to a
+  commit) and the harness executes inside that worktree.
+- Run evidence records the branch / worktree / base commit; `commit_hash` is
+  the worker's own HEAD and is `null` when the worker made no commit.
+- Cleanup is explicit and safe: `pnpm agent:workspace remove <story>
+  [--run <id>]` refuses uncommitted work and always preserves the branch.
+- `AGENT_WORKSPACE_DISABLED=1` restores the legacy shared-checkout path
+  explicitly (escape hatch). `AGENT_WORKSPACE_WORKTREES_ROOT` relocates the
+  worktree directory (must be outside the repo). Set these in the untracked
+  `.env.scheduler` or the environment.
 
 ## Logs
 

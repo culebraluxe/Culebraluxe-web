@@ -858,6 +858,42 @@ Every story, present or future, must preserve:
 
 ---
 
+## Batch 6 — Isolated Worker Worktree Execution (ENG-21)
+
+> ENG-21 is an appended story outside the S-* numbering (the persistent
+> `/portal/storyboard` is the authoritative backlog; this entry records the
+> definition for history, matching the INTAKE-01/S-042 precedent).
+
+### ENG-21 — Isolated Worktree / Branch Execution per Worker
+
+- **Goal:** Prevent autonomous Forge workers and interactive architecture
+  agents from mutating the same checkout by giving each execution an isolated
+  Git worktree/branch rooted at an approved integration base.
+- **Canonical model:** approved integration base → story worktree/branch →
+  worker-local changes → local commit/evidence → stop. Boring Git worktree
+  semantics only; no automatic merge, rebase, push, or production promotion.
+  One story = one durable command (`pnpm agent:work`), with multiple
+  independent execution lanes possible in the future.
+- **Scope:** `lib/worker-workspace/` (provisioner: unique
+  `agent/<story>/<run>` branch + worktree outside the primary checkout from an
+  explicit approved base ref; safe list/remove; honest commit evidence),
+  `scripts/workspace-cli.ts` (`pnpm agent:workspace create|status|remove`),
+  invoker + DeepSeek harness adapter integration (`context.executionWorkspace`
+  drives cwd/session/commit/evidence), default-on wiring of
+  `pnpm agent:work` and `pnpm agent:runtime:deepseek`, targeted temp-repo +
+  CLI + evidence tests, and operator docs.
+- **Acceptance criteria:**
+  - Two concurrent workers can operate without modifying the same working tree.
+  - Each story has a deterministic isolated checkout/branch.
+  - Unrelated dirty files in another checkout are untouched.
+  - Local commit/evidence identify branch/worktree/base commit.
+  - Cleanup is safe and explicit.
+  - No auto-merge/push is introduced.
+- **Dependencies:** ENG-18/19/20 (invoker + harness adapter + execution
+  target seams), migration 025 (single-worker queue guard).
+
+---
+
 ## 5. How this backlog is maintained
 
 - Add new work as a new numbered story in the next free S-ID slot; never reuse
