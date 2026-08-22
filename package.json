@@ -13,7 +13,7 @@
     "test:app": "tsx --test workflow_app/tests/*.test.ts",
     "test:persistence": "node --env-file=.env.local --import tsx --test-concurrency=1 --test workflow_engine/tests/persistence/*.test.ts workflow_app/tests/persistence/*.test.ts",
     "agent:runtime:dogfood": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-runtime-invoke.ts",
-    "agent:runtime:deepseek": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-runtime-deepseek.ts",
+    "agent:runtime:deepseek": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-runtime-deepseek.ts",
     "agent:work": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-work.ts",
     "agent:scheduler:install": "node scripts/agent-scheduler.mjs install",
     "agent:scheduler:status": "node scripts/agent-scheduler.mjs status",
