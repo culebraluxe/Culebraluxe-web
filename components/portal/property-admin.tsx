@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import type { PropertyAdminRow } from "@/db/property-admin"
+import { PropertyArchiveButton } from "@/components/portal/write/property-archive-button"
 
 function formatCurrency(value?: number | null) {
   if (!value) return "—"
@@ -106,6 +107,7 @@ export function PropertyAdmin({
                 <TableHeading>Img / Vid / Doc</TableHeading>
                 <TableHeading>Data quality</TableHeading>
                 <TableHeading>Archived</TableHeading>
+                <TableHeading>Actions</TableHeading>
               </tr>
             </thead>
             <tbody>
@@ -201,12 +203,19 @@ export function PropertyAdmin({
                     <td className="px-4 py-4 align-top text-sm font-light">
                       {row.archived ? "Yes" : "—"}
                     </td>
+                    <td className="px-4 py-4 align-top">
+                      <PropertyArchiveButton
+                        propertyId={row.id}
+                        name={row.name}
+                        archived={row.archived}
+                      />
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="px-4 py-12 text-center text-sm font-light text-black/40"
                   >
                     No properties on file.

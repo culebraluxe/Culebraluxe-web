@@ -56,6 +56,12 @@ import {
   updatePropertyVisibility,
 } from '@/db/portal-property'
 import type { PropertyFactsInput } from '@/db/portal-property'
+import {
+  archiveProperty,
+  createProperty,
+  restoreProperty,
+} from '@/db/property-admin-writes'
+import type { PropertyCreateInput } from '@/lib/property-admin'
 
 // Bounded Portal V1.1 write actions. Server-side validation happens here; the
 // SQL stays in the db layer. Every action returns a discriminated result that
@@ -1014,6 +1020,74 @@ export async function updateMediaMetadataAction(
   return portalWrite('listing.write', async () => {
     try {
       const result = await updateMediaMetadata(mediaId, input)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+// ---------------------------------------------------------------
+// OPS-03 — Property Administration lifecycle (create / archive /
+// restore). Completes the property CRUD surface: the admin projection,
+// facts editor, visibility, and media writers already exist; these add
+// record creation and soft archive. Validation is the shared pure
+// contract in lib/property-admin.ts; archive/restore only flip
+// archived_at, which every existing read projection already filters.
+// ---------------------------------------------------------------
+
+export async function createPropertyAction(
+  input: PropertyCreateInput,
+): Promise<PortalWriteResult<{ id: string; slug: string | null }>> {
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await createProperty(input)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function archivePropertyAction(
+  propertyId: string,
+): Promise<PortalWriteResult<{ id: string }>> {
+  if (!isUuid(propertyId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property identifier.',
+    }
+  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await archiveProperty(propertyId)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function restorePropertyAction(
+  propertyId: string,
+): Promise<PortalWriteResult<{ id: string }>> {
+  if (!isUuid(propertyId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property identifier.',
+    }
+  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await restoreProperty(propertyId)
       revalidatePortal()
       revalidatePropertyPublic()
       return { ok: true, data: result }

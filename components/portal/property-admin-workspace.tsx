@@ -16,6 +16,7 @@ import {
   updatePropertyVisibilityAction,
   updateTaskDueAction,
 } from '@/app/portal/actions'
+import { PropertyArchiveButton } from '@/components/portal/write/property-archive-button'
 import type {
   PropertyFactsView,
   PropertyWorkspace,
@@ -202,6 +203,11 @@ export function PropertyAdminWorkspace({
               View public listing
             </Link>
           )}
+          <PropertyArchiveButton
+            propertyId={property.id}
+            name={property.name}
+            archived={property.archived}
+          />
         </div>
 
         <p className="mt-3 text-xs font-light text-black/45">

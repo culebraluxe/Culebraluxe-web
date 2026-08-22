@@ -333,7 +333,11 @@ test('AUTH-03: every write export of app/portal/actions.ts is gated and the read
   const gates = parseActionGates()
 
   const writeExports = exports_.filter((name) => name !== 'searchPeopleAction')
-  assert.equal(writeExports.length, 24, 'Portal write inventory must be exactly 24 actions')
+  // AUTH-03 originally shipped 24 write actions; OPS-02 added the four client
+  // administration actions and OPS-03 adds the three property lifecycle
+  // actions (create / archive / restore), so the inventory is now 31. This
+  // count exists to force an explicit review whenever the write surface grows.
+  assert.equal(writeExports.length, 31, 'Portal write inventory must be exactly 31 actions')
   for (const name of writeExports) {
     assert.ok(
       gates.has(name),

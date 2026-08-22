@@ -23,6 +23,7 @@ Coarse authorities only. No per-button authorities. Business-state legality stay
 | `addOtherParticipantAction`, `endParticipantAction`, `updateParticipantRoleLabelAction` | `deal.write` |
 | `updatePropertyFactsAction`, `updatePropertyVisibilityAction` | `listing.write` |
 | `setPropertyMediaOrderAction`, `setPropertyHeroAction`, `unlinkPropertyMediaAction`, `updateMediaMetadataAction` | `listing.write` |
+| `createPropertyAction`, `archivePropertyAction`, `restorePropertyAction` | `listing.write` |
 | Future settings mutations (assign roles, manage roles/authorities) | `settings.manage` |
 
 ## Reads
