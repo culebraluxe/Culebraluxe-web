@@ -44,6 +44,10 @@ import {
   CreateTaskCommand,
 } from './task/task-commands'
 import {
+  INTERACTION_RECORD,
+  RecordInteractionCommand,
+} from './interaction/record-interaction'
+import {
   SIGNATURE_REQUEST_CANCEL,
   SIGNATURE_REQUEST_DECLINE,
   SIGNATURE_REQUEST_SEND,
@@ -66,6 +70,8 @@ export function registerCanonicalCommands(registry: CommandRegistry): void {
   registry.register(TASK_CREATE, new CreateTaskCommand())
   registry.register(TASK_COMPLETE, new CompleteTaskCommand())
   registry.register(TASK_CANCEL, new CancelTaskCommand())
+  // CRM-23 — canonical interaction intake command (integration inbox path).
+  registry.register(INTERACTION_RECORD, new RecordInteractionCommand())
   // DOC-03 — provider-neutral signature commands (dispatched by the signature
   // application router through the canonical seam; never per-provider).
   registry.register(SIGNATURE_REQUEST_SEND, new SendSignatureRequestCommand())

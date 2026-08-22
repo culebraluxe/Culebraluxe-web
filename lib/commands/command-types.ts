@@ -24,6 +24,12 @@ export const TASK_CREATE = 'task.create'
 export const TASK_COMPLETE = 'task.complete'
 export const TASK_CANCEL = 'task.cancel'
 
+// CRM-23 — canonical interaction intake command. The integration inbox (and
+// any future intake path) persists canonical interactions through this
+// command, never by writing the interaction table directly: CRM changes
+// happen through the canonical Business Command layer.
+export const INTERACTION_RECORD = 'interaction.record'
+
 // DOC-03 — provider-neutral signature commands (the Signature Provider Seam).
 // These are canonical application commands registered in lib/commands/register
 // and dispatched by the signature application router (lib/signature) — NOT
