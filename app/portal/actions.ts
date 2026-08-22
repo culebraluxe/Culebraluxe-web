@@ -2,6 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
+import { runAuthorized } from '@/lib/auth/require-authority'
+import type { ActingUser, AuthorityCode } from '@/lib/auth/types'
 import { PortalWriteError } from '@/lib/portal-write-error'
 import { toPortalInstant } from '@/lib/portal-time'
 import { searchPeople } from '@/db/people'
@@ -82,6 +85,20 @@ function failure(
   }
 }
 
+// AUTH-03 single enforcement seam for every authenticated Portal write.
+// Resolves the acting user (session → app actor) and asserts the EXACT coarse
+// authority BEFORE the business service runs. On denial the auth error
+// propagates and the write never executes — client-side button hiding is
+// cosmetic and never sufficient. Authorities are coarse ("may this actor
+// attempt this class of command?"); business-state legality stays in the
+// domain/workflow services. See docs/auth-command-map.md.
+function portalWrite<T>(
+  authority: AuthorityCode,
+  handler: (actor: ActingUser) => Promise<T> | T,
+): Promise<T> {
+  return runAuthorized(getPortalSessionAdapter(), authority, handler)
+}
+
 export async function searchPeopleAction(
   query: string,
 ): Promise<PersonSearchResult[]> {
@@ -138,22 +155,24 @@ export async function createTaskAction(input: {
       message: 'Due date must be a valid date.',
     }
   }
-  try {
-    const task = await createTask({
-      title,
-      detail: input.detail?.trim() || undefined,
-      personId: input.personId ?? undefined,
-      propertyId: input.propertyId ?? undefined,
-      dealId: input.dealId ?? undefined,
-      dueAt: input.dueAt != null ? toPortalInstant(input.dueAt) : undefined,
-      priority: input.priority ?? undefined,
-      taskKind: 'human',
-    })
-    revalidatePortal()
-    return { ok: true, data: { id: task.id } }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const task = await createTask({
+        title,
+        detail: input.detail?.trim() || undefined,
+        personId: input.personId ?? undefined,
+        propertyId: input.propertyId ?? undefined,
+        dealId: input.dealId ?? undefined,
+        dueAt: input.dueAt != null ? toPortalInstant(input.dueAt) : undefined,
+        priority: input.priority ?? undefined,
+        taskKind: 'human',
+      })
+      revalidatePortal()
+      return { ok: true, data: { id: task.id } }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function completeTaskAction(
@@ -162,13 +181,15 @@ export async function completeTaskAction(
   if (!isUuid(taskId)) {
     return { ok: false, code: 'validation', message: 'Invalid task identifier.' }
   }
-  try {
-    const result = await completeTask(taskId)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await completeTask(taskId)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function cancelTaskAction(
@@ -177,13 +198,15 @@ export async function cancelTaskAction(
   if (!isUuid(taskId)) {
     return { ok: false, code: 'validation', message: 'Invalid task identifier.' }
   }
-  try {
-    const result = await cancelTask(taskId)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await cancelTask(taskId)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function updateTaskDueAction(
@@ -200,16 +223,18 @@ export async function updateTaskDueAction(
       message: 'Due date must be a valid date or null.',
     }
   }
-  try {
-    const result = await updateTaskDue(
-      taskId,
-      dueAt !== null ? toPortalInstant(dueAt) : null,
-    )
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await updateTaskDue(
+        taskId,
+        dueAt !== null ? toPortalInstant(dueAt) : null,
+      )
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -272,24 +297,26 @@ export async function logManualInteractionAction(input: {
       message: 'Occurred at must be a valid date.',
     }
   }
-  try {
-    const result = await logManualInteraction({
-      personId: input.personId,
-      channel: input.channel,
-      occurredAt:
-        input.occurredAt !== undefined
-          ? toPortalInstant(input.occurredAt)
-          : new Date().toISOString(),
-      title: title || undefined,
-      summary: summary || undefined,
-      propertyId: input.propertyId ?? undefined,
-      dealId: input.dealId ?? undefined,
-    })
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await logManualInteraction({
+        personId: input.personId,
+        channel: input.channel,
+        occurredAt:
+          input.occurredAt !== undefined
+            ? toPortalInstant(input.occurredAt)
+            : new Date().toISOString(),
+        title: title || undefined,
+        summary: summary || undefined,
+        propertyId: input.propertyId ?? undefined,
+        dealId: input.dealId ?? undefined,
+      })
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -333,21 +360,23 @@ export async function createShowingAction(input: {
       message: 'Requested at must be a valid date.',
     }
   }
-  try {
-    const result = await createShowing({
-      personId: input.personId,
-      propertyId: input.propertyId ?? undefined,
-      dealId: input.dealId ?? undefined,
-      requestedAt:
-        input.requestedAt !== undefined
-          ? toPortalInstant(input.requestedAt)
-          : undefined,
-    })
-    revalidatePortal()
-    return { ok: true, data: { id: result.id } }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await createShowing({
+        personId: input.personId,
+        propertyId: input.propertyId ?? undefined,
+        dealId: input.dealId ?? undefined,
+        requestedAt:
+          input.requestedAt !== undefined
+            ? toPortalInstant(input.requestedAt)
+            : undefined,
+      })
+      revalidatePortal()
+      return { ok: true, data: { id: result.id } }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function scheduleShowingAction(
@@ -368,13 +397,15 @@ export async function scheduleShowingAction(
       message: 'Scheduled at must be a valid date.',
     }
   }
-  try {
-    const result = await scheduleShowing(showingId, toPortalInstant(scheduledAt))
-    revalidatePortal()
-    return { ok: true, data: { id: result.id } }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await scheduleShowing(showingId, toPortalInstant(scheduledAt))
+      revalidatePortal()
+      return { ok: true, data: { id: result.id } }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function cancelShowingAction(
@@ -387,13 +418,15 @@ export async function cancelShowingAction(
       message: 'Invalid showing identifier.',
     }
   }
-  try {
-    const result = await cancelShowing(showingId)
-    revalidatePortal()
-    return { ok: true, data: { id: result.id } }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await cancelShowing(showingId)
+      revalidatePortal()
+      return { ok: true, data: { id: result.id } }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -418,16 +451,18 @@ export async function completeShowingAction(
       message: 'Completed at must be a valid date.',
     }
   }
-  try {
-    const result = await completeShowing(
-      showingId,
-      completedAt !== undefined ? toPortalInstant(completedAt) : undefined,
-    )
-    revalidatePortal()
-    return { ok: true, data: { id: result.id } }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await completeShowing(
+        showingId,
+        completedAt !== undefined ? toPortalInstant(completedAt) : undefined,
+      )
+      revalidatePortal()
+      return { ok: true, data: { id: result.id } }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -461,18 +496,20 @@ export async function submitOfferAction(input: {
       message: 'Invalid parent offer identifier.',
     }
   }
-  try {
-    const result = await submitOffer({
-      dealId: input.dealId,
-      personId: input.personId,
-      amount: input.amount,
-      parentOfferId: input.parentOfferId ?? undefined,
-    })
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await submitOffer({
+        dealId: input.dealId,
+        personId: input.personId,
+        amount: input.amount,
+        parentOfferId: input.parentOfferId ?? undefined,
+      })
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function withdrawOfferAction(
@@ -485,13 +522,15 @@ export async function withdrawOfferAction(
       message: 'Invalid offer identifier.',
     }
   }
-  try {
-    const result = await withdrawOffer(offerId)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await withdrawOffer(offerId)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function rejectOfferAction(
@@ -504,13 +543,15 @@ export async function rejectOfferAction(
       message: 'Invalid offer identifier.',
     }
   }
-  try {
-    const result = await rejectOffer(offerId)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await rejectOffer(offerId)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -543,17 +584,19 @@ export async function resolveIntakeAction(input: {
       message: 'Invalid acting user identifier.',
     }
   }
-  try {
-    const result = await resolveIntake({
-      submissionId: input.submissionId,
-      action: input.action,
-      actorAppUserId: input.actorAppUserId ?? undefined,
-    } satisfies ResolveIntakeInput)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await resolveIntake({
+        submissionId: input.submissionId,
+        action: input.action,
+        actorAppUserId: input.actorAppUserId ?? undefined,
+      } satisfies ResolveIntakeInput)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -587,18 +630,20 @@ export async function addOtherParticipantAction(input: {
       message: 'Invalid user identifier.',
     }
   }
-  try {
-    const result = await addOtherParticipant({
-      dealId: input.dealId,
-      personId: input.personId ?? undefined,
-      userId: input.userId ?? undefined,
-      roleLabel: input.roleLabel,
-    })
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await addOtherParticipant({
+        dealId: input.dealId,
+        personId: input.personId ?? undefined,
+        userId: input.userId ?? undefined,
+        roleLabel: input.roleLabel,
+      })
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function endParticipantAction(
@@ -611,13 +656,15 @@ export async function endParticipantAction(
       message: 'Invalid participant identifier.',
     }
   }
-  try {
-    const result = await endParticipant(participantId)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await endParticipant(participantId)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function updateParticipantRoleLabelAction(
@@ -631,13 +678,15 @@ export async function updateParticipantRoleLabelAction(
       message: 'Invalid participant identifier.',
     }
   }
-  try {
-    const result = await updateParticipantRoleLabel(participantId, roleLabel)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('deal.write', async () => {
+    try {
+      const result = await updateParticipantRoleLabel(participantId, roleLabel)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -655,13 +704,15 @@ export async function updatePersonNotesAction(
       message: 'Invalid person identifier.',
     }
   }
-  try {
-    const result = await updatePersonNotes(personId, notes)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await updatePersonNotes(personId, notes)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 const VALID_RELATIONSHIP_STATUSES = ['new', 'warm', 'active', 'referral']
@@ -684,13 +735,15 @@ export async function updatePersonStatusAction(
       message: 'Relationship status is invalid.',
     }
   }
-  try {
-    const result = await updatePersonStatus(personId, status)
-    revalidatePortal()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const result = await updatePersonStatus(personId, status)
+      revalidatePortal()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------
@@ -717,14 +770,16 @@ export async function updatePropertyFactsAction(
       message: 'Invalid property identifier.',
     }
   }
-  try {
-    const result = await updatePropertyFacts(propertyId, input)
-    revalidatePortal()
-    revalidatePropertyPublic()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await updatePropertyFacts(propertyId, input)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function updatePropertyVisibilityAction(
@@ -738,14 +793,16 @@ export async function updatePropertyVisibilityAction(
       message: 'Invalid property identifier.',
     }
   }
-  try {
-    const result = await updatePropertyVisibility(propertyId, input)
-    revalidatePortal()
-    revalidatePropertyPublic()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await updatePropertyVisibility(propertyId, input)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function setPropertyMediaOrderAction(
@@ -759,14 +816,16 @@ export async function setPropertyMediaOrderAction(
       message: 'Invalid property identifier.',
     }
   }
-  try {
-    const result = await setPropertyMediaOrder(propertyId, orderedMediaIds)
-    revalidatePortal()
-    revalidatePropertyPublic()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await setPropertyMediaOrder(propertyId, orderedMediaIds)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function setPropertyHeroAction(
@@ -780,14 +839,16 @@ export async function setPropertyHeroAction(
       message: 'Invalid property or media identifier.',
     }
   }
-  try {
-    const result = await setPropertyHero(propertyId, mediaId)
-    revalidatePortal()
-    revalidatePropertyPublic()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await setPropertyHero(propertyId, mediaId)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function unlinkPropertyMediaAction(
@@ -801,14 +862,16 @@ export async function unlinkPropertyMediaAction(
       message: 'Invalid property or media identifier.',
     }
   }
-  try {
-    const result = await unlinkPropertyMedia(propertyId, mediaId)
-    revalidatePortal()
-    revalidatePropertyPublic()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await unlinkPropertyMedia(propertyId, mediaId)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }
 
 export async function updateMediaMetadataAction(
@@ -822,12 +885,14 @@ export async function updateMediaMetadataAction(
       message: 'Invalid media identifier.',
     }
   }
-  try {
-    const result = await updateMediaMetadata(mediaId, input)
-    revalidatePortal()
-    revalidatePropertyPublic()
-    return { ok: true, data: result }
-  } catch (error) {
-    return failure(error)
-  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await updateMediaMetadata(mediaId, input)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 }

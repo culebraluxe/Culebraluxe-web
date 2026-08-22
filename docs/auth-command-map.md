@@ -2,7 +2,11 @@
 
 Status: AUTH-02 route/portal enforcement is ACTIVE (middleware cheap gate +
 authoritative server-side layout guards). Per-action server-action enforcement
-is AUTH-03 (PREPARED — not wired to `runAuthorized` yet).
+is AUTH-03 ACTIVE — every write action in `app/portal/actions.ts` runs through
+`portalWrite(authority, handler)` (runAuthorized on the portal session adapter)
+and both media upload routes (`app/api/media/upload`,
+`app/api/property-media/upload`) guard with `listing.write` before any write
+work.
 
 Coarse authorities only. No per-button authorities. Business-state legality stays with domain/workflow services.
 
@@ -50,8 +54,10 @@ Coarse authorities only. No per-button authorities. Business-state legality stay
   (authority codes) from the server to hide nav/buttons. Cosmetic only — never
   the security boundary; a direct call to a protected surface still fails
   server-side.
-- **Server actions**: `runAuthorized` (AUTH-03) is the seam; per-action wiring
-  is out of scope for AUTH-02.
+- **Server actions**: `runAuthorized` (AUTH-03) is the seam; every write action
+  in `app/portal/actions.ts` wraps its business service with
+  `portalWrite(<authority>, handler)` per the map above. Upload route handlers
+  guard via `guardPortalUpload(<authority>)` before multipart/write work.
 
 ## Read-scoping rule (deal reads)
 

@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server'
 
+import { guardPortalUpload } from '@/lib/auth/portal-session'
 import { sql } from '@/db/client'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: Request) {
   try {
+    // AUTH-03: authenticated Portal write — resolve the acting user and require
+    // listing.write BEFORE any multipart/work. Denied callers get 401/403 and
+    // never reach the inserts below.
+    const guard = await guardPortalUpload('listing.write')
+    if (!guard.ok) {
+      return NextResponse.json(
+        { error: guard.error },
+        { status: guard.status },
+      )
+    }
+
     const formData = await request.formData()
 
     const propertyId = formData.get('propertyId')
