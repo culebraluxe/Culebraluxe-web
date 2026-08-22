@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from 'react'
 import { Reveal } from '@/components/reveal'
-import { submitWebsitePropertyIntake } from '@/app/actions/website-intake'
+import { submitWebsiteIntake } from '@/app/actions/website-intake'
 
 const INTERESTS = ['Buying', 'Selling', 'Both'] as const
 type Interest = (typeof INTERESTS)[number]
@@ -42,7 +42,7 @@ export function Contact({ propertyContext }: { propertyContext?: PropertyContext
 
     setPending(true)
     try {
-      const result = await submitWebsitePropertyIntake(formData)
+      const result = await submitWebsiteIntake(formData)
       if (result.accepted) setSubmitted(true)
       else setError(true)
     } catch {

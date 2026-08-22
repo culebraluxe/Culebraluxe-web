@@ -27,7 +27,7 @@ const unavailable: WebsiteIntakeResult = {
   status: 'unavailable',
 }
 
-export async function submitWebsitePropertyIntake(
+export async function submitWebsiteIntake(
   formData: FormData,
 ): Promise<WebsiteIntakeResult> {
   let parsed
@@ -62,10 +62,21 @@ export async function submitWebsitePropertyIntake(
       },
     })
   } catch (error) {
-    console.error('Website property intake could not be completed.', {
+    console.error('Website intake could not be completed.', {
       error: error instanceof Error ? error.message : 'Unknown error',
       submissionId: payload.submissionId,
     })
     return unavailable
   }
+}
+
+/**
+ * @deprecated Renamed to `submitWebsiteIntake` — this action handles the
+ * property-less general enquiry path too. Kept as a non-breaking alias so
+ * existing callers keep working.
+ */
+export async function submitWebsitePropertyIntake(
+  formData: FormData,
+): Promise<WebsiteIntakeResult> {
+  return submitWebsiteIntake(formData)
 }
