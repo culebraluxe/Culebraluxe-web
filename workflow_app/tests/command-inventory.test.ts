@@ -6,7 +6,9 @@ import {
 } from '../definitions/re-supermodel'
 import {
   DEAL_SET_APPRAISAL_REQUIRED,
+  DEAL_SET_FINANCING_DEADLINE,
   DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_INSPECTION_DEADLINE,
   DEAL_SET_LENDER_CLEAR_TO_CLOSE,
   ROUTED_COMMAND_TYPES,
   ROUTED_BUT_UNREFERENCED_COMMAND_TYPES,
@@ -213,4 +215,72 @@ test('CRM-14G: the stale XML header markers are gone', () => {
     source.includes(DEAL_SET_FINANCING_TYPE),
     'the header must document the routed-but-unreferenced classification',
   )
+})
+
+test('CRM-22: the deadline commands are XML command-nodes with registered router cases', () => {
+  const parsed = parseReSupermodel()
+  const xmlCommandNodeTypes = Object.values(parsed.graph.nodes)
+    .filter((n) => n.type === 'command')
+    .map((n) => n.commandType!)
+    .sort()
+
+  for (const type of [DEAL_SET_INSPECTION_DEADLINE, DEAL_SET_FINANCING_DEADLINE]) {
+    assert.ok(
+      XML_COMMAND_NODE_TYPES.has(type),
+      `'${type}' must be documented as an XML command-node`,
+    )
+    assert.ok(
+      xmlCommandNodeTypes.includes(type),
+      `the XML must reference '${type}' (deadline amendment is a workflow command, mirroring deal.set_closing_date)`,
+    )
+    assert.ok(ROUTED_COMMAND_TYPES.has(type), `'${type}' must have a router case`)
+  }
+
+  // The amendment command-nodes target the deadline timers (re-arm loop).
+  const setInspection = parsed.graph.nodes.set_inspection_deadline
+  const setFinancing = parsed.graph.nodes.set_financing_deadline
+  assert.equal(setInspection?.commandType, DEAL_SET_INSPECTION_DEADLINE)
+  assert.ok(
+    setInspection?.transitions?.some((t) => t.name === 'reschedule' && t.to === 'inspection_deadline_timer'),
+  )
+  assert.equal(setFinancing?.commandType, DEAL_SET_FINANCING_DEADLINE)
+  assert.ok(
+    setFinancing?.transitions?.some((t) => t.name === 'reschedule' && t.to === 'financing_deadline_timer'),
+  )
+})
+
+test('CRM-22: no command-node invents deadlines for milestones without a canonical date source', () => {
+  const parsed = parseReSupermodel()
+  const xmlCommandNodeTypes = Object.values(parsed.graph.nodes)
+    .filter((n) => n.type === 'command')
+    .map((n) => n.commandType!)
+
+  // Appraisal/title/tax/funds/closing-documents have no canonical business
+  // date; there is no command and no timer for them (artificial dates are
+  // rejected by the architect brief).
+  for (const artificial of [
+    'deal.set_appraisal_deadline',
+    'deal.set_title_deadline',
+    'deal.set_tax_clearance_deadline',
+    'deal.set_funds_ready_deadline',
+    'deal.set_closing_documents_deadline',
+  ]) {
+    assert.ok(
+      !xmlCommandNodeTypes.includes(artificial),
+      `no command-node may exist for '${artificial}' (no canonical date source)`,
+    )
+    assert.ok(
+      !ROUTED_COMMAND_TYPES.has(artificial),
+      `'${artificial}' must not be in the routed inventory`,
+    )
+  }
+  // The only deadline timers are the justified ones.
+  const timers = Object.values(parsed.graph.nodes)
+    .filter((n) => n.type === 'timer')
+    .map((n) => n.id)
+  assert.deepEqual(timers.sort(), [
+    'closing_date_timer',
+    'financing_deadline_timer',
+    'inspection_deadline_timer',
+  ])
 })

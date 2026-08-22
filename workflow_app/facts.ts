@@ -19,7 +19,10 @@ import { CULEBRA_JURISDICTION_CONFIG } from './configuration'
 //       (deal.appraisal_required), lenderClearToClose
 //       (deal.lender_clear_to_close), closingDocumentsReady (CRM-21 — derived
 //       from the packet catalog + canonical transaction_document rows; never
-//       stored, never invented)
+//       stored, never invented), inspectionDeadline /
+//       inspectionDeadlineScheduled (deal.inspection_deadline, CRM-22),
+//       financingDeadline / financingDeadlineScheduled
+//       (deal.financing_deadline, CRM-22)
 //   B — CulebraLuxe configuration default (configuration.ts):
 //       closingAgentRole, requiresNotario, requiresTitleCompany,
 //       requiresCrimClearance, requiresRegistryFollowup,
@@ -41,6 +44,22 @@ export type DealWorkflowFacts = {
   listPrice: number | null
   offerPrice: number | null
   closingDate: string | null
+  /**
+   * Canonical inspection-period deadline (CRM-22). Sourced from
+   * deal.inspection_deadline (P&S inspection contingency date); null = no
+   * canonical date recorded. Never invented.
+   */
+  inspectionDeadline: string | null
+  /** True when a canonical inspection-period deadline exists. */
+  inspectionDeadlineScheduled: boolean
+  /**
+   * Canonical financing-commitment deadline (CRM-22). Sourced from
+   * deal.financing_deadline (P&S financing contingency date); null = no
+   * canonical date recorded. Never invented.
+   */
+  financingDeadline: string | null
+  /** True when a canonical financing-commitment deadline exists. */
+  financingDeadlineScheduled: boolean
   property: {
     id: string
     name: string
@@ -113,6 +132,8 @@ type DealRow = {
   list_price: string | null
   offer_price: string | null
   closing_date: string | null
+  inspection_deadline: string | null
+  financing_deadline: string | null
   financing_type: string | null
   appraisal_required: boolean | null
   lender_clear_to_close: boolean | null
@@ -134,6 +155,8 @@ export async function getDealWorkflowFacts(
       d.list_price::text as list_price,
       d.offer_price::text as offer_price,
       d.closing_date::text as closing_date,
+      d.inspection_deadline::text as inspection_deadline,
+      d.financing_deadline::text as financing_deadline,
       d.financing_type,
       d.appraisal_required,
       d.lender_clear_to_close,
@@ -218,6 +241,15 @@ export async function getDealWorkflowFacts(
     listPrice: deal.list_price === null ? null : Number(deal.list_price),
     offerPrice: deal.offer_price === null ? null : Number(deal.offer_price),
     closingDate,
+    // CRM-22 — canonical non-closing milestone deadlines (P&S contingency
+    // dates on the deal: inspection period / financing commitment). Sourced
+    // from deal.inspection_deadline / deal.financing_deadline; null means no
+    // canonical date is recorded and the XML deadline monitors never start —
+    // a deadline is never invented.
+    inspectionDeadline: deal.inspection_deadline,
+    inspectionDeadlineScheduled: deal.inspection_deadline !== null,
+    financingDeadline: deal.financing_deadline,
+    financingDeadlineScheduled: deal.financing_deadline !== null,
     financingApplicable,
     closingDateScheduled: closingDate !== null,
     // CRM-19 — canonical deal-level source (deal.appraisal_required), resolved

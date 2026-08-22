@@ -5,6 +5,19 @@
 //
 // Where no canonical date exists, `factSource` is null: the deadline is
 // "unresolved" and must not be invented.
+//
+// CRM-22 — canonical fact sources exist ONLY for milestones justified by
+// actual business use:
+//   - inspection  -> DealWorkflowFacts.inspectionDeadline  (deal.inspection_deadline —
+//                    the P&S inspection-period contingency date)
+//   - financing   -> DealWorkflowFacts.financingDeadline   (deal.financing_deadline —
+//                    the P&S financing-commitment contingency date)
+//   - closing     -> DealWorkflowFacts.closingDate         (deal.closing_date)
+// Every other milestone is deliberately unresolved: appraisal / title / tax-
+// CRIM / funds / closing-documents deadlines are process-internal obligations
+// driven by the closing date, not separate contract dates. Inventing columns
+// or timers for them would create a parallel SLA framework (architect brief
+// rejects this) — their timers do not exist in the model.
 
 import type { DealWorkflowFacts } from './facts'
 
@@ -18,38 +31,40 @@ export type DeadlineSpec = {
 export const DEADLINES: Record<string, DeadlineSpec> = {
   inspection: {
     label: 'Inspection deadline',
-    factSource: null,
-    note: 'No canonical inspection date exists in the business model today; unresolved.',
+    // CRM-22 — canonical P&S inspection-period deadline (deal.inspection_deadline).
+    factSource: 'inspectionDeadline',
+    note: 'Canonical inspection-period contingency date (deal.inspection_deadline).',
   },
   appraisal: {
     label: 'Appraisal deadline',
     factSource: null,
-    note: 'No canonical appraisal date exists; unresolved.',
+    note: 'No canonical appraisal date exists (appraisal is an obligation within the financing/timing window, not a separate P&S contract date); unresolved — no artificial date is invented.',
   },
   financing: {
     label: 'Financing deadline',
-    factSource: null,
-    note: 'No canonical financing deadline exists; unresolved.',
+    // CRM-22 — canonical P&S financing-commitment deadline (deal.financing_deadline).
+    factSource: 'financingDeadline',
+    note: 'Canonical financing-commitment contingency date (deal.financing_deadline).',
   },
   title_work: {
     label: 'Title deadline',
     factSource: null,
-    note: 'No canonical title deadline exists; unresolved.',
+    note: 'No canonical title deadline exists (title readiness is a process obligation driven by the closing date, not a separate contract date); unresolved.',
   },
   tax_clearance: {
     label: 'Tax / CRIM clearance deadline',
     factSource: null,
-    note: 'No canonical tax/CRIM clearance date exists; unresolved.',
+    note: 'No canonical tax/CRIM clearance date exists (a process obligation driven by the closing date, not a separate contract date); unresolved.',
   },
   funds_ready: {
     label: 'Funds readiness',
     factSource: null,
-    note: 'No canonical funds readiness date exists; unresolved.',
+    note: 'No canonical funds readiness date exists (a process obligation driven by the closing date, not a separate contract date); unresolved.',
   },
   closing_documents: {
     label: 'Closing document deadline',
     factSource: null,
-    note: 'No canonical closing-document date exists; unresolved.',
+    note: 'No canonical closing-document date exists (a process obligation driven by the closing date, not a separate contract date); unresolved.',
   },
   closing: {
     label: 'Closing target',

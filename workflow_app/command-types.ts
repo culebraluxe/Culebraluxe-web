@@ -17,10 +17,12 @@
 // Command inventory for the CURRENT XML — complete; remaining work is
 // reconciliation, not new command implementation:
 //
-//   XML command-nodes (exactly three; each has a registered handler):
-//     mark_under_contract -> deal.set_stage_under_contract -> db/deal-stage.ts
-//     mark_closed         -> deal.set_stage_closed         -> db/deal-stage.ts
-//     set_closing_date    -> deal.set_closing_date         -> db/deal-closing-date.ts
+//   XML command-nodes (exactly five; each has a registered handler):
+//     mark_under_contract       -> deal.set_stage_under_contract -> db/deal-stage.ts
+//     mark_closed               -> deal.set_stage_closed         -> db/deal-stage.ts
+//     set_closing_date          -> deal.set_closing_date         -> db/deal-closing-date.ts
+//     set_inspection_deadline   -> deal.set_inspection_deadline  -> db/deal-deadline.ts (CRM-22)
+//     set_financing_deadline    -> deal.set_financing_deadline   -> db/deal-deadline.ts (CRM-22)
 //
 //   Routed but NOT referenced by any XML command-node (application-only):
 //     deal.set_financing_type -> db/deal-financing.ts — financing is READ as
@@ -43,6 +45,10 @@
 //   is the human task-node `closing_readiness` (resolved -> ready_to_close),
 //   gated by the closing_readiness_gate decision on closingConfirmationRequired
 //   (Stories 135/136 removed the boolean as the wrong semantic shape).
+//   There is also NO command for appraisal/title/tax/funds/closing-document
+//   deadlines: those milestones have no canonical business date source (CRM-22
+//   — only inspection and financing deadlines are real P&S contingency dates;
+//   the rest would be artificial).
 //
 // Boundary: command routing is workflow_app (mapping engine request -> canonical
 // CommandEnvelope -> canonical CommandDispatcher). Canonical business
@@ -53,6 +59,8 @@ import {
   DEAL_SET_APPRAISAL_REQUIRED,
   DEAL_SET_CLOSING_DATE,
   DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_FINANCING_DEADLINE,
+  DEAL_SET_INSPECTION_DEADLINE,
   DEAL_SET_LENDER_CLEAR_TO_CLOSE,
   DEAL_SET_STAGE_CLOSED,
   DEAL_SET_STAGE_UNDER_CONTRACT,
@@ -67,6 +75,8 @@ export {
   DEAL_SET_APPRAISAL_REQUIRED,
   DEAL_SET_CLOSING_DATE,
   DEAL_SET_FINANCING_TYPE,
+  DEAL_SET_FINANCING_DEADLINE,
+  DEAL_SET_INSPECTION_DEADLINE,
   DEAL_SET_LENDER_CLEAR_TO_CLOSE,
   DEAL_SET_STAGE_CLOSED,
   DEAL_SET_STAGE_UNDER_CONTRACT,
@@ -81,6 +91,8 @@ export const XML_COMMAND_NODE_TYPES: ReadonlySet<string> = new Set([
   DEAL_SET_STAGE_UNDER_CONTRACT,
   DEAL_SET_STAGE_CLOSED,
   DEAL_SET_CLOSING_DATE,
+  DEAL_SET_INSPECTION_DEADLINE,
+  DEAL_SET_FINANCING_DEADLINE,
 ])
 
 /**

@@ -19,6 +19,11 @@ export const DEAL_SET_CLOSING_DATE = 'deal.set_closing_date'
 export const DEAL_SET_FINANCING_TYPE = 'deal.set_financing_type'
 export const DEAL_SET_APPRAISAL_REQUIRED = 'deal.set_appraisal_required'
 export const DEAL_SET_LENDER_CLEAR_TO_CLOSE = 'deal.set_lender_clear_to_close'
+// CRM-22 — canonical non-closing milestone deadline commands (deal columns
+// deal.inspection_deadline / deal.financing_deadline, set via the single
+// canonical service db/deal-deadline.ts).
+export const DEAL_SET_INSPECTION_DEADLINE = 'deal.set_inspection_deadline'
+export const DEAL_SET_FINANCING_DEADLINE = 'deal.set_financing_deadline'
 export const OFFER_ACCEPT = 'offer.accept'
 export const TASK_CREATE = 'task.create'
 export const TASK_COMPLETE = 'task.complete'

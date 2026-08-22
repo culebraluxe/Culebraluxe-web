@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------------
-// P&S closing-date timer reconciliation (Story 122 / 137).
+// Closing-date timer reconciliation (Story 122 / 137) — thin wrapper over the
+// generic CRM-22 deadline-timer seam (workflow_app/deadline-timer.ts).
 //
 // The RE_supermodel's `closing_date_timer` node (in the XML) owns scheduling
 // the closing-deadline timer from the canonical `closingDate` fact. When that
@@ -12,6 +13,12 @@
 // This module is generic: it names no workflow node and no jurisdiction.
 // ---------------------------------------------------------------------------
 
+import {
+  reconcileDeadlineTimerCore,
+  type DeadlineTimerDeps,
+  type DeadlineTimerResult,
+} from './deadline-timer'
+
 export type ClosingTimerDeps = {
   findPendingTimer: (
     instanceId: string,
@@ -19,62 +26,29 @@ export type ClosingTimerDeps = {
   reschedule: (jobId: string, dueAt: Date) => Promise<void>
 }
 
-export type ClosingTimerResult = {
-  action: 'rescheduled' | 'unchanged'
-  jobId: string | null
-}
+export type ClosingTimerResult = DeadlineTimerResult
+
+const CLOSING_TIMER_NODE_ID = 'closing_date_timer'
 
 export async function reconcileClosingTimerCore(
   instanceId: string,
   closingDate: string | null,
   deps: ClosingTimerDeps,
 ): Promise<ClosingTimerResult> {
-  const existing = await deps.findPendingTimer(instanceId)
-
-  // No canonical date, or no timer scheduled yet (the node schedules it when
-  // the workflow reaches the closing stage): nothing to reschedule.
-  if (!closingDate || !existing) {
-    return { action: 'unchanged', jobId: existing?.jobId ?? null }
-  }
-
-  const target = new Date(closingDate)
-  if (existing.dueAt === closingDate) {
-    return { action: 'unchanged', jobId: existing.jobId }
-  }
-
-  await deps.reschedule(existing.jobId, target)
-  return { action: 'rescheduled', jobId: existing.jobId }
+  // The closing-date monitor is the instance's only timer in the legacy
+  // single-timer world; the generic seam scopes the lookup by node id via the
+  // job payload. The injected deps predate CRM-22 and look up without a node
+  // id, which is exactly correct for a single-timer instance.
+  return reconcileDeadlineTimerCore(instanceId, CLOSING_TIMER_NODE_ID, closingDate, {
+    findPendingTimer: async (id) => deps.findPendingTimer(id),
+    reschedule: deps.reschedule,
+  } satisfies DeadlineTimerDeps)
 }
 
 export async function reconcileClosingTimer(
   instanceId: string,
   closingDate: string | null,
 ): Promise<ClosingTimerResult> {
-  const { engineConfigured, engineSql } = await import('./engine-client')
-  if (!engineConfigured()) return { action: 'unchanged', jobId: null }
-
-  const { WorkflowEngine } = await import('../workflow_engine/lib/workflow/engine')
-  const { createApplicationPort } = await import('./application-port')
-  const esql = engineSql()
-  const engine = () =>
-    new WorkflowEngine(esql, { app: createApplicationPort() })
-
-  return reconcileClosingTimerCore(instanceId, closingDate, {
-    findPendingTimer: async (id) => {
-      const rows = await esql`
-        select id, due_at::text as due_at
-        from jobs
-        where process_instance_id = ${id}
-          and status = 'pending'
-          and type = 'timer'
-        limit 1
-      `
-      const r = rows[0]
-      return r
-        ? { jobId: r.id as string, dueAt: r.due_at as string }
-        : null
-    },
-    reschedule: async (jobId, dueAt) =>
-      engine().rescheduleTimerJob({ jobId, newDueAt: dueAt, actor: 'system' }),
-  })
+  const { reconcileDeadlineTimer } = await import('./deadline-timer')
+  return reconcileDeadlineTimer(instanceId, CLOSING_TIMER_NODE_ID, closingDate)
 }

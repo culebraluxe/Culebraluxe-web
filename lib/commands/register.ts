@@ -34,6 +34,14 @@ import {
   DEAL_SET_LENDER_CLEAR_TO_CLOSE,
   SetDealLenderClearToCloseCommand,
 } from './deal/set-deal-lender-clear-to-close'
+import {
+  DEAL_SET_INSPECTION_DEADLINE,
+  SetDealInspectionDeadlineCommand,
+} from './deal/set-deal-inspection-deadline'
+import {
+  DEAL_SET_FINANCING_DEADLINE,
+  SetDealFinancingDeadlineCommand,
+} from './deal/set-deal-financing-deadline'
 import { OFFER_ACCEPT, AcceptOfferCommand } from './offer/accept-offer'
 import {
   TASK_CANCEL,
@@ -66,6 +74,10 @@ export function registerCanonicalCommands(registry: CommandRegistry): void {
   registry.register(DEAL_SET_FINANCING_TYPE, new SetDealFinancingTypeCommand())
   registry.register(DEAL_SET_APPRAISAL_REQUIRED, new SetDealAppraisalRequiredCommand())
   registry.register(DEAL_SET_LENDER_CLEAR_TO_CLOSE, new SetDealLenderClearToCloseCommand())
+  // CRM-22 — canonical non-closing milestone deadline commands (XML
+  // command-nodes set_inspection_deadline / set_financing_deadline).
+  registry.register(DEAL_SET_INSPECTION_DEADLINE, new SetDealInspectionDeadlineCommand())
+  registry.register(DEAL_SET_FINANCING_DEADLINE, new SetDealFinancingDeadlineCommand())
   registry.register(OFFER_ACCEPT, new AcceptOfferCommand())
   registry.register(TASK_CREATE, new CreateTaskCommand())
   registry.register(TASK_COMPLETE, new CompleteTaskCommand())

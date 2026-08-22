@@ -40,6 +40,22 @@ function makeReApp(initial: Record<string, any>) {
             closingDate: req.input.closingDate ?? '2030-01-01',
           }
         }
+        // CRM-22 — deadline amendment commands refresh the canonical facts so
+        // the re-armed timer node reads the amended date.
+        if (req.commandType === 'deal.set_inspection_deadline') {
+          facts = {
+            ...facts,
+            inspectionDeadlineScheduled: true,
+            inspectionDeadline: req.input.inspectionDeadline ?? '2030-01-01',
+          }
+        }
+        if (req.commandType === 'deal.set_financing_deadline') {
+          facts = {
+            ...facts,
+            financingDeadlineScheduled: true,
+            financingDeadline: req.input.financingDeadline ?? '2030-01-01',
+          }
+        }
         return { commandId: req.commandId, outcome: 'success' as const }
       },
       async readFacts() {
@@ -1232,4 +1248,179 @@ test('funds not ready is resolved through the blocker loop', async () => {
   })
   const pi = await engine.getProcessInstance(processInstanceId)
   assert.equal(pi!.outcome, 'completed')
+})
+
+// ---------------------------------------------------------------------------
+// CRM-22 — transaction deadline fact sources.
+//
+// The inspection / financing deadline monitors are OPTIONAL fork branches
+// gated by applicability + scheduled decisions. Each timer reads its due date
+// from a canonical fact (due-at-variable) — a deadline never exists without
+// an application source. On passage the branch escalates to a human task;
+// amending issues the canonical deadline command and the SAME instance
+// continues (timer re-armed). When the milestone completes, the join skips
+// the still-active optional monitor and cancels its pending timer.
+// ---------------------------------------------------------------------------
+
+/** The required transaction tracks for the short closing path (CRM-22). */
+const REQUIRED_TRACKS = [
+  'Title / Legal',
+  'Tax / Municipal Clearance',
+  'Funds Ready',
+  'Closing Documents',
+]
+
+function pendingTimers(fake: FakeSql, processInstanceId: string) {
+  return fake.store.jobs.filter(
+    (j) => j.process_instance_id === processInstanceId && j.status === 'pending',
+  )
+}
+
+test('M1. inspection deadline monitor escalates on passage; amendment re-arms the SAME instance', async () => {
+  const { fake, engine, re } = setup(
+    simpleCashFacts({
+      inspectionApplicable: true,
+      inspectionDeadlineScheduled: true,
+      // Past date => the inspection deadline timer is due immediately.
+      inspectionDeadline: '2020-01-01T00:00:00.000Z',
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  assert.ok(hasTask(fake, 'Inspection'), 'inspection track is active')
+  const due = await engine.claimJobs('worker', 10)
+  const inspectionTimer = due.find(
+    (j) => (j.payload as any)?.nodeId === 'inspection_deadline_timer',
+  )
+  assert.ok(inspectionTimer, 'the inspection deadline timer should be due')
+  assert.equal(due.filter((j) => (j.payload as any)?.nodeId === 'inspection_deadline_timer').length, 1)
+
+  await engine.fireTimerJob({ jobId: inspectionTimer.id, workerId: 'worker' })
+  assert.ok(hasTask(fake, 'Inspection Deadline Escalation'), 'passed deadline escalates')
+
+  // Amend: extend the inspection deadline — the same instance continues.
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Inspection Deadline Escalation').id,
+    userId: 'broker',
+    formData: { inspectionDeadline: '2030-06-01T00:00:00.000Z' },
+    transitionName: 'extend',
+  })
+  assert.ok(
+    re.calls.some((c) => c.commandType === 'deal.set_inspection_deadline'),
+    'deal.set_inspection_deadline must be issued on amendment',
+  )
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.status, 'active', 'the instance must not restart when the deadline changes')
+
+  const pending = pendingTimers(fake, processInstanceId)
+  assert.equal(pending.length, 1, 'exactly one re-armed inspection timer')
+  assert.equal(
+    new Date(pending[0].due_at).toISOString(),
+    '2030-06-01T00:00:00.000Z',
+    'the re-armed timer uses the amended canonical date',
+  )
+})
+
+test('M2. no canonical inspection deadline creates NO timer (nothing invented)', async () => {
+  const { fake, engine } = setup(
+    simpleCashFacts({
+      inspectionApplicable: true,
+      inspectionDeadlineScheduled: false,
+      financingDeadlineScheduled: false,
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  assert.ok(hasTask(fake, 'Inspection'), 'inspection track is active')
+  const timers = pendingTimers(fake, processInstanceId)
+  assert.equal(timers.length, 0, 'no deadline timer without a canonical date')
+})
+
+test('M3. financing deadline monitor escalates on passage; amendment re-arms the SAME instance', async () => {
+  const { fake, engine, re } = setup(
+    simpleCashFacts({
+      financingApplicable: true,
+      financingDeadlineScheduled: true,
+      financingDeadline: '2020-01-01T00:00:00.000Z',
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  assert.ok(hasTask(fake, 'Financing'), 'financing track is active')
+  const due = await engine.claimJobs('worker', 10)
+  const financingTimer = due.find(
+    (j) => (j.payload as any)?.nodeId === 'financing_deadline_timer',
+  )
+  assert.ok(financingTimer, 'the financing deadline timer should be due')
+
+  await engine.fireTimerJob({ jobId: financingTimer.id, workerId: 'worker' })
+  assert.ok(hasTask(fake, 'Financing Deadline Escalation'), 'passed deadline escalates')
+
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Financing Deadline Escalation').id,
+    userId: 'broker',
+    formData: { financingDeadline: '2030-07-01T00:00:00.000Z' },
+    transitionName: 'extend',
+  })
+  assert.ok(
+    re.calls.some((c) => c.commandType === 'deal.set_financing_deadline'),
+    'deal.set_financing_deadline must be issued on amendment',
+  )
+  const pi = await engine.getProcessInstance(processInstanceId)
+  assert.equal(pi!.status, 'active', 'the instance must not restart when the deadline changes')
+
+  const pending = pendingTimers(fake, processInstanceId)
+  assert.equal(pending.length, 1, 'exactly one re-armed financing timer')
+  assert.equal(new Date(pending[0].due_at).toISOString(), '2030-07-01T00:00:00.000Z')
+})
+
+test('M4. completing the milestone skips the active optional monitor and cancels its pending timer', async () => {
+  const { fake, engine } = setup(
+    simpleCashFacts({
+      inspectionApplicable: true,
+      inspectionDeadlineScheduled: true,
+      // Future date => the inspection deadline timer stays pending.
+      inspectionDeadline: '2099-01-01T00:00:00.000Z',
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  const monitor = fake.store.jobs.find(
+    (j) => j.process_instance_id === processInstanceId
+      && j.type === 'timer'
+      && (j.payload as any)?.nodeId === 'inspection_deadline_timer',
+  )
+  assert.ok(monitor, 'the inspection deadline timer was scheduled from the canonical date')
+  assert.equal(monitor.status, 'pending')
+
+  // Complete the inspection and every required track; the join must skip the
+  // still-active optional deadline monitor and cancel its pending timer.
+  await engine.completeTask({
+    taskId: taskByName(fake, 'Inspection').id,
+    userId: 'inspector',
+    transitionName: 'done',
+  })
+  await completeTasks(engine, fake, REQUIRED_TRACKS)
+
+  const after = fake.store.jobs.find((j) => j.id === monitor.id)
+  assert.equal(after!.status, 'cancelled', 'join skip must cancel the pending deadline timer')
+  assert.ok(!hasOpenTask(fake, 'Inspection Deadline Escalation'))
+})
+
+test('M5. cash/no-financing deals never start a financing deadline timer', async () => {
+  const { fake, engine } = setup(
+    simpleCashFacts({
+      financingApplicable: false,
+      financingDeadlineScheduled: true, // canonical date recorded, but cash deal
+      financingDeadline: '2026-09-01T00:00:00.000Z',
+    }),
+  )
+  const processInstanceId = await startAndSignContract(engine, fake)
+
+  const timers = pendingTimers(fake, processInstanceId)
+  assert.equal(
+    timers.filter((j) => (j.payload as any)?.nodeId === 'financing_deadline_timer').length,
+    0,
+    'a cash deal must never monitor a financing deadline',
+  )
 })

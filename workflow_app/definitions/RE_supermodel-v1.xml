@@ -26,6 +26,10 @@
       closingDocumentsReady       bool
       inspectionApplicable        bool | null
       insuranceApplicable         bool | null
+      inspectionDeadline          ISO-8601 string (timer dueAtVariable; CRM-22)
+      inspectionDeadlineScheduled bool   a canonical inspection deadline exists
+      financingDeadline           ISO-8601 string (timer dueAtVariable; CRM-22)
+      financingDeadlineScheduled  bool   a canonical financing deadline exists
 
   appraisalApplicable (CRM-19) is the canonical deal.appraisal_required fact
   (workflow_app/facts.ts), resolved by the explicit application command
@@ -63,12 +67,41 @@
   the closing_documents_pending task and blocks readiness until the packet is
   complete and signed; the gate re-evaluates with refreshed facts on resolved.
 
+  Transaction deadlines (CRM-22) — the application/domain OWNS canonical
+  milestone dates; this model only projects them into timer semantics:
+
+      inspectionDeadline          deal.inspection_deadline   P&S inspection-period
+                                                                contingency date
+      financingDeadline           deal.financing_deadline    P&S financing-commitment
+                                                                contingency date
+      closingDate                 deal.closing_date          closing target
+
+  Only milestones justified by actual business use get a deadline monitor:
+  inspection and financing are P&S contingency dates, closing is the closing
+  target. Appraisal / title / tax-CRIM / funds / closing-documents have NO
+  canonical date source — they are process-internal obligations driven by the
+  closing date, so this model deliberately creates NO timers for them (no
+  artificial dates, no parallel SLA framework). Each deadline monitor is an
+  OPTIONAL fork branch gated by an applicability decision (inspectionApplicable
+  / financingApplicable) and a scheduled decision (inspectionDeadlineScheduled
+  / financingDeadlineScheduled); with no canonical date the branch joins
+  immediately and NO timer is created. The timer nodes read their due date
+  from the canonical fact (due-at-variable) — a deadline never exists without
+  an application source. On deadline passage the branch escalates to a human
+  task; amending the date issues the canonical deadline command
+  (deal.set_inspection_deadline / deal.set_financing_deadline) and the SAME
+  instance continues — the timer is re-armed at the timer node; a pending
+  timer for a changed canonical date is rescheduled deterministically by the
+  generic deadline-timer seam (workflow_app/deadline-timer.ts).
+
   Command inventory — COMPLETE for this XML (reconciliation only; see
   workflow_app/command-types.ts, the authoritative registry):
 
       deal.set_stage_under_contract   command-node mark_under_contract  -> db/deal-stage.ts
       deal.set_stage_closed           command-node mark_closed          -> db/deal-stage.ts
       deal.set_closing_date           command-node set_closing_date     -> db/deal-closing-date.ts
+      deal.set_inspection_deadline    command-node set_inspection_deadline  -> db/deal-deadline.ts (CRM-22)
+      deal.set_financing_deadline     command-node set_financing_deadline   -> db/deal-deadline.ts (CRM-22)
 
   Routed but NOT referenced by any command-node (application-only):
 
@@ -168,7 +201,7 @@
        transaction never creates placeholder tasks.
        ===================================================================== -->
   <fork id="fork_tracks" label="Parallel Transaction Work"
-    description="Concurrent work tracks: required title/tax/funds/documents plus conditional inspection, financing, appraisal, insurance, survey, HOA.">
+    description="Concurrent work tracks: required title/tax/funds/documents plus conditional inspection, financing, appraisal, insurance, survey, HOA. CRM-22 adds two OPTIONAL deadline-monitor branches (inspection / financing contingency dates); they skip straight to the join when no canonical deadline exists and are skipped by the join (timer cancelled) when the milestone completes first.">
     <transition name="title" to="title_work" required="true"/>
     <transition name="tax" to="tax_clearance" required="true"/>
     <transition name="funds" to="funds_ready" required="true"/>
@@ -179,6 +212,8 @@
     <transition name="insurance" to="insurance_applicable" required="true"/>
     <transition name="survey" to="survey_applicable" required="true"/>
     <transition name="hoa" to="hoa_applicable" required="true"/>
+    <transition name="inspection_deadline" to="inspection_deadline_applicable" required="false"/>
+    <transition name="financing_deadline" to="financing_deadline_applicable" required="false"/>
   </fork>
 
   <!-- Title / legal (required) -->
@@ -252,6 +287,42 @@
     <transition name="escalate" to="transaction_failed"/>
   </task-node>
 
+  <!-- Inspection-period deadline monitor (CRM-22, OPTIONAL fork branch).
+       Activates only when the inspection track is applicable AND a canonical
+       inspection deadline exists (deal.inspection_deadline — the P&S
+       inspection-period contingency date). With no canonical date the branch
+       joins immediately: NO timer is created and no deadline is invented. If
+       the deadline passes while the inspection is outstanding, the branch
+       escalates to a human task; amending issues deal.set_inspection_deadline
+       and the SAME instance continues (timer re-armed). When the inspection
+       (and every other required track) completes, the join skips this
+       still-active optional branch and cancels its pending timer. -->
+  <decision id="inspection_deadline_applicable" label="Inspection Deadline Applicable" refresh-facts="true"
+    description="The inspection-period deadline monitor activates only when the inspection track is applicable (inspectionApplicable == true); it never invents a deadline for a transaction without an inspection period.">
+    <on condition="inspectionApplicable == true" transition="scheduled"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="scheduled" to="inspection_deadline_scheduled"/>
+  </decision>
+  <decision id="inspection_deadline_scheduled" label="Inspection Deadline Scheduled" refresh-facts="true"
+    description="The monitor waits on a timer only when a canonical inspection deadline exists (inspectionDeadlineScheduled == true, from deal.inspection_deadline); with no canonical date the branch joins immediately — a deadline is never invented.">
+    <on condition="inspectionDeadlineScheduled == true" transition="monitor"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="monitor" to="inspection_deadline_timer"/>
+  </decision>
+  <timer id="inspection_deadline_timer" label="Inspection Deadline" due-at-variable="inspectionDeadline" on-fire="escalate"
+    description="Waits for the canonical inspection-period deadline (deal.inspection_deadline); reschedules on amendment via the generic deadline-timer seam (CRM-22).">
+    <transition name="escalate" to="inspection_deadline_escalation"/>
+  </timer>
+  <task-node id="inspection_deadline_escalation" label="Inspection Deadline Escalation" responsibility="brokerage"
+    description="The canonical inspection-period deadline (deal.inspection_deadline) has passed. Amend/extend the deadline (deal.set_inspection_deadline) or proceed regardless.">
+    <transition name="extend" to="set_inspection_deadline"/>
+    <transition name="proceed" to="join_tracks"/>
+  </task-node>
+  <command-node id="set_inspection_deadline" label="Amend Inspection Deadline" responsibility="brokerage"
+    command-type="deal.set_inspection_deadline" transition="reschedule">
+    <transition name="reschedule" to="inspection_deadline_timer"/>
+  </command-node>
+
   <!-- Financing (conditional; independent from appraisal) -->
   <decision id="financing_applicable" label="Financing Applicable" refresh-facts="true"
     description="Financing runs only when financingApplicable is true (Story 120; no financing branch for cash).">
@@ -264,6 +335,42 @@
     <transition name="done" to="join_tracks"/>
     <transition name="fail" to="financing_failed"/>
   </task-node>
+
+  <!-- Financing-commitment deadline monitor (CRM-22, OPTIONAL fork branch).
+       Activates only when financing is applicable AND a canonical financing
+       deadline exists (deal.financing_deadline — the P&S financing-commitment
+       contingency date). With no canonical date the branch joins immediately:
+       NO timer is created and no deadline is invented. If the deadline passes
+       while financing is outstanding, the branch escalates to a human task;
+       amending issues deal.set_financing_deadline and the SAME instance
+       continues (timer re-armed). When financing (and every other required
+       track) completes, the join skips this still-active optional branch and
+       cancels its pending timer. -->
+  <decision id="financing_deadline_applicable" label="Financing Deadline Applicable" refresh-facts="true"
+    description="The financing-commitment deadline monitor activates only when financing is applicable (financingApplicable == true); it never invents a deadline for a cash transaction.">
+    <on condition="financingApplicable == true" transition="scheduled"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="scheduled" to="financing_deadline_scheduled"/>
+  </decision>
+  <decision id="financing_deadline_scheduled" label="Financing Deadline Scheduled" refresh-facts="true"
+    description="The monitor waits on a timer only when a canonical financing deadline exists (financingDeadlineScheduled == true, from deal.financing_deadline); with no canonical date the branch joins immediately — a deadline is never invented.">
+    <on condition="financingDeadlineScheduled == true" transition="monitor"/>
+    <transition name="skip" to="join_tracks"/>
+    <transition name="monitor" to="financing_deadline_timer"/>
+  </decision>
+  <timer id="financing_deadline_timer" label="Financing Deadline" due-at-variable="financingDeadline" on-fire="escalate"
+    description="Waits for the canonical financing-commitment deadline (deal.financing_deadline); reschedules on amendment via the generic deadline-timer seam (CRM-22).">
+    <transition name="escalate" to="financing_deadline_escalation"/>
+  </timer>
+  <task-node id="financing_deadline_escalation" label="Financing Deadline Escalation" responsibility="brokerage"
+    description="The canonical financing-commitment deadline (deal.financing_deadline) has passed. Amend/extend the deadline (deal.set_financing_deadline) or proceed regardless.">
+    <transition name="extend" to="set_financing_deadline"/>
+    <transition name="proceed" to="join_tracks"/>
+  </task-node>
+  <command-node id="set_financing_deadline" label="Amend Financing Deadline" responsibility="brokerage"
+    command-type="deal.set_financing_deadline" transition="reschedule">
+    <transition name="reschedule" to="financing_deadline_timer"/>
+  </command-node>
 
   <!-- Appraisal (conditional; INDEPENDENT of financing — Story 123) -->
   <decision id="appraisal_applicable" label="Appraisal Applicable" refresh-facts="true"
