@@ -256,10 +256,6 @@ function EnvironmentReadinessPanel({
       ready: readiness.googleMapsDemoKeyAbsentInProduction,
     },
     { label: "Mux tokens configured", ready: readiness.muxConfigured },
-    {
-      label: "Sanity project configured",
-      ready: readiness.sanityProjectConfigured,
-    },
   ]
 
   return (

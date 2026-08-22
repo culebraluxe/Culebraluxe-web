@@ -41,8 +41,6 @@ export type EnvironmentReadiness = {
   googleMapsDemoKeyAbsentInProduction: boolean
   // Mux.
   muxConfigured: boolean
-  // Sanity (declared but not yet wired into code).
-  sanityProjectConfigured: boolean
   // Aggregate fail-closed posture for the current environment.
   allProductionRequiredConfigured: boolean
 }
@@ -92,11 +90,6 @@ export function getEnvironmentReadiness(): EnvironmentReadiness {
     : configured(process.env.MUX_TOKEN_ID_DEV) &&
       configured(process.env.MUX_TOKEN_SECRET_DEV)
 
-  const sanityProjectConfigured =
-    configured(process.env.NEXT_PUBLIC_SANITY_PROJECT_ID) ||
-    configured(process.env.NEXT_PUBLIC_SANITY_PROJECT_ID_PROD) ||
-    configured(process.env.NEXT_PUBLIC_SANITY_PROJECT_ID_DEV)
-
   const productionRequired = [
     databaseConfigured,
     authSecretConfigured,
@@ -120,7 +113,6 @@ export function getEnvironmentReadiness(): EnvironmentReadiness {
     googleMapsKeyConfigured,
     googleMapsDemoKeyAbsentInProduction,
     muxConfigured,
-    sanityProjectConfigured,
     allProductionRequiredConfigured,
   }
 }

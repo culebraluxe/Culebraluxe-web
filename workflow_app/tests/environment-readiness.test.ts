@@ -29,9 +29,6 @@ const ENV_KEYS = [
   'MUX_TOKEN_SECRET_PROD',
   'MUX_TOKEN_ID_DEV',
   'MUX_TOKEN_SECRET_DEV',
-  'NEXT_PUBLIC_SANITY_PROJECT_ID',
-  'NEXT_PUBLIC_SANITY_PROJECT_ID_PROD',
-  'NEXT_PUBLIC_SANITY_PROJECT_ID_DEV',
 ]
 
 function withEnv(
@@ -80,6 +77,17 @@ test('AUTH-04: readiness surface is booleans only, even with no env configured',
         `readiness.${key} must be a boolean, got ${typeof value}`,
       )
     }
+  })
+})
+
+test('PLAT-01: Sanity is no longer a property source — readiness surface does not expose it', () => {
+  withEnv({}, () => {
+    const readiness = getEnvironmentReadiness()
+    assert.equal(
+      'sanityProjectConfigured' in readiness,
+      false,
+      'Sanity was retired as a property source; the readiness probe must not report it',
+    )
   })
 })
 

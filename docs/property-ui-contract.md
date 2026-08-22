@@ -22,7 +22,8 @@
 - shortDescription
 
 ## Property Detail Fields
-Use the Sanity `property` document as the canonical source.
+Use the Neon/Postgres `property` table as the canonical source
+(PLAT-01 Property Source Consolidation — Sanity is retired as a property source).
 
 Key display fields:
 - title
@@ -49,7 +50,8 @@ Key display fields:
 ## Behavioral Rules
 - No hard-coded property content
 - Hero image is explicit
-- Gallery order follows Sanity array order
+- Gallery order follows `property_media` ordering (role/order owned by
+  `property_media`, per AGENTS.md)
 - Hide missing values
 - Do not invent values
 - Missing price => "Price Upon Request"

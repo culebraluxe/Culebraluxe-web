@@ -12,7 +12,6 @@ It is not intended to replace:
 - Apple Calendar
 - Apple Phone
 - HubSpot marketing functionality
-- Sanity editorial/media management
 
 The Portal exists to provide business context around:
 
@@ -308,7 +307,8 @@ Optional operational relationships:
 - deals
 - interested clients
 
-Sanity remains responsible for editorial/media data such as:
+Neon/Postgres owns canonical property and editorial/media data (PLAT-01
+Property Source Consolidation — Sanity is retired as a property/media source):
 
 - long-form property description
 - hero image
@@ -317,7 +317,8 @@ Sanity remains responsible for editorial/media data such as:
 - SEO copy
 - neighborhood storytelling
 
-Postgres and Sanity should share a stable property identifier.
+Media is the reusable asset abstraction (`media` + `property_media` owns
+property-specific roles/order). `property.id` is the stable property identity.
 
 ---
 
@@ -355,11 +356,8 @@ Information that already exists in another authoritative source should be integr
 
 ## Postgres as Operational System of Record
 
-Postgres should eventually own canonical operational entities and relationships.
-
-## Sanity as Editorial System
-
-Sanity should continue managing website-oriented editorial content and media.
+Postgres owns canonical operational entities and relationships, including
+property and media (PLAT-01).
 
 ## External Systems as Services
 

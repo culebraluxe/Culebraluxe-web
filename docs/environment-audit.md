@@ -71,8 +71,8 @@ Classification legend:
 | `MUX_TOKEN_ID_PROD` / `MUX_TOKEN_SECRET_PROD` | **production-required** (declared) | `lib/environment-readiness.ts` (currently unreferenced by other code) | Readiness reports "Not configured"; release checklist item. |
 | `MUX_TOKEN_ID_DEV` / `MUX_TOKEN_SECRET_DEV` | DEV-only (declared) | `lib/environment-readiness.ts` (currently unreferenced by other code) | — |
 | `MUX_DATA_ENV_KEY_DEV` / `MUX_DATA_ENV_KEY_PROD` / `MUX_ENVIRONMENT_ID_DEV` / `MUX_ENVIRONMENT_ID_PROD` | declared, unreferenced | — | — |
-| `NEXT_PUBLIC_SANITY_PROJECT_ID` (+ `_DEV` / `_PROD`) | declared, unreferenced | `lib/environment-readiness.ts` (project id presence only) | — |
-| `NEXT_PUBLIC_SANITY_DATASET` (+ `_DEV` / `_PROD`) | declared, unreferenced | — | — |
+| `NEXT_PUBLIC_SANITY_PROJECT_ID` (+ `_DEV` / `_PROD`) | retired (legacy) | — (no code reads them — PLAT-01 retired Sanity as a property source) | Safe to remove from Vercel environments and local `.env.local`. |
+| `NEXT_PUBLIC_SANITY_DATASET` (+ `_DEV` / `_PROD`) | retired (legacy) | — (no code reads them — PLAT-01 retired Sanity as a property source) | Safe to remove from Vercel environments and local `.env.local`. |
 
 ### 1.4 Tooling / agent runtime (optional with default, no credentials)
 
