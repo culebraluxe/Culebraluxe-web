@@ -1,10 +1,7 @@
 import { sql } from '../../db/client'
 import type { ProcessGraph } from '../../workflow_engine/lib/workflow/types'
 import type { ParsedProcessDefinition } from '../xml'
-import {
-  definitionVersionPolicy,
-  IMMUTABLE_DEFINITION_ERROR,
-} from './version-policy'
+import { classifyDeploy, IMMUTABLE_DEFINITION_ERROR } from './version-policy'
 
 // ---------------------------------------------------------------------------
 // Generic process-definition deployment service (workflow_app owns it).
@@ -13,11 +10,14 @@ import {
 //
 //   XML file -> parse -> validate -> ProcessGraph -> upsertProcessDefinition
 //
-// Version/immutability contract (Story 133):
+// Version/immutability contract (Story 133, ENG-12):
 //   - deployed versions are immutable historical definitions
 //   - running instances remain pinned to their definition_id/version
 //   - changing XML means deploying a NEW version under the same logical key
 //   - a version that already has instances is NEVER replaced in place
+//   - duplicate redeploys are idempotent only while the version has no
+//     instances (draft iteration); the explicit decision table lives in
+//     version-policy.classifyDeploy and is tested without a database
 //
 // The table's UNIQUE (tenant_id, key, version) treats NULL tenant_id as
 // distinct, so a single ON CONFLICT upsert would not dedupe tenant-less
@@ -44,7 +44,7 @@ export async function upsertProcessDefinition(
   input: DeployDefinitionInput,
 ): Promise<DeployDefinitionResult> {
   const existing = await sql`
-    select id
+    select id, definition
     from process_definitions
     where tenant_id is null and key = ${input.key} and version = ${input.version}
     limit 1
@@ -52,16 +52,26 @@ export async function upsertProcessDefinition(
 
   if (existing[0]) {
     const id = (existing[0] as { id: string }).id
+    const previousGraph = (existing[0] as { definition: ProcessGraph }).definition
     const used = await sql`
       select count(*)::int as cnt
       from process_instances
       where definition_id = ${id}
       limit 1
     `
-    const policy = definitionVersionPolicy(true, (used[0] as { cnt: number }).cnt)
-    if (policy.kind === 'immutable') {
+    // ENG-12 — the explicit decision table (version-policy.classifyDeploy) is
+    // the single source of truth: insert (new) / update (replaceable draft or
+    // duplicate redeploy) / reject (immutable — a version that already has
+    // instances is NEVER written again, even with byte-identical content).
+    const decision = classifyDeploy(
+      true,
+      (used[0] as { cnt: number }).cnt,
+      previousGraph,
+      input.graph,
+    )
+    if (decision.action === 'reject') {
       throw new Error(
-        `${IMMUTABLE_DEFINITION_ERROR} (definition '${input.key}' v${input.version})`,
+        `${decision.message} (definition '${input.key}' v${input.version})`,
       )
     }
     await sql`

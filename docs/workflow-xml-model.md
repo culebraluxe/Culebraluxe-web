@@ -1,10 +1,13 @@
 # Workflow XML Model — RE_supermodel
 
-Status: **CRM-14E + ENG-14 — XML RE_SUPERMODEL + definition validation**. The
-XML definition format is the authoritative source for workflow definitions.
-The workflow engine remains a generic, domain-neutral runtime. ENG-14 makes
-invalid definitions fail deterministically at deployment via four explicit
-validation layers (see §2b).
+Status: **CRM-14E + ENG-14 + ENG-12 — XML RE_SUPERMODEL + definition validation
++ versioning/compatibility**. The XML definition format is the authoritative
+source for workflow definitions. The workflow engine remains a generic,
+domain-neutral runtime. ENG-14 makes invalid definitions fail deterministically
+at deployment via four explicit validation layers (see §2b). ENG-12 formalizes
+the V1 versioning policy — immutable deployed definitions, instance pinning,
+rollback-as-new-version, no cross-version migration — with explicit
+compatibility diagnostics (see §2c and `docs/workflow-versioning-policy.md`).
 
 ```
 XML source
@@ -156,6 +159,33 @@ Fail-fast contract: `deploy-process-definition.ts` (and every test consumer)
 runs all four layers; any error aborts the deploy with `[layer]`-prefixed
 diagnostics before the definition becomes runnable. `--dry-run` runs the same
 validation without touching the database.
+
+---
+
+## 2c. ENG-12 — Definition versioning / compatibility (V1 policy)
+
+Deployed definitions are **immutable**; a running instance is **pinned** to its
+exact `definition_id` forever; **new** instances use the newly deployed version;
+**all** deployed versions remain available; removed or renamed nodes affect
+**only new definitions**; **rollback** means deploying a prior graph as a NEW
+version number; **cross-version instance migration is unsupported**.
+
+The policy is explicit, deterministic, and testable — it is *not* a migration
+framework:
+
+- Deploy decision table: `workflow_app/definitions/version-policy.ts`
+  (`classifyDeploy` / `deploymentCompatibility`) — insert (new) / update
+  (replaceable draft or duplicate redeploy) / reject (immutable — a version
+  with instances is never written again, even with byte-identical content).
+- Compatibility diagnostics: `workflow_app/definitions/compatibility.ts`
+  (`diffProcessGraphs`, `compatibilityDiagnostics`, `isRollbackDeployment`,
+  `graphsEqual`) — what changed between two deployed graphs and why running
+  instances are unaffected.
+- Engine pinning: `workflow_engine/lib/workflow/engine.ts` resolves the
+  definition **by `definition_id`** on every step, never by key.
+- The deploy service (`workflow_app/definitions/deploy.ts`) executes exactly the
+  decision table.
+- Full policy: `docs/workflow-versioning-policy.md`.
 
 ---
 

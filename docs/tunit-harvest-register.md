@@ -38,7 +38,7 @@ pnpm test
 | 6 | Failed attempt → new attempt allowed (terminal prior instance does not block) | `UNIT` (engine) | [`workflow_app/tests/re-supermodel.test.ts`](workflow_app/tests/re-supermodel.test.ts) test N |
 | 7 | Task materialization idempotency (unique correlation, no duplicate canonical task) | `APPLICATION INTEGRATION` | [`workflow_app/tests/materialization.test.ts`](workflow_app/tests/materialization.test.ts) + live `materializedTasks: 0` on re-reconcile |
 | 8 | Engine/canonical task 1:1 correlation | `APPLICATION INTEGRATION` | [`workflow_app/tests/task-completion.test.ts`](workflow_app/tests/task-completion.test.ts) (new) + live `duplicate_correlations: 0` |
-| 9 | Immutable deployed definition | `UNIT` | [`workflow_app/tests/version-policy.test.ts`](workflow_app/tests/version-policy.test.ts) |
+| 9 | Immutable deployed definition (ENG-12) | `UNIT` | [`workflow_app/tests/version-policy.test.ts`](workflow_app/tests/version-policy.test.ts) — `classifyDeploy` rejects any write to a version with instances, even byte-identical content |
 | 10 | Join waits for all required branches; releases exactly once | `UNIT` (engine) | [`workflow_engine/tests/hardening.test.ts`](workflow_engine/tests/hardening.test.ts) + live single `token.joined` event |
 | 11 | Blocker / resolution loop (blocker prevents completion; resolution continues) | `UNIT` (engine) | [`workflow_app/tests/re-supermodel.test.ts`](workflow_app/tests/re-supermodel.test.ts) tests E/F + live inspection issue → resolve |
 | 12 | Closing-date reschedule (same instance, same job reused, no duplicate) | `APPLICATION INTEGRATION` | [`workflow_app/tests/closing-timer.test.ts`](workflow_app/tests/closing-timer.test.ts) (test F added) + live job `5f1da76c` rescheduled |
@@ -46,6 +46,10 @@ pnpm test
 | 14 | Post-close continuation (deal.stage closed while workflow continues recording) | `UNIT` (engine) | [`workflow_app/tests/re-supermodel.test.ts`](workflow_app/tests/re-supermodel.test.ts) test L1 + live `recording` task after `deal.stage=closed` |
 | 15 | Terminal invariant sweep (no active tokens/tasks/jobs, no duplicate/orphan correlations, one active instance per subject) | `GLOBAL INVARIANT` | [`workflow_app/anomaly-core.ts`](workflow_app/anomaly-core.ts) dependency-injected detectors + [`workflow_app/tests/anomaly-core.test.ts`](workflow_app/tests/anomaly-core.test.ts) (8 durable tests, no DB); live sweep against DEV remains an operational marker |
 | 16 | Duplicate command replay (no double-mutate) | `APPLICATION INTEGRATION` | [`workflow_app/tests/acceptance.test.ts`](workflow_app/tests/acceptance.test.ts), [`workflow_app/tests/deal-closing-date.test.ts`](workflow_app/tests/deal-closing-date.test.ts) + live `replayed: true` date unchanged |
+| 17 | Instance pinning across newer deployments (new instances use the newest version; running instances stay on their exact definition_id) | `UNIT` (engine) | [`workflow_app/tests/versioning.test.ts`](workflow_app/tests/versioning.test.ts) — newest-version resolution + pinning tests |
+| 18 | Removed / renamed nodes are safe for running instances (affect only new definitions) | `UNIT` (engine) | [`workflow_app/tests/versioning.test.ts`](workflow_app/tests/versioning.test.ts) — a v1 instance completes through a node that v2 removed; v1 task names preserved under a v2 rename |
+| 19 | Rollback-as-new-version + all deployed versions remain available | `UNIT` (engine + pure) | [`workflow_app/tests/versioning.test.ts`](workflow_app/tests/versioning.test.ts) (v3 = v1 graph, new row, all versions usable) + [`workflow_app/tests/compatibility.test.ts`](workflow_app/tests/compatibility.test.ts) (`isRollbackDeployment`, `rollback` diagnostic) |
+| 20 | Compatibility diagnostics (added/removed/renamed/changed nodes, migration unsupported) | `UNIT` | [`workflow_app/tests/compatibility.test.ts`](workflow_app/tests/compatibility.test.ts) — pure diff + impact statements + explicit no-migration statement |
 
 ## Notes
 
