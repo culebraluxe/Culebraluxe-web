@@ -1,4 +1,5 @@
 import { sql } from './client'
+import type { QueryExecutor } from './query-executor'
 
 import { normalizeEmail, normalizePhone } from '@/lib/crm-intake-normalization'
 
@@ -63,9 +64,11 @@ type IdentityRow = {
   identity_value: string
 }
 
-export async function getIdentityQuality(): Promise<IdentityQualitySnapshot> {
+export async function getIdentityQuality(
+  execute: QueryExecutor = sql,
+): Promise<IdentityQualitySnapshot> {
   const [personRows, typeRows, identityRows] = await Promise.all([
-    sql`
+    execute`
       select
         p.id,
         p.display_name,
@@ -101,13 +104,16 @@ export async function getIdentityQuality(): Promise<IdentityQualitySnapshot> {
       group by p.id, p.display_name, p.role, p.status
       order by p.display_name asc
     `,
-    sql`
-      select identity_type, count(*)::int as count
-      from person_identity
-      group by identity_type
+    execute`
+      select pi.identity_type, count(*)::int as count
+      from person_identity pi
+      join person p
+        on p.id = pi.person_id
+      where p.archived_at is null
+      group by pi.identity_type
       order by count desc
     `,
-    sql`
+    execute`
       select
         pi.person_id,
         p.display_name as person_name,

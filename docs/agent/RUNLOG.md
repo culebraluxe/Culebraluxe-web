@@ -1,5 +1,15 @@
 # Agent Run Log
 
+## 2026-08-22 — CRM-18 Contact / Identity Quality (read-side hardening)
+
+- Role: Builder
+- Story: CRM-18 — Contact / Identity Quality. Story Board record (DEV): Partial/85, note "Coverage gaps, malformed identities and weak-contact diagnostics exist. Real contact import/ingestion remains." The read-only diagnostics already existed (`db/identity-quality.ts`, `/portal/identity-quality` page + component + nav); this run hardened the changed seam.
+- Files changed: `db/identity-quality.ts` (determinism fix + testable seam), `workflow_app/tests/identity-quality.test.ts` (new — 5 targeted unit tests, zero Neon), `docs/agent/RUNLOG.md` (this entry).
+- Decision: `identityCountByType` counted ALL `person_identity` rows including archived people's identities while every other metric in the snapshot filters `archived_at is null` — a real determinism inconsistency in a projection whose contract is "deterministic gaps". Fixed the type-count query to join `person` and filter `archived_at is null`, matching the coverage/weak-coverage/malformed queries. Also injected an optional `QueryExecutor` (repo pattern, default `sql`) so the pure derivation logic is unit-testable without Neon; the portal page call site is unchanged (`getIdentityQuality()`).
+- Verification (SCOPED policy): new `workflow_app/tests/identity-quality.test.ts` 5/5 pass (coverage metrics, malformed email/phone flags via the strict normalization rules, weak-coverage filter, type distribution + structural-duplicate note, archived-exclusion SQL shape). Live DEV read-only run of `getIdentityQuality()` still returns the same snapshot after the change (4 people / 4 email / 4 phone, zero gaps on current fixtures). `pnpm exec tsc --noEmit` clean (exit 0). `git diff --check` clean. No build run — only a db module + tests changed, and tsc covers the touched TypeScript.
+- Scope boundary: "real contact import/ingestion remains" is still true and intentionally NOT implemented here — the module contract explicitly forbids merges/creation/fuzzy matching/Apple Contacts, and no import/ingestion acceptance criteria are recorded on the story. The story stays Partial; completion is a human board decision.
+- Confirmation: NO PUSH. NO PRODUCTION MUTATION (read-only DEV queries only). No schema change. Only the two CRM-18 files committed; unrelated in-flight working-tree changes left untouched.
+
 ## 2026-08-22 — AUTH-00B Security Administration UI Foundation (reconciliation)
 
 - Role: Builder
