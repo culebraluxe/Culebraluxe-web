@@ -230,13 +230,13 @@ export async function listFormInstances(
   const rows = await q`
     select f.id, f.template_id, f.template_version, f.deal_id, f.status,
       f.field_values, f.sections, f.created_by_user_id, f.created_at, f.updated_at,
-      d.name as deal_label,
+      null as deal_label,
       p.name as property_label,
       c.display_name as client_name
     from document_form_instance f
     left join deal d on d.id = f.deal_id
     left join property p on p.id = d.property_id
-    left join person c on c.id = d.client_id
+    left join person c on c.id = d.client_person_id
     order by f.updated_at desc, f.id
   `
   return rows.map((row) => ({

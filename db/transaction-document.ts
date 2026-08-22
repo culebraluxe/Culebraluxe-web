@@ -531,7 +531,7 @@ export async function listIssuedDocuments(
       u.display_name as issued_by_display_name,
       p.display_name as party_name,
       pr.name as property_name,
-      d.name as deal_name,
+      null as deal_name,
       td.created_at
     from transaction_document td
     left join app_user u on u.id = td.prepared_by_user_id
@@ -540,16 +540,12 @@ export async function listIssuedDocuments(
     left join property pr on pr.id = d.property_id
     where td.source = 'generated'
       and td.template_id is not null
-      ${
-        actor && actor.accountType === 'external' && actor.personId
-          ? `and td.deal_id in (
-               select dp.deal_id from deal_participant dp
-               where dp.person_id = ${actor.personId} and dp.ended_at is null
-             )`
-          : actor && actor.accountType === 'external'
-            ? 'and false'
-            : ''
-      }
+      and (${!(actor?.accountType === 'external')} is true
+           or td.deal_id in (
+             select dp.deal_id from deal_participant dp
+             where dp.person_id = ${actor?.personId ?? null}
+               and dp.ended_at is null
+           ))
     order by td.created_at desc, td.id
   `
   return rows.map((row) => ({

@@ -175,7 +175,7 @@ function makeExecutor(state: FakeState): QueryExecutor {
       state.supersededCalls += 1
       return []
     }
-    if (sql.includes('from deal_participant')) {
+    if (sql.includes('from deal_participant') && sql.includes("role = 'client'")) {
       return state.partyPersonId ? [{ person_id: state.partyPersonId }] : []
     }
     if (sql.includes('insert into transaction_document')) {
