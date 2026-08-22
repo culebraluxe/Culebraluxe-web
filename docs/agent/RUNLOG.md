@@ -1,5 +1,15 @@
 # Agent Run Log
 
+## 2026-08-22 — AUTH-00B Security Administration UI Foundation (reconciliation)
+
+- Role: Builder
+- Story: AUTH-00B — Security Administration UI Foundation (RECONCILIATION, intentionally Partial; record 60%).
+- Files changed: `db/migrations/046_storyboard_auth00b.sql` (new — Story Board record for AUTH-00B: status Partial, completion 60, rollup true; idempotent insert, existing row keeps human status/completion), `docs/agent/RUNLOG.md` (this entry). Applied 046 to the disposable DEV branch; DEV board now shows AUTH-00B Partial/60.
+- Decision: The Portal's Users/Roles/Authorities administration is not starting from zero. Inventory (verified on the DEV branch 2026-08-22): `/portal/settings` hub (+ Security Status + Break-glass panels), `/portal/settings/users`, `/portal/settings/roles`, `/portal/settings/authorities` render canonical app_user/role/authority data server-side via `db/settings-auth.ts` (getSettingsUsers/Roles/Authorities), `db/auth-status.ts` (getSecurityStatus), `lib/auth/break-glass-readiness.ts`. AUTH-02 read seams present: settings layout requires `settings.read` server-side (`app/portal/settings/layout.tsx` via resolvePortalAccess), middleware route policy maps `/portal/settings*` → `settings.read` (`lib/auth/route-policy.ts`), sidebar nav hides Settings without `settings.read` (`portal-navigation.ts`). AUTH-03: surfaces are READ-ONLY — no server action mutates users/roles/authorities; `settings.manage` exists only as a future mutation authority (`docs/auth-command-map.md`); no settings write path exists to verify. AUTH-05: durable actor/action audit exists for other admin writes (migrations 033/038/039), but no settings-management writes exist, so no settings audit trail is claimed. Explicitly outside the 60%: every-button/write-path audit of the administration UI; `settings.manage` mutations (assign roles, manage roles/authorities); enforcement claims beyond the read surfaces; AUTH-05 audit coverage of settings mutations. NOT marked Complete — unverified mutation/enforcement stays with the real AUTH stories.
+- Verification: settings read projections exercised against the DEV branch (1 user / 4 roles / 9 authorities; Security Status + Break-glass readiness resolve). Targeted adjacent suites green: `workflow_app/tests/persistence/auth-02.test.ts` 23/23 and `workflow_app/tests/persistence/auth-03.test.ts` 14/14 (route policy, middleware matrix, settings.read server-side guard, nav filtering, every write action gated — settings has none). tunit- fixtures cleaned; zero leftovers. `git diff --check` clean. No TypeScript/UI code changed, so no build required under the scoped policy.
+- Next action: human review of the Partial/60 record; the real AUTH stories own settings.manage mutations and enforcement audit.
+- Confirmation: NO PUSH. NO PRODUCTION MUTATION (DEV branch only). No schema change (storyboard_story unchanged).
+
 ## 2026-08-21 — Autonomous worker telemetry and run lifecycle repair
 
 - Role: Builder
