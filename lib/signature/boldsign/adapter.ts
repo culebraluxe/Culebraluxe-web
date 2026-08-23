@@ -162,8 +162,7 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       signerType: (recipient.role === 'approver' ? 'Reviewer' : 'Signer') as
         | 'Signer'
         | 'Reviewer',
-      roleIndex: recipient.order,
-      order: recipient.order,
+      signerOrder: recipient.order,
     }))
 
     try {

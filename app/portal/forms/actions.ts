@@ -20,6 +20,7 @@ import {
   getMediaBytes,
 } from '@/db/issued-document'
 import { getActiveSignatureRequestForDocument } from '@/db/signature-request'
+import { getBoldSignRequestBySignatureRequestId } from '@/db/bold-sign-request'
 import { getTemplate } from '@/lib/forms/template-registry'
 import { applyGrokFields, requestGrokFormFill } from '@/lib/forms/grok-fill'
 import {
@@ -76,6 +77,27 @@ function outcomeCode(outcome: CommandOutcome): 'validation' | 'conflict' | 'not-
   if (outcome === 'conflict') return 'conflict'
   if (outcome === 'not_found') return 'not-found'
   return 'unknown'
+}
+
+/**
+ * Build a safe, user-facing message for a BoldSign/provider send failure.
+ * Redacts anything that could look like a credential (belt-and-suspenders; the
+ * provider error already omits secrets by design) and truncates to a short
+ * excerpt so the STATUS panel surfaces the actionable detail (e.g. the BoldSign
+ * HTTP status) without exposing raw stack traces or sensitive payloads.
+ */
+function describeSignatureFailure(detail: string | null | undefined): string {
+  if (!detail) return 'Could not send document for signature. Please try again.'
+  const redacted = detail
+    .replace(/(api[_-]?key|secret|token|bearer)\s*[=:]\s*\S+/gi, '$1=***')
+    .replace(/\b[0-9a-f]{32,}\b/gi, '***')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const http = redacted.match(/HTTP\s+(\d{3})/)
+  const excerpt = redacted.length > 140 ? `${redacted.slice(0, 140)}…` : redacted
+  return http
+    ? `Could not send document for signature. BoldSign returned HTTP ${http[1]}. ${excerpt}`
+    : `Could not send document for signature. ${excerpt}`
 }
 
 async function authorizedFormWrite<T>(
@@ -398,23 +420,20 @@ export async function sendFormForSignatureAction(
       const detail = error instanceof Error ? error.message : ''
       console.error('Signature send failed.', detail || error)
       if (detail.includes('BoldSign config is incomplete')) {
+        const keysMatch = detail.match(/keys:\s*([^.\n]+)/)
+        const keys = keysMatch ? keysMatch[1].trim() : 'check Vercel env'
         return fail(
           'unknown',
-          'Signature sending is not configured on this server. Add the BoldSign keys and restart, then try again.',
+          `Signature sending is not configured on this server. Missing BoldSign env key(s): ${keys}. Add them in Vercel (Production scope) and redeploy.`,
         )
       }
-      return fail(
-        'unknown',
-        'Could not send document for signature. Please try again.',
-      )
+      return fail('unknown', describeSignatureFailure(detail))
     }
 
     if (sendResult.outcome !== 'success') {
       return fail(
         outcomeCode(sendResult.outcome),
-        sendResult.message && !sendResult.message.toLowerCase().includes('boldsign')
-          ? sendResult.message
-          : 'Could not send document for signature. Please try again.',
+        describeSignatureFailure(sendResult.message ?? ''),
       )
     }
 
@@ -423,9 +442,12 @@ export async function sendFormForSignatureAction(
     )?.signatureRequest
     const status = request?.status ?? 'sent'
     if (status === 'error') {
+      const providerRow = request?.id
+        ? await getBoldSignRequestBySignatureRequestId(request.id)
+        : null
       return fail(
         'unknown',
-        'Could not send document for signature. Please try again.',
+        describeSignatureFailure(providerRow?.lastError ?? ''),
       )
     }
 

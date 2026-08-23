@@ -42,16 +42,18 @@ export type BoldSignSendEnvelopeInput = {
 }
 
 /**
- * A signer for DIRECT document send. `roleIndex` links a signer to the form
- * fields tagged with that role in the uploaded PDF; `order` drives signing order
- * when `enableSigningOrder` is set. Provider-specific — never crosses the seam.
+ * A signer for DIRECT document send. Matches BoldSign's `DocumentSigner` model
+ * exactly: `signerOrder` drives signing order (there is no `roleIndex` field;
+ * the model binds strictly with additionalProperties=false, so sending an
+ * unknown field like `roleIndex` makes BoldSign reject the whole `signers`
+ * array with HTTP 400 "Value is invalid"). Provider-specific — never crosses
+ * the seam.
  */
 export type BoldSignDirectSigner = {
   name: string
   emailAddress: string
   signerType: BoldSignSignerType
-  roleIndex: number
-  order?: number
+  signerOrder: number
 }
 
 export type BoldSignSendDocumentInput = {
@@ -144,8 +146,7 @@ export class BoldSignClient {
           name: signer.name,
           emailAddress: signer.emailAddress,
           signerType: signer.signerType,
-          roleIndex: signer.roleIndex,
-          ...(input.enableSigningOrder ? { order: signer.order } : {}),
+          signerOrder: signer.signerOrder,
         })),
       ),
     )
