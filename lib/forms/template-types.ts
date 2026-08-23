@@ -31,6 +31,9 @@ export type TemplateFieldBinding =
   | 'deal.offer.amount'
   | 'deal.financing.type'
   | 'deal.closing.date'
+  | 'person.displayName'
+  | 'property.name'
+  | 'property.location'
   | null
 
 export type TemplateFieldDefinition = {

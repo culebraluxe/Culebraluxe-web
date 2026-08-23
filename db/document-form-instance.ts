@@ -17,7 +17,9 @@ export type FormInstance = {
   id: string
   templateId: string
   templateVersion: number
-  dealId: string
+  dealId: string | null
+  personId: string | null
+  propertyId: string | null
   status: FormInstanceStatus
   fieldValues: Record<string, string>
   sections: Record<string, string>
@@ -30,7 +32,9 @@ export type FormInstanceRow = QueryRow & {
   id: string
   template_id: string
   template_version: number
-  deal_id: string
+  deal_id: string | null
+  person_id: string | null
+  property_id: string | null
   status: string
   field_values: unknown
   sections: unknown
@@ -44,7 +48,9 @@ function mapFormInstance(row: FormInstanceRow): FormInstance {
     id: row.id,
     templateId: row.template_id,
     templateVersion: Number(row.template_version),
-    dealId: row.deal_id,
+    dealId: row.deal_id ?? null,
+    personId: row.person_id ?? null,
+    propertyId: row.property_id ?? null,
     status: row.status as FormInstanceStatus,
     fieldValues: (row.field_values ?? {}) as Record<string, string>,
     sections: (row.sections ?? {}) as Record<string, string>,
@@ -67,7 +73,9 @@ async function executor(): Promise<QueryExecutor> {
 export type CreateFormInstanceInput = {
   templateId: string
   templateVersion: number
-  dealId: string
+  dealId?: string | null
+  personId?: string | null
+  propertyId?: string | null
   fieldValues: Record<string, string>
   sections: Record<string, string>
   createdByUserId?: string | null
@@ -80,22 +88,29 @@ export async function createFormInstance(
   if (!input.templateId.trim()) {
     throw new PortalWriteError('validation', 'templateId is required.')
   }
-  if (!input.dealId.trim()) {
-    throw new PortalWriteError('validation', 'dealId is required.')
+  const dealId = input.dealId?.trim() || null
+  const personId = input.personId?.trim() || null
+  const propertyId = input.propertyId?.trim() || null
+  if (!dealId && !personId && !propertyId) {
+    throw new PortalWriteError(
+      'validation',
+      'A deal, client, or property is required.',
+    )
   }
   const q = execute ?? (await executor())
   const rows = await q`
     insert into document_form_instance (
-      template_id, template_version, deal_id, field_values, sections,
-      created_by_user_id
+      template_id, template_version, deal_id, person_id, property_id,
+      field_values, sections, created_by_user_id
     ) values (
-      ${input.templateId}, ${input.templateVersion}, ${input.dealId},
+      ${input.templateId}, ${input.templateVersion}, ${dealId},
+      ${personId}, ${propertyId},
       ${JSON.stringify(input.fieldValues)}::jsonb,
       ${JSON.stringify(input.sections)}::jsonb,
       ${input.createdByUserId ?? null}
     )
-    returning id, template_id, template_version, deal_id, status,
-      field_values, sections, created_by_user_id, created_at, updated_at
+    returning id, template_id, template_version, deal_id, person_id, property_id,
+      status, field_values, sections, created_by_user_id, created_at, updated_at
   `
   const row = rows[0] as FormInstanceRow | undefined
   if (!row) {
@@ -111,7 +126,7 @@ export async function getFormInstance(
 ): Promise<FormInstance | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select id, template_id, template_version, deal_id, status,
+    select id, template_id, template_version, deal_id, person_id, property_id, status,
       field_values, sections, created_by_user_id, created_at, updated_at
     from document_form_instance
     where id = ${id}
@@ -145,7 +160,7 @@ export async function updateFormInstance(
           then status else ${input.status ?? 'draft'} end,
         updated_at = now()
     where id = ${id}
-    returning id, template_id, template_version, deal_id, status,
+    returning id, template_id, template_version, deal_id, person_id, property_id, status,
       field_values, sections, created_by_user_id, created_at, updated_at
   `
   const row = rows[0] as FormInstanceRow | undefined
@@ -166,6 +181,9 @@ export type DealFormFacts = {
   offerAmount: string | null
   financingType: string | null
   closingDate: string | null
+  personDisplayName?: string | null
+  propertyName?: string | null
+  propertyLocation?: string | null
 }
 
 /**
@@ -204,6 +222,9 @@ export async function getDealFormFacts(
   const rawFinancing = row.financing_type as string | null
   return {
     clientName: (row.client_name as string | null) ?? null,
+    personDisplayName: (row.client_name as string | null) ?? null,
+    propertyName: (row.property_name as string | null) ?? null,
+    propertyLocation: (row.property_location as string | null) ?? null,
     propertyLabel: (row.property_name as string | null) ?? null,
     offerAmount:
       row.offer_price === null || row.offer_price === undefined
@@ -223,20 +244,59 @@ export async function getDealFormFacts(
 }
 
 
+const ROLE_MAP: Record<string, string> = {
+  client: 'BUYER',
+  seller: 'SELLER',
+  owner: 'SELLER_BROKER',
+}
+
+export async function seedFormParticipantsFromDeal(
+  formInstanceId: string,
+  dealId: string,
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select dp.role, dp.person_id, coalesce(person.display_name, dp.role) as display_name
+    from deal_participant dp
+    left join person on person.id = dp.person_id
+    where dp.deal_id = ${dealId}
+      and dp.active = true
+    order by dp.created_at asc
+  `
+  let order = 0
+  for (const row of rows) {
+    const role = ROLE_MAP[String(row.role)] ?? 'OTHER'
+    await q`
+      insert into document_form_participant (form_instance_id, role, person_id, display_name, sort_order)
+      values (
+        ${formInstanceId},
+        ${role},
+        ${row.person_id ? String(row.person_id) : null},
+        ${String(row.display_name)},
+        ${order}
+      )
+    `
+    order += 1
+  }
+}
+
 export async function listFormInstances(
   execute?: QueryExecutor,
 ): Promise<FormInstanceListItem[]> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select f.id, f.template_id, f.template_version, f.deal_id, f.status,
+    select f.id, f.template_id, f.template_version, f.deal_id, f.person_id, f.property_id, f.status,
       f.field_values, f.sections, f.created_by_user_id, f.created_at, f.updated_at,
       null as deal_label,
-      p.name as property_label,
-      c.display_name as client_name
+      coalesce(p.name, fp.name) as property_label,
+      coalesce(c.display_name, person.display_name) as client_name
     from document_form_instance f
     left join deal d on d.id = f.deal_id
     left join property p on p.id = d.property_id
     left join person c on c.id = d.client_person_id
+    left join person on person.id = f.person_id
+    left join property fp on fp.id = f.property_id
     order by f.updated_at desc, f.id
   `
   return rows.map((row) => ({

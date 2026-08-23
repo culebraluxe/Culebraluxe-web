@@ -20,6 +20,9 @@ export type DealFactsForForm = {
   offerAmount: string | null
   financingType: string | null
   closingDate: string | null
+  personDisplayName?: string | null
+  propertyName?: string | null
+  propertyLocation?: string | null
 }
 
 export function emptyDealFacts(): DealFactsForForm {
@@ -29,6 +32,9 @@ export function emptyDealFacts(): DealFactsForForm {
     offerAmount: null,
     financingType: null,
     closingDate: null,
+    personDisplayName: null,
+    propertyName: null,
+    propertyLocation: null,
   }
 }
 
@@ -48,6 +54,12 @@ export function resolveBinding(
       return facts.financingType
     case 'deal.closing.date':
       return facts.closingDate
+    case 'person.displayName':
+      return facts.personDisplayName ?? facts.clientName
+    case 'property.name':
+      return facts.propertyName ?? facts.propertyLabel
+    case 'property.location':
+      return facts.propertyLocation ?? null
     default:
       return null
   }

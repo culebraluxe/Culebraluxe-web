@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 
 import { getFormInstance } from "@/db/document-form-instance"
 import { getTemplate } from "@/lib/forms/template-registry"
-import { OfferLetterForm } from "@/components/portal/forms/offer-letter-form"
+import { FormEditor } from "@/components/portal/forms/form-editor"
 
 export const dynamic = "force-dynamic"
 
@@ -18,13 +18,12 @@ export default async function FormPage({
   if (!template) notFound()
 
   return (
-    <OfferLetterForm
+    <FormEditor
       form={{
         id: form.id,
         status: form.status,
         fieldValues: form.fieldValues,
         sections: form.sections,
-        dealId: form.dealId,
       }}
       template={template}
     />

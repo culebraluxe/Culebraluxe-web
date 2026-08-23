@@ -63,7 +63,7 @@ export type TransactionDocumentSource = (typeof TRANSACTION_DOCUMENT_SOURCES)[nu
 
 export type TransactionDocument = {
   id: string
-  dealId: string
+  dealId: string | null
   documentType: TransactionDocumentType
   documentTypeLabel: string | null
   title: string | null
@@ -90,7 +90,7 @@ export type TransactionDocument = {
 
 type TransactionDocumentRow = QueryRow & {
   id: string
-  deal_id: string
+  deal_id: string | null
   document_type: string
   document_type_label: string | null
   title: string | null
@@ -136,7 +136,7 @@ function dateOrNull(value: unknown): string | null {
 function mapTransactionDocument(row: TransactionDocumentRow): TransactionDocument {
   return {
     id: row.id,
-    dealId: row.deal_id,
+    dealId: row.deal_id ?? null,
     documentType: row.document_type as TransactionDocumentType,
     documentTypeLabel: row.document_type_label ?? null,
     title: row.title ?? null,
@@ -183,7 +183,7 @@ function validateSignedPair(
 }
 
 export type CreateTransactionDocumentInput = {
-  dealId: string
+  dealId?: string | null
   documentType: string
   documentTypeLabel?: string | null
   title?: string | null
@@ -216,8 +216,13 @@ export async function createTransactionDocument(
   input: CreateTransactionDocumentInput,
   execute?: QueryExecutor,
 ): Promise<TransactionDocument> {
-  if (!input.dealId.trim()) {
-    throw new PortalWriteError('validation', 'dealId is required.')
+  const dealId = input.dealId?.trim() || null
+  const partyPersonId = input.partyPersonId?.trim() || null
+  if (!dealId && !partyPersonId) {
+    throw new PortalWriteError(
+      'validation',
+      'A deal or party person is required.',
+    )
   }
   if (!TRANSACTION_DOCUMENT_TYPES.includes(input.documentType as TransactionDocumentType)) {
     throw new PortalWriteError(
@@ -290,7 +295,7 @@ export async function createTransactionDocument(
       issued_checksum_sha256, template_id, template_version, source_snapshot,
       issued_version, form_instance_id
     ) values (
-      ${input.dealId}, ${input.documentType}, ${input.documentTypeLabel ?? null},
+      ${dealId}, ${input.documentType}, ${input.documentTypeLabel ?? null},
       ${input.title ?? null}, ${state}, ${input.source},
       ${input.sourceSystem ?? null}, ${input.sourceExternalId ?? null},
       ${input.preparedByUserId ?? null}, ${input.partyPersonId ?? null},
@@ -323,7 +328,7 @@ export async function createTransactionDocument(
       template_version, source_snapshot, issued_version, form_instance_id,
       created_at, updated_at
     from transaction_document
-    where deal_id = ${input.dealId}
+    where deal_id is not distinct from ${dealId}
       and source_system = ${input.sourceSystem ?? null}
       and source_external_id = ${input.sourceExternalId ?? null}
     order by created_at asc, id

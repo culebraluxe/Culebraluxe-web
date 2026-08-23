@@ -6,9 +6,11 @@ import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'
 import { executeCommand } from '@/lib/commands'
 import { DOCUMENT_ISSUE } from '@/lib/commands/command-types'
+import { SIGNATURE_REQUEST_SEND } from '@/lib/commands/command-types'
 import type { CommandOutcome } from '@/lib/workflow/contracts'
-import { getTemplate, OFFER_LETTER_TEMPLATE_ID } from '@/lib/forms/template-registry'
+import { getTemplate } from '@/lib/forms/template-registry'
 import {
+  emptyDealFacts,
   emptySectionValues,
   prefillFieldValues,
 } from '@/lib/forms/offer-letter-data'
@@ -16,6 +18,7 @@ import {
   createFormInstance,
   getDealFormFacts,
   getFormInstance,
+  seedFormParticipantsFromDeal,
   updateFormInstance,
 } from '@/db/document-form-instance'
 import { PortalWriteError } from '@/lib/portal-write-error'
@@ -65,21 +68,58 @@ function outcomeCode(outcome: CommandOutcome): 'validation' | 'conflict' | 'not-
 export async function createOfferLetterFormAction(
   dealId: string,
 ): Promise<FormActionResult<{ formId: string }>> {
+  return createFormAction({ templateId: 'OFFER-01', dealId })
+}
+
+export async function createFormAction(input: {
+  templateId: string
+  dealId?: string
+  personId?: string
+  propertyId?: string
+}): Promise<FormActionResult<{ formId: string }>> {
   return runAuthorized(getPortalSessionAdapter(), 'deal.write', async (actor) => {
-    if (!dealId.trim()) return fail('validation', 'A deal must be selected.')
-    const template = getTemplate(OFFER_LETTER_TEMPLATE_ID)
-    if (!template) return fail('validation', 'Offer Letter template not found.')
-    const facts = await getDealFormFacts(dealId)
-    if (!facts) return fail('not-found', 'Deal not found.')
+    const template = getTemplate(input.templateId)
+    if (!template) return fail('validation', 'Template not found.')
+    const dealId = input.dealId?.trim() || null
+    const personId = input.personId?.trim() || null
+    const propertyId = input.propertyId?.trim() || null
+    if (!dealId && !personId && !propertyId) {
+      return fail('validation', 'Select a deal, client, or property.')
+    }
+    let facts = emptyDealFacts()
+    if (dealId) {
+      const dealFacts = await getDealFormFacts(dealId)
+      if (!dealFacts) return fail('not-found', 'Deal not found.')
+      facts = dealFacts
+    } else {
+      const { sql } = await import('@/db/client')
+      if (personId) {
+        const rows = await sql`select display_name from person where id = ${personId} limit 1`
+        const name = rows[0]?.display_name ? String(rows[0].display_name) : null
+        facts.personDisplayName = name
+        facts.clientName = name
+      }
+      if (propertyId) {
+        const rows = await sql`select name, location from property where id = ${propertyId} limit 1`
+        facts.propertyName = rows[0]?.name ? String(rows[0].name) : null
+        facts.propertyLocation = rows[0]?.location ? String(rows[0].location) : null
+        facts.propertyLabel = facts.propertyName
+      }
+    }
     try {
       const instance = await createFormInstance({
         templateId: template.id,
         templateVersion: template.version,
         dealId,
+        personId,
+        propertyId,
         fieldValues: prefillFieldValues(template, facts),
         sections: emptySectionValues(template),
         createdByUserId: actor.appUserId,
       })
+      if (dealId) {
+        await seedFormParticipantsFromDeal(instance.id, dealId)
+      }
       revalidatePath('/portal/forms')
       return ok({ formId: instance.id })
     } catch (e) {
@@ -118,7 +158,7 @@ export async function issueFormAction(
       commandType: DOCUMENT_ISSUE,
       actorAppUserId: actor.appUserId,
       aggregateType: 'transaction_document',
-      aggregateId: form.dealId,
+      aggregateId: form.dealId ?? form.id,
       correlationId: null,
       causationId: null,
       requestedAt: new Date().toISOString(),
@@ -141,6 +181,45 @@ export async function issueFormAction(
     return fail(
       outcomeCode(result.outcome),
       result.message ?? 'Could not issue the document.',
+    )
+  })
+}
+
+export async function sendIssuedFormForSignatureAction(
+  documentId: string,
+): Promise<FormActionResult<{ signatureRequestId: string }>> {
+  return runAuthorized(getPortalSessionAdapter(), 'deal.write', async (actor) => {
+    if (!documentId.trim()) return fail('validation', 'documentId is required.')
+    const result = await executeCommand({
+      commandId: crypto.randomUUID(),
+      commandType: SIGNATURE_REQUEST_SEND,
+      actorAppUserId: actor.appUserId,
+      aggregateType: 'signature_request',
+      aggregateId: documentId,
+      correlationId: null,
+      causationId: null,
+      requestedAt: new Date().toISOString(),
+      input: {
+        transactionDocumentId: documentId,
+        recipients: [
+          {
+            role: 'signer',
+            name: 'Document party',
+            email: 'party@culebraluxe.com',
+            order: 1,
+          },
+        ],
+      },
+    })
+    if (result.outcome === 'success') {
+      revalidatePath('/portal/documents')
+      return ok({
+        signatureRequestId: String(result.aggregateId ?? documentId),
+      })
+    }
+    return fail(
+      outcomeCode(result.outcome),
+      result.message ?? 'Could not send for signature.',
     )
   })
 }

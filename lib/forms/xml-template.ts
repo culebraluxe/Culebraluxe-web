@@ -49,6 +49,9 @@ const BINDINGS: readonly string[] = [
   'deal.offer.amount',
   'deal.financing.type',
   'deal.closing.date',
+  'person.displayName',
+  'property.name',
+  'property.location',
 ]
 
 const KNOWN_FORM_CHILDREN = new Set(['field', 'section', 'participants', 'signatures'])

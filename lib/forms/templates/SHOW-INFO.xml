@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form
+  id="SHOW-INFO"
+  version="1"
+  title="OFFER / SHOWING INFORMATION"
+  documentType="Offer / Showing Information"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+  </participants>
+
+  <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
+  <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
+  <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
+  <field id="showingDate" label="Showing Date" type="date" required="true"/>
+  <field id="showingTime" label="Showing Time" type="text"/>
+  <field id="offerAmount" label="Intended Offer" type="money" source="deal.offer.amount"/>
+  <field id="financing" label="Financing" type="select" options="Cash, Financed" source="deal.financing.type"/>
+  <field id="occupants" label="Number Attending" type="text"/>
+
+  <section id="purpose" title="Purpose" editable="false">
+    This information sheet records a showing of <value field="property"/>
+    for <value field="buyerName"/> on <value field="showingDate"/>
+    at <value field="showingTime"/>.
+  </section>
+
+  <section id="access" title="Access and Conditions" editable="true">
+    Access instructions, occupancy, pets, alarm, and conditions of the visit.
+  </section>
+
+  <section id="interest" title="Buyer Interest" editable="true">
+    Note the buyer's reaction, intended offer amount, financing, and next step.
+  </section>
+
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName"/>
+    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="buyerBrokerName"/>
+  </signatures>
+</form>

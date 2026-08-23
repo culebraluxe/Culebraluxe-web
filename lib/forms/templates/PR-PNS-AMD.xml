@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form
+  id="PR-PNS-AMD"
+  version="1"
+  title="AMENDMENT TO PURCHASE AND SALE AGREEMENT"
+  documentType="Purchase and Sale Amendment"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+  </participants>
+
+  <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
+  <field id="sellerName" label="Seller" type="text" required="true"/>
+  <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
+  <field id="originalDate" label="Original Agreement Date" type="date" required="true"/>
+  <field id="amendmentDate" label="Amendment Date" type="date" required="true"/>
+  <field id="purchasePrice" label="Amended Purchase Price" type="money" source="deal.offer.amount"/>
+  <field id="closingDate" label="Amended Closing Date" type="date" source="deal.closing.date"/>
+
+  <section id="recitals" title="Recitals" editable="false">
+    This Amendment is made as of <value field="amendmentDate"/> by
+    <value field="buyerName"/> (Buyer) and <value field="sellerName"/> (Seller)
+    to the Purchase and Sale Agreement dated <value field="originalDate"/>
+    covering the property at <value field="property"/>.
+  </section>
+
+  <section id="amendments" title="Amendments" editable="true">
+    State the specific terms being amended (price, closing date, contingencies,
+    or other negotiated language). Unamended terms remain in full force.
+  </section>
+
+  <section id="remainder" title="Remainder of Agreement" editable="false">
+    Except as expressly amended, the original Agreement remains in full force
+    and effect. This Amendment may be signed in counterparts.
+  </section>
+
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+    <signature-group role="SELLER" label="Seller" field="sellerName" initials="true"/>
+  </signatures>
+</form>

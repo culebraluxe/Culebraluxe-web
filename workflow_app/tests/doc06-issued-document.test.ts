@@ -153,7 +153,8 @@ function makeExecutor(state: FakeState): QueryExecutor {
       const f = state.form
       return [{
         id: f.id, template_id: f.templateId, template_version: f.templateVersion,
-        deal_id: f.dealId, status: f.status, field_values: f.fieldValues,
+        deal_id: f.dealId, person_id: f.personId ?? null, property_id: f.propertyId ?? null,
+        status: f.status, field_values: f.fieldValues,
         sections: f.sections, created_by_user_id: f.createdByUserId,
         created_at: new Date('2026-08-22T00:00:00Z'),
         updated_at: new Date('2026-08-22T00:00:00Z'),
@@ -229,6 +230,8 @@ function formFixture(
     templateId: overrides.templateId ?? 'OFFER-01',
     templateVersion: overrides.templateVersion ?? 1,
     dealId: overrides.dealId ?? 'deal-1',
+    personId: overrides.personId ?? null,
+    propertyId: overrides.propertyId ?? null,
     status: overrides.status ?? 'draft',
     fieldValues: overrides.fieldValues ?? {
       buyerName: 'Jane Buyer',

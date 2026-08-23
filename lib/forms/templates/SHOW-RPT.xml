@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form
+  id="SHOW-RPT"
+  version="1"
+  title="SHOWING REPORT"
+  documentType="Showing Report"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Visitor" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Showing Agent"/>
+  </participants>
+
+  <field id="visitorName" label="Visitor" type="text" required="true" source="person.displayName"/>
+  <field id="agentName" label="Showing Agent" type="text" required="true"/>
+  <field id="property" label="Property" type="text" required="true" source="property.name"/>
+  <field id="showingDate" label="Date" type="date" required="true"/>
+  <field id="duration" label="Duration" type="text"/>
+  <field id="outcome" label="Outcome" type="select" required="true" options="Interested, Second showing, Offer expected, Not a fit"/>
+  <field id="feedbackScore" label="Interest (1-5)" type="text"/>
+
+  <section id="summary" title="Visit" editable="false">
+    Showing of <value field="property"/> on <value field="showingDate"/>
+    with <value field="visitorName"/>, conducted by <value field="agentName"/>.
+    Outcome: <value field="outcome"/>.
+  </section>
+
+  <section id="feedback" title="Feedback" editable="true">
+    Record visitor comments on layout, condition, location, price, and
+    comparable properties.
+  </section>
+
+  <section id="followUp" title="Follow-up" editable="true">
+    Next action, timing, and whether an offer or second showing is expected.
+  </section>
+
+  <signatures>
+    <signature-group role="BUYER_BROKER" label="Showing Agent" field="agentName"/>
+  </signatures>
+</form>

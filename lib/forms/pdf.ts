@@ -218,6 +218,23 @@ class PdfLayout {
  * Deterministic: same input → same bytes. `issuedVersion` is drawn on the
  * document so the printed artifact carries its own lineage label.
  */
+/**
+ * FORMS-01 — the single renderer for preview and issuance.
+ * OFFER-01 keeps its field-centric layout (byte-stable with DOC-08 proofs).
+ * Every other template uses the multi-page document layout.
+ */
+export function renderFormPdf(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+  sections: TemplateSectionValues,
+  issuedVersion: number,
+): Buffer {
+  if (template.id === 'OFFER-01') {
+    return buildOfferLetterPdf(template, values, sections, issuedVersion)
+  }
+  return buildPurchaseSalePdf(template, values, sections, issuedVersion)
+}
+
 export function buildOfferLetterPdf(
   template: TemplateDefinition,
   values: TemplateFieldValues,

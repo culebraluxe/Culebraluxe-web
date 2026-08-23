@@ -15,9 +15,20 @@ import type { TemplateDefinition } from './template-types'
 
 export const OFFER_LETTER_TEMPLATE_ID = 'OFFER-01'
 export const PURCHASE_SALE_TEMPLATE_ID = 'PR-PNS'
+export const PURCHASE_SALE_AMENDMENT_TEMPLATE_ID = 'PR-PNS-AMD'
+export const LISTING_AGREEMENT_TEMPLATE_ID = 'LISTING-01'
+export const SHOWING_INFO_TEMPLATE_ID = 'SHOW-INFO'
+export const SHOWING_REPORT_TEMPLATE_ID = 'SHOW-RPT'
 
 /** The canonical authoring files (relative to the project templates dir). */
-const TEMPLATE_FILES = ['OFFER-01.xml', 'PR-PNS.xml']
+const TEMPLATE_FILES = [
+  'OFFER-01.xml',
+  'PR-PNS.xml',
+  'PR-PNS-AMD.xml',
+  'LISTING-01.xml',
+  'SHOW-INFO.xml',
+  'SHOW-RPT.xml',
+]
 
 function loadTemplates(): TemplateDefinition[] {
   const dir = join(process.cwd(), 'lib', 'forms', 'templates')

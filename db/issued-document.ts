@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 
 import type { CommandResult } from '../lib/workflow/contracts'
 import { getTemplate } from '../lib/forms/template-registry'
-import { buildOfferLetterPdf } from '../lib/forms/pdf'
+import { renderFormPdf } from '../lib/forms/pdf'
 import { validateFormValues } from '../lib/forms/offer-letter-data'
 import { neonTx, type TxRunner } from './tx'
 import {
@@ -183,7 +183,7 @@ export async function issueFormDocument(
     const priorRows = await tx`
       select id, issued_version
       from transaction_document
-      where deal_id = ${form.dealId}
+      where deal_id is not distinct from ${form.dealId}
         and template_id = ${form.templateId}
         and source = 'generated'
         and issued_version is not null
@@ -197,7 +197,7 @@ export async function issueFormDocument(
     const supersedesId = prior?.id ?? null
 
     // Deterministic rendering + checksum BEFORE any irreversible write.
-    const pdfBytes = buildOfferLetterPdf(
+    const pdfBytes = renderFormPdf(
       template,
       form.fieldValues,
       form.sections,
@@ -220,7 +220,9 @@ export async function issueFormDocument(
       `
     }
 
-    const partyPersonId = await resolvePartyPersonId(tx, form.dealId)
+    const partyPersonId =
+      form.personId ??
+      (form.dealId ? await resolvePartyPersonId(tx, form.dealId) : null)
 
     const document = await createTransactionDocument(
       {
