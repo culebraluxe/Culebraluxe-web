@@ -379,21 +379,23 @@ export function FormEditor({
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={working || !dirty}
+              disabled={working}
               onClick={() => {
-                void (async () => {
-                  setError(null)
-                  setBusy(true)
-                  try {
-                    await saveDraft()
-                  } finally {
-                    setBusy(false)
-                  }
-                })()
+                void savePdf()
               }}
               className={primaryButton}
             >
               {working ? "Working…" : "Save"}
+            </button>
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => {
+                void sharePdf()
+              }}
+              className={secondaryButton}
+            >
+              Share PDF
             </button>
             <button
               type="button"
@@ -403,7 +405,9 @@ export function FormEditor({
             >
               Cancel
             </button>
-            {dirty ? (
+            {message ? (
+              <span className="text-xs font-light text-black/45">{message}</span>
+            ) : dirty ? (
               <span className="text-xs font-light text-black/45">
                 Unsaved changes
               </span>
@@ -411,9 +415,8 @@ export function FormEditor({
           </div>
         </section>
 
-        <div className="flex flex-col gap-3 lg:sticky lg:top-4">
-        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:max-h-[calc(100vh-9.5rem)]">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] lg:sticky lg:top-4">
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:h-[calc(100vh-5.5rem)]">
             <p className="text-[9px] font-light uppercase tracking-[0.18em] text-black/40">
               {template.rendering.issuer}
             </p>
@@ -488,32 +491,6 @@ export function FormEditor({
             </div>
           </div>
         </section>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={working}
-            onClick={() => {
-              void savePdf()
-            }}
-            className={primaryButton}
-          >
-            {working ? "Working…" : "Save PDF"}
-          </button>
-          <button
-            type="button"
-            disabled={working}
-            onClick={() => {
-              void sharePdf()
-            }}
-            className={secondaryButton}
-          >
-            Share PDF
-          </button>
-          {message ? (
-            <span className="text-xs font-light text-black/45">{message}</span>
-          ) : null}
-        </div>
-        </div>
       </div>
     </div>
   )
