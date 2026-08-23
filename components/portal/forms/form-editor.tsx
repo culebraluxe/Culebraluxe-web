@@ -37,6 +37,22 @@ function fieldSpanClass(field: { name: string; label: string; type: string }) {
   return "col-span-2"
 }
 
+function sessionLabel(form: {
+  buyerName: string | null
+  sellerName: string | null
+  clientName: string | null
+  propertyLabel: string | null
+  updatedAt: string
+}) {
+  const who = [form.buyerName || form.clientName, form.sellerName]
+    .filter(Boolean)
+    .join(" / ")
+  const date = form.updatedAt.slice(0, 10)
+  return [who || "Untitled", form.propertyLabel, date]
+    .filter(Boolean)
+    .join(" · ")
+}
+
 function initialDetailsText(
   template: TemplateDefinition,
   sections: Record<string, string>,
@@ -77,6 +93,7 @@ export function FormEditor({
   form,
   template,
   templates,
+  savedForms = [],
   issuedDocument = null,
 }: {
   form: {
@@ -91,6 +108,15 @@ export function FormEditor({
   }
   template: TemplateDefinition
   templates: { id: string; displayName: string }[]
+  savedForms?: {
+    id: string
+    templateId: string
+    clientName: string | null
+    propertyLabel: string | null
+    buyerName: string | null
+    sellerName: string | null
+    updatedAt: string
+  }[]
   issuedDocument?: {
     documentId: string
     issuedVersion: number
@@ -121,8 +147,37 @@ export function FormEditor({
     checksum: string
   } | null>(issuedDocument)
   const [busy, setBusy] = useState(false)
+  const [sessionQuery, setSessionQuery] = useState("")
   const working = busy
   const vaultVersion = issued?.issuedVersion ?? null
+  const savedOfType = savedForms.filter(
+    (item) => item.templateId === form.templateId,
+  )
+  const needle = sessionQuery.trim().toLowerCase()
+  const filteredSaved = needle
+    ? savedOfType.filter((item) =>
+        sessionLabel(item).toLowerCase().includes(needle),
+      )
+    : savedOfType
+  const currentSaved = savedOfType.find((item) => item.id === form.id)
+  const visibleSaved =
+    currentSaved && !filteredSaved.some((item) => item.id === form.id)
+      ? [currentSaved, ...filteredSaved]
+      : filteredSaved
+
+  async function startNewForm(templateId: string) {
+    const result = await createFormAction({
+      templateId,
+      dealId: form.dealId ?? undefined,
+      personId: form.personId ?? undefined,
+      propertyId: form.propertyId ?? undefined,
+    })
+    if (result.ok) router.push(`/portal/forms/${result.data.formId}`)
+    else {
+      setError(result.message ?? "Could not start a new form.")
+      setBusy(false)
+    }
+  }
   const signatureGroups =
     template.signatureGroups.length > 0
       ? template.signatureGroups
@@ -265,8 +320,8 @@ export function FormEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <label className="min-w-[16rem] flex-1">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="min-w-[14rem]">
           <span className={labelClass}>Form</span>
           <select
             value={form.templateId}
@@ -274,26 +329,55 @@ export function FormEditor({
             onChange={(event) => {
               const nextTemplateId = event.target.value
               if (nextTemplateId === form.templateId) return
+              const latest = savedForms.find(
+                (item) => item.templateId === nextTemplateId,
+              )
               setBusy(true)
-              void (async () => {
-                const result = await createFormAction({
-                  templateId: nextTemplateId,
-                  dealId: form.dealId ?? undefined,
-                  personId: form.personId ?? undefined,
-                  propertyId: form.propertyId ?? undefined,
-                })
-                if (result.ok) router.push(`/portal/forms/${result.data.formId}`)
-                else {
-                  setError(result.message ?? "Could not switch forms.")
-                  setBusy(false)
-                }
-              })()
+              if (latest) {
+                router.push(`/portal/forms/${latest.id}`)
+                return
+              }
+              void startNewForm(nextTemplateId)
             }}
-            className={`${inputClass} max-w-md font-serif text-base text-[var(--portal-navy)]`}
+            className={`${inputClass} font-serif text-base text-[var(--portal-navy)]`}
           >
             {templates.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-[12rem] max-w-xs flex-1">
+          <span className={labelClass}>Search</span>
+          <input
+            value={sessionQuery}
+            onChange={(event) => setSessionQuery(event.target.value)}
+            placeholder="Buyer, seller, property…"
+            className={inputClass}
+          />
+        </label>
+        <label className="min-w-[16rem] flex-[2]">
+          <span className={labelClass}>Open saved</span>
+          <select
+            value={form.id}
+            disabled={working}
+            onChange={(event) => {
+              const nextId = event.target.value
+              if (nextId === form.id) return
+              if (nextId === "__new__") {
+                setBusy(true)
+                void startNewForm(form.templateId)
+                return
+              }
+              router.push(`/portal/forms/${nextId}`)
+            }}
+            className={inputClass}
+          >
+            <option value="__new__">New {template.displayName}</option>
+            {visibleSaved.map((item) => (
+              <option key={item.id} value={item.id}>
+                {sessionLabel(item)}
               </option>
             ))}
           </select>

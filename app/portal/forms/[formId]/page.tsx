@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 
-import { getFormInstance } from "@/db/document-form-instance"
+import { getFormInstance, listFormInstances } from "@/db/document-form-instance"
 import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
 import { getTemplate, listPortalFormTypes } from "@/lib/forms/template-registry"
 import { FormEditor } from "@/components/portal/forms/form-editor"
@@ -17,6 +17,7 @@ export default async function FormPage({
   if (!form) notFound()
   const template = getTemplate(form.templateId)
   if (!template) notFound()
+  const savedForms = await listFormInstances()
 
   const issuedDocument =
     form.status === "issued"
@@ -42,6 +43,15 @@ export default async function FormPage({
       }}
       template={template}
       templates={templates}
+      savedForms={savedForms.map((item) => ({
+        id: item.id,
+        templateId: item.templateId,
+        clientName: item.clientName,
+        propertyLabel: item.propertyLabel,
+        buyerName: item.fieldValues.buyerName ?? null,
+        sellerName: item.fieldValues.sellerName ?? null,
+        updatedAt: item.updatedAt,
+      }))}
       issuedDocument={issuedDocument}
     />
   )
