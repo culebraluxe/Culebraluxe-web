@@ -46,9 +46,13 @@ export default async function FormPage({
       savedForms={savedForms.map((item) => ({
         id: item.id,
         templateId: item.templateId,
+        status: item.status,
         clientName: item.clientName,
         propertyLabel: item.propertyLabel,
-        buyerName: item.fieldValues.buyerName ?? null,
+        buyerName:
+          item.fieldValues.buyerName ??
+          item.fieldValues.visitorName ??
+          null,
         sellerName: item.fieldValues.sellerName ?? null,
         updatedAt: item.updatedAt,
       }))}

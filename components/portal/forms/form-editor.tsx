@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import {
@@ -19,7 +19,7 @@ const labelClass =
   "text-[9px] font-light uppercase tracking-[0.14em] text-black/40"
 const primaryButton =
   "inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:cursor-not-allowed disabled:opacity-40"
-const secondaryButton =
+const ghostBtn =
   "inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:opacity-40"
 
 function fieldSpanClass(field: { name: string; label: string; type: string }) {
@@ -37,6 +37,18 @@ function fieldSpanClass(field: { name: string; label: string; type: string }) {
   return "col-span-2"
 }
 
+function partyName(form: {
+  buyerName: string | null
+  sellerName: string | null
+  clientName: string | null
+}) {
+  return (
+    [form.buyerName || form.clientName, form.sellerName]
+      .filter(Boolean)
+      .join(" / ") || "Untitled"
+  )
+}
+
 function sessionLabel(form: {
   buyerName: string | null
   sellerName: string | null
@@ -44,13 +56,15 @@ function sessionLabel(form: {
   propertyLabel: string | null
   updatedAt: string
 }) {
-  const who = [form.buyerName || form.clientName, form.sellerName]
-    .filter(Boolean)
-    .join(" / ")
-  const date = form.updatedAt.slice(0, 10)
-  return [who || "Untitled", form.propertyLabel, date]
+  return [partyName(form), form.propertyLabel, form.updatedAt.slice(0, 10)]
     .filter(Boolean)
     .join(" · ")
+}
+
+function statusDotClass(status: string) {
+  if (status === "issued") return "bg-[var(--portal-success)]"
+  if (status === "ready") return "bg-[var(--portal-navy-soft)]"
+  return "bg-black/25"
 }
 
 function initialDetailsText(
@@ -111,6 +125,7 @@ export function FormEditor({
   savedForms?: {
     id: string
     templateId: string
+    status: string
     clientName: string | null
     propertyLabel: string | null
     buyerName: string | null
@@ -164,6 +179,42 @@ export function FormEditor({
     currentSaved && !filteredSaved.some((item) => item.id === form.id)
       ? [currentSaved, ...filteredSaved]
       : filteredSaved
+  const dirty =
+    JSON.stringify(values) !== JSON.stringify(saved.values) ||
+    detailsText !== saved.detailsText
+  const statusCue = dirty
+    ? "Unsaved"
+    : vaultVersion
+      ? `Vault v${vaultVersion}`
+      : form.status === "issued"
+        ? "Issued"
+        : "Draft"
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target
+      if (
+        working ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        return
+      }
+      const ids = visibleSaved.map((item) => item.id)
+      const index = ids.indexOf(form.id)
+      if (event.key === "ArrowDown" && index >= 0 && index < ids.length - 1) {
+        event.preventDefault()
+        router.push(`/portal/forms/${ids[index + 1]}`)
+      }
+      if (event.key === "ArrowUp" && index > 0) {
+        event.preventDefault()
+        router.push(`/portal/forms/${ids[index - 1]}`)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [form.id, router, visibleSaved, working])
 
   async function startNewForm(templateId: string) {
     const result = await createFormAction({
@@ -189,9 +240,6 @@ export function FormEditor({
             initials: false,
           },
         ]
-  const dirty =
-    JSON.stringify(values) !== JSON.stringify(saved.values) ||
-    detailsText !== saved.detailsText
 
   function composedSections(
     nextDetails = detailsText,
@@ -319,15 +367,37 @@ export function FormEditor({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-col gap-3">
       {error ? (
         <p className="text-xs font-light text-[var(--portal-archive)]">{error}</p>
       ) : null}
 
-      <div className="flex flex-col items-stretch gap-4 lg:flex-row lg:items-start">
-        <aside className="portal-glass-panel flex w-full shrink-0 flex-col rounded-[var(--portal-panel-radius)] p-3 lg:sticky lg:top-4 lg:h-[calc(100vh-5.5rem)] lg:w-72">
-          <label>
-            <span className={labelClass}>Form</span>
+      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]">
+        <aside className="portal-glass-panel flex max-h-72 min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] lg:max-h-none">
+          <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-2.5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
+                Forms · {visibleSaved.length}
+              </span>
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => {
+                  setBusy(true)
+                  void startNewForm(form.templateId)
+                }}
+                className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:opacity-40"
+              >
+                New
+              </button>
+            </div>
+            <input
+              type="search"
+              value={sessionQuery}
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="Search…"
+              className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2.5 py-1.5 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+            />
             <select
               value={form.templateId}
               disabled={working}
@@ -344,7 +414,7 @@ export function FormEditor({
                 }
                 void startNewForm(nextTemplateId)
               }}
-              className={inputClass}
+              className="mt-2 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2.5 py-1.5 text-sm font-light outline-none focus:border-[var(--portal-navy)] disabled:opacity-40"
             >
               {templates.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -352,88 +422,109 @@ export function FormEditor({
                 </option>
               ))}
             </select>
-          </label>
-          <label className="mt-3">
-            <span className={labelClass}>Search</span>
-            <input
-              value={sessionQuery}
-              onChange={(event) => setSessionQuery(event.target.value)}
-              placeholder="Buyer, seller, property…"
-              className={inputClass}
-            />
-          </label>
-          <button
-            type="button"
-            disabled={working}
-            onClick={() => {
-              setBusy(true)
-              void startNewForm(form.templateId)
-            }}
-            className={`${primaryButton} mt-3 w-full`}
-          >
-            New {template.displayName}
-          </button>
-          <p className="mt-3 text-[9px] font-light uppercase tracking-[0.14em] text-black/40">
-            {visibleSaved.length} saved
-          </p>
-          <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {visibleSaved.length === 0 ? (
-              <p className="px-1 py-3 text-sm font-light text-black/40">
-                No saved {template.displayName.toLowerCase()} forms
-                {needle ? " match that search" : " yet"}.
+              <p className="px-3 py-6 text-sm font-light text-black/40">
+                No matching {template.displayName.toLowerCase()} forms
+                {needle ? "." : " yet."}
               </p>
             ) : (
-              <ul className="flex flex-col gap-1">
-                {visibleSaved.map((item) => {
-                  const who = [
-                    item.buyerName || item.clientName,
-                    item.sellerName,
-                  ]
-                    .filter(Boolean)
-                    .join(" / ")
-                  const active = item.id === form.id
-                  return (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        disabled={working}
-                        onClick={() => {
-                          if (item.id !== form.id) {
-                            router.push(`/portal/forms/${item.id}`)
-                          }
-                        }}
-                        className={`w-full rounded-[var(--portal-tab-radius)] px-2.5 py-2 text-left transition ${
-                          active
-                            ? "bg-[var(--portal-navy)] text-white"
-                            : "text-black/75 hover:bg-white/70"
-                        }`}
-                      >
-                        <div className="truncate text-sm font-medium">
-                          {who || "Untitled"}
-                        </div>
-                        <div
-                          className={`truncate text-[11px] font-light ${
-                            active ? "text-white/70" : "text-black/40"
-                          }`}
-                        >
-                          {[item.propertyLabel, item.updatedAt.slice(0, 10)]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </div>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
+              visibleSaved.map((item) => {
+                const selected = item.id === form.id
+                const who = partyName(item)
+                return (
+                  <button
+                    type="button"
+                    key={item.id}
+                    disabled={working}
+                    onClick={() => {
+                      if (item.id !== form.id) {
+                        router.push(`/portal/forms/${item.id}`)
+                      }
+                    }}
+                    ref={
+                      selected
+                        ? (node) => node?.scrollIntoView({ block: "nearest" })
+                        : undefined
+                    }
+                    className={[
+                      "flex w-full items-center gap-2 border-b border-[var(--portal-panel-border)] px-2.5 py-2 text-left transition",
+                      selected
+                        ? "border-l-2 border-l-[var(--portal-gold)] bg-white/40"
+                        : "border-l-2 border-l-transparent hover:bg-white/25",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                        selected && dirty
+                          ? "bg-[var(--portal-gold)]"
+                          : statusDotClass(item.status)
+                      }`}
+                      aria-label={
+                        selected && dirty ? "Unsaved" : item.status
+                      }
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium text-[var(--portal-navy)]">
+                        {who}
+                      </div>
+                      <div className="truncate text-[11px] font-light text-black/45">
+                        {[item.propertyLabel, item.updatedAt.slice(0, 10)]
+                          .filter(Boolean)
+                          .join(" · ") || template.displayName}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })
             )}
           </div>
-          <p className="mt-2 text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
-            {dirty ? "Unsaved" : vaultVersion ? `Vault v${vaultVersion}` : "Draft"}
-          </p>
         </aside>
 
-      <div className="grid min-w-0 flex-1 items-start gap-4 lg:grid-cols-2">
-        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
+        <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
+            <div className="min-w-0">
+              <h2 className="truncate font-serif text-lg font-light text-[var(--portal-navy)]">
+                {template.displayName}
+              </h2>
+              <p className="text-[11px] font-light text-black/45">
+                {message ?? statusCue}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => {
+                  void savePdf()
+                }}
+                className={primaryButton}
+              >
+                {working ? "Working…" : "Save"}
+              </button>
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => {
+                  void sharePdf()
+                }}
+                className={ghostBtn}
+              >
+                Share PDF
+              </button>
+              <button
+                type="button"
+                disabled={working || !dirty}
+                onClick={cancelEdits}
+                className={ghostBtn}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <div className="grid grid-cols-6 gap-x-3 gap-y-3.5">
             {template.fields.map((field) => (
               <label
@@ -489,59 +580,22 @@ export function FormEditor({
             </p>
             <textarea
               id="deal-details"
-              rows={18}
+              rows={14}
               value={detailsText}
               placeholder="Document text…"
               onChange={(event) => {
                 bodyTouched.current = true
                 setDetailsText(event.target.value)
               }}
-              style={{ minHeight: 360 }}
-              className="mt-2 block w-full resize-y rounded-[var(--portal-tab-radius)] border-2 border-[var(--portal-navy)] bg-white px-3 py-2 font-serif text-[15px] font-light leading-7 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
+              className="mt-2 block min-h-[16rem] w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/80 px-3 py-2.5 font-serif text-[15px] font-light leading-7 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
             />
           </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={working}
-              onClick={() => {
-                void savePdf()
-              }}
-              className={primaryButton}
-            >
-              {working ? "Working…" : "Save"}
-            </button>
-            <button
-              type="button"
-              disabled={working}
-              onClick={() => {
-                void sharePdf()
-              }}
-              className={secondaryButton}
-            >
-              Share PDF
-            </button>
-            <button
-              type="button"
-              disabled={working || !dirty}
-              onClick={cancelEdits}
-              className={secondaryButton}
-            >
-              Cancel
-            </button>
-            {message ? (
-              <span className="text-xs font-light text-black/45">{message}</span>
-            ) : dirty ? (
-              <span className="text-xs font-light text-black/45">
-                Unsaved changes
-              </span>
-            ) : null}
           </div>
         </section>
 
-        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] lg:sticky lg:top-4">
-          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:h-[calc(100vh-5.5rem)]">
+        <section className="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)]">
+          <div className="h-full overflow-y-auto bg-[var(--portal-blue-pale)]/55 px-3 py-4 lg:px-5 lg:py-5">
+            <article className="mx-auto min-h-[calc(100%-0.5rem)] w-full max-w-[40rem] bg-white px-10 py-11 text-black/80 shadow-[0_12px_36px_rgba(24,43,64,0.14)] ring-1 ring-black/[0.06]">
             <p className="text-[9px] font-light uppercase tracking-[0.18em] text-black/40">
               {template.rendering.issuer}
             </p>
@@ -570,12 +624,12 @@ export function FormEditor({
                   {para ? (
                     <>
                       <h3 className={sectionHeadingClass}>{heading}</h3>
-                      <p className="mt-2 whitespace-pre-wrap text-[14px] font-light leading-7">
+                      <p className="mt-2 whitespace-pre-wrap font-serif text-[15px] font-light leading-7">
                         {para}
                       </p>
                     </>
                   ) : (
-                    <p className="whitespace-pre-wrap text-[14px] font-light leading-7">
+                    <p className="whitespace-pre-wrap font-serif text-[15px] font-light leading-7">
                       {heading}
                     </p>
                   )}
@@ -614,9 +668,9 @@ export function FormEditor({
                 })}
               </div>
             </div>
+            </article>
           </div>
         </section>
-      </div>
       </div>
     </div>
   )
