@@ -9,7 +9,7 @@ import {
 import {
   formatFieldValue,
   interpolateSectionText,
-} from "@/lib/forms/pdf"
+} from "@/lib/forms/format"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 
 const inputClass =

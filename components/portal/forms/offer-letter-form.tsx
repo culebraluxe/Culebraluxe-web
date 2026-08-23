@@ -7,7 +7,7 @@ import {
   issueFormAction,
   updateFormAction,
 } from "@/app/portal/forms/actions"
-import { formatDate, formatMoney } from "@/lib/forms/pdf"
+import { formatDate, formatMoney } from "@/lib/forms/format"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 
 const inputClass =
