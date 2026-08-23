@@ -1,20 +1,12 @@
 // ---------------------------------------------------------------------------
-// DOC-06 — deterministic PDF renderer (POC).
+// DOC-06 — PDF renderer (pdf-lib).
 //
-// WHY THIS RENDERER:
-//   - Server-side, pure Node, zero native/browser dependencies → deploys on
-//     Vercel without a headless browser or desktop tooling.
-//   - FULLY DETERMINISTIC by construction: no timestamps, no random ids, no
-//     external fonts (standard Helvetica Type1 fonts are referenced by name,
-//     never embedded). Identical input → identical bytes, which is what makes
-//     the issued-checksum invariant meaningful.
-//   - No document platform is introduced. This is a deliberately small fixed-
-//     layout writer for the POC Offer Letter; the TemplateDefinition seam
-//     (fields/sections/rendering) drives what text is placed.
-//
-// The 14 standard PDF fonts make hand-rolled layout safe: Helvetica's AFM
-// widths are a public constant, so word-wrapping is exact and reproducible.
+// TemplateDefinition + field/section values → real PDF 1.4 binary bytes.
+// Preview, issuance, Save, and Share all use this function so the vault blob
+// is the same document the user attaches in Mail/Messages.
 // ---------------------------------------------------------------------------
+
+import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib'
 
 import type {
   TemplateDefinition,
@@ -22,52 +14,30 @@ import type {
   TemplateSectionValues,
 } from './template-types'
 
-// Helvetica AFM widths (1/1000 em) for printable WinAnsi ASCII 32..126.
-const HELVETICA_WIDTHS: Record<string, number> = {
-  ' ': 278, '!': 278, '"': 355, '#': 556, $: 556, '%': 889, '&': 667,
-  "'": 191, '(': 333, ')': 333, '*': 389, '+': 584, ',': 278, '-': 333,
-  '.': 278, '/': 278,
-  '0': 556, '1': 556, '2': 556, '3': 556, '4': 556, '5': 556,
-  '6': 556, '7': 556, '8': 556, '9': 556,
-  ':': 278, ';': 278, '<': 584, '=': 584, '>': 584, '?': 556, '@': 1015,
-  A: 667, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722,
-  I: 278, J: 500, K: 667, L: 556, M: 833, N: 722, O: 778, P: 667,
-  Q: 778, R: 722, S: 667, T: 611, U: 722, V: 667, W: 944, X: 667,
-  Y: 667, Z: 611,
-  '[': 278, '\\': 278, ']': 278, '^': 469, _: 556, '`': 333,
-  a: 556, b: 556, c: 500, d: 556, e: 556, f: 278, g: 556, h: 556,
-  i: 222, j: 222, k: 500, l: 222, m: 833, n: 556, o: 556, p: 556,
-  q: 556, r: 333, s: 500, t: 278, u: 556, v: 500, w: 722, x: 500,
-  y: 500, z: 500,
-  '{': 334, '|': 260, '}': 334, '~': 584,
-}
+const PAGE_WIDTH = 612
+const PAGE_HEIGHT = 792
+const MARGIN = 56
+const MAX_LINE_WIDTH = PAGE_WIDTH - MARGIN * 2
+const TOP_MARGIN = 72
+const BOTTOM_MARGIN = 72
 
-const FALLBACK_WIDTH = HELVETICA_WIDTHS['?']
-
-function charWidth(ch: string): number {
-  return HELVETICA_WIDTHS[ch] ?? FALLBACK_WIDTH
-}
-
-function textWidth(text: string, fontSize: number): number {
-  let units = 0
-  for (const ch of text) units += charWidth(ch)
-  return (units / 1000) * fontSize
-}
-
-/** Greedy word-wrap; treats every run of whitespace as a break. */
+/** Greedy word-wrap using the embedded font's widths. */
 export function wrapText(
   text: string,
   fontSize: number,
   maxWidth: number,
+  font?: PDFFont,
 ): string[] {
   const normalized = text.replace(/\s+/g, ' ').trim()
   if (!normalized) return []
   const words = normalized.split(' ')
+  const widthOf = (value: string) =>
+    font ? font.widthOfTextAtSize(value, fontSize) : value.length * fontSize * 0.5
   const lines: string[] = []
   let current = ''
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word
-    if (textWidth(candidate, fontSize) <= maxWidth) {
+    if (widthOf(candidate) <= maxWidth) {
       current = candidate
     } else {
       if (current) lines.push(current)
@@ -103,192 +73,15 @@ export function formatDate(value: string): string {
   return `${MONTHS[month - 1]} ${day}, ${year}`
 }
 
-/** Escape a string for a PDF literal-string (parentheses/backslash). */
-function escapeLiteral(value: string): string {
-  // WinAnsi-safe: anything outside printable ASCII/Latin-1 becomes '?'.
-  const safe = value.replace(/[^\x20-\x7e\xa0-\xff]/g, '?')
-  return safe.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
-}
-
-type PdfFont = 'F1' | 'F2'
-
-type Op = {
-  font: PdfFont
-  size: number
-  x: number
-  y: number // bottom-up points
-  text: string
-}
-
-// US Letter geometry.
-const PAGE_WIDTH = 612
-const PAGE_HEIGHT = 792
-const MARGIN = 56
-const MAX_LINE_WIDTH = PAGE_WIDTH - MARGIN * 2
-// DOC-08 multi-page: content flows between these margins; overflow emits a
-// deterministic page break (isolated behind this renderer seam, NOT a general
-// document engine).
-const TOP_MARGIN = 72
-const BOTTOM_MARGIN = 72
-
-class PdfLayout {
-  private ops: Op[] = []
-  private y = PAGE_HEIGHT - 90
-
-  lineGap(size: number) {
-    this.y -= size * 1.45
-  }
-
-  space(points: number) {
-    this.y -= points
-  }
-
-  /** Small extra downward nudge without a full line gap (footer spacing). */
-  tight() {
-    this.y -= 2
-  }
-
-  /**
-   * Ensure at least `needed` points remain below the current cursor; otherwise
-   * emit a deterministic page break and reset to the top margin. Returns true
-   * when a break was emitted (so a caller can re-emit a running header).
-   */
-  ensureSpace(needed: number): boolean {
-    if (this.y - needed < BOTTOM_MARGIN) {
-      this.ops.push({ font: 'F1', size: 1, x: MARGIN, y: this.y, text: '\u0000BREAK' })
-      this.y = PAGE_HEIGHT - TOP_MARGIN
-      return true
-    }
-    return false
-  }
-
-  text(font: PdfFont, size: number, text: string, x = MARGIN) {
-    this.ensureSpace(size)
-    this.ops.push({ font, size, x, y: this.y, text })
-    this.lineGap(size)
-  }
-
-  paragraph(
-    font: PdfFont,
-    size: number,
-    text: string,
-    x = MARGIN,
-    width = MAX_LINE_WIDTH,
-    lineHeight = size * 1.45,
-  ) {
-    for (const line of wrapText(text, size, width)) {
-      this.ensureSpace(lineHeight)
-      this.ops.push({ font, size, x, y: this.y, text: line })
-      this.y -= lineHeight
-    }
-  }
-
-  rule() {
-    // A filled black rectangle across the content width (sentinel op).
-    this.ops.push({ font: 'F1', size: 1, x: MARGIN, y: this.y, text: '\u0000RULE' })
-    this.y -= 14
-  }
-
-  build(ops: Op[]): string[] {
-    const lines: string[] = []
-    for (const op of ops) {
-      if (op.text === '\u0000BREAK') continue
-      if (op.text === '\u0000RULE') {
-        const h = 0.6
-        const yBottom = op.y - h
-        lines.push(`${op.x} ${yBottom.toFixed(2)} ${MAX_LINE_WIDTH} ${h} re f`)
-        continue
-      }
-      lines.push('BT')
-      lines.push(`/${op.font} ${op.size} Tf`)
-      lines.push(`${op.x} ${op.y.toFixed(2)} Td`)
-      lines.push(`(${escapeLiteral(op.text)}) Tj`)
-      lines.push('ET')
-    }
-    return lines
-  }
-
-  getOps(): Op[] {
-    return this.ops
-  }
-}
-
-/**
- * Render the POC Offer Letter PDF from a TemplateDefinition + values/sections.
- * Deterministic: same input → same bytes. `issuedVersion` is drawn on the
- * document so the printed artifact carries its own lineage label.
- */
-/**
- * FORMS-01 — the single renderer for preview and issuance.
- * OFFER-01 keeps its field-centric layout (byte-stable with DOC-08 proofs).
- * Every other template uses the multi-page document layout.
- */
-export function renderFormPdf(
-  template: TemplateDefinition,
-  values: TemplateFieldValues,
-  sections: TemplateSectionValues,
-  issuedVersion: number,
-): Buffer {
-  if (template.id === 'OFFER-01') {
-    return buildOfferLetterPdf(template, values, sections, issuedVersion)
-  }
-  return buildPurchaseSalePdf(template, values, sections, issuedVersion)
-}
-
-export function buildOfferLetterPdf(
-  template: TemplateDefinition,
-  values: TemplateFieldValues,
-  sections: TemplateSectionValues,
-  issuedVersion: number,
-): Buffer {
-  const layout = new PdfLayout()
-
-  layout.text('F1', 9, template.rendering.issuer.toUpperCase())
-  layout.text('F2', 20, template.rendering.title, MARGIN)
-  layout.space(6)
-  layout.rule()
-  layout.space(10)
-
-  for (const field of template.fields) {
-    const raw = (values[field.name] ?? '').trim()
-    if (!raw && !field.required) continue // blank optional fields are omitted
-    let rendered = raw
-    if (field.type === 'money') rendered = formatMoney(raw)
-    if (field.type === 'date') rendered = formatDate(raw)
-    layout.text('F2', 9.5, field.label.toUpperCase())
-    layout.text('F1', 11, rendered)
-    layout.space(6)
-  }
-
-  for (const section of template.sections) {
-    // DOC-08: the runtime draft (JSONB) is authoritative for editable prose;
-    // otherwise the template's default segments (boilerplate + <value>
-    // substitutions) render.
-    const raw = (sections[section.name] ?? '').trim()
-    const text = raw || interpolateSectionText(section, values, formatFieldValue)
-    if (!text.trim()) continue
-    layout.space(4)
-    layout.text('F2', 11, section.label.toUpperCase())
-    layout.paragraph('F1', 10.5, text.trim())
-  }
-
-  layout.space(18)
-  layout.rule()
-
-  const footer = [
-    `${template.rendering.issuer} · Issued document v${issuedVersion}`,
-    'CulebraLuxe Real Estate - deterministic issued artifact. This PDF is immutable in the canonical repository.',
-  ]
-  for (const line of footer) {
-    layout.text('F1', 8, line, MARGIN)
-    layout.tight()
-  }
-
-  return assemblePdf(layout.getOps())
+function pdfSafe(value: string): string {
+  return value.replace(/[^\x20-\x7e]/g, '?')
 }
 
 /** Format one field value for rendering (money/date aware). */
-export function formatFieldValue(field: { type: string; name: string }, raw: string): string {
+export function formatFieldValue(
+  field: { type: string; name: string },
+  raw: string,
+): string {
   if (field.type === 'money' && raw.trim()) return formatMoney(raw)
   if (field.type === 'date' && raw.trim()) return formatDate(raw)
   return raw
@@ -296,8 +89,7 @@ export function formatFieldValue(field: { type: string; name: string }, raw: str
 
 /**
  * DOC-08 — interpolate a section's default segments: literal text plus the
- * declared `<value field="X"/>` substitutions (a declarative binding, NOT an
- * expression engine). The runtime draft, when present, takes precedence.
+ * declared `<value field="X"/>` substitutions.
  */
 export function interpolateSectionText(
   section: { segments: readonly { kind: 'text' | 'value'; text?: string; field?: string }[] },
@@ -318,33 +110,155 @@ export function interpolateSectionText(
   return out.replace(/\s+/g, ' ').trim()
 }
 
-function emitHeader(
-  layout: PdfLayout,
-  template: TemplateDefinition,
-  issuedVersion: number,
-) {
-  layout.text('F1', 9, template.rendering.issuer.toUpperCase())
-  layout.text('F2', 16, template.rendering.title, MARGIN)
-  layout.text('F1', 8, `Issued document v${issuedVersion}`, MARGIN)
-  layout.rule()
-  layout.space(8)
+class PdfWriter {
+  y = PAGE_HEIGHT - 90
+
+  constructor(
+    private readonly doc: PDFDocument,
+    private page: PDFPage,
+    private readonly regular: PDFFont,
+    private readonly bold: PDFFont,
+  ) {}
+
+  static async create(): Promise<PdfWriter> {
+    const doc = await PDFDocument.create()
+    const regular = await doc.embedFont(StandardFonts.Helvetica)
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+    const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+    return new PdfWriter(doc, page, regular, bold)
+  }
+
+  ensureSpace(needed: number): boolean {
+    if (this.y - needed >= BOTTOM_MARGIN) return false
+    this.page = this.doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+    this.y = PAGE_HEIGHT - TOP_MARGIN
+    return true
+  }
+
+  text(bold: boolean, size: number, value: string, x = MARGIN) {
+    const safe = pdfSafe(value)
+    if (!safe) return
+    this.ensureSpace(size * 1.45)
+    this.page.drawText(safe, {
+      x,
+      y: this.y,
+      size,
+      font: bold ? this.bold : this.regular,
+      color: rgb(0, 0, 0),
+    })
+    this.y -= size * 1.45
+  }
+
+  paragraph(bold: boolean, size: number, value: string) {
+    const font = bold ? this.bold : this.regular
+    for (const line of wrapText(pdfSafe(value), size, MAX_LINE_WIDTH, font)) {
+      this.ensureSpace(size * 1.45)
+      this.page.drawText(line, {
+        x: MARGIN,
+        y: this.y,
+        size,
+        font,
+        color: rgb(0, 0, 0),
+      })
+      this.y -= size * 1.45
+    }
+  }
+
+  rule() {
+    this.page.drawLine({
+      start: { x: MARGIN, y: this.y },
+      end: { x: MARGIN + MAX_LINE_WIDTH, y: this.y },
+      thickness: 0.6,
+      color: rgb(0, 0, 0),
+    })
+    this.y -= 14
+  }
+
+  space(points: number) {
+    this.y -= points
+  }
+
+  async save(): Promise<Buffer> {
+    const bytes = await this.doc.save({ useObjectStreams: false })
+    return Buffer.from(bytes)
+  }
 }
 
-/**
- * DOC-08 — P&S proof renderer. Section-centric, multi-page (deterministic
- * page breaks), boilerplate sections render their default segments with
- * `<value>` substitutions; negotiated sections render the runtime draft prose;
- * signature blocks render at the end. This is a bounded proof renderer behind
- * the same seam — not a general document engine.
- */
-export function buildPurchaseSalePdf(
+export async function renderFormPdf(
   template: TemplateDefinition,
   values: TemplateFieldValues,
   sections: TemplateSectionValues,
   issuedVersion: number,
-): Buffer {
-  const layout = new PdfLayout()
-  emitHeader(layout, template, issuedVersion)
+): Promise<Buffer> {
+  if (template.id === 'OFFER-01') {
+    return buildOfferLetterPdf(template, values, sections, issuedVersion)
+  }
+  return buildPurchaseSalePdf(template, values, sections, issuedVersion)
+}
+
+export async function buildOfferLetterPdf(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+  sections: TemplateSectionValues,
+  issuedVersion: number,
+): Promise<Buffer> {
+  const layout = await PdfWriter.create()
+  layout.text(false, 9, template.rendering.issuer.toUpperCase())
+  layout.text(true, 20, template.rendering.title)
+  layout.space(6)
+  layout.rule()
+  layout.space(10)
+
+  for (const field of template.fields) {
+    const raw = (values[field.name] ?? '').trim()
+    if (!raw && !field.required) continue
+    layout.text(true, 9.5, field.label.toUpperCase())
+    layout.text(false, 11, formatFieldValue(field, raw))
+    layout.space(6)
+  }
+
+  for (const section of template.sections) {
+    const raw = (sections[section.name] ?? '').trim()
+    const text =
+      raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
+    if (!text.trim()) continue
+    layout.space(4)
+    layout.text(true, 11, section.label.toUpperCase())
+    layout.paragraph(false, 10.5, text.trim())
+  }
+
+  drawSignatures(layout, template, values)
+  layout.space(18)
+  layout.rule()
+  layout.text(
+    false,
+    8,
+    `${template.rendering.issuer} · Issued document v${issuedVersion}`,
+  )
+  layout.text(
+    false,
+    8,
+    'CulebraLuxe Real Estate - issued artifact. This PDF is stored in the document vault.',
+  )
+  return layout.save()
+}
+
+export async function buildPurchaseSalePdf(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+  sections: TemplateSectionValues,
+  issuedVersion: number,
+): Promise<Buffer> {
+  const layout = await PdfWriter.create()
+
+  const header = () => {
+    layout.text(false, 9, template.rendering.issuer.toUpperCase())
+    layout.text(true, 16, template.rendering.title)
+    layout.text(false, 8, `Issued document v${issuedVersion}`)
+    layout.rule()
+    layout.space(8)
+  }
+  header()
 
   for (const section of template.sections) {
     const raw = (sections[section.name] ?? '').trim()
@@ -352,101 +266,34 @@ export function buildPurchaseSalePdf(
       ? raw
       : raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
     if (!text.trim()) continue
-    const broke = layout.ensureSpace(34)
-    if (broke) emitHeader(layout, template, issuedVersion)
-    layout.text('F2', 11, section.label.toUpperCase())
-    layout.paragraph('F1', 10, text.trim())
+    if (layout.ensureSpace(34)) header()
+    layout.text(true, 11, section.label.toUpperCase())
+    layout.paragraph(false, 10, text.trim())
     layout.space(8)
   }
 
   if (template.signatureGroups.length > 0) {
-    if (layout.ensureSpace(70)) emitHeader(layout, template, issuedVersion)
-    layout.text('F2', 13, 'SIGNATURES')
-    layout.space(4)
-    for (const group of template.signatureGroups) {
-      layout.ensureSpace(52)
-      const name = group.field ? (values[group.field] ?? '').trim() : ''
-      layout.text('F1', 10, `${group.label}${name ? ` — ${name}` : ''}`)
-      layout.text('F1', 10, 'By: ____________________________________')
-      if (group.initials) layout.text('F1', 10, 'Initials: ________')
-      layout.space(12)
-    }
+    if (layout.ensureSpace(70)) header()
+    drawSignatures(layout, template, values)
   }
 
-  return assemblePdf(layout.getOps())
+  return layout.save()
 }
 
-/** Split ops into page segments at deterministic page-break markers. */
-function splitPages(ops: Op[]): Op[][] {
-  const pages: Op[][] = []
-  let current: Op[] = []
-  for (const op of ops) {
-    if (op.text === '\u0000BREAK') {
-      if (current.length > 0) pages.push(current)
-      current = []
-      continue
-    }
-    current.push(op)
+function drawSignatures(
+  layout: PdfWriter,
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+) {
+  if (template.signatureGroups.length === 0) return
+  layout.text(true, 13, 'SIGNATURES')
+  layout.space(4)
+  for (const group of template.signatureGroups) {
+    layout.ensureSpace(52)
+    const name = group.field ? (values[group.field] ?? '').trim() : ''
+    layout.text(false, 10, `${group.label}${name ? ` — ${name}` : ''}`)
+    layout.text(false, 10, 'By: ____________________________________')
+    if (group.initials) layout.text(false, 10, 'Initials: ________')
+    layout.space(12)
   }
-  if (current.length > 0) pages.push(current)
-  if (pages.length === 0) pages.push([])
-  return pages
 }
-
-function latin1(text: string): Buffer {
-  return Buffer.from(text, 'latin1')
-}
-
-/** Assemble a PDF 1.4 document. Offsets and Kids entries follow the spec. */
-function assemblePdf(ops: Op[]): Buffer {
-  const pages = splitPages(ops)
-  const pageCount = pages.length
-  const builder = new PdfLayout()
-
-  const kids = Array.from(
-    { length: pageCount },
-    (_, i) => `${3 + i * 2} 0 R`,
-  ).join(' ')
-  const font1 = 3 + pageCount * 2
-  const font2 = font1 + 1
-
-  const bodies: string[] = []
-  bodies.push('<< /Type /Catalog /Pages 2 0 R >>')
-  bodies.push(`<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`)
-  for (let i = 0; i < pageCount; i++) {
-    const content = `${builder.build(pages[i]).join('\n')}\n`
-    const contentObj = 3 + i * 2 + 1
-    bodies.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
-        `/Resources << /Font << /F1 ${font1} 0 R /F2 ${font2} 0 R >> >> ` +
-        `/Contents ${contentObj} 0 R >>`,
-    )
-    bodies.push(
-      `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}endstream`,
-    )
-  }
-  bodies.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
-  bodies.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>')
-
-  const chunks: Buffer[] = [latin1('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')]
-  let cursor = chunks[0].length
-  const offsets: number[] = []
-  for (let i = 0; i < bodies.length; i++) {
-    offsets.push(cursor)
-    const objectBytes = latin1(`${i + 1} 0 obj\n${bodies[i]}\nendobj\n`)
-    chunks.push(objectBytes)
-    cursor += objectBytes.length
-  }
-
-  const xrefStart = cursor
-  let xref = `xref\n0 ${bodies.length + 1}\n`
-  xref += '0000000000 65535 f \n'
-  for (const offset of offsets) {
-    xref += `${String(offset).padStart(10, '0')} 00000 n \n`
-  }
-  xref += `trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\n`
-  xref += `startxref\n${xrefStart}\n%%EOF\n`
-  chunks.push(latin1(xref))
-  return Buffer.concat(chunks)
-}
-

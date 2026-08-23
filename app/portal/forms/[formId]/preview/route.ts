@@ -29,7 +29,7 @@ export async function GET(
   const template = getTemplate(form.templateId)
   if (!template) return new NextResponse('Not found', { status: 404 })
   return pdfResponse(
-    renderFormPdf(
+    await renderFormPdf(
       template,
       form.fieldValues,
       form.sections,
@@ -64,5 +64,5 @@ export async function POST(
   } catch {
     return new NextResponse('Invalid preview payload', { status: 400 })
   }
-  return pdfResponse(renderFormPdf(template, fieldValues, sections, 0))
+  return pdfResponse(await renderFormPdf(template, fieldValues, sections, 0))
 }

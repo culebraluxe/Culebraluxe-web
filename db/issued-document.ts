@@ -229,7 +229,7 @@ export async function issueFormDocument(
     const supersedesId = prior?.id ?? null
 
     // Deterministic rendering + checksum BEFORE any irreversible write.
-    const pdfBytes = renderFormPdf(
+    const pdfBytes = await renderFormPdf(
       template,
       form.fieldValues,
       form.sections,

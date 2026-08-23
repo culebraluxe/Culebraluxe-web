@@ -421,12 +421,21 @@ export function FormEditor({
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={working || isIssued || !dirty}
+              disabled={working || isIssued}
               onClick={() => {
                 void (async () => {
+                  setError(null)
                   setBusy(true)
                   try {
-                    await saveDraft()
+                    const file = await vaultPdfFile()
+                    setMessage(`PDF saved (${Math.round(file.size / 1024)} KB)`)
+                  } catch (caught) {
+                    if (isUserCancel(caught)) return
+                    setError(
+                      caught instanceof Error
+                        ? caught.message
+                        : "Could not save the PDF.",
+                    )
                   } finally {
                     setBusy(false)
                   }
