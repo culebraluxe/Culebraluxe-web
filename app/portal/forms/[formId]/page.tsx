@@ -2,7 +2,10 @@ import { notFound } from "next/navigation"
 
 import { getFormInstance, listFormInstances } from "@/db/document-form-instance"
 import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
+import { listSignatureRequestsByDocument } from "@/db/signature-request"
+import { listFormSignerPeople } from "@/db/form-signer"
 import { getTemplate, listPortalFormTypes } from "@/lib/forms/template-registry"
+import { pickFormSigners } from "@/lib/forms/signer-resolution"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
 export const dynamic = "force-dynamic"
@@ -19,10 +22,19 @@ export default async function FormPage({
   if (!template) notFound()
   const savedForms = await listFormInstances()
 
-  const issuedDocument =
-    form.status === "issued"
-      ? await getIssuedDocumentForFormInstance(form.id)
-      : null
+  const issuedDocument = await getIssuedDocumentForFormInstance(form.id)
+  const signatureRequests = issuedDocument
+    ? await listSignatureRequestsByDocument(issuedDocument.documentId)
+    : []
+  const signatureRequest =
+    signatureRequests.find((item) =>
+      ["requested", "sent", "viewed", "signed"].includes(item.status),
+    ) ?? signatureRequests.at(-1) ?? null
+  const signerCandidates = pickFormSigners({
+    template,
+    fieldValues: form.fieldValues,
+    people: await listFormSignerPeople(form.id),
+  })
 
   const templates = [...listPortalFormTypes()]
   if (!templates.some((item) => item.id === template.id)) {
@@ -57,7 +69,24 @@ export default async function FormPage({
         sellerName: item.fieldValues.sellerName ?? null,
         updatedAt: item.updatedAt,
       }))}
-      issuedDocument={issuedDocument}
+      issuedDocument={
+        issuedDocument
+          ? {
+              documentId: issuedDocument.documentId,
+              issuedVersion: issuedDocument.issuedVersion,
+              checksum: issuedDocument.checksum,
+            }
+          : null
+      }
+      signerCandidates={signerCandidates}
+      signatureRequest={
+        signatureRequest
+          ? {
+              id: signatureRequest.id,
+              status: signatureRequest.status,
+            }
+          : null
+      }
     />
   )
 }

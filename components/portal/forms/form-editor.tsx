@@ -5,14 +5,34 @@ import { useRouter } from "next/navigation"
 
 import {
   createFormAction,
+  grokFillFormAction,
   issueFormAction,
+  sendFormForSignatureAction,
   updateFormAction,
 } from "@/app/portal/forms/actions"
-import { documentBodyText, formatFieldValue } from "@/lib/forms/format"
+import {
+  documentBodyText,
+  formatFieldValue,
+  formatMoney,
+} from "@/lib/forms/format"
+import {
+  applyDateDefaults,
+  validateFormValues,
+} from "@/lib/forms/offer-letter-data"
+import {
+  formSupportsSigning,
+  isActiveSigningStatus,
+  isUsableSignerEmail,
+  signingStatusLabel,
+  type FormSignerCandidate,
+} from "@/lib/forms/signer-resolution"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
+import { FormGrokHelper } from "@/components/portal/forms/form-grok-helper"
 
 const inputClass =
-  "mt-1 block h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-2.5 text-[13px] font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+  "mt-1 block h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-2.5 text-[13px] font-light leading-9 text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+const dateInputClass =
+  `${inputClass} appearance-auto [color-scheme:light] [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-left [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:h-9 [&::-webkit-datetime-edit]:items-center`
 const sectionHeadingClass =
   "font-serif text-base font-bold text-[var(--portal-navy)]"
 const labelClass =
@@ -109,6 +129,8 @@ export function FormEditor({
   templates,
   savedForms = [],
   issuedDocument = null,
+  signerCandidates = [],
+  signatureRequest = null,
 }: {
   form: {
     id: string
@@ -137,9 +159,13 @@ export function FormEditor({
     issuedVersion: number
     checksum: string
   } | null
+  signerCandidates?: FormSignerCandidate[]
+  signatureRequest?: { id: string; status: string } | null
 }) {
   const router = useRouter()
-  const [values, setValues] = useState<Record<string, string>>(form.fieldValues)
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    applyDateDefaults(template, form.fieldValues),
+  )
   const [sections, setSections] = useState<Record<string, string>>(form.sections)
   const [detailsText, setDetailsText] = useState(() =>
     initialDetailsText(template, form.sections, form.fieldValues),
@@ -165,6 +191,15 @@ export function FormEditor({
   const [draftSaving, setDraftSaving] = useState(false)
   const [askLeave, setAskLeave] = useState(false)
   const [sessionQuery, setSessionQuery] = useState("")
+  const [showSignPanel, setShowSignPanel] = useState(false)
+  const [signerName, setSignerName] = useState(
+    () => signerCandidates[0]?.name ?? "",
+  )
+  const [signerEmail, setSignerEmail] = useState(
+    () => signerCandidates[0]?.email ?? "",
+  )
+  const [sendingSignature, setSendingSignature] = useState(false)
+  const [signatureState, setSignatureState] = useState(signatureRequest)
   const working = busy
   const pendingLeave = useRef<(() => void) | null>(null)
   const valuesRef = useRef(values)
@@ -399,6 +434,73 @@ export function FormEditor({
     }
   }
 
+  const canSign = formSupportsSigning(template)
+  const signatureLocked = Boolean(
+    signatureState && isActiveSigningStatus(signatureState.status),
+  )
+  const sendDisabled = sendingSignature || (signatureLocked && !dirty)
+
+  function applySigner(candidate: FormSignerCandidate) {
+    setSignerName(candidate.name)
+    setSignerEmail(candidate.email ?? "")
+  }
+
+  async function sendBoldSign() {
+    setError(null)
+    const name = signerName.trim()
+    const email = signerEmail.trim()
+    if (!name) {
+      setError("Signer name is required.")
+      return
+    }
+    if (!isUsableSignerEmail(email)) {
+      setError("Please enter a valid signer email and try again.")
+      return
+    }
+    const missing = validateFormValues(template, values)
+    if (missing.length > 0) {
+      setError(`Still needed: ${missing.map((item) => item.label).join(", ")}`)
+      return
+    }
+    setSendingSignature(true)
+    try {
+      const result = await sendFormForSignatureAction(form.id, {
+        signerName: name,
+        signerEmail: email,
+        fieldValues: values,
+        sections: composedSections(),
+      })
+      if (!result.ok) {
+        setError(
+          result.message ??
+            "Could not send document for signature. Please try again.",
+        )
+        return
+      }
+      setIssued({
+        documentId: result.data.documentId,
+        issuedVersion: result.data.issuedVersion,
+        checksum: issued?.checksum ?? "",
+      })
+      setSignatureState({
+        id: result.data.signatureRequestId,
+        status: result.data.status,
+      })
+      setShowSignPanel(false)
+      setMessage(
+        result.data.existing
+          ? `Sent for signature · ${result.data.signerName}`
+          : `Sent for signature · ${result.data.signerName} · ${result.data.signerEmail}`,
+      )
+    } catch {
+      setError(
+        "Could not send document for signature. Please try again.",
+      )
+    } finally {
+      setSendingSignature(false)
+    }
+  }
+
   useEffect(() => {
     if (!dirty || working || askLeave) return
     const timer = window.setTimeout(() => {
@@ -496,11 +598,64 @@ export function FormEditor({
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      {error ? (
-        <p className="text-xs font-light text-[var(--portal-archive)]">{error}</p>
-      ) : null}
+      {/* Shared top row: the Grok helper spans the left + middle panes; the
+          STATUS panel matches the preview pane width. Both use the SAME three
+          column template as the pane grid below so they align exactly. */}
+      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 lg:col-span-2">
+          <FormGrokHelper
+            formTitle={template.displayName}
+            busy={working}
+            onAsk={async (prompt) => {
+              const result = await grokFillFormAction({
+                templateId: template.id,
+                prompt,
+                fieldValues: values,
+                detailsText,
+              })
+              if (!result.ok) {
+                throw new Error(result.message)
+              }
+              setValues(applyDateDefaults(template, result.data.fieldValues))
+              if (result.data.body) {
+                bodyTouched.current = true
+                setDetailsText(result.data.body)
+              } else if (!bodyTouched.current) {
+                setDetailsText(
+                  documentBodyText(template, result.data.fieldValues),
+                )
+              }
+              setMessage(result.data.note)
+              return result.data.note
+            }}
+          />
+        </div>
+        <section
+          aria-label="Form status"
+          className="portal-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
+              Status
+            </p>
+            <span
+              className={[
+                "h-2 w-2 shrink-0 rounded-full",
+                error
+                  ? "bg-[var(--portal-archive)]"
+                  : message
+                    ? "bg-[var(--portal-success)]"
+                    : "bg-black/25",
+              ].join(" ")}
+            />
+          </div>
+          <p className="min-h-0 flex-1 overflow-hidden px-4 py-2.5 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] line-clamp-3">
+            {error ?? message ?? statusCue}
+          </p>
+        </section>
+      </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-12.5rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]">
         <aside className="portal-glass-panel flex max-h-72 min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] lg:max-h-none">
           <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-2.5">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -623,11 +778,11 @@ export function FormEditor({
               <h2 className="truncate font-serif text-lg font-light text-[var(--portal-navy)]">
                 {template.displayName}
               </h2>
-              <p className="text-[11px] font-light text-black/45">
-                {askLeave
-                  ? "Unsaved changes"
-                  : (message ?? statusCue)}
-              </p>
+              {askLeave ? (
+                <p className="text-[11px] font-light text-black/45">
+                  Unsaved changes
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {askLeave ? (
@@ -669,6 +824,25 @@ export function FormEditor({
                   >
                     Share PDF
                   </button>
+                  {canSign ? (
+                    <button
+                      type="button"
+                      disabled={working || sendDisabled}
+                      onClick={() => {
+                        if (!signerName && signerCandidates[0]) {
+                          applySigner(signerCandidates[0])
+                        }
+                        setShowSignPanel((open) => !open)
+                      }}
+                      className={ghostBtn}
+                    >
+                      {sendingSignature
+                        ? "Sending…"
+                        : signatureLocked
+                          ? "Sent for signature"
+                          : "Send BoldSign"}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={working || !dirty}
@@ -681,14 +855,95 @@ export function FormEditor({
               )}
             </div>
           </div>
+          {showSignPanel && canSign && !sendDisabled ? (
+            <div className="shrink-0 border-b border-[var(--portal-panel-border)] px-4 py-3">
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-navy)]">
+                Send for signature
+              </p>
+              {signerCandidates.length > 1 ? (
+                <label className="mt-2 block">
+                  <span className={labelClass}>Signer</span>
+                  <select
+                    value={`${signerName}|${signerEmail}`}
+                    onChange={(event) => {
+                      const [name, email] = event.target.value.split("|")
+                      const match = signerCandidates.find(
+                        (item) =>
+                          item.name === name && (item.email ?? "") === email,
+                      )
+                      if (match) applySigner(match)
+                    }}
+                    className={inputClass}
+                  >
+                    {signerCandidates.map((item) => (
+                      <option
+                        key={`${item.role}-${item.personId ?? item.name}-${item.email ?? ""}`}
+                        value={`${item.name}|${item.email ?? ""}`}
+                      >
+                        {item.name}
+                        {item.email ? ` · ${item.email}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label>
+                  <span className={labelClass}>Name</span>
+                  <input
+                    value={signerName}
+                    onChange={(event) => setSignerName(event.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+                <label>
+                  <span className={labelClass}>Email</span>
+                  <input
+                    type="email"
+                    value={signerEmail}
+                    onChange={(event) => setSignerEmail(event.target.value)}
+                    placeholder="Required"
+                    className={inputClass}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={sendingSignature}
+                  onClick={() => {
+                    void sendBoldSign()
+                  }}
+                  className={primaryButton}
+                >
+                  {sendingSignature ? "Sending…" : "Send"}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingSignature}
+                  onClick={() => setShowSignPanel(false)}
+                  className={ghostBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {signatureState ? (
+            <p className="shrink-0 border-b border-[var(--portal-panel-border)] px-4 py-2 text-[11px] font-light text-black/45">
+              {signingStatusLabel(signatureState.status)}
+              {signerName ? ` · ${signerName}` : ""}
+              {signatureLocked && signerEmail ? ` · ${signerEmail}` : ""}
+            </p>
+          ) : null}
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="grid grid-cols-6 gap-x-3 gap-y-3.5">
+          <div className="grid grid-cols-6 items-end gap-x-3 gap-y-3.5">
             {template.fields.map((field) => (
               <label
                 key={field.name}
                 className={`${fieldSpanClass(field)} min-w-0`}
               >
-                <span className={labelClass}>
+                <span className={`${labelClass} block min-h-[1rem]`}>
                   {field.label}
                   {field.required ? " *" : ""}
                 </span>
@@ -699,7 +954,7 @@ export function FormEditor({
                     onChange={(event) =>
                       updateField(field.name, event.target.value)
                     }
-                    className={`${inputClass} h-auto min-h-12 resize-y py-1.5`}
+                    className={`${inputClass} h-auto min-h-12 resize-y py-1.5 leading-6`}
                   />
                 ) : field.type === "select" ? (
                   <select
@@ -716,6 +971,22 @@ export function FormEditor({
                       </option>
                     ))}
                   </select>
+                ) : field.type === "money" ? (
+                  <input
+                    inputMode="decimal"
+                    value={
+                      (values[field.name] ?? "").trim()
+                        ? formatMoney(values[field.name] ?? "")
+                        : ""
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        field.name,
+                        event.target.value.replace(/[^0-9.]/g, ""),
+                      )
+                    }
+                    className={inputClass}
+                  />
                 ) : (
                   <input
                     type={field.type === "date" ? "date" : "text"}
@@ -723,7 +994,9 @@ export function FormEditor({
                     onChange={(event) =>
                       updateField(field.name, event.target.value)
                     }
-                    className={inputClass}
+                    className={
+                      field.type === "date" ? dateInputClass : inputClass
+                    }
                   />
                 )}
               </label>

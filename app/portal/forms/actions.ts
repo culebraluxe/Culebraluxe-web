@@ -8,9 +8,20 @@ import { runAuthorized } from '@/lib/auth/require-authority'
 import type { ActingUser } from '@/lib/auth/types'
 import { executeCommand } from '@/lib/commands'
 import { DOCUMENT_ISSUE } from '@/lib/commands/command-types'
-import { SIGNATURE_REQUEST_SEND } from '@/lib/commands/command-types'
 import type { CommandOutcome } from '@/lib/workflow/contracts'
+import type { SignatureRequest } from '@/lib/signature/contracts'
+import { getSignatureApplication } from '@/lib/signature/runtime'
+import {
+  formSupportsSigning,
+  isUsableSignerEmail,
+} from '@/lib/forms/signer-resolution'
+import {
+  getIssuedDocumentForFormInstance,
+  getMediaBytes,
+} from '@/db/issued-document'
+import { getActiveSignatureRequestForDocument } from '@/db/signature-request'
 import { getTemplate } from '@/lib/forms/template-registry'
+import { applyGrokFields, requestGrokFormFill } from '@/lib/forms/grok-fill'
 import {
   emptyDealFacts,
   emptySectionValues,
@@ -204,41 +215,240 @@ export async function issueFormAction(
   })
 }
 
-export async function sendIssuedFormForSignatureAction(
-  documentId: string,
-): Promise<FormActionResult<{ signatureRequestId: string }>> {
-  return authorizedFormWrite(async (actor) => {
-    if (!documentId.trim()) return fail('validation', 'documentId is required.')
-    const result = await executeCommand({
-      commandId: crypto.randomUUID(),
-      commandType: SIGNATURE_REQUEST_SEND,
-      actorAppUserId: actor.appUserId,
-      aggregateType: 'signature_request',
-      aggregateId: documentId,
-      correlationId: null,
-      causationId: null,
-      requestedAt: new Date().toISOString(),
-      input: {
-        transactionDocumentId: documentId,
-        recipients: [
-          {
-            role: 'signer',
-            name: 'Document party',
-            email: 'party@culebraluxe.com',
-            order: 1,
-          },
-        ],
-      },
-    })
-    if (result.outcome === 'success') {
-      revalidatePath('/portal/documents')
+export async function grokFillFormAction(input: {
+  templateId: string
+  prompt: string
+  fieldValues: Record<string, string>
+  detailsText: string
+}): Promise<
+  FormActionResult<{
+    fieldValues: Record<string, string>
+    body: string | null
+    note: string
+  }>
+> {
+  return authorizedFormWrite(async () => {
+    const prompt = input.prompt.trim()
+    if (!prompt) return fail('validation', 'Tell Grok what happened first.')
+    const template = getTemplate(input.templateId)
+    if (!template) return fail('not-found', 'Template not found.')
+    try {
+      const filled = await requestGrokFormFill({
+        prompt,
+        template,
+        fieldValues: input.fieldValues,
+        detailsText: input.detailsText,
+      })
       return ok({
-        signatureRequestId: String(result.aggregateId ?? documentId),
+        fieldValues: applyGrokFields(template, input.fieldValues, filled.fieldValues),
+        body: filled.body,
+        note: filled.note,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      if (message.includes('not configured')) {
+        return fail(
+          'unknown',
+          'Grok is not connected on this server yet. Add the xAI API key and restart.',
+        )
+      }
+      return fail(
+        'unknown',
+        'Grok could not fill the form right now. Try again in a moment.',
+      )
+    }
+  })
+}
+
+export type FormSignatureSendData = {
+  signatureRequestId: string
+  documentId: string
+  issuedVersion: number
+  status: string
+  existing: boolean
+  signerName: string
+  signerEmail: string
+}
+
+export async function sendFormForSignatureAction(
+  formId: string,
+  input: {
+    signerName: string
+    signerEmail: string
+    fieldValues: Record<string, string>
+    sections: Record<string, string>
+  },
+): Promise<FormActionResult<FormSignatureSendData>> {
+  return authorizedFormWrite(async (actor) => {
+    if (!formId.trim()) return fail('validation', 'formId is required.')
+    const signerName = input.signerName.trim()
+    const signerEmail = input.signerEmail.trim()
+    if (!signerName) return fail('validation', 'Signer name is required.')
+    if (!signerEmail) {
+      return fail('validation', 'Signer email is required.')
+    }
+    if (!isUsableSignerEmail(signerEmail)) {
+      return fail(
+        'validation',
+        'Please enter a valid signer email and try again.',
+      )
+    }
+
+    const form = await getFormInstance(formId)
+    if (!form) return fail('not-found', 'Form instance not found.')
+    const template = getTemplate(form.templateId)
+    if (!template) return fail('not-found', 'Template not found.')
+    if (!formSupportsSigning(template)) {
+      return fail('validation', 'This form is not set up for signature.')
+    }
+
+    const draftChanged =
+      JSON.stringify(form.fieldValues) !== JSON.stringify(input.fieldValues) ||
+      JSON.stringify(form.sections) !== JSON.stringify(input.sections)
+    if (draftChanged) {
+      const updated = await updateFormInstance(formId, {
+        fieldValues: input.fieldValues,
+        sections: input.sections,
+      })
+      if (!updated) return fail('not-found', 'Form instance not found.')
+    }
+
+    let issued = await getIssuedDocumentForFormInstance(formId)
+    const active = issued
+      ? await getActiveSignatureRequestForDocument(issued.documentId)
+      : null
+    const formNewerThanIssued =
+      Boolean(issued?.createdAt) &&
+      new Date(form.updatedAt).getTime() >
+        new Date(issued?.createdAt ?? 0).getTime() + 2000
+
+    if (active && !draftChanged) {
+      return ok({
+        signatureRequestId: active.id,
+        documentId: issued!.documentId,
+        issuedVersion: issued!.issuedVersion,
+        status: active.status,
+        existing: true,
+        signerName,
+        signerEmail,
       })
     }
-    return fail(
-      outcomeCode(result.outcome),
-      result.message ?? 'Could not send for signature.',
-    )
+
+    if (!issued || draftChanged || (!active && formNewerThanIssued)) {
+      const issueResult = await executeCommand({
+        commandId: crypto.randomUUID(),
+        commandType: DOCUMENT_ISSUE,
+        actorAppUserId: actor.appUserId,
+        aggregateType: 'transaction_document',
+        aggregateId: form.dealId ?? form.id,
+        correlationId: null,
+        causationId: null,
+        requestedAt: new Date().toISOString(),
+        input: { formInstanceId: formId },
+      })
+      if (issueResult.outcome !== 'success' || !issueResult.value) {
+        const raw = issueResult.message ?? 'Could not save the PDF before sending.'
+        return fail(
+          outcomeCode(issueResult.outcome),
+          raw.replace(/^document\.issue failed:\s*/i, ''),
+        )
+      }
+      const value = issueResult.value as {
+        documentId: string
+        issuedVersion: number
+        checksum: string
+      }
+      issued = {
+        documentId: value.documentId,
+        issuedVersion: value.issuedVersion,
+        checksum: value.checksum,
+        createdAt: new Date().toISOString(),
+        mediaId: null,
+      }
+    }
+
+    const media = issued.mediaId
+      ? await getMediaBytes(issued.mediaId)
+      : await getMediaBytesForDocument(issued.documentId)
+    if (!media || media.bytes.length === 0) {
+      return fail(
+        'validation',
+        'The issued PDF is missing. Save the document and try again.',
+      )
+    }
+
+    let sendResult
+    try {
+      sendResult = await getSignatureApplication().send(
+        {
+          transactionDocumentId: issued.documentId,
+          recipients: [
+            {
+              role: 'signer',
+              name: signerName,
+              email: signerEmail,
+              order: 1,
+            },
+          ],
+          createdByUserId: actor.appUserId,
+        },
+        { actorAppUserId: actor.appUserId },
+      )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : ''
+      console.error('Signature send failed.', detail || error)
+      if (detail.includes('BoldSign config is incomplete')) {
+        return fail(
+          'unknown',
+          'Signature sending is not configured on this server. Add the BoldSign keys and restart, then try again.',
+        )
+      }
+      return fail(
+        'unknown',
+        'Could not send document for signature. Please try again.',
+      )
+    }
+
+    if (sendResult.outcome !== 'success') {
+      return fail(
+        outcomeCode(sendResult.outcome),
+        sendResult.message && !sendResult.message.toLowerCase().includes('boldsign')
+          ? sendResult.message
+          : 'Could not send document for signature. Please try again.',
+      )
+    }
+
+    const request = (
+      sendResult.value as { signatureRequest?: SignatureRequest } | undefined
+    )?.signatureRequest
+    const status = request?.status ?? 'sent'
+    if (status === 'error') {
+      return fail(
+        'unknown',
+        'Could not send document for signature. Please try again.',
+      )
+    }
+
+    revalidatePath(`/portal/forms/${formId}`)
+    revalidatePath('/portal/documents')
+    return ok({
+      signatureRequestId: request?.id ?? String(sendResult.aggregateId ?? ''),
+      documentId: issued.documentId,
+      issuedVersion: issued.issuedVersion,
+      status,
+      existing: Boolean(active && !draftChanged),
+      signerName,
+      signerEmail,
+    })
   })
+}
+
+async function getMediaBytesForDocument(documentId: string) {
+  const { sql } = await import('@/db/client')
+  const rows = await sql`
+    select media_id from transaction_document where id = ${documentId} limit 1
+  `
+  const mediaId = rows[0]?.media_id ? String(rows[0].media_id) : null
+  if (!mediaId) return null
+  return getMediaBytes(mediaId)
 }

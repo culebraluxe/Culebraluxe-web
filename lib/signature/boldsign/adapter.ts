@@ -50,7 +50,7 @@ import {
   updateBoldSignRequestStatus,
 } from '../../../db/bold-sign-request'
 import type { BoldSignConfig } from './config'
-import { BoldSignClient } from './client'
+import { BoldSignClient, type BoldSignDirectSigner } from './client'
 import { classifyBoldSignError } from './errors'
 import { mapBoldSignWebhookEvent } from './events'
 import { parseBoldSignWebhookPayload, verifyBoldSignWebhookSignature } from './webhook'
@@ -68,6 +68,65 @@ export type BoldSignSignatureProviderDeps = {
 }
 
 const INITIAL_ENVELOPE_STATUS = 'InProgress'
+
+// ---------------------------------------------------------------------------
+// Direct-PDF source: load the existing unsigned PDF bytes the transaction
+// document references (media.file_data) so the adapter can send those exact
+// bytes to BoldSign for signing — BoldSign never sees a template.
+// ---------------------------------------------------------------------------
+
+let lazyDefaultExecutor: QueryExecutor | null = null
+
+async function lazyExecutor(): Promise<QueryExecutor> {
+  if (!lazyDefaultExecutor) {
+    const client = await import('../../../db/client')
+    lazyDefaultExecutor = client.sql
+  }
+  return lazyDefaultExecutor
+}
+
+type TransactionDocumentPdf = {
+  bytes: Uint8Array
+  filename: string
+  mimeType: string
+}
+
+async function loadTransactionDocumentPdf(
+  transactionDocumentId: string,
+  execute?: QueryExecutor,
+): Promise<TransactionDocumentPdf> {
+  const q = execute ?? (await lazyExecutor())
+  const rows = await q`
+    select m.file_data, m.filename, m.mime_type
+    from transaction_document d
+    join media m on m.id = d.media_id
+    where d.id = ${transactionDocumentId}
+    limit 1
+  `
+  const row = rows[0] as
+    | { file_data?: unknown; filename?: unknown; mime_type?: unknown }
+    | undefined
+  if (!row || row.file_data == null) {
+    throw new Error(
+      `Transaction document ${transactionDocumentId} has no unsigned PDF media to send for signature.`,
+    )
+  }
+  const bytes =
+    row.file_data instanceof Uint8Array
+      ? new Uint8Array(row.file_data)
+      : new Uint8Array(Buffer.from(row.file_data as ArrayLike<number>))
+  return {
+    bytes,
+    filename:
+      typeof row.filename === 'string' && row.filename.trim() !== ''
+        ? row.filename
+        : 'document.pdf',
+    mimeType:
+      typeof row.mime_type === 'string' && row.mime_type.trim() !== ''
+        ? row.mime_type
+        : 'application/pdf',
+  }
+}
 
 export class BoldSignSignatureProvider implements SignatureProvider {
   readonly name = BOLD_SIGN_PROVIDER
@@ -95,23 +154,33 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       return { ok: true, providerStatus: existing.status }
     }
 
-    // Map the neutral recipients onto the BoldSign template roles. The neutral
+    // Map the neutral recipients onto BoldSign direct-send signers. The neutral
     // role/order vocabulary stays neutral — this mapping is adapter-internal.
-    const roles = request.recipients.map((recipient) => ({
-      roleIndex: recipient.order,
-      signerName: recipient.name,
-      signerEmail: recipient.email,
+    const signers: BoldSignDirectSigner[] = request.recipients.map((recipient) => ({
+      name: recipient.name,
+      emailAddress: recipient.email,
       signerType: (recipient.role === 'approver' ? 'Reviewer' : 'Signer') as
         | 'Signer'
         | 'Reviewer',
+      roleIndex: recipient.order,
+      order: recipient.order,
     }))
 
     try {
-      const created = await this.client.sendEnvelopeFromTemplate({
-        templateId: this.deps.config.templateId,
+      // Send the EXISTING unsigned PDF bytes CulebraLuxe already owns directly
+      // to BoldSign (multipart POST /v1/document/send) — no template needed.
+      const pdf = await loadTransactionDocumentPdf(
+        request.transactionDocumentId,
+        this.deps.execute,
+      )
+      const created = await this.client.sendDocument({
+        fileBytes: pdf.bytes,
+        filename: pdf.filename,
+        mimeType: pdf.mimeType,
         title: 'Signature request',
         message: request.message,
-        roles,
+        signers,
+        enableSigningOrder: signers.length > 1,
       })
       let row = await createBoldSignRequest(
         {

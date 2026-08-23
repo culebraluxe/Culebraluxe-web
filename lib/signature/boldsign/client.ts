@@ -41,6 +41,30 @@ export type BoldSignSendEnvelopeInput = {
   roles: BoldSignTemplateRole[]
 }
 
+/**
+ * A signer for DIRECT document send. `roleIndex` links a signer to the form
+ * fields tagged with that role in the uploaded PDF; `order` drives signing order
+ * when `enableSigningOrder` is set. Provider-specific — never crosses the seam.
+ */
+export type BoldSignDirectSigner = {
+  name: string
+  emailAddress: string
+  signerType: BoldSignSignerType
+  roleIndex: number
+  order?: number
+}
+
+export type BoldSignSendDocumentInput = {
+  /** The existing unsigned PDF bytes CulebraLuxe already owns. */
+  fileBytes: Uint8Array
+  filename: string
+  mimeType: string
+  title: string | null
+  message: string | null
+  signers: BoldSignDirectSigner[]
+  enableSigningOrder: boolean
+}
+
 export type BoldSignEnvelopeCreated = {
   documentId: string
 }
@@ -95,7 +119,51 @@ export class BoldSignClient {
     })
   }
 
-  /** Fetch the current envelope status + file ids. */
+  /**
+   * Send an existing PDF DIRECTLY to BoldSign as multipart/form-data
+   * (POST /v1/document/send). The PDF bytes are already owned by CulebraLuxe;
+   * BoldSign only signs them. No BoldSign template is required. At-least-once
+   * note (same as template send): a retry after a lost response may create a
+   * duplicate envelope at BoldSign; the provider table backstop (unique
+   * envelope_id) and the adapter's idempotent lookup ensure at most ONE provider
+   * row per request.
+   */
+  async sendDocument(input: BoldSignSendDocumentInput): Promise<BoldSignEnvelopeCreated> {
+    const form = new FormData()
+    form.set(
+      'files',
+      new Blob([input.fileBytes as BlobPart], { type: input.mimeType }),
+      input.filename,
+    )
+    form.set('title', input.title ?? '')
+    form.set('message', input.message ?? '')
+    form.set(
+      'signers',
+      JSON.stringify(
+        input.signers.map((signer) => ({
+          name: signer.name,
+          emailAddress: signer.emailAddress,
+          signerType: signer.signerType,
+          roleIndex: signer.roleIndex,
+          ...(input.enableSigningOrder ? { order: signer.order } : {}),
+        })),
+      ),
+    )
+    if (input.enableSigningOrder) form.set('enableSigningOrder', 'true')
+
+    return this.requestWithRetry<BoldSignEnvelopeCreated>({
+      method: 'POST',
+      path: '/v1/document/send',
+      body: form,
+      parse: (json) => {
+        const created = json as { documentId?: unknown }
+        if (typeof created?.documentId !== 'string' || created.documentId.trim() === '') {
+          throw new Error('BoldSign document send response is missing documentId.')
+        }
+        return { documentId: created.documentId }
+      },
+    })
+  }
   async getDocumentProperties(documentId: string): Promise<BoldSignDocumentProperties> {
     const query = new URLSearchParams({ documentId })
     return this.requestWithRetry<BoldSignDocumentProperties>({
@@ -175,7 +243,7 @@ export class BoldSignClient {
   private async requestWithRetry<T>(opts: {
     method: string
     path: string
-    body?: string
+    body?: string | FormData
     parse: (json: unknown) => T
     acceptEmpty?: boolean
   }): Promise<T> {
@@ -209,7 +277,7 @@ export class BoldSignClient {
   private async requestOnce<T>(opts: {
     method: string
     path: string
-    body?: string
+    body?: string | FormData
     parse: (json: unknown) => T
     acceptEmpty?: boolean
   }): Promise<T> {
@@ -217,13 +285,16 @@ export class BoldSignClient {
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs)
     const fetchFn = this.deps.fetchFn ?? fetch
     try {
+      // JSON bodies get the JSON content-type; multipart (FormData) bodies must
+      // NOT, so fetch sets the multipart boundary header itself.
+      const headers: Record<string, string> = {
+        accept: 'application/json',
+        'x-api-key': this.config.apiKey,
+      }
+      if (typeof opts.body === 'string') headers['content-type'] = 'application/json'
       const response = await fetchFn(`${this.config.baseUrl}${opts.path}`, {
         method: opts.method,
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-api-key': this.config.apiKey,
-        },
+        headers,
         body: opts.body,
         signal: controller.signal,
       })

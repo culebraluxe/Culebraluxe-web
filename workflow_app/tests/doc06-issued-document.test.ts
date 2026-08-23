@@ -68,9 +68,10 @@ test('DOC-06/07 proof 2: canonical values prepopulate where available', () => {
   assert.equal(values.offerAmount, '1250000')
   assert.equal(values.financing, 'Cash')
   assert.equal(values.closingDate, '2026-10-15')
-  // Unbound fields stay blank (user-entered) — the domain is not broadened.
+  // Unbound fields stay blank except dates, which default to a real ISO value
+  // so the native date input is not an empty grey placeholder.
   assert.equal(values.deposit, '')
-  assert.equal(values.expiration, '')
+  assert.match(values.expiration, /^\d{4}-\d{2}-\d{2}$/)
   assert.equal(values.contingencies, '')
   const sections = emptySectionValues(OFFER_LETTER_TEMPLATE)
   assert.deepEqual(sections, { specialTerms: '' })

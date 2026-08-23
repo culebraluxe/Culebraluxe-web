@@ -67,10 +67,12 @@ export async function getIssuedDocumentForFormInstance(
   documentId: string
   issuedVersion: number
   checksum: string
+  createdAt: string
+  mediaId: string | null
 } | null> {
   const q = execute ?? (await import('./client')).sql
   const rows = await q`
-    select id, issued_version, issued_checksum_sha256
+    select id, issued_version, issued_checksum_sha256, created_at, media_id
     from transaction_document
     where form_instance_id = ${formInstanceId}
       and source = 'generated'
@@ -82,6 +84,8 @@ export async function getIssuedDocumentForFormInstance(
         id?: unknown
         issued_version?: unknown
         issued_checksum_sha256?: unknown
+        created_at?: unknown
+        media_id?: unknown
       }
     | undefined
   if (!row?.id) return null
@@ -89,6 +93,10 @@ export async function getIssuedDocumentForFormInstance(
     documentId: String(row.id),
     issuedVersion: Number(row.issued_version ?? 1),
     checksum: String(row.issued_checksum_sha256 ?? ''),
+    createdAt: row.created_at
+      ? new Date(row.created_at as string).toISOString()
+      : '',
+    mediaId: row.media_id ? String(row.media_id) : null,
   }
 }
 

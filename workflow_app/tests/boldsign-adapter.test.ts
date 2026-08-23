@@ -193,6 +193,33 @@ class FakeBoldSignServer {
       return
     }
 
+    // Direct document send (multipart/form-data) — the canonical send path.
+    if (req.method === 'POST' && url.pathname === '/v1/document/send') {
+      const documentId = `env-${++this.envelopeSeq}`
+      // Extract the signers form field (a JSON string) from the multipart body
+      // for the envelope record.
+      const signersMatch = raw.match(/name="signers"\s*\r\n\r\n([\s\S]*?)\r\n--/)
+      let signers: unknown = null
+      if (signersMatch) {
+        try {
+          signers = JSON.parse(signersMatch[1])
+        } catch {
+          signers = null
+        }
+      }
+      this.envelopes.set(documentId, {
+        documentId,
+        status: 'InProgress',
+        fileIds: [`file-${documentId}`],
+        roles: signers,
+        title: null,
+        message: null,
+      })
+      res.writeHead(201, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ documentId }))
+      return
+    }
+
     if (req.method === 'GET' && url.pathname === '/v1/document/properties') {
       const documentId = url.searchParams.get('documentId')
       const envelope = documentId ? this.envelopes.get(documentId) : undefined
@@ -270,6 +297,7 @@ class FakeDb {
   receipts: Row[] = []
   boldSign: Row[] = []
   webhookEvents: Row[] = []
+  media: Row[] = []
   seq = 0
   now = '2026-08-22T00:00:00.000Z'
 
@@ -305,7 +333,7 @@ class FakeDb {
       return Promise.resolve([])
     }
     if (
-      t.includes('select command_id, outcome, aggregate_id, message from workflow_command_receipt') &&
+      t.includes('from workflow_command_receipt') &&
       t.includes('where command_id')
     ) {
       const r = this.receipts.find((x) => x.command_id === p[0])
@@ -320,6 +348,19 @@ class FakeDb {
     if (t.includes('select id from transaction_document') && t.includes('where id =')) {
       const doc = this.documents.find((d) => d.id === p[0])
       return Promise.resolve(doc ? [{ id: doc.id }] : [])
+    }
+
+    // ---- direct-PDF send: transaction_document -> media (unsigned PDF bytes) ----
+    if (t.includes('from transaction_document d') && t.includes('join media m')) {
+      const doc = this.documents.find((d) => d.id === p[0])
+      const mediaRow = doc?.media_id
+        ? this.media.find((m) => m.id === doc.media_id)
+        : undefined
+      return Promise.resolve(
+        mediaRow
+          ? [{ file_data: mediaRow.file_data, filename: mediaRow.filename, mime_type: mediaRow.mime_type }]
+          : [],
+      )
     }
 
     // ---- signature_request (canonical, provider-free) ----
@@ -497,7 +538,28 @@ function seedDocument(db: FakeDb, overrides: Row = {}): string {
     title: 'Purchase Agreement',
     state: 'ready',
     source: 'generated',
+    media_id: 'media-1',
     ...overrides,
+  })
+  // Default unsigned PDF media so direct-PDF send can load the bytes.
+  const mediaId = db.documents.find((d) => d.id === id)!.media_id
+  db.media.push({
+    id: mediaId,
+    file_data: overrides.file_data ?? new Uint8Array([37, 80, 68, 70, 10, 13, 10]), // "%PDF"
+    filename: overrides.filename ?? 'purchase-agreement.pdf',
+    mime_type: overrides.mime_type ?? 'application/pdf',
+  })
+  return id
+}
+
+/** Seed an unsigned PDF media row referenced by a transaction document. */
+function seedMedia(db: FakeDb, overrides: Row = {}): string {
+  const id = overrides.id ?? 'media-1'
+  db.media.push({
+    id,
+    file_data: overrides.file_data ?? new Uint8Array([37, 80, 68, 70, 10, 13, 10]), // "%PDF"
+    filename: overrides.filename ?? 'purchase-agreement.pdf',
+    mime_type: overrides.mime_type ?? 'application/pdf',
   })
   return id
 }
@@ -543,7 +605,8 @@ test('config: reads required keys from env; baseUrl normalized; never echoes val
 })
 
 test('config: missing credentials fail closed naming the keys, never the values', () => {
-  assert.throws(() => loadBoldSignConfig({}), /BOLDSIGN_API_KEY, BOLDSIGN_BASE_URL, BOLDSIGN_TEMPLATE_ID, BOLDSIGN_WEBHOOK_SECRET/)
+  assert.throws(() => loadBoldSignConfig({}), /BOLDSIGN_API_KEY, BOLDSIGN_BASE_URL, BOLDSIGN_WEBHOOK_SECRET/)
+  // BOLDSIGN_TEMPLATE_ID is optional — only the three required keys can fail.
   assert.throws(() => loadBoldSignConfig({ BOLDSIGN_API_KEY: 'k', BOLDSIGN_BASE_URL: 'https://x', BOLDSIGN_TEMPLATE_ID: 't' }), /BOLDSIGN_WEBHOOK_SECRET/)
   // blank values are treated as missing
   assert.throws(
@@ -756,6 +819,7 @@ test('errors: transient classification for statuses and network failures', () =>
 test('adapter: send creates ONE envelope, persists provider ids in bold_sign_request only', async () => {
   const db = new FakeDb()
   seedDocument(db)
+  seedMedia(db)
   const server = await FakeBoldSignServer.start()
   try {
     const provider = makeProvider(db, server)
@@ -787,17 +851,18 @@ test('adapter: send creates ONE envelope, persists provider ids in bold_sign_req
 test('adapter: duplicate send is idempotent — same provider row, no second envelope', async () => {
   const db = new FakeDb()
   seedDocument(db)
+  seedMedia(db)
   const server = await FakeBoldSignServer.start()
   try {
     const provider = makeProvider(db, server)
     const first = await provider.send({ signatureRequestId: 'sig-1', transactionDocumentId: 'doc-1', recipients: RECIPIENTS, message: null })
     assert.equal(first.ok, true)
-    const before = server.requestCount('POST', '/v1/template/send')
+    const before = server.requestCount('POST', '/v1/document/send')
 
     const second = await provider.send({ signatureRequestId: 'sig-1', transactionDocumentId: 'doc-1', recipients: RECIPIENTS, message: null })
     assert.equal(second.ok, true)
     assert.equal(second.providerStatus, 'InProgress')
-    assert.equal(server.requestCount('POST', '/v1/template/send'), before, 'no second envelope request')
+    assert.equal(server.requestCount('POST', '/v1/document/send'), before, 'no second envelope request')
     assert.equal(server.envelopes.size, 1)
     assert.equal(db.boldSign.length, 1, 'one provider row')
   } finally {
@@ -808,15 +873,16 @@ test('adapter: duplicate send is idempotent — same provider row, no second env
 test('adapter: send failure (500) maps to error with retryable last_error; retries capped', async () => {
   const db = new FakeDb()
   seedDocument(db)
+  seedMedia(db)
   const server = await FakeBoldSignServer.start()
   try {
-    server.failNext('POST', '/v1/template/send', 500, 3)
+    server.failNext('POST', '/v1/document/send', 500, 3)
     const provider = makeProvider(db, server, { maxAttempts: 3 })
     const result = await provider.send({ signatureRequestId: 'sig-1', transactionDocumentId: 'doc-1', recipients: RECIPIENTS, message: null })
     assert.equal(result.ok, false)
     assert.equal(result.providerStatus, 'error')
     assert.match(result.error ?? '', /HTTP 500/)
-    assert.equal(server.requestCount('POST', '/v1/template/send'), 3, 'transient send failure retried up to the cap')
+    assert.equal(server.requestCount('POST', '/v1/document/send'), 3, 'transient send failure retried up to the cap')
 
     const row = await getBoldSignRequestBySignatureRequestId('sig-1', db.tx)
     assert.equal(row?.status, 'error')
@@ -831,14 +897,15 @@ test('adapter: send failure (500) maps to error with retryable last_error; retri
 test('adapter: send failure (422) is non-retryable, single attempt, last_error classified', async () => {
   const db = new FakeDb()
   seedDocument(db)
+  seedMedia(db)
   const server = await FakeBoldSignServer.start()
   try {
-    server.failNext('POST', '/v1/template/send', 422, 1)
+    server.failNext('POST', '/v1/document/send', 422, 1)
     const provider = makeProvider(db, server, { maxAttempts: 3 })
     const result = await provider.send({ signatureRequestId: 'sig-1', transactionDocumentId: 'doc-1', recipients: RECIPIENTS, message: null })
     assert.equal(result.ok, false)
     assert.equal(result.providerStatus, 'error')
-    assert.equal(server.requestCount('POST', '/v1/template/send'), 1, '4xx is never retried')
+    assert.equal(server.requestCount('POST', '/v1/document/send'), 1, '4xx is never retried')
     const row = await getBoldSignRequestBySignatureRequestId('sig-1', db.tx)
     assert.equal(row?.errorRetryable, false)
   } finally {
@@ -1089,6 +1156,7 @@ test('e2e: send dispatches to BoldSign; webhook lifecycle completes the request;
 test('e2e: duplicate send through the router never creates a second envelope', async () => {
   const db = new FakeDb()
   seedDocument(db)
+  seedMedia(db)
   const server = await FakeBoldSignServer.start()
   try {
     const provider = makeProvider(db, server)
@@ -1101,7 +1169,7 @@ test('e2e: duplicate send through the router never creates a second envelope', a
 
     assert.equal(db.requests.length, 1, 'one canonical request')
     assert.equal(db.boldSign.length, 1, 'one provider row')
-    assert.equal(server.requestCount('POST', '/v1/template/send'), 1, 'one envelope request — the adapter is idempotent')
+    assert.equal(server.requestCount('POST', '/v1/document/send'), 1, 'one envelope request — the adapter is idempotent')
     assert.equal(server.envelopes.size, 1)
   } finally {
     await server.stop()
@@ -1111,9 +1179,10 @@ test('e2e: duplicate send through the router never creates a second envelope', a
 test('e2e: a provider send failure lands as neutral error; status poll reconciles on recovery', async () => {
   const db = new FakeDb()
   seedDocument(db)
+  seedMedia(db)
   const server = await FakeBoldSignServer.start()
   try {
-    server.failNext('POST', '/v1/template/send', 500, 3)
+    server.failNext('POST', '/v1/document/send', 500, 3)
     const provider = makeProvider(db, server, { maxAttempts: 3 })
     const app = makeApp(db, provider)
 

@@ -140,7 +140,7 @@ class FakeDb {
       return Promise.resolve([])
     }
     if (
-      t.includes('select command_id, outcome, aggregate_id, message from workflow_command_receipt') &&
+      t.includes('from workflow_command_receipt') &&
       t.includes('where command_id')
     ) {
       const r = this.receipts.find((x) => x.command_id === p[0])

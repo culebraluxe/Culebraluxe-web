@@ -10,8 +10,12 @@
 // Env contract (also the Vercel production env contract):
 //   BOLDSIGN_API_KEY            required — BoldSign API key (X-API-KEY)
 //   BOLDSIGN_BASE_URL           required — e.g. https://api.boldsign.com
-//   BOLDSIGN_TEMPLATE_ID        required — the send-from-template template id
 //   BOLDSIGN_WEBHOOK_SECRET     required — webhook HMAC signing secret
+//   BOLDSIGN_TEMPLATE_ID        OPTIONAL (legacy) — no longer required. The
+//                               canonical send path uploads the existing PDF
+//                               bytes CulebraLuxe already owns via
+//                               POST /v1/document/send, so a BoldSign template
+//                               is never needed.
 //   BOLDSIGN_TIMEOUT_MS         optional (default 10000) per-attempt timeout
 //   BOLDSIGN_MAX_ATTEMPTS       optional (default 3) capped retry attempts
 //   BOLDSIGN_RETRY_BASE_DELAY_MS optional (default 150) backoff base
@@ -34,6 +38,11 @@ export const BOLD_SIGN_CONFIG_KEYS = {
 export type BoldSignConfig = {
   apiKey: string
   baseUrl: string
+  /**
+   * Legacy template id. Kept for type/config compatibility but NOT required and
+   * NOT used by the canonical send path (which uploads the PDF directly).
+   * Defaults to an empty string when BOLDSIGN_TEMPLATE_ID is absent.
+   */
   templateId: string
   webhookSecret: string
   /** Per-attempt HTTP timeout. */
@@ -72,7 +81,6 @@ export function loadBoldSignConfig(env: NodeJS.ProcessEnv = process.env): BoldSi
   const required: Array<[string, string | undefined]> = [
     [BOLD_SIGN_CONFIG_KEYS.apiKey, env.BOLDSIGN_API_KEY],
     [BOLD_SIGN_CONFIG_KEYS.baseUrl, env.BOLDSIGN_BASE_URL],
-    [BOLD_SIGN_CONFIG_KEYS.templateId, env.BOLDSIGN_TEMPLATE_ID],
     [BOLD_SIGN_CONFIG_KEYS.webhookSecret, env.BOLDSIGN_WEBHOOK_SECRET],
   ]
   const missing = required
@@ -86,7 +94,7 @@ export function loadBoldSignConfig(env: NodeJS.ProcessEnv = process.env): BoldSi
   return {
     apiKey: (env.BOLDSIGN_API_KEY as string).trim(),
     baseUrl: (env.BOLDSIGN_BASE_URL as string).trim().replace(/\/+$/, ''),
-    templateId: (env.BOLDSIGN_TEMPLATE_ID as string).trim(),
+    templateId: (env.BOLDSIGN_TEMPLATE_ID ?? '').trim(),
     webhookSecret: env.BOLDSIGN_WEBHOOK_SECRET as string,
     timeoutMs: positiveInt(env.BOLDSIGN_TIMEOUT_MS, BOLD_SIGN_DEFAULTS.timeoutMs, BOLD_SIGN_CONFIG_KEYS.timeoutMs),
     maxAttempts: positiveInt(env.BOLDSIGN_MAX_ATTEMPTS, BOLD_SIGN_DEFAULTS.maxAttempts, BOLD_SIGN_CONFIG_KEYS.maxAttempts),

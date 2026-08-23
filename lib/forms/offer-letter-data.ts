@@ -65,9 +65,36 @@ export function resolveBinding(
   }
 }
 
+function isoDate(daysFromToday = 0): string {
+  const date = new Date()
+  date.setDate(date.getDate() + daysFromToday)
+  return date.toISOString().slice(0, 10)
+}
+
+function defaultDateFor(fieldName: string): string {
+  if (/expir/i.test(fieldName)) return isoDate(14)
+  if (/end/i.test(fieldName)) return isoDate(90)
+  return isoDate(0)
+}
+
+/** Fill empty date fields so the native date input is a real value, not a grey placeholder. */
+export function applyDateDefaults(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+): TemplateFieldValues {
+  const next = { ...values }
+  for (const field of template.fields) {
+    if (field.type !== 'date') continue
+    if ((next[field.name] ?? '').trim()) continue
+    next[field.name] = defaultDateFor(field.name)
+  }
+  return next
+}
+
 /**
  * Prefill a field-values map for a template from canonical facts. Bound fields
- * adopt the canonical value; unbound fields start blank (user-entered).
+ * adopt the canonical value; unbound fields start blank (user-entered) except
+ * dates, which default to today so the input is actually set.
  */
 export function prefillFieldValues(
   template: TemplateDefinition,
@@ -81,7 +108,7 @@ export function prefillFieldValues(
     }
     values[field.name] = resolveBinding(field.binding, facts) ?? ''
   }
-  return values
+  return applyDateDefaults(template, values)
 }
 
 export function emptySectionValues(
