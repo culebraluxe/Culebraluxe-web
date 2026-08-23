@@ -50,6 +50,21 @@ function issuedPdfUrl(documentId: string) {
   return `/portal/documents/${documentId}/download?inline=1`
 }
 
+function fileFromPdfBytes(buffer: ArrayBuffer, filename: string): File {
+  const bytes = new Uint8Array(buffer)
+  const header = String.fromCharCode(...bytes.subarray(0, 5))
+  if (header !== "%PDF-") {
+    throw new Error("The generated file was not a PDF.")
+  }
+  const safeFilename = filename.endsWith(".pdf")
+    ? filename
+    : `${filename}.pdf`
+  return new File([bytes], safeFilename, {
+    type: "application/pdf",
+    lastModified: Date.now(),
+  })
+}
+
 async function pdfFileFromUrl(
   url: string,
   filename: string,
@@ -58,20 +73,7 @@ async function pdfFileFromUrl(
   if (!response.ok) {
     throw new Error(`Failed to load PDF: ${response.status}`)
   }
-  const buffer = await response.arrayBuffer()
-  const header = String.fromCharCode(
-    ...new Uint8Array(buffer).subarray(0, 5),
-  )
-  if (header !== "%PDF-") {
-    throw new Error("Vault file is not a PDF.")
-  }
-  const safeFilename = filename.endsWith(".pdf")
-    ? filename
-    : `${filename}.pdf`
-  return new File([buffer], safeFilename, {
-    type: "application/pdf",
-    lastModified: Date.now(),
-  })
+  return fileFromPdfBytes(await response.arrayBuffer(), filename)
 }
 
 function fileSafeName(value: string) {
@@ -261,6 +263,21 @@ export function FormEditor({
     return pdfFileFromUrl(issuedPdfUrl(document.documentId), pdfFilename())
   }
 
+  async function livePdfFile() {
+    const response = await fetch(`/portal/forms/${form.id}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fieldValues: values,
+        sections: composedSections(),
+      }),
+    })
+    if (!response.ok) {
+      throw new Error("Could not build the PDF.")
+    }
+    return fileFromPdfBytes(await response.arrayBuffer(), pdfFilename())
+  }
+
   async function savePdf() {
     setError(null)
     setBusy(true)
@@ -278,10 +295,9 @@ export function FormEditor({
 
   async function sharePdf() {
     setError(null)
-    setBusy(true)
     try {
-      const file = await vaultPdfFile()
-      if (!navigator.canShare?.({ files: [file] })) {
+      const file = await livePdfFile()
+      if (typeof navigator.share !== "function") {
         setMessage(
           "This browser can't attach a PDF from the page. Save PDF, then attach that file in Mail or Messages.",
         )
@@ -295,9 +311,14 @@ export function FormEditor({
       setMessage("Shared")
     } catch (caught) {
       if (isUserCancel(caught)) return
+      const name = caught instanceof DOMException ? caught.name : ""
+      if (name === "NotAllowedError" || name === "TypeError") {
+        setMessage(
+          "Share needs a direct click. Try Share PDF again, or Save PDF and attach the file.",
+        )
+        return
+      }
       setError(caught instanceof Error ? caught.message : "Could not share the PDF.")
-    } finally {
-      setBusy(false)
     }
   }
 
