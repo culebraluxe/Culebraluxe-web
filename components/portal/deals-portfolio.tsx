@@ -121,7 +121,7 @@ export function DealsPortfolio({
                 <TableHeading>Price / Offer</TableHeading>
                 <TableHeading>Next</TableHeading>
                 <TableHeading>Owner</TableHeading>
-                <TableHeading></TableHeading>
+                <TableHeading>{""}</TableHeading>
               </tr>
             </thead>
             <tbody>

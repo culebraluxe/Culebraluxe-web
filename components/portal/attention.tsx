@@ -1,6 +1,5 @@
 import Link from "next/link"
 
-import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
 import { TaskActions } from "@/components/portal/write/task-actions"
 import type { AttentionSnapshot } from "@/db/attention"
@@ -33,13 +32,18 @@ export function Attention({
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader compact eyebrow="Queue" title="Attention">
-        <span className="text-xs font-light text-black/40">
-          {queue.length} {queue.length === 1 ? "item" : "items"}
-        </span>
-      </PageHeader>
-
-      <Panel compact variant="attention" heading="Follow-up queue" divider flush>
+      <Panel
+        compact
+        variant="attention"
+        heading="Follow-up queue"
+        action={
+          <span className="text-xs font-light text-black/40">
+            {queue.length} {queue.length === 1 ? "item" : "items"}
+          </span>
+        }
+        divider
+        flush
+      >
         {queue.length > 0 ? (
           queue.map((task) => (
             <div
