@@ -366,7 +366,7 @@ test('DOC-06/07 proof 10: missing required fields never issue a malformed artifa
   assert.ok(issues.some((i) => i.field === 'offerAmount'))
 })
 
-test('DOC-06/07 proof 10b: already-issued form instances cannot double-issue', async () => {
+test('DOC-06/07 proof 10b: saving the form again writes a new vault version', async () => {
   const state = makeState(formFixture({ id: 'form-4', status: 'issued' }), null, 'person-1')
   const executor = makeExecutor(state)
 
@@ -374,9 +374,9 @@ test('DOC-06/07 proof 10b: already-issued form instances cannot double-issue', a
     { commandId: 'cmd-4', formInstanceId: 'form-4', actorAppUserId: 'user-1' },
     runFake(executor),
   )
-  assert.equal(result.outcome, 'conflict')
-  assert.equal(state.mediaRows.length, 0)
-  assert.equal(state.docs.length, 0)
+  assert.equal(result.outcome, 'success')
+  assert.equal(state.mediaRows.length, 1)
+  assert.equal(state.docs.length, 1)
 })
 
 

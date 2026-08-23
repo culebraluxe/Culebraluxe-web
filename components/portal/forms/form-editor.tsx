@@ -46,10 +46,6 @@ function initialDetailsText(
   return documentBodyText(template, values)
 }
 
-function issuedPdfUrl(documentId: string) {
-  return `/portal/documents/${documentId}/download?inline=1`
-}
-
 function fileFromPdfBytes(buffer: ArrayBuffer, filename: string): File {
   const bytes = new Uint8Array(buffer)
   const header = String.fromCharCode(...bytes.subarray(0, 5))
@@ -65,17 +61,6 @@ function fileFromPdfBytes(buffer: ArrayBuffer, filename: string): File {
   })
 }
 
-async function pdfFileFromUrl(
-  url: string,
-  filename: string,
-): Promise<File> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to load PDF: ${response.status}`)
-  }
-  return fileFromPdfBytes(await response.arrayBuffer(), filename)
-}
-
 function fileSafeName(value: string) {
   const cleaned = value
     .replace(/[^\w\s-]+/g, "")
@@ -86,43 +71,6 @@ function fileSafeName(value: string) {
 
 function isUserCancel(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError"
-}
-
-async function writePdfToDisk(blob: Blob, filename: string) {
-  const picker = window as unknown as {
-    showSaveFilePicker?: (options: {
-      suggestedName: string
-      types: { description: string; accept: Record<string, string[]> }[]
-    }) => Promise<{
-      createWritable: () => Promise<{
-        write: (data: Blob) => Promise<void>
-        close: () => Promise<void>
-      }>
-    }>
-  }
-  if (typeof picker.showSaveFilePicker === "function") {
-    const handle = await picker.showSaveFilePicker({
-      suggestedName: filename,
-      types: [
-        {
-          description: "PDF",
-          accept: { "application/pdf": [".pdf"] },
-        },
-      ],
-    })
-    const writable = await handle.createWritable()
-    await writable.write(blob)
-    await writable.close()
-    return
-  }
-  const objectUrl = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = objectUrl
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(objectUrl)
 }
 
 export function FormEditor({
@@ -174,7 +122,7 @@ export function FormEditor({
   } | null>(issuedDocument)
   const [busy, setBusy] = useState(false)
   const working = busy
-  const isIssued = form.status === "issued" || issued !== null
+  const vaultVersion = issued?.issuedVersion ?? null
   const signatureGroups =
     template.signatureGroups.length > 0
       ? template.signatureGroups
@@ -242,8 +190,7 @@ export function FormEditor({
     return `${fileSafeName(who)}-${fileSafeName(template.id)}.pdf`
   }
 
-  async function ensureIssuedDocument() {
-    if (issued) return issued
+  async function savePdfToVault() {
     if (dirty) {
       const savedOk = await saveDraft()
       if (!savedOk) {
@@ -252,15 +199,10 @@ export function FormEditor({
     }
     const result = await issueFormAction(form.id)
     if (!result.ok) {
-      throw new Error(result.message ?? "Could not issue the PDF.")
+      throw new Error(result.message ?? "Could not save the PDF to the vault.")
     }
     setIssued(result.data)
     return result.data
-  }
-
-  async function vaultPdfFile() {
-    const document = await ensureIssuedDocument()
-    return pdfFileFromUrl(issuedPdfUrl(document.documentId), pdfFilename())
   }
 
   async function livePdfFile() {
@@ -282,9 +224,8 @@ export function FormEditor({
     setError(null)
     setBusy(true)
     try {
-      const file = await vaultPdfFile()
-      await writePdfToDisk(file, file.name)
-      setMessage("PDF saved")
+      const document = await savePdfToVault()
+      setMessage(`Saved to vault v${document.issuedVersion}`)
     } catch (caught) {
       if (isUserCancel(caught)) return
       setError(caught instanceof Error ? caught.message : "Could not save the PDF.")
@@ -358,8 +299,7 @@ export function FormEditor({
           </select>
         </label>
         <span className="pb-2 text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
-          {isIssued ? "Issued" : dirty ? "Unsaved" : form.status} · v
-          {template.version}
+          {dirty ? "Unsaved" : vaultVersion ? `Vault v${vaultVersion}` : "Draft"}
         </span>
       </div>
 
@@ -386,7 +326,6 @@ export function FormEditor({
                     onChange={(event) =>
                       updateField(field.name, event.target.value)
                     }
-                    disabled={isIssued}
                     className={`${inputClass} h-auto min-h-12 resize-y py-1.5`}
                   />
                 ) : field.type === "select" ? (
@@ -395,7 +334,6 @@ export function FormEditor({
                     onChange={(event) =>
                       updateField(field.name, event.target.value)
                     }
-                    disabled={isIssued}
                     className={inputClass}
                   >
                     <option value="">—</option>
@@ -412,7 +350,6 @@ export function FormEditor({
                     onChange={(event) =>
                       updateField(field.name, event.target.value)
                     }
-                    disabled={isIssued}
                     className={inputClass}
                   />
                 )}
@@ -434,7 +371,6 @@ export function FormEditor({
                 bodyTouched.current = true
                 setDetailsText(event.target.value)
               }}
-              disabled={isIssued}
               style={{ minHeight: 360 }}
               className="mt-2 block w-full resize-y rounded-[var(--portal-tab-radius)] border-2 border-[var(--portal-navy)] bg-white px-3 py-2 font-serif text-[15px] font-light leading-7 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
             />
@@ -443,21 +379,13 @@ export function FormEditor({
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={working || isIssued}
+              disabled={working || !dirty}
               onClick={() => {
                 void (async () => {
                   setError(null)
                   setBusy(true)
                   try {
-                    const file = await vaultPdfFile()
-                    setMessage(`PDF saved (${Math.round(file.size / 1024)} KB)`)
-                  } catch (caught) {
-                    if (isUserCancel(caught)) return
-                    setError(
-                      caught instanceof Error
-                        ? caught.message
-                        : "Could not save the PDF.",
-                    )
+                    await saveDraft()
                   } finally {
                     setBusy(false)
                   }
@@ -469,13 +397,13 @@ export function FormEditor({
             </button>
             <button
               type="button"
-              disabled={working || isIssued || !dirty}
+              disabled={working || !dirty}
               onClick={cancelEdits}
               className={secondaryButton}
             >
               Cancel
             </button>
-            {dirty && !isIssued ? (
+            {dirty ? (
               <span className="text-xs font-light text-black/45">
                 Unsaved changes
               </span>
@@ -485,14 +413,7 @@ export function FormEditor({
 
         <div className="flex flex-col gap-3 lg:sticky lg:top-4">
         <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-          {issued ? (
-            <iframe
-              title="Issued PDF"
-              src={issuedPdfUrl(issued.documentId)}
-              className="min-h-[70vh] w-full bg-white lg:h-[calc(100vh-9.5rem)]"
-            />
-          ) : (
-          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:max-h-[calc(100vh-6.5rem)]">
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:max-h-[calc(100vh-9.5rem)]">
             <p className="text-[9px] font-light uppercase tracking-[0.18em] text-black/40">
               {template.rendering.issuer}
             </p>
@@ -566,7 +487,6 @@ export function FormEditor({
               </div>
             </div>
           </div>
-          )}
         </section>
         <div className="flex flex-wrap items-center gap-2">
           <button

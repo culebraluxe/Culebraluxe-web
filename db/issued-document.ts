@@ -175,18 +175,6 @@ export async function issueFormDocument(
         replayed: false,
       }
     }
-    if (form.status === 'issued') {
-      return {
-        commandId: input.commandId,
-        outcome: 'conflict',
-        emittedEvents: [],
-        aggregateId: null,
-        message:
-          'document.issue failed: form instance is already issued. Create a new form instance for further edits.',
-        replayed: false,
-      }
-    }
-
     const template = getTemplate(form.templateId)
     if (!template) {
       return {
