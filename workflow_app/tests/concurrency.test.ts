@@ -78,7 +78,7 @@ class ConcurrencyDomain {
       return this.claim(p[0]).then((won) => (won ? [{ command_id: p[0] }] : []))
     }
     if (t.includes('update workflow_command_receipt set outcome =')) {
-      this.finalize(p[3], p[0], p[1], p[2])
+      this.finalize(p[4], p[0], p[1], p[2])
       return Promise.resolve([])
     }
     if (t.includes('select') && t.includes('workflow_command_receipt') && t.includes('where command_id')) {

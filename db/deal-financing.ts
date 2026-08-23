@@ -15,12 +15,16 @@ import { neonTx, type TxRunner } from './tx'
 // canonical command seam (lib/commands — thin wrapper
 // SetDealFinancingTypeCommand registered for deal.set_financing_type), never
 // by one-off direct service calls.
+//
+// AUTH-05: the optional actorAppUserId is threaded into the receipt so the
+// receipt itself records WHO set the financing type.
 // ---------------------------------------------------------------------------
 
 export type SetDealFinancingTypeInput = {
   dealId: string
   financingType: 'cash' | 'financed'
   commandId: string
+  actorAppUserId?: string | null
 }
 
 export async function setDealFinancingType(
@@ -39,7 +43,11 @@ export async function setDealFinancingType(
   }
 
   return run(async (tx) => {
-    const claimed = await claimReceipt(tx, input.commandId)
+    const claimed = await claimReceipt(
+      tx,
+      input.commandId,
+      input.actorAppUserId ?? null,
+    )
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
       const replay = replayOutcome(receipt)
@@ -69,7 +77,14 @@ export async function setDealFinancingType(
       message = 'Deal not found.'
     }
 
-    await finalizeReceipt(tx, input.commandId, outcome, aggregateId, message)
+    await finalizeReceipt(
+      tx,
+      input.commandId,
+      outcome,
+      aggregateId,
+      message,
+      input.actorAppUserId ?? null,
+    )
 
     return {
       commandId: input.commandId,

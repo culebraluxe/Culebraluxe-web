@@ -51,7 +51,7 @@ export function SiteHeader() {
           )}
 
           <nav
-            className="hidden h-7 items-center gap-0 md:flex"
+            className="hidden h-7 items-center gap-0 lg:flex"
             aria-label="Primary"
           >
             {NAV_LINKS.map((link) => (
@@ -70,7 +70,7 @@ export function SiteHeader() {
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex flex-col items-end gap-1.5 text-brand-ivory md:hidden"
+            className="flex flex-col items-end gap-1.5 text-brand-ivory lg:hidden"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
             aria-controls="site-mobile-menu"
@@ -100,7 +100,7 @@ export function SiteHeader() {
         <div
           id="site-mobile-menu"
           className={cn(
-            "max-h-0 overflow-hidden bg-brand-navy backdrop-blur-md transition-all duration-500 ease-out md:hidden",
+            "max-h-0 overflow-hidden bg-brand-navy backdrop-blur-md transition-all duration-500 ease-out lg:hidden",
             menuOpen
               ? "max-h-[75svh] overflow-y-auto border-t border-brand-gold/25"
               : "",

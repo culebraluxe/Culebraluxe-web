@@ -15,9 +15,10 @@ import { CompareProperty } from '@/components/property/compare-property'
 import { FeaturedPropertyCarousel } from '@/components/property/featured-property-carousel'
 import { SavedSearchesPanel } from '@/components/property/saved-searches-panel'
 import {
-  formatArea,
   formatPrice,
   isLand,
+  propertyFactParts,
+  propertyLocation,
 } from '@/lib/property'
 import {
   applySearchFilters,
@@ -35,50 +36,6 @@ type BuyersPropertyShowroomProps = {
   featured: PropertySummary[]
   viewOptions: string[]
   initial: SearchFilters
-}
-
-function propertyLocation(property: PropertySummary) {
-  return (
-    property.neighborhood ??
-    property.location ??
-    property.city ??
-    'Culebra, Puerto Rico'
-  )
-}
-
-function propertyFacts(property: PropertySummary) {
-  const parts: string[] = []
-
-  if (isLand(property.propertyType)) {
-    const lot = formatArea(
-      property.lotSize,
-      property.lotSizeUnits,
-    )
-
-    if (lot) {
-      parts.push(lot)
-    }
-  } else {
-    if (property.bedrooms != null) {
-      parts.push(`${property.bedrooms} Bed`)
-    }
-
-    if (property.bathrooms != null) {
-      parts.push(`${property.bathrooms} Bath`)
-    }
-
-    if (property.squareFeet != null) {
-      parts.push(
-        `${property.squareFeet.toLocaleString('en-US')} SF`,
-      )
-    }
-  }
-
-  if (property.views[0]) {
-    parts.push(`${property.views[0]} View`)
-  }
-
-  return parts.join('  ·  ')
 }
 
 function PropertyImage({
@@ -110,6 +67,7 @@ function InventoryCard({
   property: PropertySummary
 }) {
   const href = `/properties/${property.slug}`
+  const loc = propertyLocation(property)
 
   return (
     <article className="group relative">
@@ -151,9 +109,11 @@ function InventoryCard({
       />
 
       <div className="pointer-events-none relative z-20 pt-5">
-        <p className="mb-2 text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground">
-          {propertyLocation(property)}
-        </p>
+        {loc ? (
+          <p className="mb-2 text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground">
+            {loc}
+          </p>
+        ) : null}
 
         <div className="flex items-start justify-between gap-6">
           <h3 className="font-serif text-2xl font-light leading-tight text-foreground">
@@ -167,7 +127,7 @@ function InventoryCard({
 
         <div className="mt-3 flex items-center justify-between gap-4">
           <p className="text-[11px] font-light uppercase tracking-[0.14em] text-muted-foreground">
-            {propertyFacts(property)}
+            {propertyFactParts(property).join('  ·  ')}
           </p>
 
           <ArrowUpRight className="h-4 w-4 flex-none text-muted-foreground transition-transform duration-500 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />

@@ -3,57 +3,43 @@ import { claimReceipt, finalizeReceipt, readFinalReceipt, replayOutcome } from '
 import { neonTx, type TxRunner } from './tx'
 
 // ---------------------------------------------------------------------------
-// Canonical SET DEAL CLOSING DATE (CRM-14F / Story 135).
+// Canonical SET DEAL FINANCING TYPE (CRM-14C).
 //
-// `deal.set_closing_date` changes the canonical P&S target closing date. The
-// application owns legality; the workflow merely requests it. Idempotent via
-// the claim-first receipt; safe retry; no unrelated deal mutation. The SAME
-// workflow instance continues — the workflow never restarts because a date
-// changed; reconciliation reschedules the closing-deadline timer.
+// The smallest application operation for resolving the canonical financing
+// fact. The application owns legality; a workflow merely requests it. Safe
+// retry via the claim-first receipt; no unrelated deal mutation. Financing
+// type can be changed later by an explicit application command if business
+// circumstances change.
 //
 // CRM-14J: callers (UI/API/agent/workflow) reach this service through the
 // canonical command seam (lib/commands — thin wrapper
-// SetDealClosingDateCommand registered for deal.set_closing_date), never by
-// one-off direct service calls.
-//
-// AUTH-05: the optional actorAppUserId is threaded into the receipt so the
-// receipt itself records WHO changed the closing date.
+// SetDealFinancingTypeCommand registered for deal.set_financing_type), never
+// by one-off direct service calls.
 // ---------------------------------------------------------------------------
 
-export type SetDealClosingDateInput = {
+export type SetDealFinancingTypeInput = {
   dealId: string
-  closingDate: string
+  financingType: 'cash' | 'financed'
   commandId: string
-  actorAppUserId?: string | null
 }
 
-function isIsoDate(value: string): boolean {
-  if (!value || typeof value !== 'string') return false
-  const t = new Date(value).getTime()
-  return !Number.isNaN(t)
-}
-
-export async function setDealClosingDate(
-  input: SetDealClosingDateInput,
+export async function setDealFinancingType(
+  input: SetDealFinancingTypeInput,
   run: TxRunner = neonTx,
 ): Promise<CommandResult> {
-  if (!isIsoDate(input.closingDate)) {
+  if (input.financingType !== 'cash' && input.financingType !== 'financed') {
     return {
       commandId: input.commandId,
       outcome: 'validation_failure',
       emittedEvents: [],
       aggregateId: null,
-      message: 'closingDate must be a valid date.',
+      message: 'financingType must be cash or financed.',
       replayed: false,
     }
   }
 
   return run(async (tx) => {
-    const claimed = await claimReceipt(
-      tx,
-      input.commandId,
-      input.actorAppUserId ?? null,
-    )
+    const claimed = await claimReceipt(tx, input.commandId)
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
       const replay = replayOutcome(receipt)
@@ -73,7 +59,7 @@ export async function setDealClosingDate(
 
     const rows = await tx`
       update deal
-      set closing_date = ${input.closingDate}::date, updated_at = now()
+      set financing_type = ${input.financingType}, updated_at = now()
       where id = ${input.dealId}
       returning id
     `
@@ -83,14 +69,7 @@ export async function setDealClosingDate(
       message = 'Deal not found.'
     }
 
-    await finalizeReceipt(
-      tx,
-      input.commandId,
-      outcome,
-      aggregateId,
-      message,
-      input.actorAppUserId ?? null,
-    )
+    await finalizeReceipt(tx, input.commandId, outcome, aggregateId, message)
 
     return {
       commandId: input.commandId,

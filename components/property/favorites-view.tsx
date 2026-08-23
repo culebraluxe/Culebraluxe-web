@@ -11,28 +11,7 @@ import {
   pruneFavorites,
   removeFavorite,
 } from '@/lib/favorites'
-import { formatArea, formatPrice, isLand } from '@/lib/property'
-
-function propertyFacts(property: PropertySummary): string {
-  const parts: string[] = []
-
-  if (isLand(property.propertyType)) {
-    const lot = formatArea(property.lotSize, property.lotSizeUnits)
-    if (lot) parts.push(lot)
-  } else {
-    if (property.bedrooms != null) parts.push(`${property.bedrooms} Bed`)
-    if (property.bathrooms != null) parts.push(`${property.bathrooms} Bath`)
-    if (property.squareFeet != null) {
-      parts.push(`${property.squareFeet.toLocaleString('en-US')} SF`)
-    }
-  }
-
-  if (property.views[0]) {
-    parts.push(`${property.views[0]} View`)
-  }
-
-  return parts.join(' · ')
-}
+import { formatPrice, propertyFacts, propertyLocation } from '@/lib/property'
 
 type FavoritesViewProps = {
   properties: PropertySummary[]
@@ -113,6 +92,7 @@ export function FavoritesView({ properties }: FavoritesViewProps) {
           <div className="mt-12 grid gap-x-7 gap-y-14 md:grid-cols-2 xl:grid-cols-3">
             {items.map((property) => {
               const href = `/properties/${property.slug}`
+              const loc = propertyLocation(property)
 
               return (
                 <article key={property.id} className="group relative">
@@ -147,12 +127,11 @@ export function FavoritesView({ properties }: FavoritesViewProps) {
                   />
 
                   <div className="pointer-events-none relative z-20 pt-5">
-                    <p className="mb-2 text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground">
-                      {property.neighborhood ??
-                        property.location ??
-                        property.city ??
-                        'Culebra, Puerto Rico'}
-                    </p>
+                    {loc ? (
+                      <p className="mb-2 text-[10px] font-light uppercase tracking-[0.2em] text-muted-foreground">
+                        {loc}
+                      </p>
+                    ) : null}
                     <div className="flex items-start justify-between gap-6">
                       <h3 className="font-serif text-2xl font-light leading-tight text-foreground">
                         {property.name}

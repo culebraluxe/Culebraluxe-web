@@ -20,6 +20,10 @@ import { neonTx, type TxRunner } from './tx'
 // Idempotency uses the claim-first receipt: the same commandId executes its
 // business effect at most once, and every concurrent/repeated caller observes
 // the winner's final outcome.
+//
+// AUTH-05: the optional actorAppUserId is threaded into the receipt
+// (actor_app_user_id) so the receipt itself records WHO accepted — the durable
+// actor dimension of the offer.accept audit record.
 // ---------------------------------------------------------------------------
 
 export type AcceptOfferInput = {
@@ -35,7 +39,7 @@ export async function acceptOffer(
 ): Promise<CommandResult> {
   return run(async (tx) => {
     // Claim (serializes on command_id). A loser replays the winner's result.
-    const claimed = await claimReceipt(tx, input.commandId)
+    const claimed = await claimReceipt(tx, input.commandId, input.actorAppUserId ?? null)
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
       const replay = replayOutcome(receipt)
@@ -98,7 +102,14 @@ export async function acceptOffer(
       }
     }
 
-    await finalizeReceipt(tx, input.commandId, outcome, aggregateId, message)
+    await finalizeReceipt(
+      tx,
+      input.commandId,
+      outcome,
+      aggregateId,
+      message,
+      input.actorAppUserId ?? null,
+    )
 
     return {
       commandId: input.commandId,

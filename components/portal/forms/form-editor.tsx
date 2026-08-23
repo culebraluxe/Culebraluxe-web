@@ -162,8 +162,18 @@ export function FormEditor({
     checksum: string
   } | null>(issuedDocument)
   const [busy, setBusy] = useState(false)
+  const [draftSaving, setDraftSaving] = useState(false)
+  const [askLeave, setAskLeave] = useState(false)
   const [sessionQuery, setSessionQuery] = useState("")
   const working = busy
+  const pendingLeave = useRef<(() => void) | null>(null)
+  const valuesRef = useRef(values)
+  const detailsRef = useRef(detailsText)
+  const sectionsRef = useRef(sections)
+  const dirtyRef = useRef(false)
+  valuesRef.current = values
+  detailsRef.current = detailsText
+  sectionsRef.current = sections
   const vaultVersion = issued?.issuedVersion ?? null
   const savedOfType = savedForms.filter(
     (item) => item.templateId === form.templateId,
@@ -182,39 +192,43 @@ export function FormEditor({
   const dirty =
     JSON.stringify(values) !== JSON.stringify(saved.values) ||
     detailsText !== saved.detailsText
-  const statusCue = dirty
-    ? "Unsaved"
-    : vaultVersion
-      ? `Vault v${vaultVersion}`
-      : form.status === "issued"
-        ? "Issued"
-        : "Draft"
+  dirtyRef.current = dirty
+  const statusCue = draftSaving
+    ? "Saving…"
+    : dirty
+      ? "Unsaved"
+      : vaultVersion
+        ? `Vault v${vaultVersion}`
+        : form.status === "issued"
+          ? "Issued"
+          : "Draft"
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      const target = event.target
-      if (
-        working ||
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement
-      ) {
-        return
-      }
-      const ids = visibleSaved.map((item) => item.id)
-      const index = ids.indexOf(form.id)
-      if (event.key === "ArrowDown" && index >= 0 && index < ids.length - 1) {
-        event.preventDefault()
-        router.push(`/portal/forms/${ids[index + 1]}`)
-      }
-      if (event.key === "ArrowUp" && index > 0) {
-        event.preventDefault()
-        router.push(`/portal/forms/${ids[index - 1]}`)
-      }
+  function requestLeave(proceed: () => void) {
+    if (!dirtyRef.current) {
+      proceed()
+      return
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [form.id, router, visibleSaved, working])
+    pendingLeave.current = proceed
+    setAskLeave(true)
+  }
+
+  function stayHere() {
+    pendingLeave.current = null
+    setAskLeave(false)
+  }
+
+  function discardAndLeave() {
+    const proceed = pendingLeave.current
+    pendingLeave.current = null
+    setAskLeave(false)
+    dirtyRef.current = false
+    setValues(saved.values)
+    setSections(saved.sections)
+    setDetailsText(saved.detailsText)
+    setMessage(null)
+    setError(null)
+    proceed?.()
+  }
 
   async function startNewForm(templateId: string) {
     const result = await createFormAction({
@@ -255,25 +269,44 @@ export function FormEditor({
     }
   }
 
+  async function persistDraft(quiet = false): Promise<boolean> {
+    const nextValues = valuesRef.current
+    const nextDetails = detailsRef.current
+    const nextSections = { ...sectionsRef.current, body: nextDetails }
+    setDraftSaving(true)
+    try {
+      const result = await updateFormAction(form.id, nextValues, nextSections)
+      if (!result.ok) {
+        setError(result.message ?? "Could not save.")
+        return false
+      }
+      const stillSame =
+        JSON.stringify(valuesRef.current) === JSON.stringify(nextValues) &&
+        detailsRef.current === nextDetails
+      setSections(nextSections)
+      sectionsRef.current = nextSections
+      if (stillSame) {
+        setSaved({
+          values: nextValues,
+          sections: nextSections,
+          detailsText: nextDetails,
+        })
+      }
+      if (!quiet) setMessage("Saved")
+      setError(null)
+      return true
+    } finally {
+      setDraftSaving(false)
+    }
+  }
+
   async function saveDraft(
     nextValues = values,
     nextDetails = detailsText,
   ): Promise<boolean> {
-    const nextSections = composedSections(nextDetails)
-    const result = await updateFormAction(form.id, nextValues, nextSections)
-    if (result.ok) {
-      setSections(nextSections)
-      setSaved({
-        values: nextValues,
-        sections: nextSections,
-        detailsText: nextDetails,
-      })
-      setMessage("Saved")
-      setError(null)
-      return true
-    }
-    setError(result.message ?? "Could not save.")
-    return false
+    valuesRef.current = nextValues
+    detailsRef.current = nextDetails
+    return persistDraft(false)
   }
 
   function cancelEdits() {
@@ -366,6 +399,101 @@ export function FormEditor({
     }
   }
 
+  useEffect(() => {
+    if (!dirty || working || askLeave) return
+    const timer = window.setTimeout(() => {
+      void persistDraft(true)
+    }, 900)
+    return () => window.clearTimeout(timer)
+  }, [askLeave, detailsText, dirty, form.id, values, working])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault()
+        if (!working) void savePdf()
+        return
+      }
+      const target = event.target
+      if (
+        working ||
+        askLeave ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        return
+      }
+      const ids = visibleSaved.map((item) => item.id)
+      const index = ids.indexOf(form.id)
+      if (event.key === "ArrowDown" && index >= 0 && index < ids.length - 1) {
+        event.preventDefault()
+        requestLeave(() => router.push(`/portal/forms/${ids[index + 1]}`))
+      }
+      if (event.key === "ArrowUp" && index > 0) {
+        event.preventDefault()
+        requestLeave(() => router.push(`/portal/forms/${ids[index - 1]}`))
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [askLeave, form.id, router, visibleSaved, working])
+
+  useEffect(() => {
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirtyRef.current) return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [])
+
+  useEffect(() => {
+    function onClick(event: MouseEvent) {
+      if (!dirtyRef.current || askLeave) return
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return
+      }
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const link = target.closest("a")
+      if (!(link instanceof HTMLAnchorElement)) return
+      if (link.target === "_blank" || link.hasAttribute("download")) return
+      const href = link.getAttribute("href")
+      if (
+        !href ||
+        href.startsWith("#") ||
+        href.startsWith("mailto:") ||
+        href.startsWith("javascript:")
+      ) {
+        return
+      }
+      const url = new URL(href, window.location.href)
+      if (url.origin !== window.location.origin) return
+      if (
+        url.pathname === window.location.pathname &&
+        url.search === window.location.search
+      ) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      requestLeave(() => {
+        router.push(`${url.pathname}${url.search}${url.hash}`)
+      })
+    }
+    document.addEventListener("click", onClick, true)
+    return () => document.removeEventListener("click", onClick, true)
+  }, [askLeave, router])
+
   return (
     <div className="flex min-h-0 flex-col gap-3">
       {error ? (
@@ -383,8 +511,10 @@ export function FormEditor({
                 type="button"
                 disabled={working}
                 onClick={() => {
-                  setBusy(true)
-                  void startNewForm(form.templateId)
+                  requestLeave(() => {
+                    setBusy(true)
+                    void startNewForm(form.templateId)
+                  })
                 }}
                 className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:opacity-40"
               >
@@ -404,15 +534,17 @@ export function FormEditor({
               onChange={(event) => {
                 const nextTemplateId = event.target.value
                 if (nextTemplateId === form.templateId) return
-                const latest = savedForms.find(
-                  (item) => item.templateId === nextTemplateId,
-                )
-                setBusy(true)
-                if (latest) {
-                  router.push(`/portal/forms/${latest.id}`)
-                  return
-                }
-                void startNewForm(nextTemplateId)
+                requestLeave(() => {
+                  const latest = savedForms.find(
+                    (item) => item.templateId === nextTemplateId,
+                  )
+                  setBusy(true)
+                  if (latest) {
+                    router.push(`/portal/forms/${latest.id}`)
+                    return
+                  }
+                  void startNewForm(nextTemplateId)
+                })
               }}
               className="mt-2 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2.5 py-1.5 text-sm font-light outline-none focus:border-[var(--portal-navy)] disabled:opacity-40"
             >
@@ -441,7 +573,9 @@ export function FormEditor({
                     disabled={working}
                     onClick={() => {
                       if (item.id !== form.id) {
-                        router.push(`/portal/forms/${item.id}`)
+                        requestLeave(() =>
+                          router.push(`/portal/forms/${item.id}`),
+                        )
                       }
                     }}
                     ref={
@@ -490,38 +624,61 @@ export function FormEditor({
                 {template.displayName}
               </h2>
               <p className="text-[11px] font-light text-black/45">
-                {message ?? statusCue}
+                {askLeave
+                  ? "Unsaved changes"
+                  : (message ?? statusCue)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={working}
-                onClick={() => {
-                  void savePdf()
-                }}
-                className={primaryButton}
-              >
-                {working ? "Working…" : "Save"}
-              </button>
-              <button
-                type="button"
-                disabled={working}
-                onClick={() => {
-                  void sharePdf()
-                }}
-                className={ghostBtn}
-              >
-                Share PDF
-              </button>
-              <button
-                type="button"
-                disabled={working || !dirty}
-                onClick={cancelEdits}
-                className={ghostBtn}
-              >
-                Cancel
-              </button>
+              {askLeave ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={stayHere}
+                    className={primaryButton}
+                  >
+                    Stay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={discardAndLeave}
+                    className={ghostBtn}
+                  >
+                    Discard
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={working}
+                    onClick={() => {
+                      void savePdf()
+                    }}
+                    className={primaryButton}
+                  >
+                    {working ? "Working…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={working}
+                    onClick={() => {
+                      void sharePdf()
+                    }}
+                    className={ghostBtn}
+                  >
+                    Share PDF
+                  </button>
+                  <button
+                    type="button"
+                    disabled={working || !dirty}
+                    onClick={cancelEdits}
+                    className={ghostBtn}
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-5">

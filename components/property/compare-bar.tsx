@@ -11,19 +11,10 @@ import {
   pruneCompare,
   removeCompare,
 } from '@/lib/compare'
-import { formatArea, formatPrice, isLand } from '@/lib/property'
+import { formatArea, formatPrice, isLand, propertyLocation } from '@/lib/property'
 
 type CompareBarProps = {
   properties: PropertySummary[]
-}
-
-function propertyLocation(property: PropertySummary) {
-  return (
-    property.neighborhood ??
-    property.location ??
-    property.city ??
-    'Culebra, Puerto Rico'
-  )
 }
 
 export function CompareBar({ properties }: CompareBarProps) {
@@ -52,7 +43,7 @@ export function CompareBar({ properties }: CompareBarProps) {
 
   const rows: Array<{ label: string; value: (property: PropertySummary) => string }> = [
     { label: 'Price', value: (property) => formatPrice(property.listPrice) },
-    { label: 'Location', value: (property) => propertyLocation(property) },
+    { label: 'Location', value: (property) => propertyLocation(property) ?? '—' },
     { label: 'Type', value: (property) => property.propertyType ?? '—' },
     {
       label: 'Beds',

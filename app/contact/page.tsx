@@ -6,6 +6,7 @@ import { Contact } from '@/components/contact'
 import { getPropertyIntroById } from '@/db/properties'
 import { getMarketingContent } from '@/db/marketing-content'
 import { buildContactPageContent } from '@/lib/marketing-content'
+import { normalizeServiceKey } from '@/lib/services'
 
 export const metadata: Metadata = {
   title: 'Contact — CulebraLuxe',
@@ -19,6 +20,7 @@ type ContactPageProps = {
   searchParams: Promise<{
     propertyId?: string
     requestType?: string
+    service?: string
   }>
 }
 
@@ -29,6 +31,13 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
     query.requestType === 'property_information'
       ? query.requestType
       : undefined
+  // Service intent from a service-specific CTA (`/contact?service=...`). It is
+  // allow-listed against the supported services vocabulary so an arbitrary
+  // query value is dropped rather than persisted. It only applies to the
+  // property-less general enquiry path; property-scoped requests ignore it.
+  const service = normalizeServiceKey(
+    typeof query.service === 'string' ? query.service : undefined,
+  )
   const propertyContext = requestType
     ? {
         propertyId: query.propertyId,
@@ -55,7 +64,11 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
           />
         ) : null}
         {page.contact ? (
-          <Contact content={page.contact} propertyContext={propertyContext} />
+          <Contact
+            content={page.contact}
+            propertyContext={propertyContext}
+            service={service}
+          />
         ) : null}
       </main>
       <SiteFooter />

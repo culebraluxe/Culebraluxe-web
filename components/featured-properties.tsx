@@ -3,37 +3,7 @@ import Link from 'next/link'
 
 import type { PropertySummary } from '@/db/properties'
 import { Reveal } from '@/components/reveal'
-import { formatArea, formatPrice, isLand } from '@/lib/property'
-
-function propertyLocation(property: PropertySummary): string {
-  return (
-    property.neighborhood ??
-    property.location ??
-    property.city ??
-    'Culebra, Puerto Rico'
-  )
-}
-
-function propertyDetail(property: PropertySummary): string {
-  const parts: string[] = []
-
-  if (isLand(property.propertyType)) {
-    const lot = formatArea(property.lotSize, property.lotSizeUnits)
-    if (lot) parts.push(lot)
-  } else {
-    if (property.bedrooms != null) parts.push(`${property.bedrooms} Bed`)
-    if (property.bathrooms != null) parts.push(`${property.bathrooms} Bath`)
-    if (property.squareFeet != null) {
-      parts.push(`${property.squareFeet.toLocaleString('en-US')} SF`)
-    }
-  }
-
-  if (property.views[0]) {
-    parts.push(`${property.views[0]} View`)
-  }
-
-  return parts.join(' · ')
-}
+import { formatPrice, propertyFacts, propertyLocation } from '@/lib/property'
 
 type FeaturedPropertiesProps = {
   properties: PropertySummary[]
@@ -74,6 +44,7 @@ export function FeaturedProperties({
           <div className="flex flex-col gap-28 md:gap-40">
             {items.map((property, index) => {
               const href = `/properties/${property.slug}`
+              const loc = propertyLocation(property)
 
               return (
                 <Reveal key={property.id}>
@@ -111,11 +82,13 @@ export function FeaturedProperties({
                           {property.name}
                         </Link>
                       </h3>
-                      <p className="mt-3 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
-                        {propertyLocation(property)}
-                      </p>
+                      {loc ? (
+                        <p className="mt-3 text-xs font-light uppercase tracking-[0.24em] text-muted-foreground">
+                          {loc}
+                        </p>
+                      ) : null}
                       <p className="mt-8 max-w-xs text-sm font-light leading-relaxed text-foreground/80">
-                        {propertyDetail(property)}
+                        {propertyFacts(property)}
                       </p>
                       <div className="mt-8 flex items-center justify-between border-t border-border pt-6">
                         <span className="text-xs font-light uppercase tracking-[0.2em] text-muted-foreground">

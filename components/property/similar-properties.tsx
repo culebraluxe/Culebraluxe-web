@@ -3,37 +3,7 @@ import Link from 'next/link'
 
 import { getSimilarProperties } from '@/db/properties'
 import type { PropertySummary } from '@/db/properties'
-import { formatArea, formatPrice, isLand } from '@/lib/property'
-
-function propertyLocation(property: PropertySummary): string {
-  return (
-    property.neighborhood ??
-    property.location ??
-    property.city ??
-    'Culebra, Puerto Rico'
-  )
-}
-
-function propertyFacts(property: PropertySummary): string {
-  const parts: string[] = []
-
-  if (isLand(property.propertyType)) {
-    const lot = formatArea(property.lotSize, property.lotSizeUnits)
-    if (lot) parts.push(lot)
-  } else {
-    if (property.bedrooms != null) parts.push(`${property.bedrooms} Bed`)
-    if (property.bathrooms != null) parts.push(`${property.bathrooms} Bath`)
-    if (property.squareFeet != null) {
-      parts.push(`${property.squareFeet.toLocaleString('en-US')} SF`)
-    }
-  }
-
-  if (property.views[0]) {
-    parts.push(`${property.views[0]} View`)
-  }
-
-  return parts.join(' · ')
-}
+import { formatPrice, propertyFacts, propertyLocation } from '@/lib/property'
 
 type SimilarPropertiesProps = {
   propertyId: string
@@ -84,6 +54,7 @@ export async function SimilarProperties({
       <div className="grid gap-8 md:grid-cols-3 md:gap-6">
         {similar.map((property) => {
           const href = `/properties/${property.slug}`
+          const loc = propertyLocation(property)
 
           return (
             <article key={property.id} className="group">
@@ -111,9 +82,11 @@ export async function SimilarProperties({
                     {property.name}
                   </Link>
                 </h3>
-                <p className="mt-2 text-[10px] font-light uppercase tracking-[0.24em] text-muted-foreground">
-                  {propertyLocation(property)}
-                </p>
+                {loc ? (
+                  <p className="mt-2 text-[10px] font-light uppercase tracking-[0.24em] text-muted-foreground">
+                    {loc}
+                  </p>
+                ) : null}
                 <p className="mt-3 text-xs font-light text-muted-foreground">
                   {propertyFacts(property)}
                 </p>

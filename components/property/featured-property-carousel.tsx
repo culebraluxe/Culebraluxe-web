@@ -12,63 +12,14 @@ import {
 
 import type { PropertySummary } from '@/db/properties'
 import {
-  formatArea,
   formatPrice,
   isLand,
+  propertyFactParts,
+  propertyLocation,
 } from '@/lib/property'
 
 type FeaturedPropertyCarouselProps = {
   properties: PropertySummary[]
-}
-
-function propertyLocation(
-  property: PropertySummary,
-) {
-  return (
-    property.neighborhood ??
-    property.location ??
-    property.city ??
-    'Culebra, Puerto Rico'
-  )
-}
-
-function propertyFacts(
-  property: PropertySummary,
-) {
-  const parts: string[] = []
-
-  if (isLand(property.propertyType)) {
-    const lot = formatArea(
-      property.lotSize,
-      property.lotSizeUnits,
-    )
-
-    if (lot) {
-      parts.push(lot)
-    }
-  } else {
-    if (property.bedrooms != null) {
-      parts.push(`${property.bedrooms} Bed`)
-    }
-
-    if (property.bathrooms != null) {
-      parts.push(`${property.bathrooms} Bath`)
-    }
-
-    if (property.squareFeet != null) {
-      parts.push(
-        `${property.squareFeet.toLocaleString(
-          'en-US',
-        )} SF`,
-      )
-    }
-  }
-
-  if (property.views[0]) {
-    parts.push(`${property.views[0]} View`)
-  }
-
-  return parts.join('  ·  ')
 }
 
 function PropertyCard({
@@ -79,6 +30,7 @@ function PropertyCard({
   index: number
 }) {
   const href = `/properties/${property.slug}`
+  const loc = propertyLocation(property)
 
   return (
     <article
@@ -167,16 +119,18 @@ function PropertyCard({
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-5 text-white md:p-6">
-        <p className="mb-2 text-[9px] font-light uppercase tracking-[0.2em] text-white/65">
-          {propertyLocation(property)}
-        </p>
+        {loc ? (
+          <p className="mb-2 text-[9px] font-light uppercase tracking-[0.2em] text-white/65">
+            {loc}
+          </p>
+        ) : null}
 
         <h3 className="font-serif text-2xl font-light leading-[1.05] md:text-[28px]">
           {property.name}
         </h3>
 
         <p className="mt-3 text-[10px] font-light uppercase tracking-[0.12em] text-white/65">
-          {propertyFacts(property)}
+          {propertyFactParts(property).join('  ·  ')}
         </p>
 
         <div className="mt-5 flex items-center justify-between gap-4 border-t border-white/20 pt-4">

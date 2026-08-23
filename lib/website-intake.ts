@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { normalizeDisplayName, normalizeEmail } from './crm-intake-normalization'
 import { prepareInboundEvent } from './crm-intake'
 import { resolveOrCreateInboundPerson } from './crm-person-creation'
+import { normalizeServiceKey } from './services'
 import type {
   AdaptedWebsiteIntake,
   WebsiteIntakeActorContext,
@@ -77,6 +78,11 @@ export function normalizeWebsiteIntake(input: Record<string, unknown>) {
     typeof input.message === 'string'
       ? input.message.normalize('NFKC').trim() || undefined
       : undefined
+  // Service intent is normalized against the supported-services allow-list so
+  // an arbitrary or forged value is dropped rather than persisted as metadata.
+  const service = normalizeServiceKey(
+    typeof input.service === 'string' ? input.service : undefined,
+  )
 
   if (displayName.length > 200) throw new Error('Name is too long.')
   if (email.length > 320) throw new Error('Email is too long.')
@@ -89,6 +95,7 @@ export function normalizeWebsiteIntake(input: Record<string, unknown>) {
     displayName,
     email,
     message,
+    service,
   } satisfies WebsiteIntakePayload
 }
 
@@ -106,6 +113,7 @@ export function parseWebsiteIntakeFormData(
       name: formData.get('name'),
       email: formData.get('email'),
       message: formData.get('message'),
+      service: formData.get('service'),
     }),
   }
 }
@@ -169,7 +177,10 @@ export function adaptWebsiteIntake(
         payload.requestType === 'property_information'
           ? { requestedAction: payload.requestType }
           : undefined,
-      rawMetadata: { requestType: payload.requestType },
+      rawMetadata: {
+        requestType: payload.requestType,
+        ...(payload.service ? { service: payload.service } : {}),
+      },
     },
   }
 }
@@ -296,6 +307,7 @@ export async function processWebsiteIntake(
       displayName: payload.displayName,
       email: payload.email,
       message: payload.message,
+      service: payload.service,
     })
 
     await requireTransition(repositories.transitionReceipt({

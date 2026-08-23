@@ -174,7 +174,10 @@ export async function persistCanonicalWebsiteIntake(
         ${input.interactionId}, ${input.personId}, ${input.propertyId ?? null},
         'website', ${eventType}, 'inbound', ${input.occurredAt}, ${title},
         ${input.message ?? null}, 'website', ${input.submissionId},
-        ${JSON.stringify({ requestType: input.requestType })}::jsonb
+        ${JSON.stringify({
+          requestType: input.requestType,
+          ...(input.service ? { service: input.service } : {}),
+        })}::jsonb
       )
       on conflict (source_system, source_external_id)
         where source_system is not null and source_external_id is not null

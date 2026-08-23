@@ -23,6 +23,10 @@ export interface WebsiteIntakePayload {
   displayName: string
   email: string
   message?: string
+  // Service intent carried from a service-specific CTA on the general-enquiry
+  // path. Allow-listed against the supported services vocabulary; stored on the
+  // canonical interaction's source_metadata, never on the receipt.
+  service?: string
 }
 
 export interface WebsiteIntakeReceipt extends WebsiteIntakePayload {
@@ -78,6 +82,7 @@ export interface CanonicalWebsiteIntakeInput {
   displayName: string
   email: string
   message?: string
+  service?: string
 }
 
 export interface WebsiteIntakeDependencies {

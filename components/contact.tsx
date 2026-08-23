@@ -17,9 +17,11 @@ type PropertyContext = {
 export function Contact({
   content,
   propertyContext,
+  service,
 }: {
   content: MarketingContentBlock
   propertyContext?: PropertyContext
+  service?: string
 }) {
   const office = itemsFor(content, 'office')[0]
   const email = itemsFor(content, 'email')[0]
@@ -48,6 +50,10 @@ export function Contact({
       }
     } else {
       formData.set('requestType', 'general_enquiry')
+      // Preserve a service-specific CTA intent as metadata on the existing
+      // general-enquiry submission. `service` is already allow-listed by the
+      // contact page, and the intake backend re-validates it before persisting.
+      if (service) formData.set('service', service)
     }
 
     setPending(true)

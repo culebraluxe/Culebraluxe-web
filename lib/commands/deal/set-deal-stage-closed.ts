@@ -32,6 +32,9 @@ export class SetDealStageClosedCommand
         from: 'under_contract',
         to: 'closed',
         commandId: envelope.commandId,
+        // AUTH-05: thread the acting user into the receipt so the receipt
+        // itself records who changed the stage.
+        actorAppUserId: envelope.actorAppUserId ?? null,
       },
       ctx.run,
     )

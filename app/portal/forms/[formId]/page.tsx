@@ -31,6 +31,7 @@ export default async function FormPage({
 
   return (
     <FormEditor
+      key={form.id}
       form={{
         id: form.id,
         status: form.status,
