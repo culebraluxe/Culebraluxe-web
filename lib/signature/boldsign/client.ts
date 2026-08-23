@@ -139,17 +139,19 @@ export class BoldSignClient {
     )
     form.set('title', input.title ?? '')
     form.set('message', input.message ?? '')
-    form.set(
-      'signers',
-      JSON.stringify(
-        input.signers.map((signer) => ({
-          name: signer.name,
-          emailAddress: signer.emailAddress,
-          signerType: signer.signerType,
-          signerOrder: signer.signerOrder,
-        })),
-      ),
-    )
+    // BoldSign's /v1/document/send binds via ASP.NET [FromForm]: a
+    // List<DocumentSigner> is bound from NESTED form fields (signers[i].field),
+    // not from a JSON string in a single `signers` field. Sending a JSON string
+    // makes ASP.NET reject the whole request with HTTP 400
+    // {"Signers":["Value is invalid"]}. Each signer maps to the DocumentSigner
+    // model fields (name/emailAddress/signerType/signerOrder).
+    input.signers.forEach((signer, index) => {
+      const prefix = `signers[${index}]`
+      form.append(`${prefix}.name`, signer.name)
+      form.append(`${prefix}.emailAddress`, signer.emailAddress)
+      form.append(`${prefix}.signerType`, signer.signerType)
+      form.append(`${prefix}.signerOrder`, String(signer.signerOrder))
+    })
     if (input.enableSigningOrder) form.set('enableSigningOrder', 'true')
 
     return this.requestWithRetry<BoldSignEnvelopeCreated>({
