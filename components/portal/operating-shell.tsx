@@ -69,9 +69,9 @@ export function OperatingShell({
   ]
 
   return (
-    <div className="min-h-screen bg-[var(--portal-bg)] text-[var(--portal-text)]">
-      {/* Brand / account row (shallow chrome) */}
-      <header className="border-b border-white/10 bg-brand-navy text-white">
+    <div className="portal-page">
+      {/* Brand / account row — logo stays; navy bar is the brand lockup. */}
+      <header className="border-b border-[var(--portal-gold)]/25 bg-brand-navy text-white">
         <div className="flex min-h-12 items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           <Link
             href="/portal/dashboard"
@@ -103,8 +103,9 @@ export function OperatingShell({
         </div>
       </header>
 
-      {/* Tier 1 + Tier 2 — sticky operating navigation (frosted shell) */}
-      <div className="sticky top-0 z-20 border-b border-[var(--portal-border)] bg-[var(--portal-shell-bg)] backdrop-blur-[var(--portal-shell-blur)]">
+      {/* Tier 1 stays fully visible: NEXUS | MAIN | OPPS | SUPPORT | TECH.
+          Tier 2 is the glass submenu capsule. */}
+      <div className="portal-glass-nav sticky top-0 z-20">
         <nav
           aria-label="Operating surface"
           className="grid grid-cols-5"
@@ -117,7 +118,7 @@ export function OperatingShell({
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={[
-                  'flex min-h-12 items-center justify-center border-b-2 text-xs font-light uppercase tracking-[0.2em] transition-colors',
+                  'flex min-h-12 items-center justify-center border-b-2 px-0.5 text-[10px] font-light uppercase tracking-[0.12em] transition-colors sm:text-xs sm:tracking-[0.2em]',
                   active
                     ? 'border-[var(--portal-gold)] text-[var(--portal-navy)]'
                     : 'border-transparent text-black/45 hover:text-[var(--portal-navy)]',
@@ -129,10 +130,10 @@ export function OperatingShell({
           })}
         </nav>
 
-        <div className="overflow-x-auto px-3 pb-3 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="overflow-x-auto px-4 pb-3 pt-2 sm:px-6 lg:px-10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <nav
             aria-label={`${activeSurface} navigation`}
-            className="flex w-max min-w-full items-center gap-1.5 rounded-[var(--portal-rail-radius)] border border-[var(--portal-rail-border)] bg-[var(--portal-rail-bg)] p-1 shadow-[var(--portal-rail-shadow)] backdrop-blur-[var(--portal-rail-blur)]"
+            className="portal-glass-rail"
           >
             {visibleItems.map((item) => {
               const activeItem =
@@ -142,12 +143,7 @@ export function OperatingShell({
                   key={item.href}
                   href={item.href}
                   aria-current={activeItem ? 'page' : undefined}
-                  className={[
-                    'relative flex min-h-[var(--portal-tab-height)] shrink-0 items-center whitespace-nowrap rounded-[var(--portal-tab-radius)] px-3.5 text-[11px] font-medium uppercase tracking-[0.12em] transition-colors',
-                    activeItem
-                      ? 'bg-[var(--portal-navy)] text-white shadow-sm after:absolute after:inset-x-4 after:bottom-px after:h-0.5 after:rounded-full after:bg-[var(--portal-gold)]'
-                      : 'text-[var(--portal-navy)] hover:bg-[var(--portal-rail-hover-bg)] active:bg-[var(--portal-rail-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--portal-gold)]/60',
-                  ].join(' ')}
+                  className="portal-glass-tab"
                 >
                   {item.label}
                 </Link>

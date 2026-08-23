@@ -73,7 +73,7 @@ export function DealCreatePanel({
     "mb-1 block text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]"
 
   return (
-    <section className="mb-6 rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="portal-glass-panel mb-6 overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">New deal</h2>

@@ -4,12 +4,11 @@ import type { ReactNode } from 'react'
 // Shared Portal panel primitive (visual backbone).
 //
 // One panel component + shared tokens for the whole portal. Variants:
-//   standard  — white surface, confident cool-gray/navy border, restrained
-//               shadow (default).
-//   soft      — pale cool blue-gray surface (breaks up white space).
-//   feature   — deep navy surface, white text, restrained gold accents; used
+//   standard  — frosted glass (default).
+//   soft      — cooler, more translucent glass (breaks up stacked cards).
+//   feature   — navy glass, white text, restrained gold accents; used
 //               sparingly for high-priority information.
-//   attention — pale cool surface, navy boundary, restrained gold eyebrow —
+//   attention — frosted glass, navy boundary, gold top edge —
 //               brand-distinct without warning-yellow.
 //
 // Every visual knob (bg / border / shadow / radius / padding / heading) is
@@ -24,13 +23,10 @@ import type { ReactNode } from 'react'
 export type PanelVariant = 'standard' | 'soft' | 'feature' | 'attention'
 
 const variantSurface: Record<PanelVariant, string> = {
-  standard:
-    'border-[var(--portal-panel-border)] bg-[var(--portal-panel-bg)] shadow-[var(--portal-panel-shadow)]',
-  soft: 'border-[var(--portal-panel-border)] [background:var(--portal-soft-gradient)] shadow-[var(--portal-panel-shadow)]',
-  feature:
-    'border-[var(--portal-feature-border)] [background:var(--portal-feature-gradient)] shadow-[var(--portal-feature-shadow)] text-white',
-  attention:
-    'border-[var(--portal-attention-border)] border-t-2 border-t-[var(--portal-gold)] bg-[var(--portal-attention-bg)] shadow-[var(--portal-panel-shadow)]',
+  standard: 'portal-glass-panel',
+  soft: 'portal-glass-panel portal-glass-panel-soft',
+  feature: 'portal-glass-panel portal-glass-panel-feature',
+  attention: 'portal-glass-panel portal-glass-panel-attention',
 }
 
 const headingTone: Record<PanelVariant, string> = {
@@ -73,7 +69,7 @@ export function Panel({
   return (
     <section
       className={[
-        'overflow-hidden rounded-[var(--portal-panel-radius)] border',
+        'overflow-hidden rounded-[var(--portal-panel-radius)]',
         flush ? '' : 'p-[var(--portal-panel-padding)]',
         variantSurface[variant],
         className,

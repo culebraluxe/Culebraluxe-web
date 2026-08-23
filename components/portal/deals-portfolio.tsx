@@ -326,7 +326,7 @@ export function DealsPortfolio({
       </Panel>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.5fr)]">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <div className="mb-6">
             <h2 className="font-serif text-2xl font-light">
               Pipeline
@@ -440,7 +440,7 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
       <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
         {label}
       </div>

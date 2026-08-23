@@ -48,7 +48,7 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">{title}</h2>

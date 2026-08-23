@@ -18,7 +18,7 @@ export function WorkflowDashboardCard({
   )
 
   return (
-    <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
       <div className="flex items-center justify-between">
         <h2 className="flex items-center gap-2 font-serif text-xl font-light text-[var(--portal-navy)]">
           <GitBranch className="h-4 w-4 text-[var(--portal-blue-gray)]" />
@@ -58,7 +58,7 @@ function Metric({
   alert?: boolean
 }) {
   return (
-    <div className="rounded-sm bg-[var(--portal-blue-pale)] px-4 py-3">
+    <div className="rounded-[var(--portal-tab-radius)] bg-[var(--portal-blue-pale)]/55 px-4 py-3">
       <div className="flex items-center gap-1.5">
         <span className="font-serif text-2xl font-light text-[var(--portal-navy)]">
           {value}

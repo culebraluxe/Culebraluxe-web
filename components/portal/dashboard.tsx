@@ -282,7 +282,7 @@ export function Dashboard({
         </Panel>
 
         {featuredDeal ? (
-          <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+          <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
             {featuredDeal.heroMediaId ? (
               <img
                 src={`/api/media/${featuredDeal.heroMediaId}`}
@@ -330,7 +330,7 @@ export function Dashboard({
             </div>
           </section>
         ) : (
-          <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
             <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
               Featured Opportunity
             </p>
@@ -460,8 +460,8 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
-      <div className="h-0.5 bg-[var(--portal-navy)]" aria-hidden />
+    <div className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+      <div className="h-0.5 bg-[var(--portal-gold)]" aria-hidden />
 
       <div className="p-6">
         <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">

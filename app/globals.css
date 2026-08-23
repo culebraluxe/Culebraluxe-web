@@ -209,9 +209,17 @@
 :root {
   /* Portal theme — shared visual tokens. A change here propagates across the
      whole portal (pages consume these tokens; no per-page one-off hexes). */
-  --portal-bg: #eef2f6;
-  --portal-surface: #ffffff;
-  --portal-sidebar: #e9edf2;
+
+  /* Page wash — cool Caribbean mist so frosted glass has something to sample.
+     Fallback solid first; the layered wash is applied by .portal-page. */
+  --portal-bg: #9eb4c8;
+  --portal-page-wash:
+    radial-gradient(1100px 520px at 8% -12%, rgba(198, 161, 91, 0.34) 0%, transparent 58%),
+    radial-gradient(900px 640px at 108% 8%, rgba(24, 43, 64, 0.4) 0%, transparent 60%),
+    radial-gradient(720px 480px at 52% 118%, rgba(64, 88, 75, 0.16) 0%, transparent 52%),
+    linear-gradient(180deg, #8fa7bd 0%, #c2d3e2 42%, #a9becf 100%);
+  --portal-surface: rgba(255, 255, 255, 0.52);
+  --portal-sidebar: #d7e2eb;
 
   /* deep navy structural surfaces */
   --portal-navy: #182b40;
@@ -248,44 +256,198 @@
   --portal-on-navy: #cbd5e1;
   --portal-ivory: #f8f5ec;
 
-  /* strong visible card boundary (not a faint hairline) */
-  --portal-border: #ccd6e0;
+  /* Hairline used by remaining opaque portal surfaces. Glass panels use
+     --portal-panel-border / --portal-rail-border instead. */
+  --portal-border: #c5d0da;
 
-  /* Shared panel primitives — Standard / Soft / Feature / Attention. */
-  --portal-panel-bg: #ffffff;
-  --portal-panel-border: #ccd6e0;
-  --portal-panel-shadow: 0 1px 2px rgba(24, 43, 64, 0.05), 0 2px 6px rgba(24, 43, 64, 0.06), 0 12px 28px rgba(24, 43, 64, 0.1);
-  --portal-panel-radius: 10px;
+  /* Shared panel primitives — frosted glass. Standard / Soft / Feature / Attention. */
+  --portal-panel-bg: rgba(255, 255, 255, 0.32);
+  --portal-panel-border: rgba(255, 255, 255, 0.58);
+  --portal-panel-blur: 22px;
+  --portal-panel-saturate: 1.55;
+  --portal-panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72), inset 0 -1px 0 rgba(24, 43, 64, 0.04);
+  --portal-panel-shadow: var(--portal-panel-inset), 0 1px 2px rgba(24, 43, 64, 0.05), 0 10px 32px rgba(24, 43, 64, 0.12);
+  --portal-panel-radius: 14px;
   --portal-panel-padding: 24px;
   --portal-panel-heading: #182b40;
   --portal-panel-heading-muted: #64798d;
 
-  --portal-soft-bg: #eef3f8;
-  --portal-soft-gradient: linear-gradient(180deg, #f2f6fa 0%, #e8eff6 100%);
+  --portal-soft-bg: rgba(238, 243, 248, 0.42);
+  --portal-soft-gradient: linear-gradient(180deg, rgba(242, 246, 250, 0.5) 0%, rgba(232, 239, 246, 0.36) 100%);
   --portal-soft-heading: #182b40;
 
-  --portal-feature-bg: #182b40;
-  --portal-feature-gradient: linear-gradient(135deg, #1d3348 0%, #14263a 55%, #0e1c2d 100%);
-  --portal-feature-border: #182b40;
-  --portal-feature-shadow: 0 2px 6px rgba(24, 43, 64, 0.18), 0 14px 34px rgba(24, 43, 64, 0.3);
+  --portal-feature-bg: rgba(24, 43, 64, 0.78);
+  --portal-feature-gradient: linear-gradient(135deg, rgba(29, 51, 72, 0.82) 0%, rgba(20, 38, 58, 0.88) 55%, rgba(14, 28, 45, 0.92) 100%);
+  --portal-feature-border: rgba(255, 255, 255, 0.16);
+  --portal-feature-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 6px rgba(24, 43, 64, 0.2), 0 16px 36px rgba(24, 43, 64, 0.28);
   --portal-feature-heading: #ffffff;
   --portal-feature-muted: rgba(255, 255, 255, 0.6);
   --portal-feature-eyebrow: #d8b877;
 
-  --portal-attention-bg: #f3f7fb;
-  --portal-attention-border: #182b40;
+  --portal-attention-bg: rgba(243, 247, 251, 0.34);
+  --portal-attention-border: rgba(24, 43, 64, 0.35);
   --portal-attention-heading: #182b40;
   --portal-attention-eyebrow: #8a6d2f;
 
-  /* Shared glass nav tokens — frosted operating rail + translucent shell. */
-  --portal-shell-bg: rgba(238, 242, 247, 0.82);
-  --portal-shell-blur: 10px;
-  --portal-rail-bg: rgba(255, 255, 255, 0.66);
-  --portal-rail-blur: 14px;
-  --portal-rail-border: rgba(24, 43, 64, 0.16);
-  --portal-rail-shadow: 0 1px 2px rgba(24, 43, 64, 0.06), 0 8px 24px rgba(24, 43, 64, 0.1);
-  --portal-rail-radius: 10px;
-  --portal-rail-hover-bg: rgba(24, 43, 64, 0.07);
+  /* Sticky operating chrome — translucent so the page wash reads through. */
+  --portal-shell-bg: rgba(210, 222, 234, 0.4);
+  --portal-shell-blur: 18px;
+  --portal-shell-border: rgba(255, 255, 255, 0.38);
+
+  /* Submenu glass rail — the frosted capsule under NEXUS | MAIN | OPPS | SUPPORT | TECH. */
+  --portal-rail-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.14) 100%);
+  --portal-rail-blur: 26px;
+  --portal-rail-saturate: 1.7;
+  --portal-rail-border: rgba(255, 255, 255, 0.7);
+  --portal-rail-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 rgba(24, 43, 64, 0.06);
+  --portal-rail-shadow: var(--portal-rail-inset), 0 1px 2px rgba(24, 43, 64, 0.06), 0 10px 28px rgba(24, 43, 64, 0.12);
+  --portal-rail-radius: 14px;
+  --portal-rail-hover-bg: rgba(24, 43, 64, 0.08);
+  --portal-rail-gold-edge: linear-gradient(90deg, transparent 4%, rgba(198, 161, 91, 0.55) 50%, transparent 96%);
   --portal-tab-height: 44px;
-  --portal-tab-radius: 7px;
+  --portal-tab-radius: 10px;
+}
+
+/* Portal page canvas + glass materials. Colors stay in the tokens above. */
+.portal-page {
+  min-height: 100vh;
+  background-color: var(--portal-bg);
+  background-image: var(--portal-page-wash);
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: var(--portal-text);
+}
+
+.portal-glass-nav {
+  background: var(--portal-shell-bg);
+  border-bottom: 1px solid var(--portal-shell-border);
+  backdrop-filter: blur(var(--portal-shell-blur)) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--portal-shell-blur)) saturate(1.35);
+}
+
+.portal-glass-rail {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3rem;
+  border: 1px solid var(--portal-rail-border);
+  border-radius: var(--portal-rail-radius);
+  background: var(--portal-rail-bg);
+  box-shadow: var(--portal-rail-shadow);
+  backdrop-filter: blur(var(--portal-rail-blur)) saturate(var(--portal-rail-saturate));
+  -webkit-backdrop-filter: blur(var(--portal-rail-blur)) saturate(var(--portal-rail-saturate));
+}
+
+.portal-glass-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 42%);
+}
+
+.portal-glass-rail::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 14px;
+  left: 14px;
+  z-index: 2;
+  height: 1px;
+  pointer-events: none;
+  background: var(--portal-rail-gold-edge);
+}
+
+.portal-glass-rail > * {
+  position: relative;
+  z-index: 1;
+}
+
+.portal-glass-tab {
+  position: relative;
+  display: flex;
+  min-height: var(--portal-tab-height);
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: var(--portal-tab-radius);
+  padding-inline: 0.875rem;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--portal-navy);
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.portal-glass-tab:hover {
+  background: var(--portal-rail-hover-bg);
+}
+
+.portal-glass-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--portal-gold) 60%, transparent);
+}
+
+.portal-glass-tab[aria-current='page'] {
+  background: color-mix(in srgb, var(--portal-navy) 90%, transparent);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(10, 15, 26, 0.22);
+}
+
+.portal-glass-tab[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 1rem;
+  bottom: 3px;
+  left: 1rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--portal-gold);
+}
+
+.portal-glass-panel {
+  position: relative;
+  border: 1px solid var(--portal-panel-border);
+  background: var(--portal-panel-bg);
+  box-shadow: var(--portal-panel-shadow);
+  backdrop-filter: blur(var(--portal-panel-blur)) saturate(var(--portal-panel-saturate));
+  -webkit-backdrop-filter: blur(var(--portal-panel-blur)) saturate(var(--portal-panel-saturate));
+}
+
+.portal-glass-panel-soft {
+  background: var(--portal-soft-gradient);
+}
+
+.portal-glass-panel-feature {
+  border-color: var(--portal-feature-border);
+  background: var(--portal-feature-gradient);
+  color: #ffffff;
+  box-shadow: var(--portal-feature-shadow);
+}
+
+.portal-glass-panel-attention {
+  border-color: var(--portal-attention-border);
+  border-top-width: 2px;
+  border-top-color: var(--portal-gold);
+  background: var(--portal-attention-bg);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .portal-glass-nav {
+    background: #d7e2eb;
+  }
+  .portal-glass-rail,
+  .portal-glass-panel {
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .portal-glass-panel-feature {
+    background: var(--portal-navy);
+  }
 }

@@ -84,12 +84,7 @@ function Tab({ label, active = false }: { label: string; active?: boolean }) {
     <button
       type="button"
       aria-current={active ? "page" : undefined}
-      className={[
-        "relative flex min-h-[var(--portal-tab-height)] shrink-0 items-center whitespace-nowrap rounded-[var(--portal-tab-radius)] px-3.5 text-[11px] font-medium uppercase tracking-[0.12em] transition-colors",
-        active
-          ? "bg-[var(--portal-navy)] text-white shadow-sm after:absolute after:inset-x-4 after:bottom-px after:h-0.5 after:rounded-full after:bg-[var(--portal-gold)]"
-          : "text-[var(--portal-navy)] hover:bg-[var(--portal-rail-hover-bg)] active:bg-[var(--portal-rail-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--portal-gold)]/60",
-      ].join(" ")}
+      className="portal-glass-tab"
     >
       {label}
     </button>
@@ -172,7 +167,7 @@ export default function DesignLabPage() {
           <div>
             <p className={`${labelCls} mb-2`}>Surface rail (as in the shell)</p>
             <div className="overflow-x-auto pb-1 [scrollbar-width:none]">
-              <div className="flex w-max min-w-full items-center gap-1.5 rounded-[var(--portal-rail-radius)] border border-[var(--portal-rail-border)] bg-[var(--portal-rail-bg)] p-1 shadow-[var(--portal-rail-shadow)] backdrop-blur-[var(--portal-rail-blur)]">
+              <div className="portal-glass-rail">
                 {["Overview", "Clients", "Deals", "Forms", "Documents", "Activity"].map((t) => (
                   <Tab key={t} label={t} active={t === "Deals"} />
                 ))}
@@ -215,10 +210,10 @@ export default function DesignLabPage() {
       >
         <div className="grid gap-4 md:grid-cols-2">
           <Panel variant="standard" heading="Standard panel" eyebrow="NEXUS · Dashboard">
-            White surface, confident cool-gray border, layered shadow, serif heading.
+            Frosted glass surface, light specular edge, layered shadow, serif heading.
           </Panel>
           <Panel variant="soft" heading="Soft panel" eyebrow="Break up white space">
-            Pale cool blue-gray gradient for secondary content.
+            Cooler, more translucent glass for secondary content.
           </Panel>
           <Panel variant="feature" heading="Feature panel" eyebrow="High priority">
             Deep navy gradient, white text, restrained gold eyebrow. Used sparingly.
@@ -463,19 +458,19 @@ export default function DesignLabPage() {
         className="mb-6"
       >
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-5 shadow-[var(--portal-panel-shadow)]">
+          <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
             <p className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Active deals</p>
             <div className="mt-3 font-serif text-3xl font-light text-[var(--portal-navy)]">7</div>
             <div className="mt-1 text-xs font-light text-black/45">Across 4 properties</div>
           </div>
-          <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-5 shadow-[var(--portal-panel-shadow)]">
+          <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
             <p className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Volume in motion</p>
             <div className="mt-3 font-serif text-3xl font-light text-[var(--portal-navy)]">$4.3M</div>
             <div className="mt-1 flex items-center gap-1.5 text-xs font-light text-[var(--portal-success)]">
               <TrendingUp className="h-3.5 w-3.5" /> +12% this quarter
             </div>
           </div>
-          <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-5 shadow-[var(--portal-panel-shadow)]">
+          <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
             <p className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Needs attention</p>
             <div className="mt-3 font-serif text-3xl font-light text-[var(--portal-navy)]">3</div>
             <div className="mt-1 text-xs font-light text-[var(--portal-archive)]">1 financing deadline</div>
