@@ -320,78 +320,119 @@ export function FormEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="min-w-[14rem]">
-          <span className={labelClass}>Form</span>
-          <select
-            value={form.templateId}
-            disabled={working}
-            onChange={(event) => {
-              const nextTemplateId = event.target.value
-              if (nextTemplateId === form.templateId) return
-              const latest = savedForms.find(
-                (item) => item.templateId === nextTemplateId,
-              )
-              setBusy(true)
-              if (latest) {
-                router.push(`/portal/forms/${latest.id}`)
-                return
-              }
-              void startNewForm(nextTemplateId)
-            }}
-            className={`${inputClass} font-serif text-base text-[var(--portal-navy)]`}
-          >
-            {templates.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="min-w-[12rem] max-w-xs flex-1">
-          <span className={labelClass}>Search</span>
-          <input
-            value={sessionQuery}
-            onChange={(event) => setSessionQuery(event.target.value)}
-            placeholder="Buyer, seller, property…"
-            className={inputClass}
-          />
-        </label>
-        <label className="min-w-[16rem] flex-[2]">
-          <span className={labelClass}>Open saved</span>
-          <select
-            value={form.id}
-            disabled={working}
-            onChange={(event) => {
-              const nextId = event.target.value
-              if (nextId === form.id) return
-              if (nextId === "__new__") {
-                setBusy(true)
-                void startNewForm(form.templateId)
-                return
-              }
-              router.push(`/portal/forms/${nextId}`)
-            }}
-            className={inputClass}
-          >
-            <option value="__new__">New {template.displayName}</option>
-            {visibleSaved.map((item) => (
-              <option key={item.id} value={item.id}>
-                {sessionLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="pb-2 text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
-          {dirty ? "Unsaved" : vaultVersion ? `Vault v${vaultVersion}` : "Draft"}
-        </span>
-      </div>
-
       {error ? (
         <p className="text-xs font-light text-[var(--portal-archive)]">{error}</p>
       ) : null}
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="flex flex-col items-stretch gap-4 lg:flex-row lg:items-start">
+        <aside className="portal-glass-panel flex w-full shrink-0 flex-col rounded-[var(--portal-panel-radius)] p-3 lg:sticky lg:top-4 lg:h-[calc(100vh-5.5rem)] lg:w-72">
+          <label>
+            <span className={labelClass}>Form</span>
+            <select
+              value={form.templateId}
+              disabled={working}
+              onChange={(event) => {
+                const nextTemplateId = event.target.value
+                if (nextTemplateId === form.templateId) return
+                const latest = savedForms.find(
+                  (item) => item.templateId === nextTemplateId,
+                )
+                setBusy(true)
+                if (latest) {
+                  router.push(`/portal/forms/${latest.id}`)
+                  return
+                }
+                void startNewForm(nextTemplateId)
+              }}
+              className={inputClass}
+            >
+              {templates.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-3">
+            <span className={labelClass}>Search</span>
+            <input
+              value={sessionQuery}
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="Buyer, seller, property…"
+              className={inputClass}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={working}
+            onClick={() => {
+              setBusy(true)
+              void startNewForm(form.templateId)
+            }}
+            className={`${primaryButton} mt-3 w-full`}
+          >
+            New {template.displayName}
+          </button>
+          <p className="mt-3 text-[9px] font-light uppercase tracking-[0.14em] text-black/40">
+            {visibleSaved.length} saved
+          </p>
+          <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
+            {visibleSaved.length === 0 ? (
+              <p className="px-1 py-3 text-sm font-light text-black/40">
+                No saved {template.displayName.toLowerCase()} forms
+                {needle ? " match that search" : " yet"}.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {visibleSaved.map((item) => {
+                  const who = [
+                    item.buyerName || item.clientName,
+                    item.sellerName,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ")
+                  const active = item.id === form.id
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        disabled={working}
+                        onClick={() => {
+                          if (item.id !== form.id) {
+                            router.push(`/portal/forms/${item.id}`)
+                          }
+                        }}
+                        className={`w-full rounded-[var(--portal-tab-radius)] px-2.5 py-2 text-left transition ${
+                          active
+                            ? "bg-[var(--portal-navy)] text-white"
+                            : "text-black/75 hover:bg-white/70"
+                        }`}
+                      >
+                        <div className="truncate text-sm font-medium">
+                          {who || "Untitled"}
+                        </div>
+                        <div
+                          className={`truncate text-[11px] font-light ${
+                            active ? "text-white/70" : "text-black/40"
+                          }`}
+                        >
+                          {[item.propertyLabel, item.updatedAt.slice(0, 10)]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+          <p className="mt-2 text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
+            {dirty ? "Unsaved" : vaultVersion ? `Vault v${vaultVersion}` : "Draft"}
+          </p>
+        </aside>
+
+      <div className="grid min-w-0 flex-1 items-start gap-4 lg:grid-cols-2">
         <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
           <div className="grid grid-cols-6 gap-x-3 gap-y-3.5">
             {template.fields.map((field) => (
@@ -575,6 +616,7 @@ export function FormEditor({
             </div>
           </div>
         </section>
+      </div>
       </div>
     </div>
   )
