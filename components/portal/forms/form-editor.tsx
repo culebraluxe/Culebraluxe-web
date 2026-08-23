@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react"
 
-import { updateFormAction } from "@/app/portal/forms/actions"
+import {
+  issueFormAction,
+  updateFormAction,
+} from "@/app/portal/forms/actions"
 import {
   formatFieldValue,
   interpolateSectionText,
@@ -72,6 +75,30 @@ function initialDetailsText(
 
 function issuedPdfUrl(documentId: string) {
   return `/portal/documents/${documentId}/download?inline=1`
+}
+
+async function pdfFileFromUrl(
+  url: string,
+  filename: string,
+): Promise<File> {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Failed to load PDF: ${response.status}`)
+  }
+  const buffer = await response.arrayBuffer()
+  const header = String.fromCharCode(
+    ...new Uint8Array(buffer).subarray(0, 5),
+  )
+  if (header !== "%PDF-") {
+    throw new Error("Vault file is not a PDF.")
+  }
+  const safeFilename = filename.endsWith(".pdf")
+    ? filename
+    : `${filename}.pdf`
+  return new File([buffer], safeFilename, {
+    type: "application/pdf",
+    lastModified: Date.now(),
+  })
 }
 
 function fileSafeName(value: string) {
@@ -200,25 +227,20 @@ export function FormEditor({
     nextDetails = detailsText,
   ): Promise<boolean> {
     const nextSections = composedSections(nextDetails)
-    setBusy(true)
-    try {
-      const result = await updateFormAction(form.id, nextValues, nextSections)
-      if (result.ok) {
-        setSections(nextSections)
-        setSaved({
-          values: nextValues,
-          sections: nextSections,
-          detailsText: nextDetails,
-        })
-        setMessage("Saved")
-        setError(null)
-        return true
-      }
-      setError(result.message ?? "Could not save.")
-      return false
-    } finally {
-      setBusy(false)
+    const result = await updateFormAction(form.id, nextValues, nextSections)
+    if (result.ok) {
+      setSections(nextSections)
+      setSaved({
+        values: nextValues,
+        sections: nextSections,
+        detailsText: nextDetails,
+      })
+      setMessage("Saved")
+      setError(null)
+      return true
     }
+    setError(result.message ?? "Could not save.")
+    return false
   }
 
   function cancelEdits() {
@@ -238,39 +260,32 @@ export function FormEditor({
     return `${fileSafeName(who)}-${fileSafeName(template.id)}.pdf`
   }
 
-  async function pdfBlob(): Promise<Blob> {
-    if (issued) {
-      const response = await fetch(issuedPdfUrl(issued.documentId))
-      if (!response.ok) throw new Error("Could not load the PDF.")
-      return response.blob()
+  async function ensureIssuedDocument() {
+    if (issued) return issued
+    if (dirty) {
+      const savedOk = await saveDraft()
+      if (!savedOk) {
+        throw new Error("Could not save the form before creating the PDF.")
+      }
     }
-    const response = await fetch(`/portal/forms/${form.id}/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fieldValues: values,
-        sections: composedSections(),
-      }),
-    })
-    if (!response.ok) throw new Error("Could not build the PDF.")
-    return response.blob()
+    const result = await issueFormAction(form.id)
+    if (!result.ok) {
+      throw new Error(result.message ?? "Could not issue the PDF.")
+    }
+    setIssued(result.data)
+    return result.data
   }
 
-  async function pdfFile() {
-    const blob = await pdfBlob()
-    const bytes = new Uint8Array(await blob.arrayBuffer())
-    const header = String.fromCharCode(...bytes.subarray(0, 5))
-    if (header !== "%PDF-") {
-      throw new Error("The generated file was not a PDF.")
-    }
-    return new File([bytes], pdfFilename(), { type: "application/pdf" })
+  async function vaultPdfFile() {
+    const document = await ensureIssuedDocument()
+    return pdfFileFromUrl(issuedPdfUrl(document.documentId), pdfFilename())
   }
 
   async function savePdf() {
     setError(null)
     setBusy(true)
     try {
-      const file = await pdfFile()
+      const file = await vaultPdfFile()
       await writePdfToDisk(file, file.name)
       setMessage("PDF saved")
     } catch (caught) {
@@ -285,19 +300,19 @@ export function FormEditor({
     setError(null)
     setBusy(true)
     try {
-      const file = await pdfFile()
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({
-          title: "CulebraLuxe Document",
-          text: "Attached document",
-          files: [file],
-        })
-        setMessage("Shared")
+      const file = await vaultPdfFile()
+      if (!navigator.canShare?.({ files: [file] })) {
+        setMessage(
+          "This browser can't attach a PDF from the page. Save PDF, then attach that file in Mail or Messages.",
+        )
         return
       }
-      setMessage(
-        "This browser can't attach a PDF to Mail from the page. Save PDF, then attach that file in Mail or Messages.",
-      )
+      await navigator.share({
+        title: "CulebraLuxe Document",
+        text: "CulebraLuxe transaction document",
+        files: [file],
+      })
+      setMessage("Shared")
     } catch (caught) {
       if (isUserCancel(caught)) return
       setError(caught instanceof Error ? caught.message : "Could not share the PDF.")
@@ -408,7 +423,14 @@ export function FormEditor({
               type="button"
               disabled={working || isIssued || !dirty}
               onClick={() => {
-                void saveDraft()
+                void (async () => {
+                  setBusy(true)
+                  try {
+                    await saveDraft()
+                  } finally {
+                    setBusy(false)
+                  }
+                })()
               }}
               className={primaryButton}
             >
