@@ -54,6 +54,7 @@ import { BoldSignClient, type BoldSignDirectSigner } from './client'
 import { classifyBoldSignError } from './errors'
 import { mapBoldSignWebhookEvent } from './events'
 import { parseBoldSignWebhookPayload, verifyBoldSignWebhookSignature } from './webhook'
+import { PDFDocument } from 'pdf-lib'
 
 export type BoldSignSignatureProviderDeps = {
   config: BoldSignConfig
@@ -89,6 +90,16 @@ type TransactionDocumentPdf = {
   bytes: Uint8Array
   filename: string
   mimeType: string
+}
+
+/** Number of pages in the PDF, so a signature box can be placed on the last page. */
+async function lastPageNumber(bytes: Uint8Array): Promise<number> {
+  try {
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    return Math.max(1, doc.getPageCount())
+  } catch {
+    return 1
+  }
 }
 
 async function loadTransactionDocumentPdf(
@@ -154,17 +165,6 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       return { ok: true, providerStatus: existing.status }
     }
 
-    // Map the neutral recipients onto BoldSign direct-send signers. The neutral
-    // role/order vocabulary stays neutral — this mapping is adapter-internal.
-    const signers: BoldSignDirectSigner[] = request.recipients.map((recipient) => ({
-      name: recipient.name,
-      emailAddress: recipient.email,
-      signerType: (recipient.role === 'approver' ? 'Reviewer' : 'Signer') as
-        | 'Signer'
-        | 'Reviewer',
-      signerOrder: recipient.order,
-    }))
-
     try {
       // Send the EXISTING unsigned PDF bytes CulebraLuxe already owns directly
       // to BoldSign (multipart POST /v1/document/send) — no template needed.
@@ -172,6 +172,28 @@ export class BoldSignSignatureProvider implements SignatureProvider {
         request.transactionDocumentId,
         this.deps.execute,
       )
+      const signaturePage = await lastPageNumber(pdf.bytes)
+      // Map the neutral recipients onto BoldSign direct-send signers. Each
+      // signer carries at least one REQUIRED Signature form field (BoldSign
+      // rejects a signer with null/empty FormFields with HTTP 400) placed on the
+      // final PDF page in a safe lower-page area. The neutral role/order
+      // vocabulary stays neutral — this mapping is adapter-internal.
+      const signers: BoldSignDirectSigner[] = request.recipients.map((recipient) => ({
+        name: recipient.name,
+        emailAddress: recipient.email,
+        signerType: (recipient.role === 'approver' ? 'Reviewer' : 'Signer') as
+          | 'Signer'
+          | 'Reviewer',
+        signerOrder: recipient.order,
+        formFields: [
+          {
+            fieldType: 'Signature',
+            pageNumber: signaturePage,
+            bounds: { x: 56, y: 80, width: 200, height: 60 },
+            isRequired: true,
+          },
+        ],
+      }))
       const created = await this.client.sendDocument({
         fileBytes: pdf.bytes,
         filename: pdf.filename,

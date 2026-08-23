@@ -42,18 +42,39 @@ export type BoldSignSendEnvelopeInput = {
 }
 
 /**
+ * A signature/form field bound to a signer for DIRECT document send. Matches
+ * BoldSign's `FormField` model: `fieldType` (e.g. "Signature"), `pageNumber`
+ * (1-based), `bounds` (Rectangle) and optional `isRequired`. Provider-specific —
+ * never crosses the seam.
+ */
+export type BoldSignDirectBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BoldSignDirectFormField = {
+  fieldType: string
+  pageNumber: number
+  bounds: BoldSignDirectBounds
+  isRequired?: boolean
+}
+
+/**
  * A signer for DIRECT document send. Matches BoldSign's `DocumentSigner` model
- * exactly: `signerOrder` drives signing order (there is no `roleIndex` field;
- * the model binds strictly with additionalProperties=false, so sending an
- * unknown field like `roleIndex` makes BoldSign reject the whole `signers`
- * array with HTTP 400 "Value is invalid"). Provider-specific — never crosses
- * the seam.
+ * exactly: `signerOrder` drives signing order (there is no `roleIndex` field)
+ * and `formFields` is REQUIRED (a signer with null/empty FormFields is rejected
+ * with HTTP 400 "Form fields cannot be null"). The model binds strictly with
+ * additionalProperties=false, so only these fields may be sent. Provider-
+ * specific — never crosses the seam.
  */
 export type BoldSignDirectSigner = {
   name: string
   emailAddress: string
   signerType: BoldSignSignerType
   signerOrder: number
+  formFields: BoldSignDirectFormField[]
 }
 
 export type BoldSignSendDocumentInput = {
@@ -151,6 +172,18 @@ export class BoldSignClient {
       form.append(`${prefix}.emailAddress`, signer.emailAddress)
       form.append(`${prefix}.signerType`, signer.signerType)
       form.append(`${prefix}.signerOrder`, String(signer.signerOrder))
+      signer.formFields.forEach((field, fieldIndex) => {
+        const fp = `${prefix}.formFields[${fieldIndex}]`
+        form.append(`${fp}.fieldType`, field.fieldType)
+        form.append(`${fp}.pageNumber`, String(field.pageNumber))
+        form.append(`${fp}.bounds.x`, String(field.bounds.x))
+        form.append(`${fp}.bounds.y`, String(field.bounds.y))
+        form.append(`${fp}.bounds.width`, String(field.bounds.width))
+        form.append(`${fp}.bounds.height`, String(field.bounds.height))
+        if (field.isRequired !== undefined) {
+          form.append(`${fp}.isRequired`, field.isRequired ? 'true' : 'false')
+        }
+      })
     })
     if (input.enableSigningOrder) form.set('enableSigningOrder', 'true')
 
