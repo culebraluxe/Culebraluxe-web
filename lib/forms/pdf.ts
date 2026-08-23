@@ -347,13 +347,15 @@ export function buildPurchaseSalePdf(
   emitHeader(layout, template, issuedVersion)
 
   for (const section of template.sections) {
+    const raw = (sections[section.name] ?? '').trim()
+    const text = section.editable
+      ? raw
+      : raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
+    if (!text.trim()) continue
     const broke = layout.ensureSpace(34)
     if (broke) emitHeader(layout, template, issuedVersion)
     layout.text('F2', 11, section.label.toUpperCase())
-    const raw = (sections[section.name] ?? '').trim()
-    const text =
-      raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
-    if (text.trim()) layout.paragraph('F1', 10, text.trim())
+    layout.paragraph('F1', 10, text.trim())
     layout.space(8)
   }
 

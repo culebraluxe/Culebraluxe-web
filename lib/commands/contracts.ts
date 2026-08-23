@@ -102,11 +102,12 @@ export function commandReceiptStatus(
 /**
  * Durable command receipt — proof, replay, idempotency. The current
  * `workflow_command_receipt` table stores command_id / outcome / aggregate_id /
- * message / created_at; the richer fields below (actorAppUserId, commandType,
- * correlationId, causationId, aggregateType, resultPayload, errorCode,
- * errorMessage) are compile-ready contract surface carried on the canonical
- * envelope today and persisted by the same receipt row when a durable consumer
- * needs them (additive migration — CRM-14I defer decision preserved).
+ * message / created_at / actor_app_user_id (AUTH-05); the richer fields below
+ * (commandType, correlationId, causationId, aggregateType, resultPayload,
+ * errorCode, errorMessage) are compile-ready contract surface carried on the
+ * canonical envelope today and persisted by the same receipt row when a
+ * durable consumer needs them (additive migration — CRM-14I defer decision
+ * preserved).
  */
 export type CommandReceipt = {
   commandId: string
@@ -118,11 +119,10 @@ export type CommandReceipt = {
   message: string | null
   createdAt: string | null
   /**
-   * SB-01 compatibility repair: the canonical receipt contract accepts the
-   * acting app_user that receipt-backed handlers already record (AUTH-05
-   * intent — who performed the command). Optional and nullable: engine-driven
-   * commands carry no actor. Persisted by the same receipt row once the
-   * actor_app_user_id column is available (AUTH-05 additive migration).
+   * AUTH-05: acting app_user recorded on the receipt for allow-listed
+   * consequential commands (offer.accept, deal.set_stage_*,
+   * deal.set_financing_type, deal.set_closing_date). Null when the caller
+   * supplied no actor (e.g. engine-driven commands).
    */
   actorAppUserId?: string | null
   commandType?: string

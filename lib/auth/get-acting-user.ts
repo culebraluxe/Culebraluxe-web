@@ -12,10 +12,17 @@ import {
   UnauthenticatedError,
   UnmappedIdentityError,
 } from './errors'
+import { isPortalAuthBypass, portalAuthBypassActor } from './dev-bypass'
 
 export async function getActingUser(
   adapter: SessionAdapter,
 ): Promise<ActingUser> {
+  // TEMP STARTUP AUTH BYPASS — same flag as the portal layout guard, so
+  // browsing AND server actions (create form, save, issue) work in local dev.
+  if (isPortalAuthBypass()) {
+    return portalAuthBypassActor()
+  }
+
   const session = await adapter.getSession()
   if (!session) {
     throw new UnauthenticatedError()

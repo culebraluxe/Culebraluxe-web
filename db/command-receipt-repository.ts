@@ -46,6 +46,9 @@ export class PostgresCommandReceiptRepository
       // created_at is not returned by readFinalReceipt; the canonical contract
       // field stays null for the current row shape.
       createdAt: null,
+      // AUTH-05: the receipt's actor (actor_app_user_id) is part of the stored
+      // row; surface it on the canonical receipt contract.
+      actorAppUserId: stored.actorAppUserId,
     }
   }
 
@@ -64,6 +67,7 @@ export class PostgresCommandReceiptRepository
       receipt.outcome,
       receipt.aggregateId,
       receipt.errorMessage ?? receipt.message,
+      receipt.actorAppUserId ?? null,
     )
   }
 

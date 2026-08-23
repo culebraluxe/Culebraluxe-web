@@ -1,24 +1,79 @@
 "use client"
 
 import Link from "next/link"
-import { useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 
 import {
   issueFormAction,
   sendIssuedFormForSignatureAction,
   updateFormAction,
 } from "@/app/portal/forms/actions"
-import { interpolateSectionText } from "@/lib/forms/pdf"
+import {
+  formatFieldValue,
+  interpolateSectionText,
+} from "@/lib/forms/pdf"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 
 const inputClass =
-  "mt-2 block w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/50 px-3 py-2.5 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+  "mt-1 block h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-2.5 text-[13px] font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+const sectionHeadingClass =
+  "font-serif text-base font-bold text-[var(--portal-navy)]"
 const labelClass =
-  "text-[10px] font-light uppercase tracking-[0.18em] text-black/40"
+  "text-[9px] font-light uppercase tracking-[0.14em] text-black/40"
 const primaryButton =
-  "inline-flex min-h-9 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[11px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:cursor-not-allowed disabled:opacity-40"
+  "inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:cursor-not-allowed disabled:opacity-40"
 const secondaryButton =
-  "inline-flex min-h-9 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:opacity-40"
+  "inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:opacity-40"
+
+function fieldSpanClass(field: { name: string; label: string; type: string }) {
+  if (field.type === "textarea") return "col-span-6"
+  if (
+    field.type === "date" ||
+    field.type === "money" ||
+    field.type === "select"
+  ) {
+    return "col-span-2"
+  }
+  if (/name|property|location|address/i.test(`${field.name} ${field.label}`)) {
+    return "col-span-3"
+  }
+  return "col-span-2"
+}
+
+const DETAIL_SECTION_ORDER = [
+  "additionalTerms",
+  "specialTerms",
+  "specialConditions",
+  "amendments",
+  "additional",
+  "interest",
+  "feedback",
+  "followUp",
+  "marketing",
+  "access",
+  "financingTerms",
+  "appraisalSurveyInspection",
+]
+
+function pickDetailsSection(template: TemplateDefinition) {
+  const editable = template.sections.filter((section) => section.editable)
+  for (const name of DETAIL_SECTION_ORDER) {
+    const match = editable.find((section) => section.name === name)
+    if (match) return match
+  }
+  return editable[0] ?? null
+}
+
+function initialDetailsText(
+  template: TemplateDefinition,
+  sections: Record<string, string>,
+) {
+  const editable = template.sections.filter((section) => section.editable)
+  const chunks = editable
+    .map((section) => (sections[section.name] ?? "").trim())
+    .filter(Boolean)
+  return chunks.join("\n\n")
+}
 
 export function FormEditor({
   form,
@@ -32,9 +87,20 @@ export function FormEditor({
   }
   template: TemplateDefinition
 }) {
+  const detailsSection = useMemo(
+    () => pickDetailsSection(template),
+    [template],
+  )
   const [values, setValues] = useState<Record<string, string>>(form.fieldValues)
   const [sections, setSections] = useState<Record<string, string>>(form.sections)
-  const [previewKey, setPreviewKey] = useState(0)
+  const [detailsText, setDetailsText] = useState(() =>
+    initialDetailsText(template, form.sections),
+  )
+  const [saved, setSaved] = useState({
+    values: form.fieldValues,
+    sections: form.sections,
+    detailsText: initialDetailsText(template, form.sections),
+  })
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [issued, setIssued] = useState<{
@@ -43,44 +109,87 @@ export function FormEditor({
     checksum: string
   } | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [busy, setBusy] = useState(false)
+  const working = isPending || busy
   const isIssued = form.status === "issued" || issued !== null
+  const boilerplate = template.sections.filter((section) => !section.editable)
+  const signatureGroups =
+    template.signatureGroups.length > 0
+      ? template.signatureGroups
+      : [
+          {
+            role: "PARTY",
+            label: "Signature",
+            field: template.fields[0]?.name ?? null,
+            initials: false,
+          },
+        ]
+  const dirty =
+    JSON.stringify(values) !== JSON.stringify(saved.values) ||
+    detailsText !== saved.detailsText
 
-  function persist(
-    nextValues: Record<string, string>,
-    nextSections: Record<string, string>,
-  ) {
-    setMessage("Unsaved changes")
-    startTransition(async () => {
+  function composedSections(
+    nextDetails = detailsText,
+  ): Record<string, string> {
+    const next = { ...sections }
+    for (const section of template.sections) {
+      if (!section.editable) continue
+      next[section.name] = ""
+    }
+    if (detailsSection) {
+      next[detailsSection.name] = nextDetails
+    }
+    return next
+  }
+
+  async function saveDraft(
+    nextValues = values,
+    nextDetails = detailsText,
+  ): Promise<boolean> {
+    const nextSections = composedSections(nextDetails)
+    setBusy(true)
+    try {
       const result = await updateFormAction(form.id, nextValues, nextSections)
       if (result.ok) {
+        setSections(nextSections)
+        setSaved({
+          values: nextValues,
+          sections: nextSections,
+          detailsText: nextDetails,
+        })
         setMessage("Saved")
-        setPreviewKey((key) => key + 1)
-      } else {
-        setError(result.message ?? "Could not save.")
+        setError(null)
+        return true
       }
-    })
+      setError(result.message ?? "Could not save.")
+      return false
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function setValue(name: string, value: string) {
-    const next = { ...values, [name]: value }
-    setValues(next)
-    persist(next, sections)
-  }
-
-  function setSection(name: string, value: string) {
-    const next = { ...sections, [name]: value }
-    setSections(next)
-    persist(values, next)
+  function cancelEdits() {
+    setValues(saved.values)
+    setSections(saved.sections)
+    setDetailsText(saved.detailsText)
+    setMessage("Changes discarded")
+    setError(null)
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-serif text-2xl font-light text-[var(--portal-navy)]">
-          {template.displayName}
-        </h1>
+        <div>
+          <p className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
+            {template.rendering.issuer}
+          </p>
+          <h1 className="font-serif text-xl font-light text-[var(--portal-navy)]">
+            {template.displayName}
+          </h1>
+        </div>
         <span className="text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
-          {isIssued ? "Issued" : form.status} · v{template.version}
+          {isIssued ? "Issued" : dirty ? "Unsaved" : form.status} · v
+          {template.version}
         </span>
       </div>
 
@@ -101,7 +210,7 @@ export function FormEditor({
             </Link>
             <button
               type="button"
-              disabled={isPending}
+              disabled={working}
               onClick={() => {
                 startTransition(async () => {
                   const result = await sendIssuedFormForSignatureAction(
@@ -119,16 +228,17 @@ export function FormEditor({
         </section>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-          <div className="border-b border-[var(--portal-panel-border)] px-4 py-3">
-            <h2 className="font-serif text-lg font-light">Edit</h2>
-          </div>
-          <div className="grid gap-4 p-4 md:grid-cols-2">
+      {error ? (
+        <p className="text-xs font-light text-[var(--portal-archive)]">{error}</p>
+      ) : null}
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
+          <div className="grid grid-cols-6 gap-x-3 gap-y-3.5">
             {template.fields.map((field) => (
               <label
                 key={field.name}
-                className={field.type === "textarea" ? "md:col-span-2" : "block"}
+                className={`${fieldSpanClass(field)} min-w-0`}
               >
                 <span className={labelClass}>
                   {field.label}
@@ -136,18 +246,28 @@ export function FormEditor({
                 </span>
                 {field.type === "textarea" ? (
                   <textarea
-                    rows={3}
+                    rows={2}
                     value={values[field.name] ?? ""}
-                    onChange={(event) => setValue(field.name, event.target.value)}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        [field.name]: event.target.value,
+                      })
+                    }
                     disabled={isIssued}
-                    className={`${inputClass} resize-y`}
+                    className={`${inputClass} h-auto min-h-12 resize-y py-1.5`}
                   />
                 ) : field.type === "select" ? (
                   <select
                     value={values[field.name] ?? ""}
-                    onChange={(event) => setValue(field.name, event.target.value)}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        [field.name]: event.target.value,
+                      })
+                    }
                     disabled={isIssued}
-                    className={`${inputClass} min-h-11`}
+                    className={inputClass}
                   >
                     <option value="">—</option>
                     {(field.options ?? []).map((option) => (
@@ -160,7 +280,12 @@ export function FormEditor({
                   <input
                     type={field.type === "date" ? "date" : "text"}
                     value={values[field.name] ?? ""}
-                    onChange={(event) => setValue(field.name, event.target.value)}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        [field.name]: event.target.value,
+                      })
+                    }
                     disabled={isIssued}
                     className={inputClass}
                   />
@@ -169,83 +294,158 @@ export function FormEditor({
             ))}
           </div>
 
-          {template.sections
-            .filter((section) => section.editable)
-            .map((section) => (
-              <div
-                key={section.name}
-                className="border-t border-[var(--portal-panel-border)] p-4"
-              >
-                <label className="block">
-                  <span className={labelClass}>{section.label}</span>
-                  <textarea
-                    rows={4}
-                    value={
-                      sections[section.name] ||
-                      interpolateSectionText(
-                        section,
-                        values,
-                        (field, raw) => raw,
-                        template.fields,
-                      )
-                    }
-                    onChange={(event) =>
-                      setSection(section.name, event.target.value)
-                    }
-                    disabled={isIssued}
-                    className={`${inputClass} resize-y`}
-                  />
-                </label>
-              </div>
-            ))}
+          <div className="mt-6">
+            <h2 className={sectionHeadingClass}>Deal details</h2>
+            <textarea
+              id="deal-details"
+              rows={8}
+              value={detailsText}
+              placeholder="Special terms, conditions, and anything else that belongs in this document…"
+              onChange={(event) => setDetailsText(event.target.value)}
+              disabled={isIssued}
+              style={{ minHeight: 160 }}
+              className="mt-2 block w-full resize-y rounded-[var(--portal-tab-radius)] border-2 border-[var(--portal-navy)] bg-white px-3 py-2 text-[14px] font-light leading-6 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
+            />
+          </div>
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--portal-panel-border)] px-4 py-3">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={isPending || isIssued}
+              disabled={working || isIssued || !dirty}
               onClick={() => {
-                setError(null)
-                startTransition(async () => {
-                  const result = await issueFormAction(form.id)
-                  if (result.ok) {
-                    setIssued(result.data)
-                    setMessage("Issued")
-                    setPreviewKey((key) => key + 1)
-                  } else {
-                    setError(result.message ?? "Could not issue.")
-                  }
-                })
+                void saveDraft()
               }}
               className={primaryButton}
             >
-              {isPending ? "Working…" : "Issue PDF"}
+              {working ? "Working…" : "Save"}
             </button>
-            <Link href="/portal/documents" className={secondaryButton}>
-              Vault
-            </Link>
+            <button
+              type="button"
+              disabled={working || isIssued || !dirty}
+              onClick={cancelEdits}
+              className={secondaryButton}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={working || isIssued}
+              onClick={() => {
+                void (async () => {
+                  setError(null)
+                  if (dirty) {
+                    const savedOk = await saveDraft()
+                    if (!savedOk) return
+                  }
+                  setBusy(true)
+                  try {
+                    const result = await issueFormAction(form.id)
+                    if (result.ok) {
+                      setIssued(result.data)
+                      setMessage("Issued")
+                    } else {
+                      setError(result.message ?? "Could not issue.")
+                    }
+                  } finally {
+                    setBusy(false)
+                  }
+                })()
+              }}
+              className={primaryButton}
+            >
+              Create PDF
+            </button>
             {message ? (
               <span className="text-xs font-light text-black/45">{message}</span>
+            ) : dirty ? (
+              <span className="text-xs font-light text-black/45">
+                Unsaved changes
+              </span>
             ) : null}
           </div>
-          {error ? (
-            <p className="px-4 pb-4 text-xs font-light text-[var(--portal-archive)]">
-              {error}
-            </p>
-          ) : null}
         </section>
 
-        <section className="portal-glass-panel flex min-h-[70vh] flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
-          <div className="border-b border-[var(--portal-panel-border)] px-4 py-3">
-            <h2 className="font-serif text-lg font-light">Live preview</h2>
-            <p className="text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
-              Same renderer as issuance
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] lg:sticky lg:top-4 lg:max-h-[calc(100vh-5.5rem)]">
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:max-h-[calc(100vh-6.5rem)]">
+            <p className="text-[9px] font-light uppercase tracking-[0.18em] text-black/40">
+              {template.rendering.issuer}
             </p>
+            <h2 className="mt-1 font-serif text-xl font-bold text-[var(--portal-navy)]">
+              {template.rendering.title}
+            </h2>
+
+            <p className="my-5 border-y border-black/10 py-4 font-serif text-[15px] font-light leading-7">
+              {template.fields
+                .map((field) => {
+                  const raw = (values[field.name] ?? "").trim()
+                  if (!raw) return null
+                  return formatFieldValue(field, raw)
+                })
+                .filter((part): part is string => Boolean(part))
+                .join(" · ")}
+            </p>
+
+            {boilerplate.map((section) => {
+              const text = interpolateSectionText(
+                section,
+                values,
+                formatFieldValue,
+                template.fields,
+              )
+              if (!text) return null
+              return (
+                <article key={section.name} className="mt-6">
+                  <h3 className={sectionHeadingClass}>{section.label}</h3>
+                  <p className="mt-2 whitespace-pre-wrap text-[14px] font-light leading-7">
+                    {text}
+                  </p>
+                </article>
+              )
+            })}
+
+            {detailsText.trim() ? (
+              <article className="mt-6">
+                <h3 className={sectionHeadingClass}>
+                  {detailsSection?.label ?? "Details"}
+                </h3>
+                <p className="mt-2 whitespace-pre-wrap text-[14px] font-light leading-7">
+                  {detailsText}
+                </p>
+              </article>
+            ) : null}
+
+            <div className="mt-10 border-t border-black/20 pt-6">
+              <h3 className={sectionHeadingClass}>Signatures</h3>
+              <div className="mt-4 grid gap-6 sm:grid-cols-2">
+                {signatureGroups.map((group) => {
+                  const name = group.field
+                    ? (values[group.field] ?? "").trim()
+                    : ""
+                  return (
+                    <div key={`${group.role}-${group.label}`}>
+                      <p className={labelClass}>{group.label}</p>
+                      <p className="mt-0.5 font-serif text-sm font-light text-[var(--portal-navy)]">
+                        {name || "Name on file"}
+                      </p>
+                      <div className="mt-5 border-b border-black/45 pb-0.5 text-[10px] font-light text-black/40">
+                        Signature
+                      </div>
+                      <div className="mt-4 flex items-end gap-5">
+                        {group.initials ? (
+                          <div className="w-20 border-b border-black/45 pb-0.5 text-[10px] font-light text-black/40">
+                            Initials
+                          </div>
+                        ) : null}
+                        <div className="min-w-[7rem] flex-1 border-b border-black/45 pb-0.5 text-[10px] font-light text-black/40">
+                          Date
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
-          <iframe
-            title="Form PDF preview"
-            src={`/portal/forms/${form.id}/preview?v=${previewKey}`}
-            className="min-h-[70vh] w-full flex-1 bg-white"
-          />
         </section>
       </div>
     </div>

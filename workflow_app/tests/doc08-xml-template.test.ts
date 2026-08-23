@@ -38,7 +38,9 @@ const legacyOfferDefinition: TemplateDefinition = {
   ],
   sections: [{ name: 'specialTerms', label: 'Special Terms', editable: true, segments: [], values: [] }],
   participants: [],
-  signatureGroups: [],
+  signatureGroups: [
+    { role: 'BUYER', label: 'Buyer', field: 'buyerName', initials: true },
+  ],
   rendering: { title: 'OFFER LETTER', issuer: 'CulebraLuxe Real Estate' },
 }
 
@@ -109,6 +111,7 @@ test('DOC-08 XML: fields/sections match the prior fixture exactly (byte identity
     legacyOfferDefinition.sections.map((s) => ({ name: s.name, label: s.label, editable: s.editable })),
   )
   assert.deepEqual(xmlTemplate.rendering, legacyOfferDefinition.rendering)
+  assert.deepEqual(xmlTemplate.signatureGroups, legacyOfferDefinition.signatureGroups)
 })
 
 test('DOC-08 XML: byte-identical PDF vs the prior fixture, determinism + checksum', () => {

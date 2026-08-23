@@ -2,8 +2,10 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { AuthError } from '@/lib/auth/errors'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'
+import type { ActingUser } from '@/lib/auth/types'
 import { executeCommand } from '@/lib/commands'
 import { DOCUMENT_ISSUE } from '@/lib/commands/command-types'
 import { SIGNATURE_REQUEST_SEND } from '@/lib/commands/command-types'
@@ -65,6 +67,23 @@ function outcomeCode(outcome: CommandOutcome): 'validation' | 'conflict' | 'not-
   return 'unknown'
 }
 
+async function authorizedFormWrite<T>(
+  handler: (actor: ActingUser) => Promise<FormActionResult<T>>,
+): Promise<FormActionResult<T>> {
+  try {
+    return await runAuthorized(
+      getPortalSessionAdapter(),
+      'deal.write',
+      handler,
+    )
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return fail('unknown', error.message)
+    }
+    throw error
+  }
+}
+
 export async function createOfferLetterFormAction(
   dealId: string,
 ): Promise<FormActionResult<{ formId: string }>> {
@@ -77,7 +96,7 @@ export async function createFormAction(input: {
   personId?: string
   propertyId?: string
 }): Promise<FormActionResult<{ formId: string }>> {
-  return runAuthorized(getPortalSessionAdapter(), 'deal.write', async (actor) => {
+  return authorizedFormWrite(async (actor) => {
     const template = getTemplate(input.templateId)
     if (!template) return fail('validation', 'Template not found.')
     const dealId = input.dealId?.trim() || null
@@ -133,7 +152,7 @@ export async function updateFormAction(
   fieldValues: Record<string, string>,
   sections: Record<string, string>,
 ): Promise<FormActionResult<{ updated: boolean }>> {
-  return runAuthorized(getPortalSessionAdapter(), 'deal.write', async () => {
+  return authorizedFormWrite(async () => {
     if (!formId.trim()) return fail('validation', 'formId is required.')
     try {
       const updated = await updateFormInstance(formId, { fieldValues, sections })
@@ -149,7 +168,7 @@ export async function updateFormAction(
 export async function issueFormAction(
   formId: string,
 ): Promise<FormActionResult<{ documentId: string; issuedVersion: number; checksum: string }>> {
-  return runAuthorized(getPortalSessionAdapter(), 'deal.write', async (actor) => {
+  return authorizedFormWrite(async (actor) => {
     if (!formId.trim()) return fail('validation', 'formId is required.')
     const form = await getFormInstance(formId)
     if (!form) return fail('not-found', 'Form instance not found.')
@@ -188,7 +207,7 @@ export async function issueFormAction(
 export async function sendIssuedFormForSignatureAction(
   documentId: string,
 ): Promise<FormActionResult<{ signatureRequestId: string }>> {
-  return runAuthorized(getPortalSessionAdapter(), 'deal.write', async (actor) => {
+  return authorizedFormWrite(async (actor) => {
     if (!documentId.trim()) return fail('validation', 'documentId is required.')
     const result = await executeCommand({
       commandId: crypto.randomUUID(),

@@ -21,6 +21,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
 import { decidePortalMiddleware } from '@/lib/auth/middleware-policy'
+import { isPortalAuthBypass } from '@/lib/auth/dev-bypass'
 
 // Auth.js v5 default session cookie names (dev = un-prefixed, prod = secure).
 const SESSION_COOKIE_NAMES = [
@@ -66,7 +67,7 @@ export default async function middleware(req: NextRequest) {
   // NEVER set PORTAL_AUTH_BYPASS on production. Delete this block to restore
   // the real Edge gate.
   // ═══════════════════════════════════════════════════════════════════════════
-  if (process.env.PORTAL_AUTH_BYPASS === '1') {
+  if (isPortalAuthBypass()) {
     return NextResponse.next()
   }
 

@@ -24,4 +24,8 @@
 
   <section id="specialTerms" title="Special Terms" editable="true"/>
 
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+  </signatures>
+
 </form>

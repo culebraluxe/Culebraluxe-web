@@ -47,14 +47,22 @@ export function FormsOverview({
   function createForm() {
     setError(null)
     startTransition(async () => {
-      const result = await createFormAction({
-        templateId,
-        dealId: dealId || undefined,
-        personId: personId || undefined,
-        propertyId: propertyId || undefined,
-      })
-      if (result.ok) router.push(`/portal/forms/${result.data.formId}`)
-      else setError(result.message ?? "Could not create the form.")
+      try {
+        const result = await createFormAction({
+          templateId,
+          dealId: dealId || undefined,
+          personId: personId || undefined,
+          propertyId: propertyId || undefined,
+        })
+        if (result.ok) router.push(`/portal/forms/${result.data.formId}`)
+        else setError(result.message ?? "Could not create the form.")
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not create the form.",
+        )
+      }
     })
   }
 
