@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 
 import { getFormInstance } from "@/db/document-form-instance"
 import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
-import { getTemplate } from "@/lib/forms/template-registry"
+import { getTemplate, listTemplates } from "@/lib/forms/template-registry"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
 export const dynamic = "force-dynamic"
@@ -28,10 +28,18 @@ export default async function FormPage({
       form={{
         id: form.id,
         status: form.status,
+        templateId: form.templateId,
+        dealId: form.dealId,
+        personId: form.personId,
+        propertyId: form.propertyId,
         fieldValues: form.fieldValues,
         sections: form.sections,
       }}
       template={template}
+      templates={listTemplates().map((item) => ({
+        id: item.id,
+        displayName: item.displayName,
+      }))}
       issuedDocument={issuedDocument}
     />
   )

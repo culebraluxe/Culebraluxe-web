@@ -1,8 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 
 import {
+  createFormAction,
   issueFormAction,
   updateFormAction,
 } from "@/app/portal/forms/actions"
@@ -153,21 +155,28 @@ async function writePdfToDisk(blob: Blob, filename: string) {
 export function FormEditor({
   form,
   template,
+  templates,
   issuedDocument = null,
 }: {
   form: {
     id: string
     status: string
+    templateId: string
+    dealId: string | null
+    personId: string | null
+    propertyId: string | null
     fieldValues: Record<string, string>
     sections: Record<string, string>
   }
   template: TemplateDefinition
+  templates: { id: string; displayName: string }[]
   issuedDocument?: {
     documentId: string
     issuedVersion: number
     checksum: string
   } | null
 }) {
+  const router = useRouter()
   const detailsSection = useMemo(
     () => pickDetailsSection(template),
     [template],
@@ -323,16 +332,40 @@ export function FormEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            {template.rendering.issuer}
-          </p>
-          <h1 className="font-serif text-xl font-light text-[var(--portal-navy)]">
-            {template.displayName}
-          </h1>
-        </div>
-        <span className="text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <label className="min-w-[16rem] flex-1">
+          <span className={labelClass}>Form</span>
+          <select
+            value={form.templateId}
+            disabled={working}
+            onChange={(event) => {
+              const nextTemplateId = event.target.value
+              if (nextTemplateId === form.templateId) return
+              setBusy(true)
+              void (async () => {
+                const result = await createFormAction({
+                  templateId: nextTemplateId,
+                  dealId: form.dealId ?? undefined,
+                  personId: form.personId ?? undefined,
+                  propertyId: form.propertyId ?? undefined,
+                })
+                if (result.ok) router.push(`/portal/forms/${result.data.formId}`)
+                else {
+                  setError(result.message ?? "Could not switch forms.")
+                  setBusy(false)
+                }
+              })()
+            }}
+            className={`${inputClass} max-w-md font-serif text-base text-[var(--portal-navy)]`}
+          >
+            {templates.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="pb-2 text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
           {isIssued ? "Issued" : dirty ? "Unsaved" : form.status} · v
           {template.version}
         </span>

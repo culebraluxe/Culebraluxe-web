@@ -1,46 +1,36 @@
+import { redirect } from "next/navigation"
+
 import { getDeals } from "@/db/deals"
 import { getClients } from "@/db/clients"
 import { getProperties } from "@/db/properties"
 import { listFormInstances } from "@/db/document-form-instance"
 import { listTemplates } from "@/lib/forms/template-registry"
-import { FormsOverview } from "@/components/portal/forms/forms-overview"
+import { createFormAction } from "@/app/portal/forms/actions"
 
 export const dynamic = "force-dynamic"
 
 export default async function FormsPage() {
-  const [templates, deals, clients, properties, instances] = await Promise.all([
-    Promise.resolve(listTemplates()),
+  const instances = await listFormInstances()
+  const latest = instances[0]
+  if (latest) redirect(`/portal/forms/${latest.id}`)
+
+  const templates = listTemplates()
+  const [deals, clients, properties] = await Promise.all([
     getDeals(),
     getClients(),
     getProperties(),
-    listFormInstances(),
   ])
+  const result = await createFormAction({
+    templateId: templates[0]?.id ?? "",
+    dealId: deals[0]?.id,
+    personId: deals[0] ? undefined : clients[0]?.id,
+    propertyId: deals[0] || clients[0] ? undefined : properties[0]?.id,
+  })
+  if (result.ok) redirect(`/portal/forms/${result.data.formId}`)
 
   return (
-    <FormsOverview
-      templates={templates.map((t) => ({
-        id: t.id,
-        displayName: t.displayName,
-        version: t.version,
-      }))}
-      deals={deals.map((d) => ({
-        id: d.id,
-        label: d.clientName ? `${d.clientName} — ${d.propertyName}` : d.propertyName,
-      }))}
-      clients={clients.map((c) => ({ id: c.id, label: c.displayName }))}
-      properties={properties.map((p) => ({
-        id: p.id,
-        label: p.location ? `${p.name} · ${p.location}` : p.name,
-      }))}
-      instances={instances.map((f) => ({
-        id: f.id,
-        templateId: f.templateId,
-        status: f.status,
-        dealLabel: f.dealLabel,
-        clientName: f.clientName,
-        propertyLabel: f.propertyLabel,
-        updatedAt: f.updatedAt,
-      }))}
-    />
+    <p className="font-serif text-lg font-light text-[var(--portal-navy)]">
+      Add a deal, client, or property first, then open Forms.
+    </p>
   )
 }
