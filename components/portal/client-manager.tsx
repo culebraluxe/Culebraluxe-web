@@ -12,6 +12,7 @@ import { Panel } from "@/components/portal/panel"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
 import { PageHeader } from "@/components/portal/page-header"
+import { InteractionLogForm } from "@/components/portal/write/interaction-log"
 
 function formatCurrency(value?: number) {
   if (!value) return "—"
@@ -127,15 +128,11 @@ export function ClientManager({
   if (!selectedClient) {
     return (
       <div>
-        <PageHeader
-          eyebrow="Relationships"
-          title="Client Manager"
-          subtitle="Relationship intelligence across buyers, sellers, and island introductions."
-        >
+        <PageHeader compact eyebrow="Relationships" title="Clients">
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--portal-navy)] px-5 text-[11px] font-light uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
+            className="inline-flex min-h-9 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[11px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
           >
             New client
           </button>
@@ -155,7 +152,7 @@ export function ClientManager({
           </div>
         )}
 
-        <div className="rounded-sm border border-black/10 bg-white p-10">
+        <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-8">
           <p className="text-sm font-light text-black/45">
             No clients found.
           </p>
@@ -166,27 +163,15 @@ export function ClientManager({
 
   return (
     <div>
-      <div className="mb-8">
-        <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Relationships
-        </p>
-
-        <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-          Client Manager
-        </h1>
-
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          Relationship intelligence across buyers, sellers, and island introductions.
-        </p>
-
+      <PageHeader compact eyebrow="Relationships" title="Clients">
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="mt-6 inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--portal-navy)] px-5 text-[11px] font-light uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
+          className="inline-flex min-h-9 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[11px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
         >
           New client
         </button>
-      </div>
+      </PageHeader>
 
       {showCreate && (
         <div className="mb-6">
@@ -202,15 +187,15 @@ export function ClientManager({
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
-        <aside className="overflow-hidden rounded-sm border border-black/10 bg-white">
-          <div className="border-b border-black/10 p-5">
+      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+          <div className="border-b border-[var(--portal-panel-border)] p-3">
             <input
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search clients..."
-              className="w-full rounded-sm border border-black/10 bg-[var(--portal-surface)] px-4 py-3 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+              className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-3 py-2 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
             />
 
             <div className="mt-4 flex items-center justify-between">
@@ -234,14 +219,14 @@ export function ClientManager({
                   key={client.id}
                   onClick={() => setSelectedClientId(client.id)}
                   className={[
-                    "w-full border-b border-black/5 px-5 py-5 text-left transition",
+                    "w-full border-b border-[var(--portal-panel-border)] px-3 py-2.5 text-left transition",
                     selected
-                      ? "bg-[var(--portal-blue-pale)]"
-                      : "bg-white hover:bg-[var(--portal-surface)]",
+                      ? "bg-[var(--portal-blue-pale)]/80"
+                      : "hover:bg-white/30",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] font-serif text-sm font-light text-[var(--portal-navy-soft)]">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] text-[10px] font-medium text-[var(--portal-navy-soft)]">
                       {client.displayName
                         .split(" ")
                         .slice(0, 2)
@@ -265,9 +250,11 @@ export function ClientManager({
                         </span>
                       </div>
 
-                      <div className="mt-1 text-xs font-light text-black/45">
-                        {roleLabel(client.role)}
-                        {client.location && ` · ${client.location}`}
+                      <div className="mt-0.5 truncate text-xs font-light text-black/45">
+                        {client.nextAction?.title ??
+                          `${roleLabel(client.role)}${
+                            client.location ? ` · ${client.location}` : ""
+                          }`}
                       </div>
                     </div>
                   </div>
@@ -277,8 +264,8 @@ export function ClientManager({
           </div>
         </aside>
 
-        <div className="space-y-6">
-          <section className="rounded-sm border border-black/10 bg-white p-6 lg:p-8">
+        <div className="space-y-4">
+          <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-5">
             <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-start">
               <div className="flex items-center gap-3">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] font-serif text-lg font-light text-[var(--portal-navy-soft)]">
@@ -290,7 +277,7 @@ export function ClientManager({
                 </div>
 
                 <div>
-                  <h2 className="font-serif text-3xl font-light">
+                  <h2 className="font-serif text-2xl font-light">
                     {selectedClient.displayName}
                   </h2>
 
@@ -325,7 +312,7 @@ export function ClientManager({
               </div>
             </div>
 
-            <div className="mt-8 grid gap-6 border-t border-black/10 pt-7 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-5 grid gap-4 border-t border-[var(--portal-panel-border)] pt-5 md:grid-cols-2 xl:grid-cols-4">
               <Detail
                 label="Budget"
                 value={
@@ -366,9 +353,9 @@ export function ClientManager({
             )}
           </section>
 
-          <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.75fr)]">
-            <section className="rounded-sm border border-black/10 bg-white">
-              <div className="flex items-center justify-between border-b border-black/10 px-6 py-5">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.75fr)]">
+            <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+              <div className="flex items-center justify-between border-b border-[var(--portal-panel-border)] px-4 py-3">
                 <div>
                   <h3 className="font-serif text-xl font-light">
                     Active Interests
@@ -389,7 +376,7 @@ export function ClientManager({
                   {selectedClient.propertyInterests.map((interest) => (
                     <div
                       key={interest.id}
-                      className="flex flex-col gap-4 border-b border-black/5 px-6 py-5 last:border-b-0 md:flex-row md:items-center"
+                      className="flex flex-col gap-3 border-b border-[var(--portal-panel-border)] px-4 py-3 last:border-b-0 md:flex-row md:items-center"
                     >
                       {interest.heroMediaId ? (
                         <img
@@ -432,8 +419,8 @@ export function ClientManager({
               )}
             </section>
 
-            <div className="space-y-6">
-              <section className="rounded-sm border border-black/10 bg-white p-6">
+            <div className="space-y-4">
+              <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
                 <p className="text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
                   Last Contact
                 </p>
@@ -474,11 +461,11 @@ export function ClientManager({
             </div>
           </div>
 
-          <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
             <Panel
+              compact
               variant="standard"
-              heading="Interaction Timeline"
-              subtitle="Calls, messages, email, meetings, showings and notes."
+              heading="Timeline"
               divider
               flush
             >
@@ -488,7 +475,7 @@ export function ClientManager({
                   selectedClient.interactions.map((interaction) => (
                     <div
                       key={interaction.id}
-                      className="grid gap-3 border-b border-black/5 px-6 py-5 last:border-b-0 md:grid-cols-[150px_120px_1fr]"
+                      className="grid gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5 last:border-b-0 md:grid-cols-[130px_100px_1fr]"
                     >
                       <div className="text-xs font-light text-black/40">
                         {interaction.occurredAt}
@@ -519,15 +506,14 @@ export function ClientManager({
               </div>
             </Panel>
 
-            <Panel variant="soft" eyebrow="Relationship Notes">
-
-              <p className="mt-5 text-sm font-light leading-7 text-[var(--portal-text)]/70">
-                {selectedClient.notes ?? "No notes yet."}
-              </p>
-
-              {selectedClient.priorities &&
-                selectedClient.priorities.length > 0 && (
-                  <div className="mt-6 flex flex-wrap gap-2">
+            <div className="space-y-4">
+              <Panel compact variant="soft" heading="Notes">
+                <p className="mt-2 text-sm font-light leading-7 text-[var(--portal-text)]/70">
+                  {selectedClient.notes ?? "No notes yet."}
+                </p>
+                {selectedClient.priorities &&
+                selectedClient.priorities.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
                     {selectedClient.priorities.map((priority) => (
                       <span
                         key={priority}
@@ -537,8 +523,12 @@ export function ClientManager({
                       </span>
                     ))}
                   </div>
-                )}
-            </Panel>
+                ) : null}
+              </Panel>
+              <Panel compact heading="Log a note">
+                <InteractionLogForm personId={selectedClient.id} />
+              </Panel>
+            </div>
           </div>
         </div>
       </div>

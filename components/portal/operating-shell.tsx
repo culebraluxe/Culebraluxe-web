@@ -6,6 +6,12 @@ import { usePathname } from 'next/navigation'
 
 import type { PortalActorSnapshot } from '@/lib/auth/types'
 import {
+  CommandPalette,
+  CommandPaletteHint,
+  type PaletteClient,
+  type PaletteDeal,
+} from '@/components/portal/command-palette'
+import {
   OPERATING_SURFACE_ORDER,
   OPERATING_SURFACES,
   navigationForSurface,
@@ -17,11 +23,12 @@ import {
 // UI-01 — Operating shell: one application, four operating worlds, ONE
 // navigation model on every screen size.
 //
-//   Tier 1  NEXUS | MAIN | OPPS | SUPPORT | TECH   (sticky, always visible —
-//                                          never a hamburger-only model; MAIN
-//                                          returns to the public CulebraLuxe site)
-//   Tier 2  contextual tab rail for the active surface (horizontally scrollable
-//          on narrow screens)
+//   Top nav (navy header, WITH the logo):
+//     NEXUS | MAIN | OPPS | SUPPORT | TECH
+//     MAIN returns to the public CulebraLuxe site. These items are never
+//     moved to a second row, never hamburger-only.
+//   Submenu  contextual glass rail for the active surface (horizontally
+//            scrollable on narrow screens)
 //
 // The active surface is DERIVED from the current route (longest-prefix match),
 // so route changes never reset or corrupt navigation state. Cosmetic UI gating
@@ -30,9 +37,13 @@ import {
 
 export function OperatingShell({
   actor,
+  clients = [],
+  deals = [],
   children,
 }: {
   actor: PortalActorSnapshot
+  clients?: PaletteClient[]
+  deals?: PaletteDeal[]
   children: React.ReactNode
 }) {
   const pathname = usePathname()
@@ -44,9 +55,7 @@ export function OperatingShell({
     (item) => !item.authority || actor.authorityCodes.includes(item.authority),
   )
 
-  // Tier-1 chrome: the four operating surfaces (NEXUS | OPPS | SUPPORT | TECH)
-  // plus MAIN, which returns to the public CulebraLuxe site. Exact display
-  // order: NEXUS | MAIN | OPPS | SUPPORT | TECH.
+  // Exact display order: NEXUS | MAIN | OPPS | SUPPORT | TECH.
   const tier1Items: Array<{
     key: string
     label: string
@@ -70,90 +79,84 @@ export function OperatingShell({
 
   return (
     <div className="portal-page">
-      {/* Brand / account row — logo stays; navy bar is the brand lockup. */}
-      <header className="border-b border-[var(--portal-gold)]/25 bg-brand-navy text-white">
-        <div className="flex min-h-12 items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
-          <Link
-            href="/portal/dashboard"
-            aria-label="CulebraLuxe home"
-            className="flex h-7 w-[250px] flex-none items-center"
-          >
-            {/* Exact main-site logo asset — brand must match the public site. */}
-            <Image
-              src="/images/culebraluxe-header-logo-test.png"
-              alt="CulebraLuxe"
-              width={2050}
-              height={300}
-              priority
-              className="h-9 max-h-9 w-auto max-w-full flex-none object-contain"
-            />
-          </Link>
-
-          <div className="flex shrink-0 items-center gap-4">
-            <span className="hidden text-[10px] font-light uppercase tracking-[0.22em] text-[var(--portal-ivory)]/70 sm:inline">
-              {actor.displayName}
-            </span>
+      <header className="sticky top-0 z-20">
+        {/* ONE top nav: logo + the five worlds + account. */}
+        <div className="border-b border-[var(--portal-gold)]/25 bg-brand-navy text-white">
+          <div className="flex min-h-12 items-stretch gap-3 px-3 sm:px-6 lg:px-10">
             <Link
-              href="/api/auth/signout"
-              className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-ivory)]/60 transition hover:text-[var(--portal-ivory)]"
+              href="/portal/dashboard"
+              aria-label="CulebraLuxe home"
+              className="flex flex-none items-center py-2"
             >
-              Sign out
+              <Image
+                src="/images/culebraluxe-header-logo-test.png"
+                alt="CulebraLuxe"
+                width={2050}
+                height={300}
+                priority
+                className="h-7 w-auto max-w-[160px] flex-none object-contain sm:h-8 sm:max-w-[200px]"
+              />
             </Link>
+
+            <nav aria-label="Operating surface" className="portal-top-nav">
+              {tier1Items.map((item) => {
+                const active = !item.external && item.key === activeSurface
+                return (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    aria-current={active ? 'page' : undefined}
+                    className="portal-top-nav-item"
+                  >
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </nav>
+
+            <div className="flex flex-none items-center gap-3">
+              <CommandPaletteHint />
+              <span className="hidden text-[10px] font-light uppercase tracking-[0.22em] text-[var(--portal-ivory)]/70 lg:inline">
+                {actor.displayName}
+              </span>
+              <Link
+                href="/api/auth/signout"
+                className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-ivory)]/60 transition hover:text-[var(--portal-ivory)]"
+              >
+                Sign out
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Submenu only — the five worlds are in the navy bar above, not here. */}
+        <div className="portal-glass-nav">
+          <div className="overflow-x-auto px-3 py-2 sm:px-6 lg:px-10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <nav
+              aria-label={`${activeSurface} navigation`}
+              className="portal-glass-rail"
+            >
+              {visibleItems.map((item) => {
+                const activeItem =
+                  pathname === item.href || pathname.startsWith(`${item.href}/`)
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={activeItem ? 'page' : undefined}
+                    className="portal-glass-tab"
+                  >
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </nav>
           </div>
         </div>
       </header>
 
-      {/* Tier 1 stays fully visible: NEXUS | MAIN | OPPS | SUPPORT | TECH.
-          Tier 2 is the glass submenu capsule. */}
-      <div className="portal-glass-nav sticky top-0 z-20">
-        <nav
-          aria-label="Operating surface"
-          className="grid grid-cols-5"
-        >
-          {tier1Items.map((item) => {
-            const active = !item.external && item.key === activeSurface
-            return (
-              <Link
-                key={item.key}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={[
-                  'flex min-h-12 items-center justify-center border-b-2 px-0.5 text-[10px] font-light uppercase tracking-[0.12em] transition-colors sm:text-xs sm:tracking-[0.2em]',
-                  active
-                    ? 'border-[var(--portal-gold)] text-[var(--portal-navy)]'
-                    : 'border-transparent text-black/45 hover:text-[var(--portal-navy)]',
-                ].join(' ')}
-              >
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
-
-        <div className="overflow-x-auto px-4 pb-3 pt-2 sm:px-6 lg:px-10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <nav
-            aria-label={`${activeSurface} navigation`}
-            className="portal-glass-rail"
-          >
-            {visibleItems.map((item) => {
-              const activeItem =
-                pathname === item.href || pathname.startsWith(`${item.href}/`)
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={activeItem ? 'page' : undefined}
-                  className="portal-glass-tab"
-                >
-                  {item.label}
-                </Link>
-              )
-            })}
-          </nav>
-        </div>
-      </div>
-
-      <main className="px-4 py-6 sm:px-6 lg:px-10 lg:py-10">{children}</main>
+      <main className="px-3 py-4 sm:px-6 lg:px-10 lg:py-5">{children}</main>
+      <CommandPalette clients={clients} deals={deals} />
     </div>
   )
 }

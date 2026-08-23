@@ -1,7 +1,7 @@
 import Link from "next/link"
 
-import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
+import { TaskActions } from "@/components/portal/write/task-actions"
 import type {
   Client,
   Deal,
@@ -9,6 +9,7 @@ import type {
   InteractionChannel,
 } from "@/lib/portal/types"
 import type { DashboardSnapshot } from "@/db/dashboard"
+import type { WorkflowSummary } from "@/workflow_app/read-service"
 
 const stageOrder: DealStage[] = [
   "new_lead",
@@ -75,33 +76,54 @@ function channelLabel(channel: InteractionChannel) {
   }
 }
 
+function initials(name: string) {
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+}
+
+const viewAllClass =
+  "text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+
 export function Dashboard({
   clients,
   deals,
   snapshot,
+  workflowSummaries = [],
 }: {
   clients: Client[]
   deals: Deal[]
   snapshot: DashboardSnapshot
+  workflowSummaries?: WorkflowSummary[]
 }) {
   const activeClients = clients.filter(
     (client) => client.status === "active" || client.status === "warm"
   )
 
-  const activeDeals = deals.filter(
-    (deal) => deal.stage !== "closed"
-  )
+  const activeDeals = deals.filter((deal) => deal.stage !== "closed")
 
   const attentionTasks = [
     ...snapshot.overdueTasks,
-    ...snapshot.tasksDueSoon,
-  ].slice(0, 4)
+    ...snapshot.tasksDueSoon.filter(
+      (task) => !snapshot.overdueTasks.some((overdue) => overdue.id === task.id)
+    ),
+  ].slice(0, 5)
 
-  const calendarTasks = snapshot.tasksDueSoon.slice(0, 4)
-
-  const recentInteractions = snapshot.recentInteractions
+  const overdueIds = new Set(snapshot.overdueTasks.map((task) => task.id))
+  const todayTasks = [
+    ...snapshot.overdueTasks.map((task) => ({ ...task, overdue: true as const })),
+    ...snapshot.tasksDueSoon
+      .filter((task) => !overdueIds.has(task.id))
+      .map((task) => ({ ...task, overdue: false as const })),
+  ].slice(0, 5)
+  const recentInteractions = snapshot.recentInteractions.slice(0, 5)
 
   const featuredDeal =
+    [...deals]
+      .filter((deal) => deal.closingDate && deal.stage !== "closed")
+      .sort((a, b) => String(a.closingDate).localeCompare(String(b.closingDate)))[0] ??
     deals.find((deal) => deal.stage === "showing") ??
     deals.find((deal) => deal.stage !== "closed") ??
     deals[0]
@@ -110,372 +132,296 @@ export function Dashboard({
     (deal) => deal.stage === "under_contract"
   ).length
 
+  const activeWorkflows = workflowSummaries.filter((s) => s.outcome === null)
+  const blockedWorkflows = activeWorkflows.filter((s) => s.blockerCount > 0)
+
+  const kpis = [
+    {
+      label: "Clients",
+      value: String(activeClients.length),
+      href: "/portal/clients",
+    },
+    {
+      label: "Live deals",
+      value: String(activeDeals.length),
+      href: "/portal/deals",
+    },
+    {
+      label: "Upcoming",
+      value: String(snapshot.tasksDueSoon.length),
+      href: "/portal/attention",
+    },
+    {
+      label: "Under contract",
+      value: String(underContractCount),
+      href: "/portal/deals",
+    },
+    {
+      label: "In motion",
+      value: String(activeWorkflows.length),
+      href: "/portal/workflows",
+    },
+    {
+      label: "Blocked",
+      value: String(blockedWorkflows.length),
+      href: "/portal/workflows",
+      alert: blockedWorkflows.length > 0,
+    },
+  ]
+
+  const liveDeals = deals.filter((deal) => deal.stage !== "closed")
+
   return (
-    <div>
-      <PageHeader
-        eyebrow="Portal"
-        title="Dashboard"
-        subtitle="What needs your attention, what is moving, and what happened recently — at a glance."
-      />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Active Clients"
-          value={String(activeClients.length)}
-          detail="Warm and active relationships"
-        />
-
-        <MetricCard
-          label="Live Deals"
-          value={String(activeDeals.length)}
-          detail="Open opportunities"
-        />
-
-        <MetricCard
-          label="Upcoming Actions"
-          value={String(snapshot.tasksDueSoon.length)}
-          detail="Tasks due within the next 7 days"
-        />
-
-        <MetricCard
-          label="Under Contract"
-          value={String(underContractCount)}
-          detail="Transactions in progress"
-        />
+    <div className="flex flex-col gap-4">
+      <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+          {kpis.map((kpi) => (
+            <Link
+              key={kpi.label}
+              href={kpi.href}
+              className="px-4 py-3 transition hover:bg-white/25"
+            >
+              <div className="text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
+                {kpi.label}
+              </div>
+              <div
+                className={`mt-1 font-serif text-2xl font-light leading-none ${
+                  kpi.alert
+                    ? "text-[var(--portal-archive)]"
+                    : "text-[var(--portal-navy)]"
+                }`}
+              >
+                {kpi.value}
+              </div>
+            </Link>
+          ))}
+        </div>
       </section>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_360px]">
+      <div className="grid gap-4 lg:grid-cols-3">
         <Panel
           variant="attention"
-          eyebrow="Needs Attention"
-          heading="Client Follow-Up"
+          compact
+          heading="Needs attention"
           action={
-            <Link
-              href="/portal/attention"
-              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
-            >
-              View all
-              <span aria-hidden>→</span>
+            <Link href="/portal/attention" className={viewAllClass}>
+              View all →
             </Link>
           }
           divider
           flush
         >
-          <div>
-            {attentionTasks.length > 0 ? (
-              attentionTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] font-serif text-sm font-light text-[var(--portal-navy-soft)]">
-                      {(task.contextName ?? "Task")
-                        .split(" ")
-                        .slice(0, 2)
-                        .map((word) => word[0])
-                        .join("")}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex justify-between gap-4">
-                        <div className="text-sm font-medium">
-                          {task.contextName ?? "Task"}
-                        </div>
-
-                        <div className="shrink-0 text-xs font-light text-black/40">
-                          {task.dueAtLabel ?? "Unscheduled"}
-                        </div>
-                      </div>
-
-                      {task.personId ? (
-                        <Link
-                          href={`/portal/clients/${task.personId}`}
-                          className="mt-1 inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                        >
-                          {task.title}
-                        </Link>
-                      ) : (
-                        <div className="mt-1 font-serif text-lg font-light">
-                          {task.title}
-                        </div>
-                      )}
-
-                      {task.detail && (
-                        <div className="mt-1 text-xs font-light text-black/45">
-                          {task.detail}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <EmptyState text="No follow-ups need attention." />
-            )}
-          </div>
-        </Panel>
-
-        <Panel
-          variant="standard"
-          eyebrow="Upcoming"
-          heading="Next on the Calendar"
-          action={
-            <Link
-              href="/portal/attention"
-              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
-            >
-              View all
-              <span aria-hidden>→</span>
-            </Link>
-          }
-          divider
-          flush
-        >
-
-          <div className="px-6">
-            {calendarTasks.length > 0 ? (
-              calendarTasks.map((task, index) => (
-                <div
-                  key={task.id}
-                  className="grid grid-cols-[24px_1fr] gap-4 border-b border-[var(--portal-border)] py-5 last:border-b-0"
-                >
-                  <div className="relative flex justify-center">
-                    <div className="mt-1.5 h-2 w-2 rounded-full bg-[var(--portal-navy)]" />
-
-                    {index < calendarTasks.length - 1 && (
-                      <div className="absolute bottom-[-20px] top-4 w-px bg-[var(--portal-border)]" />
-                    )}
-                  </div>
-
-                  <div>
-                    <div className="text-xs font-light text-black/40">
-                      {task.dueAtLabel ?? "Unscheduled"}
-                    </div>
-
-                    {task.personId ? (
-                      <Link
-                        href={`/portal/clients/${task.personId}`}
-                        className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                      >
-                        {task.title}
-                      </Link>
-                    ) : (
-                      <div className="mt-1 text-sm font-medium">
-                        {task.title}
-                      </div>
-                    )}
-
-                    <div className="mt-1 text-xs font-light text-black/45">
-                      {task.contextName ?? "Task"}
-                      {task.detail && ` · ${task.detail}`}
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="py-10 text-sm font-light text-black/40">
-                Nothing due in the next 7 days.
-              </div>
-            )}
-          </div>
-        </Panel>
-
-        {featuredDeal ? (
-          <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-            {featuredDeal.heroMediaId ? (
-              <img
-                src={`/api/media/${featuredDeal.heroMediaId}`}
-                alt={featuredDeal.propertyName}
-                className="h-52 w-full object-cover"
-              />
-            ) : (
-              <div className="h-52 bg-gradient-to-br from-[var(--portal-blue-pale)] via-[var(--portal-mist-4)] to-[var(--portal-navy-soft)]" />
-            )}
-
-            <div className="p-6">
-              <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-                Featured Opportunity
-              </p>
-
-              <Link
-                href={`/portal/deals/${featuredDeal.id}`}
-                className="mt-3 inline-flex min-h-11 items-center font-serif text-2xl font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+          {attentionTasks.length > 0 ? (
+            attentionTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex items-center gap-3 border-b border-[var(--portal-border)] px-4 py-2.5 last:border-b-0"
               >
-                {featuredDeal.propertyName}
-              </Link>
-
-              <p className="mt-1 text-xs font-light text-black/45">
-                {featuredDeal.propertyLocation}
-                {featuredDeal.propertyDescriptor &&
-                  ` · ${featuredDeal.propertyDescriptor}`}
-              </p>
-
-              <div className="mt-6 border-t border-[var(--portal-border)] pt-5">
-                <div className="font-serif text-2xl font-light">
-                  {formatCurrency(
-                    featuredDeal.offerPrice ??
-                      featuredDeal.listPrice
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] text-[10px] font-medium text-[var(--portal-navy-soft)]">
+                  {initials(task.contextName ?? "Task")}
+                </div>
+                <div className="min-w-0 flex-1">
+                  {task.personId ? (
+                    <Link
+                      href={`/portal/clients/${task.personId}`}
+                      className="block truncate text-sm font-medium text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                    >
+                      {task.title}
+                    </Link>
+                  ) : (
+                    <div className="truncate text-sm font-medium">{task.title}</div>
                   )}
+                  <div className="truncate text-xs font-light text-black/45">
+                    {task.contextName ?? "Task"}
+                  </div>
                 </div>
-
-                <div className="mt-2 text-xs font-light text-black/45">
-                  {featuredDeal.clientName}
-                </div>
-
-                <div className="mt-4 inline-flex rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
-                  {stageLabel(featuredDeal.stage)}
+                <div className="flex shrink-0 items-center gap-2">
+                  <div className="text-right text-[11px] font-light text-black/40">
+                    {task.dueAtLabel ?? "Unscheduled"}
+                  </div>
+                  <TaskActions taskId={task.id} compact />
                 </div>
               </div>
-            </div>
-          </section>
-        ) : (
-          <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-            <p className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-              Featured Opportunity
-            </p>
-
-            <div className="mt-8 font-serif text-2xl font-light">
-              No active deals
-            </div>
-
-            <p className="mt-2 text-sm font-light text-black/40">
-              Featured opportunities will appear here.
-            </p>
-          </section>
-        )}
-      </div>
-
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <Panel
-          variant="standard"
-          eyebrow="Portfolio Snapshot"
-          heading="Deal Pipeline"
-          action={
-            <Link
-              href="/portal/deals"
-              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
-            >
-              View all
-              <span aria-hidden>→</span>
-            </Link>
-          }
-        >
-
-          <div className="mt-7 space-y-4">
-            {stageOrder.map((stage) => {
-              const count = deals.filter(
-                (deal) => deal.stage === stage
-              ).length
-
-              const percent =
-                deals.length > 0
-                  ? Math.round((count / deals.length) * 100)
-                  : 0
-
-              return (
-                <div key={stage}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-xs font-light uppercase tracking-[0.12em] text-black/50">
-                      {stageLabel(stage)}
-                    </div>
-
-                    <div className="text-xs font-light text-black/40">
-                      {count}
-                    </div>
-                  </div>
-
-                  <div className="h-1.5 overflow-hidden bg-[var(--portal-blue-pale)]">
-                    <div
-                      className="h-full bg-[var(--portal-navy)]"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+            ))
+          ) : (
+            <EmptyState text="Nothing needs attention." />
+          )}
         </Panel>
 
         <Panel
-          variant="soft"
-          eyebrow="Recent Activity"
-          heading="Relationship Timeline"
+          variant="standard"
+          compact
+          heading="Today"
           action={
-            <Link
-              href="/portal/activity"
-              className="mt-1 inline-flex shrink-0 items-center gap-1.5 text-[11px] font-light uppercase tracking-[0.16em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
-            >
-              View all
-              <span aria-hidden>→</span>
+            <Link href="/portal/attention" className={viewAllClass}>
+              View all →
             </Link>
           }
           divider
           flush
         >
-
-          <div>
-            {recentInteractions.length > 0 ? (
-              recentInteractions.map((interaction) => (
+          {todayTasks.length > 0 ? (
+            todayTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex items-start gap-3 border-b border-[var(--portal-border)] px-4 py-2.5 last:border-b-0"
+              >
                 <div
-                  key={interaction.id}
-                  className="grid gap-3 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0 md:grid-cols-[130px_110px_1fr]"
-                >
-                  <div className="text-xs font-light text-black/40">
-                    {interaction.occurredAtLabel}
-                  </div>
-
-                  <div className="text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
-                    {channelLabel(interaction.channel)}
-                  </div>
-
-                  <div>
-                    <div className="text-sm font-medium">
-                      {interaction.personName}
-                    </div>
-
-                    <div className="mt-1 text-sm font-light text-black/55">
-                      {interaction.summary ?? interaction.title}
-                    </div>
+                  className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                    task.overdue
+                      ? "bg-[var(--portal-archive)]"
+                      : "bg-[var(--portal-navy)]"
+                  }`}
+                />
+                <div className="min-w-0 flex-1">
+                  {task.personId ? (
+                    <Link
+                      href={`/portal/clients/${task.personId}`}
+                      className="block truncate text-sm font-medium text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                    >
+                      {task.title}
+                    </Link>
+                  ) : (
+                    <div className="truncate text-sm font-medium">{task.title}</div>
+                  )}
+                  <div className="truncate text-xs font-light text-black/45">
+                    {task.overdue ? "Overdue · " : ""}
+                    {task.dueAtLabel ?? "Unscheduled"}
+                    {task.contextName ? ` · ${task.contextName}` : ""}
                   </div>
                 </div>
-              ))
-            ) : (
-              <EmptyState text="No recent relationship activity." />
-            )}
-          </div>
+              </div>
+            ))
+          ) : (
+            <EmptyState text="Clear — nothing on the board today." />
+          )}
         </Panel>
+
+        <div className="flex flex-col gap-4">
+          {featuredDeal ? (
+            <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+              <div className="flex gap-3 p-4">
+                {featuredDeal.heroMediaId ? (
+                  <img
+                    src={`/api/media/${featuredDeal.heroMediaId}`}
+                    alt={featuredDeal.propertyName}
+                    className="h-16 w-20 shrink-0 rounded-md object-cover"
+                  />
+                ) : (
+                  <div className="h-16 w-20 shrink-0 rounded-md bg-gradient-to-br from-[var(--portal-blue-pale)] to-[var(--portal-navy-soft)]" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
+                    Next closing
+                  </p>
+                  <Link
+                    href={`/portal/deals/${featuredDeal.id}`}
+                    className="mt-0.5 block truncate font-serif text-lg font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                  >
+                    {featuredDeal.propertyName}
+                  </Link>
+                  <p className="truncate text-xs font-light text-black/45">
+                    {formatCurrency(
+                      featuredDeal.offerPrice ?? featuredDeal.listPrice
+                    )}
+                    {" · "}
+                    {stageLabel(featuredDeal.stage)}
+                  </p>
+                </div>
+              </div>
+            </section>
+          ) : (
+            <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
+              <p className="text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
+                Next closing
+              </p>
+              <p className="mt-2 text-sm font-light text-black/40">
+                No active deals.
+              </p>
+            </section>
+          )}
+
+          <Panel
+            variant="standard"
+            compact
+            heading="Pipeline"
+            action={
+              <Link href="/portal/deals" className={viewAllClass}>
+                View all →
+              </Link>
+            }
+          >
+            <div className="space-y-2">
+              {stageOrder
+                .filter((stage) => stage !== "closed")
+                .map((stage) => {
+                  const count = liveDeals.filter(
+                    (deal) => deal.stage === stage
+                  ).length
+                  const percent =
+                    liveDeals.length > 0
+                      ? Math.round((count / liveDeals.length) * 100)
+                      : 0
+
+                  return (
+                    <div key={stage} className="flex items-center gap-3">
+                      <div className="w-[6.5rem] shrink-0 text-[10px] font-light uppercase tracking-[0.1em] text-black/50">
+                        {stageLabel(stage)}
+                      </div>
+                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--portal-blue-pale)]">
+                        <div
+                          className="h-full bg-[var(--portal-navy)]"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <div className="w-4 shrink-0 text-right text-xs font-light tabular-nums text-black/45">
+                        {count}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </Panel>
+        </div>
       </div>
-    </div>
-  )
-}
 
-function MetricCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string
-  value: string
-  detail: string
-}) {
-  return (
-    <div className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-      <div className="h-0.5 bg-[var(--portal-gold)]" aria-hidden />
-
-      <div className="p-6">
-        <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-          {label}
-        </div>
-
-        <div className="mt-4 font-serif text-3xl font-light text-[var(--portal-navy)]">
-          {value}
-        </div>
-
-        <div className="mt-2 text-xs font-light text-black/40">
-          {detail}
-        </div>
-      </div>
+      <Panel
+        variant="soft"
+        compact
+        heading="Recent activity"
+        action={
+          <Link href="/portal/activity" className={viewAllClass}>
+            View all →
+          </Link>
+        }
+        divider
+        flush
+      >
+        {recentInteractions.length > 0 ? (
+          recentInteractions.map((interaction) => (
+            <div
+              key={interaction.id}
+              className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 border-b border-[var(--portal-border)] px-4 py-2 last:border-b-0 sm:grid-cols-[7.5rem_5.5rem_1fr_auto]"
+            >
+              <div className="truncate text-xs font-light text-black/40">
+                {interaction.occurredAtLabel}
+              </div>
+              <div className="hidden text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-blue-gray)] sm:block">
+                {channelLabel(interaction.channel)}
+              </div>
+              <div className="min-w-0 truncate text-sm font-medium">
+                {interaction.personName}
+                <span className="font-light text-black/50">
+                  {" — "}
+                  {interaction.summary ?? interaction.title}
+                </span>
+              </div>
+            </div>
+          ))
+        ) : (
+          <EmptyState text="No recent relationship activity." />
+        )}
+      </Panel>
     </div>
   )
 }
@@ -486,8 +432,6 @@ function EmptyState({
   text: string
 }) {
   return (
-    <div className="px-6 py-10 text-sm font-light text-black/40">
-      {text}
-    </div>
+    <div className="px-4 py-6 text-sm font-light text-black/40">{text}</div>
   )
 }

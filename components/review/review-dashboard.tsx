@@ -3,14 +3,11 @@
 //    LONGER NEEDED.
 //
 // Read-only Dashboard preview. Reuses the exact same data functions and
-// presentational components as /portal/dashboard (Dashboard,
-// WorkflowDashboardCard) — both are pure read projections. No mutation
-// surface.
+// presentational Dashboard as /portal/dashboard. Pure read projection.
+// No mutation surface.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { PageHeader } from "@/components/portal/page-header"
 import { Dashboard } from "@/components/portal/dashboard"
-import { WorkflowDashboardCard } from "@/components/portal/workflow-dashboard-card"
 import { getClients } from "@/db/clients"
 import { getDeals } from "@/db/deals"
 import { getDashboardSnapshot } from "@/db/dashboard"
@@ -25,14 +22,11 @@ export async function ReviewDashboard() {
   ])
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Portal Preview"
-        title="Dashboard"
-        subtitle="Read-only preview — same live projection as /portal/dashboard."
-      />
-      <WorkflowDashboardCard summaries={workflowSummaries} />
-      <Dashboard clients={clients} deals={deals} snapshot={snapshot} />
-    </div>
+    <Dashboard
+      clients={clients}
+      deals={deals}
+      snapshot={snapshot}
+      workflowSummaries={workflowSummaries}
+    />
   )
 }

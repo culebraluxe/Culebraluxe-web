@@ -1,5 +1,4 @@
 import { Dashboard } from "@/components/portal/dashboard"
-import { WorkflowDashboardCard } from "@/components/portal/workflow-dashboard-card"
 import { getClients } from "@/db/clients"
 import { getDeals } from "@/db/deals"
 import { getDashboardSnapshot } from "@/db/dashboard"
@@ -16,13 +15,11 @@ export default async function DashboardPage() {
   ])
 
   return (
-    <div className="space-y-6">
-      <WorkflowDashboardCard summaries={workflowSummaries} />
-      <Dashboard
-        clients={clients}
-        deals={deals}
-        snapshot={snapshot}
-      />
-    </div>
+    <Dashboard
+      clients={clients}
+      deals={deals}
+      snapshot={snapshot}
+      workflowSummaries={workflowSummaries}
+    />
   )
 }

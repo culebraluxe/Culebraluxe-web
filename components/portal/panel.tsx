@@ -51,6 +51,7 @@ export function Panel({
   action,
   divider = false,
   flush = false,
+  compact = false,
   className = '',
   children,
 }: {
@@ -61,6 +62,7 @@ export function Panel({
   action?: ReactNode
   divider?: boolean
   flush?: boolean
+  compact?: boolean
   className?: string
   children?: ReactNode
 }) {
@@ -70,7 +72,7 @@ export function Panel({
     <section
       className={[
         'overflow-hidden rounded-[var(--portal-panel-radius)]',
-        flush ? '' : 'p-[var(--portal-panel-padding)]',
+        flush ? '' : compact ? 'p-4' : 'p-[var(--portal-panel-padding)]',
         variantSurface[variant],
         className,
       ].join(' ')}
@@ -78,9 +80,13 @@ export function Panel({
       {hasHeader ? (
         <header
           className={[
-            'flex flex-wrap items-start justify-between gap-4',
-            flush ? 'px-[var(--portal-panel-padding)] py-5' : 'mb-5',
-            divider ? 'border-b border-[var(--portal-panel-border)] pb-5' : '',
+            'flex flex-wrap items-center justify-between gap-2',
+            flush ? (compact ? 'px-4 py-3' : 'px-[var(--portal-panel-padding)] py-5') : compact ? 'mb-3' : 'mb-5',
+            divider
+              ? compact
+                ? 'border-b border-[var(--portal-panel-border)] pb-3'
+                : 'border-b border-[var(--portal-panel-border)] pb-5'
+              : '',
           ].join(' ')}
         >
           <div className="min-w-0">
@@ -93,12 +99,14 @@ export function Panel({
             ) : null}
             {heading ? (
               <h2
-                className={`mt-1.5 font-serif text-2xl font-light ${headingTone[variant]}`}
+                className={`${eyebrow ? 'mt-1' : ''} font-serif font-light ${
+                  compact ? 'text-lg' : 'mt-1.5 text-2xl'
+                } ${headingTone[variant]}`}
               >
                 {heading}
               </h2>
             ) : null}
-            {subtitle ? (
+            {subtitle && !compact ? (
               <p
                 className={`mt-1 text-sm font-light ${
                   variant === 'feature' ? 'text-white/55' : 'text-black/45'

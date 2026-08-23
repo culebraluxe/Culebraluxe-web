@@ -5,6 +5,8 @@ import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { toPortalActorSnapshot } from "@/lib/auth/actor-snapshot"
 import { OperatingShell } from "@/components/portal/operating-shell"
+import { getClients } from "@/db/clients"
+import { getDeals } from "@/db/deals"
 
 export const dynamic = "force-dynamic"
 
@@ -28,6 +30,22 @@ export default async function PortalLayout({
 
   // Cosmetic UI projection only — hiding buttons is never the security boundary.
   const actor = toPortalActorSnapshot(result.actor)
+  const [clients, deals] = await Promise.all([getClients(), getDeals()])
 
-  return <OperatingShell actor={actor}>{children}</OperatingShell>
+  return (
+    <OperatingShell
+      actor={actor}
+      clients={clients.map((client) => ({
+        id: client.id,
+        name: client.displayName,
+      }))}
+      deals={deals.map((deal) => ({
+        id: deal.id,
+        name: deal.propertyName,
+        client: deal.clientName,
+      }))}
+    >
+      {children}
+    </OperatingShell>
+  )
 }

@@ -25,20 +25,6 @@ function formatCurrency(value?: number) {
   }).format(value)
 }
 
-function dealSummary(deal: Deal): string {
-  const parts: string[] = []
-  if (deal.showingCount) {
-    parts.push(`${deal.showingCount} showing${deal.showingCount === 1 ? "" : "s"}`)
-  }
-  if (deal.offerCount) {
-    parts.push(`${deal.offerCount} offer${deal.offerCount === 1 ? "" : "s"}`)
-  }
-  if (deal.participantCount) {
-    parts.push(`${deal.participantCount} participant${deal.participantCount === 1 ? "" : "s"}`)
-  }
-  return parts.join(" · ")
-}
-
 function stageLabel(stage: DealStage) {
   switch (stage) {
     case "new_lead":
@@ -82,44 +68,29 @@ export function DealsPortfolio({
 
   const filteredDeals = useMemo(() => {
     if (stageFilter === "all") return deals
-
     return deals.filter((deal) => deal.stage === stageFilter)
   }, [deals, stageFilter])
 
-  const activeDeals = deals.filter((deal) => deal.stage !== "closed")
-
-  const underContract = deals.filter(
-    (deal) => deal.stage === "under_contract"
-  )
-
-  const averageListingPrice =
-    deals.length > 0
-      ? deals.reduce((sum, deal) => sum + (deal.listPrice ?? 0), 0) /
-        deals.length
-      : 0
-
-  const closingSoon = deals.filter((deal) => deal.closingDate)
-
   return (
     <div>
-      <PageHeader
-        eyebrow="Portfolio"
-        title="Deals Portfolio"
-        subtitle="A working view of active opportunities, properties, and transaction progress."
-      />
+      <PageHeader compact eyebrow="Portfolio" title="Deals">
+        <span className="text-xs font-light text-black/40">
+          {filteredDeals.length} shown
+        </span>
+      </PageHeader>
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap gap-1.5">
         <button
           type="button"
           onClick={() => setStageFilter("all")}
           className={[
-            "rounded-full border px-4 py-2 text-xs font-light uppercase tracking-[0.12em] transition",
+            "rounded-full border px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] transition",
             stageFilter === "all"
               ? "border-[var(--portal-navy)] bg-[var(--portal-navy)] text-white"
-              : "border-[var(--portal-border)] bg-white text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)]",
+              : "border-[var(--portal-panel-border)] bg-white/40 text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)]",
           ].join(" ")}
         >
-          All Deals
+          All
         </button>
 
         {stageOrder.map((stage) => (
@@ -128,10 +99,10 @@ export function DealsPortfolio({
             type="button"
             onClick={() => setStageFilter(stage)}
             className={[
-              "rounded-full border px-4 py-2 text-xs font-light uppercase tracking-[0.12em] transition",
+              "rounded-full border px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.12em] transition",
               stageFilter === stage
                 ? "border-[var(--portal-navy)] bg-[var(--portal-navy)] text-white"
-                : "border-[var(--portal-border)] bg-white text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)]",
+                : "border-[var(--portal-panel-border)] bg-white/40 text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)]",
             ].join(" ")}
           >
             {stageLabel(stage)}
@@ -139,60 +110,20 @@ export function DealsPortfolio({
         ))}
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Active Deals"
-          value={String(activeDeals.length)}
-          detail="Open opportunities"
-        />
-
-        <MetricCard
-          label="Under Contract"
-          value={String(underContract.length)}
-          detail="Transactions in progress"
-        />
-
-        <MetricCard
-          label="Avg Listing Price"
-          value={formatCurrency(averageListingPrice)}
-          detail="Across current portfolio"
-        />
-
-        <MetricCard
-          label="Closing Pipeline"
-          value={String(closingSoon.length)}
-          detail="Deals with closing dates"
-        />
-      </section>
-
-      <Panel
-        className="mt-6"
-        variant="standard"
-        heading="Active Portfolio"
-        subtitle="Client, property, stage, value and next milestone."
-        action={
-          <div className="text-xs font-light text-black/35">
-            {filteredDeals.length} deals
-          </div>
-        }
-        divider
-        flush
-      >
-
+      <Panel compact variant="standard" divider flush>
         <div className="overflow-x-auto">
-          <table className="min-w-[1100px] w-full border-collapse">
+          <table className="min-w-[960px] w-full border-collapse">
             <thead>
-              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
+              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/60">
                 <TableHeading>Property</TableHeading>
                 <TableHeading>Client</TableHeading>
                 <TableHeading>Stage</TableHeading>
                 <TableHeading>Price / Offer</TableHeading>
-                <TableHeading>Next Milestone</TableHeading>
-                <TableHeading>Last Activity</TableHeading>
+                <TableHeading>Next</TableHeading>
                 <TableHeading>Owner</TableHeading>
+                <TableHeading></TableHeading>
               </tr>
             </thead>
-
             <tbody>
               {filteredDeals.length > 0 ? (
                 filteredDeals.map((deal) => (
@@ -200,113 +131,68 @@ export function DealsPortfolio({
                     key={deal.id}
                     className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/45"
                   >
-                    <td className="px-6 py-5 align-top">
-                      <div className="flex items-center gap-4">
+                    <td className="px-4 py-3 align-middle">
+                      <div className="flex items-center gap-3">
                         {deal.heroMediaId ? (
                           <img
                             src={`/api/media/${deal.heroMediaId}`}
                             alt={deal.propertyName}
-                            className="h-14 w-20 shrink-0 rounded-sm object-cover"
+                            className="h-10 w-14 shrink-0 rounded-md object-cover"
                           />
                         ) : (
-                          <div className="h-14 w-20 shrink-0 rounded-sm bg-gradient-to-br from-[var(--portal-blue-pale)] via-[var(--portal-mist-4)] to-[var(--portal-blue-gray)]" />
+                          <div className="h-10 w-14 shrink-0 rounded-md bg-gradient-to-br from-[var(--portal-blue-pale)] to-[var(--portal-navy-soft)]" />
                         )}
-
-                        <div>
+                        <div className="min-w-0">
                           <Link
                             href={`/portal/deals/${deal.id}`}
-                            className="font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
+                            className="block truncate text-sm font-medium text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
                           >
                             {deal.propertyName}
                           </Link>
-
-                          <div className="mt-1 text-xs font-light text-black/45">
+                          <div className="truncate text-xs font-light text-black/45">
                             {deal.propertyLocation}
-                            {deal.propertyDescriptor &&
-                              ` · ${deal.propertyDescriptor}`}
                           </div>
-
-                          {(deal.showingCount ||
-                            deal.offerCount ||
-                            deal.participantCount) && (
-                            <div className="mt-1 text-xs font-light text-[var(--portal-navy-soft)]">
-                              {dealSummary(deal)}
-                            </div>
-                          )}
                         </div>
                       </div>
                     </td>
-
-                    <td className="px-6 py-5 align-top">
-                      <div className="text-sm font-medium">
-                        {deal.clientName}
-                      </div>
+                    <td className="px-4 py-3 align-middle text-sm font-light">
+                      {deal.clientName}
                     </td>
-
-                    <td className="px-6 py-5 align-top">
+                    <td className="px-4 py-3 align-middle">
                       <span
                         className={[
-                          "inline-flex rounded-full px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em]",
+                          "inline-flex rounded-full px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.1em]",
                           stageClasses(deal.stage),
                         ].join(" ")}
                       >
                         {stageLabel(deal.stage)}
                       </span>
                     </td>
-
-                    <td className="px-6 py-5 align-top">
-                      {deal.offerCount ? (
-                        <>
-                          <div className="text-sm font-light">
-                            {formatCurrency(
-                              deal.latestOfferAmount ??
-                                deal.offerPrice ??
-                                deal.listPrice
-                            )}
-                          </div>
-                          <div className="mt-1 text-xs font-light text-black/40">
-                            {deal.latestOfferStatus
-                              ? deal.latestOfferStatus.charAt(0).toUpperCase() +
-                                deal.latestOfferStatus.slice(1)
-                              : "Latest offer"}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="text-sm font-light">
-                            {formatCurrency(deal.offerPrice ?? deal.listPrice)}
-                          </div>
-                          <div className="mt-1 text-xs font-light text-black/40">
-                            {deal.offerPrice ? "Current offer" : "List price"}
-                          </div>
-                        </>
+                    <td className="px-4 py-3 align-middle text-sm font-light tabular-nums">
+                      {formatCurrency(
+                        deal.latestOfferAmount ??
+                          deal.offerPrice ??
+                          deal.listPrice
                       )}
                     </td>
-
-                    <td className="px-6 py-5 align-top">
+                    <td className="px-4 py-3 align-middle">
                       <div className="text-sm font-light">
                         {deal.nextMilestone ?? "—"}
                       </div>
-
-                      <div className="mt-1 text-xs font-light text-black/40">
+                      <div className="text-xs font-light text-black/40">
                         {deal.nextMilestoneAt ?? ""}
                       </div>
                     </td>
-
-                    <td className="px-6 py-5 align-top">
-                      <div className="text-sm font-light">
-                        {deal.lastActivity ?? "—"}
-                      </div>
-
-                      <div className="mt-1 text-xs font-light text-black/40">
-                        {deal.lastActivityAt ?? ""}
-                      </div>
+                    <td className="px-4 py-3 align-middle text-sm font-light">
+                      {deal.owner}
                     </td>
-
-                    <td className="px-6 py-5 align-top">
-                      <div className="text-sm font-light">
-                        {deal.owner}
-                      </div>
+                    <td className="px-4 py-3 align-middle text-right">
+                      <Link
+                        href={`/portal/deals/${deal.id}`}
+                        className="inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
+                      >
+                        Open
+                      </Link>
                     </td>
                   </tr>
                 ))
@@ -314,7 +200,7 @@ export function DealsPortfolio({
                 <tr>
                   <td
                     colSpan={7}
-                    className="px-6 py-12 text-center text-sm font-light text-black/40"
+                    className="px-4 py-10 text-center text-sm font-light text-black/40"
                   >
                     No deals found.
                   </td>
@@ -324,134 +210,6 @@ export function DealsPortfolio({
           </table>
         </div>
       </Panel>
-
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.5fr)]">
-        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-          <div className="mb-6">
-            <h2 className="font-serif text-2xl font-light">
-              Pipeline
-            </h2>
-
-            <p className="mt-1 text-xs font-light text-black/40">
-              The same portfolio grouped by deal stage.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {stageOrder.map((stage) => {
-              const stageDeals = deals.filter(
-                (deal) => deal.stage === stage
-              )
-
-              return (
-                <div
-                  key={stage}
-                  className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/55 p-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
-                      {stageLabel(stage)}
-                    </div>
-
-                    <div className="text-xs font-light text-black/35">
-                      {stageDeals.length}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    {stageDeals.length > 0 ? (
-                      stageDeals.map((deal) => (
-                        <div
-                          key={deal.id}
-                          className="rounded-sm border border-[var(--portal-border)] bg-white p-4"
-                        >
-                          <div className="font-serif text-base font-light">
-                            {deal.propertyName}
-                          </div>
-
-                          <div className="mt-1 text-xs font-light text-black/45">
-                            {deal.clientName}
-                          </div>
-
-                          <div className="mt-3 text-sm font-light text-[var(--portal-navy)]">
-                            {formatCurrency(
-                              deal.offerPrice ?? deal.listPrice
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-sm border border-dashed border-[var(--portal-border)] px-4 py-6 text-center text-xs font-light text-black/35">
-                        No deals
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-
-        <Panel variant="feature" eyebrow="Deal Watchlist" heading="Priority Closings">
-
-          <div className="mt-6 divide-y divide-white/10">
-            {closingSoon.length > 0 ? (
-              closingSoon.map((deal) => (
-                <div
-                  key={deal.id}
-                  className="py-5 first:pt-0 last:pb-0"
-                >
-                  <div className="font-serif text-lg font-light">
-                    {deal.propertyName}
-                  </div>
-
-                  <div className="mt-1 text-xs font-light text-white/50">
-                    {deal.clientName}
-                  </div>
-
-                  <div className="mt-4 text-sm font-light text-white/80">
-                    {deal.closingDate}
-                  </div>
-
-                  <div className="mt-1 text-xs font-light text-white/45">
-                    {stageLabel(deal.stage)}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-sm font-light text-white/50">
-                No scheduled closings.
-              </div>
-            )}
-          </div>
-        </Panel>
-      </div>
-    </div>
-  )
-}
-
-function MetricCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string
-  value: string
-  detail: string
-}) {
-  return (
-    <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
-      <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
-        {label}
-      </div>
-
-      <div className="mt-4 font-serif text-3xl font-light text-[var(--portal-navy)]">
-        {value}
-      </div>
-
-      <div className="mt-2 text-xs font-light text-black/40">
-        {detail}
-      </div>
     </div>
   )
 }
@@ -462,7 +220,7 @@ function TableHeading({
   children: React.ReactNode
 }) {
   return (
-    <th className="px-6 py-4 text-left text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
+    <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
       {children}
     </th>
   )

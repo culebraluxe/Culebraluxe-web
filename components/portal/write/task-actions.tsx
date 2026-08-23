@@ -21,7 +21,13 @@ const secondaryButton =
 const ghostButton =
   'inline-flex min-h-11 items-center justify-center rounded-sm px-3 text-[11px] font-light uppercase tracking-[0.14em] text-black/45 transition hover:text-[var(--portal-archive)] disabled:cursor-not-allowed disabled:opacity-40'
 
-export function TaskActions({ taskId }: { taskId: string }) {
+export function TaskActions({
+  taskId,
+  compact = false,
+}: {
+  taskId: string
+  compact?: boolean
+}) {
   const [isPending, startTransition] = useTransition()
   const [dueAt, setDueAt] = useState('')
   const [message, setMessage] = useState<{
@@ -54,6 +60,26 @@ export function TaskActions({ taskId }: { taskId: string }) {
         })
       }
     })
+  }
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => run(() => completeTaskAction(taskId))}
+          className="inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:opacity-40"
+        >
+          Done
+        </button>
+        {message && !message.ok ? (
+          <span className="text-[10px] font-light text-[var(--portal-archive)]">
+            {message.text}
+          </span>
+        ) : null}
+      </div>
+    )
   }
 
   return (

@@ -16,32 +16,46 @@ export function PageHeader({
   eyebrow,
   title,
   subtitle,
+  compact = false,
   children,
 }: {
   eyebrow: string
   title: string
   subtitle?: string
+  compact?: boolean
   children?: ReactNode
 }) {
   return (
-    <div className="mb-8">
+    <div className={compact ? "mb-4" : "mb-8"}>
       <div className="h-px w-9 bg-[var(--portal-gold)]" aria-hidden />
 
-      <p className="mt-4 text-xs font-light uppercase tracking-[0.28em] text-black/40">
-        {eyebrow}
-      </p>
+      <div
+        className={`flex flex-wrap items-end justify-between gap-3 ${
+          compact ? "mt-3" : "mt-4"
+        }`}
+      >
+        <div className="min-w-0">
+          <p className="text-[10px] font-light uppercase tracking-[0.22em] text-black/40">
+            {eyebrow}
+          </p>
 
-      <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
-        {title}
-      </h1>
+          <h1
+            className={`font-serif font-light leading-[1.1] ${
+              compact ? "mt-1 text-2xl" : "mt-3 text-4xl"
+            }`}
+          >
+            {title}
+          </h1>
 
-      {subtitle ? (
-        <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
-          {subtitle}
-        </p>
-      ) : null}
+          {subtitle && !compact ? (
+            <p className="mt-3 max-w-3xl text-sm font-light leading-6 text-black/50">
+              {subtitle}
+            </p>
+          ) : null}
+        </div>
 
-      {children}
+        {children ? <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div> : null}
+      </div>
     </div>
   )
 }

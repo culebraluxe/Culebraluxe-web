@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { PageHeader } from "@/components/portal/page-header"
+import { Panel } from "@/components/portal/panel"
 import { TaskActions } from "@/components/portal/write/task-actions"
 import type { AttentionSnapshot } from "@/db/attention"
 
@@ -13,56 +14,8 @@ function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-function channelLabel(channel: string | null) {
-  switch (channel) {
-    case "call":
-      return "Phone Call"
-    case "email":
-      return "Email"
-    case "imessage":
-      return "iMessage"
-    case "sms":
-      return "SMS"
-    case "meeting":
-      return "Meeting"
-    case "showing":
-      return "Showing"
-    case "website":
-      return "Website"
-    case "whatsapp":
-      return "WhatsApp"
-    default:
-      return channel ? channel.charAt(0).toUpperCase() + channel.slice(1) : null
-  }
-}
-
-function SectionCard({
-  title,
-  subtitle,
-  count,
-  children,
-}: {
-  title: string
-  subtitle: string
-  count: number
-  children: React.ReactNode
-}) {
-  return (
-    <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
-      <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
-        <div>
-          <h2 className="font-serif text-2xl font-light">{title}</h2>
-          <p className="mt-1 text-xs font-light text-black/40">{subtitle}</p>
-        </div>
-        <span className="text-xs font-light text-black/35">{count}</span>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function Empty({ text }: { text: string }) {
-  return <div className="px-6 py-10 text-sm font-light text-black/40">{text}</div>
+type QueueTask = AttentionSnapshot["overdueTasks"][number] & {
+  bucket: "overdue" | "soon"
 }
 
 export function Attention({
@@ -70,209 +23,150 @@ export function Attention({
 }: {
   snapshot: AttentionSnapshot
 }) {
-  const totalAttention =
-    snapshot.overdueTasks.length + snapshot.dueSoonTasks.length
+  const overdueIds = new Set(snapshot.overdueTasks.map((task) => task.id))
+  const queue: QueueTask[] = [
+    ...snapshot.overdueTasks.map((task) => ({ ...task, bucket: "overdue" as const })),
+    ...snapshot.dueSoonTasks
+      .filter((task) => !overdueIds.has(task.id))
+      .map((task) => ({ ...task, bucket: "soon" as const })),
+  ]
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Portal"
-        title="Attention"
-        subtitle="Follow-up work that matters right now — derived from open tasks, activity, and relationships already on file."
-      />
+    <div className="flex flex-col gap-4">
+      <PageHeader compact eyebrow="Queue" title="Attention">
+        <span className="text-xs font-light text-black/40">
+          {queue.length} {queue.length === 1 ? "item" : "items"}
+        </span>
+      </PageHeader>
 
-      <div className="mb-6 flex items-center justify-between border-b border-[var(--portal-border)] pb-5">
-        <p className="text-xs font-light uppercase tracking-[0.2em] text-[var(--portal-blue-gray)]">
-          Follow-Up Queue
-        </p>
-
-        <p className="text-xs font-light text-black/40">
-          {totalAttention} {totalAttention === 1 ? "task" : "tasks"} due or overdue
-        </p>
-      </div>
-
-      <div className="grid gap-6 2xl:grid-cols-2">
-        <SectionCard
-          title="Overdue"
-          subtitle="Open tasks past their due date"
-          count={snapshot.overdueTasks.length}
-        >
-          {snapshot.overdueTasks.length > 0 ? (
-            <div>
-              {snapshot.overdueTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    {task.personId ? (
-                      <Link
-                        href={`/portal/clients/${task.personId}`}
-                        className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                      >
-                        {task.title}
-                      </Link>
-                    ) : (
-                      <div className="font-serif text-lg font-light">
-                        {task.title}
-                      </div>
-                    )}
-                    <span className="rounded-full bg-[var(--portal-archive-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
-                      Overdue
-                    </span>
-                  </div>
-                  {task.detail && (
-                    <p className="mt-1 text-sm font-light text-black/50">{task.detail}</p>
-                  )}
-                  <div className="mt-2 text-xs font-light text-black/40">
-                    {task.dueAtLabel ?? "Unscheduled"}
-                    {task.personName && ` · ${task.personName}`}
-                    {(task.propertyName || task.dealPropertyName) && ` · ${
-                      task.dealPropertyName ?? task.propertyName
-                    }`}
-                  </div>
-                  <div className="mt-3">
-                    <TaskActions taskId={task.id} />
-                  </div>
+      <Panel compact variant="attention" heading="Follow-up queue" divider flush>
+        {queue.length > 0 ? (
+          queue.map((task) => (
+            <div
+              key={task.id}
+              className="flex flex-wrap items-center gap-3 border-b border-[var(--portal-border)] px-4 py-2.5 last:border-b-0"
+            >
+              <span
+                className={[
+                  "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-light uppercase tracking-[0.1em]",
+                  task.bucket === "overdue"
+                    ? "bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]"
+                    : "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]",
+                ].join(" ")}
+              >
+                {task.bucket === "overdue" ? "Overdue" : "Soon"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-[var(--portal-navy)]">
+                  {task.title}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <Empty text="Nothing is overdue." />
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title="Due Soon"
-          subtitle="Open tasks due within the next 7 days"
-          count={snapshot.dueSoonTasks.length}
-        >
-          {snapshot.dueSoonTasks.length > 0 ? (
-            <div>
-              {snapshot.dueSoonTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
-                >
-                  {task.personId ? (
-                    <Link
-                      href={`/portal/clients/${task.personId}`}
-                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                    >
-                      {task.title}
-                    </Link>
-                  ) : (
-                    <div className="font-serif text-lg font-light">{task.title}</div>
-                  )}
-                  {task.detail && (
-                    <p className="mt-1 text-sm font-light text-black/50">{task.detail}</p>
-                  )}
-                  <div className="mt-2 text-xs font-light text-black/40">
-                    {task.dueAtLabel ?? "Unscheduled"}
-                    {task.personName && ` · ${task.personName}`}
-                    {(task.propertyName || task.dealPropertyName) && ` · ${
-                      task.dealPropertyName ?? task.propertyName
-                    }`}
-                  </div>
-                  <div className="mt-3">
-                    <TaskActions taskId={task.id} />
-                  </div>
+                <div className="truncate text-xs font-light text-black/45">
+                  {task.dueAtLabel ?? "Unscheduled"}
+                  {task.personName ? ` · ${task.personName}` : ""}
+                  {(task.propertyName || task.dealPropertyName)
+                    ? ` · ${task.dealPropertyName ?? task.propertyName}`
+                    : ""}
                 </div>
-              ))}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {task.personId ? (
+                  <Link
+                    href={`/portal/clients/${task.personId}`}
+                    className="inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] hover:text-[var(--portal-navy)]"
+                  >
+                    Open
+                  </Link>
+                ) : null}
+                <TaskActions taskId={task.id} compact />
+              </div>
             </div>
-          ) : (
-            <Empty text="No tasks due within the next 7 days." />
-          )}
-        </SectionCard>
-      </div>
+          ))
+        ) : (
+          <div className="px-4 py-8 text-sm font-light text-black/40">
+            Queue is clear.
+          </div>
+        )}
+      </Panel>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-2">
-        <SectionCard
-          title="People with Open Work"
-          subtitle="Relationships carrying at least one open task"
-          count={snapshot.peopleWithOpenWork.length}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel
+          compact
+          heading="People with open work"
+          action={
+            <span className="text-xs font-light text-black/35">
+              {snapshot.peopleWithOpenWork.length}
+            </span>
+          }
+          divider
+          flush
         >
           {snapshot.peopleWithOpenWork.length > 0 ? (
-            <div>
-              {snapshot.peopleWithOpenWork.map((person) => (
-                <div
-                  key={person.id}
-                  className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      href={`/portal/clients/${person.id}`}
-                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                    >
-                      {person.displayName}
-                    </Link>
-                    <div className="mt-1 text-xs font-light text-black/45">
-                      {roleLabel(person.role)} · {statusLabel(person.status)}
-                    </div>
+            snapshot.peopleWithOpenWork.map((person) => (
+              <Link
+                key={person.id}
+                href={`/portal/clients/${person.id}`}
+                className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] px-4 py-2.5 last:border-b-0 hover:bg-white/25"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-[var(--portal-navy)]">
+                    {person.displayName}
                   </div>
-                  <div className="text-right text-xs font-light text-black/40">
-                    <div className="text-sm font-medium text-[var(--portal-navy)]">
-                      {person.openTaskCount} open
-                    </div>
-                    <div className="mt-1">
-                      {person.lastContactLabel
-                        ? `Last: ${person.lastContactLabel}${
-                            channelLabel(person.lastContactChannel)
-                              ? ` · ${channelLabel(person.lastContactChannel)}`
-                              : ""
-                          }`
-                        : "No contact recorded"}
-                    </div>
+                  <div className="text-xs font-light text-black/45">
+                    {roleLabel(person.role)} · {statusLabel(person.status)}
                   </div>
                 </div>
-              ))}
-            </div>
+                <div className="shrink-0 text-right text-xs font-light text-black/40">
+                  {person.openTaskCount} open
+                </div>
+              </Link>
+            ))
           ) : (
-            <Empty text="No relationships have open tasks." />
+            <div className="px-4 py-6 text-sm font-light text-black/40">
+              No relationships have open tasks.
+            </div>
           )}
-        </SectionCard>
+        </Panel>
 
-        <SectionCard
-          title="Quiet but Important"
-          subtitle="Active relationship with no contact in the last 30 days"
-          count={snapshot.quietButImportant.length}
+        <Panel
+          compact
+          heading="Quiet but important"
+          action={
+            <span className="text-xs font-light text-black/35">
+              {snapshot.quietButImportant.length}
+            </span>
+          }
+          divider
+          flush
         >
           {snapshot.quietButImportant.length > 0 ? (
-            <div>
-              {snapshot.quietButImportant.map((person) => (
-                <div
-                  key={person.id}
-                  className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-5 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      href={`/portal/clients/${person.id}`}
-                      className="inline-flex min-h-11 items-center font-serif text-lg font-light text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                    >
-                      {person.displayName}
-                    </Link>
-                    <div className="mt-1 text-xs font-light text-black/45">
-                      {roleLabel(person.role)} · {statusLabel(person.status)}
-                    </div>
+            snapshot.quietButImportant.map((person) => (
+              <Link
+                key={person.id}
+                href={`/portal/clients/${person.id}`}
+                className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] px-4 py-2.5 last:border-b-0 hover:bg-white/25"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-[var(--portal-navy)]">
+                    {person.displayName}
                   </div>
-                  <div className="text-right text-xs font-light text-black/40">
-                    <div className="text-sm font-medium text-[var(--portal-navy)]">
-                      {person.activeDealCount} deal{person.activeDealCount === 1 ? "" : "s"} ·{" "}
-                      {person.openTaskCount} task{person.openTaskCount === 1 ? "" : "s"}
-                    </div>
-                    <div className="mt-1">
-                      {person.lastContactLabel
-                        ? `Last contact: ${person.lastContactLabel}`
-                        : "No contact recorded"}
-                    </div>
+                  <div className="text-xs font-light text-black/45">
+                    {person.lastContactLabel
+                      ? `Last: ${person.lastContactLabel}`
+                      : "No contact recorded"}
                   </div>
                 </div>
-              ))}
-            </div>
+                <div className="shrink-0 text-right text-xs font-light text-black/40">
+                  {person.activeDealCount} deal
+                  {person.activeDealCount === 1 ? "" : "s"}
+                </div>
+              </Link>
+            ))
           ) : (
-            <Empty text="No quiet-but-important relationships right now." />
+            <div className="px-4 py-6 text-sm font-light text-black/40">
+              Nobody has gone quiet.
+            </div>
           )}
-        </SectionCard>
+        </Panel>
       </div>
     </div>
   )

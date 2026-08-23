@@ -123,8 +123,8 @@ export function DealWorkspace({
   if (!deal) {
     return (
       <div>
-        <PageHeader eyebrow="Portfolio" title="Deal Workspace" />
-        <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10">
+        <PageHeader compact eyebrow="Portfolio" title="Deal Workspace" />
+        <div className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-10">
           <p className="text-sm font-light text-black/45">Deal not found.</p>
         </div>
       </div>
@@ -135,27 +135,24 @@ export function DealWorkspace({
 
   return (
     <div>
-      <PageHeader eyebrow="Portfolio" title={property?.name ?? "Deal"}>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
-            {stageLabel(deal.stage)}
+      <PageHeader compact eyebrow="Deal" title={property?.name ?? "Deal"}>
+        <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+          {stageLabel(deal.stage)}
+        </span>
+        {property?.location ? (
+          <span className="text-sm font-light text-black/45">
+            {property.location}
           </span>
-          {property?.location && (
-            <span className="text-sm font-light text-black/45">
-              {property.location}
-            </span>
-          )}
-        </div>
-
+        ) : null}
         <Link
           href="/portal/deals"
-          className="mt-5 inline-flex items-center gap-2 text-xs font-light uppercase tracking-[0.2em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
+          className="inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)]"
         >
-          <span aria-hidden>←</span> Back to Deals Portfolio
+          ← Deals
         </Link>
       </PageHeader>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
+      <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           <Detail label="List Price" value={formatCurrency(deal.listPrice)} />
           <Detail label="Offer Price" value={formatCurrency(deal.offerPrice)} />
@@ -177,8 +174,8 @@ export function DealWorkspace({
         </div>
       </section>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-3">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">Property</h2>
           </div>
@@ -211,7 +208,7 @@ export function DealWorkspace({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">Client</h2>
           </div>
@@ -236,7 +233,7 @@ export function DealWorkspace({
           )}
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">Participants</h2>
             <p className="mt-1 text-xs font-light text-black/40">
@@ -292,8 +289,8 @@ export function DealWorkspace({
         </section>
       </div>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
             <div>
               <h2 className="font-serif text-2xl font-light">Open Tasks</h2>
@@ -327,7 +324,7 @@ export function DealWorkspace({
                     {task.dueAtLabel ?? "Unscheduled"}
                   </div>
                   <div className="mt-3">
-                    <TaskActions taskId={task.id} />
+                    <TaskActions taskId={task.id} compact />
                   </div>
                 </div>
               ))}
@@ -344,7 +341,7 @@ export function DealWorkspace({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
             <div>
               <h2 className="font-serif text-2xl font-light">Recent Deal Activity</h2>
@@ -398,7 +395,7 @@ export function DealWorkspace({
         </section>
       </div>
 
-      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="mt-4 portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">Offers</h2>
@@ -481,7 +478,7 @@ export function DealWorkspace({
         </div>
       </div>
 
-      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="mt-4 portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">Showings</h2>
@@ -561,7 +558,7 @@ export function DealWorkspace({
       </div>
 
       {deal.notes && (
-        <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="mt-6 portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Deal Notes</h2>
           <p className="mt-4 text-sm font-light leading-7 text-black/55">{deal.notes}</p>
         </section>

@@ -306,6 +306,7 @@
   --portal-rail-gold-edge: linear-gradient(90deg, transparent 4%, rgba(198, 161, 91, 0.55) 50%, transparent 96%);
   --portal-tab-height: 44px;
   --portal-tab-radius: 10px;
+  --portal-panel-padding-compact: 16px;
 }
 
 /* Portal page canvas + glass materials. Colors stay in the tokens above. */
@@ -323,6 +324,65 @@
   border-bottom: 1px solid var(--portal-shell-border);
   backdrop-filter: blur(var(--portal-shell-blur)) saturate(1.35);
   -webkit-backdrop-filter: blur(var(--portal-shell-blur)) saturate(1.35);
+}
+
+/* Major worlds live IN the navy header with the logo — not a second row. */
+.portal-top-nav {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.15rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+@media (min-width: 768px) {
+  .portal-top-nav {
+    justify-content: center;
+  }
+}
+.portal-top-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.portal-top-nav-item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding-inline: 0.5rem;
+  border-bottom: 2px solid transparent;
+  color: color-mix(in srgb, var(--portal-ivory) 55%, transparent);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+@media (min-width: 768px) {
+  .portal-top-nav-item {
+    flex: 1 1 0;
+    padding-inline: 0.7rem;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+  }
+}
+.portal-top-nav-item:hover {
+  color: var(--portal-ivory);
+}
+.portal-top-nav-item[aria-current='page'] {
+  color: var(--portal-ivory);
+  border-bottom-color: var(--portal-gold);
+}
+.portal-top-nav-item:focus-visible {
+  outline: none;
+  color: var(--portal-ivory);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--portal-gold) 55%, transparent);
 }
 
 .portal-glass-rail {
