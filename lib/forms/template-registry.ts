@@ -52,3 +52,15 @@ export function getTemplate(id: string): TemplateDefinition | null {
 export function listTemplates(): readonly TemplateDefinition[] {
   return TEMPLATES
 }
+
+/** Form-type dropdown on the editor. All four have XML in lib/forms/templates. */
+const PORTAL_FORM_TYPES: readonly { id: string; displayName: string }[] = [
+  { id: SHOWING_REPORT_TEMPLATE_ID, displayName: 'Showing Report' },
+  { id: OFFER_LETTER_TEMPLATE_ID, displayName: 'Offer Letter' },
+  { id: PURCHASE_SALE_TEMPLATE_ID, displayName: 'Purchase & Sale' },
+  { id: LISTING_AGREEMENT_TEMPLATE_ID, displayName: 'Listing Contract' },
+]
+
+export function listPortalFormTypes(): readonly { id: string; displayName: string }[] {
+  return PORTAL_FORM_TYPES.filter((item) => getTemplate(item.id))
+}

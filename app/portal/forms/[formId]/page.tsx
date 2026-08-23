@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 
 import { getFormInstance } from "@/db/document-form-instance"
 import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
-import { getTemplate, listTemplates } from "@/lib/forms/template-registry"
+import { getTemplate, listPortalFormTypes } from "@/lib/forms/template-registry"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
 export const dynamic = "force-dynamic"
@@ -23,6 +23,11 @@ export default async function FormPage({
       ? await getIssuedDocumentForFormInstance(form.id)
       : null
 
+  const templates = [...listPortalFormTypes()]
+  if (!templates.some((item) => item.id === template.id)) {
+    templates.unshift({ id: template.id, displayName: template.displayName })
+  }
+
   return (
     <FormEditor
       form={{
@@ -36,10 +41,7 @@ export default async function FormPage({
         sections: form.sections,
       }}
       template={template}
-      templates={listTemplates().map((item) => ({
-        id: item.id,
-        displayName: item.displayName,
-      }))}
+      templates={templates}
       issuedDocument={issuedDocument}
     />
   )

@@ -4,7 +4,7 @@ import { getDeals } from "@/db/deals"
 import { getClients } from "@/db/clients"
 import { getProperties } from "@/db/properties"
 import { listFormInstances } from "@/db/document-form-instance"
-import { listTemplates } from "@/lib/forms/template-registry"
+import { listPortalFormTypes } from "@/lib/forms/template-registry"
 import { createFormAction } from "@/app/portal/forms/actions"
 
 export const dynamic = "force-dynamic"
@@ -14,7 +14,7 @@ export default async function FormsPage() {
   const latest = instances[0]
   if (latest) redirect(`/portal/forms/${latest.id}`)
 
-  const templates = listTemplates()
+  const templates = listPortalFormTypes()
   const [deals, clients, properties] = await Promise.all([
     getDeals(),
     getClients(),
