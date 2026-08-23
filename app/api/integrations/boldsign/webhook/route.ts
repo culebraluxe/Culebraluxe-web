@@ -49,6 +49,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown webhook processing error.'
 }
 
+/**
+ * Detect BoldSign's webhook Verify handshake. The FIRST operation in POST: the
+ * `x-boldsign-event` header is `Verification` for the initial handshake, which
+ * is UNSIGNED and requires NO CulebraLuxe BoldSign environment variables. It is
+ * acknowledged (200) before any body parsing, signature validation, config
+ * loading, DB access, or application construction — so Verify passes even when
+ * every BOLDSIGN_* env key is absent. Verification is never a lifecycle event.
+ */
+const BOLD_SIGN_EVENT_HEADER = 'x-boldsign-event'
+
 // Module-scoped lazy singletons: config + the composed application are built once
 // per serverless instance. `loadBoldSignConfig` FAILS CLOSED (throws) when any
 // required BoldSign env key is missing; the thrown error names only the keys,
@@ -79,6 +89,14 @@ function getApplication(): SignatureApplication {
 }
 
 export async function POST(request: NextRequest) {
+  // FIRST operation — BoldSign Verify handshake. Check the `x-boldsign-event`
+  // header BEFORE any body parsing, signature validation, config loading, DB
+  // access, or application construction. The handshake is unsigned and must
+  // succeed even when every BOLDSIGN_* env var is absent.
+  if (request.headers.get(BOLD_SIGN_EVENT_HEADER) === 'Verification') {
+    return new Response(null, { status: 200 })
+  }
+
   // Read the RAW body before any JSON parsing: BoldSign signs the exact bytes
   // (`<timestamp>.<rawBody>`), so verification MUST operate on the verbatim body.
   const rawBody = await request.text()
