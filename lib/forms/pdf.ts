@@ -14,13 +14,20 @@ import type {
   TemplateSectionValues,
 } from './template-types'
 import {
+  documentBodyText,
   formatDate,
   formatFieldValue,
   formatMoney,
   interpolateSectionText,
 } from './format'
 
-export { formatDate, formatFieldValue, formatMoney, interpolateSectionText }
+export {
+  documentBodyText,
+  formatDate,
+  formatFieldValue,
+  formatMoney,
+  interpolateSectionText,
+}
 
 const PAGE_WIDTH = 612
 const PAGE_HEIGHT = 792
@@ -134,16 +141,61 @@ class PdfWriter {
   }
 }
 
+function drawBody(layout: PdfWriter, body: string) {
+  const blocks = body.split(/\n{2,}/)
+  for (const block of blocks) {
+    const trimmed = block.trim()
+    if (!trimmed) continue
+    const lines = trimmed.split('\n')
+    const heading = lines[0]?.trim() ?? ''
+    const rest = lines.slice(1).join(' ').trim()
+    if (rest) {
+      layout.ensureSpace(28)
+      layout.text(true, 11, heading)
+      layout.paragraph(false, 10, rest)
+    } else {
+      layout.paragraph(false, 10, heading)
+    }
+    layout.space(8)
+  }
+}
+
+async function buildTemplatePdf(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+  sections: TemplateSectionValues,
+  issuedVersion: number,
+): Promise<Buffer> {
+  const layout = await PdfWriter.create()
+  layout.text(false, 9, template.rendering.issuer.toUpperCase())
+  layout.text(true, 16, template.rendering.title)
+  layout.text(false, 8, `Issued document v${issuedVersion}`)
+  layout.rule()
+  layout.space(10)
+
+  for (const field of template.fields) {
+    const raw = (values[field.name] ?? '').trim()
+    if (!raw && !field.required) continue
+    layout.text(true, 9, field.label.toUpperCase())
+    layout.text(false, 11, formatFieldValue(field, raw))
+    layout.space(4)
+  }
+  layout.space(8)
+
+  const body =
+    (sections.body ?? '').trim() || documentBodyText(template, values)
+  drawBody(layout, body)
+  drawSignatures(layout, template, values)
+  return layout.save()
+}
+
 export async function renderFormPdf(
   template: TemplateDefinition,
   values: TemplateFieldValues,
   sections: TemplateSectionValues,
   issuedVersion: number,
 ): Promise<Buffer> {
-  if (template.id === 'OFFER-01') {
-    return buildOfferLetterPdf(template, values, sections, issuedVersion)
-  }
-  return buildPurchaseSalePdf(template, values, sections, issuedVersion)
+  return buildTemplatePdf(template, values, sections, issuedVersion)
 }
 
 export async function buildOfferLetterPdf(
@@ -152,45 +204,7 @@ export async function buildOfferLetterPdf(
   sections: TemplateSectionValues,
   issuedVersion: number,
 ): Promise<Buffer> {
-  const layout = await PdfWriter.create()
-  layout.text(false, 9, template.rendering.issuer.toUpperCase())
-  layout.text(true, 20, template.rendering.title)
-  layout.space(6)
-  layout.rule()
-  layout.space(10)
-
-  for (const field of template.fields) {
-    const raw = (values[field.name] ?? '').trim()
-    if (!raw && !field.required) continue
-    layout.text(true, 9.5, field.label.toUpperCase())
-    layout.text(false, 11, formatFieldValue(field, raw))
-    layout.space(6)
-  }
-
-  for (const section of template.sections) {
-    const raw = (sections[section.name] ?? '').trim()
-    const text =
-      raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
-    if (!text.trim()) continue
-    layout.space(4)
-    layout.text(true, 11, section.label.toUpperCase())
-    layout.paragraph(false, 10.5, text.trim())
-  }
-
-  drawSignatures(layout, template, values)
-  layout.space(18)
-  layout.rule()
-  layout.text(
-    false,
-    8,
-    `${template.rendering.issuer} · Issued document v${issuedVersion}`,
-  )
-  layout.text(
-    false,
-    8,
-    'CulebraLuxe Real Estate - issued artifact. This PDF is stored in the document vault.',
-  )
-  return layout.save()
+  return buildTemplatePdf(template, values, sections, issuedVersion)
 }
 
 export async function buildPurchaseSalePdf(
@@ -199,35 +213,7 @@ export async function buildPurchaseSalePdf(
   sections: TemplateSectionValues,
   issuedVersion: number,
 ): Promise<Buffer> {
-  const layout = await PdfWriter.create()
-
-  const header = () => {
-    layout.text(false, 9, template.rendering.issuer.toUpperCase())
-    layout.text(true, 16, template.rendering.title)
-    layout.text(false, 8, `Issued document v${issuedVersion}`)
-    layout.rule()
-    layout.space(8)
-  }
-  header()
-
-  for (const section of template.sections) {
-    const raw = (sections[section.name] ?? '').trim()
-    const text = section.editable
-      ? raw
-      : raw || interpolateSectionText(section, values, formatFieldValue, template.fields)
-    if (!text.trim()) continue
-    if (layout.ensureSpace(34)) header()
-    layout.text(true, 11, section.label.toUpperCase())
-    layout.paragraph(false, 10, text.trim())
-    layout.space(8)
-  }
-
-  if (template.signatureGroups.length > 0) {
-    if (layout.ensureSpace(70)) header()
-    drawSignatures(layout, template, values)
-  }
-
-  return layout.save()
+  return buildTemplatePdf(template, values, sections, issuedVersion)
 }
 
 function drawSignatures(

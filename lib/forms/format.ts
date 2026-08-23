@@ -1,4 +1,7 @@
-import type { TemplateFieldValues } from './template-types'
+import type {
+  TemplateDefinition,
+  TemplateFieldValues,
+} from './template-types'
 
 /** Deterministic USD formatting for money fields. */
 export function formatMoney(value: string): string {
@@ -58,4 +61,25 @@ export function interpolateSectionText(
     }
   }
   return out.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Plain-text Word-like body from XML <section> copy with <value> filled in.
+ * No XML tags. Used as the starting text of the freeform editor.
+ */
+export function documentBodyText(
+  template: Pick<TemplateDefinition, 'sections' | 'fields'>,
+  values: TemplateFieldValues,
+): string {
+  return template.sections
+    .map((section) => {
+      const text = interpolateSectionText(
+        section,
+        values,
+        formatFieldValue,
+        template.fields,
+      )
+      return text ? `${section.label}\n${text}` : section.label
+    })
+    .join('\n\n')
 }

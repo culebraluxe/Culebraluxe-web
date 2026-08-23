@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import {
@@ -8,10 +8,7 @@ import {
   issueFormAction,
   updateFormAction,
 } from "@/app/portal/forms/actions"
-import {
-  formatFieldValue,
-  interpolateSectionText,
-} from "@/lib/forms/format"
+import { documentBodyText, formatFieldValue } from "@/lib/forms/format"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 
 const inputClass =
@@ -40,39 +37,13 @@ function fieldSpanClass(field: { name: string; label: string; type: string }) {
   return "col-span-2"
 }
 
-const DETAIL_SECTION_ORDER = [
-  "additionalTerms",
-  "specialTerms",
-  "specialConditions",
-  "amendments",
-  "additional",
-  "interest",
-  "feedback",
-  "followUp",
-  "marketing",
-  "access",
-  "financingTerms",
-  "appraisalSurveyInspection",
-]
-
-function pickDetailsSection(template: TemplateDefinition) {
-  const editable = template.sections.filter((section) => section.editable)
-  for (const name of DETAIL_SECTION_ORDER) {
-    const match = editable.find((section) => section.name === name)
-    if (match) return match
-  }
-  return editable[0] ?? null
-}
-
 function initialDetailsText(
   template: TemplateDefinition,
   sections: Record<string, string>,
+  values: Record<string, string>,
 ) {
-  const editable = template.sections.filter((section) => section.editable)
-  const chunks = editable
-    .map((section) => (sections[section.name] ?? "").trim())
-    .filter(Boolean)
-  return chunks.join("\n\n")
+  if (sections.body?.trim()) return sections.body
+  return documentBodyText(template, values)
 }
 
 function issuedPdfUrl(documentId: string) {
@@ -177,19 +148,20 @@ export function FormEditor({
   } | null
 }) {
   const router = useRouter()
-  const detailsSection = useMemo(
-    () => pickDetailsSection(template),
-    [template],
-  )
   const [values, setValues] = useState<Record<string, string>>(form.fieldValues)
   const [sections, setSections] = useState<Record<string, string>>(form.sections)
   const [detailsText, setDetailsText] = useState(() =>
-    initialDetailsText(template, form.sections),
+    initialDetailsText(template, form.sections, form.fieldValues),
   )
+  const bodyTouched = useRef(Boolean(form.sections.body?.trim()))
   const [saved, setSaved] = useState({
     values: form.fieldValues,
     sections: form.sections,
-    detailsText: initialDetailsText(template, form.sections),
+    detailsText: initialDetailsText(
+      template,
+      form.sections,
+      form.fieldValues,
+    ),
   })
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -201,7 +173,6 @@ export function FormEditor({
   const [busy, setBusy] = useState(false)
   const working = busy
   const isIssued = form.status === "issued" || issued !== null
-  const boilerplate = template.sections.filter((section) => !section.editable)
   const signatureGroups =
     template.signatureGroups.length > 0
       ? template.signatureGroups
@@ -220,15 +191,15 @@ export function FormEditor({
   function composedSections(
     nextDetails = detailsText,
   ): Record<string, string> {
-    const next = { ...sections }
-    for (const section of template.sections) {
-      if (!section.editable) continue
-      next[section.name] = ""
+    return { ...sections, body: nextDetails }
+  }
+
+  function updateField(name: string, value: string) {
+    const next = { ...values, [name]: value }
+    setValues(next)
+    if (!bodyTouched.current) {
+      setDetailsText(documentBodyText(template, next))
     }
-    if (detailsSection) {
-      next[detailsSection.name] = nextDetails
-    }
-    return next
   }
 
   async function saveDraft(
@@ -392,10 +363,7 @@ export function FormEditor({
                     rows={2}
                     value={values[field.name] ?? ""}
                     onChange={(event) =>
-                      setValues({
-                        ...values,
-                        [field.name]: event.target.value,
-                      })
+                      updateField(field.name, event.target.value)
                     }
                     disabled={isIssued}
                     className={`${inputClass} h-auto min-h-12 resize-y py-1.5`}
@@ -404,10 +372,7 @@ export function FormEditor({
                   <select
                     value={values[field.name] ?? ""}
                     onChange={(event) =>
-                      setValues({
-                        ...values,
-                        [field.name]: event.target.value,
-                      })
+                      updateField(field.name, event.target.value)
                     }
                     disabled={isIssued}
                     className={inputClass}
@@ -424,10 +389,7 @@ export function FormEditor({
                     type={field.type === "date" ? "date" : "text"}
                     value={values[field.name] ?? ""}
                     onChange={(event) =>
-                      setValues({
-                        ...values,
-                        [field.name]: event.target.value,
-                      })
+                      updateField(field.name, event.target.value)
                     }
                     disabled={isIssued}
                     className={inputClass}
@@ -438,16 +400,22 @@ export function FormEditor({
           </div>
 
           <div className="mt-6">
-            <h2 className={sectionHeadingClass}>Deal details</h2>
+            <h2 className={sectionHeadingClass}>Document</h2>
+            <p className="mt-1 text-xs font-light text-black/40">
+              Template text from the form. Edit it like a Word document.
+            </p>
             <textarea
               id="deal-details"
-              rows={8}
+              rows={18}
               value={detailsText}
-              placeholder="Special terms, conditions, and anything else that belongs in this document…"
-              onChange={(event) => setDetailsText(event.target.value)}
+              placeholder="Document text…"
+              onChange={(event) => {
+                bodyTouched.current = true
+                setDetailsText(event.target.value)
+              }}
               disabled={isIssued}
-              style={{ minHeight: 160 }}
-              className="mt-2 block w-full resize-y rounded-[var(--portal-tab-radius)] border-2 border-[var(--portal-navy)] bg-white px-3 py-2 text-[14px] font-light leading-6 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
+              style={{ minHeight: 360 }}
+              className="mt-2 block w-full resize-y rounded-[var(--portal-tab-radius)] border-2 border-[var(--portal-navy)] bg-white px-3 py-2 font-serif text-[15px] font-light leading-7 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
             />
           </div>
 
@@ -522,34 +490,28 @@ export function FormEditor({
                 .join(" · ")}
             </p>
 
-            {boilerplate.map((section) => {
-              const text = interpolateSectionText(
-                section,
-                values,
-                formatFieldValue,
-                template.fields,
-              )
-              if (!text) return null
+            {detailsText.split(/\n{2,}/).map((block, index) => {
+              const lines = block.split("\n")
+              const heading = lines[0]?.trim() ?? ""
+              const para = lines.slice(1).join("\n").trim()
+              if (!heading && !para) return null
               return (
-                <article key={section.name} className="mt-6">
-                  <h3 className={sectionHeadingClass}>{section.label}</h3>
-                  <p className="mt-2 whitespace-pre-wrap text-[14px] font-light leading-7">
-                    {text}
-                  </p>
+                <article key={index} className="mt-5">
+                  {para ? (
+                    <>
+                      <h3 className={sectionHeadingClass}>{heading}</h3>
+                      <p className="mt-2 whitespace-pre-wrap text-[14px] font-light leading-7">
+                        {para}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-[14px] font-light leading-7">
+                      {heading}
+                    </p>
+                  )}
                 </article>
               )
             })}
-
-            {detailsText.trim() ? (
-              <article className="mt-6">
-                <h3 className={sectionHeadingClass}>
-                  {detailsSection?.label ?? "Details"}
-                </h3>
-                <p className="mt-2 whitespace-pre-wrap text-[14px] font-light leading-7">
-                  {detailsText}
-                </p>
-              </article>
-            ) : null}
 
             <div className="mt-10 border-t border-black/20 pt-6">
               <h3 className={sectionHeadingClass}>Signatures</h3>
