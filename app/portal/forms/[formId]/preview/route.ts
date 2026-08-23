@@ -8,11 +8,12 @@ import type { TemplateFieldValues, TemplateSectionValues } from '@/lib/forms/tem
 export const dynamic = 'force-dynamic'
 
 function pdfResponse(bytes: Buffer) {
-  return new NextResponse(bytes, {
+  return new NextResponse(new Uint8Array(bytes), {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': 'inline; filename="preview.pdf"',
+      'Content-Disposition': 'inline; filename="document.pdf"',
       'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 }

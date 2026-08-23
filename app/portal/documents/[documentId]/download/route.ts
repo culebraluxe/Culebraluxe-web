@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic"
 // guessable public URLs: this route requires the authenticated portal session
 // + deal.read, and external actors are scoped to their own deals.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ documentId: string }> },
 ) {
   const { documentId } = await params
+  const inline = new URL(request.url).searchParams.get("inline") === "1"
 
   const access = await resolvePortalAccess(
     createAuthJsSessionAdapter(),
@@ -46,7 +47,7 @@ export async function GET(
   return new Response(new Uint8Array(media.bytes), {
     headers: {
       "Content-Type": media.mimeType || "application/pdf",
-      "Content-Disposition": `attachment; filename="${media.filename}"`,
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${media.filename}"`,
       "Content-Length": String(media.bytes.length),
     },
   })

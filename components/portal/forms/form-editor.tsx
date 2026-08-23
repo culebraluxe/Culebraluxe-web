@@ -1,13 +1,8 @@
 "use client"
 
-import Link from "next/link"
-import { useMemo, useState, useTransition } from "react"
+import { useMemo, useState } from "react"
 
-import {
-  issueFormAction,
-  sendIssuedFormForSignatureAction,
-  updateFormAction,
-} from "@/app/portal/forms/actions"
+import { updateFormAction } from "@/app/portal/forms/actions"
 import {
   formatFieldValue,
   interpolateSectionText,
@@ -75,9 +70,63 @@ function initialDetailsText(
   return chunks.join("\n\n")
 }
 
+function issuedPdfUrl(documentId: string) {
+  return `/portal/documents/${documentId}/download?inline=1`
+}
+
+function fileSafeName(value: string) {
+  const cleaned = value
+    .replace(/[^\w\s-]+/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+  return cleaned || "form"
+}
+
+function isUserCancel(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError"
+}
+
+async function writePdfToDisk(blob: Blob, filename: string) {
+  const picker = window as unknown as {
+    showSaveFilePicker?: (options: {
+      suggestedName: string
+      types: { description: string; accept: Record<string, string[]> }[]
+    }) => Promise<{
+      createWritable: () => Promise<{
+        write: (data: Blob) => Promise<void>
+        close: () => Promise<void>
+      }>
+    }>
+  }
+  if (typeof picker.showSaveFilePicker === "function") {
+    const handle = await picker.showSaveFilePicker({
+      suggestedName: filename,
+      types: [
+        {
+          description: "PDF",
+          accept: { "application/pdf": [".pdf"] },
+        },
+      ],
+    })
+    const writable = await handle.createWritable()
+    await writable.write(blob)
+    await writable.close()
+    return
+  }
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 export function FormEditor({
   form,
   template,
+  issuedDocument = null,
 }: {
   form: {
     id: string
@@ -86,6 +135,11 @@ export function FormEditor({
     sections: Record<string, string>
   }
   template: TemplateDefinition
+  issuedDocument?: {
+    documentId: string
+    issuedVersion: number
+    checksum: string
+  } | null
 }) {
   const detailsSection = useMemo(
     () => pickDetailsSection(template),
@@ -107,10 +161,9 @@ export function FormEditor({
     documentId: string
     issuedVersion: number
     checksum: string
-  } | null>(null)
-  const [isPending, startTransition] = useTransition()
+  } | null>(issuedDocument)
   const [busy, setBusy] = useState(false)
-  const working = isPending || busy
+  const working = busy
   const isIssued = form.status === "issued" || issued !== null
   const boilerplate = template.sections.filter((section) => !section.editable)
   const signatureGroups =
@@ -176,6 +229,83 @@ export function FormEditor({
     setError(null)
   }
 
+  function pdfFilename() {
+    const who =
+      values.buyerName ||
+      values.sellerName ||
+      values.clientName ||
+      template.displayName
+    return `${fileSafeName(who)}-${fileSafeName(template.id)}.pdf`
+  }
+
+  async function pdfBlob(): Promise<Blob> {
+    if (issued) {
+      const response = await fetch(issuedPdfUrl(issued.documentId))
+      if (!response.ok) throw new Error("Could not load the PDF.")
+      return response.blob()
+    }
+    const response = await fetch(`/portal/forms/${form.id}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fieldValues: values,
+        sections: composedSections(),
+      }),
+    })
+    if (!response.ok) throw new Error("Could not build the PDF.")
+    return response.blob()
+  }
+
+  async function pdfFile() {
+    const blob = await pdfBlob()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const header = String.fromCharCode(...bytes.subarray(0, 5))
+    if (header !== "%PDF-") {
+      throw new Error("The generated file was not a PDF.")
+    }
+    return new File([bytes], pdfFilename(), { type: "application/pdf" })
+  }
+
+  async function savePdf() {
+    setError(null)
+    setBusy(true)
+    try {
+      const file = await pdfFile()
+      await writePdfToDisk(file, file.name)
+      setMessage("PDF saved")
+    } catch (caught) {
+      if (isUserCancel(caught)) return
+      setError(caught instanceof Error ? caught.message : "Could not save the PDF.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function sharePdf() {
+    setError(null)
+    setBusy(true)
+    try {
+      const file = await pdfFile()
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: "CulebraLuxe Document",
+          text: "Attached document",
+          files: [file],
+        })
+        setMessage("Shared")
+        return
+      }
+      setMessage(
+        "This browser can't attach a PDF to Mail from the page. Save PDF, then attach that file in Mail or Messages.",
+      )
+    } catch (caught) {
+      if (isUserCancel(caught)) return
+      setError(caught instanceof Error ? caught.message : "Could not share the PDF.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -192,41 +322,6 @@ export function FormEditor({
           {template.version}
         </span>
       </div>
-
-      {issued ? (
-        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
-          <div className="font-serif text-lg font-light">
-            Issued v{issued.issuedVersion}
-          </div>
-          <p className="mt-1 break-all text-xs font-light text-black/45">
-            sha256 {issued.checksum}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Link
-              href={`/portal/documents/${issued.documentId}/download`}
-              className={secondaryButton}
-            >
-              Download PDF
-            </Link>
-            <button
-              type="button"
-              disabled={working}
-              onClick={() => {
-                startTransition(async () => {
-                  const result = await sendIssuedFormForSignatureAction(
-                    issued.documentId,
-                  )
-                  if (result.ok) setMessage("Sent for signature")
-                  else setError(result.message ?? "Could not send.")
-                })
-              }}
-              className={primaryButton}
-            >
-              Send for signature
-            </button>
-          </div>
-        </section>
-      ) : null}
 
       {error ? (
         <p className="text-xs font-light text-[var(--portal-archive)]">{error}</p>
@@ -327,37 +422,7 @@ export function FormEditor({
             >
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={working || isIssued}
-              onClick={() => {
-                void (async () => {
-                  setError(null)
-                  if (dirty) {
-                    const savedOk = await saveDraft()
-                    if (!savedOk) return
-                  }
-                  setBusy(true)
-                  try {
-                    const result = await issueFormAction(form.id)
-                    if (result.ok) {
-                      setIssued(result.data)
-                      setMessage("Issued")
-                    } else {
-                      setError(result.message ?? "Could not issue.")
-                    }
-                  } finally {
-                    setBusy(false)
-                  }
-                })()
-              }}
-              className={primaryButton}
-            >
-              Create PDF
-            </button>
-            {message ? (
-              <span className="text-xs font-light text-black/45">{message}</span>
-            ) : dirty ? (
+            {dirty && !isIssued ? (
               <span className="text-xs font-light text-black/45">
                 Unsaved changes
               </span>
@@ -365,7 +430,15 @@ export function FormEditor({
           </div>
         </section>
 
-        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] lg:sticky lg:top-4 lg:max-h-[calc(100vh-5.5rem)]">
+        <div className="flex flex-col gap-3 lg:sticky lg:top-4">
+        <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
+          {issued ? (
+            <iframe
+              title="Issued PDF"
+              src={issuedPdfUrl(issued.documentId)}
+              className="min-h-[70vh] w-full bg-white lg:h-[calc(100vh-9.5rem)]"
+            />
+          ) : (
           <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-white px-8 py-7 text-black/80 lg:max-h-[calc(100vh-6.5rem)]">
             <p className="text-[9px] font-light uppercase tracking-[0.18em] text-black/40">
               {template.rendering.issuer}
@@ -446,7 +519,34 @@ export function FormEditor({
               </div>
             </div>
           </div>
+          )}
         </section>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={working}
+            onClick={() => {
+              void savePdf()
+            }}
+            className={primaryButton}
+          >
+            {working ? "Working…" : "Save PDF"}
+          </button>
+          <button
+            type="button"
+            disabled={working}
+            onClick={() => {
+              void sharePdf()
+            }}
+            className={secondaryButton}
+          >
+            Share PDF
+          </button>
+          {message ? (
+            <span className="text-xs font-light text-black/45">{message}</span>
+          ) : null}
+        </div>
+        </div>
       </div>
     </div>
   )

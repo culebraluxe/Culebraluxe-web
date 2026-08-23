@@ -393,58 +393,60 @@ function splitPages(ops: Op[]): Op[][] {
   return pages
 }
 
-/** Assemble a minimal PDF 1.4 document with the given content operations. */
+function latin1(text: string): Buffer {
+  return Buffer.from(text, 'latin1')
+}
+
+/** Assemble a PDF 1.4 document. Offsets and Kids entries follow the spec. */
 function assemblePdf(ops: Op[]): Buffer {
   const pages = splitPages(ops)
   const pageCount = pages.length
   const builder = new PdfLayout()
 
-  const objects: string[] = []
-  objects.push('<< /Type /Catalog /Pages 2 0 R >>') // 1
-  const pageRefs = Array.from({ length: pageCount }, (_, i) => 3 + i * 2).join(' ')
-  objects.push(`<< /Type /Pages /Kids [${pageRefs}] /Count ${pageCount} >>`) // 2
-
+  const kids = Array.from(
+    { length: pageCount },
+    (_, i) => `${3 + i * 2} 0 R`,
+  ).join(' ')
   const font1 = 3 + pageCount * 2
   const font2 = font1 + 1
 
+  const bodies: string[] = []
+  bodies.push('<< /Type /Catalog /Pages 2 0 R >>')
+  bodies.push(`<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`)
   for (let i = 0; i < pageCount; i++) {
     const content = `${builder.build(pages[i]).join('\n')}\n`
-    const pageObj = 3 + i * 2
-    const contentObj = pageObj + 1
-    objects.push(
+    const contentObj = 3 + i * 2 + 1
+    bodies.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
         `/Resources << /Font << /F1 ${font1} 0 R /F2 ${font2} 0 R >> >> ` +
         `/Contents ${contentObj} 0 R >>`,
     )
-    objects.push(`<< /Length ${content.length} >>\nstream\n${content}endstream`)
+    bodies.push(
+      `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}endstream`,
+    )
   }
+  bodies.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+  bodies.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>')
 
-  objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
-  objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>')
-
-  const lines: string[] = []
-  lines.push('%PDF-1.4')
-  lines.push('%\u00e2\u00e3\u00cf\u00d3')
+  const chunks: Buffer[] = [latin1('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')]
+  let cursor = chunks[0].length
   const offsets: number[] = []
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(Buffer.byteLength(lines.join('\n'), 'binary'))
-    lines.push(`${i + 1} 0 obj`)
-    lines.push(objects[i])
-    lines.push('endobj')
+  for (let i = 0; i < bodies.length; i++) {
+    offsets.push(cursor)
+    const objectBytes = latin1(`${i + 1} 0 obj\n${bodies[i]}\nendobj\n`)
+    chunks.push(objectBytes)
+    cursor += objectBytes.length
   }
-  const xrefStart = Buffer.byteLength(lines.join('\n'), 'binary')
-  lines.push('xref')
-  lines.push(`0 ${objects.length + 1}`)
-  lines.push('0000000000 65535 f ')
-  for (const offset of offsets) {
-    lines.push(String(offset).padStart(10, '0') + ' 00000 n ')
-  }
-  lines.push('trailer')
-  lines.push(`<< /Size ${objects.length + 1} /Root 1 0 R >>`)
-  lines.push('startxref')
-  lines.push(String(xrefStart))
-  lines.push('%%EOF')
 
-  return Buffer.from(lines.join('\n'), 'binary')
+  const xrefStart = cursor
+  let xref = `xref\n0 ${bodies.length + 1}\n`
+  xref += '0000000000 65535 f \n'
+  for (const offset of offsets) {
+    xref += `${String(offset).padStart(10, '0')} 00000 n \n`
+  }
+  xref += `trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\n`
+  xref += `startxref\n${xrefStart}\n%%EOF\n`
+  chunks.push(latin1(xref))
+  return Buffer.concat(chunks)
 }
 

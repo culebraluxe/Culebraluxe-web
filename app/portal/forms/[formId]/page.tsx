@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation"
 
 import { getFormInstance } from "@/db/document-form-instance"
+import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
 import { getTemplate } from "@/lib/forms/template-registry"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
@@ -17,6 +18,11 @@ export default async function FormPage({
   const template = getTemplate(form.templateId)
   if (!template) notFound()
 
+  const issuedDocument =
+    form.status === "issued"
+      ? await getIssuedDocumentForFormInstance(form.id)
+      : null
+
   return (
     <FormEditor
       form={{
@@ -26,6 +32,7 @@ export default async function FormPage({
         sections: form.sections,
       }}
       template={template}
+      issuedDocument={issuedDocument}
     />
   )
 }

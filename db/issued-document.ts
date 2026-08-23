@@ -60,6 +60,38 @@ export async function getMediaBytes(
   }
 }
 
+export async function getIssuedDocumentForFormInstance(
+  formInstanceId: string,
+  execute?: QueryExecutor,
+): Promise<{
+  documentId: string
+  issuedVersion: number
+  checksum: string
+} | null> {
+  const q = execute ?? (await import('./client')).sql
+  const rows = await q`
+    select id, issued_version, issued_checksum_sha256
+    from transaction_document
+    where form_instance_id = ${formInstanceId}
+      and source = 'generated'
+    order by issued_version desc nulls last, created_at desc
+    limit 1
+  `
+  const row = rows[0] as
+    | {
+        id?: unknown
+        issued_version?: unknown
+        issued_checksum_sha256?: unknown
+      }
+    | undefined
+  if (!row?.id) return null
+  return {
+    documentId: String(row.id),
+    issuedVersion: Number(row.issued_version ?? 1),
+    checksum: String(row.issued_checksum_sha256 ?? ''),
+  }
+}
+
 async function insertIssuedMedia(
   tx: QueryExecutor,
   bytes: Buffer,
