@@ -105,6 +105,7 @@ export class SendSignatureRequestCommand
         transactionDocumentId: input.transactionDocumentId,
         message: input.message ?? null,
         createdByUserId: input.createdByUserId ?? null,
+        executionRole: input.executionRole ?? null,
       },
       ctx.run,
     )

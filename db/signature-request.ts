@@ -46,6 +46,7 @@ export type SignatureRequestRow = QueryRow & {
   transaction_document_id: string
   status: string
   message: string | null
+  execution_role: string | null
   created_by_user_id: string | null
   created_at: string
   updated_at: string
@@ -63,6 +64,7 @@ function mapSignatureRequest(row: SignatureRequestRow): SignatureRequest {
     transactionDocumentId: row.transaction_document_id,
     status: row.status as SignatureRequestStatus,
     message: row.message ?? null,
+    executionRole: row.execution_role ?? null,
     createdByUserId: row.created_by_user_id ?? null,
     createdAt: dateOrNull(row.created_at) ?? '',
     updatedAt: dateOrNull(row.updated_at) ?? '',
@@ -78,6 +80,9 @@ export type SendSignatureRequestInput = {
   transactionDocumentId: string
   message?: string | null
   createdByUserId?: string | null
+  /** CRM-27 — the agreement execution role this request fulfills (e.g. BUYER,
+   *  SELLER). Optional/null for requests not tied to a role. Provider-neutral. */
+  executionRole?: string | null
 }
 
 export type SendSignatureRequestResult = {
@@ -152,16 +157,16 @@ export async function sendSignatureRequest(
     } else {
       const rows = await tx`
         insert into signature_request (
-          transaction_document_id, status, message, created_by_user_id
+          transaction_document_id, status, message, created_by_user_id, execution_role
         ) values (
           ${input.transactionDocumentId}, 'requested', ${input.message ?? null},
-          ${input.createdByUserId ?? null}
+          ${input.createdByUserId ?? null}, ${input.executionRole ?? null}
         )
         on conflict (transaction_document_id)
           where status in ('requested', 'sent', 'viewed', 'signed')
           do nothing
         returning id, transaction_document_id, status, message, created_by_user_id,
-          created_at, updated_at
+          execution_role, created_at, updated_at
       `
       const row = rows[0] as SignatureRequestRow | undefined
       if (row) {
@@ -172,7 +177,7 @@ export async function sendSignatureRequest(
         // request — never a duplicate.
         const active = await tx`
           select id, transaction_document_id, status, message, created_by_user_id,
-          created_at, updated_at
+          execution_role, created_at, updated_at
           from signature_request
           where transaction_document_id = ${input.transactionDocumentId}
             and status in ('requested', 'sent', 'viewed', 'signed')
@@ -341,7 +346,7 @@ async function transitionTo(
 
   const curRows = await tx`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, created_at, updated_at
     from signature_request
     where id = ${input.signatureRequestId}
     limit 1
@@ -369,7 +374,7 @@ async function transitionTo(
         where id = ${input.signatureRequestId}
           and status = ${from}
         returning id, transaction_document_id, status, message, created_by_user_id,
-          created_at, updated_at
+          execution_role, created_at, updated_at
       `
       const updatedRow = updated[0] as SignatureRequestRow | undefined
       if (updatedRow) {
@@ -419,7 +424,7 @@ export async function getSignatureRequest(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, created_at, updated_at
     from signature_request
     where id = ${id}
     limit 1
@@ -435,7 +440,7 @@ export async function getActiveSignatureRequestForDocument(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, created_at, updated_at
     from signature_request
     where transaction_document_id = ${transactionDocumentId}
       and status in ('requested', 'sent', 'viewed', 'signed')
@@ -453,7 +458,7 @@ export async function listSignatureRequestsByDocument(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, created_at, updated_at
     from signature_request
     where transaction_document_id = ${transactionDocumentId}
     order by created_at asc, id
