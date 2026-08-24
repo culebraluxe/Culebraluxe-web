@@ -109,6 +109,7 @@ export const OPERATING_SURFACES: Record<
         href: '/portal/command-console',
         authority: 'portal.read',
       },
+      { label: 'UI Lab', href: '/portal/design-lab', authority: 'portal.read' },
       { label: 'DB Test', href: '/portal/db-test', authority: 'portal.read' },
       { label: 'Media Test', href: '/portal/media-test', authority: 'portal.read' },
     ],
