@@ -198,6 +198,9 @@ export function FormEditor({
   const [signerEmail, setSignerEmail] = useState(
     () => signerCandidates[0]?.email ?? "",
   )
+  const [selectedSigner, setSelectedSigner] = useState<FormSignerCandidate | null>(
+    () => signerCandidates[0] ?? null,
+  )
   const [sendingSignature, setSendingSignature] = useState(false)
   const [signatureState, setSignatureState] = useState(signatureRequest)
   const working = busy
@@ -443,6 +446,7 @@ export function FormEditor({
   function applySigner(candidate: FormSignerCandidate) {
     setSignerName(candidate.name)
     setSignerEmail(candidate.email ?? "")
+    setSelectedSigner(candidate)
   }
 
   async function sendBoldSign() {
@@ -465,6 +469,8 @@ export function FormEditor({
     setSendingSignature(true)
     try {
       const result = await sendFormForSignatureAction(form.id, {
+        signerPersonId: selectedSigner?.personId ?? null,
+        signerRole: selectedSigner?.role ?? null,
         signerName: name,
         signerEmail: email,
         fieldValues: values,

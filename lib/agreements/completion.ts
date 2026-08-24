@@ -6,13 +6,12 @@ import {
   getCompletedExecutionSlots,
 } from '../../db/agreement-execution'
 import {
-  buildIssuedExecutionSlots,
   evaluateAgreementExecution,
   isExecutionEligibleTemplate,
   resolveRequiredSlots,
   type AgreementExecutionVerdict,
-  type IssuedExecutionSlot,
 } from './execution'
+import { parseIssuedParticipants } from './participants'
 
 // ---------------------------------------------------------------------------
 // CRM-27 — Agreement Completion evaluation (provider-neutral wiring).
@@ -233,22 +232,25 @@ export async function evaluateAgreementCompletion(
     const document = ctx.document!
     const templateId = ctx.templateId!
     const dealId = ctx.dealId
-    const template = ctx.template
     const issuedVersion = document.issuedVersion
-    const declaredRoles = (template?.signatureGroups ?? []).map((group) => group.role)
-    // PARTICIPANT CARDINALITY: required slots come from the IMMUTABLE issued
-    // snapshot (source_snapshot.issuedParticipants), which preserves the exact
-    // participant set when THIS version was issued. For documents issued before
-    // the participant snapshot existed, fall back to one slot per declared role.
-    const snapshot = (ctx.sourceSnapshot ?? {}) as { issuedParticipants?: unknown }
-    const issuedParticipants: readonly IssuedExecutionSlot[] = Array.isArray(
-      snapshot.issuedParticipants,
-    )
-      ? (snapshot.issuedParticipants as IssuedExecutionSlot[])
-      : buildIssuedExecutionSlots(
-          declaredRoles.map((role) => ({ role, personId: null, name: role, email: null })),
-        )
-    const requiredSlots = resolveRequiredSlots(templateId, issuedParticipants)
+    // PARTICIPANT CARDINALITY: required slots come ONLY from the IMMUTABLE issued
+    // snapshot (source_snapshot.issuedParticipants). Strict parse fails closed on a
+    // missing/malformed/duplicate/ambiguous snapshot — a legacy document without a
+    // valid snapshot returns validation_failure, never fabricated role-only slots.
+    const parsed = parseIssuedParticipants(ctx.sourceSnapshot?.issuedParticipants)
+    if (!parsed.ok) {
+      return {
+        outcome: 'validation_failure',
+        error: `Document ${documentId} has an invalid issued-participant snapshot: ${parsed.error}`,
+        verdict: INCOMPLETE,
+        shouldEmit: false,
+        document,
+        templateId,
+        dealId,
+        eventId: null,
+      }
+    }
+    const requiredSlots = resolveRequiredSlots(templateId, parsed.slots)
     if (requiredSlots.length === 0) {
       return {
         outcome: 'precondition_failure',

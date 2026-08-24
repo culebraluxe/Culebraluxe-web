@@ -193,6 +193,8 @@ export type SendSignatureRequestCommandInput = {
   /** CRM-27 — the issued participant/signature slot this request satisfies
    *  (e.g. "BUYER:1"); keyed to the immutable issued participant snapshot. */
   executionSlotId?: string | null
+  /** CRM-27 — the single intended recipient email for a slot-bound send. */
+  slotRecipientEmail?: string | null
 }
 
 export type StatusSignatureRequestCommandInput = {

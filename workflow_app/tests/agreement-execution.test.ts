@@ -192,6 +192,12 @@ import {
 import type { QueryExecutor } from '../../db/query-executor'
 import type { TxRunner } from '../../db/tx'
 
+const DEFAULT_PARTICIPANTS = [
+  { slotId: 'BUYER:1', role: 'BUYER', personId: 'p1', name: 'Buyer One', email: 'buyer1@x.com', required: true, order: 0 },
+  { slotId: 'SELLER:1', role: 'SELLER', personId: 'p2', name: 'Seller', email: 'seller@x.com', required: true, order: 1 },
+  { slotId: 'SELLER_BROKER:1', role: 'SELLER_BROKER', personId: 'p3', name: 'Broker', email: 'broker@x.com', required: true, order: 2 },
+]
+
 function makeExecute(opts: {
   templateId?: string
   issuedVersion?: number
@@ -211,10 +217,9 @@ function makeExecute(opts: {
           issued_version: opts.issuedVersion ?? 1,
           deal_id: opts.dealId ?? 'deal-1',
           document_type: opts.documentType ?? 'agreement',
-          source_snapshot:
-            opts.issuedParticipants === undefined
-              ? null
-              : { issuedParticipants: opts.issuedParticipants },
+          source_snapshot: {
+            issuedParticipants: opts.issuedParticipants ?? DEFAULT_PARTICIPANTS,
+          },
         },
       ]
     }

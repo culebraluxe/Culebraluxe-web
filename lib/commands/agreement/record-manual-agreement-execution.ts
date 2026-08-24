@@ -72,7 +72,17 @@ export class RecordManualAgreementExecutionCommand
         replayed: false,
       }
     }
-    const note = typeof input?.note === 'string' ? input.note.slice(0, MAX_NOTE_LENGTH) : null
+    const note = typeof input?.note === 'string' ? input.note : null
+    if (note !== null && note.length > MAX_NOTE_LENGTH) {
+      return {
+        commandId: envelope.commandId,
+        outcome: 'validation_failure',
+        emittedEvents: [],
+        aggregateId: transactionDocumentId,
+        message: `Manual execution note must be ${MAX_NOTE_LENGTH} characters or fewer.`,
+        replayed: false,
+      }
+    }
 
     const claimed = await ctx.receipts.claim(envelope.commandId, ctx.tx)
     if (!claimed) {

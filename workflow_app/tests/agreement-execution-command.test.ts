@@ -23,6 +23,12 @@ import type { OutboxEventRepository } from '../../lib/events/outbox-contracts'
 type Row = Record<string, any>
 const FIXED_NOW = () => new Date('2026-08-24T12:00:00.000Z')
 const SLOTS = ['BUYER:1', 'SELLER:1', 'SELLER_BROKER:1']
+// Immutable issued-participant snapshot (PR-PNS default) the fake document carries.
+const SNAPSHOT_PARTICIPANTS = [
+  { slotId: 'BUYER:1', role: 'BUYER', personId: 'p1', name: 'Buyer One', email: 'buyer1@x.com', required: true, order: 0 },
+  { slotId: 'SELLER:1', role: 'SELLER', personId: 'p2', name: 'Seller', email: 'seller@x.com', required: true, order: 1 },
+  { slotId: 'SELLER_BROKER:1', role: 'SELLER_BROKER', personId: 'p3', name: 'Broker', email: 'broker@x.com', required: true, order: 2 },
+]
 
 // AgreementCommandDb — in-memory transaction applying writes only on commit.
 class AgreementCommandDb {
@@ -34,6 +40,7 @@ class AgreementCommandDb {
   commits = 0
   failNextCommit = false
   docExists = true
+  docSourceSnapshot: unknown = { issuedParticipants: SNAPSHOT_PARTICIPANTS }
 
   doc: {
     id: string
@@ -79,6 +86,7 @@ class AgreementCommandDb {
             issued_version: this.doc.issued_version,
             deal_id: this.doc.deal_id,
             document_type: this.doc.document_type,
+            source_snapshot: this.docSourceSnapshot,
           },
         ])
       }
@@ -537,4 +545,46 @@ test('CRM-27: manual execution requires an authenticated actor and a valid docum
   )
   assert.equal(ineligible.outcome, 'precondition_failure')
   assert.equal(db3.outbox.length, 0)
+})
+
+test('CRM-27 (proof 12): missing snapshot blocks automatic completion but the audited manual command still works', async () => {
+  // A document with NO valid participant snapshot cannot auto-complete...
+  const dbAuto = new AgreementCommandDb(doc())
+  dbAuto.docSourceSnapshot = null
+  const dispatcherAuto = makeDispatcher(dbAuto, eventSink)
+  const auto = await dispatcherAuto.execute(envelope())
+  assert.equal(auto.outcome, 'validation_failure')
+  assert.equal(dbAuto.outbox.length, 0)
+
+  // ...but the audited manual command handles it subject to its entitlement seam.
+  const dbManual = new AgreementCommandDb(doc())
+  dbManual.docSourceSnapshot = null
+  const dispatcherManual = makeDispatcher(dbManual, eventSink)
+  const manual = await dispatcherManual.execute(
+    envelope({
+      commandType: AGREEMENT_EXECUTION_MANUAL,
+      input: { transactionDocumentId: 'doc-1', note: 'Executed outside the provider.' },
+    }),
+  )
+  assert.equal(manual.outcome, 'success')
+  assert.equal(dbManual.markers.length, 1)
+  assert.equal(dbManual.markers[0].execution_kind, 'manual')
+  assert.equal(dbManual.outbox.length, 1)
+})
+
+
+test('CRM-27 (071): manual execution rejects an overlong note instead of truncating', async () => {
+  const db = new AgreementCommandDb(doc())
+  const dispatcher = makeDispatcher(db, eventSink)
+  const longNote = 'x'.repeat(501)
+  const result = await dispatcher.execute(
+    envelope({
+      commandType: AGREEMENT_EXECUTION_MANUAL,
+      input: { transactionDocumentId: 'doc-1', note: longNote },
+    }),
+  )
+  assert.equal(result.outcome, 'validation_failure')
+  assert.match(result.message ?? '', /500 characters or fewer/)
+  assert.equal(db.markers.length, 0, 'no marker recorded for an overlong note')
+  assert.equal(db.outbox.length, 0)
 })

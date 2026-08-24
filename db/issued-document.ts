@@ -14,7 +14,7 @@ import {
 import { createTransactionDocument } from './transaction-document'
 import { getFormInstance, updateFormInstance } from './document-form-instance'
 import { listFormSignerPeople } from './form-signer'
-import { buildIssuedExecutionSlots } from '../lib/agreements/execution'
+import { canonicalizeExecutionParticipants } from '../lib/agreements/participants'
 import type { QueryExecutor } from './query-executor'
 
 // ---------------------------------------------------------------------------
@@ -259,7 +259,9 @@ export async function issueFormDocument(
     // draft-participant edits cannot change the required-slot set for THIS issued
     // version — each issued slot is a stable provider-neutral identity that must
     // carry its own execution evidence.
-    const issuedSlots = buildIssuedExecutionSlots(await listFormSignerPeople(form.id, tx))
+    const issuedSlots = canonicalizeExecutionParticipants(
+      await listFormSignerPeople(form.id, tx),
+    )
 
     const document = await createTransactionDocument(
       {

@@ -99,6 +99,18 @@ export class SendSignatureRequestCommand
         replayed: false,
       }
     }
+    // CRM-27: a slot-bound request must contain exactly one recipient (one request
+    // per issued execution slot in V1).
+    if (input.executionSlotId && (input.recipients?.length ?? 0) !== 1) {
+      return {
+        commandId: envelope.commandId,
+        outcome: 'validation_failure',
+        emittedEvents: [],
+        aggregateId: null,
+        message: 'A slot-bound signature request must have exactly one recipient.',
+        replayed: false,
+      }
+    }
     return sendSignatureRequest(
       {
         commandId: envelope.commandId,
@@ -107,6 +119,7 @@ export class SendSignatureRequestCommand
         createdByUserId: input.createdByUserId ?? null,
         executionRole: input.executionRole ?? null,
         executionSlotId: input.executionSlotId ?? null,
+        slotRecipientEmail: input.slotRecipientEmail ?? null,
       },
       ctx.run,
     )
