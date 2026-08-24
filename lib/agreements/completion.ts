@@ -1,0 +1,100 @@
+import { getTemplate } from '../forms/template-registry'
+import type { QueryExecutor } from '../../db/query-executor'
+import { neonTx, type TxRunner } from '../../db/tx'
+import {
+  claimAgreementExecution,
+  getCompletedExecutionRoles,
+} from '../../db/agreement-execution'
+import {
+  evaluateAgreementExecution,
+  resolveRequiredExecutionRoles,
+  type AgreementExecutionVerdict,
+} from './execution'
+
+// ---------------------------------------------------------------------------
+// CRM-27 — Agreement Completion evaluation (provider-neutral wiring).
+//
+// Composes the neutral evidence model with the required-role policy seam and
+// the Agreement Execution Predicate, then records the exactly-once marker.
+//
+//   document → template (declared signature roles) → required roles (policy)
+//   + completed signature-role evidence
+//   → predicate verdict
+//   → fully executed ? claim marker; shouldEmit exactly once : no-op
+//
+// `shouldEmit: true` tells the caller to emit the neutral AGREEMENT_FULLY_EXECUTED
+// fact for this version; duplicate/replayed completions return shouldEmit: false
+// (idempotent). This service never writes workflow state and never touches a
+// provider.
+// ---------------------------------------------------------------------------
+
+export type AgreementCompletionResult = {
+  verdict: AgreementExecutionVerdict
+  /** True ONLY on the first time this document version is judged fully executed. */
+  shouldEmit: boolean
+  document: { documentId: string; issuedVersion: number } | null
+}
+
+export type AgreementCompletionDeps = {
+  execute: QueryExecutor
+  run?: TxRunner
+  now?: () => Date
+}
+
+export async function evaluateAgreementCompletion(
+  documentId: string,
+  eventId: string,
+  deps: AgreementCompletionDeps,
+): Promise<AgreementCompletionResult> {
+  const rows = await deps.execute`
+    select template_id, issued_version
+    from transaction_document
+    where id = ${documentId}
+    limit 1
+  `
+  const row = rows[0] as
+    | { template_id?: unknown; issued_version?: unknown }
+    | undefined
+  const templateId = typeof row?.template_id === 'string' ? row.template_id : ''
+  const issuedVersion = Number(row?.issued_version ?? 0)
+  if (issuedVersion < 1) {
+    return {
+      verdict: {
+        fullyExecuted: false,
+        missingRoles: [],
+        reason: 'missing_required_roles',
+      },
+      shouldEmit: false,
+      document: { documentId, issuedVersion: 0 },
+    }
+  }
+
+  const template = getTemplate(templateId)
+  const declaredRoles = (template?.signatureGroups ?? []).map((group) => group.role)
+  const requiredRoles = resolveRequiredExecutionRoles(templateId, declaredRoles)
+  const satisfiedRoles = await getCompletedExecutionRoles(documentId, deps.execute)
+
+  const verdict = evaluateAgreementExecution({
+    documentVersion: `${templateId}-v${issuedVersion}`,
+    requiredRoles,
+    satisfiedRoles,
+    manuallyExecuted: false,
+  })
+
+  const document = { documentId, issuedVersion }
+  if (!verdict.fullyExecuted) {
+    return { verdict, shouldEmit: false, document }
+  }
+
+  const run = deps.run ?? neonTx
+  const { recorded } = await claimAgreementExecution(
+    {
+      documentId,
+      issuedVersion,
+      eventId,
+      emittedAt: deps.now?.() ?? new Date(),
+    },
+    run,
+  )
+  return { verdict, shouldEmit: recorded, document }
+}

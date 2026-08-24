@@ -124,6 +124,7 @@ export type SignatureRequest = {
   transactionDocumentId: string
   status: SignatureRequestStatus
   message: string | null
+  executionRole: string | null
   createdByUserId: string | null
   createdAt: string
   updatedAt: string
@@ -184,6 +185,9 @@ export type SendSignatureRequestCommandInput = {
   recipients: SignatureRecipient[]
   message?: string | null
   createdByUserId?: string | null
+  /** CRM-27 — the agreement execution role this request fulfills (provider-
+   *  neutral; optional for requests not tied to an agreement role). */
+  executionRole?: string | null
 }
 
 export type StatusSignatureRequestCommandInput = {
