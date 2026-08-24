@@ -40,6 +40,11 @@ export type IntakeBatchManifest = {
   adapterVersion: string
   /** When the import was executed (ISO UTC). */
   importedAt: string
+  /** Canonical source account namespace for the batch (contact identity axis).
+   *  Propagated to the lowered intake source.account and thus the durable
+   *  (source, source_account, external_event_id) inbox key. Empty for lanes
+   *  without an account namespace. */
+  sourceAccount?: string
 }
 
 /** One normalized batch row, ready to lower into the canonical envelope. */
@@ -83,6 +88,7 @@ export function lowerBatchItemToIntakeMessage(
       system: manifest.sourceSystem,
       itemId: item.itemId,
       batchId: manifest.importId,
+      account: manifest.sourceAccount ?? '',
     },
     eventType: item.eventType,
     occurredAt: item.occurredAt,

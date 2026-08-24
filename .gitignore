@@ -21,3 +21,6 @@ node_modules
 .DS_Store
 .neon
 .aider*
+
+# Apple Contacts — private export data (never commit)
+contact-export/contacts-export.json
