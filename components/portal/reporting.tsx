@@ -10,7 +10,7 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <div className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6">
       <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
         {label}
       </div>
@@ -157,7 +157,7 @@ export function Reporting({
       </section>
 
       <section className="mt-6 grid gap-6 2xl:grid-cols-2">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Deal Stage Distribution</h2>
           <div className="mt-5 space-y-4">
             {snapshot.dealStageDistribution.length > 0 ? (
@@ -175,7 +175,7 @@ export function Reporting({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Client Roles</h2>
           <div className="mt-5 space-y-4">
             {snapshot.clientRoleDistribution.length > 0 ? (
@@ -195,7 +195,7 @@ export function Reporting({
       </section>
 
       <section className="mt-6 grid gap-6 2xl:grid-cols-2">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Activity</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <MetricCard
@@ -211,7 +211,7 @@ export function Reporting({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Interactions by Channel</h2>
           <div className="mt-5 space-y-4">
             {snapshot.interactionByChannel.length > 0 ? (
@@ -230,7 +230,7 @@ export function Reporting({
         </section>
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
         <h2 className="font-serif text-2xl font-light">Listing & Seller</h2>
         <p className="mt-1 text-xs font-light text-black/40">
           Brokerage inventory and listing-health signals from canonical data.
@@ -340,7 +340,7 @@ export function Reporting({
       </section>
 
       <section className="mt-6 grid gap-6 2xl:grid-cols-2">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Showings</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <MetricCard
@@ -368,7 +368,7 @@ export function Reporting({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
           <h2 className="font-serif text-2xl font-light">Offers</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <MetricCard

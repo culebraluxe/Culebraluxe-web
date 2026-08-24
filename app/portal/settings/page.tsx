@@ -38,7 +38,7 @@ export default async function SettingsPage() {
     <div>
       <div className="mb-8">
         <p className="text-xs font-light uppercase tracking-[0.28em] text-black/40">
-          Settings
+          Security
         </p>
 
         <h1 className="mt-3 font-serif text-4xl font-light leading-[1.1]">
@@ -56,7 +56,7 @@ export default async function SettingsPage() {
           <Link
             key={section.href}
             href={section.href}
-            className="group rounded-sm border border-[var(--portal-border)] bg-white p-6 transition hover:border-[var(--portal-navy-soft)]"
+            className="group portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6 transition hover:border-[var(--portal-navy-soft)]"
           >
             <h2 className="font-serif text-2xl font-light">{section.title}</h2>
             <p className="mt-2 text-sm font-light leading-6 text-black/50">

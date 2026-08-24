@@ -10,7 +10,7 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <div className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6">
       <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
         {label}
       </div>
@@ -74,14 +74,14 @@ export function MediaAdmin({
         />
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
         <h2 className="font-serif text-2xl font-light">By Type</h2>
 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           {snapshot.byType.map((item) => (
             <div
               key={item.mediaType}
-              className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/40 p-5"
+              className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-5"
             >
               <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
                 {item.mediaType}
@@ -98,7 +98,7 @@ export function MediaAdmin({
         </div>
       </section>
 
-      <section className="mt-6 overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+      <section className="mt-6 overflow-hidden portal-glass-panel rounded-[var(--portal-panel-radius)]">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">Property Media Coverage</h2>

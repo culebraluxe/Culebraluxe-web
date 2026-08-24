@@ -12,7 +12,7 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <div className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6">
       <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
         {label}
       </div>
@@ -69,7 +69,7 @@ export function IdentityQuality({
         />
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
         <h2 className="font-serif text-2xl font-light">Coverage Gaps</h2>
 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -94,7 +94,7 @@ export function IdentityQuality({
           {snapshot.identityCountByType.map((item) => (
             <div
               key={item.identityType}
-              className="rounded-sm border border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/40 p-5"
+              className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-5"
             >
               <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
                 {item.identityType}
@@ -106,7 +106,7 @@ export function IdentityQuality({
       </section>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-2">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)]">
           <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
             <div>
               <h2 className="font-serif text-2xl font-light">Malformed Identities</h2>
@@ -149,7 +149,7 @@ export function IdentityQuality({
           )}
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="portal-glass-panel rounded-[var(--portal-panel-radius)]">
           <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
             <div>
               <h2 className="font-serif text-2xl font-light">Weak Contact Coverage</h2>
@@ -194,7 +194,7 @@ export function IdentityQuality({
         </section>
       </div>
 
-      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <div className="mt-6 portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6">
         <h2 className="font-serif text-2xl font-light">Duplicate Identities</h2>
         <p className="mt-3 text-sm font-light leading-6 text-black/55">
           {snapshot.exactDuplicateCheck.note}

@@ -29,7 +29,7 @@ test('UI-01: representative routes map to the correct operating surface', () => 
   assert.equal(surfaceForPathname('/portal/needs-review'), 'OPS')
   assert.equal(surfaceForPathname('/portal/identity-quality'), 'OPS')
   assert.equal(surfaceForPathname('/portal/reporting'), 'OPS')
-  assert.equal(surfaceForPathname('/portal/settings'), 'OPS')
+  assert.equal(surfaceForPathname('/portal/settings'), 'SUPPORT')
   // TECH — greenfield engineering / Story Board / Forge
   assert.equal(surfaceForPathname('/portal/storyboard'), 'TECH')
   assert.equal(surfaceForPathname('/portal/command-console'), 'TECH')
@@ -86,10 +86,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Attention',
       'Clients',
       'Deals',
-      'Showings',
       'Workflows',
-      'Activity',
-      'Property Media',
       // DOC-06 / DOC-07 — NEXUS Forms + Documents (issued-document repository).
       'Forms',
       'Documents',
@@ -98,9 +95,9 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Needs Review',
       'Property Admin',
       'Media Audit',
+      'Property Media',
       'Identity Quality',
       'Reporting',
-      'Settings',
     ],
     TECH: [
       'Command Center',
@@ -109,7 +106,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'DB Test',
       'Media Test',
     ],
-    SUPPORT: ['System Health'],
+    SUPPORT: ['System Health', 'Security'],
   }
   assert.deepEqual(
     OPERATING_SURFACE_ORDER.map((s) => OPERATING_SURFACES[s].label),
