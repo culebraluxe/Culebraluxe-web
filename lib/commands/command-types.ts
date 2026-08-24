@@ -60,3 +60,10 @@ export const DOCUMENT_ISSUE = 'document.issue'
 // replays a committed receipt; the marker unique(document_id, issued_version)
 // + INSERT ... ON CONFLICT DO NOTHING is the exactly-once backstop.
 export const AGREEMENT_EXECUTION_CLAIM = 'agreement.execution.claim'
+
+// CRM-27 — canonical audited MANUAL/external agreement-execution command. Records
+// that an authorized actor manually confirmed full execution of a specific issued
+// agreement version. Immutable document/version scoped, authenticated
+// actor_app_user_id, bounded note, same agreement_execution marker + outbox path
+// as the automatic claim, replay-safe and provider-independent.
+export const AGREEMENT_EXECUTION_MANUAL = 'agreement.execution.manual'

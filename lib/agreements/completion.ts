@@ -95,118 +95,152 @@ export type AgreementCompletionDeps = {
 }
 
 
+/**
+ * Validate that a document is a workflow-integrated execution-eligible agreement
+ * and resolve its immutable identity/lineage. Shared by the automatic claim and
+ * the audited manual/external execution command. Returns truthful outcomes:
+ * not_found / validation_failure / precondition_failure / success.
+ */
+export type AgreementDocumentContext = {
+  outcome: 'success' | AgreementCompletionOutcome
+  error: string | null
+  document: { documentId: string; issuedVersion: number } | null
+  templateId: string | null
+  dealId: string | null
+  /** The resolved template, when valid (for slot/role resolution). */
+  template: ReturnType<typeof getTemplate>
+  /** The immutable issued source_snapshot (participant slots), when resolved. */
+  sourceSnapshot?: Record<string, unknown> | null
+}
+
+export async function resolveAgreementDocument(
+  documentId: string,
+  execute: QueryExecutor,
+): Promise<AgreementDocumentContext> {
+  const rows = await execute`
+    select id, template_id, issued_version, deal_id, document_type, source_snapshot
+    from transaction_document
+    where id = ${documentId}
+    limit 1
+  `
+  const row = rows[0] as
+    | {
+        id?: unknown
+        template_id?: unknown
+        issued_version?: unknown
+        deal_id?: unknown
+        document_type?: unknown
+        source_snapshot?: unknown
+      }
+    | undefined
+  if (!row?.id) {
+    return {
+      outcome: 'not_found',
+      error: `Transaction document not found: ${documentId}.`,
+      document: null,
+      templateId: null,
+      dealId: null,
+      template: null,
+    }
+  }
+  const templateId = typeof row.template_id === 'string' ? row.template_id : ''
+  const issuedVersion = Number(row.issued_version ?? 0)
+  const dealId = typeof row.deal_id === 'string' ? row.deal_id : null
+  const documentType = typeof row.document_type === 'string' ? row.document_type : ''
+  const document = { documentId, issuedVersion }
+
+  if (!Number.isInteger(issuedVersion) || issuedVersion < 1) {
+    return {
+      outcome: 'validation_failure',
+      error: `Invalid issued_version for ${documentId}: ${issuedVersion}.`,
+      document: { documentId, issuedVersion: 0 },
+      templateId: templateId || null,
+      dealId,
+      template: null,
+    }
+  }
+  const template = getTemplate(templateId)
+  if (!template) {
+    return {
+      outcome: 'validation_failure',
+      error: `Unknown template ${templateId || '(none)'} for document ${documentId}.`,
+      document,
+      templateId: templateId || null,
+      dealId,
+      template: null,
+    }
+  }
+  if (!isExecutionEligibleTemplate(templateId)) {
+    return {
+      outcome: 'precondition_failure',
+      error: `Template ${templateId} is not execution-eligible for agreement execution.`,
+      document,
+      templateId,
+      dealId,
+      template,
+    }
+  }
+  if (documentType !== 'agreement') {
+    return {
+      outcome: 'precondition_failure',
+      error: `Document ${documentId} is not an agreement (type '${documentType || 'none'}').`,
+      document,
+      templateId,
+      dealId,
+      template,
+    }
+  }
+  if (!dealId) {
+    return {
+      outcome: 'precondition_failure',
+      error: `Document ${documentId} has no Deal linkage required for workflow-integrated execution.`,
+      document,
+      templateId,
+      dealId,
+      template,
+    }
+  }
+  return {
+    outcome: 'success',
+    error: null,
+    document,
+    templateId,
+    dealId,
+    template,
+    sourceSnapshot: (row.source_snapshot as Record<string, unknown> | null) ?? null,
+  }
+}
+
 export async function evaluateAgreementCompletion(
   documentId: string,
   eventId: string,
   deps: AgreementCompletionDeps,
 ): Promise<AgreementCompletionResult> {
   return deps.run(async (tx) => {
-    const rows = await deps.execute`
-      select id, template_id, issued_version, deal_id, document_type, source_snapshot
-      from transaction_document
-      where id = ${documentId}
-      limit 1
-    `
-    const row = rows[0] as
-      | {
-          id?: unknown
-          template_id?: unknown
-          issued_version?: unknown
-          deal_id?: unknown
-          document_type?: unknown
-          source_snapshot?: unknown
-        }
-      | undefined
-    if (!row?.id) {
+    const ctx = await resolveAgreementDocument(documentId, deps.execute)
+    if (ctx.outcome !== 'success') {
       return {
-        outcome: 'not_found',
-        error: `Transaction document not found: ${documentId}.`,
+        outcome: ctx.outcome,
+        error: ctx.error,
         verdict: INCOMPLETE,
         shouldEmit: false,
-        document: null,
-        templateId: null,
-        dealId: null,
+        document: ctx.document,
+        templateId: ctx.templateId,
+        dealId: ctx.dealId,
         eventId: null,
       }
     }
-    const templateId = typeof row.template_id === 'string' ? row.template_id : ''
-    const issuedVersion = Number(row.issued_version ?? 0)
-    const dealId = typeof row.deal_id === 'string' ? row.deal_id : null
-    const documentType = typeof row.document_type === 'string' ? row.document_type : ''
-    const document = { documentId, issuedVersion }
-
-    if (!Number.isInteger(issuedVersion) || issuedVersion < 1) {
-      return {
-        outcome: 'validation_failure',
-        error: `Invalid issued_version for ${documentId}: ${issuedVersion}.`,
-        verdict: INCOMPLETE,
-        shouldEmit: false,
-        document: { documentId, issuedVersion: 0 },
-        templateId: templateId || null,
-        dealId,
-        eventId: null,
-      }
-    }
-
-    const template = getTemplate(templateId)
-    if (!template) {
-      return {
-        outcome: 'validation_failure',
-        error: `Unknown template ${templateId || '(none)'} for document ${documentId}.`,
-        verdict: INCOMPLETE,
-        shouldEmit: false,
-        document,
-        templateId: templateId || null,
-        dealId,
-        eventId: null,
-      }
-    }
-
-    if (!isExecutionEligibleTemplate(templateId)) {
-      return {
-        outcome: 'precondition_failure',
-        error: `Template ${templateId} is not execution-eligible for agreement execution.`,
-        verdict: INCOMPLETE,
-        shouldEmit: false,
-        document,
-        templateId,
-        dealId,
-        eventId: null,
-      }
-    }
-
-    if (documentType !== 'agreement') {
-      return {
-        outcome: 'precondition_failure',
-        error: `Document ${documentId} is not an agreement (type '${documentType || 'none'}').`,
-        verdict: INCOMPLETE,
-        shouldEmit: false,
-        document,
-        templateId,
-        dealId,
-        eventId: null,
-      }
-    }
-
-    if (!dealId) {
-      return {
-        outcome: 'precondition_failure',
-        error: `Document ${documentId} has no Deal linkage required for workflow-integrated execution.`,
-        verdict: INCOMPLETE,
-        shouldEmit: false,
-        document,
-        templateId,
-        dealId,
-        eventId: null,
-      }
-    }
-
-    const declaredRoles = (template.signatureGroups ?? []).map((group) => group.role)
+    const document = ctx.document!
+    const templateId = ctx.templateId!
+    const dealId = ctx.dealId
+    const template = ctx.template
+    const issuedVersion = document.issuedVersion
+    const declaredRoles = (template?.signatureGroups ?? []).map((group) => group.role)
     // PARTICIPANT CARDINALITY: required slots come from the IMMUTABLE issued
     // snapshot (source_snapshot.issuedParticipants), which preserves the exact
     // participant set when THIS version was issued. For documents issued before
     // the participant snapshot existed, fall back to one slot per declared role.
-    const snapshot = (row.source_snapshot ?? {}) as { issuedParticipants?: unknown }
+    const snapshot = (ctx.sourceSnapshot ?? {}) as { issuedParticipants?: unknown }
     const issuedParticipants: readonly IssuedExecutionSlot[] = Array.isArray(
       snapshot.issuedParticipants,
     )

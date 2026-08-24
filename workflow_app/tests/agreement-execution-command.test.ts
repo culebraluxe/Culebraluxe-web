@@ -12,7 +12,7 @@ import { createCommandDispatcher } from '../../lib/commands'
 import { createCommandRegistry } from '../../lib/commands/register'
 import { PostgresCommandReceiptRepository } from '../../db/command-receipt-repository'
 import { PostgresOutboxEventRepository } from '../../lib/mq/outbox-repository'
-import { AGREEMENT_EXECUTION_CLAIM } from '../../lib/commands/command-types'
+import { AGREEMENT_EXECUTION_CLAIM, AGREEMENT_EXECUTION_MANUAL } from '../../lib/commands/command-types'
 import { evaluateAgreementViaCommand } from '../../lib/agreements/re-drive'
 import { runAgreementExecutionRecovery } from '../../lib/agreements/recovery'
 import type { TxRunner } from '../../db/tx'
@@ -96,7 +96,16 @@ class AgreementCommandDb {
       if (t.includes('insert into agreement_execution')) {
         const key = `${String(p[0])}:${String(p[1])}`
         if (working.markers.some((m) => m.key === key)) return Promise.resolve([])
-        working.markers.push({ key, document_id: p[0], issued_version: p[1], event_id: p[2] })
+        const isManual = t.includes('execution_kind')
+        working.markers.push({
+          key,
+          document_id: p[0],
+          issued_version: p[1],
+          event_id: p[2],
+          execution_kind: isManual ? 'manual' : 'automatic',
+          actor: isManual ? p[4] : null,
+          note: isManual ? p[5] : null,
+        })
         return Promise.resolve([{ id: 'm1' }])
       }
       if (t.includes('insert into workflow_command_receipt') && t.includes('on conflict')) {
@@ -453,4 +462,79 @@ test('CRM-27 (BLOCKER 3): durable recovery discovers completed evidence and re-d
   assert.equal(again.evaluated, 0)
   assert.equal(db.markers.length, 1)
   assert.equal(db.outbox.length, 1, 'recovery pass is idempotent')
+})
+
+// ---------------------------------------------------------------------------
+// CRM-27 — audited MANUAL/external execution (same marker + outbox path).
+// ---------------------------------------------------------------------------
+
+test('CRM-27: manual execution is durable, audited, and emits the outbox event once', async () => {
+  const db = new AgreementCommandDb(doc())
+  const dispatcher = makeDispatcher(db, eventSink)
+
+  const result = await dispatcher.execute(
+    envelope({
+      commandType: AGREEMENT_EXECUTION_MANUAL,
+      input: { transactionDocumentId: 'doc-1', note: 'Signed in person on site.' },
+    }),
+  )
+  assert.equal(result.outcome, 'success')
+  assert.equal(result.emittedEvents.length, 1)
+  assert.equal(result.emittedEvents[0].eventType, 'AGREEMENT_FULLY_EXECUTED')
+  assert.equal(result.emittedEvents[0].payload.executionKind, 'manual')
+  assert.equal(db.markers.length, 1)
+  assert.equal(db.outbox.length, 1)
+  // Audited: actor + note + manual kind persisted on the marker.
+  assert.equal(db.markers[0].execution_kind, 'manual')
+  assert.equal(db.markers[0].actor, 'user-1')
+  assert.match(db.markers[0].note ?? '', /Signed in person/)
+  // EVENT-ID EQUALITY for the manual path too.
+  assert.equal(db.markers[0].event_id, db.outbox[0].id)
+  assert.equal(result.emittedEvents[0].eventId, db.outbox[0].id)
+})
+
+test('CRM-27: manual execution is replay-safe (same commandId -> no duplicate)', async () => {
+  const db = new AgreementCommandDb(doc())
+  const dispatcher = makeDispatcher(db, eventSink)
+
+  await dispatcher.execute(
+    envelope({ commandType: AGREEMENT_EXECUTION_MANUAL, input: { transactionDocumentId: 'doc-1' } }),
+  )
+  const replay = await dispatcher.execute(
+    envelope({ commandType: AGREEMENT_EXECUTION_MANUAL, input: { transactionDocumentId: 'doc-1' } }),
+  )
+  assert.equal(replay.replayed, true)
+  assert.equal(db.markers.length, 1)
+  assert.equal(db.outbox.length, 1, 'no duplicate outbox event on manual replay')
+})
+
+test('CRM-27: manual execution requires an authenticated actor and a valid document', async () => {
+  // No actor -> validation_failure.
+  const db1 = new AgreementCommandDb(doc())
+  const d1 = makeDispatcher(db1, eventSink)
+  const noActor = await d1.execute(
+    envelope({ commandType: AGREEMENT_EXECUTION_MANUAL, actorAppUserId: null, input: { transactionDocumentId: 'doc-1' } }),
+  )
+  assert.equal(noActor.outcome, 'validation_failure')
+  assert.equal(db1.markers.length, 0)
+
+  // Missing document -> not_found.
+  const db2 = new AgreementCommandDb(doc())
+  db2.docExists = false
+  const d2 = makeDispatcher(db2, eventSink)
+  const missing = await d2.execute(
+    envelope({ commandType: AGREEMENT_EXECUTION_MANUAL, input: { transactionDocumentId: 'doc-1' } }),
+  )
+  assert.equal(missing.outcome, 'not_found')
+  assert.equal(db2.markers.length, 0)
+  assert.equal(db2.outbox.length, 0)
+
+  // Non-eligible template -> precondition_failure.
+  const db3 = new AgreementCommandDb(doc({ template_id: 'OFFER-01' }))
+  const d3 = makeDispatcher(db3, eventSink)
+  const ineligible = await d3.execute(
+    envelope({ commandType: AGREEMENT_EXECUTION_MANUAL, input: { transactionDocumentId: 'doc-1' } }),
+  )
+  assert.equal(ineligible.outcome, 'precondition_failure')
+  assert.equal(db3.outbox.length, 0)
 })

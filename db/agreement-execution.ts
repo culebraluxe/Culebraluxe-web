@@ -54,6 +54,39 @@ export async function claimAgreementExecution(
 }
 
 /**
+ * CRM-27 (manual/external execution) — record an AUDITED manual execution fact in
+ * the caller's transaction. Uses the SAME agreement_execution marker (unique
+ * document_id, issued_version) + event_id/outbox path as automatic execution, so
+ * it is replay-safe and exactly-once. Persists the authenticated actor and a
+ * bounded note for audit; `recorded: false` when the version is already executed.
+ */
+export async function recordManualAgreementExecution(
+  tx: QueryExecutor,
+  input: {
+    documentId: string
+    issuedVersion: number
+    eventId: string
+    emittedAt: Date
+    actorAppUserId: string | null
+    note: string | null
+  },
+): Promise<{ recorded: boolean }> {
+  const rows = await tx`
+    insert into agreement_execution (
+      document_id, issued_version, event_id, emitted_at,
+      execution_kind, actor_app_user_id, note
+    ) values (
+      ${input.documentId}, ${input.issuedVersion}, ${input.eventId},
+      ${input.emittedAt.toISOString()}, 'manual',
+      ${input.actorAppUserId ?? null}, ${input.note ?? null}
+    )
+    on conflict (document_id, issued_version) do nothing
+    returning id
+  `
+  return { recorded: rows.length > 0 }
+}
+
+/**
  * Neutral execution evidence for a document: the distinct execution_roles among
  * COMPLETED signature requests for that document. Only role-labelled requests
  * contribute; requests with a NULL execution_role carry no role evidence.
