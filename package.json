@@ -6,6 +6,8 @@
     "dev": "next dev",
     "contacts:load:dev": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env dev",
     "contacts:load:prod": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env prod",
+    "contacts:project:dev": "node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env dev",
+    "contacts:project:prod": "node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env prod",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
