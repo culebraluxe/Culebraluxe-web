@@ -41,6 +41,7 @@ import {
   SIGNATURE_EVENT_TYPE_BY_STATUS,
   validateSignatureRecipients,
 } from '../../signature/contracts'
+import { normalizeEmail } from '../../agreements/participants'
 
 export {
   SIGNATURE_REQUEST_CANCEL,
@@ -109,6 +110,34 @@ export class SendSignatureRequestCommand
         aggregateId: null,
         message: 'A slot-bound signature request must have exactly one recipient.',
         replayed: false,
+      }
+    }
+    // CRM-27 (bind the ACTUAL provider recipient to the immutable slot): the
+    // supplied executionSlotId / executionRole / slotRecipientEmail and the actual
+    // provider recipient must all describe the same slot. The client must not be
+    // able to reach the provider with a recipient that differs from the slot even
+    // while supplying a "correct" auxiliary slotRecipientEmail.
+    if (input.executionSlotId) {
+      const actualEmail = (input.recipients ?? [])[0]?.email ?? null
+      if (!input.slotRecipientEmail) {
+        return {
+          commandId: envelope.commandId,
+          outcome: 'validation_failure',
+          emittedEvents: [],
+          aggregateId: null,
+          message: 'A slot-bound signature request requires slotRecipientEmail.',
+          replayed: false,
+        }
+      }
+      if (normalizeEmail(actualEmail) !== normalizeEmail(input.slotRecipientEmail)) {
+        return {
+          commandId: envelope.commandId,
+          outcome: 'validation_failure',
+          emittedEvents: [],
+          aggregateId: null,
+          message: 'The actual recipient email must match the immutable execution slot recipient.',
+          replayed: false,
+        }
       }
     }
     return sendSignatureRequest(

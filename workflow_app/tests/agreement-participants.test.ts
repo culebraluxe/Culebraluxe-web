@@ -362,3 +362,99 @@ test('9. duplicate send for the same active slot returns the existing request; a
   )
   assert.equal(different.outcome, 'conflict')
 })
+
+// --- Correction 2: bind the ACTUAL provider recipient to the slot -------------
+
+import { SendSignatureRequestCommand } from '../../lib/commands/signature/signature-commands'
+import { SIGNATURE_REQUEST_SEND } from '../../lib/commands/command-types'
+import type { CommandEnvelope } from '../../lib/workflow/contracts'
+import type { CommandExecutionContext } from '../../lib/commands/contracts'
+
+const sendHandler = new SendSignatureRequestCommand()
+
+function sendEnvelope(input: Record<string, unknown>): CommandEnvelope {
+  return {
+    commandId: 'c-send',
+    commandType: SIGNATURE_REQUEST_SEND,
+    actorAppUserId: null,
+    aggregateType: 'signature_request',
+    aggregateId: null,
+    correlationId: null,
+    causationId: null,
+    requestedAt: '2026-08-24T12:00:00.000Z',
+    input,
+  } as CommandEnvelope
+}
+
+// Rejection paths return before touching ctx, so a minimal ctx is enough.
+const inertCtx = {} as unknown as CommandExecutionContext
+
+test('correction 2: an actual recipient mismatch is rejected even when slotRecipientEmail is correct', async () => {
+  const result = await sendHandler.handle(
+    sendEnvelope({
+      transactionDocumentId: 'doc-1',
+      executionRole: 'BUYER',
+      executionSlotId: 'BUYER:1',
+      slotRecipientEmail: 'buyer1@x.com',
+      recipients: [{ role: 'signer', name: 'Wrong Person', email: 'someone.else@x.com', order: 1 }],
+    }),
+    inertCtx,
+  )
+  assert.equal(result.outcome, 'validation_failure')
+  assert.match(result.message ?? '', /must match the immutable execution slot/)
+})
+
+test('correction 2: a slot-bound send missing slotRecipientEmail is rejected', async () => {
+  const result = await sendHandler.handle(
+    sendEnvelope({
+      transactionDocumentId: 'doc-1',
+      executionRole: 'BUYER',
+      executionSlotId: 'BUYER:1',
+      recipients: [{ role: 'signer', name: 'Buyer One', email: 'buyer1@x.com', order: 1 }],
+    }),
+    inertCtx,
+  )
+  assert.equal(result.outcome, 'validation_failure')
+  assert.match(result.message ?? '', /requires slotRecipientEmail/)
+})
+
+test('correction 2: a slot-bound send with the correct actual recipient succeeds', async () => {
+  const ctx = {
+    run: makeSendRun({ docSnapshot: VALID_SNAPSHOT }),
+  } as unknown as CommandExecutionContext
+  const result = await sendHandler.handle(
+    sendEnvelope({
+      transactionDocumentId: 'doc-1',
+      executionRole: 'BUYER',
+      executionSlotId: 'BUYER:1',
+      slotRecipientEmail: 'buyer1@x.com',
+      recipients: [{ role: 'signer', name: 'Buyer One', email: 'buyer1@x.com', order: 1 }],
+    }),
+    ctx,
+  )
+  assert.equal(result.outcome, 'success')
+  const req = (result.value as { signatureRequest?: { executionRole: string | null; executionSlotId: string | null } }).signatureRequest
+  assert.equal(req?.executionRole, 'BUYER')
+  assert.equal(req?.executionSlotId, 'BUYER:1')
+})
+
+// --- Correction 3: active-slot decision (production path) --------------------
+
+import { decideActiveSlotSend } from '../../lib/agreements/participants'
+
+test('correction 3: active BUYER:1 + selected BUYER:1 is a same-slot replay (existing)', () => {
+  assert.deepEqual(decideActiveSlotSend('BUYER:1', 'BUYER:1'), { kind: 'existing' })
+})
+
+test('correction 3: active BUYER:1 + selected BUYER:2 is a truthful conflict', () => {
+  assert.deepEqual(decideActiveSlotSend('BUYER:1', 'BUYER:2'), {
+    kind: 'conflict',
+    activeSlotId: 'BUYER:1',
+    requestedSlotId: 'BUYER:2',
+  })
+})
+
+test('correction 3: non-slot-bound (generic) sends are not gated by an active slot', () => {
+  assert.deepEqual(decideActiveSlotSend('BUYER:1', null), { kind: 'none' })
+  assert.deepEqual(decideActiveSlotSend(null, 'BUYER:1'), { kind: 'none' })
+})

@@ -33,22 +33,26 @@ alter table agreement_execution
 alter table agreement_execution
     add column if not exists note text;
 
-drop constraint if exists agreement_execution_kind_check;
+alter table agreement_execution
+    drop constraint if exists agreement_execution_kind_check;
 alter table agreement_execution
     add constraint agreement_execution_kind_check
     check (execution_kind in ('automatic', 'manual'));
 
-drop constraint if exists agreement_execution_actor_fk;
+alter table agreement_execution
+    drop constraint if exists agreement_execution_actor_fk;
 alter table agreement_execution
     add constraint agreement_execution_actor_fk
     foreign key (actor_app_user_id) references app_user(id) on delete restrict;
 
-drop constraint if exists agreement_execution_actor_required_for_manual;
+alter table agreement_execution
+    drop constraint if exists agreement_execution_actor_required_for_manual;
 alter table agreement_execution
     add constraint agreement_execution_actor_required_for_manual
     check (execution_kind <> 'manual' or actor_app_user_id is not null);
 
-drop constraint if exists agreement_execution_note_length;
+alter table agreement_execution
+    drop constraint if exists agreement_execution_note_length;
 alter table agreement_execution
     add constraint agreement_execution_note_length
     check (note is null or char_length(note) <= 500);

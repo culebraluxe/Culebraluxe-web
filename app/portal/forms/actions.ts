@@ -24,6 +24,7 @@ import { getActiveSignatureRequestForDocument } from '@/db/signature-request'
 import { getTransactionDocument } from '@/db/transaction-document'
 import { isExecutionEligibleTemplate } from '@/lib/agreements/execution'
 import {
+  decideActiveSlotSend,
   parseIssuedParticipants,
   resolveIssuedSlot,
 } from '@/lib/agreements/participants'
@@ -388,8 +389,6 @@ export async function sendFormForSignatureAction(
         new Date(issued?.createdAt ?? 0).getTime() + 2000
 
     if (active && !draftChanged) {
-      let displayName = signerName
-      let displayEmail = signerEmail
       if (executionEligible) {
         const resolved = await resolveEligibleRecipient(issued!.documentId)
         if (!resolved) {
@@ -398,8 +397,27 @@ export async function sendFormForSignatureAction(
             'The selected participant cannot be resolved for this issued agreement.',
           )
         }
-        displayName = resolved.recipient.name
-        displayEmail = resolved.recipient.email
+        // Close the active-slot bypass: a same-slot active request is a replay
+        // (no new provider envelope); a DIFFERENT active slot is a truthful
+        // conflict (never label the existing request with the newly selected
+        // participant, never send another envelope).
+        if (
+          decideActiveSlotSend(active.executionSlotId, resolved.executionSlotId).kind === 'conflict'
+        ) {
+          return fail(
+            'conflict',
+            'Another execution slot is active for this document; complete or void it before sending a different slot.',
+          )
+        }
+        return ok({
+          signatureRequestId: active.id,
+          documentId: issued!.documentId,
+          issuedVersion: issued!.issuedVersion,
+          status: active.status,
+          existing: true,
+          signerName: resolved.recipient.name,
+          signerEmail: resolved.recipient.email,
+        })
       }
       return ok({
         signatureRequestId: active.id,
@@ -407,8 +425,8 @@ export async function sendFormForSignatureAction(
         issuedVersion: issued!.issuedVersion,
         status: active.status,
         existing: true,
-        signerName: displayName,
-        signerEmail: displayEmail,
+        signerName,
+        signerEmail,
       })
     }
 

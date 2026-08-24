@@ -152,3 +152,26 @@ export function resolveIssuedSlot(
   }
   return { ok: true, slot: candidates[0] }
 }
+
+/**
+ * Production active-request decision for a slot-bound send. Returns:
+ *   - `existing` when the active request is for the SAME issued slot (a replay —
+ *     no new provider envelope);
+ *   - `conflict` when a DIFFERENT active slot is in flight (never label the
+ *     existing request with the newly selected participant, never send another);
+ *   - `none` for non-slot-bound (generic) sends or when no slot is in flight.
+ */
+export type ActiveSlotSendDecision =
+  | { kind: 'existing' }
+  | { kind: 'conflict'; activeSlotId: string; requestedSlotId: string }
+  | { kind: 'none' }
+
+export function decideActiveSlotSend(
+  activeSlotId: string | null | undefined,
+  requestedSlotId: string | null | undefined,
+): ActiveSlotSendDecision {
+  if (!requestedSlotId) return { kind: 'none' }
+  if (!activeSlotId) return { kind: 'none' }
+  if (activeSlotId === requestedSlotId) return { kind: 'existing' }
+  return { kind: 'conflict', activeSlotId, requestedSlotId }
+}
