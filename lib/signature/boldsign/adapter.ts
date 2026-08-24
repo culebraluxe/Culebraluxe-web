@@ -189,8 +189,14 @@ export class BoldSignSignatureProvider implements SignatureProvider {
           {
             fieldType: 'Signature',
             pageNumber: signaturePage,
-            bounds: { x: 56, y: 80, width: 200, height: 60 },
+            // A modest, proportionate signature field: `fontSize` (BoldSign
+            // defaults a typed signature to ~48pt — explicit 14pt keeps it
+            // readable) plus a compact bounds box so a drawn signature is
+            // scaled to a reasonable size too. Placed bottom-left of the final
+            // page, clear of the printed signature block above it.
+            bounds: { x: 56, y: 84, width: 200, height: 44 },
             isRequired: true,
+            fontSize: 14,
           },
         ],
       }))

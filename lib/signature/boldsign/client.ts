@@ -59,6 +59,12 @@ export type BoldSignDirectFormField = {
   pageNumber: number
   bounds: BoldSignDirectBounds
   isRequired?: boolean
+  /**
+   * Font size (points) for typed content. Required for Signature fields: BoldSign
+   * defaults to a large size (~48pt) for a typed signature; an explicit modest
+   * `fontSize` keeps the rendered signature readable instead of dominating the page.
+   */
+  fontSize?: number
 }
 
 /**
@@ -182,6 +188,9 @@ export class BoldSignClient {
         form.append(`${fp}.bounds.height`, String(field.bounds.height))
         if (field.isRequired !== undefined) {
           form.append(`${fp}.isRequired`, field.isRequired ? 'true' : 'false')
+        }
+        if (field.fontSize !== undefined) {
+          form.append(`${fp}.fontSize`, String(field.fontSize))
         }
       })
     })

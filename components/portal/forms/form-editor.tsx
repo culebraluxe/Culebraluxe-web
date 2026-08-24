@@ -1025,13 +1025,17 @@ export function FormEditor({
 
         <section className="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="h-full overflow-y-auto bg-[var(--portal-blue-pale)]/55 px-3 py-4 lg:px-5 lg:py-5">
-            <article className="mx-auto min-h-[calc(100%-0.5rem)] w-full max-w-[40rem] bg-white px-10 py-11 text-black/80 shadow-[0_12px_36px_rgba(24,43,64,0.14)] ring-1 ring-black/[0.06]">
-            <p className="text-[9px] font-light uppercase tracking-[0.18em] text-black/40">
-              {template.rendering.issuer}
-            </p>
-            <h2 className="mt-1 font-serif text-xl font-bold text-[var(--portal-navy)]">
-              {template.rendering.title}
-            </h2>
+            <article className="relative mx-auto min-h-[calc(100%-0.5rem)] w-full max-w-[40rem] bg-white px-10 py-11 text-black/80 shadow-[0_12px_36px_rgba(24,43,64,0.14)] ring-1 ring-black/[0.06]">
+            <img
+              src="/brand/CLLOGO.png"
+              alt="CulebraLuxe"
+              className="pointer-events-none absolute right-10 top-10 z-10 h-[52px] w-auto object-contain"
+            />
+            <div className="relative z-20 pr-44">
+              <h2 className="font-serif text-xl font-bold text-[var(--portal-navy)]">
+                {template.rendering.title}
+              </h2>
+            </div>
 
             <p className="my-5 border-y border-black/10 py-4 font-serif text-[15px] font-light leading-7">
               {template.fields
