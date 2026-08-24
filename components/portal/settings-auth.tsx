@@ -51,7 +51,7 @@ function PageHeading({
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10 text-center">
+    <div className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-10 text-center">
       <p className="text-sm font-light text-black/40">{children}</p>
     </div>
   )
@@ -65,14 +65,14 @@ export function SettingsUsers({ users }: { users: SettingsUser[] }) {
   return (
     <div>
       <PageHeading
-        eyebrow="Settings"
+        eyebrow="Security"
         title="Users"
         intro="Application actors. CRM people are not authentication principals; a user may be linked to a person for relationship context."
       />
       {users.length === 0 ? (
         <Empty>No application users on record.</Empty>
       ) : (
-        <div className="overflow-x-auto rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="overflow-x-auto portal-glass-panel rounded-[var(--portal-panel-radius)]">
           <table className="w-full min-w-[820px] border-collapse">
             <thead>
               <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
@@ -162,7 +162,7 @@ export function SettingsRoles({ roles }: { roles: SettingsRole[] }) {
   return (
     <div>
       <PageHeading
-        eyebrow="Settings"
+        eyebrow="Security"
         title="Roles"
         intro="Named bundles of authorities. Internal and external roles are kept separate; cross-type assignment is blocked."
       />
@@ -173,7 +173,7 @@ export function SettingsRoles({ roles }: { roles: SettingsRole[] }) {
           {roles.map((role) => (
             <div
               key={role.id}
-              className="rounded-sm border border-[var(--portal-border)] bg-white p-6"
+              className="portal-glass-panel portal-glass-panel-soft rounded-[var(--portal-panel-radius)] p-6"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -292,7 +292,7 @@ export function SecurityStatusPanel({
   ]
 
   return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <section className="mt-6 portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="font-serif text-2xl font-light">Security Status</h2>
@@ -348,7 +348,7 @@ export function BreakGlassStatusPanel({
   ]
 
   return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <section className="mt-6 portal-glass-panel rounded-[var(--portal-panel-radius)] p-6">
       <h2 className="font-serif text-2xl font-light">Break-glass readiness</h2>
       <p className="mt-1 text-xs font-light text-black/40">
         Emergency root access posture. No secrets, hashes, or tokens shown.
@@ -384,14 +384,14 @@ export function SettingsAuthorities({
   return (
     <div>
       <PageHeading
-        eyebrow="Settings"
+        eyebrow="Security"
         title="Authorities"
         intro="Coarse application capabilities. Business-state legality is decided by domain/workflow services, not by these."
       />
       {authorities.length === 0 ? (
         <Empty>No authorities on record.</Empty>
       ) : (
-        <div className="overflow-x-auto rounded-sm border border-[var(--portal-border)] bg-white">
+        <div className="overflow-x-auto portal-glass-panel rounded-[var(--portal-panel-radius)]">
           <table className="w-full min-w-[760px] border-collapse">
             <thead>
               <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">

@@ -36,16 +36,9 @@ export const OPERATING_SURFACES: Record<
       { label: 'Attention', href: '/portal/attention', authority: 'portal.read' },
       { label: 'Clients', href: '/portal/clients', authority: 'portal.read' },
       { label: 'Deals', href: '/portal/deals', authority: 'deal.read' },
-      { label: 'Showings', href: '/portal/showings', authority: 'portal.read' },
       {
         label: 'Workflows',
         href: '/portal/workflows',
-        authority: 'portal.read',
-      },
-      { label: 'Activity', href: '/portal/activity', authority: 'portal.read' },
-      {
-        label: 'Property Media',
-        href: '/portal/property-media',
         authority: 'portal.read',
       },
       {
@@ -83,12 +76,17 @@ export const OPERATING_SURFACES: Record<
         authority: 'portal.read',
       },
       {
+        // Operations function: matching pictures to properties (media uploader).
+        label: 'Property Media',
+        href: '/portal/property-media',
+        authority: 'portal.read',
+      },
+      {
         label: 'Identity Quality',
         href: '/portal/identity-quality',
         authority: 'portal.read',
       },
       { label: 'Reporting', href: '/portal/reporting', authority: 'portal.read' },
-      { label: 'Settings', href: '/portal/settings', authority: 'settings.read' },
     ],
   },
   TECH: {
@@ -124,6 +122,11 @@ export const OPERATING_SURFACES: Record<
         label: 'System Health',
         href: '/portal/system-health',
         authority: 'portal.read',
+      },
+      {
+        label: 'Security',
+        href: '/portal/settings',
+        authority: 'settings.read',
       },
     ],
   },
