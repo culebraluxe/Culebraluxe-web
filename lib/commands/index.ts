@@ -11,12 +11,14 @@
 // ---------------------------------------------------------------------------
 
 import { PostgresCommandReceiptRepository } from '../../db/command-receipt-repository'
+import { PostgresOutboxEventRepository } from '../mq/outbox-repository'
 import { neonTx } from '../../db/tx'
 import type {
   CommandDispatcher,
   CommandResult,
   TypedCommandEnvelope,
 } from './contracts'
+import type { CommandDispatcherOptions } from './dispatcher'
 import { CommandDispatcherImpl } from './dispatcher'
 import { createCommandRegistry } from './register'
 
@@ -38,12 +40,26 @@ export {
 export { commandReceiptStatus } from './contracts'
 export { PostgresCommandReceiptRepository } from '../../db/command-receipt-repository'
 
-/** Build a dispatcher bound to the Postgres V1 transport and the canonical registry. */
-export function createCommandDispatcher(): CommandDispatcherImpl {
+/**
+ * Build a dispatcher bound to the Postgres V1 transport and the canonical registry.
+ *
+ * CRM-27 (BLOCKER 1): every production dispatcher is wired with the REAL
+ * PostgresOutboxEventRepository as its durable event sink, so emitted DomainEvents
+ * (e.g. AGREEMENT_FULLY_EXECUTED) are appended to `outbox_message` in the SAME
+ * transaction as the canonical mutation + command receipt — the lost-event defect
+ * cannot recur. `overrides` exist for tests to swap the run/receipts/sink seams;
+ * the production default (below) is the outbox-enabled construction every
+ * application caller shares.
+ */
+export function createCommandDispatcher(
+  overrides: Partial<CommandDispatcherOptions> = {},
+): CommandDispatcherImpl {
   return new CommandDispatcherImpl({
     registry: createCommandRegistry(),
     receipts: new PostgresCommandReceiptRepository(),
     run: neonTx,
+    eventSink: new PostgresOutboxEventRepository(),
+    ...overrides,
   })
 }
 

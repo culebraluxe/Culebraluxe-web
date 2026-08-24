@@ -109,20 +109,33 @@ export function agreementExecutionTransition(
 // ---------------------------------------------------------------------------
 
 /**
- * Per-template override of REQUIRED execution roles. Left empty because the
- * architecture has NOT decided which declared signature groups are legally /
- * business REQUIRED execution roles (stop-sign C). Populating this is a
- * business decision, not an engineering one.
+ * Per-template override of REQUIRED execution roles.
+ *
+ * CRM-27 (authoritative business decision): PR-PNS requires every actual
+ * participant in BUYER, SELLER and SELLER_BROKER. This policy is a decision, not
+ * a fixture default. Templates NOT execution-eligible are rejected before the
+ * predicate is ever reached (precondition_failure) — they can never emit.
  */
-const REQUIRED_EXECUTION_ROLE_OVERRIDES: Record<string, readonly string[]> = {}
+const REQUIRED_EXECUTION_ROLE_OVERRIDES: Record<string, readonly string[]> = {
+  'PR-PNS': ['BUYER', 'SELLER', 'SELLER_BROKER'],
+}
+
+/**
+ * Templates that participate in agreement-execution evaluation for this story.
+ * Only PR-PNS (Purchase & Sale) is execution-eligible. An unknown / other
+ * template is a precondition_failure — never a vacuous success.
+ */
+export const EXECUTION_ELIGIBLE_TEMPLATES: ReadonlySet<string> = new Set(['PR-PNS'])
+
+/** Is this template eligible for agreement-execution evaluation? */
+export function isExecutionEligibleTemplate(templateId: string): boolean {
+  return EXECUTION_ELIGIBLE_TEMPLATES.has(templateId)
+}
 
 /**
  * Resolve the REQUIRED execution roles for an issued agreement template.
  *
- * DEFAULT (NON-AUTHORITATIVE, for tests/fixtures only): every declared
- * signature group is treated as a required execution role. This is NOT a
- * business decision — required/optional role policy must be confirmed. The
- * predicate itself always supports optional roles: an optional role simply
+ * The predicate itself always supports optional roles: an optional role simply
  * must not be listed in the resolved required set.
  */
 export function resolveRequiredExecutionRoles(

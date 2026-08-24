@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { CommandDispatcherImpl } from '@/lib/commands/dispatcher'
-import { createCommandRegistry } from '@/lib/commands/register'
-import { PostgresCommandReceiptRepository } from '@/db/command-receipt-repository'
+import { createCommandDispatcher } from '@/lib/commands'
 import { neonTx } from '@/db/tx'
 import { SignatureApplication } from '@/lib/signature/application'
 import {
@@ -75,11 +73,7 @@ function getConfig(): BoldSignConfig {
 function getApplication(): SignatureApplication {
   if (!application) {
     const provider = new BoldSignSignatureProvider({ config: getConfig() })
-    const dispatcher = new CommandDispatcherImpl({
-      registry: createCommandRegistry(),
-      receipts: new PostgresCommandReceiptRepository(),
-      run: neonTx,
-    })
+    const dispatcher = createCommandDispatcher()
     const reconciler = new SignatureReconciliationHandler({
       provider,
       run: neonTx,

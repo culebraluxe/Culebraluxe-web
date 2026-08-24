@@ -17,7 +17,9 @@
 // assembly and the required-role policy seam (lib/agreements).
 // ---------------------------------------------------------------------------
 
+import { randomUUID } from 'node:crypto'
 import { AGREEMENT_EXECUTION_CLAIM } from '../command-types'
+import { commandReceiptStatus } from '../contracts'
 import { createDomainEventFromCommand } from '../domain-events'
 import { evaluateAgreementCompletion } from '../../agreements/completion'
 import { AGREEMENT_FULLY_EXECUTED } from '../../agreements/execution'
@@ -70,17 +72,25 @@ export class ClaimAgreementExecutionCommand
       }
     }
 
+    // CRM-27 (event-ID equality): generate the canonical AGREEMENT_FULLY_EXECUTED
+    // event id ONCE. It becomes agreement_execution.event_id, DomainEvent.eventId
+    // and outbox_message.id — the marker and the outbox row are auditable by id.
+    // On a rolled-back transaction the marker/event never commit, so a retry may
+    // generate a fresh candidate (harmless).
+    const eventId = randomUUID()
+
     // Evaluate within the SAME transaction: reads + marker write share ctx.tx,
     // so the marker commits atomically with the receipt and the outbox row.
     const completion = await evaluateAgreementCompletion(
       transactionDocumentId,
-      envelope.commandId,
+      eventId,
       { execute: ctx.tx, run: ctx.run, now: ctx.now },
     )
 
     if (completion.shouldEmit) {
       const event = createDomainEventFromCommand(envelope, {
         eventType: AGREEMENT_FULLY_EXECUTED,
+        eventId,
         aggregateType: 'transaction_document',
         aggregateId: transactionDocumentId,
         payload: {
@@ -100,15 +110,19 @@ export class ClaimAgreementExecutionCommand
       ctx.events.add(event)
     }
 
+    // CRM-27 (truthful receipt): a missing/invalid/ineligible document finalizes
+    // its receipt with the matching non-success outcome — never a success receipt.
     await ctx.receipts.save(
       {
         commandId: envelope.commandId,
-        outcome: 'success',
-        status: 'Succeeded',
+        outcome: completion.outcome,
+        status: commandReceiptStatus(completion.outcome),
         aggregateId: transactionDocumentId,
-        message: completion.shouldEmit
-          ? 'Agreement fully executed; AGREEMENT_FULLY_EXECUTED emitted.'
-          : 'Agreement not fully executed yet (or already recorded).',
+        message: completion.error
+          ? completion.error
+          : completion.shouldEmit
+            ? 'Agreement fully executed; AGREEMENT_FULLY_EXECUTED emitted.'
+            : 'Agreement not fully executed yet (or already recorded).',
         actorAppUserId: envelope.actorAppUserId ?? null,
         createdAt: null,
       },
@@ -117,18 +131,21 @@ export class ClaimAgreementExecutionCommand
 
     return {
       commandId: envelope.commandId,
-      outcome: 'success',
+      outcome: completion.outcome,
       emittedEvents: [],
       aggregateId: transactionDocumentId,
-      message: null,
+      message: completion.error ?? null,
       replayed: false,
       value: {
         completion: {
+          outcome: completion.outcome,
+          error: completion.error,
           shouldEmit: completion.shouldEmit,
           verdict: completion.verdict,
           document: completion.document,
           templateId: completion.templateId,
           dealId: completion.dealId,
+          eventId: completion.eventId,
         },
       },
     }

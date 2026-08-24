@@ -89,12 +89,21 @@ function makeExecute(opts: {
   templateId?: string
   issuedVersion?: number
   satisfiedRoles?: string[]
+  id?: string
+  dealId?: string | null
+  documentType?: string
 }) {
   const executor: QueryExecutor = async (strings) => {
     const sql = strings.join('?')
     if (sql.includes('from transaction_document')) {
       return [
-        { template_id: opts.templateId ?? 'PR-PNS', issued_version: opts.issuedVersion ?? 1 },
+        {
+          id: opts.id ?? 'doc-1',
+          template_id: opts.templateId ?? 'PR-PNS',
+          issued_version: opts.issuedVersion ?? 1,
+          deal_id: opts.dealId ?? 'deal-1',
+          document_type: opts.documentType ?? 'agreement',
+        },
       ]
     }
     if (sql.includes('from signature_request')) {
