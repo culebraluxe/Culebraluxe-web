@@ -1,0 +1,254 @@
+# ARCH-01 README Supplement — Durable Architecture Continuity
+
+**Status:** Active architecture operating rule  
+**Effective:** 2026-08-24  
+**Purpose:** Preserve enough verified technical state for a new architect or
+agent session to continue CulebraLuxe safely without reconstructing the project
+from chat history.
+
+This supplement extends ARCH-01. It does not replace the canonical Story Board,
+`AGENTS.md`, repository code, migrations, or story-specific architecture
+documents.
+
+## 1. Continuity principle
+
+Chat context is working memory, not durable architecture.
+
+A handoff is complete only when the current technical continuity state is:
+
+1. written to a versioned file in Git;
+2. committed with an identifiable commit SHA;
+3. reachable through this stable supplement or a stable current-continuity
+   pointer; and
+4. reconciled by the incoming architect against the actual repository and
+   database before new implementation begins.
+
+Do not use a pasted transcript, model memory, or an agent's final report as the
+sole authority for continuing engineering work.
+
+## 2. Stable entry point
+
+Every incoming architect must begin with:
+
+1. `AGENTS.md`
+2. this file: `docs/ARCH-01-README-SUPPLEMENT.md`
+3. the current technical continuity packet referenced below
+4. the applicable story/architecture specification
+5. the current Story Board rows
+6. current Git status, branch topology, and relevant code
+
+Current continuity packet:
+
+- `docs/final-technical-continuity-packet-2026-08-24.md`
+- commit `98a50601f89fc4d12fdc6d15e0e2347b4b67534d`
+
+Current Deal workflow architecture packet:
+
+- `docs/deal-workflow-architecture-specs-2026-08-24.md`
+- commit `92d271d051e3fb8ec121f3eeabc9f7de5f2c0c6e`
+
+When a later packet supersedes the current packet, update this stable section
+in the same commit that adds the replacement packet. Keep prior dated packets
+as historical evidence unless they contain secrets.
+
+## 3. Mandatory reconciliation rule
+
+The continuity packet is continuation state, not unquestionable truth.
+
+Before proposing or changing implementation, the incoming architect must:
+
+1. inspect the repository and relevant migrations;
+2. inspect the current Story Board and database schema when the connector is
+   available;
+3. identify the precise Git commit/branch containing candidate work;
+4. distinguish migrations committed in Git from migrations actually applied;
+5. verify named classes, functions, tables, commands, events, and tests exist;
+6. call out every contradiction between the packet and current implementation;
+7. preserve established canonical boundaries unless a reviewed architecture
+   decision explicitly changes them; and
+8. stop rather than invent business semantics or missing authority.
+
+An agent must not silently redesign around a stale handoff.
+
+## 4. Required continuity-packet contents
+
+Each replacement technical continuity packet must include the following.
+
+### 4.1 Authority and decisions
+
+- date and scope of the packet;
+- authoritative architecture documents and commit SHAs;
+- resolved business/architecture decisions;
+- unresolved decisions and explicit stop conditions;
+- which artifact wins if two documents conflict.
+
+### 4.2 Git and working state
+
+- current branch and HEAD commit;
+- relevant commit ancestry, merge bases, and divergence;
+- candidate/review branches and unmerged commits;
+- known local uncommitted work, when observable;
+- files or workstreams that another agent must not touch;
+- required commit boundaries and whether pushing is authorized.
+
+Never assume that two known commits are parent/child. Verify their topology.
+
+### 4.3 Database state
+
+- Neon project, database, and branch identity when verified;
+- migrations present in Git;
+- migrations confirmed applied in the target environment;
+- schema objects relevant to active work;
+- canonical Story Board rows and execution status;
+- connector/authentication limitations;
+- clear separation of DEV permission from production prohibition.
+
+Do not report a migration as active merely because its SQL file exists.
+
+### 4.4 Existing architecture seams
+
+- canonical domain ownership boundaries;
+- command, receipt, transaction, and event contracts;
+- outbox/MQ/integration-inbox boundaries;
+- workflow application ports and correlation seams;
+- read models and presentation projections;
+- provider adapters and provider-neutral contracts;
+- exact file paths and exported entry points that must be reused.
+
+The packet must explicitly identify any existing seam that prevents an agent
+from creating a duplicate model, queue, workflow, transport, or state store.
+
+### 4.5 Current implementation truth
+
+- stories actually complete versus partially implemented;
+- exact commits and files changed;
+- known architectural defects;
+- incomplete runtime wiring hidden behind passing unit tests;
+- idempotency, retry, recovery, and transaction-boundary behavior;
+- any claimed end-to-end proof and what it actually demonstrated.
+
+`shouldEmit = true`, a TypeScript union member, or a passing predicate test is
+not proof that a durable business event was published.
+
+### 4.6 Verification
+
+- targeted tests completed;
+- broader regression checkpoints completed or still pending;
+- typecheck/build results when relevant;
+- DEV database or E2E proofs actually exercised;
+- known test harness limitations;
+- the next meaningful regression checkpoint.
+
+Do not convert “full regression at an architectural checkpoint” into “full
+site regression after every edit.”
+
+### 4.7 Active work and next order
+
+- active agent/session and exact assigned scope;
+- the work order given to that agent;
+- files or stories currently under active modification;
+- the next bounded implementation order;
+- acceptance criteria, test scope, commit boundaries, and stop conditions;
+- work that must not begin until the active result is reviewed.
+
+## 5. When continuity must be checkpointed
+
+Update the continuity packet at the earliest applicable point:
+
+- after a major architecture decision;
+- after a tightly coupled story batch;
+- after discovering a non-obvious canonical seam or architectural defect;
+- before intentionally ending a long architecture/build session;
+- when context capacity is becoming constrained;
+- before handing work to a different model, agent, or human engineer;
+- after Git or database topology changes materially;
+- after an implementation report contradicts the actual code;
+- after a failed connector prevents canonical Story Board updates.
+
+Do not wait until the final chat turn if important continuity state has already
+changed.
+
+## 6. Handoff creation procedure
+
+1. Review current Git, code, tests, Story Board, and database state.
+2. Write a dated technical packet under `docs/`.
+3. Separate verified facts from memory or unverified connector-dependent state.
+4. Include exact paths, symbols, tables, commits, and transaction boundaries.
+5. Include the next bounded work order rather than only narrative history.
+6. Commit the packet.
+7. Update the stable pointer in this supplement to the new packet and commit.
+8. Give the incoming architect the stable filename, not a giant pasted packet.
+9. Require the incoming architect to reconcile the packet against reality.
+
+If Git is available but the Story Board connector is not, Git is the durable
+fallback. Record the pending Story Board update in the packet and reconcile it
+when database access returns.
+
+## 7. Incoming-session startup procedure
+
+An incoming architect should be able to start with one instruction:
+
+> Read `docs/ARCH-01-README-SUPPLEMENT.md`, follow its current continuity
+> pointer, and reconcile the packet with the repository and database before
+> doing further work.
+
+The incoming architect then reports only:
+
+- what it verified;
+- what contradicted the packet;
+- what remains inaccessible or unverified;
+- the bounded work it is now prepared to perform.
+
+It should not ask the user to reconstruct the prior week unless a material fact
+is absent from both Git and the Story Board.
+
+## 8. Failure and conflict handling
+
+If a continuity source conflicts with another source, use this precedence only
+after reporting the conflict:
+
+1. explicit current human decision;
+2. actual current canonical code and database behavior;
+3. current Story Board/architecture record;
+4. committed architecture specification;
+5. committed technical continuity packet;
+6. agent report or chat memory.
+
+This precedence does not authorize silent redesign. A contradiction affecting
+business semantics, system-of-record ownership, or transaction guarantees is a
+stop condition requiring review.
+
+If Neon or another connector fails before SQL execution, record the connector
+failure separately from database health. Do not describe an OAuth/plugin error
+as a database outage.
+
+## 9. Security and data hygiene
+
+Continuity packets must never contain:
+
+- database passwords or connection strings;
+- API keys, webhook secrets, or OAuth tokens;
+- private signing payloads;
+- personal contact exports or unnecessary client data;
+- production-only credentials;
+- raw environment-file contents.
+
+Reference configured secret names and environment ownership, never secret
+values.
+
+## 10. ARCH-01 completion standard
+
+ARCH-01 continuity is functioning when a new architect can, without relying on
+prior chat history:
+
+1. identify the authoritative architecture;
+2. identify the current Git and database state;
+3. locate and reuse canonical seams;
+4. distinguish completed work from partial implementation;
+5. understand active stop conditions and unresolved decisions;
+6. issue the next bounded work order safely; and
+7. continue without making the user reteach the project.
+
+The objective is not maximal documentation. It is a small, durable,
+implementation-specific control surface that makes architectural continuity
+routine.
