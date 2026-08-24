@@ -32,13 +32,12 @@ import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
 
 // ---------------------------------------------------------------------------
-// TEMPORARY PORTAL DESIGN LAB — /portal/design-lab
+// TECH UI LAB — /portal/design-lab
 //
-// Component playground for evaluating shared portal UI before promotion.
-// Direct URL only (not in any nav). Reuses the existing --portal-* tokens,
+// Permanent component gallery for evaluating shared portal UI before promotion.
+// Owned by the TECH operating surface. Reuses the existing --portal-* tokens,
 // the shared Panel primitive, the operating shell, and the glass rail
-// treatment. No new design system, no business logic, no data queries —
-// everything below is fake demo data. Delete this folder when done.
+// treatment. No business logic or data queries — every example uses demo data.
 // ---------------------------------------------------------------------------
 
 const btnPrimary =
@@ -147,12 +146,12 @@ export default function DesignLabPage() {
     <div className="mx-auto max-w-[1400px]">
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <PageHeader
-          eyebrow="PORTAL DESIGN LAB"
-          title="Shared UI Playground"
-          subtitle="Temporary, direct-URL-only playground for evaluating shared portal primitives before promotion. Nothing here ships to production pages."
+          eyebrow="TECH · UI LAB"
+          title="Component Gallery"
+          subtitle="Permanent TECH gallery for evaluating shared portal primitives and candidate components before promotion. Every example uses demo data only."
         />
         <span className="rounded-full border border-[var(--portal-gold)]/40 bg-[var(--portal-gold-pale)] px-3 py-1 text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
-          Temporary — not in nav
+          TECH · Demo data
         </span>
       </div>
 
@@ -651,7 +650,7 @@ export default function DesignLabPage() {
       </Panel>
 
       <Panel variant="feature" heading="Review decision" eyebrow="NEXT STEP" className="mb-4">
-        Review each section and mark KEEP / MODIFY / REJECT / LATER before promoting anything into the portal. Delete this folder when done.
+        Review each section and mark KEEP / MODIFY / REJECT / LATER before promoting anything into the portal. This gallery remains in TECH as the durable visual reference.
       </Panel>
     </div>
   )
