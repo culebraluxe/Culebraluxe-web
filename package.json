@@ -25,6 +25,7 @@
     "agent:scheduler:uninstall": "node scripts/agent-scheduler.mjs uninstall",
     "agent:workspace": "node node_modules/tsx/dist/cli.mjs scripts/workspace-cli.ts",
     "mq:worker": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
+    "mq:worker:prod": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "workflow": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/workflow-cli.ts"
   },
   "dependencies": {
