@@ -1,0 +1,853 @@
+From 6f43e5aa6b850be2adacf07cbd9067dd6f3ff896 Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Mon, 24 Aug 2026 09:24:03 -0400
+Subject: [PATCH] CRM-27: Agreement Execution Predicate (provider-neutral,
+ exactly-once)
+
+- lib/agreements/execution.ts: pure 'is this issued version fully executed?'
+  predicate over neutral signature-role evidence + manual/external evidence,
+  with a required-role POLICY seam (stop-sign C: default = all declared groups
+  required, non-authoritative fixture; NOT a business decision).
+- Neutral AGREEMENT_FULLY_EXECUTED DomainEvent type (lib/workflow/contracts.ts).
+- db/migrations/067: additive signature_request.execution_role for role-level
+  evidence. db/migrations/068: agreement_execution marker (unique doc+version)
+  for exactly-once emission.
+- db/agreement-execution.ts: claimAgreementExecution (idempotent) +
+  getCompletedExecutionRoles evidence reader.
+- lib/agreements/completion.ts: compose document -> template -> required roles
+  -> completed evidence -> predicate -> exactly-once marker.
+- Plumbed optional executionRole through the signature send command/application.
+- Reconciliation handler evaluates agreement completion after a neutral
+  completed event (backward-compatible, injected, non-fatal).
+- Tests: partial/final/manual/optional-vs-required/duplicate replay/wrong
+  version; completion exactly-once.
+---
+ db/agreement-execution.ts                     |  69 ++++++++
+ .../067_agreement_execution_role.sql          |  24 +++
+ db/migrations/068_agreement_execution.sql     |  37 +++++
+ db/signature-request.ts                       |  23 +--
+ lib/agreements/completion.ts                  | 100 ++++++++++++
+ lib/agreements/execution.ts                   | 133 +++++++++++++++
+ lib/commands/signature/signature-commands.ts  |   1 +
+ lib/signature/application.ts                  |   1 +
+ lib/signature/contracts.ts                    |   4 +
+ lib/signature/reconciliation.ts               |  51 +++++-
+ lib/workflow/contracts.ts                     |   4 +
+ .../tests/agreement-execution.test.ts         | 153 ++++++++++++++++++
+ 12 files changed, 589 insertions(+), 11 deletions(-)
+ create mode 100644 db/agreement-execution.ts
+ create mode 100644 db/migrations/067_agreement_execution_role.sql
+ create mode 100644 db/migrations/068_agreement_execution.sql
+ create mode 100644 lib/agreements/completion.ts
+ create mode 100644 lib/agreements/execution.ts
+ create mode 100644 workflow_app/tests/agreement-execution.test.ts
+
+diff --git a/db/agreement-execution.ts b/db/agreement-execution.ts
+new file mode 100644
+index 0000000..78389b0
+--- /dev/null
++++ b/db/agreement-execution.ts
+@@ -0,0 +1,69 @@
++import type { QueryExecutor } from './query-executor'
++import { neonTx, type TxRunner } from './tx'
++
++// ---------------------------------------------------------------------------
++// CRM-27 — Agreement Execution marker + neutral evidence reader.
++//
++// The marker makes AGREEMENT_FULLY_EXECUTED exactly-once per immutable issued
++// document version (unique(document_id, issued_version) + INSERT ... ON
++// CONFLICT DO NOTHING). The evidence reader gathers NEUTRAL role-level
++// completion evidence from completed signature requests — never provider
++// status strings.
++// ---------------------------------------------------------------------------
++
++export type AgreementExecutionRow = {
++  document_id: string
++  issued_version: number
++  event_id: string
++  emitted_at: string
++}
++
++/**
++ * Record that an immutable issued document version was judged fully executed.
++ * Returns `recorded: true` ONLY when THIS call inserted the marker (i.e. the
++ * caller should emit AGREEMENT_FULLY_EXECUTED); `false` on a duplicate replay
++ * (already recorded) — the database unique constraint is the backstop.
++ */
++export async function claimAgreementExecution(
++  input: {
++    documentId: string
++    issuedVersion: number
++    eventId: string
++    emittedAt: Date
++  },
++  run: TxRunner = neonTx,
++): Promise<{ recorded: boolean }> {
++  return run(async (tx) => {
++    const rows = await tx`
++      insert into agreement_execution (document_id, issued_version, event_id, emitted_at)
++      values (
++        ${input.documentId}, ${input.issuedVersion}, ${input.eventId},
++        ${input.emittedAt.toISOString()}
++      )
++      on conflict (document_id, issued_version) do nothing
++      returning id
++    `
++    return { recorded: rows.length > 0 }
++  })
++}
++
++/**
++ * Neutral execution evidence for a document: the distinct execution_roles among
++ * COMPLETED signature requests for that document. Only role-labelled requests
++ * contribute; requests with a NULL execution_role carry no role evidence.
++ */
++export async function getCompletedExecutionRoles(
++  documentId: string,
++  execute: QueryExecutor,
++): Promise<string[]> {
++  const rows = await execute`
++    select distinct execution_role
++    from signature_request
++    where transaction_document_id = ${documentId}
++      and status = 'completed'
++      and execution_role is not null
++  `
++  return rows
++    .map((row) => (typeof row.execution_role === 'string' ? row.execution_role : ''))
++    .filter((role) => role.length > 0)
++}
+diff --git a/db/migrations/067_agreement_execution_role.sql b/db/migrations/067_agreement_execution_role.sql
+new file mode 100644
+index 0000000..80244b1
+--- /dev/null
++++ b/db/migrations/067_agreement_execution_role.sql
+@@ -0,0 +1,24 @@
++-- CulebraLuxe Portal
++-- CRM-27 — Agreement Execution Evidence (Agreement Execution Predicate).
++--
++-- Provider-neutral role evidence: `signature_request.execution_role` records
++-- which agreement execution role a signing request fulfills (e.g. BUYER,
++-- SELLER, SELLER_BROKER). The CRM-27 Agreement Execution Predicate reads this
++-- neutral evidence (completed requests grouped by role) to decide whether a
++-- specific issued agreement version is FULLY EXECUTED.
++--
++-- - Nullable / optional: requests not tied to a role carry NULL.
++-- - Additive only: no existing column or row is changed, no backfill.
++-- - The existing one-active-request-per-transaction_document uniqueness
++--   (migration 036) is UNCHANGED — sequential requests satisfy multiple roles.
++-- - No provider status strings are stored; only the neutral execution_role.
++
++begin;
++
++alter table signature_request
++    add column if not exists execution_role text;
++
++create index if not exists idx_signature_request_doc_execution_role
++    on signature_request(transaction_document_id, execution_role);
++
++commit;
+diff --git a/db/migrations/068_agreement_execution.sql b/db/migrations/068_agreement_execution.sql
+new file mode 100644
+index 0000000..da5d1d8
+--- /dev/null
++++ b/db/migrations/068_agreement_execution.sql
+@@ -0,0 +1,37 @@
++-- CulebraLuxe Portal
++-- CRM-27 — Agreement Execution Marker (exactly-once fully-executed fact).
++--
++-- Records that a specific immutable issued agreement/document version was
++-- judged FULLY EXECUTED by the Agreement Execution Predicate, so the
++-- AGREEMENT_FULLY_EXECUTED fact is emitted exactly once per version (duplicate
++-- completion callbacks / polls / reconciliations are idempotent no-ops).
++--
++-- - document_id + issued_version identify ONE immutable issued version.
++-- - unique(document_id, issued_version) + INSERT ... ON CONFLICT DO NOTHING is
++--   the database backstop for exactly-once.
++-- - Holds only the version-scoped execution fact — never business truth beyond
++--   it, and no provider status strings.
++
++begin;
++
++create table if not exists agreement_execution (
++    id uuid primary key default gen_random_uuid(),
++
++    -- the immutable issued transaction document that became fully executed
++    document_id uuid not null
++        references transaction_document(id)
++        on delete cascade,
++
++    -- the issued version of that document (immutable lineage)
++    issued_version integer not null,
++
++    -- the neutral AGREEMENT_FULLY_EXECUTED event id that recorded this fact
++    event_id text not null,
++
++    emitted_at timestamptz not null default now(),
++
++    constraint uq_agreement_execution_document_version
++        unique (document_id, issued_version)
++);
++
++commit;
+diff --git a/db/signature-request.ts b/db/signature-request.ts
+index 271cc4e..f2ad102 100644
+--- a/db/signature-request.ts
++++ b/db/signature-request.ts
+@@ -46,6 +46,7 @@ export type SignatureRequestRow = QueryRow & {
+   transaction_document_id: string
+   status: string
+   message: string | null
++  execution_role: string | null
+   created_by_user_id: string | null
+   created_at: string
+   updated_at: string
+@@ -63,6 +64,7 @@ function mapSignatureRequest(row: SignatureRequestRow): SignatureRequest {
+     transactionDocumentId: row.transaction_document_id,
+     status: row.status as SignatureRequestStatus,
+     message: row.message ?? null,
++    executionRole: row.execution_role ?? null,
+     createdByUserId: row.created_by_user_id ?? null,
+     createdAt: dateOrNull(row.created_at) ?? '',
+     updatedAt: dateOrNull(row.updated_at) ?? '',
+@@ -78,6 +80,9 @@ export type SendSignatureRequestInput = {
+   transactionDocumentId: string
+   message?: string | null
+   createdByUserId?: string | null
++  /** CRM-27 — the agreement execution role this request fulfills (e.g. BUYER,
++   *  SELLER). Optional/null for requests not tied to a role. Provider-neutral. */
++  executionRole?: string | null
+ }
+ 
+ export type SendSignatureRequestResult = {
+@@ -152,16 +157,16 @@ export async function sendSignatureRequest(
+     } else {
+       const rows = await tx`
+         insert into signature_request (
+-          transaction_document_id, status, message, created_by_user_id
++          transaction_document_id, status, message, created_by_user_id, execution_role
+         ) values (
+           ${input.transactionDocumentId}, 'requested', ${input.message ?? null},
+-          ${input.createdByUserId ?? null}
++          ${input.createdByUserId ?? null}, ${input.executionRole ?? null}
+         )
+         on conflict (transaction_document_id)
+           where status in ('requested', 'sent', 'viewed', 'signed')
+           do nothing
+         returning id, transaction_document_id, status, message, created_by_user_id,
+-          created_at, updated_at
++          execution_role, created_at, updated_at
+       `
+       const row = rows[0] as SignatureRequestRow | undefined
+       if (row) {
+@@ -172,7 +177,7 @@ export async function sendSignatureRequest(
+         // request — never a duplicate.
+         const active = await tx`
+           select id, transaction_document_id, status, message, created_by_user_id,
+-          created_at, updated_at
++          execution_role, created_at, updated_at
+           from signature_request
+           where transaction_document_id = ${input.transactionDocumentId}
+             and status in ('requested', 'sent', 'viewed', 'signed')
+@@ -341,7 +346,7 @@ async function transitionTo(
+ 
+   const curRows = await tx`
+     select id, transaction_document_id, status, message, created_by_user_id,
+-      created_at, updated_at
++      execution_role, created_at, updated_at
+     from signature_request
+     where id = ${input.signatureRequestId}
+     limit 1
+@@ -369,7 +374,7 @@ async function transitionTo(
+         where id = ${input.signatureRequestId}
+           and status = ${from}
+         returning id, transaction_document_id, status, message, created_by_user_id,
+-          created_at, updated_at
++          execution_role, created_at, updated_at
+       `
+       const updatedRow = updated[0] as SignatureRequestRow | undefined
+       if (updatedRow) {
+@@ -419,7 +424,7 @@ export async function getSignatureRequest(
+   const q = execute ?? (await executor())
+   const rows = await q`
+     select id, transaction_document_id, status, message, created_by_user_id,
+-      created_at, updated_at
++      execution_role, created_at, updated_at
+     from signature_request
+     where id = ${id}
+     limit 1
+@@ -435,7 +440,7 @@ export async function getActiveSignatureRequestForDocument(
+   const q = execute ?? (await executor())
+   const rows = await q`
+     select id, transaction_document_id, status, message, created_by_user_id,
+-      created_at, updated_at
++      execution_role, created_at, updated_at
+     from signature_request
+     where transaction_document_id = ${transactionDocumentId}
+       and status in ('requested', 'sent', 'viewed', 'signed')
+@@ -453,7 +458,7 @@ export async function listSignatureRequestsByDocument(
+   const q = execute ?? (await executor())
+   const rows = await q`
+     select id, transaction_document_id, status, message, created_by_user_id,
+-      created_at, updated_at
++      execution_role, created_at, updated_at
+     from signature_request
+     where transaction_document_id = ${transactionDocumentId}
+     order by created_at asc, id
+diff --git a/lib/agreements/completion.ts b/lib/agreements/completion.ts
+new file mode 100644
+index 0000000..11f77f1
+--- /dev/null
++++ b/lib/agreements/completion.ts
+@@ -0,0 +1,100 @@
++import { getTemplate } from '../forms/template-registry'
++import type { QueryExecutor } from '../../db/query-executor'
++import { neonTx, type TxRunner } from '../../db/tx'
++import {
++  claimAgreementExecution,
++  getCompletedExecutionRoles,
++} from '../../db/agreement-execution'
++import {
++  evaluateAgreementExecution,
++  resolveRequiredExecutionRoles,
++  type AgreementExecutionVerdict,
++} from './execution'
++
++// ---------------------------------------------------------------------------
++// CRM-27 — Agreement Completion evaluation (provider-neutral wiring).
++//
++// Composes the neutral evidence model with the required-role policy seam and
++// the Agreement Execution Predicate, then records the exactly-once marker.
++//
++//   document → template (declared signature roles) → required roles (policy)
++//   + completed signature-role evidence
++//   → predicate verdict
++//   → fully executed ? claim marker; shouldEmit exactly once : no-op
++//
++// `shouldEmit: true` tells the caller to emit the neutral AGREEMENT_FULLY_EXECUTED
++// fact for this version; duplicate/replayed completions return shouldEmit: false
++// (idempotent). This service never writes workflow state and never touches a
++// provider.
++// ---------------------------------------------------------------------------
++
++export type AgreementCompletionResult = {
++  verdict: AgreementExecutionVerdict
++  /** True ONLY on the first time this document version is judged fully executed. */
++  shouldEmit: boolean
++  document: { documentId: string; issuedVersion: number } | null
++}
++
++export type AgreementCompletionDeps = {
++  execute: QueryExecutor
++  run?: TxRunner
++  now?: () => Date
++}
++
++export async function evaluateAgreementCompletion(
++  documentId: string,
++  eventId: string,
++  deps: AgreementCompletionDeps,
++): Promise<AgreementCompletionResult> {
++  const rows = await deps.execute`
++    select template_id, issued_version
++    from transaction_document
++    where id = ${documentId}
++    limit 1
++  `
++  const row = rows[0] as
++    | { template_id?: unknown; issued_version?: unknown }
++    | undefined
++  const templateId = typeof row?.template_id === 'string' ? row.template_id : ''
++  const issuedVersion = Number(row?.issued_version ?? 0)
++  if (issuedVersion < 1) {
++    return {
++      verdict: {
++        fullyExecuted: false,
++        missingRoles: [],
++        reason: 'missing_required_roles',
++      },
++      shouldEmit: false,
++      document: { documentId, issuedVersion: 0 },
++    }
++  }
++
++  const template = getTemplate(templateId)
++  const declaredRoles = (template?.signatureGroups ?? []).map((group) => group.role)
++  const requiredRoles = resolveRequiredExecutionRoles(templateId, declaredRoles)
++  const satisfiedRoles = await getCompletedExecutionRoles(documentId, deps.execute)
++
++  const verdict = evaluateAgreementExecution({
++    documentVersion: `${templateId}-v${issuedVersion}`,
++    requiredRoles,
++    satisfiedRoles,
++    manuallyExecuted: false,
++  })
++
++  const document = { documentId, issuedVersion }
++  if (!verdict.fullyExecuted) {
++    return { verdict, shouldEmit: false, document }
++  }
++
++  const run = deps.run ?? neonTx
++  const { recorded } = await claimAgreementExecution(
++    {
++      documentId,
++      issuedVersion,
++      eventId,
++      emittedAt: deps.now?.() ?? new Date(),
++    },
++    run,
++  )
++  return { verdict, shouldEmit: recorded, document }
++}
+diff --git a/lib/agreements/execution.ts b/lib/agreements/execution.ts
+new file mode 100644
+index 0000000..5627060
+--- /dev/null
++++ b/lib/agreements/execution.ts
+@@ -0,0 +1,133 @@
++import type { DomainEventType } from '../workflow/contracts'
++
++// ---------------------------------------------------------------------------
++// CRM-27 — Agreement Execution Predicate (provider-neutral).
++//
++// "Is this specific issued agreement/document version FULLY EXECUTED?"
++//
++// This is the single provider-neutral application-owned answer to that
++// question. It is deliberately:
++//   - NOT provider-specific — BoldSign is evidence, not the definition of
++//     execution. Neutral signature-role evidence is passed in; no provider
++//     status strings ever appear here or in workflow XML.
++//   - version-scoped — evidence is keyed to one immutable issued
++//     document/agreement version. A different version is a different evidence
++//     set and can never falsely satisfy this one.
++//   - idempotent — evaluating a verdict more than once yields the same result;
++//     the "became fully executed" transition flips true exactly once.
++//   - manual/external-capable — an authorized manual/external execution may
++//     satisfy the predicate (agreements executed outside the configured
++//     signature provider).
++//
++// The required-role POLICY is intentionally a seam (stop-sign C): which
++// declared signature groups are legally/business REQUIRED execution roles is
++// NOT resolved by this code. It defaults to "every declared signature group is
++// required" — a clearly NON-AUTHORITATIVE fixture default for tests — and can
++// be overridden per template id without touching the predicate.
++// ---------------------------------------------------------------------------
++
++/** Neutral DomainEvent: an issued agreement/document version became fully
++ *  executed (all required execution roles satisfied, or authorized
++ *  manual/external execution). Fired exactly once per version. */
++export const AGREEMENT_FULLY_EXECUTED: DomainEventType = 'AGREEMENT_FULLY_EXECUTED'
++
++export type AgreementExecutionEvidence = {
++  /** Immutable issued agreement/document version this evidence is about. */
++  documentVersion: string
++  /** Required execution roles (resolved via the policy seam). */
++  requiredRoles: readonly string[]
++  /** Roles with satisfied NEUTRAL signature-role evidence (completed requests). */
++  satisfiedRoles: readonly string[]
++  /** Authorized manual/external execution recorded for this version. */
++  manuallyExecuted: boolean
++}
++
++export type AgreementExecutionReason =
++  | 'all_required_roles_satisfied'
++  | 'manual_execution'
++  | 'missing_required_roles'
++
++export type AgreementExecutionVerdict = {
++  fullyExecuted: boolean
++  missingRoles: readonly string[]
++  reason: AgreementExecutionReason
++}
++
++/**
++ * Pure predicate: compute whether the evidence proves full execution of this
++ * specific document version.
++ *
++ *   partial required signatures      -> not fully executed (missingRoles listed)
++ *   final required evidence arrives  -> fully executed
++ *   authorized manual/external       -> fully executed (satisfies the predicate)
++ *
++ * Never mutates state. Deterministic for a given evidence input.
++ */
++export function evaluateAgreementExecution(
++  evidence: AgreementExecutionEvidence,
++): AgreementExecutionVerdict {
++  if (evidence.manuallyExecuted) {
++    return {
++      fullyExecuted: true,
++      missingRoles: [],
++      reason: 'manual_execution',
++    }
++  }
++  const satisfied = new Set(evidence.satisfiedRoles)
++  const missingRoles = evidence.requiredRoles.filter((role) => !satisfied.has(role))
++  if (missingRoles.length === 0) {
++    return {
++      fullyExecuted: true,
++      missingRoles: [],
++      reason: 'all_required_roles_satisfied',
++    }
++  }
++  return {
++    fullyExecuted: false,
++    missingRoles,
++    reason: 'missing_required_roles',
++  }
++}
++
++/**
++ * Idempotent transition helper. `becameFullyExecuted` is true ONLY on the
++ * first evaluation that flips an agreement from not-fully-executed to
++ * fully-executed for a given version — so callers emit AGREEMENT_FULLY_EXECUTED
++ * exactly once (replayed/duplicate evaluations are no-ops).
++ */
++export function agreementExecutionTransition(
++  previous: AgreementExecutionVerdict | null,
++  current: AgreementExecutionVerdict,
++): { becameFullyExecuted: boolean; verdict: AgreementExecutionVerdict } {
++  const becameFullyExecuted =
++    current.fullyExecuted && !(previous?.fullyExecuted ?? false)
++  return { becameFullyExecuted, verdict: current }
++}
++
++// ---------------------------------------------------------------------------
++// Required-role policy seam (stop-sign C).
++// ---------------------------------------------------------------------------
++
++/**
++ * Per-template override of REQUIRED execution roles. Left empty because the
++ * architecture has NOT decided which declared signature groups are legally /
++ * business REQUIRED execution roles (stop-sign C). Populating this is a
++ * business decision, not an engineering one.
++ */
++const REQUIRED_EXECUTION_ROLE_OVERRIDES: Record<string, readonly string[]> = {}
++
++/**
++ * Resolve the REQUIRED execution roles for an issued agreement template.
++ *
++ * DEFAULT (NON-AUTHORITATIVE, for tests/fixtures only): every declared
++ * signature group is treated as a required execution role. This is NOT a
++ * business decision — required/optional role policy must be confirmed. The
++ * predicate itself always supports optional roles: an optional role simply
++ * must not be listed in the resolved required set.
++ */
++export function resolveRequiredExecutionRoles(
++  templateId: string,
++  declaredSignatureRoles: readonly string[],
++): readonly string[] {
++  return REQUIRED_EXECUTION_ROLE_OVERRIDES[templateId] ?? [...declaredSignatureRoles]
++}
+diff --git a/lib/commands/signature/signature-commands.ts b/lib/commands/signature/signature-commands.ts
+index ed82d43..dceab94 100644
+--- a/lib/commands/signature/signature-commands.ts
++++ b/lib/commands/signature/signature-commands.ts
+@@ -105,6 +105,7 @@ export class SendSignatureRequestCommand
+         transactionDocumentId: input.transactionDocumentId,
+         message: input.message ?? null,
+         createdByUserId: input.createdByUserId ?? null,
++        executionRole: input.executionRole ?? null,
+       },
+       ctx.run,
+     )
+diff --git a/lib/signature/application.ts b/lib/signature/application.ts
+index 2c03983..dfef21f 100644
+--- a/lib/signature/application.ts
++++ b/lib/signature/application.ts
+@@ -149,6 +149,7 @@ export class SignatureApplication {
+         recipients: input.recipients,
+         message: input.message ?? null,
+         createdByUserId: input.createdByUserId ?? null,
++        executionRole: input.executionRole ?? null,
+       }, ctx),
+     )
+     if (sendResult.outcome !== 'success') return sendResult
+diff --git a/lib/signature/contracts.ts b/lib/signature/contracts.ts
+index aa81a5e..65c9984 100644
+--- a/lib/signature/contracts.ts
++++ b/lib/signature/contracts.ts
+@@ -124,6 +124,7 @@ export type SignatureRequest = {
+   transactionDocumentId: string
+   status: SignatureRequestStatus
+   message: string | null
++  executionRole: string | null
+   createdByUserId: string | null
+   createdAt: string
+   updatedAt: string
+@@ -184,6 +185,9 @@ export type SendSignatureRequestCommandInput = {
+   recipients: SignatureRecipient[]
+   message?: string | null
+   createdByUserId?: string | null
++  /** CRM-27 — the agreement execution role this request fulfills (provider-
++   *  neutral; optional for requests not tied to an agreement role). */
++  executionRole?: string | null
+ }
+ 
+ export type StatusSignatureRequestCommandInput = {
+diff --git a/lib/signature/reconciliation.ts b/lib/signature/reconciliation.ts
+index 9423a95..264aa9f 100644
+--- a/lib/signature/reconciliation.ts
++++ b/lib/signature/reconciliation.ts
+@@ -28,6 +28,7 @@ import {
+   type ReconcileCompletedSignatureRequestDeps,
+ } from '../../db/signature-reconciliation'
+ import type { SignatureProvider } from './provider'
++import type { AgreementCompletionResult } from '../agreements/completion'
+ 
+ export type SignatureReconciliationHandlerDeps = {
+   /** The CONFIGURED provider — used ONLY for the one-time signed-artifact
+@@ -39,6 +40,13 @@ export type SignatureReconciliationHandlerDeps = {
+   execute?: QueryExecutor
+   /** Application clock (injectable for deterministic tests). */
+   now?: () => Date
++  /** CRM-27 — optional agreement-completion evaluator invoked after a neutral
++   *  completed event, so a fully-executed agreement can be recognised exactly
++   *  once. Injected (never constructed here) to keep this seam provider-free. */
++  evaluateAgreement?: (
++    documentId: string,
++    eventId: string,
++  ) => Promise<AgreementCompletionResult>
+ }
+ 
+ export class SignatureReconciliationHandler {
+@@ -63,7 +71,10 @@ export class SignatureReconciliationHandler {
+         replayed: false,
+       }
+     }
+-    const payload = event.payload as { signatureRequestId?: unknown }
++    const payload = event.payload as {
++      signatureRequestId?: unknown
++      transactionDocumentId?: unknown
++    }
+     if (typeof payload?.signatureRequestId !== 'string' || payload.signatureRequestId === '') {
+       return {
+         commandId: event.eventId,
+@@ -80,7 +91,7 @@ export class SignatureReconciliationHandler {
+       downloadSignedArtifact: (requestId) => this.deps.provider.downloadSignedArtifact(requestId),
+       now: this.deps.now,
+     }
+-    return reconcileCompletedSignatureRequest(
++    const reconcile = await reconcileCompletedSignatureRequest(
+       {
+         eventId: event.eventId,
+         signatureRequestId: payload.signatureRequestId,
+@@ -88,5 +99,41 @@ export class SignatureReconciliationHandler {
+       },
+       deps,
+     )
++    // CRM-27 — after the signed artifact is reconciled, evaluate whether this
++    // completion makes the linked issued agreement version FULLY EXECUTED.
++    // `shouldEmit` is exactly-once; the fact's actual dispatch is the caller's
++    // (a later workflow/wiring seam). A failure here is non-fatal — the signed
++    // artifact is already reconciled — and is surfaced on the result.
++    const transactionDocumentId =
++      typeof payload.transactionDocumentId === 'string'
++        ? payload.transactionDocumentId
++        : null
++    if (this.deps.evaluateAgreement && transactionDocumentId) {
++      try {
++        const completion = await this.deps.evaluateAgreement(
++          transactionDocumentId,
++          event.eventId,
++        )
++        const value = (reconcile.value ?? {}) as Record<string, unknown>
++        return {
++          ...reconcile,
++          value: { ...value, agreementCompletion: completion },
++        }
++      } catch (error) {
++        const detail = error instanceof Error ? error.message : String(error)
++        const value = (reconcile.value ?? {}) as Record<string, unknown>
++        return {
++          ...reconcile,
++          message: [
++            reconcile.message,
++            `Agreement execution evaluation failed: ${detail}`,
++          ]
++            .filter(Boolean)
++            .join(' '),
++          value: { ...value, agreementCompletion: { shouldEmit: false } },
++        }
++      }
++    }
++    return reconcile
+   }
+ }
+diff --git a/lib/workflow/contracts.ts b/lib/workflow/contracts.ts
+index 749f2ed..20bef5b 100644
+--- a/lib/workflow/contracts.ts
++++ b/lib/workflow/contracts.ts
+@@ -33,6 +33,10 @@ export type DomainEventType =
+   | 'SIGNATURE_REQUEST_COMPLETED'
+   | 'SIGNATURE_REQUEST_DECLINED'
+   | 'SIGNATURE_REQUEST_VOIDED'
++  // CRM-27 — neutral agreement execution fact: an issued agreement/document
++  // version became FULLY EXECUTED (all required execution roles satisfied, or
++  // authorized manual/external execution). Provider-neutral; fired once.
++  | 'AGREEMENT_FULLY_EXECUTED'
+ 
+ export type AggregateType =
+   | 'deal'
+diff --git a/workflow_app/tests/agreement-execution.test.ts b/workflow_app/tests/agreement-execution.test.ts
+new file mode 100644
+index 0000000..ecf8d73
+--- /dev/null
++++ b/workflow_app/tests/agreement-execution.test.ts
+@@ -0,0 +1,153 @@
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++
++import {
++  evaluateAgreementExecution,
++  agreementExecutionTransition,
++  resolveRequiredExecutionRoles,
++  AGREEMENT_FULLY_EXECUTED,
++} from '../../lib/agreements/execution'
++
++const ROLES = ['BUYER', 'SELLER', 'SELLER_BROKER']
++
++test('CRM-27: partial required signatures are NOT fully executed', () => {
++  const verdict = evaluateAgreementExecution({
++    documentVersion: 'PR-PNS-v1',
++    requiredRoles: ROLES,
++    satisfiedRoles: ['BUYER'],
++    manuallyExecuted: false,
++  })
++  assert.equal(verdict.fullyExecuted, false)
++  assert.equal(verdict.reason, 'missing_required_roles')
++  assert.deepEqual(verdict.missingRoles, ['SELLER', 'SELLER_BROKER'])
++})
++
++test('CRM-27: final required evidence -> fully executed', () => {
++  const verdict = evaluateAgreementExecution({
++    documentVersion: 'PR-PNS-v1',
++    requiredRoles: ROLES,
++    satisfiedRoles: ['BUYER', 'SELLER', 'SELLER_BROKER'],
++    manuallyExecuted: false,
++  })
++  assert.equal(verdict.fullyExecuted, true)
++  assert.equal(verdict.reason, 'all_required_roles_satisfied')
++  assert.deepEqual(verdict.missingRoles, [])
++})
++
++test('CRM-27: authorized manual/external evidence satisfies the predicate', () => {
++  const verdict = evaluateAgreementExecution({
++    documentVersion: 'PR-PNS-v1',
++    requiredRoles: ROLES,
++    satisfiedRoles: [],
++    manuallyExecuted: true,
++  })
++  assert.equal(verdict.fullyExecuted, true)
++  assert.equal(verdict.reason, 'manual_execution')
++})
++
++test('CRM-27: optional vs required role policy is respected', () => {
++  const requiredRoles = resolveRequiredExecutionRoles('PR-PNS', ROLES)
++  assert.deepEqual([...requiredRoles].sort(), [...ROLES].sort())
++  // A policy that marks SELLER_BROKER optional -> satisfied without it.
++  const verdict = evaluateAgreementExecution({
++    documentVersion: 'PR-PNS-v1',
++    requiredRoles: ['BUYER', 'SELLER'],
++    satisfiedRoles: ['BUYER', 'SELLER'],
++    manuallyExecuted: false,
++  })
++  assert.equal(verdict.fullyExecuted, true)
++})
++
++test('CRM-27: transition is idempotent — becameFullyExecuted exactly once', () => {
++  const partial = evaluateAgreementExecution({
++    documentVersion: 'PR-PNS-v1', requiredRoles: ROLES, satisfiedRoles: ['BUYER'], manuallyExecuted: false,
++  })
++  const full = evaluateAgreementExecution({
++    documentVersion: 'PR-PNS-v1', requiredRoles: ROLES, satisfiedRoles: ROLES, manuallyExecuted: false,
++  })
++  const first = agreementExecutionTransition(partial, full)
++  assert.equal(first.becameFullyExecuted, true)
++  const replay = agreementExecutionTransition(full, full)
++  assert.equal(replay.becameFullyExecuted, false)
++})
++
++test('CRM-27: AGREEMENT_FULLY_EXECUTED is a neutral domain event type', () => {
++  assert.equal(AGREEMENT_FULLY_EXECUTED, 'AGREEMENT_FULLY_EXECUTED')
++})
++
++// ---------------------------------------------------------------------------
++// Completion evaluator (evidence assembly + exactly-once marker)
++// ---------------------------------------------------------------------------
++
++import {
++  evaluateAgreementCompletion,
++} from '../../lib/agreements/completion'
++import type { QueryExecutor } from '../../db/query-executor'
++import type { TxRunner } from '../../db/tx'
++
++function makeExecute(opts: {
++  templateId?: string
++  issuedVersion?: number
++  satisfiedRoles?: string[]
++}) {
++  const executor: QueryExecutor = async (strings) => {
++    const sql = strings.join('?')
++    if (sql.includes('from transaction_document')) {
++      return [
++        { template_id: opts.templateId ?? 'PR-PNS', issued_version: opts.issuedVersion ?? 1 },
++      ]
++    }
++    if (sql.includes('from signature_request')) {
++      return (opts.satisfiedRoles ?? []).map((role) => ({ execution_role: role }))
++    }
++    return []
++  }
++  return executor
++}
++
++function makeRun() {
++  const seen = new Set<string>()
++  const runner: TxRunner = (cb) =>
++    cb(async (strings, ...params) => {
++      const sql = strings.join('?')
++      if (sql.includes('insert into agreement_execution')) {
++        const key = `${String(params[0])}:${String(params[1])}`
++        if (seen.has(key)) return []
++        seen.add(key)
++        return [{ id: '1' }]
++      }
++      return []
++    })
++  return { runner }
++}
++
++test('CRM-27: completion — partial roles never emits', async () => {
++  const execute = makeExecute({ templateId: 'PR-PNS', issuedVersion: 1, satisfiedRoles: ['BUYER'] })
++  const { runner } = makeRun()
++  const result = await evaluateAgreementCompletion('doc-1', 'evt-1', { execute, run: runner })
++  assert.equal(result.shouldEmit, false)
++  assert.equal(result.verdict.fullyExecuted, false)
++  assert.equal(result.document?.issuedVersion, 1)
++})
++
++test('CRM-27: completion — fully executed emits exactly once, replay is a no-op', async () => {
++  const execute = makeExecute({ templateId: 'PR-PNS', issuedVersion: 1, satisfiedRoles: ROLES })
++  const { runner } = makeRun()
++  const first = await evaluateAgreementCompletion('doc-1', 'evt-1', { execute, run: runner })
++  assert.equal(first.shouldEmit, true)
++  assert.equal(first.verdict.fullyExecuted, true)
++  const replay = await evaluateAgreementCompletion('doc-1', 'evt-2', { execute, run: runner })
++  assert.equal(replay.shouldEmit, false)
++})
++
++test('CRM-27: completion — wrong document/version is independently scoped', async () => {
++  const executeA = makeExecute({ templateId: 'PR-PNS', issuedVersion: 1, satisfiedRoles: ROLES })
++  const { runner } = makeRun()
++  const a = await evaluateAgreementCompletion('doc-A', 'evt-A', { execute: executeA, run: runner })
++  assert.equal(a.shouldEmit, true)
++  const executeB = makeExecute({ templateId: 'PR-PNS', issuedVersion: 1, satisfiedRoles: ['BUYER'] })
++  const b = await evaluateAgreementCompletion('doc-B', 'evt-B', { execute: executeB, run: runner })
++  assert.equal(b.shouldEmit, false)
++  assert.equal(b.verdict.fullyExecuted, false)
++})
++
+-- 
+2.50.1 (Apple Git-155)
+
