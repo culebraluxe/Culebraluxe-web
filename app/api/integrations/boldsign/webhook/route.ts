@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { CommandDispatcherImpl } from '@/lib/commands/dispatcher'
-import { createCommandRegistry } from '@/lib/commands/register'
-import { PostgresCommandReceiptRepository } from '@/db/command-receipt-repository'
+import { createCommandDispatcher } from '@/lib/commands'
 import { neonTx } from '@/db/tx'
 import { SignatureApplication } from '@/lib/signature/application'
 import {
@@ -15,6 +13,7 @@ import {
   type BoldSignConfig,
 } from '@/lib/signature/boldsign/config'
 import { SignatureReconciliationHandler } from '@/lib/signature/reconciliation'
+import { evaluateAgreementViaCommand } from '@/lib/agreements/re-drive'
 
 // ---------------------------------------------------------------------------
 // DOC-04/05 — BoldSign webhook production endpoint.
@@ -74,14 +73,14 @@ function getConfig(): BoldSignConfig {
 function getApplication(): SignatureApplication {
   if (!application) {
     const provider = new BoldSignSignatureProvider({ config: getConfig() })
-    const dispatcher = new CommandDispatcherImpl({
-      registry: createCommandRegistry(),
-      receipts: new PostgresCommandReceiptRepository(),
-      run: neonTx,
-    })
+    const dispatcher = createCommandDispatcher()
     const reconciler = new SignatureReconciliationHandler({
       provider,
       run: neonTx,
+      // CRM-27 (F): re-drive agreement-execution evaluation through the durable
+      // canonical command (idempotent, exactly-once outbox emission).
+      evaluateAgreement: (documentId, eventId) =>
+        evaluateAgreementViaCommand({ dispatcher }, documentId, eventId),
     })
     application = new SignatureApplication({ dispatcher, provider, reconciler })
   }

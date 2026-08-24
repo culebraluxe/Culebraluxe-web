@@ -11,6 +11,10 @@ import {
 import { neonTx, type TxRunner } from './tx'
 import type { QueryExecutor, QueryRow } from './query-executor'
 import {
+  normalizeEmail,
+  parseIssuedParticipants,
+} from '../lib/agreements/participants'
+import {
   claimReceipt,
   finalizeReceipt,
   readFinalReceipt,
@@ -46,6 +50,8 @@ export type SignatureRequestRow = QueryRow & {
   transaction_document_id: string
   status: string
   message: string | null
+  execution_role: string | null
+  execution_slot_id: string | null
   created_by_user_id: string | null
   created_at: string
   updated_at: string
@@ -63,6 +69,8 @@ function mapSignatureRequest(row: SignatureRequestRow): SignatureRequest {
     transactionDocumentId: row.transaction_document_id,
     status: row.status as SignatureRequestStatus,
     message: row.message ?? null,
+    executionRole: row.execution_role ?? null,
+    executionSlotId: row.execution_slot_id ?? null,
     createdByUserId: row.created_by_user_id ?? null,
     createdAt: dateOrNull(row.created_at) ?? '',
     updatedAt: dateOrNull(row.updated_at) ?? '',
@@ -78,6 +86,17 @@ export type SendSignatureRequestInput = {
   transactionDocumentId: string
   message?: string | null
   createdByUserId?: string | null
+  /** CRM-27 — the agreement execution role this request fulfills (e.g. BUYER,
+   *  SELLER). Optional/null for requests not tied to a role. Provider-neutral. */
+  executionRole?: string | null
+  /** CRM-27 — the ISSUED participant/signature slot this request satisfies
+   *  (e.g. "BUYER:1"). Keyed to the immutable issued participant snapshot; a
+   *  completed request proves completion of that exact issued slot. */
+  executionSlotId?: string | null
+  /** CRM-27 — the single intended recipient email for a slot-bound send. The
+   *  canonical send boundary verifies it matches the immutable slot; the client
+   *  is never authoritative for it. */
+  slotRecipientEmail?: string | null
 }
 
 export type SendSignatureRequestResult = {
@@ -141,27 +160,80 @@ export async function sendSignatureRequest(
     let message: string | null = null
     let value: SendSignatureRequestResult | undefined
 
-    const docRows = await tx`
-      select id from transaction_document
-      where id = ${input.transactionDocumentId}
-      limit 1
-    `
+    const docRows = input.executionSlotId
+      ? await tx`
+          select id, source_snapshot
+          from transaction_document
+          where id = ${input.transactionDocumentId}
+          limit 1
+        `
+      : await tx`
+          select id
+          from transaction_document
+          where id = ${input.transactionDocumentId}
+          limit 1
+        `
+    const docRow = docRows[0] as
+      | { id?: unknown; source_snapshot?: unknown }
+      | undefined
     if (!docRows[0]) {
       outcome = 'not_found'
       message = 'Transaction document not found.'
     } else {
-      const rows = await tx`
-        insert into signature_request (
-          transaction_document_id, status, message, created_by_user_id
-        ) values (
-          ${input.transactionDocumentId}, 'requested', ${input.message ?? null},
-          ${input.createdByUserId ?? null}
+      // CRM-27 (canonical send-boundary enforcement): for a slot-bound request,
+      // re-validate inside the canonical send service — the client is never
+      // authoritative for role/slot/recipient. Resolve the supplied slot against
+      // the EXACT issued document's immutable snapshot and reject an arbitrary or
+      // cross-document slot label, a role mismatch, or a recipient mismatch.
+      let proceed = true
+      let slotRole: string | null = input.executionRole ?? null
+      if (input.executionSlotId) {
+        const parsed = parseIssuedParticipants(
+          (docRow!.source_snapshot as { issuedParticipants?: unknown } | undefined)
+            ?.issuedParticipants,
         )
+        if (!parsed.ok) {
+          proceed = false
+          outcome = 'validation_failure'
+          message = `Invalid issued-participant snapshot: ${parsed.error}`
+        } else {
+          const slot = parsed.slots.find((s) => s.slotId === input.executionSlotId)
+          if (!slot) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = `Execution slot '${input.executionSlotId}' does not exist in document ${input.transactionDocumentId}.`
+          } else if (input.executionRole && input.executionRole !== slot.role) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = `Execution role '${input.executionRole}' does not match slot '${slot.slotId}'.`
+          } else if (
+            input.slotRecipientEmail &&
+            normalizeEmail(input.slotRecipientEmail) !== normalizeEmail(slot.email)
+          ) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = 'Recipient does not match the immutable execution slot.'
+          } else {
+            slotRole = slot.role
+          }
+        }
+      }
+
+      if (proceed) {
+        const rows = await tx`
+          insert into signature_request (
+            transaction_document_id, status, message, created_by_user_id, execution_role,
+            execution_slot_id
+          ) values (
+            ${input.transactionDocumentId}, 'requested', ${input.message ?? null},
+            ${input.createdByUserId ?? null}, ${slotRole},
+            ${input.executionSlotId ?? null}
+          )
         on conflict (transaction_document_id)
           where status in ('requested', 'sent', 'viewed', 'signed')
           do nothing
         returning id, transaction_document_id, status, message, created_by_user_id,
-          created_at, updated_at
+          execution_role, execution_slot_id, created_at, updated_at
       `
       const row = rows[0] as SignatureRequestRow | undefined
       if (row) {
@@ -172,7 +244,7 @@ export async function sendSignatureRequest(
         // request — never a duplicate.
         const active = await tx`
           select id, transaction_document_id, status, message, created_by_user_id,
-          created_at, updated_at
+          execution_role, execution_slot_id, created_at, updated_at
           from signature_request
           where transaction_document_id = ${input.transactionDocumentId}
             and status in ('requested', 'sent', 'viewed', 'signed')
@@ -183,10 +255,15 @@ export async function sendSignatureRequest(
         if (!activeRow) {
           outcome = 'conflict'
           message = 'Could not record the signature request (active-request conflict).'
+        } else if ((activeRow.execution_slot_id ?? null) !== (input.executionSlotId ?? null)) {
+          outcome = 'conflict'
+          message =
+            'Another signature request is active for this document; complete or void it before sending a different execution slot.'
         } else {
           aggregateId = activeRow.id
           value = { signatureRequest: mapSignatureRequest(activeRow), existing: true }
         }
+      }
       }
     }
 
@@ -341,7 +418,7 @@ async function transitionTo(
 
   const curRows = await tx`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, execution_slot_id, created_at, updated_at
     from signature_request
     where id = ${input.signatureRequestId}
     limit 1
@@ -369,7 +446,7 @@ async function transitionTo(
         where id = ${input.signatureRequestId}
           and status = ${from}
         returning id, transaction_document_id, status, message, created_by_user_id,
-          created_at, updated_at
+          execution_role, execution_slot_id, created_at, updated_at
       `
       const updatedRow = updated[0] as SignatureRequestRow | undefined
       if (updatedRow) {
@@ -419,7 +496,7 @@ export async function getSignatureRequest(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, execution_slot_id, created_at, updated_at
     from signature_request
     where id = ${id}
     limit 1
@@ -435,7 +512,7 @@ export async function getActiveSignatureRequestForDocument(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, execution_slot_id, created_at, updated_at
     from signature_request
     where transaction_document_id = ${transactionDocumentId}
       and status in ('requested', 'sent', 'viewed', 'signed')
@@ -453,7 +530,7 @@ export async function listSignatureRequestsByDocument(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, transaction_document_id, status, message, created_by_user_id,
-      created_at, updated_at
+      execution_role, execution_slot_id, created_at, updated_at
     from signature_request
     where transaction_document_id = ${transactionDocumentId}
     order by created_at asc, id

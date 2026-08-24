@@ -126,6 +126,11 @@ function normalizeResult(
 export class CommandDispatcherImpl implements CommandDispatcher {
   constructor(private readonly options: CommandDispatcherOptions) {}
 
+  /** The configured durable event sink (null/absent before a consumer exists). */
+  get eventSink(): OutboxEventRepository | null | undefined {
+    return this.options.eventSink
+  }
+
   async execute<TPayload extends Record<string, unknown>, TResult = unknown>(
     command: TypedCommandEnvelope<TPayload>,
   ): Promise<TypedCommandResult<TResult>> {

@@ -66,6 +66,14 @@ import {
   StatusSignatureRequestCommand,
 } from './signature/signature-commands'
 import { DOCUMENT_ISSUE, IssueDocumentCommand } from './document/issue-document'
+import {
+  AGREEMENT_EXECUTION_CLAIM,
+  ClaimAgreementExecutionCommand,
+} from './agreement/claim-agreement-execution'
+import {
+  AGREEMENT_EXECUTION_MANUAL,
+  RecordManualAgreementExecutionCommand,
+} from './agreement/record-manual-agreement-execution'
 
 /** Register every canonical command handler into the given registry. */
 export function registerCanonicalCommands(registry: CommandRegistry): void {
@@ -93,6 +101,12 @@ export function registerCanonicalCommands(registry: CommandRegistry): void {
   registry.register(SIGNATURE_REQUEST_DECLINE, new DeclineSignatureRequestCommand())
   // DOC-06 — canonical issuance command (immutable issued transaction document).
   registry.register(DOCUMENT_ISSUE, new IssueDocumentCommand())
+  // CRM-27 — canonical agreement-execution claim command (transactional,
+  // exactly-once AGREEMENT_FULLY_EXECUTED emitter through the outbox).
+  registry.register(AGREEMENT_EXECUTION_CLAIM, new ClaimAgreementExecutionCommand())
+  // CRM-27 — canonical audited MANUAL/external agreement-execution command
+  // (same marker + outbox path, actor-audited, replay-safe).
+  registry.register(AGREEMENT_EXECUTION_MANUAL, new RecordManualAgreementExecutionCommand())
 }
 
 /** A fresh registry with every canonical command registered. */

@@ -149,6 +149,9 @@ export class SignatureApplication {
         recipients: input.recipients,
         message: input.message ?? null,
         createdByUserId: input.createdByUserId ?? null,
+        executionRole: input.executionRole ?? null,
+        executionSlotId: input.executionSlotId ?? null,
+        slotRecipientEmail: input.slotRecipientEmail ?? null,
       }, ctx),
     )
     if (sendResult.outcome !== 'success') return sendResult
