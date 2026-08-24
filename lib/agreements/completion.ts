@@ -3,13 +3,15 @@ import type { QueryExecutor } from '../../db/query-executor'
 import type { TxRunner } from '../../db/tx'
 import {
   claimAgreementExecution,
-  getCompletedExecutionRoles,
+  getCompletedExecutionSlots,
 } from '../../db/agreement-execution'
 import {
+  buildIssuedExecutionSlots,
   evaluateAgreementExecution,
   isExecutionEligibleTemplate,
-  resolveRequiredExecutionRoles,
+  resolveRequiredSlots,
   type AgreementExecutionVerdict,
+  type IssuedExecutionSlot,
 } from './execution'
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@ import {
 const INCOMPLETE: AgreementExecutionVerdict = {
   fullyExecuted: false,
   missingRoles: [],
+  missingSlotIds: [],
   reason: 'missing_required_roles',
 }
 
@@ -99,7 +102,7 @@ export async function evaluateAgreementCompletion(
 ): Promise<AgreementCompletionResult> {
   return deps.run(async (tx) => {
     const rows = await deps.execute`
-      select id, template_id, issued_version, deal_id, document_type
+      select id, template_id, issued_version, deal_id, document_type, source_snapshot
       from transaction_document
       where id = ${documentId}
       limit 1
@@ -111,6 +114,7 @@ export async function evaluateAgreementCompletion(
           issued_version?: unknown
           deal_id?: unknown
           document_type?: unknown
+          source_snapshot?: unknown
         }
       | undefined
     if (!row?.id) {
@@ -198,8 +202,20 @@ export async function evaluateAgreementCompletion(
     }
 
     const declaredRoles = (template.signatureGroups ?? []).map((group) => group.role)
-    const requiredRoles = resolveRequiredExecutionRoles(templateId, declaredRoles)
-    if (requiredRoles.length === 0) {
+    // PARTICIPANT CARDINALITY: required slots come from the IMMUTABLE issued
+    // snapshot (source_snapshot.issuedParticipants), which preserves the exact
+    // participant set when THIS version was issued. For documents issued before
+    // the participant snapshot existed, fall back to one slot per declared role.
+    const snapshot = (row.source_snapshot ?? {}) as { issuedParticipants?: unknown }
+    const issuedParticipants: readonly IssuedExecutionSlot[] = Array.isArray(
+      snapshot.issuedParticipants,
+    )
+      ? (snapshot.issuedParticipants as IssuedExecutionSlot[])
+      : buildIssuedExecutionSlots(
+          declaredRoles.map((role) => ({ role, personId: null, name: role, email: null })),
+        )
+    const requiredSlots = resolveRequiredSlots(templateId, issuedParticipants)
+    if (requiredSlots.length === 0) {
       return {
         outcome: 'precondition_failure',
         error: `Template ${templateId} declares no required execution participants.`,
@@ -212,12 +228,12 @@ export async function evaluateAgreementCompletion(
       }
     }
 
-    const satisfiedRoles = await getCompletedExecutionRoles(documentId, deps.execute)
+    const satisfiedSlotIds = await getCompletedExecutionSlots(documentId, deps.execute)
 
     const verdict = evaluateAgreementExecution({
       documentVersion: `${templateId}-v${issuedVersion}`,
-      requiredRoles,
-      satisfiedRoles,
+      requiredSlots,
+      satisfiedSlotIds,
       manuallyExecuted: false,
     })
 

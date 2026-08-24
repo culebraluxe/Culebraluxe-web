@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto'
 import { AGREEMENT_EXECUTION_CLAIM } from '../commands/command-types'
 import type { CommandDispatcher } from '../commands/contracts'
-import { getCompletedExecutionRoles } from '../../db/agreement-execution'
+import { getCompletedExecutionSlots } from '../../db/agreement-execution'
 import type { QueryExecutor } from '../../db/query-executor'
 import type { AgreementCompletionResult } from './completion'
 
@@ -79,7 +79,7 @@ export async function evaluateAgreementViaCommand(
   eventId: string,
 ): Promise<AgreementCompletionResult> {
   const q = deps.execute ?? (await defaultExecutor())
-  const evidence = await getCompletedExecutionRoles(transactionDocumentId, q)
+  const evidence = await getCompletedExecutionSlots(transactionDocumentId, q)
   const commandId = agreementExecutionClaimCommandId(transactionDocumentId, evidence)
 
   const result = await deps.dispatcher.execute({
@@ -103,7 +103,7 @@ export async function evaluateAgreementViaCommand(
       error:
         result.message ??
         `Agreement execution re-drive failed (${result.outcome}).`,
-      verdict: { fullyExecuted: false, missingRoles: [], reason: 'missing_required_roles' },
+      verdict: { fullyExecuted: false, missingRoles: [], missingSlotIds: [], reason: 'missing_required_roles' },
       shouldEmit: false,
       document: null,
       templateId: null,
@@ -121,7 +121,7 @@ export async function evaluateAgreementViaCommand(
     return {
       outcome: 'success',
       error: null,
-      verdict: { fullyExecuted: false, missingRoles: [], reason: 'missing_required_roles' },
+      verdict: { fullyExecuted: false, missingRoles: [], missingSlotIds: [], reason: 'missing_required_roles' },
       shouldEmit: false,
       document: null,
       templateId: null,

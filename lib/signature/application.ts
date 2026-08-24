@@ -150,6 +150,7 @@ export class SignatureApplication {
         message: input.message ?? null,
         createdByUserId: input.createdByUserId ?? null,
         executionRole: input.executionRole ?? null,
+        executionSlotId: input.executionSlotId ?? null,
       }, ctx),
     )
     if (sendResult.outcome !== 'success') return sendResult

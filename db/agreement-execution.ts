@@ -86,3 +86,26 @@ export async function getCompletedExecutionRoles(
     .map((row) => (typeof row.execution_role === 'string' ? row.execution_role : ''))
     .filter((role) => role.length > 0)
 }
+
+/**
+ * PARTICIPANT-CARDINALITY evidence reader (CRM-27): the distinct ISSUED SLOT IDs
+ * satisfied by COMPLETED signature requests for a document. Evidence is keyed by
+ * the issued participant slot (execution_slot_id) — not the role — so duplicate
+ * evidence for one participant can never satisfy another, and each actual
+ * participant in a role must have its OWN completed evidence.
+ */
+export async function getCompletedExecutionSlots(
+  documentId: string,
+  execute: QueryExecutor,
+): Promise<string[]> {
+  const rows = await execute`
+    select distinct execution_slot_id
+    from signature_request
+    where transaction_document_id = ${documentId}
+      and status = 'completed'
+      and execution_slot_id is not null
+  `
+  return rows
+    .map((row) => (typeof row.execution_slot_id === 'string' ? row.execution_slot_id : ''))
+    .filter((slotId) => slotId.length > 0)
+}

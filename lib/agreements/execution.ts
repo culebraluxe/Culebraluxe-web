@@ -27,17 +27,34 @@ import type { DomainEventType } from '../workflow/contracts'
 // ---------------------------------------------------------------------------
 
 /** Neutral DomainEvent: an issued agreement/document version became fully
- *  executed (all required execution roles satisfied, or authorized
+ *  executed (all required execution slots satisfied, or authorized
  *  manual/external execution). Fired exactly once per version. */
 export const AGREEMENT_FULLY_EXECUTED: DomainEventType = 'AGREEMENT_FULLY_EXECUTED'
+
+/**
+ * An immutable issued participant / signature slot. Snapshot AT ISSUANCE into the
+ * immutable issued-document lineage (transaction_document.source_snapshot.
+ * issuedParticipants), so the required participant set is what it was when that
+ * specific version was issued — NOT the mutable draft state that may change
+ * later. `slotId` is a stable, provider-neutral identity (e.g. "BUYER:1").
+ */
+export type IssuedExecutionSlot = {
+  slotId: string
+  role: string
+  personId: string | null
+  name: string
+  email: string | null
+  required: boolean
+  order: number
+}
 
 export type AgreementExecutionEvidence = {
   /** Immutable issued agreement/document version this evidence is about. */
   documentVersion: string
-  /** Required execution roles (resolved via the policy seam). */
-  requiredRoles: readonly string[]
-  /** Roles with satisfied NEUTRAL signature-role evidence (completed requests). */
-  satisfiedRoles: readonly string[]
+  /** Required execution slots (resolved via the policy seam). */
+  requiredSlots: readonly IssuedExecutionSlot[]
+  /** Issued slot ids with satisfied COMPLETED signature-request evidence. */
+  satisfiedSlotIds: readonly string[]
   /** Authorized manual/external execution recorded for this version. */
   manuallyExecuted: boolean
 }
@@ -50,6 +67,8 @@ export type AgreementExecutionReason =
 export type AgreementExecutionVerdict = {
   fullyExecuted: boolean
   missingRoles: readonly string[]
+  /** The unsatisfied required slot ids (participant cardinality). */
+  missingSlotIds: readonly string[]
   reason: AgreementExecutionReason
 }
 
@@ -57,9 +76,14 @@ export type AgreementExecutionVerdict = {
  * Pure predicate: compute whether the evidence proves full execution of this
  * specific document version.
  *
- *   partial required signatures      -> not fully executed (missingRoles listed)
+ *   partial required signatures      -> not fully executed (missingSlots listed)
  *   final required evidence arrives  -> fully executed
  *   authorized manual/external       -> fully executed (satisfies the predicate)
+ *
+ * PARTICIPANT CARDINALITY (CRM-27): a role is complete only when EVERY issued
+ * required slot in that role has execution evidence. Satisfaction is keyed by
+ * the ISSUED SLOT ID, so duplicate evidence for one participant can never
+ * satisfy another participant in the same role.
  *
  * Never mutates state. Deterministic for a given evidence input.
  */
@@ -70,21 +94,25 @@ export function evaluateAgreementExecution(
     return {
       fullyExecuted: true,
       missingRoles: [],
+      missingSlotIds: [],
       reason: 'manual_execution',
     }
   }
-  const satisfied = new Set(evidence.satisfiedRoles)
-  const missingRoles = evidence.requiredRoles.filter((role) => !satisfied.has(role))
-  if (missingRoles.length === 0) {
+  const required = evidence.requiredSlots.filter((slot) => slot.required)
+  const satisfied = new Set(evidence.satisfiedSlotIds)
+  const missing = required.filter((slot) => !satisfied.has(slot.slotId))
+  if (missing.length === 0) {
     return {
       fullyExecuted: true,
       missingRoles: [],
+      missingSlotIds: [],
       reason: 'all_required_roles_satisfied',
     }
   }
   return {
     fullyExecuted: false,
-    missingRoles,
+    missingRoles: [...new Set(missing.map((slot) => slot.role))],
+    missingSlotIds: missing.map((slot) => slot.slotId),
     reason: 'missing_required_roles',
   }
 }
@@ -143,4 +171,59 @@ export function resolveRequiredExecutionRoles(
   declaredSignatureRoles: readonly string[],
 ): readonly string[] {
   return REQUIRED_EXECUTION_ROLE_OVERRIDES[templateId] ?? [...declaredSignatureRoles]
+}
+
+/**
+ * PR-PNS authoritative required-role set (CRM-27 participant-cardinality policy).
+ * PR-PNS requires every actual participant in BUYER, SELLER and SELLER_BROKER.
+ */
+export const PR_PNS_REQUIRED_ROLES: ReadonlySet<string> = new Set([
+  'BUYER',
+  'SELLER',
+  'SELLER_BROKER',
+])
+
+/**
+ * Build stable, provider-neutral issued slots from the resolved participant
+ * collection AT ISSUANCE. slotId is deterministic (`ROLE:sequence`), so multiple
+ * people in one role (e.g. two Buyers) become distinct slots ("BUYER:1",
+ * "BUYER:2") that must each carry execution evidence.
+ */
+export function buildIssuedExecutionSlots(
+  people: ReadonlyArray<{
+    role: string
+    personId: string | null
+    name: string
+    email: string | null
+  }>,
+): IssuedExecutionSlot[] {
+  const counts = new Map<string, number>()
+  return people.map((person, index) => {
+    const seq = (counts.get(person.role) ?? 0) + 1
+    counts.set(person.role, seq)
+    return {
+      slotId: `${person.role}:${seq}`,
+      role: person.role,
+      personId: person.personId ?? null,
+      name: person.name,
+      email: person.email ?? null,
+      required: PR_PNS_REQUIRED_ROLES.has(person.role),
+      order: index,
+    }
+  })
+}
+
+/**
+ * Resolve the REQUIRED issued slots for an eligible template (the PR-PNS
+ * participant-cardinality policy). A required slot must carry its OWN execution
+ * evidence; an optional slot must not be in the resolved required set.
+ */
+export function resolveRequiredSlots(
+  templateId: string,
+  issuedSlots: readonly IssuedExecutionSlot[],
+): IssuedExecutionSlot[] {
+  if (!isExecutionEligibleTemplate(templateId)) return []
+  return issuedSlots
+    .filter((slot) => PR_PNS_REQUIRED_ROLES.has(slot.role))
+    .map((slot) => ({ ...slot, required: true }))
 }

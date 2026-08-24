@@ -22,7 +22,7 @@ import type { OutboxEventRepository } from '../../lib/events/outbox-contracts'
 
 type Row = Record<string, any>
 const FIXED_NOW = () => new Date('2026-08-24T12:00:00.000Z')
-const ROLES = ['BUYER', 'SELLER', 'SELLER_BROKER']
+const SLOTS = ['BUYER:1', 'SELLER:1', 'SELLER_BROKER:1']
 
 // AgreementCommandDb — in-memory transaction applying writes only on commit.
 class AgreementCommandDb {
@@ -42,7 +42,7 @@ class AgreementCommandDb {
     deal_id: string | null
     document_type: string
   }
-  satisfiedRoles: string[] = []
+  satisfiedSlots: string[] = []
   completedDocumentIds: string[] = []
 
   constructor(doc: AgreementCommandDb['doc']) {
@@ -83,7 +83,7 @@ class AgreementCommandDb {
         ])
       }
       if (t.includes('from signature_request') && !t.includes('distinct td.id')) {
-        return Promise.resolve(this.satisfiedRoles.map((role) => ({ execution_role: role })))
+        return Promise.resolve(this.satisfiedSlots.map((slot) => ({ execution_slot_id: slot })))
       }
       if (t.includes('distinct td.id')) {
         const already = new Set(this.markers.map((m) => `${m.document_id}:${m.issued_version}`))
@@ -169,7 +169,7 @@ class AgreementCommandDb {
         )
       }
       if (t.includes('from signature_request')) {
-        return Promise.resolve(self.satisfiedRoles.map((role) => ({ execution_role: role })))
+        return Promise.resolve(self.satisfiedSlots.map((slot) => ({ execution_slot_id: slot })))
       }
       return Promise.resolve([])
     }) as QueryExecutor
@@ -253,7 +253,7 @@ test('CRM-27 (BLOCKER 1): real production factory wires a PostgresOutboxEventRep
 
 test('CRM-27: full evidence -> marker + receipt + outbox atomically; event id equals outbox id', async () => {
   const db = new AgreementCommandDb(doc())
-  db.satisfiedRoles = ROLES
+  db.satisfiedSlots = SLOTS
   const dispatcher = makeDispatcher(db, eventSink)
 
   const first = await dispatcher.execute(envelope())
@@ -274,7 +274,7 @@ test('CRM-27: full evidence -> marker + receipt + outbox atomically; event id eq
 
 test('CRM-27: same commandId replay -> no second marker, no second outbox row', async () => {
   const db = new AgreementCommandDb(doc())
-  db.satisfiedRoles = ROLES
+  db.satisfiedSlots = SLOTS
   const dispatcher = makeDispatcher(db, eventSink)
 
   await dispatcher.execute(envelope())
@@ -288,7 +288,7 @@ test('CRM-27: same commandId replay -> no second marker, no second outbox row', 
 
 test('CRM-27: forced rollback leaves neither marker, receipt, nor outbox row', async () => {
   const db = new AgreementCommandDb(doc())
-  db.satisfiedRoles = ROLES
+  db.satisfiedSlots = SLOTS
   db.failNextCommit = true
   const dispatcher = makeDispatcher(db, eventSink)
 
@@ -301,7 +301,7 @@ test('CRM-27: forced rollback leaves neither marker, receipt, nor outbox row', a
 
 test('CRM-27: partial evidence -> no marker, no outbox event', async () => {
   const db = new AgreementCommandDb(doc())
-  db.satisfiedRoles = ['BUYER']
+  db.satisfiedSlots = ['BUYER:1']
   const dispatcher = makeDispatcher(db, eventSink)
 
   const result = await dispatcher.execute(envelope())
@@ -313,7 +313,7 @@ test('CRM-27: partial evidence -> no marker, no outbox event', async () => {
 
 test('CRM-27: event payload resolves document, version, template, deal, correlation', async () => {
   const db = new AgreementCommandDb(doc({ issued_version: 3, deal_id: 'deal-9' }))
-  db.satisfiedRoles = ROLES
+  db.satisfiedSlots = SLOTS
   const dispatcher = makeDispatcher(db, eventSink)
 
   const result = await dispatcher.execute(
@@ -392,7 +392,7 @@ test('CRM-27 (BLOCKER 2): incomplete -> later complete re-drive reevaluates; exa
   const dispatcher = makeDispatcher(db, eventSink)
 
   // First evaluation has only BUYER evidence.
-  db.satisfiedRoles = ['BUYER']
+  db.satisfiedSlots = ['BUYER:1']
   const r1 = await evaluateAgreementViaCommand(
     { dispatcher, execute: db.evidenceTx },
     'doc-1',
@@ -405,7 +405,7 @@ test('CRM-27 (BLOCKER 2): incomplete -> later complete re-drive reevaluates; exa
   assert.equal(db.receipts.length, 1, 'the incomplete attempt committed its receipt')
 
   // SELLER + SELLER_BROKER evidence later becomes available; re-drive reevaluates.
-  db.satisfiedRoles = ROLES
+  db.satisfiedSlots = SLOTS
   const r2 = await evaluateAgreementViaCommand(
     { dispatcher, execute: db.evidenceTx },
     'doc-1',
@@ -431,7 +431,7 @@ test('CRM-27 (BLOCKER 2): incomplete -> later complete re-drive reevaluates; exa
 
 test('CRM-27 (BLOCKER 3): durable recovery discovers completed evidence and re-drives', async () => {
   const db = new AgreementCommandDb(doc())
-  db.satisfiedRoles = ROLES
+  db.satisfiedSlots = SLOTS
   db.completedDocumentIds = ['doc-1']
   const dispatcher = makeDispatcher(db, eventSink)
 
