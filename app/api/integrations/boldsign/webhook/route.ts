@@ -15,6 +15,7 @@ import {
   type BoldSignConfig,
 } from '@/lib/signature/boldsign/config'
 import { SignatureReconciliationHandler } from '@/lib/signature/reconciliation'
+import { evaluateAgreementViaCommand } from '@/lib/agreements/re-drive'
 
 // ---------------------------------------------------------------------------
 // DOC-04/05 — BoldSign webhook production endpoint.
@@ -82,6 +83,10 @@ function getApplication(): SignatureApplication {
     const reconciler = new SignatureReconciliationHandler({
       provider,
       run: neonTx,
+      // CRM-27 (F): re-drive agreement-execution evaluation through the durable
+      // canonical command (idempotent, exactly-once outbox emission).
+      evaluateAgreement: (documentId, eventId) =>
+        evaluateAgreementViaCommand({ dispatcher }, documentId, eventId),
     })
     application = new SignatureApplication({ dispatcher, provider, reconciler })
   }

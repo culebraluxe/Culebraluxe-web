@@ -1,6 +1,6 @@
 import { getTemplate } from '../forms/template-registry'
 import type { QueryExecutor } from '../../db/query-executor'
-import { neonTx, type TxRunner } from '../../db/tx'
+import type { TxRunner } from '../../db/tx'
 import {
   claimAgreementExecution,
   getCompletedExecutionRoles,
@@ -26,6 +26,13 @@ import {
 // fact for this version; duplicate/replayed completions return shouldEmit: false
 // (idempotent). This service never writes workflow state and never touches a
 // provider.
+//
+// DURABILITY REPAIR: the whole evaluation runs through the caller-supplied
+// TxRunner (`run`) — for the canonical command path this is the dispatcher's
+// transaction (`ctx.run`), so the marker insert (`claimAgreementExecution`)
+// commits atomically with the command receipt and the outbox row. It never
+// opens a nested independent `neonTx`. A rolled-back command transaction
+// leaves neither marker nor event.
 // ---------------------------------------------------------------------------
 
 export type AgreementCompletionResult = {
@@ -33,11 +40,16 @@ export type AgreementCompletionResult = {
   /** True ONLY on the first time this document version is judged fully executed. */
   shouldEmit: boolean
   document: { documentId: string; issuedVersion: number } | null
+  /** Template identity of the immutable issued document (for the event payload). */
+  templateId: string | null
+  /** Deal linkage of the immutable issued document (may be null pre-Deal). */
+  dealId: string | null
 }
 
 export type AgreementCompletionDeps = {
   execute: QueryExecutor
-  run?: TxRunner
+  /** REQUIRED — the interactive transaction the marker participates in. */
+  run: TxRunner
   now?: () => Date
 }
 
@@ -46,55 +58,56 @@ export async function evaluateAgreementCompletion(
   eventId: string,
   deps: AgreementCompletionDeps,
 ): Promise<AgreementCompletionResult> {
-  const rows = await deps.execute`
-    select template_id, issued_version
-    from transaction_document
-    where id = ${documentId}
-    limit 1
-  `
-  const row = rows[0] as
-    | { template_id?: unknown; issued_version?: unknown }
-    | undefined
-  const templateId = typeof row?.template_id === 'string' ? row.template_id : ''
-  const issuedVersion = Number(row?.issued_version ?? 0)
-  if (issuedVersion < 1) {
-    return {
-      verdict: {
-        fullyExecuted: false,
-        missingRoles: [],
-        reason: 'missing_required_roles',
-      },
-      shouldEmit: false,
-      document: { documentId, issuedVersion: 0 },
+  return deps.run(async (tx) => {
+    const rows = await deps.execute`
+      select template_id, issued_version, deal_id
+      from transaction_document
+      where id = ${documentId}
+      limit 1
+    `
+    const row = rows[0] as
+      | { template_id?: unknown; issued_version?: unknown; deal_id?: unknown }
+      | undefined
+    const templateId = typeof row?.template_id === 'string' ? row.template_id : ''
+    const issuedVersion = Number(row?.issued_version ?? 0)
+    const dealId = typeof row?.deal_id === 'string' ? row.deal_id : null
+    if (issuedVersion < 1) {
+      return {
+        verdict: {
+          fullyExecuted: false,
+          missingRoles: [],
+          reason: 'missing_required_roles',
+        },
+        shouldEmit: false,
+        document: { documentId, issuedVersion: 0 },
+        templateId: templateId || null,
+        dealId,
+      }
     }
-  }
 
-  const template = getTemplate(templateId)
-  const declaredRoles = (template?.signatureGroups ?? []).map((group) => group.role)
-  const requiredRoles = resolveRequiredExecutionRoles(templateId, declaredRoles)
-  const satisfiedRoles = await getCompletedExecutionRoles(documentId, deps.execute)
+    const template = getTemplate(templateId)
+    const declaredRoles = (template?.signatureGroups ?? []).map((group) => group.role)
+    const requiredRoles = resolveRequiredExecutionRoles(templateId, declaredRoles)
+    const satisfiedRoles = await getCompletedExecutionRoles(documentId, deps.execute)
 
-  const verdict = evaluateAgreementExecution({
-    documentVersion: `${templateId}-v${issuedVersion}`,
-    requiredRoles,
-    satisfiedRoles,
-    manuallyExecuted: false,
-  })
+    const verdict = evaluateAgreementExecution({
+      documentVersion: `${templateId}-v${issuedVersion}`,
+      requiredRoles,
+      satisfiedRoles,
+      manuallyExecuted: false,
+    })
 
-  const document = { documentId, issuedVersion }
-  if (!verdict.fullyExecuted) {
-    return { verdict, shouldEmit: false, document }
-  }
+    const document = { documentId, issuedVersion }
+    if (!verdict.fullyExecuted) {
+      return { verdict, shouldEmit: false, document, templateId: templateId || null, dealId }
+    }
 
-  const run = deps.run ?? neonTx
-  const { recorded } = await claimAgreementExecution(
-    {
+    const { recorded } = await claimAgreementExecution(tx, {
       documentId,
       issuedVersion,
       eventId,
       emittedAt: deps.now?.() ?? new Date(),
-    },
-    run,
-  )
-  return { verdict, shouldEmit: recorded, document }
+    })
+    return { verdict, shouldEmit: recorded, document, templateId: templateId || null, dealId }
+  })
 }
