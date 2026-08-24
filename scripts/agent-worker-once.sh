@@ -3,8 +3,11 @@
 # scripts/agent-worker-once.sh — single-invocation agent worker wrapper.
 #
 # ONE invocation => invokes `pnpm agent:work` exactly once => claims AT MOST
-# ONE story. This script never loops and never processes a second work item;
-# the next scheduled invocation may claim the next Ready item.
+# ONE story, then runs one bounded Postgres mini-MQ dispatch pass
+# (`pnpm mq:worker:prod`) so the CRM-26 agreement-execution consumer and the
+# proof consumer stay active in production. This script never loops and never
+# processes a second work item; the next scheduled invocation may claim the
+# next Ready item and/or poll the MQ again.
 #
 # The database (migration 025) owns all queue semantics — Ready discovery,
 # single-worker enforcement, claiming, ordering, run lifecycle, story execution
@@ -12,14 +15,18 @@
 #   1. changes into the repository root safely
 #   2. establishes the runtime environment launchd does not provide
 #   3. invokes exactly `pnpm agent:work`
-#   4. propagates its exit code
-#   5. records timestamped start/end information + exit code in a local log
-#   6. guards against overlapping local invocations with a mkdir-based lock
+#   4. invokes one bounded MQ dispatch pass (`pnpm mq:worker:prod`)
+#   5. propagates the agent:work exit code
+#   6. records timestamped start/end information + exit code in a local log
+#   7. guards against overlapping local invocations with a mkdir-based lock
+#
+# The MQ dispatch pass is NON-fatal to this wrapper (a transient MQ error must
+# never fail the story-claim tick); the broker owns bounded retry/dead-letter.
 #
 # No secrets are embedded here. Production DB credentials are read by
-# `pnpm agent:work` from the gitignored .env.local (--env-file). An optional
-# untracked .env.scheduler file may override local runtime settings (see
-# docs/agent/AGENT_WORKER_SCHEDULER.md).
+# `pnpm agent:work` and `pnpm mq:worker:prod` from the gitignored .env.local
+# (--env-file). An optional untracked .env.scheduler file may override local
+# runtime settings (see docs/agent/AGENT_WORKER_SCHEDULER.md).
 #
 # macOS TCC note: launchd-spawned processes cannot execute files under the
 # TCC-protected ~/Documents folder, so `pnpm agent:scheduler:install` deploys
@@ -130,8 +137,14 @@ else
   else
     pnpm agent:work
     rc=$?
+    # Bounded Postgres mini-MQ dispatch pass (CRM-26 agreement-execution +
+    # proof consumers). Non-fatal to the story tick; the broker owns retry.
+    inv_log "mq: start cmd=\"pnpm mq:worker:prod\""
+    pnpm mq:worker:prod || true
+    inv_log "mq: end"
   fi
 fi
 
 inv_log "end: exit=$rc"
 exit "$rc"
+
