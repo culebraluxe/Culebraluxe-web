@@ -124,6 +124,9 @@ export type SignatureRequest = {
   transactionDocumentId: string
   status: SignatureRequestStatus
   message: string | null
+  executionRole: string | null
+  /** CRM-27 — the issued participant/signature slot this request satisfies. */
+  executionSlotId: string | null
   createdByUserId: string | null
   createdAt: string
   updatedAt: string
@@ -184,6 +187,14 @@ export type SendSignatureRequestCommandInput = {
   recipients: SignatureRecipient[]
   message?: string | null
   createdByUserId?: string | null
+  /** CRM-27 — the agreement execution role this request fulfills (provider-
+   *  neutral; optional for requests not tied to an agreement role). */
+  executionRole?: string | null
+  /** CRM-27 — the issued participant/signature slot this request satisfies
+   *  (e.g. "BUYER:1"); keyed to the immutable issued participant snapshot. */
+  executionSlotId?: string | null
+  /** CRM-27 — the single intended recipient email for a slot-bound send. */
+  slotRecipientEmail?: string | null
 }
 
 export type StatusSignatureRequestCommandInput = {

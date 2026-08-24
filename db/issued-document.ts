@@ -13,6 +13,8 @@ import {
 } from './workflow-command-receipt'
 import { createTransactionDocument } from './transaction-document'
 import { getFormInstance, updateFormInstance } from './document-form-instance'
+import { listFormSignerPeople } from './form-signer'
+import { canonicalizeExecutionParticipants } from '../lib/agreements/participants'
 import type { QueryExecutor } from './query-executor'
 
 // ---------------------------------------------------------------------------
@@ -252,6 +254,15 @@ export async function issueFormDocument(
       form.personId ??
       (form.dealId ? await resolvePartyPersonId(tx, form.dealId) : null)
 
+    // PARTICIPANT CARDINALITY (CRM-27): snapshot the resolved participant set AT
+    // ISSUANCE into the immutable issued-document lineage. Later mutable
+    // draft-participant edits cannot change the required-slot set for THIS issued
+    // version — each issued slot is a stable provider-neutral identity that must
+    // carry its own execution evidence.
+    const issuedSlots = canonicalizeExecutionParticipants(
+      await listFormSignerPeople(form.id, tx),
+    )
+
     const document = await createTransactionDocument(
       {
         dealId: form.dealId,
@@ -272,6 +283,7 @@ export async function issueFormDocument(
           templateVersion: template.version,
           fieldValues: form.fieldValues,
           sections: form.sections,
+          issuedParticipants: issuedSlots,
         },
         issuedVersion,
         formInstanceId: form.id,

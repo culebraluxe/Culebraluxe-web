@@ -28,6 +28,7 @@ import {
   type ReconcileCompletedSignatureRequestDeps,
 } from '../../db/signature-reconciliation'
 import type { SignatureProvider } from './provider'
+import type { AgreementCompletionResult } from '../agreements/completion'
 
 export type SignatureReconciliationHandlerDeps = {
   /** The CONFIGURED provider — used ONLY for the one-time signed-artifact
@@ -39,6 +40,13 @@ export type SignatureReconciliationHandlerDeps = {
   execute?: QueryExecutor
   /** Application clock (injectable for deterministic tests). */
   now?: () => Date
+  /** CRM-27 — optional agreement-completion evaluator invoked after a neutral
+   *  completed event, so a fully-executed agreement can be recognised exactly
+   *  once. Injected (never constructed here) to keep this seam provider-free. */
+  evaluateAgreement?: (
+    documentId: string,
+    eventId: string,
+  ) => Promise<AgreementCompletionResult>
 }
 
 export class SignatureReconciliationHandler {
@@ -63,7 +71,10 @@ export class SignatureReconciliationHandler {
         replayed: false,
       }
     }
-    const payload = event.payload as { signatureRequestId?: unknown }
+    const payload = event.payload as {
+      signatureRequestId?: unknown
+      transactionDocumentId?: unknown
+    }
     if (typeof payload?.signatureRequestId !== 'string' || payload.signatureRequestId === '') {
       return {
         commandId: event.eventId,
@@ -80,7 +91,7 @@ export class SignatureReconciliationHandler {
       downloadSignedArtifact: (requestId) => this.deps.provider.downloadSignedArtifact(requestId),
       now: this.deps.now,
     }
-    return reconcileCompletedSignatureRequest(
+    const reconcile = await reconcileCompletedSignatureRequest(
       {
         eventId: event.eventId,
         signatureRequestId: payload.signatureRequestId,
@@ -88,5 +99,41 @@ export class SignatureReconciliationHandler {
       },
       deps,
     )
+    // CRM-27 — after the signed artifact is reconciled, evaluate whether this
+    // completion makes the linked issued agreement version FULLY EXECUTED.
+    // `shouldEmit` is exactly-once; the fact's actual dispatch is the caller's
+    // (a later workflow/wiring seam). A failure here is non-fatal — the signed
+    // artifact is already reconciled — and is surfaced on the result.
+    const transactionDocumentId =
+      typeof payload.transactionDocumentId === 'string'
+        ? payload.transactionDocumentId
+        : null
+    if (this.deps.evaluateAgreement && transactionDocumentId) {
+      try {
+        const completion = await this.deps.evaluateAgreement(
+          transactionDocumentId,
+          event.eventId,
+        )
+        const value = (reconcile.value ?? {}) as Record<string, unknown>
+        return {
+          ...reconcile,
+          value: { ...value, agreementCompletion: completion },
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        const value = (reconcile.value ?? {}) as Record<string, unknown>
+        return {
+          ...reconcile,
+          message: [
+            reconcile.message,
+            `Agreement execution evaluation failed: ${detail}`,
+          ]
+            .filter(Boolean)
+            .join(' '),
+          value: { ...value, agreementCompletion: { shouldEmit: false } },
+        }
+      }
+    }
+    return reconcile
   }
 }

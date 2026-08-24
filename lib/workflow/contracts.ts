@@ -33,6 +33,10 @@ export type DomainEventType =
   | 'SIGNATURE_REQUEST_COMPLETED'
   | 'SIGNATURE_REQUEST_DECLINED'
   | 'SIGNATURE_REQUEST_VOIDED'
+  // CRM-27 — neutral agreement execution fact: an issued agreement/document
+  // version became FULLY EXECUTED (all required execution roles satisfied, or
+  // authorized manual/external execution). Provider-neutral; fired once.
+  | 'AGREEMENT_FULLY_EXECUTED'
 
 export type AggregateType =
   | 'deal'

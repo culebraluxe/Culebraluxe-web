@@ -50,3 +50,20 @@ export const SIGNATURE_REQUEST_DECLINE = 'signature.request.decline'
 // Draft-field editing stays OUTSIDE the command layer (plain form-instance
 // updates — no durable business record is created).
 export const DOCUMENT_ISSUE = 'document.issue'
+
+// CRM-27 — canonical agreement-execution claim command. Evaluates whether a
+// specific immutable issued agreement/document version is FULLY EXECUTED and,
+// when it becomes fully executed, atomically commits the agreement_execution
+// marker + command receipt + the neutral AGREEMENT_FULLY_EXECUTED DomainEvent
+// to the outbox in ONE transaction (durability repair over the earlier
+// predicate/marker-only `shouldEmit` front half). Idempotent: the dispatcher
+// replays a committed receipt; the marker unique(document_id, issued_version)
+// + INSERT ... ON CONFLICT DO NOTHING is the exactly-once backstop.
+export const AGREEMENT_EXECUTION_CLAIM = 'agreement.execution.claim'
+
+// CRM-27 — canonical audited MANUAL/external agreement-execution command. Records
+// that an authorized actor manually confirmed full execution of a specific issued
+// agreement version. Immutable document/version scoped, authenticated
+// actor_app_user_id, bounded note, same agreement_execution marker + outbox path
+// as the automatic claim, replay-safe and provider-independent.
+export const AGREEMENT_EXECUTION_MANUAL = 'agreement.execution.manual'
