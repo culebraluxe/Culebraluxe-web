@@ -38,11 +38,12 @@ function fakeExecute(pageRows: Row[], total: number) {
   return fn
 }
 
-test('clients: getClientsPage issues COUNT + LIMIT/OFFSET page over person', async () => {
+test('clients: getClientsPage issues COUNT + LIMIT/OFFSET page over the read model', async () => {
   const pageRows: Row[] = [
     {
-      id: 'p1',
+      person_id: 'p1',
       display_name: 'Jane Doe',
+      name_sort_priority: 1,
       role: 'buyer',
       status: 'new',
       location: 'Culebra',
@@ -75,12 +76,13 @@ test('clients: getClientsPage issues COUNT + LIMIT/OFFSET page over person', asy
   assert.ok(execute.calls.some((c) => c.params.includes(100)), 'offset 100 on page 3')
 })
 
-test('clients: getClientsPage search/filter/sort/limit are SQL (source guard)', () => {
+test('clients: getClientsPage search/filter/sort/limit are SQL against the read model (source guard)', () => {
   const src = readFileSync(new URL('../../db/clients.ts', import.meta.url), 'utf8')
-  assert.ok(/ilike \$\{like\}/.test(src), 'search is a SQL ILIKE predicate')
+  assert.ok(/mv\.search_text ilike \$\{like\}/.test(src), 'search is a SQL ILIKE on the pre-shaped view')
+  assert.ok(/from mv_client_directory mv/.test(src), 'reads from the materialized read model')
   assert.ok(/limit \$\{pageSize\} offset \$\{offset\}/.test(src), 'SQL LIMIT/OFFSET')
   assert.ok(/count\(\*\)::int as total/.test(src), 'separate COUNT')
-  assert.ok(/and \(\$\{status\}::text is null or p.status = \$\{status\}\)/.test(src), 'status filter in SQL')
+  assert.ok(/and \(\$\{status\}::text is null or mv\.status = \$\{status\}\)/.test(src), 'status filter in SQL')
   assert.ok(/order by \$\{ORDER_FRAGMENTS\[sort\]\}/.test(src), 'sort is a SQL ORDER BY')
 })
 
@@ -217,10 +219,10 @@ test('enrich: resolveContactForIdentityKeys returns null when no identity matche
 
 // --- name resolution flag on the directory projection ---
 
-test('clients: getClientsPage marks nameResolved only for human display names', async () => {
+test('clients: getClientsPage marks nameResolved from the read-model sort priority', async () => {
   const pageRows: Row[] = [
-    { id: 'p1', display_name: 'Jane Doe', role: 'buyer', status: 'new', location: null, primary_email: null, primary_phone: null, assigned_agent: null, last_contact_label: null, next_action_title: null, sources: [] },
-    { id: 'p2', display_name: '2039805771', role: 'buyer', status: 'new', location: null, primary_email: null, primary_phone: '2039805771', assigned_agent: null, last_contact_label: null, next_action_title: null, sources: [] },
+    { person_id: 'p1', display_name: 'Jane Doe', name_sort_priority: 1, role: 'buyer', status: 'new', location: null, primary_email: null, primary_phone: null, assigned_agent: null, last_contact_label: null, sources: [] },
+    { person_id: 'p2', display_name: '2039805771', name_sort_priority: 0, role: 'buyer', status: 'new', location: null, primary_email: null, primary_phone: '2039805771', assigned_agent: null, last_contact_label: null, sources: [] },
   ]
   const execute = fakeExecute(pageRows, 2)
   const result = await getClientsPage({ page: 1, pageSize: 50 }, execute as never)
@@ -230,9 +232,9 @@ test('clients: getClientsPage marks nameResolved only for human display names', 
 
 // --- contact history (server-side paged, newest first) ---
 
-test('clients: getClientContactHistory pages over interaction newest-first', async () => {
+test('clients: getClientContactHistory pages over the read model newest-first', async () => {
   const pageRows: Row[] = [
-    { id: 'i1', channel: 'imessage', direction: 'outbound', occurred_at: 'Aug 25, 2026 09:00 AM', title: 'Re: showing', summary: 'Confirm 2pm' },
+    { interaction_id: 'i1', channel: 'imessage', direction: 'outbound', occurred_at_label: 'Aug 25, 2026 09:00 AM', title: 'Re: showing', summary: 'Confirm 2pm' },
   ]
   const execute = fakeExecute(pageRows, 45)
   const result = await getClientContactHistory('person-1', { page: 2, pageSize: 20 }, execute as never)
@@ -249,19 +251,25 @@ test('clients: getClientContactHistory pages over interaction newest-first', asy
   assert.ok(execute.calls.some((c) => c.params.includes(20)), 'offset 20 on page 2')
 })
 
-test('clients: getClientContactHistory is newest-first SQL (source guard)', () => {
+test('clients: getClientContactHistory is newest-first SQL against the read model (source guard)', () => {
   const src = readFileSync(new URL('../../db/contact-history.ts', import.meta.url), 'utf8')
-  assert.ok(/order by i\.occurred_at desc/.test(src), 'SQL ORDER BY occurred_at DESC')
+  assert.ok(/from mv_client_contact_history mv/.test(src), 'reads from the materialized read model')
+  assert.ok(/order by mv\.occurred_at desc/.test(src), 'SQL ORDER BY occurred_at DESC')
   assert.ok(/limit \$\{pageSize\} offset \$\{offset\}/.test(src), 'SQL LIMIT/OFFSET')
   assert.ok(/count\(\*\)::int as total/.test(src), 'separate COUNT')
 })
 
 // --- resolved-first people sort + final geometry guards ---
 
-test('clients: getClientsPage name sort puts human names first, unknown last (source guard)', () => {
+test('clients: name sort uses the read-model resolved-first priority (source guard)', () => {
   const src = readFileSync(new URL('../../db/clients.ts', import.meta.url), 'utf8')
-  assert.ok(/p\.display_name_source = 'unresolved'/.test(src), 'unresolved detection in sort')
-  assert.ok(/\) desc, p\.display_name asc, p\.id asc/.test(src), 'resolved-first, then name, then id')
+  assert.ok(/mv\.name_sort_priority desc/.test(src), 'resolved-first priority from the read model')
+  assert.ok(/mv\.display_name asc, mv\.person_id asc/.test(src), 'then name asc, id tie-break')
+  const migration = readFileSync(
+    new URL('../../db/migrations/080_mv_client_read_models.sql', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/name_sort_priority/.test(migration), 'read model materializes a sort priority')
 })
 
 test('clients: the deleted small Last contact pane is absent from the working pane', () => {
@@ -282,5 +290,25 @@ test('clients: Contact History is navy, scrolls X+Y, and is server-paged (source
   assert.ok(/min-w-\[34rem\]/.test(src), 'internal grid wider than the navy viewport (horizontal scroll)')
   assert.ok(/max-h-\[24rem\]/.test(src), 'bounded vertical viewport (vertical scroll)')
   assert.ok(/pageSize/.test(src), 'server-side paging')
+})
+
+test('clients: directory/history reads come from materialized views, not L/ODS (source guard)', () => {
+  const clients = readFileSync(new URL('../../db/clients.ts', import.meta.url), 'utf8')
+  assert.ok(/from mv_client_directory mv/.test(clients), 'directory reads the read model')
+  assert.ok(!/l_person|integration_relationship_evidence/.test(clients), 'no ODS reconstruction in the directory read')
+
+  const history = readFileSync(new URL('../../db/contact-history.ts', import.meta.url), 'utf8')
+  assert.ok(/from mv_client_contact_history mv/.test(history), 'history reads the read model')
+  assert.ok(!/from interaction\b/.test(history), 'no raw interaction reconstruction in the history read')
+})
+
+test('clients: refresh seam uses CONCURRENTLY (replay/refresh safe, unique index present)', () => {
+  const src = readFileSync(new URL('../../db/client-read-models.ts', import.meta.url), 'utf8')
+  assert.ok(/refresh materialized view concurrently/i.test(src), 'CONCURRENTLY refresh')
+  const migration = readFileSync(
+    new URL('../../db/migrations/080_mv_client_read_models.sql', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/create unique index mv_client_directory_pk/.test(migration), 'unique index for concurrent refresh')
 })
 

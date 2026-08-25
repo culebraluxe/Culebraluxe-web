@@ -1,6 +1,5 @@
 import { sql } from "./client"
 import type { QueryExecutor } from "./query-executor"
-import { isHumanName } from "../lib/relationship-intel/names"
 import type {
   Client,
   Interaction,
@@ -390,8 +389,9 @@ export type ClientsPageResult = {
 }
 
 type ClientSummaryRaw = {
-  id: string
+  person_id: string
   display_name: string
+  name_sort_priority: number
   role: string
   status: string
   location: string | null
@@ -404,31 +404,22 @@ type ClientSummaryRaw = {
 
 const VALID_SORTS = ["name", "created", "recent"] as const
 
+// Sorts against the materialized read model (mv_client_directory) where the
+// resolved-first priority, name, created_at, and last_contact_at are already
+// pre-shaped columns — no request-time reconstruction.
 const ORDER_FRAGMENTS: Record<string, ReturnType<typeof sql>> = {
-  // Human names first (named > unknown), then alphabetically, then stable id.
-  name: sql`(
-    case
-      when p.display_name_source = 'unresolved'
-        or p.display_name is null
-        or trim(p.display_name) = ''
-        or lower(p.display_name) = 'unknown contact'
-        or p.display_name ~ '^[+0-9()\\s.-]+$'
-      then 0
-      else 1
-    end
-  ) desc, p.display_name asc, p.id asc`,
-  created: sql`p.created_at desc, p.display_name asc, p.id asc`,
-  recent: sql`coalesce(latest.occurred_at, p.created_at) desc nulls last, p.display_name asc, p.id asc`,
+  name: sql`mv.name_sort_priority desc, mv.display_name asc, mv.person_id asc`,
+  created: sql`mv.created_at desc, mv.display_name asc, mv.person_id asc`,
+  recent: sql`coalesce(mv.last_contact_at, mv.created_at) desc nulls last, mv.display_name asc, mv.person_id asc`,
 }
 
 /**
- * Server-side pagination over the canonical `person` parent table.
+ * Server-side pagination over the materialized application read model
+ * mv_client_directory. One row per canonical Person.
  *   - separate COUNT(*) + SQL LIMIT/OFFSET (50/page default)
- *   - search / filters / sort applied in SQL (never after loading everything)
- *   - only the columns the current page needs (no full-row hydration)
- *   - no N+1: per-row context (email/phone/assigned/last contact/source
- *     provenance) is resolved with page-bounded laterals in one statement
- * This is the page query backing the primary Clients directory.
+ *   - search / filters / sort applied in SQL against the pre-shaped view
+ *   - no correlated subqueries / lateral joins / repeated identity lookups /
+ *     provenance aggregation / last-contact assembly at request time
  */
 export async function getClientsPage(
   opts: {
@@ -453,61 +444,30 @@ export async function getClientsPage(
   const offset = (page - 1) * pageSize
 
   const guard = sql`
-    where p.archived_at is null
-    and (${like}::text is null or (
-      p.display_name ilike ${like}
-      or p.location ilike ${like}
-      or exists (
-        select 1 from person_identity pi
-        where pi.person_id = p.id and pi.identity_value ilike ${like}
-      )
-    ))
-    and (${status}::text is null or p.status = ${status})
-    and (${role}::text is null or p.role = ${role})
+    where (${like}::text is null or mv.search_text ilike ${like})
+      and (${status}::text is null or mv.status = ${status})
+      and (${role}::text is null or mv.role = ${role})
   `
 
   const countRows = (await execute`
-    select count(*)::int as total from person p ${guard}
+    select count(*)::int as total from mv_client_directory mv ${guard}
   `) as { total: number }[]
   const total = Number(countRows[0]?.total ?? 0)
 
   const rows = (await execute`
     select
-      p.id,
-      p.display_name,
-      p.role,
-      p.status,
-      p.location,
-      email.identity_value as primary_email,
-      phone.identity_value as primary_phone,
-      u.display_name as assigned_agent,
-      to_char(latest.occurred_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY') as last_contact_label,
-      coalesce(evidence.sources, '{}'::text[]) as sources
-    from person p
-    left join app_user u on u.id = p.assigned_user_id
-    left join lateral (
-      select identity_value from person_identity pi
-      where pi.person_id = p.id and pi.identity_type = 'email'
-      order by pi.is_primary desc, pi.created_at asc
-      limit 1
-    ) email on true
-    left join lateral (
-      select identity_value from person_identity pi
-      where pi.person_id = p.id and pi.identity_type = 'phone'
-      order by pi.is_primary desc, pi.created_at asc
-      limit 1
-    ) phone on true
-    left join lateral (
-      select occurred_at from interaction i
-      where i.person_id = p.id
-      order by i.occurred_at desc
-      limit 1
-    ) latest on true
-    left join lateral (
-      select array_agg(distinct source order by source) as sources
-      from integration_relationship_evidence ev
-      where ev.canonical_person_id = p.id
-    ) evidence on true
+      mv.person_id,
+      mv.display_name,
+      mv.role,
+      mv.status,
+      mv.location,
+      mv.primary_email,
+      mv.primary_phone,
+      mv.assigned_agent,
+      mv.last_contact_label,
+      mv.sources,
+      mv.name_sort_priority
+    from mv_client_directory mv
     ${guard}
     order by ${ORDER_FRAGMENTS[sort]}
     limit ${pageSize} offset ${offset}
@@ -515,9 +475,9 @@ export async function getClientsPage(
 
   return {
     rows: rows.map((row) => ({
-      id: row.id,
+      id: row.person_id,
       displayName: row.display_name,
-      nameResolved: isHumanName(row.display_name),
+      nameResolved: row.name_sort_priority === 1,
       role: row.role,
       status: row.status,
       location: row.location ?? null,

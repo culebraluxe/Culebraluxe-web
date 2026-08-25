@@ -30,10 +30,10 @@ export type ContactHistoryResult = {
 }
 
 type ContactHistoryRow = {
-  id: string
+  interaction_id: string
   channel: string
   direction: string | null
-  occurred_at: string
+  occurred_at_label: string
   title: string | null
   summary: string | null
 }
@@ -49,34 +49,31 @@ export async function getClientContactHistory(
 
   const countRows = (await execute`
     select count(*)::int as total
-    from interaction i
-    where i.person_id = ${personId}
+    from mv_client_contact_history mv
+    where mv.person_id = ${personId}
   `) as { total: number }[]
   const total = Number(countRows[0]?.total ?? 0)
 
   const rows = (await execute`
     select
-      i.id,
-      i.channel,
-      i.direction,
-      to_char(
-        i.occurred_at at time zone 'America/Puerto_Rico',
-        'Mon FMDD, YYYY HH12:MI AM'
-      ) as occurred_at,
-      i.title,
-      i.summary
-    from interaction i
-    where i.person_id = ${personId}
-    order by i.occurred_at desc, i.id desc
+      mv.interaction_id,
+      mv.channel,
+      mv.direction,
+      mv.occurred_at_label,
+      mv.title,
+      mv.summary
+    from mv_client_contact_history mv
+    where mv.person_id = ${personId}
+    order by mv.occurred_at desc, mv.interaction_id desc
     limit ${pageSize} offset ${offset}
   `) as ContactHistoryRow[]
 
   return {
     rows: rows.map((r) => ({
-      id: r.id,
+      id: r.interaction_id,
       channel: r.channel as InteractionChannel,
       direction: (r.direction as InteractionDirection | null) ?? null,
-      occurredAt: r.occurred_at,
+      occurredAt: r.occurred_at_label,
       title: r.title,
       summary: r.summary,
     })),

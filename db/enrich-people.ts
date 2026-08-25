@@ -23,6 +23,7 @@
 import { sql } from './client'
 import { normalizePhone, normalizeEmail } from '../lib/relationship-intel/normalize'
 import { isHumanName } from '../lib/relationship-intel/names'
+import { refreshClientReadModels } from './client-read-models'
 
 export type ContactInfo = {
   displayName: string | null
@@ -269,6 +270,8 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
       where id = any(${resolvedHumanIds})
     `
   }
+
+  await refreshClientReadModels()
 
   return {
     enriched: enrichedIds.length,

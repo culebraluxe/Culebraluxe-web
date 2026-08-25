@@ -7,6 +7,7 @@ import { runAuthorized } from '@/lib/auth/require-authority'
 import type { ActingUser, AuthorityCode } from '@/lib/auth/types'
 import { PortalWriteError } from '@/lib/portal-write-error'
 import { toPortalInstant } from '@/lib/portal-time'
+import { refreshClientReadModels } from '@/db/client-read-models'
 import { searchPeople } from '@/db/people'
 import type { PersonSearchResult } from '@/db/people'
 import {
@@ -590,6 +591,7 @@ export async function logManualInteractionAction(input: {
         propertyId: input.propertyId ?? undefined,
         dealId: input.dealId ?? undefined,
       })
+      await refreshClientReadModels()
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {
@@ -1137,6 +1139,7 @@ export async function createClientAction(
   return portalWrite('crm.write', async () => {
     try {
       const result = await createClient(input)
+      await refreshClientReadModels()
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {
@@ -1159,6 +1162,7 @@ export async function updateClientProfileAction(
   return portalWrite('crm.write', async () => {
     try {
       const result = await updateClientProfile(personId, input)
+      await refreshClientReadModels()
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {
@@ -1180,6 +1184,7 @@ export async function archiveClientAction(
   return portalWrite('crm.write', async () => {
     try {
       const result = await archiveClient(personId)
+      await refreshClientReadModels()
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {
@@ -1210,6 +1215,7 @@ export async function updateClientIdentityAction(
   return portalWrite('crm.write', async () => {
     try {
       const result = await setClientIdentity(personId, kind, value)
+      await refreshClientReadModels()
       revalidatePortal()
       return { ok: true, data: result }
     } catch (error) {

@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { sql } from './client'
 import { findIdentityMatch, createPersonWithIdentities } from './person-identities'
 import { recordReconcileDecision } from './relationship-evidence'
+import { refreshClientReadModels } from './client-read-models'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
 import { isHumanName } from '../lib/relationship-intel/names'
 import type { NormalizedIdentityHint } from '../lib/crm-intake-types'
@@ -180,6 +181,9 @@ export async function promoteReviewRequiredEvidence(): Promise<PromoteResult> {
     else result.linkedExisting += 1
   }
 
+  // Refresh the materialized client read models after the canonical promotion
+  // cycle (the defined refresh boundary).
+  await refreshClientReadModels()
   return result
 }
 
