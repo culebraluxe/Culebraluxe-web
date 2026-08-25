@@ -2,20 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { IlamyCalendar, useIlamyCalendarContext } from '@ilamy/calendar'
-import dayjs from 'dayjs'
 
 import { Panel } from '@/components/portal/panel'
+import { toIlamyCalendarEvent } from '@/lib/catchup/calendar-mappers'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 
 // ---------------------------------------------------------------------------
-// CATCH-UP — calendar pane (real calendar engine, Apple Calendar–like).
+// CATCH-UP — calendar candidate: OPTION A (current incumbent, @ilamy/calendar).
 //
-// Uses @ilamy/calendar (React 19, Tailwind v4 / shadcn, MIT) for a genuine
-// Month / Week / Day calendar. Apple Calendar remains authoritative; this pane
-// renders the NORMALIZED CalendarEventSource projection — the library receives
-// only normalized application events, never Apple / provider / database types.
-// The header (month title, prev / today / next, DAY | WEEK | MONTH) is owned
-// here via the library's `headerComponent` slot and skinned for CulebraLuxe.
+// Real Month / Week / Day engine (React 19, Tailwind v4 / shadcn, MIT). Renders
+// the NORMALIZED CalendarEventSource projection via the shared mapper — same
+// events the FullCalendar candidate consumes. Apple Calendar remains
+// authoritative; this pane never touches Apple/provider/database types.
 // ---------------------------------------------------------------------------
 
 const NAV_BTN =
@@ -85,39 +83,28 @@ function CalendarHeader() {
   )
 }
 
-function toCalendarEvent(event: CatchUpCalendarEvent) {
-  const start = event.startAt
-  const end =
-    event.endAt ?? dayjs(event.startAt).add(1, 'hour').toISOString()
-  const gold = event.kind === 'showing'
-  return {
-    id: event.id,
-    title: event.title,
-    start,
-    end,
-    allDay: event.allDay,
-    color: gold ? '#c6a15b' : '#3f6ea5',
-    backgroundColor: gold ? 'rgba(198,161,91,0.18)' : 'rgba(63,110,165,0.14)',
-  }
-}
-
 export function CatchUpCalendar({
   events,
+  heading = 'Calendar',
 }: {
   events: CatchUpCalendarEvent[]
+  heading?: string
 }) {
   const [mounted, setMounted] = useState(false)
-  const calendarEvents = useMemo(() => events.map(toCalendarEvent), [events])
+  const calendarEvents = useMemo(
+    () => events.map(toIlamyCalendarEvent),
+    [events],
+  )
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
   return (
-    <Panel compact heading="Calendar" className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1">
+    <Panel compact heading={heading} className="flex h-full min-h-0 flex-col">
+      <div className="h-[34rem]">
         {!mounted ? (
-          <div className="flex h-[28rem] items-center justify-center text-sm font-light text-black/40">
+          <div className="flex h-full items-center justify-center text-sm font-light text-black/40">
             Loading calendar…
           </div>
         ) : (

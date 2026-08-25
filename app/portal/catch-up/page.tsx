@@ -2,16 +2,21 @@ import { CatchUp } from '@/components/portal/catch-up'
 import { getCatchUpEligiblePage } from '@/db/catch-up'
 import { buildCatchUpQueue } from '@/lib/catchup/queue'
 import { getCatchUpCalendarEvents } from '@/db/catch-up-calendar'
+import { getEvaluationCalendarEvents } from '@/lib/catchup/eval-data'
 
 export const dynamic = 'force-dynamic'
 
 // CATCH-UP — CORE destination. Server-side initial queue + calendar projection;
 // the queue re-pages client-side over the bounded /api/portal/catch-up read.
+// CAL-02: real showings + deterministic evaluation events are combined ONCE
+// into a single normalized array that BOTH calendar candidates consume.
 export default async function CatchUpPage() {
-  const [{ rows }, calendarEvents] = await Promise.all([
+  const [{ rows }, realEvents] = await Promise.all([
     getCatchUpEligiblePage({ page: 1, pageSize: 50 }),
     getCatchUpCalendarEvents(),
   ])
+
+  const calendarEvents = [...realEvents, ...getEvaluationCalendarEvents()]
 
   const queue = buildCatchUpQueue(rows)
   const newLeads = queue.filter((i) => i.reasonCode === 'new_lead').length

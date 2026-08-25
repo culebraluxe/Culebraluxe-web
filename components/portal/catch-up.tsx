@@ -9,7 +9,7 @@ import {
 import type { CommandStatusTone } from '@/components/portal/command-status-band'
 import { CatchUpCommand } from '@/components/portal/catch-up-command'
 import { CatchUpQueue } from '@/components/portal/catch-up-queue'
-import { CatchUpCalendar } from '@/components/portal/catch-up-calendar'
+import { CatchUpCalendarEvaluation } from '@/components/portal/catch-up-calendar-evaluation'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,9 @@ export function CatchUp({
 
       <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
         <CatchUpQueue />
-        <CatchUpCalendar events={calendarEvents} />
+        {/* CAL-02 — temporary A/B evaluation (Option A ilamy, Option B
+            FullCalendar). Same normalized events, stacked vertically. */}
+        <CatchUpCalendarEvaluation events={calendarEvents} />
       </div>
     </div>
   )

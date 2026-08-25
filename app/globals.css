@@ -541,3 +541,41 @@
     background: var(--portal-navy);
   }
 }
+
+/* CAL-02 — CulebraLuxe skin for the FullCalendar candidate (Option B).
+   FullCalendar v7 classic theme colors are driven by --fc-classic-* vars;
+   override them on the .cue-fc container so the calendar matches the portal
+   (restrained navy + gold accent, portal typography, subtle borders). */
+.cue-fc {
+  --fc-classic-primary: #030f23;
+  --fc-classic-primary-foreground: #ffffff;
+  --fc-classic-event: #c6a15b;
+  --fc-classic-event-contrast: #ffffff;
+  --fc-classic-background-event: #c6a15b;
+  --fc-classic-background-event-opacity: 16%;
+  --fc-classic-background-event-foreground-opacity: 60%;
+  --fc-classic-highlight: rgba(198, 161, 91, 0.12);
+  --fc-classic-today: rgba(198, 161, 91, 0.14);
+  --fc-classic-now: #c6a15b;
+  --fc-classic-button: #030f23;
+  --fc-classic-button-border: #030f23;
+  --fc-classic-button-strong: #1d2c47;
+  --fc-classic-button-strong-border: #0f1a30;
+  --fc-classic-button-outline: rgba(3, 15, 35, 0.35);
+  --fc-classic-button-foreground: #ffffff;
+  --fc-classic-background: transparent;
+  --fc-classic-faint: rgba(3, 15, 35, 0.03);
+  --fc-classic-muted: rgba(3, 15, 35, 0.06);
+  --fc-classic-strong: rgba(3, 15, 35, 0.12);
+  --fc-classic-foreground: #030f23;
+  --fc-classic-faint-foreground: #9aa3ad;
+  --fc-classic-muted-foreground: #66707b;
+  --fc-classic-border: rgba(3, 15, 35, 0.14);
+  --fc-classic-strong-border: rgba(3, 15, 35, 0.22);
+}
+
+.cue-fc .fc {
+  font-family: var(--font-cormorant), Georgia, serif;
+  border-radius: var(--portal-panel-radius);
+  overflow: hidden;
+}
