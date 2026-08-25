@@ -59,8 +59,8 @@ export function normalizeCalendarEvent(
   return {
     id: input.id,
     title: input.title,
-    startAt: input.startAt,
-    endAt: input.endAt ?? null,
+    startAt: toIsoString(input.startAt),
+    endAt: input.endAt ? toIsoString(input.endAt) : null,
     allDay: input.allDay,
     personId: input.personId,
     personName: input.personName,
@@ -68,6 +68,11 @@ export function normalizeCalendarEvent(
     kind: input.kind,
     source: input.source,
   }
+}
+
+/** Coerce a DB timestamp (neon returns Date) or ISO string to a plain ISO string. */
+function toIsoString(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value
 }
 
 /** Week bucket (Sunday-start, PR tz) for the calendar view. */

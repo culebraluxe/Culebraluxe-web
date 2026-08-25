@@ -43,7 +43,9 @@ export function CatchUpCalendar({ events }: { events: CatchUpCalendarEvent[] }) 
       map.set(key, arr)
     }
     for (const arr of map.values()) {
-      arr.sort((a, b) => a.startAt.localeCompare(b.startAt))
+      arr.sort((a, b) =>
+        String(a.startAt).localeCompare(String(b.startAt)),
+      )
     }
     return map
   }, [events, buckets])
