@@ -3,7 +3,7 @@
 import { Pool } from '@neondatabase/serverless'
 const pool = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
 
-const SHA = 'PENDING' // filled after commit
+const SHA = '81f0dd0' // filled after commit
 const COMMON = `session-2 commit ${SHA} | migrations 075/076/077 applied+proven in DEV | tsc clean | next build exit 0 | git diff clean`
 
 const PLAN = {
