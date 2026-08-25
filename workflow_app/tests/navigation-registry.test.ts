@@ -51,6 +51,7 @@ test('UI-01: every known /portal route belongs to a surface', () => {
   const routes = [
     '/portal/activity',
     '/portal/attention',
+    '/portal/catch-up',
     '/portal/clients',
     '/portal/client-admin',
     '/portal/command-center',

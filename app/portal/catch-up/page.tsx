@@ -1,0 +1,34 @@
+import { CatchUp } from '@/components/portal/catch-up'
+import { getCatchUpEligiblePage } from '@/db/catch-up'
+import { buildCatchUpQueue } from '@/lib/catchup/queue'
+import { getCatchUpCalendarEvents } from '@/db/catch-up-calendar'
+
+export const dynamic = 'force-dynamic'
+
+// CATCH-UP — CORE destination. Server-side initial queue + calendar projection;
+// the queue re-pages client-side over the bounded /api/portal/catch-up read.
+export default async function CatchUpPage() {
+  const [{ rows }, calendarEvents] = await Promise.all([
+    getCatchUpEligiblePage({ page: 1, pageSize: 50 }),
+    getCatchUpCalendarEvents(),
+  ])
+
+  const queue = buildCatchUpQueue(rows)
+  const newLeads = queue.filter((i) => i.reasonCode === 'new_lead').length
+  const needsResponse = queue.filter(
+    (i) => i.reasonCode === 'needs_response',
+  ).length
+
+  const parts: string[] = []
+  if (queue.length > 0) parts.push(`${queue.length} need attention`)
+  if (newLeads > 0) parts.push(`${newLeads} new lead${newLeads === 1 ? '' : 's'}`)
+  if (needsResponse > 0)
+    parts.push(`${needsResponse} need${needsResponse === 1 ? 's' : ''} a response`)
+  if (calendarEvents.length > 0)
+    parts.push(`Calendar · ${calendarEvents.length} upcoming`)
+
+  const statusCue =
+    parts.length > 0 ? parts.join(' · ') : 'No urgent follow-ups'
+
+  return <CatchUp calendarEvents={calendarEvents} statusCue={statusCue} />
+}
