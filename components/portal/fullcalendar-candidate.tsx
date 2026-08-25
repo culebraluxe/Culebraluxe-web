@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Calendar from '@fullcalendar/react'
+import classicTheme from '@fullcalendar/react/themes/classic'
 import daygrid from '@fullcalendar/react/daygrid'
 import timegrid from '@fullcalendar/react/timegrid'
 import '@fullcalendar/react/skeleton.css'
@@ -15,9 +16,11 @@ import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 // ---------------------------------------------------------------------------
 // CATCH-UP — calendar candidate: OPTION B (FullCalendar, free/open-source).
 //
-// FullCalendar v7 React (MIT core/daygrid/timegrid). Real Month / Week / Day
-// time-grid views. Consumes the SAME normalized events as Option A via the
-// shared mapper. The CulebraLuxe skin is applied by overriding the classic
+// FullCalendar v7 React (MIT core/daygrid/timegrid/classic-theme). Real Month /
+// Week / Day time-grid views. The classic theme MUST be registered as a plugin
+// (plus skeleton.css + theme.css + palette.css) or the calendar renders as a
+// bare, unstyled skeleton. Consumes the SAME normalized events as Option A via
+// the shared mapper. The CulebraLuxe skin is applied by overriding the classic
 // theme's --fc-classic-* variables on the `.cue-fc` container (see globals.css).
 // ---------------------------------------------------------------------------
 
@@ -43,7 +46,7 @@ export function FullCalendarCandidate({
           </div>
         ) : (
           <Calendar
-            plugins={[daygrid, timegrid]}
+            plugins={[daygrid, timegrid, classicTheme]}
             initialView="dayGridMonth"
             initialDate={new Date()}
             events={events.map(toFullCalendarEvent)}
