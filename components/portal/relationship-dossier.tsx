@@ -7,6 +7,7 @@ import { CreateTaskForm, TaskActions } from "@/components/portal/write/task-acti
 import type {
   RelationshipDossier,
 } from "@/db/dossier"
+import type { RelationshipEvidenceRow } from "@/db/relationship-evidence"
 
 function roleLabel(role: string) {
   if (role === "both") return "Buyer & Seller"
@@ -73,10 +74,86 @@ function formatCurrency(value?: number | null) {
   }).format(value)
 }
 
+function formatEvidenceDate(value?: string | null) {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short" })
+}
+
+function RelationshipMemory({ evidence }: { evidence: RelationshipEvidenceRow[] }) {
+  const sources = Array.from(new Set(evidence.map((e) => e.source)))
+  const emails = Array.from(
+    new Set(evidence.flatMap((e) => e.emails.map((em) => em.value).filter(Boolean))),
+  )
+  const phones = Array.from(
+    new Set(evidence.flatMap((e) => e.phones.map((p) => p.value).filter(Boolean))),
+  )
+  // Bulk/service rows must never make a relationship look fresh.
+  const meaningful = evidence.filter((e) => !e.isAutomatedOrBulk && !e.isOrganizationOrService)
+  const lastOutbound = meaningful
+    .map((e) => e.lastOutboundAt)
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .pop()
+  const lastInbound = meaningful
+    .map((e) => e.lastInboundAt)
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .pop()
+  const lastObserved = meaningful
+    .map((e) => e.lastObservedAt)
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .pop()
+  const firstObserved = evidence
+    .map((e) => e.firstObservedAt)
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .shift()
+  const twoWay = evidence.some((e) => e.isTwoWay)
+  const hasCoverageLimit = evidence.some((e) => e.coverageNote)
+
+  return (
+    <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 lg:p-8">
+      <h2 className="font-serif text-2xl font-light">Relationship memory</h2>
+      <p className="mt-1 text-xs font-light text-black/40">
+        Automatically derived from contacts and email activity. Bulk/service mail is never
+        treated as fresh contact.
+      </p>
+      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <Detail
+          label="Sources"
+          value={
+            sources.map((s) => (s === "apple_contacts" ? "Apple" : "Gmail")).join(" · ") || "—"
+          }
+        />
+        <Detail label="Verified emails" value={emails.length > 0 ? emails.join(", ") : "—"} />
+        <Detail label="Verified phones" value={phones.length > 0 ? phones.join(", ") : "—"} />
+        <Detail
+          label="Last meaningful contact"
+          value={formatEvidenceDate(lastObserved ?? lastOutbound ?? lastInbound) ?? "—"}
+        />
+        <Detail label="Last inbound" value={formatEvidenceDate(lastInbound) ?? "—"} />
+        <Detail label="Last outbound" value={formatEvidenceDate(lastOutbound) ?? "—"} />
+        <Detail label="First known" value={formatEvidenceDate(firstObserved) ?? "—"} />
+        <Detail label="Two-way" value={twoWay ? "Yes" : "—"} />
+      </div>
+      {hasCoverageLimit && (
+        <p className="mt-5 border-t border-[var(--portal-border)] pt-4 text-[11px] font-light text-black/40">
+          Email activity reflects a bounded, partial census — it may understate recent contact.
+        </p>
+      )}
+    </section>
+  )
+}
+
 export function RelationshipDossier({
   dossier,
+  relationshipEvidence = [],
 }: {
   dossier: RelationshipDossier
+  relationshipEvidence?: RelationshipEvidenceRow[]
 }) {
   const person = dossier.person
 
@@ -155,6 +232,10 @@ export function RelationshipDossier({
           </p>
         )}
       </section>
+
+      {relationshipEvidence.length > 0 && (
+        <RelationshipMemory evidence={relationshipEvidence} />
+      )}
 
       <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 lg:p-8">
         <h2 className="font-serif text-2xl font-light">Relationship & Notes</h2>

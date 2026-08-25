@@ -389,3 +389,75 @@ Clients surface without promoting them into canonical `person` or
 - If this checkpoint conflicts with a later explicit decision from Chris, the
   later human decision wins and this file must be updated rather than silently
   interpreted around it.
+
+## 12. REL-INTEL — source-neutral relationship evidence foundation
+
+Implemented as the "relationship-intelligence foundation" slice (migration
+`074_relationship_evidence.sql`, commit SHAs in the Story Board/ARCH-HANDOFF
+record). This PROVES the ODS pipeline against the partial Gmail census; it is
+NOT a full-mailbox census and must not be treated as one.
+
+### 12.1 Neutral seam
+
+`integration_relationship_evidence` is one current-state row per
+`(source, source_account, source_identity_key)`, holding identity evidence
+(display name, org, labeled emails/phones), communication evidence (nullable —
+never invented), bounded-coverage notes, and command-owned canonical
+reconciliation (match method/confidence/review state/rule version).
+
+Provenance points to the existing immutable `integration_intake_batch` and
+`integration_staged_contact_profile` rows. No new inbox, queue, event store, or
+promotion model was created.
+
+### 12.2 Sources
+
+- Apple: the existing 2,573 staged contacts are projected from `l_person` +
+  `l_person_identity` into the neutral seam via `lib/relationship-intel/`
+  (`apple-projector.ts` pure mapper + `apple-evidence.ts` DB loader). Apple
+  contacts are NOT converted into canonical Clients.
+- Gmail: the partial census artifact (2011-06-26 → 2013-12-31, 2,018
+  correspondents) loads via `lib/relationship-intel/gmail-census.ts` (parser)
+  + `gmail-loader.ts` (orchestrator). Aggregate evidence only — no bodies,
+  snippets, or attachments. Coverage bounds live in batch/coverage metadata.
+
+### 12.3 Normalization and replay
+
+- `normalize.ts`: deterministic email (trim/lowercase) and US/Puerto Rico phone
+  (digits-only, 10-digit reliable; ambiguous international numbers quarantined).
+  Original values always retained; invalid values quarantined, not deleted.
+- Deterministic `fingerprint` for replay safety; replaying a batch upserts the
+  same row (idempotent) and changed payloads are distinguishable.
+- Spreadsheet-formula injection is neutralized on CSV cell parse.
+
+### 12.4 Reconciliation
+
+`reconcile.ts` is deterministic and explainable: explicit source link > exact
+normalized email > exact normalized phone > review candidate > unmatched/
+deferred. Weak fuzzy-name similarity is NEVER an automatic match. Automated/
+bulk and service/organization senders are suppressed (rejected / non_person).
+Canonical Persons are never silently merged; ambiguity is a reviewable outcome.
+Canonical linkage only happens through the existing command/receipt seam after
+human approval (`recordReconcileDecision` writes the review fields, not
+canonical tables).
+
+### 12.5 Read model and product activation
+
+- `db/relationship-evidence.ts` exposes a per-Person read model
+  (`getRelationshipEvidenceForPerson`) and a server-side filtered OPPS review
+  (`getRelationshipEvidenceReview`), plus an API route
+  `/api/portal/relationship-evidence-review`.
+- Client Dossier now shows a compact "Relationship memory" section when the
+  seam is populated; it is defensive (renders nothing if unavailable) and bulk
+  mail is never treated as fresh contact.
+
+### 12.6 Known limitations and next dependency
+
+- The Gmail artifact is partial and the connector is unreliable for full-census
+  enumeration. Production-ranking on the partial set would be misleading, so
+  Catch-Up consumes evidence conservatively.
+- A deterministic full Gmail census requires a message-ID manifest and
+  guaranteed metadata-only batch reads; that is a separate future dependency,
+  NOT part of this slice.
+- The `074_relationship_evidence.sql` migration must be applied in the DEV
+  database and (when Chris authorizes) Production before the neutral seam or the
+  OPPS review surface can return real rows.
