@@ -29,4 +29,5 @@ contact-export/contacts-export.json
 apple-messages-export/.build/
 apple-messages-output/
 apple-messages-export/output/
+public/upload/data/apple-messages-export/
 messages_schema_recon.txt

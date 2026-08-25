@@ -22,20 +22,21 @@ let defaultDB = home
 let sourceSystem = "apple_messages"
 let exportVersion = 1
 
-// Apple Messages timestamps are seconds since the Apple reference date
-// (2001-01-01T00:00:00Z). Add this offset to convert to Unix epoch.
+// Apple Messages timestamps are stored as NANOSECONDS since the Apple
+// reference date (2001-01-01T00:00:00Z). Observed live example:
+// 809312575831244416 ns -> 809312575.831 s since 2001 -> ~mid-2026.
+// Convert to Unix epoch: raw / 1_000_000_000 + 978_307_200.
 let APPLE_EPOCH_UNIX_OFFSET: Double = 978307200
 
 struct Args {
-    var outDir: URL
+    var outDir: URL?
     var maxMessages: Int?
     var maxHandles: Int?
 }
 
 func parseArgs() -> Args {
     let a = Array(CommandLine.arguments.dropFirst())
-    var outDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("apple-messages-output")
+    var outDir: URL?
     var maxMessages: Int?
     var maxHandles: Int?
     var i = 0
@@ -88,9 +89,9 @@ func availableColumns(_ db: OpaquePointer, _ table: String) -> Set<String> {
 
 func quoteIdent(_ s: String) -> String { "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\"" }
 
-// Apple seconds-since-2001 -> ISO-8601 string (or nil).
-func appleSecondsToISO(_ raw: Double) -> String? {
-    let unix = raw + APPLE_EPOCH_UNIX_OFFSET
+// Apple nanoseconds-since-2001 -> ISO-8601 string (or nil).
+func appleTimestampToISO(_ raw: Double) -> String? {
+    let unix = raw / 1_000_000_000 + APPLE_EPOCH_UNIX_OFFSET
     let date = Date(timeIntervalSince1970: unix)
     guard date.timeIntervalSince1970 > 0 else { return nil }
     let f = ISO8601DateFormatter()
@@ -132,8 +133,12 @@ func readRow(_ stmt: OpaquePointer?) -> [String: Any] {
 }
 
 func jsonLine(_ obj: [String: Any]) -> String {
-    let data = try! JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
-    return String(data: data, encoding: .utf8) ?? "{}"
+    guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),
+          let line = String(data: data, encoding: .utf8)
+    else {
+        return "{}"
+    }
+    return line
 }
 
 func appendLine(_ handle: FileHandle, _ line: String) {
@@ -191,7 +196,7 @@ func exportChats(_ db: OpaquePointer, _ url: URL) -> Int {
             "displayName": row["display_name"] ?? NSNull(),
             "groupId": row["group_id"] ?? NSNull(),
             "isArchived": row["is_archived"] ?? NSNull(),
-            "lastReadMessageTimestamp": lrms.map(appleSecondsToISO) ?? NSNull(),
+            "lastReadMessageTimestamp": lrms.map(appleTimestampToISO) ?? NSNull(),
             "accountLogin": row["account_login"] ?? NSNull(),
         ]
         appendLine(f, jsonLine(obj))
@@ -246,7 +251,7 @@ func exportMessages(_ db: OpaquePointer, _ url: URL, _ maxMessages: Int?) -> Mes
     let sql = "SELECT m.ROWID AS rowid, \(cols), cmj.chat_id AS chat_id, c.guid AS chat_guid, h.id AS handle_value FROM message m LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID LEFT JOIN chat c ON c.ROWID = cmj.chat_id LEFT JOIN handle h ON h.ROWID = m.handle_id ORDER BY m.ROWID" + limit
     stream(db, sql) { row in
         let date = row["date"] as? Double
-        let iso = date.flatMap(appleSecondsToISO)
+        let iso = date.flatMap(appleTimestampToISO)
         if let iso {
             if stats.minISO == nil || iso < stats.minISO! { stats.minISO = iso }
             if stats.maxISO == nil || iso > stats.maxISO! { stats.maxISO = iso }
@@ -266,8 +271,8 @@ func exportMessages(_ db: OpaquePointer, _ url: URL, _ maxMessages: Int?) -> Mes
             "account": row["account"] ?? NSNull(),
             "date": date ?? NSNull(),
             "dateISO": iso ?? NSNull(),
-            "dateReadISO": (row["date_read"] as? Double).flatMap(appleSecondsToISO) ?? NSNull(),
-            "dateDeliveredISO": (row["date_delivered"] as? Double).flatMap(appleSecondsToISO) ?? NSNull(),
+            "dateReadISO": (row["date_read"] as? Double).flatMap(appleTimestampToISO) ?? NSNull(),
+            "dateDeliveredISO": (row["date_delivered"] as? Double).flatMap(appleTimestampToISO) ?? NSNull(),
             "isFromMe": row["is_from_me"] ?? NSNull(),
             "isRead": row["is_read"] ?? NSNull(),
             "isSent": row["is_sent"] ?? NSNull(),
@@ -305,7 +310,7 @@ func exportAttachments(_ db: OpaquePointer, _ url: URL) -> Int {
         let obj: [String: Any] = [
             "rowid": row["ROWID"] ?? NSNull(),
             "guid": row["guid"] ?? NSNull(),
-            "createdDateISO": (row["created_date"] as? Double).flatMap(appleSecondsToISO) ?? NSNull(),
+            "createdDateISO": (row["created_date"] as? Double).flatMap(appleTimestampToISO) ?? NSNull(),
             "filename": row["filename"] ?? NSNull(),
             "transferName": row["transfer_name"] ?? NSNull(),
             "uti": row["uti"] ?? NSNull(),
@@ -340,6 +345,45 @@ func exportMessageAttachments(_ db: OpaquePointer, _ url: URL) -> Int {
     return count
 }
 
+
+// Locate the repo root by walking up from the current directory until we find
+// the apple-messages-export package (its parent is the repo root).
+func findRepoRoot(_ start: URL) -> URL? {
+    var dir = start
+    while true {
+        let marker = dir.appendingPathComponent("apple-messages-export").appendingPathComponent("Package.swift")
+        if FileManager.default.fileExists(atPath: marker.path) {
+            return dir
+        }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { return nil }
+        dir = parent
+    }
+}
+
+// Default target = <repo-root>/public/upload/data/apple-messages-export/.
+// This is an existing operator-owned directory; we never delete or recreate
+// public/upload, public/upload/data, or public/upload/media.
+func resolveTargetDir(argsOut: URL?) -> URL {
+    if let argsOut { return argsOut }
+    let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    if let root = findRepoRoot(cwd) {
+        return root
+            .appendingPathComponent("public")
+            .appendingPathComponent("upload")
+            .appendingPathComponent("data")
+            .appendingPathComponent("apple-messages-export")
+    }
+    return cwd.appendingPathComponent("public").appendingPathComponent("upload").appendingPathComponent("data").appendingPathComponent("apple-messages-export")
+}
+
+// Atomic per-file commit: write a temp file inside the target dir, then rename.
+func atomicWrite(_ text: String, to target: URL) throws {
+    let tmp = target.appendingPathExtension("tmp")
+    try text.write(to: tmp, atomically: true, encoding: .utf8)
+    _ = try FileManager.default.replaceItemAt(target, withItemAt: tmp)
+}
+
 @main
 struct AppleMessagesExport {
     static func main() {
@@ -352,24 +396,27 @@ struct AppleMessagesExport {
         defer { sqlite3_close(db) }
         print("Messages DB opened READ-ONLY: \(defaultDB.path)")
 
-        // Timestamp encoding recon (no body text printed).
+        // Timestamp encoding recon (no body text printed). Live DB timestamps are
+        // nanoseconds since 2001-01-01 (e.g. 809312575831244416 ns ~= mid-2026).
         var recon: OpaquePointer?
         let now = Date().timeIntervalSince1970
         let reconSQL = "SELECT MAX(date) AS maxdate FROM message"
         if sqlite3_prepare_v2(db, reconSQL, -1, &recon, nil) == SQLITE_OK {
             if sqlite3_step(recon) == SQLITE_ROW {
-                let maxDate = sqlite3_column_double(recon, 0)
-                let converted = maxDate + APPLE_EPOCH_UNIX_OFFSET
-                print("timestamp recon: appleDateRaw=\(Int(maxDate)) -> unix=\(Int(converted)) now=\(Int(now)) deltaSeconds=\(Int(converted - now))")
+                let maxRaw = sqlite3_column_double(recon, 0)
+                let converted = maxRaw / 1_000_000_000 + APPLE_EPOCH_UNIX_OFFSET
+                print("timestamp recon: appleDateRawNs=\(Int(maxRaw)) -> unix=\(Int(converted)) now=\(Int(now)) deltaSeconds=\(Int(converted - now))")
             }
             sqlite3_finalize(recon)
         }
 
-        let finalDir = args.outDir
-        let tmpDir = finalDir.appendingPathComponent("..apple-messages-export-tmp").standardizedFileURL
-        try? FileManager.default.removeItem(at: tmpDir)
-        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let targetDir = resolveTargetDir(argsOut: args.outDir)
+        do {
+            try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
+        } catch {
+            fail("cannot create target directory \(targetDir.path): \(error)")
+        }
+        print("target=\(targetDir.path)")
 
         let files = [
             "identities.jsonl",
@@ -380,44 +427,63 @@ struct AppleMessagesExport {
             "message-attachments.jsonl",
         ]
 
-        let handles = exportHandles(db, tmpDir.appendingPathComponent("identities.jsonl"), args.maxHandles)
-        let chats = exportChats(db, tmpDir.appendingPathComponent("conversations.jsonl"))
-        let participants = exportChatParticipants(db, tmpDir.appendingPathComponent("conversation-participants.jsonl"))
-        let msgStats = exportMessages(db, tmpDir.appendingPathComponent("messages.jsonl"), args.maxMessages)
-        let attachments = exportAttachments(db, tmpDir.appendingPathComponent("attachments.jsonl"))
-        let messageAttachments = exportMessageAttachments(db, tmpDir.appendingPathComponent("message-attachments.jsonl"))
+        do {
+            let handlesTmp = targetDir.appendingPathComponent("identities.jsonl.tmp")
+            let handles = exportHandles(db, handlesTmp, args.maxHandles)
+            _ = try FileManager.default.replaceItemAt(targetDir.appendingPathComponent("identities.jsonl"), withItemAt: handlesTmp)
 
-        let timestampFormatter = ISO8601DateFormatter()
-        timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let counts: [String: Any] = [
-            "handles": handles,
-            "chats": chats,
-            "chatParticipants": participants,
-            "messages": msgStats.count,
-            "messagesWithText": msgStats.withText,
-            "attachments": attachments,
-            "messageAttachments": messageAttachments,
-        ]
-        let manifest: [String: Any] = [
-            "exportVersion": exportVersion,
-            "sourceSystem": sourceSystem,
-            "generatedAt": timestampFormatter.string(from: Date()),
-            "databasePath": defaultDB.path,
-            "databaseReadOnly": true,
-            "timestampEncoding": "apple_seconds_since_2001_plus_\(Int(APPLE_EPOCH_UNIX_OFFSET))",
-            "counts": counts,
-            "minimumMessageDate": msgStats.minISO ?? NSNull(),
-            "maximumMessageDate": msgStats.maxISO ?? NSNull(),
-            "files": files,
-        ]
-        try! jsonLine(manifest).write(to: tmpDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+            let chatsTmp = targetDir.appendingPathComponent("conversations.jsonl.tmp")
+            let chats = exportChats(db, chatsTmp)
+            _ = try FileManager.default.replaceItemAt(targetDir.appendingPathComponent("conversations.jsonl"), withItemAt: chatsTmp)
 
-        try? FileManager.default.removeItem(at: finalDir)
-        try! FileManager.default.moveItem(at: tmpDir, to: finalDir)
-        print("EXPORT SUCCESS")
-        print("handles=\(handles) chats=\(chats) participants=\(participants) messages=\(msgStats.count) (withText=\(msgStats.withText)) attachments=\(attachments) messageAttachments=\(messageAttachments)")
-        print("min=\(msgStats.minISO ?? "?") max=\(msgStats.maxISO ?? "?")")
-        print("output=\(finalDir.path)")
+            let participantsTmp = targetDir.appendingPathComponent("conversation-participants.jsonl.tmp")
+            let participants = exportChatParticipants(db, participantsTmp)
+            _ = try FileManager.default.replaceItemAt(targetDir.appendingPathComponent("conversation-participants.jsonl"), withItemAt: participantsTmp)
+
+            let messagesTmp = targetDir.appendingPathComponent("messages.jsonl.tmp")
+            let msgStats = exportMessages(db, messagesTmp, args.maxMessages)
+            _ = try FileManager.default.replaceItemAt(targetDir.appendingPathComponent("messages.jsonl"), withItemAt: messagesTmp)
+
+            let attachmentsTmp = targetDir.appendingPathComponent("attachments.jsonl.tmp")
+            let attachments = exportAttachments(db, attachmentsTmp)
+            _ = try FileManager.default.replaceItemAt(targetDir.appendingPathComponent("attachments.jsonl"), withItemAt: attachmentsTmp)
+
+            let messageAttachmentsTmp = targetDir.appendingPathComponent("message-attachments.jsonl.tmp")
+            let messageAttachments = exportMessageAttachments(db, messageAttachmentsTmp)
+            _ = try FileManager.default.replaceItemAt(targetDir.appendingPathComponent("message-attachments.jsonl"), withItemAt: messageAttachmentsTmp)
+
+            let timestampFormatter = ISO8601DateFormatter()
+            timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let counts: [String: Any] = [
+                "handles": handles,
+                "chats": chats,
+                "chatParticipants": participants,
+                "messages": msgStats.count,
+                "messagesWithText": msgStats.withText,
+                "attachments": attachments,
+                "messageAttachments": messageAttachments,
+            ]
+            let manifest: [String: Any] = [
+                "exportVersion": exportVersion,
+                "sourceSystem": sourceSystem,
+                "generatedAt": timestampFormatter.string(from: Date()),
+                "databasePath": defaultDB.path,
+                "databaseReadOnly": true,
+                "timestampEncoding": "apple_nanoseconds_since_2001_div_1e9_plus_\(Int(APPLE_EPOCH_UNIX_OFFSET))",
+                "counts": counts,
+                "minimumMessageDate": msgStats.minISO ?? NSNull(),
+                "maximumMessageDate": msgStats.maxISO ?? NSNull(),
+                "files": files,
+            ]
+            try atomicWrite(jsonLine(manifest), to: targetDir.appendingPathComponent("manifest.json"))
+
+            print("EXPORT SUCCESS")
+            print("handles=\(handles) chats=\(chats) participants=\(participants) messages=\(msgStats.count) (withText=\(msgStats.withText)) attachments=\(attachments) messageAttachments=\(messageAttachments)")
+            print("min=\(msgStats.minISO ?? "?") max=\(msgStats.maxISO ?? "?")")
+            print("output=\(targetDir.path)")
+        } catch {
+            fail("export failed: \(error)")
+        }
     }
 }
 
