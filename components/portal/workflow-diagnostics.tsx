@@ -33,7 +33,7 @@ function MetricCard({
   emphasize?: boolean
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
       <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
         {label}
       </div>
@@ -205,7 +205,7 @@ function InstanceDetailView({
 }) {
   return (
     <div className="mt-4 space-y-6">
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Process / Definition" />
         <div className="mt-4 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           <Detail
@@ -230,14 +230,14 @@ function InstanceDetailView({
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Tokens" hint="Nested token tree (technical id + human label)." />
         <div className="mt-4">
           <TokenTree tokens={detail.tokens} nodeLabels={detail.nodeLabels} />
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Engine Tasks" />
         <div className="mt-4 overflow-x-auto">
           {detail.tasks.length === 0 ? (
@@ -276,7 +276,7 @@ function InstanceDetailView({
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Canonical Correlations" />
         <div className="mt-4 overflow-x-auto">
           {detail.correlations.length === 0 ? (
@@ -312,7 +312,7 @@ function InstanceDetailView({
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Jobs / Timers" />
         <div className="mt-4 overflow-x-auto">
           {detail.jobs.length === 0 ? (
@@ -342,14 +342,14 @@ function InstanceDetailView({
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Facts" hint="Process variables captured at runtime." />
         <div className="mt-4">
           <FactsBlock variables={detail.variables} />
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Command Receipts" hint="Engine commands and their application-side receipt outcome." />
         <div className="mt-4 overflow-x-auto">
           {detail.commands.length === 0 ? (
@@ -398,7 +398,7 @@ function InstanceDetailView({
         </div>
       </section>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <SectionTitle title="Events" hint="Engine process events (most recent first)." />
         <div className="mt-4 overflow-x-auto">
           {detail.events.length === 0 ? (
@@ -488,7 +488,7 @@ export function WorkflowDiagnostics({
       </div>
 
       {!diagnostics.configured ? (
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel px-10 py-16 text-center">
           <p className="text-sm font-light text-black/50">
             Workflow engine tables are not available in this environment.
           </p>
@@ -534,7 +534,7 @@ export function WorkflowDiagnostics({
             />
           </section>
 
-          <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
             <h3 className="font-serif text-xl font-light">Anomalies</h3>
             <p className="mt-1 text-xs font-light text-black/40">
               Deterministic support flags derived from engine state and
@@ -567,7 +567,7 @@ export function WorkflowDiagnostics({
             </div>
           </section>
 
-          <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
             <div className="flex items-center justify-between">
               <h3 className="font-serif text-xl font-light">Instances</h3>
               <span className="text-xs font-light text-black/40">

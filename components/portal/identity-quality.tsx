@@ -1,6 +1,14 @@
 import Link from "next/link"
 
 import type { IdentityQualitySnapshot } from "@/db/identity-quality"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 function MetricCard({
   label,
@@ -119,29 +127,65 @@ export function IdentityQuality({
             </span>
           </div>
           {snapshot.malformedIdentities.length > 0 ? (
-            <div>
-              {snapshot.malformedIdentities.map((item) => (
-                <div
-                  key={`${item.personId}-${item.identityType}-${item.value}`}
-                  className="border-b border-[var(--portal-border)] px-6 py-4 last:border-b-0"
-                >
-                  <div className="text-sm font-medium">
+            <>
+              <div className="hidden md:block">
+                <PortalTable>
+                  <PortalTableHead>
+                    <PortalTableRow className="hover:bg-transparent">
+                      <PortalTableHeader>Person</PortalTableHeader>
+                      <PortalTableHeader>Identity</PortalTableHeader>
+                      <PortalTableHeader>Issue</PortalTableHeader>
+                    </PortalTableRow>
+                  </PortalTableHead>
+                  <PortalTableBody>
+                    {snapshot.malformedIdentities.map((item) => (
+                      <PortalTableRow key={`${item.personId}-${item.identityType}-${item.value}`}>
+                        <PortalTableCell>
+                          <Link
+                            href={`/portal/clients/${item.personId}`}
+                            className="text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                          >
+                            {item.personName}
+                          </Link>
+                        </PortalTableCell>
+                        <PortalTableCell className="text-xs font-light text-black/45">
+                          {item.identityType}: {item.value}
+                        </PortalTableCell>
+                        <PortalTableCell className="text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
+                          {item.issue}
+                        </PortalTableCell>
+                      </PortalTableRow>
+                    ))}
+                  </PortalTableBody>
+                </PortalTable>
+              </div>
+              <div className="divide-y divide-[var(--portal-border)] md:hidden">
+                {snapshot.malformedIdentities.map((item) => (
+                  <article key={`${item.personId}-${item.identityType}-${item.value}`} className="space-y-2 px-4 py-4">
                     <Link
                       href={`/portal/clients/${item.personId}`}
-                      className="text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                      className="text-sm font-medium text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
                     >
                       {item.personName}
                     </Link>
-                  </div>
-                  <div className="mt-1 text-xs font-light text-black/45">
-                    {item.identityType}: {item.value}
-                  </div>
-                  <div className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
-                    {item.issue}
-                  </div>
-                </div>
-              ))}
-            </div>
+                    <dl className="text-xs">
+                      <div>
+                        <dt className="sr-only">Identity</dt>
+                        <dd className="font-light text-black/45">
+                          {item.identityType}: {item.value}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="sr-only">Issue</dt>
+                        <dd className="mt-1 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-archive)]">
+                          {item.issue}
+                        </dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="px-6 py-10 text-sm font-light text-black/40">
               No malformed identities found.
@@ -162,30 +206,72 @@ export function IdentityQuality({
             </span>
           </div>
           {snapshot.weakCoverage.length > 0 ? (
-            <div>
-              {snapshot.weakCoverage.map((person) => (
-                <div
-                  key={person.id}
-                  className="flex items-start justify-between gap-4 border-b border-[var(--portal-border)] px-6 py-4 last:border-b-0"
-                >
-                  <div>
-                    <Link
-                      href={`/portal/clients/${person.id}`}
-                      className="font-serif text-lg font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
-                    >
-                      {person.displayName}
-                    </Link>
-                    <div className="mt-1 text-xs font-light text-black/45">
-                      {person.role} · {person.status}
+            <>
+              <div className="hidden md:block">
+                <PortalTable>
+                  <PortalTableHead>
+                    <PortalTableRow className="hover:bg-transparent">
+                      <PortalTableHeader>Person</PortalTableHeader>
+                      <PortalTableHeader>Role / Status</PortalTableHeader>
+                      <PortalTableHeader className="text-right">Active Deals</PortalTableHeader>
+                      <PortalTableHeader className="text-right">Open Tasks</PortalTableHeader>
+                    </PortalTableRow>
+                  </PortalTableHead>
+                  <PortalTableBody>
+                    {snapshot.weakCoverage.map((person) => (
+                      <PortalTableRow key={person.id}>
+                        <PortalTableCell>
+                          <Link
+                            href={`/portal/clients/${person.id}`}
+                            className="font-serif text-base font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                          >
+                            {person.displayName}
+                          </Link>
+                        </PortalTableCell>
+                        <PortalTableCell className="text-xs font-light text-black/45">
+                          {person.role} · {person.status}
+                        </PortalTableCell>
+                        <PortalTableCell className="text-right text-sm font-light tabular-nums">
+                          {person.activeDealCount}
+                        </PortalTableCell>
+                        <PortalTableCell className="text-right text-sm font-light tabular-nums">
+                          {person.openTaskCount}
+                        </PortalTableCell>
+                      </PortalTableRow>
+                    ))}
+                  </PortalTableBody>
+                </PortalTable>
+              </div>
+              <div className="divide-y divide-[var(--portal-border)] md:hidden">
+                {snapshot.weakCoverage.map((person) => (
+                  <article key={person.id} className="space-y-3 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/portal/clients/${person.id}`}
+                          className="font-serif text-lg font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                        >
+                          {person.displayName}
+                        </Link>
+                        <p className="mt-0.5 text-xs font-light text-black/45">
+                          {person.role} · {person.status}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right text-xs font-light text-black/40">
-                    <div>{person.activeDealCount} deals</div>
-                    <div className="mt-1">{person.openTaskCount} open tasks</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                      <div>
+                        <dt className="font-light uppercase tracking-[0.12em] text-black/35">Active deals</dt>
+                        <dd className="mt-1 font-light text-black/65">{person.activeDealCount}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-light uppercase tracking-[0.12em] text-black/35">Open tasks</dt>
+                        <dd className="mt-1 font-light text-black/65">{person.openTaskCount}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="px-6 py-10 text-sm font-light text-black/40">
               No weak-coverage relationships.

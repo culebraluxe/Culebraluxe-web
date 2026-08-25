@@ -168,7 +168,7 @@ function NextWorkSection({ selection }: { selection: NextWorkSelection }) {
     selection
 
   return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="mt-6 overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="border-b border-[var(--portal-border)] px-6 py-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="font-serif text-2xl font-light">Next Work</h2>
@@ -462,7 +462,7 @@ export function StoryBoardNotReady() {
         </div>
       </header>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel px-10 py-16 text-center">
         <h2 className="font-serif text-2xl font-light text-[var(--portal-navy)]">
           Story Board storage not ready
         </h2>

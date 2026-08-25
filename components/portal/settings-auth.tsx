@@ -5,6 +5,14 @@ import type {
 } from "@/db/settings-auth"
 import type { SecurityStatus } from "@/db/auth-status"
 import type { BreakGlassReadiness } from "@/lib/auth/break-glass-readiness"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 // AUTH-01 read-only Settings views (Stories 9-11). No create/edit/delete yet;
 // these render canonical app_user / role / authority data once migration 015
@@ -72,37 +80,23 @@ export function SettingsUsers({ users }: { users: SettingsUser[] }) {
       {users.length === 0 ? (
         <Empty>No application users on record.</Empty>
       ) : (
-        <div className="overflow-x-auto portal-glass-panel rounded-[var(--portal-panel-radius)]">
-          <table className="w-full min-w-[820px] border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  User
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Account
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Linked person
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Roles
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Active
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Created
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+        <>
+          <div className="hidden md:block overflow-hidden portal-glass-panel rounded-[var(--portal-panel-radius)]">
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>User</PortalTableHeader>
+                <PortalTableHeader>Account</PortalTableHeader>
+                <PortalTableHeader>Linked person</PortalTableHeader>
+                <PortalTableHeader>Roles</PortalTableHeader>
+                <PortalTableHeader>Active</PortalTableHeader>
+                <PortalTableHeader>Created</PortalTableHeader>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {users.map((user) => (
-                <tr
-                  key={user.id}
-                  className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40"
-                >
-                  <td className="px-4 py-4 align-top">
+                <PortalTableRow key={user.id}>
+                  <PortalTableCell>
                     <div className="font-serif text-base font-light">
                       {user.displayName}
                     </div>
@@ -111,14 +105,14 @@ export function SettingsUsers({ users }: { users: SettingsUser[] }) {
                         {user.email}
                       </div>
                     )}
-                  </td>
-                  <td className="px-4 py-4 align-top">
+                  </PortalTableCell>
+                  <PortalTableCell>
                     {typeBadge(user.accountType)}
-                  </td>
-                  <td className="px-4 py-4 align-top text-sm font-light text-black/60">
+                  </PortalTableCell>
+                  <PortalTableCell className="text-sm font-light text-black/60">
                     {user.personName ?? "—"}
-                  </td>
-                  <td className="px-4 py-4 align-top text-sm font-light text-black/60">
+                  </PortalTableCell>
+                  <PortalTableCell className="text-sm font-light text-black/60">
                     {user.roles.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {user.roles.map((role) => (
@@ -133,22 +127,63 @@ export function SettingsUsers({ users }: { users: SettingsUser[] }) {
                     ) : (
                       "—"
                     )}
-                  </td>
-                  <td className="px-4 py-4 align-top text-sm font-light">
+                  </PortalTableCell>
+                  <PortalTableCell className="text-sm font-light">
                     {user.active ? (
                       <span className="text-[var(--portal-success)]">Active</span>
                     ) : (
                       <span className="text-[var(--portal-archive)]">Inactive</span>
                     )}
-                  </td>
-                  <td className="px-4 py-4 align-top text-sm font-light text-black/60">
+                  </PortalTableCell>
+                  <PortalTableCell className="text-sm font-light text-black/60">
                     {user.createdAtLabel ?? "—"}
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               ))}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
         </div>
+
+        <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] md:hidden">
+          <div className="divide-y divide-[var(--portal-border)]">
+            {users.map((user) => (
+              <article key={user.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-serif text-lg font-light">{user.displayName}</div>
+                    {user.email && (
+                      <p className="mt-0.5 text-xs font-light text-black/45">{user.email}</p>
+                    )}
+                  </div>
+                  {typeBadge(user.accountType)}
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Linked person</dt>
+                    <dd className="mt-1 font-light text-black/65">{user.personName ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Active</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {user.active ? "Active" : "Inactive"}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Roles</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {user.roles.length > 0 ? user.roles.join(", ") : "—"}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Created</dt>
+                    <dd className="mt-1 font-light text-black/65">{user.createdAtLabel ?? "—"}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        </div>
+        </>
       )}
     </div>
   )
@@ -391,42 +426,32 @@ export function SettingsAuthorities({
       {authorities.length === 0 ? (
         <Empty>No authorities on record.</Empty>
       ) : (
-        <div className="overflow-x-auto portal-glass-panel rounded-[var(--portal-panel-radius)]">
-          <table className="w-full min-w-[760px] border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Code
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Description
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-                  Roles
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+        <>
+          <div className="hidden md:block overflow-hidden portal-glass-panel rounded-[var(--portal-panel-radius)]">
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>Code</PortalTableHeader>
+                <PortalTableHeader>Name</PortalTableHeader>
+                <PortalTableHeader>Description</PortalTableHeader>
+                <PortalTableHeader>Roles</PortalTableHeader>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {authorities.map((authority) => (
-                <tr
-                  key={authority.id}
-                  className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40"
-                >
-                  <td className="px-4 py-4 align-top">
+                <PortalTableRow key={authority.id}>
+                  <PortalTableCell>
                     <span className="rounded-sm bg-[var(--portal-blue-pale)] px-2 py-0.5 text-[11px] font-light text-[var(--portal-navy)]">
                       {authority.code}
                     </span>
-                  </td>
-                  <td className="px-4 py-4 align-top font-serif text-base font-light">
+                  </PortalTableCell>
+                  <PortalTableCell className="font-serif text-base font-light">
                     {authority.name}
-                  </td>
-                  <td className="px-4 py-4 align-top text-sm font-light text-black/55">
+                  </PortalTableCell>
+                  <PortalTableCell className="text-sm font-light text-black/55">
                     {authority.description ?? "—"}
-                  </td>
-                  <td className="px-4 py-4 align-top">
+                  </PortalTableCell>
+                  <PortalTableCell>
                     {authority.roles.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {authority.roles.map((role) => (
@@ -443,12 +468,42 @@ export function SettingsAuthorities({
                         Unassigned
                       </span>
                     )}
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               ))}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
         </div>
+
+        <div className="portal-glass-panel rounded-[var(--portal-panel-radius)] md:hidden">
+          <div className="divide-y divide-[var(--portal-border)]">
+            {authorities.map((authority) => (
+              <article key={authority.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-serif text-lg font-light">{authority.name}</div>
+                    <span className="mt-1 inline-block rounded-sm bg-[var(--portal-blue-pale)] px-2 py-0.5 text-[11px] font-light text-[var(--portal-navy)]">
+                      {authority.code}
+                    </span>
+                  </div>
+                </div>
+                <dl className="grid grid-cols-1 gap-y-2 text-xs">
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Description</dt>
+                    <dd className="mt-1 font-light text-black/65">{authority.description ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Roles</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {authority.roles.length > 0 ? authority.roles.join(", ") : "Unassigned"}
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        </div>
+        </>
       )}
     </div>
   )

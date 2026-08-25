@@ -11,7 +11,7 @@ function MetricCard({
   detail: string
 }) {
   return (
-    <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
       <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
         {label}
       </div>
@@ -74,7 +74,7 @@ export function SystemHealth({
         />
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <h2 className="font-serif text-2xl font-light">
           Recent Activity
         </h2>
@@ -91,7 +91,7 @@ export function SystemHealth({
         </div>
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <h2 className="font-serif text-2xl font-light">
           Data Quality
         </h2>
@@ -120,7 +120,7 @@ export function SystemHealth({
         </div>
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <h2 className="font-serif text-2xl font-light">
           Transaction Data Quality
         </h2>
@@ -157,7 +157,7 @@ export function SystemHealth({
         </div>
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <h2 className="font-serif text-2xl font-light">
           Write-Side Invariants
         </h2>
@@ -191,7 +191,7 @@ export function SystemHealth({
         </div>
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <h2 className="font-serif text-2xl font-light">
           Security Model
         </h2>
@@ -259,7 +259,7 @@ function EnvironmentReadinessPanel({
   ]
 
   return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+    <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-serif text-2xl font-light">

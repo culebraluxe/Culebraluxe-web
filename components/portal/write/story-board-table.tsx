@@ -645,7 +645,7 @@ export function StoryBoardTable({
     editingId === null ? null : stories.find((s) => s.id === editingId) ?? null
 
   return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="mt-6 overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="border-b border-[var(--portal-border)] px-6 py-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
