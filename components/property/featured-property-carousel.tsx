@@ -3,7 +3,9 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import {
+  useEffect,
   useRef,
+  useState,
 } from 'react'
 import {
   ArrowLeft,
@@ -152,6 +154,20 @@ export function FeaturedPropertyCarousel({
 }: FeaturedPropertyCarouselProps) {
   const railRef =
     useRef<HTMLDivElement | null>(null)
+  const [reducedMotion, setReducedMotion] =
+    useState(false)
+
+  // Respect the visitor's motion preference for the scroll animation so the
+  // carousel never animates against an explicit reduced-motion setting.
+  useEffect(() => {
+    const media = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    )
+    setReducedMotion(media.matches)
+    const onChange = () => setReducedMotion(media.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
 
   function move(direction: -1 | 1) {
     const rail = railRef.current
@@ -174,7 +190,7 @@ export function FeaturedPropertyCarousel({
 
     rail.scrollBy({
       left: direction * (cardWidth + 12),
-      behavior: 'smooth',
+      behavior: reducedMotion ? 'auto' : 'smooth',
     })
   }
 
