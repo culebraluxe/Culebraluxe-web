@@ -43,6 +43,10 @@ import { createPoolExecutor } from './lib/pool-executor'
 const url = (process.env.DATABASE_URL_DEV ?? process.env.DATABASE_URL) ?? ''
 const dir = 'public/upload/data/apple-messages-export'
 const MODE = process.argv[2] ?? 'slice' // 'slice' | 'full'
+// `keep` preserves the ingested evidence + reconcile decisions in DEV instead
+// of cleaning up (used to feed the Clients promotion/pagination path). Default
+// (proof mode) still cleans up its own DEV rows + synthetic canonical Person.
+const KEEP = process.argv[3] === 'keep'
 
 const out = (...a: unknown[]) => console.log(...a)
 
@@ -123,10 +127,13 @@ async function runProof(
   out('BUILT neutral evidence rows (per source handle):', rows.length)
 
   // --- CREATE-IT: synthetic canonical Person for an EXACT-match proof on a real handle ---
+  // Skipped in `keep` mode (the real ingest must not leave a synthetic proof
+  // Person behind; the promotion path creates canonical Persons instead).
   // Pick a real phone handle whose normalized phone is NOT already a DEV
   // person_identity (so our proof Person is the sole exact match for it).
   let proofPhone: { raw: string; value: string } | null = null
   for (const h of exportData.handles) {
+    if (KEEP) break
     if (!/^\+?\d/.test(h.id)) continue
     const n = normalizePhone(h.id)
     if (!n.ok) continue
@@ -200,14 +207,18 @@ async function runProof(
   const twoWayRows = allRead.filter((r) => r.isTwoWay === true)
   out('  of which two-way:', twoWayRows.length)
 
-  // --- cleanup ---
-  if (proofPhone) {
-    await execute`delete from person_identity where person_id = ${proofPersonId}`
-    await execute`delete from person where id = ${proofPersonId}`
-    out('CLEANUP: synthetic canonical Person', proofPersonId, 'removed')
+  // --- cleanup (skipped in `keep` mode so the real evidence stays in DEV) ---
+  if (KEEP) {
+    out('KEEP: preserving apple_messages evidence rows in DEV (no cleanup)')
+  } else {
+    if (proofPhone) {
+      await execute`delete from person_identity where person_id = ${proofPersonId}`
+      await execute`delete from person where id = ${proofPersonId}`
+      out('CLEANUP: synthetic canonical Person', proofPersonId, 'removed')
+    }
+    await execute`delete from integration_relationship_evidence where source = ${APPLE_MESSAGES_SOURCE}`
+    out('CLEANUP: apple_messages evidence rows removed from DEV')
   }
-  await execute`delete from integration_relationship_evidence where source = ${APPLE_MESSAGES_SOURCE}`
-  out('CLEANUP: apple_messages evidence rows removed from DEV')
 }
 
 

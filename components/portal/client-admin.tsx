@@ -1,8 +1,13 @@
-import Link from "next/link"
+"use client"
 
-import type { ClientAdminRow } from "@/db/client-admin"
+import Link from "next/link"
+import { useCallback, useEffect, useState } from "react"
+
+import type { ClientAdminRow, ClientAdminPageResult } from "@/db/client-admin"
 import { ClientArchiveButton } from "@/components/portal/write/client-archive-button"
+import { PortalInput } from "@/components/portal/ui/portal-field"
 import {
+  PortalPagination,
   PortalTable,
   PortalTableBody,
   PortalTableCell,
@@ -20,21 +25,73 @@ function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-export function ClientAdmin({
-  rows,
-}: {
-  rows: ClientAdminRow[]
-}) {
+// Client Administration is a server-side-paginated read over the canonical
+// `person` parent. It fetches its own pages from /api/portal/clients?view=admin
+// so it never materializes the whole person table.
+const PAGE_SIZE = 50
+
+export function ClientAdmin() {
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [rows, setRows] = useState<ClientAdminRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(id)
+  }, [search])
+
+  const load = useCallback(async (q: string, p: number) => {
+    setLoading(true)
+    const params = new URLSearchParams({
+      view: "admin",
+      search: q,
+      page: String(p),
+      pageSize: String(PAGE_SIZE),
+    })
+    try {
+      const res = await fetch(`/api/portal/clients?${params.toString()}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as ClientAdminPageResult
+      setRows(json.rows)
+      setTotal(json.total)
+    } catch (err) {
+      console.error("Failed to load client administration:", err)
+      setRows([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    setPage(1)
+    void load(debouncedSearch, 1)
+  }, [debouncedSearch, load])
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
   return (
     <section className="mt-10 overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
-      <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">Client Administration</h2>
           <p className="mt-1 text-xs font-light text-black/40">
             Read-only operational view of people, contact coverage, and activity.
           </p>
         </div>
-        <span className="text-xs font-light text-black/35">{rows.length} people</span>
+        <div className="flex min-h-9 items-center gap-3">
+          <PortalInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search people…"
+            aria-label="Search client administration"
+            className="min-h-9 w-52 bg-white/70"
+          />
+          <span className="text-xs font-light text-black/35">{total.toLocaleString()} people</span>
+        </div>
       </div>
 
       <div className="hidden md:block">
@@ -196,10 +253,26 @@ export function ClientAdmin({
           ))
         ) : (
           <p className="px-4 py-10 text-center text-sm font-light text-black/40">
-            No people on file.
+            {loading ? "Loading people…" : "No people on file."}
           </p>
         )}
       </div>
+
+      <PortalPagination
+        page={page}
+        pageCount={totalPages}
+        totalLabel={`${total.toLocaleString()} total`}
+        onPrevious={() => {
+          const next = page - 1
+          setPage(next)
+          void load(debouncedSearch, next)
+        }}
+        onNext={() => {
+          const next = page + 1
+          setPage(next)
+          void load(debouncedSearch, next)
+        }}
+      />
     </section>
   )
 }

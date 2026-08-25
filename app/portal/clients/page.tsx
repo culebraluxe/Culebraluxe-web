@@ -1,21 +1,13 @@
+import { ClientsDirectory } from "@/components/portal/clients-directory"
 import { ClientAdmin } from "@/components/portal/client-admin"
-import { ClientManager } from "@/components/portal/client-manager"
 import { ClientsTabBar } from "@/components/portal/clients-tabbar"
 import { ImportedContactsPanel } from "@/components/portal/imported-contacts"
-import { getClients } from "@/db/clients"
-import { getClientAdmin } from "@/db/client-admin"
 import { getImportedContactsCount } from "@/db/imported-contacts"
-import { listAssignableAgents } from "@/db/person-admin"
 
 export const dynamic = "force-dynamic"
 
 export default async function ClientsPage() {
-  const [clients, adminRows, agents, importedTotal] = await Promise.all([
-    getClients(),
-    getClientAdmin(),
-    listAssignableAgents(),
-    getImportedContactsCount(),
-  ])
+  const importedTotal = await getImportedContactsCount()
 
   return (
     <div data-tab-root data-active-tab="canonical">
@@ -28,8 +20,11 @@ export default async function ClientsPage() {
       <ClientsTabBar importedTotal={importedTotal} />
 
       <section data-pane="canonical">
-        <ClientManager clients={clients} agents={agents} />
-        <ClientAdmin rows={adminRows} />
+        {/* Both panes are independent client components that page the canonical
+            `person` parent server-side (50/page). The canonical pane renders
+            immediately and never blocks on imported rows. */}
+        <ClientsDirectory />
+        <ClientAdmin />
       </section>
 
       <section data-pane="imported">
