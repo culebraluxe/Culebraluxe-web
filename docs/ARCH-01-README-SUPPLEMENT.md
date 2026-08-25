@@ -252,3 +252,140 @@ prior chat history:
 The objective is not maximal documentation. It is a small, durable,
 implementation-specific control surface that makes architectural continuity
 routine.
+
+
+<!-- SESSION-CONTINUITY-2026-08-24-PORTAL-GMAIL-WORKMODE -->
+## 11. Session continuity checkpoint — Portal, relationship intake, and operating model (2026-08-24)
+
+This checkpoint preserves current product judgment and implementation state in case
+the active ChatGPT Work/Codex session becomes unavailable. Reconcile all volatile
+facts against Git, Production, and the Story Board before acting.
+
+### 11.1 Human authority and collaboration contract
+
+- Chris is CTO and Product Owner. Material product, information-architecture,
+  navigation, Story Board, or system-boundary changes require explicit approval.
+- Treat Chris as a peer senior data architect, not as a novice. Relevant background:
+  roughly 30 years building high-scale data systems across Lotus/IBM, JPMorgan,
+  State Street, BlackRock, and Royal Ahold; global Security Master, ETF publishing,
+  CUSIP/tax-lot/real-time pricing, corporate actions, and a rules-based pricing
+  engine for all grocery items across approximately 1,200 stores.
+- Current delivery mode is startup/high-risk tolerance: direct small commits to
+  `main`, Production as the practical QA surface, rapid fix-forward, and no branch,
+  PR, or release ceremony unless Chris explicitly asks for it.
+- Deep reviews are read-only by default. Recommendations are proposals. Do not turn
+  exploratory discussion into stories, navigation changes, or implementation
+  without approval.
+- Product north star: a bespoke “Pagani, not Ford” operating tool for Lisa, a solo
+  luxury broker. Deep machinery, narrow interface. Automatic capture should protect
+  selling time; Lisa must not become a database-maintenance operator.
+
+### 11.2 Lisa-facing information architecture
+
+The working lens is:
+
+- Dashboard = Orient
+- Attention/Catch-Up = Act
+- Client = Remember
+- Deal/Contract = Execute
+
+This is a lens, not a normalized taxonomy. The same canonical fact may be shown in
+multiple useful contexts when it prevents a context switch or helps Lisa act.
+Remove repetition only when two copies answer the same question in the same
+context. Canonical state remains normalized; Lisa’s read experience may be
+deliberately denormalized.
+
+Do not revive separate Activity, Showings, or similar destinations merely because
+those capabilities exist. Activity can be an evidence ledger inside an operating
+surface; Showings can be commitments inside the relevant context. A panel earns
+its place when it materially improves another panel, supports a frequent decision,
+prevents a costly screen switch, stays current automatically, or justifies its
+visual and maintenance cost.
+
+Current approved CORE display vocabulary, while preserving the internal
+`NEXUS` identifier:
+
+- Cockpit → `/portal/dashboard`
+- Clients → `/portal/clients`
+- Catch-Up → `/portal/attention`
+- Contracts → `/portal/deals`
+- Cabinet → `/portal/documents`
+
+OPPS, SUPPORT, and TECH retain their names. Workflows and Forms remain functional
+but are hidden from the visible CORE navigation. The portal logo returns to the
+public site; the misleading MAIN top-nav item is removed. The public-site Portal
+link is the far-right final navigation item.
+
+### 11.3 Current Git/portal checkpoint
+
+Observed `main` HEAD at the time of this checkpoint:
+
+- `f3bb41009b17eb41af9e60131d97bf8930c9afc6` — media-count casts,
+  CORE navigation, capsule top navigation, property-admin 2xl table breakpoint,
+  rounded panels, and public Portal link.
+- Parent UI work:
+  - `da9d80246ecbc7ae1e793b3dc2d6830aaea2da97` — interaction-component facelift.
+  - `83228eb490503803f3edfccbaee6ce78cfeb1ea5` — UI Lab portal primitives.
+  - `72d72031d8bca9f9d9977f22f89a7f306eef8c23` — Marlowe Gmail census artifacts.
+  - `5c9796596f1fa0057d90a96db4360ccb9b62433c` — Attention/showings/activity,
+    navigation declutter, glass polish, and Security rename.
+
+The facelift intentionally promoted the custom portal component family only where
+it materially helped: tables, pagination, search input, dialogs, and responsive
+table-to-card layouts. It did not replace the custom Grok-built glass visual
+language or introduce another component dependency.
+
+Known QA findings addressed by `f3bb410` included Postgres filtered-count values
+being concatenated as strings in media projections and the property inventory
+table becoming cramped before very wide desktop widths. Always verify current
+Production rather than assuming deployment state from this checkpoint.
+
+### 11.4 Marlowe Gmail evidence and intake boundary
+
+Committed artifacts:
+
+- `docs/marlowe-gmail-relationship-census-report-2026-08-24.md`
+- `docs/marlowe-gmail-relationship-census-private-2026-08-24.csv`
+
+Marlowe proved only partial metadata coverage: 7,696 messages from 2011-06-26
+through 2013-12-31 and 2,018 external identities. Counts included 115 two-way,
+60 owner-initiated outbound-only, 1,843 inbound-only, and 1,140 with automated or
+bulk evidence. The Gmail connector produced nondeterministic/incomplete bounded
+results, so this is not a full-history census. No message bodies, subjects,
+attachments, or retained snippets were included.
+
+The correct next architecture is not connector-side reconciliation:
+
+source metadata extraction
+→ source-faithful ODS/load layer
+→ cleansing and classification
+→ identity reconciliation
+→ relationship mart or carefully governed canonical promotion.
+
+Highest-value first-pass fields are person/name, email, phone,
+iMessage/WhatsApp reachability when available, source/provenance, and inexpensive
+relationship metadata such as first/last contact and direction/counts.
+Organization is weak enrichment. Most remaining Google metadata is stale or noise.
+A later, targeted second pass may summarize threads only for high-value
+relationships; do not start with broad body ingestion or summarization.
+
+Apple Contacts currently has 2,573 staged imported contacts visible through the
+Clients surface without promoting them into canonical `person` or
+`person_identity`. Preserve that staging/canonical boundary.
+
+### 11.5 Frozen assumptions and next-session bootstrap
+
+- Do not rename or reorganize surfaces merely to eliminate overlap.
+- Do not copy competitor information architecture. Follow Up Boss and Cloze are
+  idea mines, not authorities.
+- Keep operational/admin CRUD away from Lisa’s daily flow; occasional OPPS data
+  stewardship can be designed later.
+- The Deal/Contract workspace deserves a separate focused composition review; do
+  not mix it casually into portal polish.
+- Before new work: read this file, query the live `ARCH-HANDOFF` Story Board row,
+  inspect current `main` HEAD and Production, and reconcile any active builder
+  report. Then state observed facts, contradictions, and the smallest proposed
+  next move.
+- If this checkpoint conflicts with a later explicit decision from Chris, the
+  later human decision wins and this file must be updated rather than silently
+  interpreted around it.
