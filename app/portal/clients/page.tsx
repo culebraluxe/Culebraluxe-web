@@ -1,36 +1,17 @@
 import { ClientManager } from "@/components/portal/client-manager"
 import { ClientAdmin } from "@/components/portal/client-admin"
-import { ClientsTabBar } from "@/components/portal/clients-tabbar"
-import { ImportedContactsPanel } from "@/components/portal/imported-contacts"
-import { getImportedContactsCount } from "@/db/imported-contacts"
 
 export const dynamic = "force-dynamic"
 
+// CORE Clients — the canonical CRM working surface. It begins directly with
+// the People rail and the selected Client workspace. The staging/imported
+// strip (Canonical Clients | Imported Contacts) is intentionally NOT here;
+// Imported Contacts stewardship lives on the OPPS Identity Quality surface.
 export default async function ClientsPage() {
-  const importedTotal = await getImportedContactsCount()
-
   return (
-    <div data-tab-root data-active-tab="canonical">
-      <style>{`
-        [data-tab-root][data-active-tab="canonical"] [data-pane="imported"] { display: none; }
-        [data-tab-root][data-active-tab="imported"] [data-pane="canonical"] { display: none; }
-        [data-tab-root][data-active-tab="imported"] [data-pane="imported"] { display: block; }
-      `}</style>
-
-      <ClientsTabBar importedTotal={importedTotal} />
-
-      <section data-pane="canonical">
-        {/* CORE Clients experience: the restored ClientManager working pane.
-            It pages the canonical `person` parent server-side (bounded 50-row
-            list + independent per-person detail) and never materializes the
-            whole table. ClientAdmin remains the read-only ops/admin view. */}
-        <ClientManager />
-        <ClientAdmin />
-      </section>
-
-      <section data-pane="imported">
-        <ImportedContactsPanel initialTotal={importedTotal} />
-      </section>
-    </div>
+    <>
+      <ClientManager />
+      <ClientAdmin />
+    </>
   )
 }

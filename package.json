@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-start.mjs",
+    "dev:raw": "next dev",
     "contacts:load:dev": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env dev",
     "contacts:load:prod": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env prod",
     "contacts:project:dev": "node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env dev",

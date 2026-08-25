@@ -82,12 +82,19 @@ test('SUPPORT-2 test 11: canonical Clients view is preserved on the page', () =>
   )
   assert.ok(page.includes('ClientManager'), 'canonical ClientManager is the CORE Clients UX')
   assert.ok(page.includes('ClientAdmin'), 'canonical ClientAdmin still rendered')
-  assert.ok(page.includes('ClientsTabBar'), 'tab bar added within the same Clients page')
-  assert.ok(page.includes('ImportedContactsPanel'), 'imported panel added within the same page')
-  assert.ok(!/app\/portal\/clients\/imported/.test(page), 'no second top-level Clients page')
-  // The core canonical pane must not wait on the imported rows to hydrate.
+  assert.ok(!/ClientsTabBar/.test(page), 'staging strip removed from CORE Clients')
+  assert.ok(!/ImportedContactsPanel/.test(page), 'imported pane removed from CORE Clients')
   assert.ok(page.includes('ClientManager />'), 'paged ClientManager is self-contained')
-  assert.ok(page.includes('ImportedContactsPanel'), 'imported panel is independent')
+  assert.ok(!/app\/portal\/clients\/imported/.test(page), 'no second top-level Clients page')
+})
+
+test('SUPPORT-2 test 13: Imported Contacts stewardship is preserved on an OPPS surface', () => {
+  const page = readFileSync(
+    new URL('../../app/portal/identity-quality/page.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(page.includes('ImportedContactsPanel'), 'Imported Contacts preserved (OPPS stewardship)')
+  assert.ok(page.includes('getImportedContactsCount'), 'imported count still fetched')
 })
 
 test('SUPPORT-2 test 12: no private contact payload appears in the load projection / snapshots', () => {

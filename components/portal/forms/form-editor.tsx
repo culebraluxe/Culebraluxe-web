@@ -28,6 +28,10 @@ import {
 } from "@/lib/forms/signer-resolution"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 import { FormGrokHelper } from "@/components/portal/forms/form-grok-helper"
+import {
+  CommandStatus,
+  CommandStatusBand,
+} from "@/components/portal/command-status-band"
 
 const inputClass =
   "mt-1 block h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-2.5 text-[13px] font-light leading-9 text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
@@ -604,11 +608,10 @@ export function FormEditor({
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      {/* Shared top row: the Grok helper spans the left + middle panes; the
-          STATUS panel matches the preview pane width. Both use the SAME three
-          column template as the pane grid below so they align exactly. */}
-      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="min-w-0 lg:col-span-2">
+      {/* Shared top row — the reusable Command + Status band (Grok helper + status). */}
+      <CommandStatusBand
+        ratio="wide-command"
+        command={
           <FormGrokHelper
             formTitle={template.displayName}
             busy={working}
@@ -635,31 +638,16 @@ export function FormEditor({
               return result.data.note
             }}
           />
-        </div>
-        <section
-          aria-label="Form status"
-          className="portal-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
-        >
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
-              Status
-            </p>
-            <span
-              className={[
-                "h-2 w-2 shrink-0 rounded-full",
-                error
-                  ? "bg-[var(--portal-archive)]"
-                  : message
-                    ? "bg-[var(--portal-success)]"
-                    : "bg-black/25",
-              ].join(" ")}
-            />
-          </div>
-          <p className="min-h-0 flex-1 overflow-hidden px-4 py-2.5 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] line-clamp-3">
+        }
+        status={
+          <CommandStatus
+            label="Status"
+            tone={error ? "danger" : message ? "success" : "neutral"}
+          >
             {error ?? message ?? statusCue}
-          </p>
-        </section>
-      </div>
+          </CommandStatus>
+        }
+      />
 
       <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-12.5rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]">
         <aside className="portal-glass-panel flex max-h-72 min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] lg:max-h-none">

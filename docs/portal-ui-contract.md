@@ -392,3 +392,65 @@ Expected initial relational entities:
 This list is provisional.
 
 The final Postgres schema should be derived from this UI contract and may consolidate or expand entities where relational integrity requires it.
+
+---
+
+# Command + Status Band (Design System)
+
+## NAME
+
+Command + Status Band.
+
+## PURPOSE
+
+Provide a consistent AI / command entry surface paired with concise system state, then the primary page workspace below. It gives one place to tell the system what happened / what to do and one place to see the current system state.
+
+## USE WHEN
+
+The page has a meaningful command / AI / orchestration action plus state or result to communicate (e.g. Forms: a Grok prompt on the left, a status readout on the right).
+
+## DO NOT USE WHEN
+
+It would merely duplicate page navigation, or create status chrome with no meaningful function.
+
+## LAYOUT
+
+- Desktop / tablet: command on the left, status on the right.
+- Narrow / mobile: command stacked above status.
+- The component owns the responsive behaviour, glass/panel treatment, borders, radius, padding, spacing, typography hierarchy, status-dot placement, and focus/accessibility. Pages never reimplement breakpoints themselves.
+
+## PRESETS
+
+Constrained ratio presets (CSS grid `fr` values) — not one global width, and no arbitrary per-page CSS:
+
+- `wide-command` → ~65 / 35 (default)
+- `balanced` → 50 / 50
+- `wide-status` → ~40 / 60
+
+If a page genuinely needs a special ratio later, the component may expose a controlled escape hatch; presets remain the default.
+
+## API
+
+```tsx
+<CommandStatusBand
+  ratio="wide-command"   // 'wide-command' | 'balanced' | 'wide-status'
+  command={<.../>}       // command / AI controls (page supplies the real content)
+  status={
+    <CommandStatus label="Status" tone="neutral">
+      concise system state
+    </CommandStatus>
+  }
+/>
+```
+
+`CommandStatus` tones: `neutral` | `success` | `warning` | `danger`. Status is read-only, concise, glanceable, and visually quieter than the command side. Status is never conveyed by colour alone — the text carries the meaning (`aria-live`).
+
+## ADOPTION
+
+- First adopter: Forms (the Grok helper + status row).
+- Potential future adopters: Clients, Contracts, Workflows, Cabinet, Catch-Up.
+- Cockpit is already a summary/orchestration surface and does not need it.
+
+## IMPLEMENTATION
+
+`components/portal/command-status-band.tsx` exports `CommandStatusBand` and `CommandStatus`. Change the design here once and every adopter updates together.
