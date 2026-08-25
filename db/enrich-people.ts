@@ -33,6 +33,7 @@ export type ContactInfo = {
 export type EnrichResult = {
   enriched: number
   unresolved: number
+  ambiguous: number
   resolvedHuman: number
 }
 
@@ -54,15 +55,15 @@ export function identityMatchKey(
 }
 
 /**
- * Build an identity -> Apple Contacts staged record index. When the same
- * identity appears in several Contacts, prefer the one carrying a human name.
+ * Build an identity -> Apple Contacts staged records index. One identity key
+ * may map to several Contacts (same number stored under different names).
  */
 export function buildContactIndex(
   contacts: Array<
     ContactInfo & { identityType: string; normalizedValue: string | null }
   >,
-): Map<string, ContactInfo> {
-  const index = new Map<string, ContactInfo>()
+): Map<string, ContactInfo[]> {
+  const index = new Map<string, ContactInfo[]>()
   for (const c of contacts) {
     const key = identityMatchKey(c.identityType, c.normalizedValue)
     if (!key) continue
@@ -71,28 +72,44 @@ export function buildContactIndex(
       organization: c.organization,
       displayAddress: c.displayAddress,
     }
-    const existing = index.get(key)
-    if (!existing || (!isHumanName(existing.displayName) && isHumanName(info.displayName))) {
-      index.set(key, info)
-    }
+    const arr = index.get(key) ?? []
+    arr.push(info)
+    index.set(key, arr)
   }
   return index
 }
 
-/** Find the best Apple Contacts record for a set of normalized identity keys. */
-export function findContactForIdentityKeys(
-  keys: string[],
-  index: Map<string, ContactInfo>,
-): ContactInfo | null {
-  let best: ContactInfo | null = null
-  for (const key of keys) {
-    const info = index.get(key)
-    if (!info) continue
-    if (isHumanName(info.displayName)) return info
-    if (!best) best = info
-  }
-  return best
+export type IdentityResolution = {
+  contact: ContactInfo | null
+  ambiguous: boolean
 }
+
+/**
+ * Resolve a canonical Person's identity keys against Apple Contacts. Enriches
+ * ONLY when there is exactly ONE distinct human name across all matching
+ * Contacts; zero human names -> unresolved; more than one distinct human name
+ * -> ambiguous (never guess).
+ */
+export function resolveContactForIdentityKeys(
+  keys: string[],
+  index: Map<string, ContactInfo[]>,
+): IdentityResolution {
+  const matches: ContactInfo[] = []
+  for (const key of keys) {
+    const arr = index.get(key)
+    if (arr) matches.push(...arr)
+  }
+  const human = matches.filter((c) => isHumanName(c.displayName))
+  const distinctNames = new Set(human.map((c) => c.displayName!.trim()))
+  if (distinctNames.size === 1) {
+    const name = [...distinctNames][0]
+    const contact = human.find((c) => c.displayName!.trim() === name) ?? null
+    return { contact, ambiguous: false }
+  }
+  if (distinctNames.size > 1) return { contact: null, ambiguous: true }
+  return { contact: null, ambiguous: false }
+}
+
 
 type PersonRow = {
   id: string
@@ -172,6 +189,7 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
   const resetNames: string[] = []
   const markUnresolvedIds: string[] = []
   const resolvedHumanIds: string[] = []
+  let ambiguousCount = 0
 
   for (const person of persons) {
     const personIdents = identitiesByPerson.get(person.id) ?? []
@@ -187,7 +205,7 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
     const keys = personIdents
       .map((it) => identityMatchKey(it.identity_type, it.identity_value))
       .filter((k): k is string => Boolean(k))
-    const contact = findContactForIdentityKeys(keys, contactIndex)
+    const { contact, ambiguous } = resolveContactForIdentityKeys(keys, contactIndex)
 
     if (contact && isHumanName(contact.displayName)) {
       enrichedIds.push(person.id)
@@ -195,12 +213,10 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
       enrichedLocs.push(contact.displayAddress ?? '')
       continue
     }
+    // No reliable single human name. Multiple distinct names -> ambiguous
+    // (never guess); no human name -> unmatched. Both stay unresolved.
+    if (ambiguous) ambiguousCount += 1
 
-    // No trusted human name. CORE RULE: IDENTITY IS NOT DISPLAY NAME. The
-    // identity string must not be presented as a good client name. If the
-    // current display_name is already an identity fallback (phone/email), just
-    // ensure it is marked unresolved. If it is a non-human, non-phone label
-    // (e.g. a structured ABPerson ID), revert it to the identity fallback.
     const fallback = personIdents.map((it) => it.identity_value).find((v) => Boolean(v))
     const isIdentityFallbackName =
       person.display_name.includes('@') || /^[+0-9\s().-]+$/.test(person.display_name)
@@ -257,6 +273,7 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
   return {
     enriched: enrichedIds.length,
     unresolved: resetIds.length + markUnresolvedIds.length,
+    ambiguous: ambiguousCount,
     resolvedHuman: resolvedHumanIds.length,
   }
 }

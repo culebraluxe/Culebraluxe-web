@@ -379,7 +379,6 @@ export type ClientSummary = {
   primaryPhone: string | null
   assignedAgent: string | null
   lastContactLabel: string | null
-  nextActionTitle: string | null
   sources: string[]
 }
 
@@ -400,14 +399,24 @@ type ClientSummaryRaw = {
   primary_phone: string | null
   assigned_agent: string | null
   last_contact_label: string | null
-  next_action_title: string | null
   sources: unknown
 }
 
 const VALID_SORTS = ["name", "created", "recent"] as const
 
 const ORDER_FRAGMENTS: Record<string, ReturnType<typeof sql>> = {
-  name: sql`p.display_name asc, p.id asc`,
+  // Human names first (named > unknown), then alphabetically, then stable id.
+  name: sql`(
+    case
+      when p.display_name_source = 'unresolved'
+        or p.display_name is null
+        or trim(p.display_name) = ''
+        or lower(p.display_name) = 'unknown contact'
+        or p.display_name ~ '^[+0-9()\\s.-]+$'
+      then 0
+      else 1
+    end
+  ) desc, p.display_name asc, p.id asc`,
   created: sql`p.created_at desc, p.display_name asc, p.id asc`,
   recent: sql`coalesce(latest.occurred_at, p.created_at) desc nulls last, p.display_name asc, p.id asc`,
 }
@@ -473,12 +482,6 @@ export async function getClientsPage(
       phone.identity_value as primary_phone,
       u.display_name as assigned_agent,
       to_char(latest.occurred_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY') as last_contact_label,
-      (
-        select t.title from task t
-        where t.person_id = p.id and t.status = 'open'
-        order by t.due_at asc nulls last, t.created_at asc
-        limit 1
-      ) as next_action_title,
       coalesce(evidence.sources, '{}'::text[]) as sources
     from person p
     left join app_user u on u.id = p.assigned_user_id
@@ -522,7 +525,6 @@ export async function getClientsPage(
       primaryPhone: row.primary_phone ?? null,
       assignedAgent: row.assigned_agent ?? null,
       lastContactLabel: row.last_contact_label ?? null,
-      nextActionTitle: row.next_action_title ?? null,
       sources: Array.isArray(row.sources) ? (row.sources as string[]) : [],
     })),
     total,

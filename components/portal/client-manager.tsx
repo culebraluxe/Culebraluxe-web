@@ -308,9 +308,9 @@ export function ClientManager() {
                         {client.nameResolved ? client.displayName : "Unknown contact"}
                       </div>
                       <div className="truncate text-[11px] font-light text-black/45">
-                        {client.nameResolved
-                          ? (client.nextActionTitle ?? roleLabel(client.role as Client["role"]))
-                          : (formatPhone(client.primaryPhone) ?? client.primaryEmail ?? "Unresolved contact")}
+                        {formatPhone(client.primaryPhone) ??
+                          client.primaryEmail ??
+                          roleLabel(client.role as Client["role"])}
                       </div>
                     </div>
                   </button>
@@ -497,27 +497,9 @@ function ClientPane({
       </section>
 
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <div className="flex min-h-0 flex-col gap-3">
-          <Panel compact heading="Act" className="mt-3">
-            <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
-          </Panel>
-
-          <Panel compact heading="Last contact">
-            <div className="font-serif text-lg font-light text-[var(--portal-navy)]">
-              {client.lastContact
-                ? channelLabel(client.lastContact.channel)
-                : "No contact yet"}
-            </div>
-            <div className="mt-1 text-xs font-light text-black/45">
-              {client.lastContact?.occurredAt ?? "—"}
-            </div>
-            {client.lastContact?.summary ? (
-              <p className="mt-2 line-clamp-3 text-sm font-light leading-6 text-black/55">
-                {client.lastContact.summary}
-              </p>
-            ) : null}
-          </Panel>
-        </div>
+        <Panel compact heading="Act" className="mt-3">
+          <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
+        </Panel>
 
         <ContactHistory clientId={client.id} />
       </div>

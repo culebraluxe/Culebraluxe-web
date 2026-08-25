@@ -14,7 +14,7 @@ import { isHumanName } from '../../lib/relationship-intel/names'
 import {
   identityMatchKey,
   buildContactIndex,
-  findContactForIdentityKeys,
+  resolveContactForIdentityKeys,
 } from '../../db/enrich-people'
 
 // ---------------------------------------------------------------------------
@@ -182,23 +182,37 @@ test('enrich: identityMatchKey normalizes phone/email to one stable key', () => 
   assert.equal(identityMatchKey('phone', ''), null)
 })
 
-test('enrich: buildContactIndex matches the same normalized identity and prefers a human-named contact', () => {
+test('enrich: buildContactIndex matches the same normalized identity and resolves the human-named contact', () => {
   const contacts = [
     { displayName: null, organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '+17875550134' },
     { displayName: 'Jane Doe', organization: 'Acme', displayAddress: '1 Calle Sol', identityType: 'phone', normalizedValue: '7875550134' },
   ]
   const index = buildContactIndex(contacts as any)
-  const contact = findContactForIdentityKeys(['phone:7875550134'], index)
+  const { contact, ambiguous } = resolveContactForIdentityKeys(['phone:7875550134'], index)
+  assert.equal(ambiguous, false)
   assert.equal(contact?.displayName, 'Jane Doe')
   assert.equal(contact?.organization, 'Acme')
   assert.equal(contact?.displayAddress, '1 Calle Sol')
 })
 
-test('enrich: findContactForIdentityKeys returns null when no identity matches', () => {
+test('enrich: resolveContactForIdentityKeys is ambiguous (never guesses) when names conflict', () => {
+  const contacts = [
+    { displayName: 'Jane Doe', organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '7875550134' },
+    { displayName: 'Jane Smith', organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '7875550134' },
+  ]
+  const index = buildContactIndex(contacts as any)
+  const { contact, ambiguous } = resolveContactForIdentityKeys(['phone:7875550134'], index)
+  assert.equal(ambiguous, true, 'two distinct names for one identity is ambiguous')
+  assert.equal(contact, null)
+})
+
+test('enrich: resolveContactForIdentityKeys returns null when no identity matches', () => {
   const index = buildContactIndex([
     { displayName: 'Jane', organization: null, displayAddress: null, identityType: 'email', normalizedValue: 'jane@example.com' },
   ] as any)
-  assert.equal(findContactForIdentityKeys(['phone:9999999999'], index), null)
+  const { contact, ambiguous } = resolveContactForIdentityKeys(['phone:9999999999'], index)
+  assert.equal(contact, null)
+  assert.equal(ambiguous, false)
 })
 
 // --- name resolution flag on the directory projection ---
@@ -240,5 +254,33 @@ test('clients: getClientContactHistory is newest-first SQL (source guard)', () =
   assert.ok(/order by i\.occurred_at desc/.test(src), 'SQL ORDER BY occurred_at DESC')
   assert.ok(/limit \$\{pageSize\} offset \$\{offset\}/.test(src), 'SQL LIMIT/OFFSET')
   assert.ok(/count\(\*\)::int as total/.test(src), 'separate COUNT')
+})
+
+// --- resolved-first people sort + final geometry guards ---
+
+test('clients: getClientsPage name sort puts human names first, unknown last (source guard)', () => {
+  const src = readFileSync(new URL('../../db/clients.ts', import.meta.url), 'utf8')
+  assert.ok(/p\.display_name_source = 'unresolved'/.test(src), 'unresolved detection in sort')
+  assert.ok(/\) desc, p\.display_name asc, p\.id asc/.test(src), 'resolved-first, then name, then id')
+})
+
+test('clients: the deleted small Last contact pane is absent from the working pane', () => {
+  const src = readFileSync(
+    new URL('../../components/portal/client-manager.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(!/heading="Last contact"/.test(src), 'no Last contact pane between Act and Interests')
+})
+
+test('clients: Contact History is navy, scrolls X+Y, and is server-paged (source guard)', () => {
+  const src = readFileSync(
+    new URL('../../components/portal/contact-history.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/variant="feature"/.test(src), 'navy feature panel')
+  assert.ok(/overflow-auto/.test(src), 'scrolls both axes (X and Y)')
+  assert.ok(/min-w-\[34rem\]/.test(src), 'internal grid wider than the navy viewport (horizontal scroll)')
+  assert.ok(/max-h-\[24rem\]/.test(src), 'bounded vertical viewport (vertical scroll)')
+  assert.ok(/pageSize/.test(src), 'server-side paging')
 })
 

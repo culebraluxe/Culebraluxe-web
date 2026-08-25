@@ -97,13 +97,21 @@ export function ContactHistory({ clientId }: { clientId: string }) {
       action={<span className="text-xs font-light text-white/50">{total.toLocaleString()}</span>}
       className="min-h-0"
     >
-      <div className="max-h-[26rem] overflow-y-auto">
+      <div className="max-h-[24rem] overflow-auto">
         {rows.length === 0 ? (
           <p className="px-4 py-10 text-center text-sm font-light text-white/55">
             {loading ? "Loading…" : "No contact history yet."}
           </p>
         ) : (
-          rows.map((row) => <HistoryRow key={row.id} row={row} />)
+          <div className="min-w-[34rem]">
+            <div className="grid grid-cols-[6rem_8.5rem_3.5rem_1fr] items-center gap-x-3 border-b border-white/10 px-4 py-1.5 text-[9px] font-light uppercase tracking-[0.14em] text-white/40">
+              <span>Type</span>
+              <span>Date / Time</span>
+              <span>Dir</span>
+              <span>Summary</span>
+            </div>
+            {rows.map((row) => <HistoryRow key={row.id} row={row} />)}
+          </div>
         )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
@@ -133,26 +141,18 @@ export function ContactHistory({ clientId }: { clientId: string }) {
 
 function HistoryRow({ row }: { row: ContactHistoryItem }) {
   const { label, Icon } = channelMeta(row.channel)
+  const dir = row.direction === "inbound" ? "In" : row.direction === "outbound" ? "Out" : "—"
   return (
-    <div className="border-b border-white/10 px-4 py-2.5 last:border-b-0">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
-          <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/60">
-            {label}
-          </span>
-          {row.direction ? (
-            <span className="rounded-full border border-white/20 px-1.5 py-0.5 text-[9px] font-light uppercase tracking-[0.1em] text-white/55">
-              {row.direction === "inbound" ? "Inbound" : "Outbound"}
-            </span>
-          ) : null}
-        </div>
-        <span className="shrink-0 text-[10px] font-light text-white/45">{row.occurredAt}</span>
-      </div>
-      {row.title ? <div className="mt-1 truncate text-sm font-medium text-white">{row.title}</div> : null}
-      {row.summary ? (
-        <p className="mt-0.5 line-clamp-2 text-xs font-light leading-5 text-white/60">{row.summary}</p>
-      ) : null}
+    <div className="grid grid-cols-[6rem_8.5rem_3.5rem_1fr] items-center gap-x-3 border-b border-white/10 px-4 py-2 last:border-b-0">
+      <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white/70">
+        <Icon className="h-3 w-3 shrink-0 text-white/55" aria-hidden />
+        {label}
+      </span>
+      <span className="text-[11px] font-light text-white/65">{row.occurredAt}</span>
+      <span className="text-[10px] font-light uppercase text-white/50">{dir}</span>
+      <span className="truncate text-xs font-light text-white/70">
+        {row.title ?? row.summary ?? "—"}
+      </span>
     </div>
   )
 }

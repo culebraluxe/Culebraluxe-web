@@ -42,6 +42,7 @@ async function main() {
 
   console.log('\nENRICH Apple Contacts names -> canonical Person:')
   console.log('  enriched with a contact human name:', result.enriched)
+  console.log('  ambiguous (multiple names, left unresolved):', result.ambiguous)
   console.log('  marked unresolved (safe fallback):', result.unresolved)
   console.log('  already-human marked source_evidence:', result.resolvedHuman)
   console.log('\n  display_name_source before:')
