@@ -66,3 +66,33 @@ test('apple-messages: changed message set changes the fingerprint (replay distin
   const b = buildMessagesRelationshipEvidence(changed)
   assert.notEqual(a[0].fingerprint, b[0].fingerprint)
 })
+
+// --- Real-data-driven fixes ---
+
+test('apple-messages: unclassifiable handle produces NO fabricated identity (real urn/name handles)', () => {
+  const { phones, emails } = handleToIdentities('urn:biz:e46750f1-3f94-4aba-73ca-1c14fb3adddd')
+  assert.equal(phones.length, 0)
+  assert.equal(emails.length, 0)
+  const short = handleToIdentities('bj')
+  assert.equal(short.phones.length, 0)
+  assert.equal(short.emails.length, 0)
+})
+
+test('apple-messages: counts are derived from ALL messages even when timestamps are null', () => {
+  // Mirrors the real export where dateISO was null (Swift INTEGER bug, now fixed);
+  // direction must still yield correct inbound/outbound/two-way.
+  const ex: AppleMessagesExport = {
+    sourceAccount: 'local',
+    handles: [{ rowid: 1, id: '+17875550134', country: 'us', service: 'iMessage', uncanonicalizedId: null, personCentricId: null }],
+    messages: [
+      { rowid: 1, guid: 'm1', chatGuid: 'c1', handleId: 1, handleValue: '+17875550134', service: 'iMessage', date: null, dateISO: null, isFromMe: 0, text: 'a', hasAttachments: 0 },
+      { rowid: 2, guid: 'm2', chatGuid: 'c1', handleId: 1, handleValue: '+17875550134', service: 'iMessage', date: null, dateISO: null, isFromMe: 1, text: 'b', hasAttachments: 0 },
+    ],
+  }
+  const { evidence } = buildMessagesRelationshipEvidence(ex)[0]
+  assert.equal(evidence.inboundCount, 1)
+  assert.equal(evidence.outboundCount, 1)
+  assert.equal(evidence.isTwoWay, true)
+  assert.equal(evidence.firstObservedAt, null)
+  assert.equal(evidence.lastObservedAt, null)
+})

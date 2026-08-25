@@ -50,19 +50,19 @@ export function handleToIdentities(handleId: string): {
   const emails: IdentityEvidence[] = []
   const phones: IdentityEvidence[] = []
   const raw = handleId.trim()
+  if (!raw) return { emails, phones }
   const email = normalizeEmail(raw)
   if (email.ok) {
     emails.push({ value: raw, normalized: email.value, label: null })
-  } else {
-    const phone = normalizePhone(raw)
-    if (phone.ok) {
-      phones.push({ value: raw, normalized: phone.value, label: null })
-    } else {
-      // Ambiguous / non-identity (e.g. group id) — preserve raw only.
-      const asEmail = normalizeEmail(`x@${raw.replace(/[^a-zA-Z0-9.-]/g, '')}.invalid`)
-      if (asEmail.ok) emails.push({ value: raw, normalized: asEmail.value, label: null })
-    }
+    return { emails, phones }
   }
+  const phone = normalizePhone(raw)
+  if (phone.ok) {
+    phones.push({ value: raw, normalized: phone.value, label: null })
+    return { emails, phones }
+  }
+  // Unclassifiable (group id, urn:biz, short name, etc.) -> NO fabricated
+  // identity. It stays hasEmail=false / hasPhone=false (reconcile -> deferred).
   return { emails, phones }
 }
 
@@ -87,24 +87,26 @@ export function buildMessagesRelationshipEvidence(exportData: AppleMessagesExpor
     const messages = byHandle.get(handle.rowid) ?? []
     const { emails, phones } = handleToIdentities(handle.id)
 
-    const dated = messages
-      .map((m) => ({ m, iso: m.dateISO }))
-      .filter((x): x is { m: AppleMessagesMessage; iso: string } => Boolean(x.iso))
     let firstObservedAt: string | null = null
     let lastObservedAt: string | null = null
     let lastInboundAt: string | null = null
     let lastOutboundAt: string | null = null
     let inboundCount = 0
     let outboundCount = 0
-    for (const { m, iso } of dated) {
-      if (!firstObservedAt || iso < firstObservedAt) firstObservedAt = iso
-      if (!lastObservedAt || iso > lastObservedAt) lastObservedAt = iso
-      if (m.isFromMe === 1) {
-        outboundCount += 1
-        if (!lastOutboundAt || iso > lastOutboundAt) lastOutboundAt = iso
-      } else {
-        inboundCount += 1
-        if (!lastInboundAt || iso > lastInboundAt) lastInboundAt = iso
+    // Counts derive from EVERY real message (direction is independent of a
+    // usable timestamp). Dates only drive observed windows.
+    for (const m of messages) {
+      if (m.isFromMe === 1) outboundCount += 1
+      else inboundCount += 1
+      if (m.dateISO) {
+        const iso = m.dateISO
+        if (!firstObservedAt || iso < firstObservedAt) firstObservedAt = iso
+        if (!lastObservedAt || iso > lastObservedAt) lastObservedAt = iso
+        if (m.isFromMe === 1) {
+          if (!lastOutboundAt || iso > lastOutboundAt) lastOutboundAt = iso
+        } else {
+          if (!lastInboundAt || iso > lastInboundAt) lastInboundAt = iso
+        }
       }
     }
     const isTwoWay = inboundCount > 0 && outboundCount > 0

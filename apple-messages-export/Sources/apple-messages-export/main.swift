@@ -99,6 +99,14 @@ func appleTimestampToISO(_ raw: Double) -> String? {
     return f.string(from: date)
 }
 
+// SQLite stores Apple timestamps as INTEGER nanoseconds; read as Double.
+func timestampDouble(_ row: [String: Any], _ key: String) -> Double? {
+    if let d = row[key] as? Double { return d }
+    if let i = row[key] as? Int64 { return Double(i) }
+    if let i = row[key] as? Int { return Double(i) }
+    return nil
+}
+
 func stream(_ db: OpaquePointer, _ sql: String, _ perRow: ([String: Any]) -> Void) {
     var stmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -185,7 +193,7 @@ func exportChats(_ db: OpaquePointer, _ url: URL) -> Int {
     let preferred = ["ROWID", "guid", "style", "state", "chat_identifier", "service_name", "display_name", "group_id", "is_archived", "last_read_message_timestamp", "account_login"]
     let sql = selectExisting(db, "chat", preferred) + " ORDER BY ROWID"
     stream(db, sql) { row in
-        let lrms = row["last_read_message_timestamp"] as? Double
+        let lrms = timestampDouble(row, "last_read_message_timestamp")
         let obj: [String: Any] = [
             "rowid": row["ROWID"] ?? NSNull(),
             "guid": row["guid"] ?? NSNull(),
@@ -250,7 +258,7 @@ func exportMessages(_ db: OpaquePointer, _ url: URL, _ maxMessages: Int?) -> Mes
     let limit = maxMessages.map { " LIMIT \($0)" } ?? ""
     let sql = "SELECT m.ROWID AS rowid, \(cols), cmj.chat_id AS chat_id, c.guid AS chat_guid, h.id AS handle_value FROM message m LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID LEFT JOIN chat c ON c.ROWID = cmj.chat_id LEFT JOIN handle h ON h.ROWID = m.handle_id ORDER BY m.ROWID" + limit
     stream(db, sql) { row in
-        let date = row["date"] as? Double
+        let date = timestampDouble(row, "date")
         let iso = date.flatMap(appleTimestampToISO)
         if let iso {
             if stats.minISO == nil || iso < stats.minISO! { stats.minISO = iso }
@@ -271,8 +279,8 @@ func exportMessages(_ db: OpaquePointer, _ url: URL, _ maxMessages: Int?) -> Mes
             "account": row["account"] ?? NSNull(),
             "date": date ?? NSNull(),
             "dateISO": iso ?? NSNull(),
-            "dateReadISO": (row["date_read"] as? Double).flatMap(appleTimestampToISO) ?? NSNull(),
-            "dateDeliveredISO": (row["date_delivered"] as? Double).flatMap(appleTimestampToISO) ?? NSNull(),
+            "dateReadISO": timestampDouble(row, "date_read").flatMap(appleTimestampToISO) ?? NSNull(),
+            "dateDeliveredISO": timestampDouble(row, "date_delivered").flatMap(appleTimestampToISO) ?? NSNull(),
             "isFromMe": row["is_from_me"] ?? NSNull(),
             "isRead": row["is_read"] ?? NSNull(),
             "isSent": row["is_sent"] ?? NSNull(),
@@ -310,7 +318,7 @@ func exportAttachments(_ db: OpaquePointer, _ url: URL) -> Int {
         let obj: [String: Any] = [
             "rowid": row["ROWID"] ?? NSNull(),
             "guid": row["guid"] ?? NSNull(),
-            "createdDateISO": (row["created_date"] as? Double).flatMap(appleTimestampToISO) ?? NSNull(),
+            "createdDateISO": timestampDouble(row, "created_date").flatMap(appleTimestampToISO) ?? NSNull(),
             "filename": row["filename"] ?? NSNull(),
             "transferName": row["transfer_name"] ?? NSNull(),
             "uti": row["uti"] ?? NSNull(),
