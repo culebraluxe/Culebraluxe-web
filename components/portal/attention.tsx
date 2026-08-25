@@ -3,9 +3,21 @@ import Link from "next/link"
 import { Panel } from "@/components/portal/panel"
 import { ActivityTimeline } from "@/components/portal/ui/portal-timeline"
 import { TaskActions } from "@/components/portal/write/task-actions"
-import type { AttentionSnapshot } from "@/db/attention"
+import type { AttentionSnapshot, PersonRelationshipContext } from "@/db/attention"
 import type { ActivityFeedEntry } from "@/db/activity-feed"
 import type { Showing, ShowingStatus } from "@/db/showings"
+
+function sourceLabel(source: string): string {
+  return source === "apple_contacts" ? "Apple" : source === "gmail_contacts" ? "Gmail" : source
+}
+
+// REL-INTEL — deterministic, human-readable relationship context line.
+function relationshipLine(ctx: PersonRelationshipContext | undefined): string | null {
+  if (!ctx || !ctx.hasEvidence) return null
+  if (ctx.reason) return ctx.reason
+  const src = ctx.sources.map(sourceLabel).join(" · ")
+  return src ? `Sources: ${src}` : null
+}
 
 function roleLabel(role: string) {
   if (role === "both") return "Buyer & Seller"
@@ -76,10 +88,12 @@ export function Attention({
   snapshot,
   showings,
   activity,
+  relationshipContext,
 }: {
   snapshot: AttentionSnapshot
   showings: Showing[]
   activity: ActivityFeedEntry[]
+  relationshipContext?: Record<string, PersonRelationshipContext>
 }) {
   const overdueIds = new Set(snapshot.overdueTasks.map((task) => task.id))
   const queue: QueueTask[] = [
@@ -191,6 +205,16 @@ export function Attention({
         </Panel>
       </div>
 
+      {(() => {
+        const anyLimited = Object.values(relationshipContext ?? {}).some((c) => c.coverageLimited)
+        return anyLimited ? (
+          <p className="rounded-[var(--portal-panel-radius)] portal-glass-panel px-4 py-3 text-[11px] font-light text-black/40">
+            Relationship context reflects a bounded, partial email census — it may understate
+            recent contact and is never treated as a complete history.
+          </p>
+        ) : null
+      })()}
+
       {/* Second row: open queue + quiet-but-important. */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel
@@ -214,6 +238,14 @@ export function Attention({
                   <div className="text-xs font-light text-black/45">
                     {roleLabel(person.role)} · {statusLabel(person.status)}
                   </div>
+                  {(() => {
+                    const line = relationshipLine(relationshipContext?.[person.id])
+                    return line ? (
+                      <div className="mt-0.5 truncate text-[11px] font-light text-black/35">
+                        {line}
+                      </div>
+                    ) : null
+                  })()}
                 </div>
                 <div className="shrink-0 text-right text-xs font-light text-black/40">
                   {person.openTaskCount} open
@@ -249,6 +281,14 @@ export function Attention({
                       ? `Last: ${person.lastContactLabel}`
                       : "No contact recorded"}
                   </div>
+                  {(() => {
+                    const line = relationshipLine(relationshipContext?.[person.id])
+                    return line ? (
+                      <div className="mt-0.5 truncate text-[11px] font-light text-black/35">
+                        {line}
+                      </div>
+                    ) : null
+                  })()}
                 </div>
                 <div className="shrink-0 text-right text-xs font-light text-black/40">
                   {person.activeDealCount} deal

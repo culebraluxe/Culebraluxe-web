@@ -458,6 +458,53 @@ canonical tables).
 - A deterministic full Gmail census requires a message-ID manifest and
   guaranteed metadata-only batch reads; that is a separate future dependency,
   NOT part of this slice.
-- The `074_relationship_evidence.sql` migration must be applied in the DEV
-  database and (when Chris authorizes) Production before the neutral seam or the
-  OPPS review surface can return real rows.
+- The `074_relationship_evidence.sql` migration has been applied and verified in
+  the DEV database (table, columns, FKs, CHECK, UNIQUE, indexes; idempotent
+  rerun-safe via `create table if not exists`). Production application remains
+  a manual, Chris-authorized step.
+
+### 12.7 DEV completion proof (REL-INTEL)
+
+Real DEV numbers after applying migration 074 and running the actual loads:
+
+- **Migration 074 DEV**: applied via `scripts/apply-migration.mjs … dev`; table
+  `integration_relationship_evidence` exists with 35 columns, 3 FKs (intake
+  batch + staged profile `RESTRICT`, person `SET NULL`), 1 CHECK, 1 UNIQUE
+  (source identity), 4 indexes; rerun-safe.
+- **Apple**: declared 2,573 (distinct `l_person` `apple_contacts`), accepted
+  2,573, rejected 0, quarantined 0, deduplicated 0. Reconciliation: 2,556
+  unmatched + 17 deferred (no exact matches in DEV — no natural identity overlap
+  with the 4 canonical persons). No canonical Client creation, no Person
+  mutation. Replay adds 0 rows.
+- **Gmail (bounded)**: declared 2,018, accepted 2,016, rejected 2, quarantined 0,
+  deduplicated 0. Balance invariant `declared = accepted + rejected +
+  quarantined` holds. Persisted coverage 2011-06-26 → 2013-12-31; every accepted
+  row carries a coverage note (partial census explicit). Reconciliation: 1,162
+  non_person + 505 rejected + 72 review_required + 277 unmatched. No bodies,
+  snippets, or attachments. Replay adds 0 rows.
+- **Overall (4,589 evidence rows)**: 0 exact_linked, 72 review_required, 0
+  ambiguous, 2,833 unmatched, 505 rejected, 1,162 non_person, 17 deferred;
+  canonical-linked rows 0 (exact-link capability proven via the OPPS link
+  demonstration + unit tests; DEV simply had no natural identity overlap).
+- **OPPS stewardship**: `/api/portal/relationship-evidence-review/actions`
+  (auth `crm.write`) supports inspect, link (explicit confirmation + security
+  audit), reject (confirmation + audit), classify automated/service (then rerun),
+  and bounded rerun — all through the sanctioned `recordReconcileDecision` seam;
+  no bulk promote-all, no silent merge.
+- **Read model**: proven against real persistence for apple-only, both-sources
+  (distinct inbound/outbound + two-way + coverage-limited), gmail+bulk, and
+  no-match (empty) cases. `lastObservedAt ≠ lastMeaningfulContact` is proven by
+  pure tests (bulk never refreshes meaningful).
+- **Catch-Up (REL-INTEL-07)**: `/portal/attention` now renders conservative,
+  deterministic relationship context lines (sources, last meaningful contact,
+  direction, two-way, limited-coverage note); bulk/service rows never refresh
+  freshness; no new route or navigation; no tasks/obligations auto-created.
+- **Tests**: 39 REL-INTEL tests (31 prior + 8 read-model) pass; `tsc --noEmit`
+  0 errors; `next build --webpack` exit 0; `git diff --check` clean. Full app
+  suite 787 tests, 756 pass, 28 fail (unchanged pre-existing), 3 cancelled.
+- **Privacy re-verified**: no Gmail bodies/snippets/attachments; no credentials
+  in Git; private CSV artifact absent from `app`/`components`/`lib`/`db` and from
+  the built `.next/static` bundles; `db/` and `lib/relationship-intel` are
+  server-only (no client imports).
+- **Visual verification**: not performed in this environment (no browser
+  tooling); UI behavior is code-verified and defensive.

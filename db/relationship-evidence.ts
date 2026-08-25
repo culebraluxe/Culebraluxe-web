@@ -5,6 +5,8 @@ import type {
   RelationshipEvidence,
   ReviewState,
 } from '../lib/relationship-intel/contracts'
+import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
+import { createInMemoryPersonLookup } from '../lib/relationship-intel/inmemory-lookup'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — relationship-evidence repository (migration 074).
@@ -197,6 +199,46 @@ export async function getRelationshipEvidenceForPerson(
 }
 
 /**
+ * All relationship evidence rows for a source (bounded stewardship/load tooling).
+ * Used by the DEV load/reconcile scripts and the OPPS "rerun" path to re-read the
+ * neutral evidence and re-apply the deterministic reconciliation pass.
+ */
+export async function getRelationshipEvidenceRows(
+  source?: string,
+  execute: QueryExecutor = sql,
+): Promise<RelationshipEvidenceRow[]> {
+  const rows = source
+    ? ((await execute`
+        select
+          id, source, source_account, source_identity_key, source_label,
+          display_name, organization, emails, phones,
+          first_observed_at, last_observed_at, last_inbound_at, last_outbound_at,
+          inbound_count, outbound_count, is_two_way, is_owner_initiated,
+          is_automated_or_bulk, is_organization_or_service, known_apple_contact,
+          has_email, has_phone, coverage_note,
+          canonical_person_id, match_method, match_confidence, review_state,
+          match_reason, rule_version, evidence_fingerprint, updated_at
+        from integration_relationship_evidence
+        where source = ${source}
+        order by coalesce(last_observed_at, created_at) desc nulls last
+      `) as EvidenceRow[])
+    : ((await execute`
+        select
+          id, source, source_account, source_identity_key, source_label,
+          display_name, organization, emails, phones,
+          first_observed_at, last_observed_at, last_inbound_at, last_outbound_at,
+          inbound_count, outbound_count, is_two_way, is_owner_initiated,
+          is_automated_or_bulk, is_organization_or_service, known_apple_contact,
+          has_email, has_phone, coverage_note,
+          canonical_person_id, match_method, match_confidence, review_state,
+          match_reason, rule_version, evidence_fingerprint, updated_at
+        from integration_relationship_evidence
+        order by coalesce(last_observed_at, created_at) desc nulls last
+      `) as EvidenceRow[])
+  return rows.map(mapRow)
+}
+
+/**
  * OPPS review page — filter by reconciliation outcome + optional search.
  * Filters are applied server-side over a bounded recent window (the evidence
  * set is small and occasional stewardship only); the returned page is bounded.
@@ -248,6 +290,152 @@ export async function getRelationshipEvidenceReview(
   })
 
   return { rows: filtered.slice(offset, offset + limit), total: filtered.length }
+}
+
+/** Build a plain RelationshipEvidence from a persisted row (for re-reconciliation). */
+function toReconcileEvidence(row: RelationshipEvidenceRow): RelationshipEvidence {
+  return {
+    source: row.source,
+    sourceAccount: row.sourceAccount,
+    sourceIdentityKey: row.sourceIdentityKey,
+    sourceLabel: row.sourceLabel,
+    displayName: row.displayName,
+    organization: row.organization,
+    emails: row.emails,
+    phones: row.phones,
+    firstObservedAt: row.firstObservedAt,
+    lastObservedAt: row.lastObservedAt,
+    lastInboundAt: row.lastInboundAt,
+    lastOutboundAt: row.lastOutboundAt,
+    inboundCount: row.inboundCount,
+    outboundCount: row.outboundCount,
+    isTwoWay: row.isTwoWay,
+    isOwnerInitiated: row.isOwnerInitiated,
+    isAutomatedOrBulk: row.isAutomatedOrBulk,
+    isOrganizationOrService: row.isOrganizationOrService,
+    knownAppleContact: row.knownAppleContact,
+    hasEmail: row.hasEmail,
+    hasPhone: row.hasPhone,
+    coverageNote: row.coverageNote,
+  }
+}
+
+/**
+ * Relationship evidence for a set of canonical persons (bounded Catch-Up surface).
+ * One bounded read for the people in a Catch-Up snapshot.
+ */
+export async function getRelationshipEvidenceForPersons(
+  personIds: string[],
+  execute: QueryExecutor = sql,
+): Promise<Record<string, RelationshipEvidenceRow[]>> {
+  if (personIds.length === 0) return {}
+  const rows = (await execute`
+    select
+      id, source, source_account, source_identity_key, source_label,
+      display_name, organization, emails, phones,
+      first_observed_at, last_observed_at, last_inbound_at, last_outbound_at,
+      inbound_count, outbound_count, is_two_way, is_owner_initiated,
+      is_automated_or_bulk, is_organization_or_service, known_apple_contact,
+      has_email, has_phone, coverage_note,
+      canonical_person_id, match_method, match_confidence, review_state,
+      match_reason, rule_version, evidence_fingerprint, updated_at
+    from integration_relationship_evidence
+    where canonical_person_id = any (${personIds})
+    order by coalesce(last_observed_at, created_at) desc nulls last
+  `) as EvidenceRow[]
+  const out: Record<string, RelationshipEvidenceRow[]> = {}
+  for (const r of rows) {
+    const pid = r.canonical_person_id ?? ''
+    if (!pid) continue
+    ;(out[pid] ??= []).push(mapRow(r))
+  }
+  return out
+}
+
+/** OPPS — fetch a single evidence row by id (inspect match reason / provenance). */
+export async function getRelationshipEvidenceById(
+  id: string,
+  execute: QueryExecutor = sql,
+): Promise<RelationshipEvidenceRow | null> {
+  const rows = (await execute`
+    select
+      id, source, source_account, source_identity_key, source_label,
+      display_name, organization, emails, phones,
+      first_observed_at, last_observed_at, last_inbound_at, last_outbound_at,
+      inbound_count, outbound_count, is_two_way, is_owner_initiated,
+      is_automated_or_bulk, is_organization_or_service, known_apple_contact,
+      has_email, has_phone, coverage_note,
+      canonical_person_id, match_method, match_confidence, review_state,
+      match_reason, rule_version, evidence_fingerprint, updated_at
+    from integration_relationship_evidence
+    where id = ${id}
+    limit 1
+  `) as EvidenceRow[]
+  return rows[0] ? mapRow(rows[0]) : null
+}
+
+/**
+ * OPPS — classify an evidence row (mark automated/bulk or organization/service)
+ * so an operator can correct a source classification, then re-run reconciliation.
+ */
+export async function classifyEvidenceRow(
+  id: string,
+  flags: {
+    isAutomatedOrBulk?: boolean | null
+    isOrganizationOrService?: boolean | null
+  },
+  execute: QueryExecutor = sql,
+): Promise<void> {
+  await execute`
+    update integration_relationship_evidence
+      set is_automated_or_bulk = coalesce(${flags.isAutomatedOrBulk ?? null}, is_automated_or_bulk),
+          is_organization_or_service = coalesce(${flags.isOrganizationOrService ?? null}, is_organization_or_service),
+          updated_at = now()
+    where id = ${id}
+  `
+}
+
+/**
+ * OPPS — safely re-run the deterministic reconciliation pass over a bounded
+ * subset (by id list, source, and/or review state). Re-reads the neutral
+ * evidence, applies the real reconcileEvidence engine with an in-memory lookup
+ * preloaded from person_identity, records decisions via the sanctioned seam, and
+ * returns the outcome tally. Never writes canonical tables directly.
+ */
+export async function rerunRelationshipReconciliation(
+  opts: {
+    ids?: string[]
+    source?: string
+    reviewState?: ReviewState
+    limit?: number
+  },
+  execute: QueryExecutor = sql,
+): Promise<{ rows: RelationshipEvidenceRow[]; tally: Record<ReviewState, number>; canonicalLinked: number }> {
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 200))
+  const idSet = opts.ids && opts.ids.length > 0 ? new Set(opts.ids) : null
+  const all = await getRelationshipEvidenceRows(opts.source, execute)
+  let rows = all
+  if (opts.reviewState) rows = rows.filter((r) => r.reviewState === opts.reviewState)
+  if (idSet) rows = rows.filter((r) => idSet.has(r.id))
+  rows = rows.slice(0, limit)
+
+  const { lookup } = await createInMemoryPersonLookup(execute)
+  const tally: Record<ReviewState, number> = {
+    unresolved: 0, exact_linked: 0, review_required: 0, ambiguous: 0,
+    unmatched: 0, rejected: 0, non_person: 0, deferred: 0,
+  }
+  let canonicalLinked = 0
+
+  for (const row of rows) {
+    const decision = await reconcileEvidence(toReconcileEvidence(row), lookup)
+    await recordReconcileDecision(row.id, decision, execute)
+    tally[decision.reviewState] += 1
+    if (decision.reviewState === 'exact_linked' && decision.canonicalPersonId) {
+      canonicalLinked += 1
+    }
+  }
+
+  return { rows, tally, canonicalLinked }
 }
 
 export interface IntakeBatchInput {

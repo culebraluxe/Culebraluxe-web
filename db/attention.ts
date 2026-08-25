@@ -1,4 +1,6 @@
 import { sql } from './client'
+import { getRelationshipEvidenceForPersons } from './relationship-evidence'
+import { summarizeRelationshipEvidence } from '../lib/relationship-intel/relationship-context'
 
 // Read-only attention projection (CRM-10). Surfaces operational follow-up
 // categories derived deterministically from existing task, interaction, and
@@ -264,4 +266,62 @@ export async function getAttentionSnapshot(): Promise<AttentionSnapshot> {
       lastContactLabel: row.last_contact_label ?? null,
     })),
   }
+}
+
+// ---------------------------------------------------------------------------
+// REL-INTEL — Catch-Up relationship context (derived, conservative).
+// Surfaces trustworthy relationship memory for the people already in the
+// attention snapshot. Bulk/service evidence never refreshes "meaningful"
+// contact. Partial Gmail coverage produces an explicit limited/limited-note
+// rather than fake freshness. Deterministic, human-readable reasons only.
+// ---------------------------------------------------------------------------
+
+export type PersonRelationshipContext = {
+  personId: string
+  hasEvidence: boolean
+  sources: string[]
+  lastMeaningfulContactAt: string | null
+  lastInboundAt: string | null
+  lastOutboundAt: string | null
+  twoWay: boolean
+  hasEmail: boolean
+  hasPhone: boolean
+  coverageLimited: boolean
+  reason: string | null
+}
+
+/**
+ * Build relationship context for the people in a Catch-Up snapshot. Bounded:
+ * only reads evidence for the people already surfaced in the snapshot.
+ */
+export async function getAttentionRelationshipContext(
+  snapshot: Pick<AttentionSnapshot, 'peopleWithOpenWork' | 'quietButImportant' | 'overdueTasks' | 'dueSoonTasks'>,
+): Promise<Record<string, PersonRelationshipContext>> {
+  const ids = new Set<string>()
+  for (const p of snapshot.peopleWithOpenWork) ids.add(p.id)
+  for (const p of snapshot.quietButImportant) ids.add(p.id)
+  for (const t of snapshot.overdueTasks) if (t.personId) ids.add(t.personId)
+  for (const t of snapshot.dueSoonTasks) if (t.personId) ids.add(t.personId)
+
+  const byPerson = await getRelationshipEvidenceForPersons([...ids])
+  const out: Record<string, PersonRelationshipContext> = {}
+
+  for (const personId of ids) {
+    const summary = summarizeRelationshipEvidence(byPerson[personId] ?? [])
+    out[personId] = {
+      personId,
+      hasEvidence: summary.hasEvidence,
+      sources: summary.sources,
+      lastMeaningfulContactAt: summary.lastMeaningfulContactAt,
+      lastInboundAt: summary.lastInboundAt,
+      lastOutboundAt: summary.lastOutboundAt,
+      twoWay: summary.twoWay,
+      hasEmail: summary.hasEmail,
+      hasPhone: summary.hasPhone,
+      coverageLimited: summary.coverageLimited,
+      reason: summary.reason,
+    }
+  }
+
+  return out
 }
