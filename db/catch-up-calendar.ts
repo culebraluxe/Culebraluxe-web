@@ -4,14 +4,16 @@ import {
   normalizeCalendarEvent,
   type CatchUpCalendarEvent,
 } from '@/lib/catchup/calendar-adapter'
+import { loadEventKitCalendarEvents } from '@/lib/catchup/eventkit'
 
 // ---------------------------------------------------------------------------
 // CATCH-UP — calendar read behind the normalized adapter boundary.
 //
-// Apple Calendar is authoritative; this is a consuming projection. The
-// built-in source today reads canonical showings (real scheduled/completed
-// events), so the calendar UI + Catch-Up attention derivation work against
-// real data. A production Mac/Apple Calendar edge adapter implements the same
+// Apple Calendar is authoritative; this is a consuming projection. The built-in
+// source today reads canonical showings (real scheduled/completed events), and
+// MAC-SYNC-CAL-01 merges in EventKit-derived events from the Mac bridge so the
+// calendar UI + Catch-Up attention derivation see Apple/iCloud events too. A
+// production Mac/Apple Calendar edge adapter implements the same
 // CalendarEventSource contract and replaces/augments this source.
 // ---------------------------------------------------------------------------
 
@@ -65,11 +67,16 @@ const showingSource = {
   },
 }
 
-/** Real, deterministic calendar projection for the Catch-Up screen. */
+/** Real, deterministic calendar projection for the Catch-Up screen: canonical
+ *  showings + EventKit-derived Apple/iCloud events from the Mac bridge. */
 export async function getCatchUpCalendarEvents(
   execute: QueryExecutor = sql,
 ): Promise<CatchUpCalendarEvent[]> {
-  return showingSource.listEvents(execute)
+  const [showings, eventKit] = await Promise.all([
+    showingSource.listEvents(execute),
+    loadEventKitCalendarEvents(),
+  ])
+  return [...showings, ...eventKit]
 }
 
 /**
