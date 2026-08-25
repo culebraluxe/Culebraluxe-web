@@ -24,8 +24,8 @@ import {
 // navigation model on every screen size.
 //
 //   Top nav (navy header, WITH the logo):
-//     NEXUS | MAIN | OPPS | SUPPORT | TECH
-//     MAIN returns to the public CulebraLuxe site. These items are never
+//     CORE | OPPS | SUPPORT | TECH
+//     The logo returns to the public CulebraLuxe site. These items are never
 //     moved to a second row, never hamburger-only.
 //   Submenu  contextual glass rail for the active surface (horizontally
 //            scrollable on narrow screens)
@@ -55,7 +55,7 @@ export function OperatingShell({
     (item) => !item.authority || actor.authorityCodes.includes(item.authority),
   )
 
-  // Exact display order: NEXUS | MAIN | OPPS | SUPPORT | TECH.
+  // Exact display order: CORE | OPPS | SUPPORT | TECH.
   const tier1Items: Array<{
     key: string
     label: string
@@ -68,7 +68,6 @@ export function OperatingShell({
       href: surfaceHome('NEXUS'),
       external: false,
     },
-    { key: 'MAIN', label: 'MAIN', href: '/', external: true },
     ...OPERATING_SURFACE_ORDER.filter((s) => s !== 'NEXUS').map((s) => ({
       key: s,
       label: OPERATING_SURFACES[s].label,
@@ -80,12 +79,12 @@ export function OperatingShell({
   return (
     <div className="portal-page">
       <header className="sticky top-0 z-20">
-        {/* ONE top nav: logo + the five worlds + account. */}
+        {/* ONE top nav: logo + the four worlds (CORE, OPPS, SUPPORT, TECH) + account. */}
         <div className="border-b border-[var(--portal-gold)]/25 bg-brand-navy text-white">
           <div className="flex min-h-12 items-stretch gap-3 px-3 sm:px-6 lg:px-10">
             <Link
-              href="/portal/dashboard"
-              aria-label="CulebraLuxe home"
+              href="/"
+              aria-label="CulebraLuxe home — public site"
               className="flex flex-none items-center py-2"
             >
               <Image

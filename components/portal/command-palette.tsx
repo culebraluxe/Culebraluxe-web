@@ -42,8 +42,8 @@ function navItems(): PaletteItem[] {
   }
   items.push({
     id: 'main-site',
-    label: 'MAIN',
-    detail: 'Public CulebraLuxe site',
+    label: 'Public site',
+    detail: 'CulebraLuxe.com',
     href: '/',
     group: 'Go to',
   })

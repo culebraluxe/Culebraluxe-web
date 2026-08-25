@@ -26,7 +26,7 @@ export function ClientAdmin({
   rows: ClientAdminRow[]
 }) {
   return (
-    <section className="mt-10 rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="mt-10 overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">Client Administration</h2>

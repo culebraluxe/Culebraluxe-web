@@ -82,14 +82,14 @@ test('UI-01: every known /portal route belongs to a surface', () => {
 test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual navigation', () => {
   const expected: Record<string, string[]> = {
     NEXUS: [
-      'Dashboard',
-      'Attention',
+      // CORE — the visible primary operating menu (label relabelled to CORE;
+      // the NEXUS token stays stable). Workflows and Forms remain reachable at
+      // their routes but are no longer listed.
+      'Cockpit',
       'Clients',
-      'Deals',
-      'Workflows',
-      // DOC-06 / DOC-07 — NEXUS Forms + Documents (issued-document repository).
-      'Forms',
-      'Documents',
+      'Catch-Up',
+      'Contracts',
+      'Cabinet',
     ],
     OPS: [
       'Needs Review',
@@ -111,7 +111,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
   }
   assert.deepEqual(
     OPERATING_SURFACE_ORDER.map((s) => OPERATING_SURFACES[s].label),
-    ['NEXUS', 'OPPS', 'SUPPORT', 'TECH'],
+    ['CORE', 'OPPS', 'SUPPORT', 'TECH'],
   )
   for (const surface of OPERATING_SURFACE_ORDER) {
     const labels = navigationForSurface(surface).map((item) => item.label)

@@ -81,7 +81,7 @@ export function PropertyAdmin({
         </p>
       </div>
 
-      <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+      <section className="overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">Inventory</h2>
@@ -92,7 +92,7 @@ export function PropertyAdmin({
           <span className="text-xs font-light text-black/35">{rows.length} properties</span>
         </div>
 
-        <div className="hidden md:block">
+        <div className="hidden 2xl:block">
           <PortalTable>
             <PortalTableHead>
               <PortalTableRow className="hover:bg-transparent">
@@ -223,7 +223,7 @@ export function PropertyAdmin({
           </PortalTable>
         </div>
 
-        <div className="divide-y divide-[var(--portal-border)] md:hidden">
+        <div className="divide-y divide-[var(--portal-border)] 2xl:hidden">
           {rows.length > 0 ? (
             rows.map((row) => (
               <article key={row.id} className="space-y-3 px-4 py-4">

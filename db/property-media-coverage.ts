@@ -48,9 +48,9 @@ export async function getPropertyMediaCoverage(): Promise<PropertyMediaCoverageR
     ) hero on true
     left join lateral (
       select
-        count(*) filter (where m.media_type = 'image') as image_count,
-        count(*) filter (where m.media_type = 'video') as video_count,
-        count(*) filter (where m.media_type = 'document') as document_count
+        count(*) filter (where m.media_type = 'image')::int as image_count,
+        count(*) filter (where m.media_type = 'video')::int as video_count,
+        count(*) filter (where m.media_type = 'document')::int as document_count
       from property_media pm
       join media m
         on m.id = pm.media_id

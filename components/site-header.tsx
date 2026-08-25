@@ -65,6 +65,13 @@ export function SiteHeader() {
               </a>
             ))}
             <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-ivory/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2" />
+            <a
+              href="/portal/dashboard"
+              className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-gold/90 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2"
+            >
+              Portal
+              <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-brand-gold transition-all duration-500 ease-out group-hover:w-full" />
+            </a>
           </nav>
 
           <button
@@ -121,6 +128,13 @@ export function SiteHeader() {
               onNavigate={() => setMenuOpen(false)}
               className="flex items-center gap-2 border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/80 transition-colors hover:text-[#d8c39a] last:border-0"
             />
+            <a
+              href="/portal/dashboard"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-gold/90 transition-colors hover:text-[#d8c39a] last:border-0"
+            >
+              Portal
+            </a>
           </nav>
         </div>
       </header>

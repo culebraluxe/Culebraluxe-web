@@ -87,7 +87,7 @@ export function PropertyCreatePanel() {
   }
 
   return (
-    <section className="mb-6 rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="mb-6 overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">New property</h2>

@@ -27,30 +27,18 @@ export const OPERATING_SURFACES: Record<
 > = {
   NEXUS: {
     surface: 'NEXUS',
-    label: 'NEXUS',
+    label: 'CORE',
     description:
       'Real-estate operating environment — people, properties, deals, showings, offers, documents and activity.',
     home: '/portal/dashboard',
     items: [
-      { label: 'Dashboard', href: '/portal/dashboard', authority: 'portal.read' },
-      { label: 'Attention', href: '/portal/attention', authority: 'portal.read' },
+      // CORE — the visible primary operating menu. Workflows and Forms remain
+      // reachable at their routes but are deliberately not listed here.
+      { label: 'Cockpit', href: '/portal/dashboard', authority: 'portal.read' },
       { label: 'Clients', href: '/portal/clients', authority: 'portal.read' },
-      { label: 'Deals', href: '/portal/deals', authority: 'deal.read' },
-      {
-        label: 'Workflows',
-        href: '/portal/workflows',
-        authority: 'portal.read',
-      },
-      {
-        label: 'Forms',
-        href: '/portal/forms',
-        authority: 'deal.read',
-      },
-      {
-        label: 'Documents',
-        href: '/portal/documents',
-        authority: 'deal.read',
-      },
+      { label: 'Catch-Up', href: '/portal/attention', authority: 'portal.read' },
+      { label: 'Contracts', href: '/portal/deals', authority: 'deal.read' },
+      { label: 'Cabinet', href: '/portal/documents', authority: 'deal.read' },
     ],
   },
   OPS: {

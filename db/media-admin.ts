@@ -52,7 +52,7 @@ export async function getMediaAdmin(): Promise<MediaAdminSnapshot> {
           or exists (
             select 1 from guide_item_media gim where gim.media_id = m.id
           )
-        ) as linked,
+        )::int as linked,
         count(*) filter (
           where not exists (
             select 1 from property_media pm where pm.media_id = m.id
@@ -60,10 +60,10 @@ export async function getMediaAdmin(): Promise<MediaAdminSnapshot> {
           and not exists (
             select 1 from guide_item_media gim where gim.media_id = m.id
           )
-        ) as unlinked,
+        )::int as unlinked,
         count(*) filter (
           where m.alt_text is null or m.alt_text = ''
-        ) as missing_alt
+        )::int as missing_alt
       from media m
       group by m.media_type
       order by m.media_type
