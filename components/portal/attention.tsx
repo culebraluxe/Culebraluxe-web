@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { Panel } from "@/components/portal/panel"
+import { ActivityTimeline } from "@/components/portal/ui/portal-timeline"
 import { TaskActions } from "@/components/portal/write/task-actions"
 import type { AttentionSnapshot } from "@/db/attention"
 import type { ActivityFeedEntry } from "@/db/activity-feed"
@@ -264,36 +265,31 @@ export function Attention({
       {/* Activity across the bottom width. */}
       <Panel heading="Activity" action={count(activity.length)} divider flush>
         {recentActivity.length > 0 ? (
-          recentActivity.map((entry) => (
-            <div
-              key={entry.id}
-              className="flex flex-wrap items-center gap-3 border-b border-[var(--portal-border)] px-4 py-2.5 last:border-b-0"
-            >
-              <span className="w-20 shrink-0 text-xs font-light text-black/40">
-                {entry.occurredAtLabel}
-              </span>
-              <span className="w-24 shrink-0 text-xs font-light uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
-                {channelLabel(entry.channel)}
-              </span>
-              <div className="min-w-0 flex-1">
-                {entry.personId ? (
-                  <Link
-                    href={`/portal/clients/${entry.personId}`}
-                    className="truncate text-sm font-medium text-[var(--portal-navy)] transition hover:text-[var(--portal-navy-soft)]"
-                  >
-                    {entry.personName ?? "Unknown person"}
-                  </Link>
-                ) : (
-                  <div className="truncate text-sm font-medium">
-                    {entry.personName ?? "Unknown person"}
-                  </div>
-                )}
-                <div className="truncate text-xs font-light text-black/45">
-                  {entry.summary ?? entry.title ?? "Interaction"}
-                </div>
-              </div>
-            </div>
-          ))
+          <div className="px-4 py-4 sm:px-6">
+            <ActivityTimeline
+              items={recentActivity.map((entry) => ({
+                id: entry.id,
+                actor: entry.personName ?? "Unknown person",
+                timestamp: entry.occurredAtLabel,
+                text: entry.summary ?? entry.title ?? "Interaction",
+                detail: (
+                  <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="uppercase tracking-[0.12em]">
+                      {channelLabel(entry.channel)}
+                    </span>
+                    {entry.personId ? (
+                      <Link
+                        href={`/portal/clients/${entry.personId}`}
+                        className="text-[var(--portal-navy)] underline underline-offset-2 hover:text-[var(--portal-navy-soft)]"
+                      >
+                        Open client
+                      </Link>
+                    ) : null}
+                  </span>
+                ),
+              }))}
+            />
+          </div>
         ) : (
           emptyState("No activity recorded yet.")
         )}

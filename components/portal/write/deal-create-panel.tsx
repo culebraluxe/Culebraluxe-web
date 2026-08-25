@@ -4,6 +4,12 @@ import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
 
 import { createDealAction } from "@/app/portal/actions"
+import {
+  PortalField,
+  PortalFieldLabel,
+  PortalSelect,
+  PortalTextarea,
+} from "@/components/portal/ui/portal-field"
 import { PersonSelector } from "@/components/portal/write/person-selector"
 import type { DealableProperty } from "@/db/deals"
 
@@ -67,11 +73,6 @@ export function DealCreatePanel({
     })
   }
 
-  const inputClass =
-    "mt-1 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
-  const labelClass =
-    "mb-1 block text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]"
-
   return (
     <section className="portal-glass-panel mb-6 overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-border)] px-6 py-5">
@@ -94,10 +95,9 @@ export function DealCreatePanel({
       {open && (
         <form onSubmit={submit} className="space-y-4 p-6">
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="block">
-              <span className={labelClass}>Property *</span>
-              <select
-                className={inputClass}
+            <PortalField>
+              <PortalFieldLabel>Property *</PortalFieldLabel>
+              <PortalSelect
                 value={propertyId}
                 onChange={(event) => setPropertyId(event.target.value)}
               >
@@ -108,12 +108,12 @@ export function DealCreatePanel({
                     {property.location ? ` — ${property.location}` : ""}
                   </option>
                 ))}
-              </select>
-            </label>
+              </PortalSelect>
+            </PortalField>
 
             <div>
-              <span className={labelClass}>Client person *</span>
-              <div className="mt-1">
+              <PortalFieldLabel>Client person *</PortalFieldLabel>
+              <div className="mt-2">
                 <PersonSelector
                   selectedLabel={clientLabel}
                   onSelect={(id, label) => {
@@ -125,10 +125,9 @@ export function DealCreatePanel({
               </div>
             </div>
 
-            <label className="block">
-              <span className={labelClass}>Owner (internal agent)</span>
-              <select
-                className={inputClass}
+            <PortalField>
+              <PortalFieldLabel>Owner (internal agent)</PortalFieldLabel>
+              <PortalSelect
                 value={ownerUserId}
                 onChange={(event) => setOwnerUserId(event.target.value)}
               >
@@ -139,18 +138,17 @@ export function DealCreatePanel({
                     {user.email ? ` — ${user.email}` : ""}
                   </option>
                 ))}
-              </select>
-            </label>
+              </PortalSelect>
+            </PortalField>
 
-            <label className="block">
-              <span className={labelClass}>Notes</span>
-              <textarea
-                className={`${inputClass} min-h-24 resize-y py-2`}
+            <PortalField>
+              <PortalFieldLabel>Notes</PortalFieldLabel>
+              <PortalTextarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="Optional deal notes…"
               />
-            </label>
+            </PortalField>
           </div>
 
           <div className="flex items-center gap-3">

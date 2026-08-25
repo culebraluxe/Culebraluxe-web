@@ -5,10 +5,19 @@ import { useState } from "react"
 
 import { dateLabel } from "@/components/portal/storyboard/story-detail-sections"
 import { Panel } from "@/components/portal/panel"
-
-const inputClass =
-  "min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
-const labelClass = "text-[10px] font-light uppercase tracking-[0.18em] text-black/40"
+import {
+  PortalField,
+  PortalFieldLabel,
+  PortalInput,
+} from "@/components/portal/ui/portal-field"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 export function DocumentList({
   documents,
@@ -71,44 +80,42 @@ export function DocumentList({
         heading="Repository"
         subtitle={`${documents.length} issued document${documents.length === 1 ? "" : "s"}`}
         action={
-          <label className="block w-full max-w-xs">
-            <span className={labelClass}>Filter by deal / client / property</span>
-            <input
+          <PortalField className="w-full max-w-xs">
+            <PortalFieldLabel>Filter by deal / client / property</PortalFieldLabel>
+            <PortalInput
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search…"
-              className={`${inputClass} mt-2`}
             />
-          </label>
+          </PortalField>
         }
         divider
         flush
       >
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)]">
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">Document</th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">Deal / Client</th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">Version</th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">Issued</th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">By</th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">Status</th>
-                <th className="px-6 py-4 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">PDF</th>
-              </tr>
-            </thead>
-// __PART2__
-            <tbody>
+        <div className="hidden md:block">
+          <PortalTable>
+            <PortalTableHead>
+              <PortalTableRow className="hover:bg-transparent">
+                <PortalTableHeader>Document</PortalTableHeader>
+                <PortalTableHeader>Deal / Client</PortalTableHeader>
+                <PortalTableHeader>Version</PortalTableHeader>
+                <PortalTableHeader>Issued</PortalTableHeader>
+                <PortalTableHeader>By</PortalTableHeader>
+                <PortalTableHeader>Status</PortalTableHeader>
+                <PortalTableHeader>PDF</PortalTableHeader>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {visible.length === 0 ? (
-                <tr className="border-b border-[var(--portal-border)]">
-                  <td colSpan={7} className="px-6 py-6 text-sm font-light italic text-black/40">
+                <PortalTableRow>
+                  <PortalTableCell colSpan={7} className="py-6 italic text-black/40">
                     No issued documents yet — assemble a form in NEXUS · Forms and issue it.
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               ) : (
                 visible.map((d) => (
-                  <tr key={d.id} className="border-b border-[var(--portal-border)] last:border-b-0">
-                    <td className="px-6 py-4">
+                  <PortalTableRow key={d.id}>
+                    <PortalTableCell>
                       <div className="font-light text-[var(--portal-navy)]">
                         {d.documentTypeLabel}
                       </div>
@@ -117,23 +124,23 @@ export function DocumentList({
                           {d.title}
                         </div>
                       ) : null}
-                    </td>
-                    <td className="px-6 py-4 font-light leading-5 text-black/60">
+                    </PortalTableCell>
+                    <PortalTableCell className="font-light leading-5 text-black/60">
                       {d.partyName ?? d.dealName ?? "—"}
                       {d.propertyName ? (
                         <div className="text-xs text-black/40">{d.propertyName}</div>
                       ) : null}
-                    </td>
-                    <td className="px-6 py-4 font-light text-black/60">
+                    </PortalTableCell>
+                    <PortalTableCell className="font-light text-black/60">
                       {d.issuedVersion != null ? `v${d.issuedVersion}` : "—"}
-                    </td>
-                    <td className="px-6 py-4 text-xs font-light text-black/45">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-xs font-light text-black/45">
                       {dateLabel(d.createdAt)}
-                    </td>
-                    <td className="px-6 py-4 text-xs font-light text-black/45">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-xs font-light text-black/45">
                       {d.issuedByDisplayName ?? "—"}
-                    </td>
-                    <td className="px-6 py-4">
+                    </PortalTableCell>
+                    <PortalTableCell>
                       <span
                         className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
                           d.state === "superseded"
@@ -143,20 +150,81 @@ export function DocumentList({
                       >
                         {d.state}
                       </span>
-                    </td>
-                    <td className="px-6 py-4">
+                    </PortalTableCell>
+                    <PortalTableCell>
                       <Link
                         href={`/portal/documents/${d.id}/download`}
                         className="text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] underline underline-offset-4 hover:text-[var(--portal-archive)]"
                       >
                         Download
                       </Link>
-                    </td>
-                  </tr>
+                    </PortalTableCell>
+                  </PortalTableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
+        </div>
+
+        <div className="divide-y divide-[var(--portal-border)] md:hidden">
+          {visible.length === 0 ? (
+            <p className="px-4 py-6 text-sm font-light italic text-black/40">
+              No issued documents yet — assemble a form in NEXUS · Forms and issue it.
+            </p>
+          ) : (
+            visible.map((d) => (
+              <article key={d.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="font-light text-[var(--portal-navy)]">{d.documentTypeLabel}</h3>
+                    {d.title ? (
+                      <p className="mt-0.5 text-xs font-light text-black/45">{d.title}</p>
+                    ) : null}
+                  </div>
+                  <span
+                    className={`inline-block shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
+                      d.state === "superseded"
+                        ? "border border-black/10 text-black/35"
+                        : "border border-[var(--portal-blue-gray)]/40 text-[var(--portal-navy-soft)]"
+                    }`}
+                  >
+                    {d.state}
+                  </span>
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Deal / Client</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {d.partyName ?? d.dealName ?? "—"}
+                      {d.propertyName ? <span className="text-black/40"> · {d.propertyName}</span> : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Version</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {d.issuedVersion != null ? `v${d.issuedVersion}` : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Issued</dt>
+                    <dd className="mt-1 font-light text-black/65">{dateLabel(d.createdAt)}</dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">By</dt>
+                    <dd className="mt-1 font-light text-black/65">{d.issuedByDisplayName ?? "—"}</dd>
+                  </div>
+                </dl>
+                <div>
+                  <Link
+                    href={`/portal/documents/${d.id}/download`}
+                    className="inline-flex min-h-11 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-archive)]"
+                  >
+                    Download
+                  </Link>
+                </div>
+              </article>
+            ))
+          )}
         </div>
       </Panel>
     </div>

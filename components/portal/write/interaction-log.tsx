@@ -3,6 +3,12 @@
 import { useState, useTransition } from 'react'
 
 import { logManualInteractionAction } from '@/app/portal/actions'
+import {
+  PortalField,
+  PortalFieldLabel,
+  PortalInput,
+  PortalTextarea,
+} from '@/components/portal/ui/portal-field'
 
 export function InteractionLogForm({
   personId,
@@ -76,42 +82,33 @@ export function InteractionLogForm({
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="block">
-          <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            Title (optional)
-          </span>
-          <input
+        <PortalField>
+          <PortalFieldLabel>Title (optional)</PortalFieldLabel>
+          <PortalInput
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Phone call summary"
-            className="mt-2 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
           />
-        </label>
-        <label className="block">
-          <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-            Date (optional, local time)
-          </span>
-          <input
+        </PortalField>
+        <PortalField>
+          <PortalFieldLabel>Date (optional, local time)</PortalFieldLabel>
+          <PortalInput
             type="datetime-local"
             value={occurredAt}
             onChange={(event) => setOccurredAt(event.target.value)}
-            className="mt-2 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
           />
-        </label>
+        </PortalField>
       </div>
 
-      <label className="block">
-        <span className="text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-          Details
-        </span>
-        <textarea
+      <PortalField>
+        <PortalFieldLabel>Details</PortalFieldLabel>
+        <PortalTextarea
           value={summary}
           onChange={(event) => setSummary(event.target.value)}
           rows={3}
           placeholder="What happened in this interaction?"
-          className="mt-2 block w-full resize-y rounded-sm border border-[var(--portal-border)] bg-white px-3 py-2.5 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
         />
-      </label>
+      </PortalField>
 
       <div className="flex items-center gap-3">
         <button

@@ -4,6 +4,14 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 import type { Deal, DealStage } from "@/lib/portal/types"
 
 const stageOrder: DealStage[] = [
@@ -111,27 +119,24 @@ export function DealsPortfolio({
       </div>
 
       <Panel compact variant="standard" divider flush>
-        <div className="overflow-x-auto">
-          <table className="min-w-[960px] w-full border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]/60">
-                <TableHeading>Property</TableHeading>
-                <TableHeading>Client</TableHeading>
-                <TableHeading>Stage</TableHeading>
-                <TableHeading>Price / Offer</TableHeading>
-                <TableHeading>Next</TableHeading>
-                <TableHeading>Owner</TableHeading>
-                <TableHeading>{""}</TableHeading>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="hidden md:block">
+          <PortalTable>
+            <PortalTableHead>
+              <PortalTableRow className="hover:bg-transparent">
+                <PortalTableHeader>Property</PortalTableHeader>
+                <PortalTableHeader>Client</PortalTableHeader>
+                <PortalTableHeader>Stage</PortalTableHeader>
+                <PortalTableHeader>Price / Offer</PortalTableHeader>
+                <PortalTableHeader>Next</PortalTableHeader>
+                <PortalTableHeader>Owner</PortalTableHeader>
+                <PortalTableHeader />
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {filteredDeals.length > 0 ? (
                 filteredDeals.map((deal) => (
-                  <tr
-                    key={deal.id}
-                    className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/45"
-                  >
-                    <td className="px-4 py-3 align-middle">
+                  <PortalTableRow key={deal.id}>
+                    <PortalTableCell>
                       <div className="flex items-center gap-3">
                         {deal.heroMediaId ? (
                           <img
@@ -154,11 +159,11 @@ export function DealsPortfolio({
                           </div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-3 align-middle text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {deal.clientName}
-                    </td>
-                    <td className="px-4 py-3 align-middle">
+                    </PortalTableCell>
+                    <PortalTableCell>
                       <span
                         className={[
                           "inline-flex rounded-full px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.1em]",
@@ -167,61 +172,127 @@ export function DealsPortfolio({
                       >
                         {stageLabel(deal.stage)}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 align-middle text-sm font-light tabular-nums">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light tabular-nums">
                       {formatCurrency(
                         deal.latestOfferAmount ??
                           deal.offerPrice ??
                           deal.listPrice
                       )}
-                    </td>
-                    <td className="px-4 py-3 align-middle">
+                    </PortalTableCell>
+                    <PortalTableCell>
                       <div className="text-sm font-light">
                         {deal.nextMilestone ?? "—"}
                       </div>
                       <div className="text-xs font-light text-black/40">
                         {deal.nextMilestoneAt ?? ""}
                       </div>
-                    </td>
-                    <td className="px-4 py-3 align-middle text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {deal.owner}
-                    </td>
-                    <td className="px-4 py-3 align-middle text-right">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-right">
                       <Link
                         href={`/portal/deals/${deal.id}`}
                         className="inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
                       >
                         Open
                       </Link>
-                    </td>
-                  </tr>
+                    </PortalTableCell>
+                  </PortalTableRow>
                 ))
               ) : (
-                <tr>
-                  <td
+                <PortalTableRow>
+                  <PortalTableCell
                     colSpan={7}
-                    className="px-4 py-10 text-center text-sm font-light text-black/40"
+                    className="py-10 text-center text-black/40"
                   >
                     No deals found.
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               )}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
+        </div>
+
+        <div className="divide-y divide-[var(--portal-border)] md:hidden">
+          {filteredDeals.length > 0 ? (
+            filteredDeals.map((deal) => (
+              <article key={deal.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-3">
+                      {deal.heroMediaId ? (
+                        <img
+                          src={`/api/media/${deal.heroMediaId}`}
+                          alt={deal.propertyName}
+                          className="h-10 w-14 shrink-0 rounded-md object-cover"
+                        />
+                      ) : (
+                        <div className="h-10 w-14 shrink-0 rounded-md bg-gradient-to-br from-[var(--portal-blue-pale)] to-[var(--portal-navy-soft)]" />
+                      )}
+                      <div className="min-w-0">
+                        <Link
+                          href={`/portal/deals/${deal.id}`}
+                          className="block truncate font-serif text-lg font-light text-[var(--portal-navy)] hover:text-[var(--portal-navy-soft)]"
+                        >
+                          {deal.propertyName}
+                        </Link>
+                        <div className="truncate text-xs font-light text-black/45">
+                          {deal.propertyLocation}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    className={[
+                      "inline-flex shrink-0 rounded-full px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.1em]",
+                      stageClasses(deal.stage),
+                    ].join(" ")}
+                  >
+                    {stageLabel(deal.stage)}
+                  </span>
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Client</dt>
+                    <dd className="mt-1 font-light text-black/65">{deal.clientName}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Price / Offer</dt>
+                    <dd className="mt-1 tabular-nums font-light text-black/70">
+                      {formatCurrency(deal.latestOfferAmount ?? deal.offerPrice ?? deal.listPrice)}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Next</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {deal.nextMilestone ?? "—"}
+                      {deal.nextMilestoneAt ? <span className="text-black/40"> · {deal.nextMilestoneAt}</span> : null}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Owner</dt>
+                    <dd className="mt-1 font-light text-black/65">{deal.owner}</dd>
+                  </div>
+                </dl>
+                <div>
+                  <Link
+                    href={`/portal/deals/${deal.id}`}
+                    className="inline-flex min-h-11 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
+                  >
+                    Open deal
+                  </Link>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="px-4 py-10 text-center text-sm font-light text-black/40">
+              No deals found.
+            </p>
+          )}
         </div>
       </Panel>
     </div>
-  )
-}
-
-function TableHeading({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  return (
-    <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
-      {children}
-    </th>
   )
 }
