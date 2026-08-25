@@ -14,6 +14,7 @@ import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
 import { InteractionLogForm } from "@/components/portal/write/interaction-log"
 import { ClientDailyActions } from "@/components/portal/client-daily-actions"
+import { ContactHistory } from "@/components/portal/contact-history"
 
 function formatCurrency(value?: number) {
   if (!value) return "—"
@@ -23,6 +24,18 @@ function formatCurrency(value?: number) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function formatPhone(value?: string | null): string | null {
+  if (!value) return null
+  const digits = value.replace(/\D/g, "")
+  if (digits.length === 10) {
+    return digits.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3")
+  }
+  if (digits.length === 11) {
+    return `+${digits[0]} ${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`
+  }
+  return value
 }
 
 function roleLabel(role: Client["role"]) {
@@ -292,10 +305,12 @@ export function ClientManager() {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-medium text-[var(--portal-navy)]">
-                        {client.displayName}
+                        {client.nameResolved ? client.displayName : "Unknown contact"}
                       </div>
                       <div className="truncate text-[11px] font-light text-black/45">
-                        {client.nextActionTitle ?? roleLabel(client.role as Client["role"])}
+                        {client.nameResolved
+                          ? (client.nextActionTitle ?? roleLabel(client.role as Client["role"]))
+                          : (formatPhone(client.primaryPhone) ?? client.primaryEmail ?? "Unresolved contact")}
                       </div>
                     </div>
                   </button>
@@ -445,6 +460,29 @@ function ClientPane({
           <Detail label="Agent" value={client.assignedAgent ?? "—"} />
         </div>
 
+        {client.nextAction ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
+                Next action
+              </span>
+              <span className="truncate font-serif text-base text-[var(--portal-navy)]">
+                {client.nextAction.title}
+              </span>
+              {client.nextAction.occurredAt ? (
+                <span className="shrink-0 text-xs font-light text-black/45">
+                  {client.nextAction.occurredAt}
+                </span>
+              ) : null}
+            </div>
+            {client.nextAction.detail ? (
+              <span className="shrink-0 text-xs font-light text-black/50">
+                {client.nextAction.detail}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         {showEdit ? (
           <div className="mt-4 border-t border-[var(--portal-panel-border)] pt-4">
             <ClientEditor
@@ -458,43 +496,30 @@ function ClientPane({
         ) : null}
       </section>
 
-      <div className="grid gap-3 lg:grid-cols-2">
-      <Panel compact heading="Act" className="mt-3">
-        <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
-      </Panel>
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="flex min-h-0 flex-col gap-3">
+          <Panel compact heading="Act" className="mt-3">
+            <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
+          </Panel>
 
-
-        <Panel compact variant="feature" heading="Next action">
-          <div className="font-serif text-lg font-light">
-            {client.nextAction?.title ?? "Nothing scheduled"}
-          </div>
-          {client.nextAction?.occurredAt ? (
-            <div className="mt-1 text-xs font-light text-white/55">
-              {client.nextAction.occurredAt}
+          <Panel compact heading="Last contact">
+            <div className="font-serif text-lg font-light text-[var(--portal-navy)]">
+              {client.lastContact
+                ? channelLabel(client.lastContact.channel)
+                : "No contact yet"}
             </div>
-          ) : null}
-          {client.nextAction?.detail ? (
-            <p className="mt-2 text-sm font-light text-white/70">
-              {client.nextAction.detail}
-            </p>
-          ) : null}
-        </Panel>
+            <div className="mt-1 text-xs font-light text-black/45">
+              {client.lastContact?.occurredAt ?? "—"}
+            </div>
+            {client.lastContact?.summary ? (
+              <p className="mt-2 line-clamp-3 text-sm font-light leading-6 text-black/55">
+                {client.lastContact.summary}
+              </p>
+            ) : null}
+          </Panel>
+        </div>
 
-        <Panel compact heading="Last contact">
-          <div className="font-serif text-lg font-light text-[var(--portal-navy)]">
-            {client.lastContact
-              ? channelLabel(client.lastContact.channel)
-              : "No contact yet"}
-          </div>
-          <div className="mt-1 text-xs font-light text-black/45">
-            {client.lastContact?.occurredAt ?? "—"}
-          </div>
-          {client.lastContact?.summary ? (
-            <p className="mt-2 line-clamp-3 text-sm font-light leading-6 text-black/55">
-              {client.lastContact.summary}
-            </p>
-          ) : null}
-        </Panel>
+        <ContactHistory clientId={client.id} />
       </div>
 
       <Panel

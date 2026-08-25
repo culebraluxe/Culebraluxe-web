@@ -1,5 +1,6 @@
 import { sql } from "./client"
 import type { QueryExecutor } from "./query-executor"
+import { isHumanName } from "../lib/relationship-intel/names"
 import type {
   Client,
   Interaction,
@@ -370,6 +371,7 @@ export async function getClientById(id: string): Promise<Client | null> {
 export type ClientSummary = {
   id: string
   displayName: string
+  nameResolved: boolean
   role: string
   status: string
   location: string | null
@@ -512,6 +514,7 @@ export async function getClientsPage(
     rows: rows.map((row) => ({
       id: row.id,
       displayName: row.display_name,
+      nameResolved: isHumanName(row.display_name),
       role: row.role,
       status: row.status,
       location: row.location ?? null,
