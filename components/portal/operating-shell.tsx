@@ -7,7 +7,6 @@ import { usePathname } from 'next/navigation'
 import type { PortalActorSnapshot } from '@/lib/auth/types'
 import {
   CommandPalette,
-  CommandPaletteHint,
   type PaletteClient,
   type PaletteDeal,
 } from '@/components/portal/command-palette'
@@ -114,10 +113,6 @@ export function OperatingShell({
             </nav>
 
             <div className="flex flex-none items-center gap-3">
-              <CommandPaletteHint />
-              <span className="hidden text-[10px] font-light uppercase tracking-[0.22em] text-[var(--portal-ivory)]/70 lg:inline">
-                {actor.displayName}
-              </span>
               <Link
                 href="/api/auth/signout"
                 className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-ivory)]/60 transition hover:text-[var(--portal-ivory)]"
