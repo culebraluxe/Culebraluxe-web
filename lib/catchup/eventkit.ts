@@ -15,7 +15,10 @@ import type { CatchUpCalendarEvent } from './calendar-adapter'
 // ---------------------------------------------------------------------------
 
 export type EventKitNormalizedEvent = {
+  /** Stable source event (series) id. */
   eventIdentifier: string
+  /** Stable per-occurrence id (macOS 14+); absent in the first real snapshot. */
+  eventOccurrenceID?: string | null
   sourceAccount: string
   calendarName: string
   title: string
@@ -36,10 +39,18 @@ export function eventKitToCatchUpEvent(
   if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
     return null
   }
+  const startAtIso = startAt.toISOString()
+  // Stable per-occurrence identity: prefer EventKit's eventOccurrenceID when the
+  // bridge provides it (unique per occurrence, stable across edits). Fall back
+  // to (series id + occurrence start) so recurring occurrences stay distinct and
+  // replay of the same snapshot is idempotent — never dedup by title/time.
+  const id = raw.eventOccurrenceID
+    ? `eventkit:${raw.eventOccurrenceID}`
+    : `eventkit:${raw.eventIdentifier}:${startAtIso}`
   return {
-    id: `eventkit:${raw.eventIdentifier}`,
+    id,
     title: raw.title,
-    startAt: startAt.toISOString(),
+    startAt: startAtIso,
     endAt: endAt.toISOString(),
     allDay: Boolean(raw.allDay),
     // Never guess a person from a free-text title — Apple events stay unlinked.
@@ -60,9 +71,12 @@ export function eventKitSnapshotToCatchUp(
     .filter((e): e is CatchUpCalendarEvent => e !== null)
 }
 
-/** Path to the Mac bridge's bounded calendar snapshot (env-configured). */
-export function eventKitSnapshotPath(): string | undefined {
-  return process.env.MAC_BRIDGE_CALENDAR_JSON || undefined
+/** Path to the Mac bridge's bounded calendar snapshot. Defaults to the local
+ *  bridge output (/tmp/culebraluxe-calendar.json) so DEV consumes the real
+ *  EventKit snapshot without manual per-file config; MAC_BRIDGE_CALENDAR_JSON
+ *  overrides it. /tmp is local runtime data and is never committed. */
+export function eventKitSnapshotPath(): string {
+  return process.env.MAC_BRIDGE_CALENDAR_JSON || '/tmp/culebraluxe-calendar.json'
 }
 
 /**

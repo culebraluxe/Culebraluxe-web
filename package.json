@@ -9,6 +9,7 @@
     "contacts:load:prod": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env prod",
     "contacts:project:dev": "node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env dev",
     "contacts:project:prod": "node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env prod",
+    "calendar:sync": "swift scripts/macbridge/CalendarEventKit.swift --past-days 7 --future-days 60",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
