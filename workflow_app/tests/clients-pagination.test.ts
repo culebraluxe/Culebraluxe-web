@@ -9,6 +9,12 @@ import {
   groupEvidenceForPromotion,
   displayNameForEvidence,
 } from '../../db/promote-evidence'
+import { isHumanName } from '../../lib/relationship-intel/names'
+import {
+  identityMatchKey,
+  buildContactIndex,
+  findContactForIdentityKeys,
+} from '../../db/enrich-people'
 
 // ---------------------------------------------------------------------------
 // CLIENTS — server-side pagination over the canonical `person` parent (no
@@ -151,5 +157,46 @@ test('promote: displayNameForEvidence uses a real name, else the identity label'
   ]
   const unnamedGroups = groupEvidenceForPromotion(unnamed as any)
   assert.equal(displayNameForEvidence(unnamed as any, unnamedGroups[0]), '+17875550134')
+})
+
+// --- display-name classification (CORE: IDENTITY IS NOT DISPLAY NAME) ---
+
+test('names: isHumanName accepts real names, rejects phone/email/structured IDs', () => {
+  assert.equal(isHumanName('Dave Bills Friend'), true)
+  assert.equal(isHumanName('Kavita'), true)
+  assert.equal(isHumanName('+12013424797'), false)
+  assert.equal(isHumanName('2013424797'), false)
+  assert.equal(isHumanName('bob@example.com'), false)
+  assert.equal(isHumanName('759147B4-9BF0-4C1D-8E26-280D79168D5F:ABPerson'), false)
+  assert.equal(isHumanName(''), false)
+  assert.equal(isHumanName(null), false)
+})
+
+// --- Apple Contacts name enrichment helpers (pure) ---
+
+test('enrich: identityMatchKey normalizes phone/email to one stable key', () => {
+  assert.equal(identityMatchKey('phone', '+1 (787) 555-0134'), 'phone:7875550134')
+  assert.equal(identityMatchKey('phone', '7875550134'), 'phone:7875550134')
+  assert.equal(identityMatchKey('email', 'Jane@Example.com'), 'email:jane@example.com')
+  assert.equal(identityMatchKey('phone', ''), null)
+})
+
+test('enrich: buildContactIndex matches the same normalized identity and prefers a human-named contact', () => {
+  const contacts = [
+    { displayName: null, organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '+17875550134' },
+    { displayName: 'Jane Doe', organization: 'Acme', displayAddress: '1 Calle Sol', identityType: 'phone', normalizedValue: '7875550134' },
+  ]
+  const index = buildContactIndex(contacts as any)
+  const contact = findContactForIdentityKeys(['phone:7875550134'], index)
+  assert.equal(contact?.displayName, 'Jane Doe')
+  assert.equal(contact?.organization, 'Acme')
+  assert.equal(contact?.displayAddress, '1 Calle Sol')
+})
+
+test('enrich: findContactForIdentityKeys returns null when no identity matches', () => {
+  const index = buildContactIndex([
+    { displayName: 'Jane', organization: null, displayAddress: null, identityType: 'email', normalizedValue: 'jane@example.com' },
+  ] as any)
+  assert.equal(findContactForIdentityKeys(['phone:9999999999'], index), null)
 })
 

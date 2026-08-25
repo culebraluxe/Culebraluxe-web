@@ -21,6 +21,7 @@ import { sql } from './client'
 import { findIdentityMatch, createPersonWithIdentities } from './person-identities'
 import { recordReconcileDecision } from './relationship-evidence'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
+import { isHumanName } from '../lib/relationship-intel/names'
 import type { NormalizedIdentityHint } from '../lib/crm-intake-types'
 
 type IdentityItem = { value: string; normalized?: string | null; label?: string | null }
@@ -140,9 +141,10 @@ export async function promoteReviewRequiredEvidence(): Promise<PromoteResult> {
       created = false
     } else {
       personId = randomUUID()
+      const displayName = displayNameForEvidence(rows, group)
       await createPersonWithIdentities({
         personId,
-        displayName: displayNameForEvidence(rows, group),
+        displayName,
         role: 'buyer',
         identities: [
           {
@@ -153,6 +155,12 @@ export async function promoteReviewRequiredEvidence(): Promise<PromoteResult> {
           },
         ],
       })
+      // Provenance for the canonical display name (CORE: identity != display name).
+      await sql`
+        update person
+        set display_name_source = ${isHumanName(displayName) ? 'source_evidence' : 'identity_fallback'}
+        where id = ${personId}
+      `
       created = true
     }
 

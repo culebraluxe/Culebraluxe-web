@@ -80,13 +80,13 @@ test('SUPPORT-2 test 11: canonical Clients view is preserved on the page', () =>
     new URL('../../app/portal/clients/page.tsx', import.meta.url),
     'utf8',
   )
-  assert.ok(page.includes('ClientsDirectory'), 'canonical directory rendered')
+  assert.ok(page.includes('ClientManager'), 'canonical ClientManager is the CORE Clients UX')
   assert.ok(page.includes('ClientAdmin'), 'canonical ClientAdmin still rendered')
   assert.ok(page.includes('ClientsTabBar'), 'tab bar added within the same Clients page')
   assert.ok(page.includes('ImportedContactsPanel'), 'imported panel added within the same page')
   assert.ok(!/app\/portal\/clients\/imported/.test(page), 'no second top-level Clients page')
-  // The canonical pane must not wait on the imported rows to hydrate.
-  assert.ok(page.includes('ClientsDirectory />'), 'paged directory is self-contained')
+  // The core canonical pane must not wait on the imported rows to hydrate.
+  assert.ok(page.includes('ClientManager />'), 'paged ClientManager is self-contained')
   assert.ok(page.includes('ImportedContactsPanel'), 'imported panel is independent')
 })
 

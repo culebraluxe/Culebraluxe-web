@@ -107,7 +107,7 @@ function propertyDescriptor(
   return parts.length > 0 ? parts.join(" · ") : undefined
 }
 
-export async function getClients(): Promise<Client[]> {
+export async function getClients(opts: { id?: string } = {}): Promise<Client[]> {
   const rows = await sql`
     select
       p.id,
@@ -277,8 +277,10 @@ export async function getClients(): Promise<Client[]> {
     ) next_action on true
 
     where p.archived_at is null
+      and (${opts.id ?? null}::text is null or p.id = ${opts.id ?? null})
 
     order by p.display_name asc
+    ${opts.id ? sql`limit 1` : sql``}
   `
 
   return (rows as ClientRow[]).map((row) => {
@@ -359,6 +361,12 @@ export async function getClients(): Promise<Client[]> {
   })
 }
 
+/** The full canonical Client for a single person (for the working-pane detail). */
+export async function getClientById(id: string): Promise<Client | null> {
+  const rows = await getClients({ id })
+  return rows[0] ?? null
+}
+
 export type ClientSummary = {
   id: string
   displayName: string
@@ -369,6 +377,7 @@ export type ClientSummary = {
   primaryPhone: string | null
   assignedAgent: string | null
   lastContactLabel: string | null
+  nextActionTitle: string | null
   sources: string[]
 }
 
@@ -389,6 +398,7 @@ type ClientSummaryRaw = {
   primary_phone: string | null
   assigned_agent: string | null
   last_contact_label: string | null
+  next_action_title: string | null
   sources: unknown
 }
 
@@ -461,6 +471,12 @@ export async function getClientsPage(
       phone.identity_value as primary_phone,
       u.display_name as assigned_agent,
       to_char(latest.occurred_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY') as last_contact_label,
+      (
+        select t.title from task t
+        where t.person_id = p.id and t.status = 'open'
+        order by t.due_at asc nulls last, t.created_at asc
+        limit 1
+      ) as next_action_title,
       coalesce(evidence.sources, '{}'::text[]) as sources
     from person p
     left join app_user u on u.id = p.assigned_user_id
@@ -503,6 +519,7 @@ export async function getClientsPage(
       primaryPhone: row.primary_phone ?? null,
       assignedAgent: row.assigned_agent ?? null,
       lastContactLabel: row.last_contact_label ?? null,
+      nextActionTitle: row.next_action_title ?? null,
       sources: Array.isArray(row.sources) ? (row.sources as string[]) : [],
     })),
     total,

@@ -1,4 +1,4 @@
-import { ClientsDirectory } from "@/components/portal/clients-directory"
+import { ClientManager } from "@/components/portal/client-manager"
 import { ClientAdmin } from "@/components/portal/client-admin"
 import { ClientsTabBar } from "@/components/portal/clients-tabbar"
 import { ImportedContactsPanel } from "@/components/portal/imported-contacts"
@@ -20,10 +20,11 @@ export default async function ClientsPage() {
       <ClientsTabBar importedTotal={importedTotal} />
 
       <section data-pane="canonical">
-        {/* Both panes are independent client components that page the canonical
-            `person` parent server-side (50/page). The canonical pane renders
-            immediately and never blocks on imported rows. */}
-        <ClientsDirectory />
+        {/* CORE Clients experience: the restored ClientManager working pane.
+            It pages the canonical `person` parent server-side (bounded 50-row
+            list + independent per-person detail) and never materializes the
+            whole table. ClientAdmin remains the read-only ops/admin view. */}
+        <ClientManager />
         <ClientAdmin />
       </section>
 

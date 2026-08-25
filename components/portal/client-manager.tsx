@@ -1,13 +1,14 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type {
   Client,
   ClientStatus,
   InteractionChannel,
   PropertyInterestStatus,
 } from "@/lib/portal/types"
+import type { ClientSummary, ClientsPageResult } from "@/db/clients"
 import { Panel } from "@/components/portal/panel"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
@@ -84,46 +85,116 @@ function initials(name: string) {
 const ghostBtn =
   "inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
 
-export function ClientManager({
-  clients,
-  agents,
-}: {
-  clients: Client[]
-  agents: ClientEditorAgent[]
-}) {
+const LIST_PAGE_SIZE = 50
+
+function statusDot(status: string) {
+  switch (status) {
+    case "active":
+      return "bg-[var(--portal-success)]"
+    case "warm":
+      return "bg-[var(--portal-navy-soft)]"
+    case "referral":
+      return "bg-[var(--portal-neutral)]"
+    default:
+      return "bg-black/25"
+  }
+}
+
+export function ClientManager() {
   const [query, setQuery] = useState("")
-  const [selectedClientId, setSelectedClientId] = useState(
-    clients[0]?.id ?? ""
-  )
+  const [debouncedQuery, setDebouncedQuery] = useState("")
+  const [page, setPage] = useState(1)
+  const [list, setList] = useState<ClientSummary[]>([])
+  const [total, setTotal] = useState(0)
+  const [loadingList, setLoadingList] = useState(true)
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Client | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [agents, setAgents] = useState<ClientEditorAgent[]>([])
   const [showCreate, setShowCreate] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
 
-  const filteredClients = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    if (!normalized) return clients
+  // Debounce search so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query), 250)
+    return () => clearTimeout(id)
+  }, [query])
 
-    return clients.filter((client) =>
-      [
-        client.displayName,
-        client.location,
-        client.email,
-        client.phone,
-        client.role,
-        client.status,
-        client.nextAction?.title,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized)
-    )
-  }, [clients, query])
+  // Load assignable agents once (small, bounded) for the New/Edit forms.
+  useEffect(() => {
+    let active = true
+    fetch("/api/portal/clients/agents")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (active) setAgents(rows as ClientEditorAgent[])
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
 
-  const selectedClient =
-    clients.find((client) => client.id === selectedClientId) ??
-    filteredClients[0] ??
-    clients[0]
+  // Load the bounded people page (server-side search + paging). Reset to page 1
+  // whenever the search term changes.
+  const loadList = useCallback(async (q: string, p: number) => {
+    setLoadingList(true)
+    const params = new URLSearchParams({
+      view: "directory",
+      search: q,
+      page: String(p),
+      pageSize: String(LIST_PAGE_SIZE),
+      sort: "name",
+    })
+    try {
+      const res = await fetch(`/api/portal/clients?${params.toString()}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as ClientsPageResult
+      setList(json.rows)
+      setTotal(json.total)
+      setSelectedClientId((prev) => prev ?? json.rows[0]?.id ?? null)
+    } catch (err) {
+      console.error("Failed to load clients:", err)
+      setList([])
+      setTotal(0)
+    } finally {
+      setLoadingList(false)
+    }
+  }, [])
 
+  useEffect(() => {
+    setPage(1)
+    void loadList(debouncedQuery, 1)
+  }, [debouncedQuery, loadList])
+
+  // Load the selected person's full detail independently — the detail pane
+  // never requires loading every Person.
+  useEffect(() => {
+    if (!selectedClientId) {
+      setDetail(null)
+      setLoadingDetail(false)
+      return
+    }
+    let active = true
+    setLoadingDetail(true)
+    fetch(`/api/portal/clients/${selectedClientId}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (active) setDetail((json as { client?: Client | null })?.client ?? null)
+      })
+      .catch(() => {
+        if (active) setDetail(null)
+      })
+      .finally(() => {
+        if (active) setLoadingDetail(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [selectedClientId])
+
+  const selectedClient = detail
+
+  // Keyboard navigation over the current bounded page.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target
@@ -134,20 +205,32 @@ export function ClientManager({
       ) {
         return
       }
-      const ids = filteredClients.map((client) => client.id)
-      const index = selectedClient ? ids.indexOf(selectedClient.id) : -1
+      const ids = list.map((client) => client.id)
+      const index = selectedClientId ? ids.indexOf(selectedClientId) : -1
       if (event.key === "ArrowDown" && index >= 0 && index < ids.length - 1) {
         event.preventDefault()
         setSelectedClientId(ids[index + 1])
+        setShowCreate(false)
+        setShowEdit(false)
       }
       if (event.key === "ArrowUp" && index > 0) {
         event.preventDefault()
         setSelectedClientId(ids[index - 1])
+        setShowCreate(false)
+        setShowEdit(false)
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [filteredClients, selectedClient])
+  }, [list, selectedClientId])
+
+  const totalPages = Math.max(1, Math.ceil(total / LIST_PAGE_SIZE))
+
+  function selectClient(id: string) {
+    setSelectedClientId(id)
+    setShowCreate(false)
+    setShowEdit(false)
+  }
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -156,7 +239,7 @@ export function ClientManager({
           <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-2.5">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
-                People · {filteredClients.length}
+                People · {total.toLocaleString()}
               </span>
               <button
                 type="button"
@@ -179,22 +262,18 @@ export function ClientManager({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {filteredClients.length === 0 ? (
+            {list.length === 0 ? (
               <p className="px-3 py-6 text-sm font-light text-black/40">
-                No matching clients.
+                {loadingList ? "Loading…" : "No matching clients."}
               </p>
             ) : (
-              filteredClients.map((client) => {
-                const selected = selectedClient?.id === client.id
+              list.map((client) => {
+                const selected = selectedClientId === client.id
                 return (
                   <button
                     type="button"
                     key={client.id}
-                    onClick={() => {
-                      setSelectedClientId(client.id)
-                      setShowCreate(false)
-                      setShowEdit(false)
-                    }}
+                    onClick={() => selectClient(client.id)}
                     ref={
                       selected
                         ? (node) => node?.scrollIntoView({ block: "nearest" })
@@ -208,29 +287,50 @@ export function ClientManager({
                     ].join(" ")}
                   >
                     <span
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        client.status === "active"
-                          ? "bg-[var(--portal-success)]"
-                          : client.status === "warm"
-                            ? "bg-[var(--portal-navy-soft)]"
-                            : client.status === "referral"
-                              ? "bg-[var(--portal-neutral)]"
-                              : "bg-black/25"
-                      }`}
-                      aria-label={statusLabel(client.status)}
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(client.status)}`}
+                      aria-label={statusLabel(client.status as ClientStatus)}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-medium text-[var(--portal-navy)]">
                         {client.displayName}
                       </div>
                       <div className="truncate text-[11px] font-light text-black/45">
-                        {client.nextAction?.title ?? roleLabel(client.role)}
+                        {client.nextActionTitle ?? roleLabel(client.role as Client["role"])}
                       </div>
                     </div>
                   </button>
                 )
               })
             )}
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--portal-panel-border)] px-2 py-1.5">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => {
+                const next = page - 1
+                setPage(next)
+                void loadList(debouncedQuery, next)
+              }}
+              className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              ← Prev
+            </button>
+            <span className="text-[10px] font-light uppercase tracking-[0.12em] text-black/40">
+              Page {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => {
+                const next = page + 1
+                setPage(next)
+                void loadList(debouncedQuery, next)
+              }}
+              className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              Next →
+            </button>
           </div>
         </aside>
 
@@ -260,9 +360,11 @@ export function ClientManager({
               />
             </Panel>
           ) : !selectedClient ? (
-            <Panel compact heading="No clients yet">
+            <Panel compact heading={loadingDetail ? "Loading" : "No clients yet"}>
               <p className="text-sm font-light text-black/45">
-                Add a client to start a relationship file.
+                {loadingDetail
+                  ? "Loading client…"
+                  : "Add a client to start a relationship file."}
               </p>
             </Panel>
           ) : (
