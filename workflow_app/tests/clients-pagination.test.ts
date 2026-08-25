@@ -299,6 +299,10 @@ test('clients: CORE Clients working pane is the balanced relationship workspace 
   )
   // Reused shared Command + Status band, not a local copy.
   assert.ok(/CommandStatusBand/.test(src), 'reuses the shared Command + Status band')
+  // The band uses the shared balanced (50/50) preset so the COMMAND | STATUS
+  // seam lines up with the CLIENT CARD | CONTACT HISTORY row beneath it.
+  assert.ok(/ratio="balanced"/.test(src), 'uses the shared balanced ratio preset')
+  assert.ok(/lg:grid-cols-2 lg:gap-4/.test(src), 'working rows share the band gap for exact seam alignment')
   // Client Card + Contact History equal 50/50 rows (plus Interests + Notes).
   assert.ok(/ClientCard/.test(src), 'Client Card present')
   assert.ok(/lg:grid-cols-2/.test(src), 'equal-width 50/50 working rows')

@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
+    "@ilamy/calendar": "^2.0.3",
     "@mux/mux-player-react": "^3.13.2",
     "@neon/config": "^1.0.1",
     "@neon/env": "^1.1.1",
@@ -40,6 +41,7 @@
     "@vercel/analytics": "1.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dayjs": "^1.11.23",
     "lucide-react": "^1.16.0",
     "next": "16.3.0",
     "next-auth": "5.0.0-beta.32",

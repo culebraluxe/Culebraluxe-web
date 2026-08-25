@@ -2,6 +2,10 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
+/* Tailwind v4 ignores node_modules by default; scan @ilamy/calendar so its
+   shadcn token utilities (bg-background, text-muted-foreground, …) generate. */
+@source "../node_modules/@ilamy/calendar/dist";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

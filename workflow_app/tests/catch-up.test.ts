@@ -233,11 +233,13 @@ test('catch-up calendar: normalize + week bucketing', () => {
 })
 
 // --- CommandStatusBand reuse ---
-test('catch-up reuses CommandStatusBand (no local copy)', () => {
+test('catch-up reuses CommandStatusBand (balanced 50/50, no local copy)', () => {
   const src = readFileSync(new URL('../../components/portal/catch-up.tsx', import.meta.url), 'utf8')
   assert.ok(/CommandStatusBand/.test(src), 'imports the shared band')
-  assert.ok(/ratio="wide-command"/.test(src), 'uses the shared wide-command ratio preset')
+  assert.ok(/ratio="balanced"/.test(src), 'uses the shared balanced (50/50) ratio preset')
   assert.ok(!/RATIO_GRID/.test(src), 'no local ratio system')
+  // The band's desktop seam must line up with the QUEUE | CALENDAR row beneath it.
+  assert.ok(/lg:grid-cols-2 lg:gap-4/.test(src), 'workspace row shares the band gap for exact seam alignment')
 })
 
 // --- website lead intake ---
@@ -265,6 +267,26 @@ test('lead intake: rejects missing name and missing contact', () => {
 test('lead intake: rejects invalid email', () => {
   const r = normalizeLeadInput({ name: 'Jane', email: 'not-an-email' })
   assert.equal(r.ok, false)
+})
+
+test('catch-up calendar uses a real library and preserves the normalized boundary (source guard)', () => {
+  const src = readFileSync(
+    new URL('../../components/portal/catch-up-calendar.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/@ilamy\/calendar/.test(src), 'uses the @ilamy/calendar engine')
+  assert.ok(/IlamyCalendar/.test(src), 'renders IlamyCalendar')
+  assert.ok(/headerComponent/.test(src), 'owns the header via headerComponent')
+  assert.ok(/initialView="month"/.test(src), 'defaults to Month view')
+  assert.ok(/disableDragAndDrop/.test(src), 'read-only (no event drag)')
+  assert.ok(
+    !/from '@\/db'/.test(src),
+    'no database imports inside the calendar component',
+  )
+  assert.ok(
+    !/EventKit|CalDAV|mac-observer/.test(src),
+    'library/component never touches Apple/EventKit/provider internals',
+  )
 })
 
 

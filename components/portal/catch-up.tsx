@@ -18,10 +18,9 @@ import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 //   COMMAND / ARA  |  STATUS
 //   CATCH-UP QUEUE |  CALENDAR
 //
-// Reuses the shared CommandStatusBand (wide-command) — no local copy, no
-// duplicated Forms/Clients implementation. The queue answers WHO needs Lisa and
-// WHY; the calendar answers what is already scheduled. Responsive: band stacks
-// (command above status), then queue above calendar.
+// Reuses the shared CommandStatusBand (balanced) — no local copy, no
+// duplicated Forms/Clients implementation. The balanced 50/50 ratio lines the
+// COMMAND | STATUS seam up with the CATCH-UP QUEUE | CALENDAR row beneath it.
 // ---------------------------------------------------------------------------
 
 export function CatchUp({
@@ -37,7 +36,7 @@ export function CatchUp({
   return (
     <div className="flex flex-col gap-3">
       <CommandStatusBand
-        ratio="wide-command"
+        ratio="balanced"
         command={
           <CatchUpCommand
             onRun={(prompt) => {
@@ -55,7 +54,7 @@ export function CatchUp({
         }
       />
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
         <CatchUpQueue />
         <CatchUpCalendar events={calendarEvents} />
       </div>

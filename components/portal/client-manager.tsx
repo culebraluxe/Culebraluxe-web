@@ -410,7 +410,7 @@ function ClientPane({
       {/* Command + Status band — only in the main workspace (right of the People
           rail); the People rail stays tall so more clients remain visible. */}
       <CommandStatusBand
-        ratio="wide-command"
+        ratio="balanced"
         command={
           <ClientCommand
             clientName={client.displayName}
@@ -430,7 +430,7 @@ function ClientPane({
       {/* Client Card + Contact History — equal 50/50 siblings, top AND bottom
           aligned (the card sets the row height; history fills it and scrolls
           internally). */}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
         <ClientCard
           client={client}
           agents={agents}
@@ -441,7 +441,7 @@ function ClientPane({
       </div>
 
       {/* Interests + Notes — equal-width lower row. */}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
         <Panel
           compact
           heading="Interests"
