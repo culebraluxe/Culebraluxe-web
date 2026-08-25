@@ -84,7 +84,7 @@ export function OperatingShell({
             <Link
               href="/"
               aria-label="CulebraLuxe home — public site"
-              className="flex flex-none items-center py-2"
+              className="me-4 flex flex-none items-center py-2 lg:me-20"
             >
               <Image
                 src="/images/culebraluxe-header-logo-test.png"
@@ -112,7 +112,7 @@ export function OperatingShell({
               })}
             </nav>
 
-            <div className="flex flex-none items-center gap-3">
+            <div className="flex flex-none items-center gap-3 lg:ps-6">
               <Link
                 href="/api/auth/signout"
                 className="text-[10px] font-light uppercase tracking-[0.2em] text-[var(--portal-ivory)]/60 transition hover:text-[var(--portal-ivory)]"

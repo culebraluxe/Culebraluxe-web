@@ -332,19 +332,24 @@
   flex: 1 1 auto;
   min-width: 0;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 0.375rem;
   overflow-x: auto;
   scrollbar-width: none;
 }
-
-@media (min-width: 768px) {
-  .portal-top-nav {
-    justify-content: center;
-  }
-}
 .portal-top-nav::-webkit-scrollbar {
   display: none;
+}
+/* Portal-only: tighten capsule padding at narrower widths so the four surface
+   buttons never crowd the logo or Sign Out. Shared capsule material is
+   unchanged, and the public header is not affected. */
+.portal-top-nav .top-nav-capsule {
+  padding-inline: 0.7rem;
+}
+@media (min-width: 1024px) {
+  .portal-top-nav .top-nav-capsule {
+    padding-inline: 1.1rem;
+  }
 }
 
 /* Shared top-navigation capsule — used by BOTH the public site and the portal
