@@ -12,7 +12,7 @@ const STATUS_COMPLETION = {
 }
 const DEFAULT_STATUS = 'Complete'
 const DEFAULT_COMPLETION = 100
-const SHA = '807e43e'
+const SHA = 'e2dc769'
 const COMMON =
   `commit ${SHA} | migration 074 | 39 targeted tests green | tsc 0 errors | next build exit 0 | git diff clean` +
   ` | DEV migration verified | batch/reconcile totals recorded | visual (browser) verification NOT performed`
@@ -41,7 +41,7 @@ const EVIDENCE = {
   'REL-INTEL-11':
     'DONE (verification recorded). 39 REL-INTEL tests pass (31 prior + 8 read-model); tsc 0 errors; next build exit 0; git diff clean; DEV migration 074 verified (35 cols, 3 FKs, CHECK, UNIQUE, indexes, rerun-safe); batch balance + replay idempotency proven. Full app suite 787 tests / 756 pass / 28 fail (unchanged pre-existing) / 3 cancelled. Visual verification only claimed if performed (not performed).',
   'REL-INTEL-12':
-    'DONE. Committed + pushed (commit 807e43e). ARCH-01 supplement §12.7 records DEV proof. Full Gmail census REMAINS deferred until a deterministic message-ID manifest + guaranteed metadata-only batch reads exist; it is NOT marked complete. No Gmail/Apple mutation, no body/snippet/attachment storage, no autonomous outreach, no silent Person merge introduced.',
+    'DONE. Committed + pushed (commit e2dc769). ARCH-01 supplement §12.7 records DEV proof. Full Gmail census REMAINS deferred until a deterministic message-ID manifest + guaranteed metadata-only batch reads exist; it is NOT marked complete. No Gmail/Apple mutation, no body/snippet/attachment storage, no autonomous outreach, no silent Person merge introduced.',
 }
 
 const rows = await pool.query("select id, notes from storyboard_story where id like 'REL-INTEL%' order by id")
