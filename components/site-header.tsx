@@ -8,6 +8,22 @@ import { FavoritesLink } from "@/components/property/favorites-link";
 // Temporary visual-review switch. Set to false to restore the text wordmark.
 const USE_IMAGE_LOGO = true;
 
+// Public top-nav capsule treatment — a restrained glass capsule adapted to the
+// public-site navy/gold/ivory language. Every item is a ~44px rounded pill with
+// a translucent fill, fine border, soft inner highlight, backdrop blur, and
+// visible hover/focus states that read over both solid navy and imagery.
+const capsuleClass =
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-ivory/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-colors duration-300 hover:bg-white/[0.14] hover:text-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+
+const portalCapsuleClass =
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-brand-gold/45 bg-brand-gold/10 px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-md transition-colors duration-300 hover:bg-brand-gold/20 hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+
+const mobileCapsuleClass =
+  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-colors duration-300 hover:bg-white/[0.14] hover:text-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+
+const mobilePortalCapsuleClass =
+  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-brand-gold/45 bg-brand-gold/10 px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-md transition-colors duration-300 hover:bg-brand-gold/20 hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+
 const NAV_LINKS = [
   { label: "Buyers", href: "/buyers" },
   { label: "Sellers", href: "/sellers" },
@@ -51,26 +67,24 @@ export function SiteHeader() {
           )}
 
           <nav
-            className="hidden h-7 items-center gap-0 lg:flex"
+            className="hidden items-center gap-1 lg:flex"
             aria-label="Primary"
           >
             {NAV_LINKS.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                className="group relative flex h-12 items-center px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-ivory/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2"
+                className={capsuleClass}
               >
                 {link.label}
-                <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-brand-gold transition-all duration-500 ease-out group-hover:w-full" />
               </a>
             ))}
-            <FavoritesLink className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-ivory/85 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2" />
+            <FavoritesLink className={capsuleClass} />
             <a
               href="/portal/dashboard"
-              className="group relative flex h-12 items-center gap-1.5 px-1 text-[18px] font-medium uppercase tracking-[0.08em] text-brand-gold/90 transition-colors duration-500 hover:text-brand-gold focus-visible:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy lg:px-2"
+              className={portalCapsuleClass}
             >
               Portal
-              <span className="absolute -bottom-1.5 left-0 h-px w-0 bg-brand-gold transition-all duration-500 ease-out group-hover:w-full" />
             </a>
           </nav>
 
@@ -113,25 +127,25 @@ export function SiteHeader() {
               : "",
           )}
         >
-          <nav className="flex flex-col px-6 py-4" aria-label="Mobile">
+          <nav className="flex flex-col gap-2 px-4 py-4" aria-label="Mobile">
             {NAV_LINKS.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
                 onClick={() => setMenuOpen(false)}
-                className="border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/80 transition-colors hover:text-[#d8c39a] last:border-0"
+                className={mobileCapsuleClass}
               >
                 {link.label}
               </a>
             ))}
             <FavoritesLink
               onNavigate={() => setMenuOpen(false)}
-              className="flex items-center gap-2 border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/80 transition-colors hover:text-[#d8c39a] last:border-0"
+              className={mobileCapsuleClass}
             />
             <a
               href="/portal/dashboard"
               onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-2 border-b border-brand-ivory/10 py-4 text-sm font-medium uppercase tracking-[0.22em] text-brand-gold/90 transition-colors hover:text-[#d8c39a] last:border-0"
+              className={mobilePortalCapsuleClass}
             >
               Portal
             </a>
@@ -139,7 +153,7 @@ export function SiteHeader() {
         </div>
       </header>
 
-      <div className="h-[77px]" aria-hidden="true" />
+      <div className="h-[76px] lg:h-[92px]" aria-hidden="true" />
     </>
   );
 }
