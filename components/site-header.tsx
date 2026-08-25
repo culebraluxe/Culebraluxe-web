@@ -8,21 +8,12 @@ import { FavoritesLink } from "@/components/property/favorites-link";
 // Temporary visual-review switch. Set to false to restore the text wordmark.
 const USE_IMAGE_LOGO = true;
 
-// Public top-nav glass capsules — a restrained glass pill adapted to the
-// public-site navy/gold/ivory language. Labels are fully visible at rest
-// (strong ivory), shift to gold on hover/focus, and Portal reads as the
-// translucent gold entry point. Readable over both solid navy and imagery.
-const capsuleClass =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-brand-ivory/25 bg-brand-ivory/[0.08] px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-ivory shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-ivory/40 hover:bg-brand-ivory/[0.16] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
-
-const portalCapsuleClass =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-brand-gold/50 bg-brand-gold/[0.14] px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-gold/70 hover:bg-brand-gold/[0.22] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
-
-const mobileCapsuleClass =
-  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-brand-ivory/25 bg-brand-ivory/[0.08] px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-ivory/40 hover:bg-brand-ivory/[0.16] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
-
-const mobilePortalCapsuleClass =
-  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-brand-gold/50 bg-brand-gold/[0.14] px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-gold/70 hover:bg-brand-gold/[0.22] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+// Public top-nav uses the SAME shared capsule as the portal header
+// (.top-nav-capsule in globals.css) so the two cannot drift. The public nav has
+// more items, so it uses the tighter-padding modifier; mobile uses the
+// full-width modifier. Material, border, radius, colors, and states are shared.
+const capsuleClass = "top-nav-capsule top-nav-capsule--tight";
+const mobileCapsuleClass = "top-nav-capsule top-nav-capsule--full";
 
 const NAV_LINKS = [
   { label: "Buyers", href: "/buyers" },
@@ -82,7 +73,7 @@ export function SiteHeader() {
             <FavoritesLink className={capsuleClass} />
             <a
               href="/portal/dashboard"
-              className={portalCapsuleClass}
+              className={capsuleClass}
             >
               Portal
             </a>
@@ -145,7 +136,7 @@ export function SiteHeader() {
             <a
               href="/portal/dashboard"
               onClick={() => setMenuOpen(false)}
-              className={mobilePortalCapsuleClass}
+              className={mobileCapsuleClass}
             >
               Portal
             </a>

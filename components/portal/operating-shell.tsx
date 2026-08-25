@@ -104,7 +104,7 @@ export function OperatingShell({
                     key={item.key}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
-                    className="portal-top-nav-item"
+                    className="top-nav-capsule"
                   >
                     {item.label}
                   </Link>
