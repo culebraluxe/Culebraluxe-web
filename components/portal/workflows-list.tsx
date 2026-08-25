@@ -18,7 +18,7 @@ function WorkflowCard({ summary }: { summary: WorkflowSummary }) {
   return (
     <Link
       href={`/portal/workflows/${summary.instanceId}`}
-      className="block rounded-sm border border-[var(--portal-border)] bg-white p-6 transition-colors hover:border-[var(--portal-blue-gray)]/50"
+      className="block rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 transition-colors hover:border-[var(--portal-blue-gray)]/50"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -80,7 +80,7 @@ export function WorkflowsList({
       </header>
 
       {!configured ? (
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel px-10 py-16 text-center">
           <GitBranch className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
           <h2 className="mt-5 font-serif text-2xl font-light text-[var(--portal-navy)]">
             Workflow runtime not ready
@@ -95,7 +95,7 @@ export function WorkflowsList({
           </p>
         </section>
       ) : summaries.length === 0 ? (
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white px-10 py-16 text-center">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel px-10 py-16 text-center">
           <GitBranch className="mx-auto h-9 w-9 text-[var(--portal-blue-gray)]" />
           <h2 className="mt-5 font-serif text-2xl font-light text-[var(--portal-navy)]">
             No transaction workflows yet

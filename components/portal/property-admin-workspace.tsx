@@ -51,10 +51,10 @@ const dangerButton =
   'inline-flex min-h-11 items-center justify-center rounded-sm border border-[var(--portal-danger)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-archive)] transition hover:bg-[var(--portal-archive)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40'
 
 const fieldInput =
-  'mt-1 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]'
+  'mt-1 block min-h-11 w-full rounded-[var(--portal-panel-radius)] portal-glass-panel px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]'
 
 const fieldTextarea =
-  'mt-1 block min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 py-2 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]'
+  'mt-1 block min-h-11 w-full rounded-[var(--portal-panel-radius)] portal-glass-panel px-3 py-2 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]'
 
 const labelClass =
   'mb-1 block text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]'
@@ -133,7 +133,7 @@ function Section({
   right?: React.ReactNode
 }) {
   return (
-    <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">{title}</h2>

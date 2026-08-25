@@ -14,6 +14,14 @@ import type {
   WorkflowDiagnosticsSnapshot,
   WorkflowInstanceRow,
 } from "@/workflow_app/diagnostics"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 // ---------------------------------------------------------------------------
 // Workflow Engine diagnostics section (CRM-14N). Rendered inside the existing
@@ -243,35 +251,35 @@ function InstanceDetailView({
           {detail.tasks.length === 0 ? (
             <p className="text-sm font-light text-black/40">No engine tasks.</p>
           ) : (
-            <table className="w-full min-w-[640px] text-left text-sm font-light">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-[0.14em] text-black/35">
-                  <th className="py-2 pr-4 font-light">Task</th>
-                  <th className="py-2 pr-4 font-light">Status</th>
-                  <th className="py-2 pr-4 font-light">Token</th>
-                  <th className="py-2 pr-4 font-light">Assignee</th>
-                  <th className="py-2 font-light">Candidates</th>
-                </tr>
-              </thead>
-              <tbody>
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>Task</PortalTableHeader>
+                  <PortalTableHeader>Status</PortalTableHeader>
+                  <PortalTableHeader>Token</PortalTableHeader>
+                  <PortalTableHeader>Assignee</PortalTableHeader>
+                  <PortalTableHeader>Candidates</PortalTableHeader>
+                </PortalTableRow>
+              </PortalTableHead>
+              <PortalTableBody>
                 {detail.tasks.map((t: TaskRow) => (
-                  <tr key={t.id} className="border-t border-[var(--portal-border)]/60">
-                    <td className="py-2 pr-4">
+                  <PortalTableRow key={t.id}>
+                    <PortalTableCell>
                       <div className="text-black/70">{t.name}</div>
                       <div className="font-mono text-[11px] text-black/40">{t.id}</div>
-                    </td>
-                    <td className="py-2 pr-4 text-black/60">{t.status}</td>
-                    <td className="py-2 pr-4 font-mono text-[11px] text-black/50">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/60">{t.status}</PortalTableCell>
+                    <PortalTableCell className="font-mono text-[11px] text-black/50">
                       {t.tokenId ?? "—"}
-                    </td>
-                    <td className="py-2 pr-4 text-black/60">{t.assignee ?? "—"}</td>
-                    <td className="py-2 text-black/60">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/60">{t.assignee ?? "—"}</PortalTableCell>
+                    <PortalTableCell className="text-black/60">
                       {t.candidates.length > 0 ? t.candidates.join(", ") : "—"}
-                    </td>
-                  </tr>
+                    </PortalTableCell>
+                  </PortalTableRow>
                 ))}
-              </tbody>
-            </table>
+              </PortalTableBody>
+            </PortalTable>
           )}
         </div>
       </section>
@@ -282,32 +290,32 @@ function InstanceDetailView({
           {detail.correlations.length === 0 ? (
             <p className="text-sm font-light text-black/40">No correlations.</p>
           ) : (
-            <table className="w-full min-w-[640px] text-left text-sm font-light">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-[0.14em] text-black/35">
-                  <th className="py-2 pr-4 font-light">Engine Task</th>
-                  <th className="py-2 pr-4 font-light">Canonical Task</th>
-                  <th className="py-2 pr-4 font-light">Title</th>
-                  <th className="py-2 font-light">Status</th>
-                </tr>
-              </thead>
-              <tbody>
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>Engine Task</PortalTableHeader>
+                  <PortalTableHeader>Canonical Task</PortalTableHeader>
+                  <PortalTableHeader>Title</PortalTableHeader>
+                  <PortalTableHeader>Status</PortalTableHeader>
+                </PortalTableRow>
+              </PortalTableHead>
+              <PortalTableBody>
                 {detail.correlations.map((c: CorrelationRow) => (
-                  <tr key={c.workflowTaskId} className="border-t border-[var(--portal-border)]/60">
-                    <td className="py-2 pr-4 font-mono text-[11px] text-black/50">
+                  <PortalTableRow key={c.workflowTaskId}>
+                    <PortalTableCell className="font-mono text-[11px] text-black/50">
                       {c.workflowTaskId}
-                    </td>
-                    <td className="py-2 pr-4 font-mono text-[11px] text-black/50">
+                    </PortalTableCell>
+                    <PortalTableCell className="font-mono text-[11px] text-black/50">
                       {c.applicationTaskId ?? "—"}
-                    </td>
-                    <td className="py-2 pr-4 text-black/70">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/70">
                       {c.applicationTaskTitle ?? "—"}
-                    </td>
-                    <td className="py-2 text-black/60">{c.applicationTaskStatus ?? "—"}</td>
-                  </tr>
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/60">{c.applicationTaskStatus ?? "—"}</PortalTableCell>
+                  </PortalTableRow>
                 ))}
-              </tbody>
-            </table>
+              </PortalTableBody>
+            </PortalTable>
           )}
         </div>
       </section>
@@ -318,26 +326,26 @@ function InstanceDetailView({
           {detail.jobs.length === 0 ? (
             <p className="text-sm font-light text-black/40">No jobs.</p>
           ) : (
-            <table className="w-full min-w-[560px] text-left text-sm font-light">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-[0.14em] text-black/35">
-                  <th className="py-2 pr-4 font-light">Job</th>
-                  <th className="py-2 pr-4 font-light">Type</th>
-                  <th className="py-2 pr-4 font-light">Status</th>
-                  <th className="py-2 font-light">Due</th>
-                </tr>
-              </thead>
-              <tbody>
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>Job</PortalTableHeader>
+                  <PortalTableHeader>Type</PortalTableHeader>
+                  <PortalTableHeader>Status</PortalTableHeader>
+                  <PortalTableHeader>Due</PortalTableHeader>
+                </PortalTableRow>
+              </PortalTableHead>
+              <PortalTableBody>
                 {detail.jobs.map((j) => (
-                  <tr key={j.id} className="border-t border-[var(--portal-border)]/60">
-                    <td className="py-2 pr-4 font-mono text-[11px] text-black/50">{j.id}</td>
-                    <td className="py-2 pr-4 text-black/70">{j.type}</td>
-                    <td className="py-2 pr-4 text-black/60">{j.status}</td>
-                    <td className="py-2 text-black/60">{formatInstant(j.dueAt)}</td>
-                  </tr>
+                  <PortalTableRow key={j.id}>
+                    <PortalTableCell className="font-mono text-[11px] text-black/50">{j.id}</PortalTableCell>
+                    <PortalTableCell className="text-black/70">{j.type}</PortalTableCell>
+                    <PortalTableCell className="text-black/60">{j.status}</PortalTableCell>
+                    <PortalTableCell className="text-black/60">{formatInstant(j.dueAt)}</PortalTableCell>
+                  </PortalTableRow>
                 ))}
-              </tbody>
-            </table>
+              </PortalTableBody>
+            </PortalTable>
           )}
         </div>
       </section>
@@ -355,26 +363,26 @@ function InstanceDetailView({
           {detail.commands.length === 0 ? (
             <p className="text-sm font-light text-black/40">No commands executed.</p>
           ) : (
-            <table className="w-full min-w-[720px] text-left text-sm font-light">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-[0.14em] text-black/35">
-                  <th className="py-2 pr-4 font-light">Command</th>
-                  <th className="py-2 pr-4 font-light">Node</th>
-                  <th className="py-2 pr-4 font-light">Outcome</th>
-                  <th className="py-2 pr-4 font-light">Receipt</th>
-                  <th className="py-2 font-light">Message</th>
-                </tr>
-              </thead>
-              <tbody>
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>Command</PortalTableHeader>
+                  <PortalTableHeader>Node</PortalTableHeader>
+                  <PortalTableHeader>Outcome</PortalTableHeader>
+                  <PortalTableHeader>Receipt</PortalTableHeader>
+                  <PortalTableHeader>Message</PortalTableHeader>
+                </PortalTableRow>
+              </PortalTableHead>
+              <PortalTableBody>
                 {detail.commands.map((c: CommandRow) => (
-                  <tr key={c.commandId} className="border-t border-[var(--portal-border)]/60">
-                    <td className="py-2 pr-4">
+                  <PortalTableRow key={c.commandId}>
+                    <PortalTableCell>
                       <div className="text-black/70">{c.commandType}</div>
                       <div className="font-mono text-[11px] text-black/40">{c.commandId}</div>
-                    </td>
-                    <td className="py-2 pr-4 text-black/60">{c.nodeId}</td>
-                    <td className="py-2 pr-4 text-black/60">{c.outcome}</td>
-                    <td className="py-2 pr-4">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/60">{c.nodeId}</PortalTableCell>
+                    <PortalTableCell className="text-black/60">{c.outcome}</PortalTableCell>
+                    <PortalTableCell>
                       {c.receiptOutcome ? (
                         <span
                           className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] ${
@@ -388,12 +396,12 @@ function InstanceDetailView({
                       ) : (
                         <span className="text-black/40">—</span>
                       )}
-                    </td>
-                    <td className="py-2 text-black/60">{c.message ?? "—"}</td>
-                  </tr>
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/60">{c.message ?? "—"}</PortalTableCell>
+                  </PortalTableRow>
                 ))}
-              </tbody>
-            </table>
+              </PortalTableBody>
+            </PortalTable>
           )}
         </div>
       </section>
@@ -404,24 +412,24 @@ function InstanceDetailView({
           {detail.events.length === 0 ? (
             <p className="text-sm font-light text-black/40">No events.</p>
           ) : (
-            <table className="w-full min-w-[640px] text-left text-sm font-light">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-[0.14em] text-black/35">
-                  <th className="py-2 pr-4 font-light">Event</th>
-                  <th className="py-2 pr-4 font-light">Node</th>
-                  <th className="py-2 font-light">Actor</th>
-                </tr>
-              </thead>
-              <tbody>
+            <PortalTable>
+              <PortalTableHead>
+                <PortalTableRow className="hover:bg-transparent">
+                  <PortalTableHeader>Event</PortalTableHeader>
+                  <PortalTableHeader>Node</PortalTableHeader>
+                  <PortalTableHeader>Actor</PortalTableHeader>
+                </PortalTableRow>
+              </PortalTableHead>
+              <PortalTableBody>
                 {detail.events.map((e) => (
-                  <tr key={e.id} className="border-t border-[var(--portal-border)]/60">
-                    <td className="py-2 pr-4 text-black/70">{e.eventType}</td>
-                    <td className="py-2 pr-4 text-black/60">{e.nodeId ?? "—"}</td>
-                    <td className="py-2 text-black/60">{e.actor ?? "—"}</td>
-                  </tr>
+                  <PortalTableRow key={e.id}>
+                    <PortalTableCell className="text-black/70">{e.eventType}</PortalTableCell>
+                    <PortalTableCell className="text-black/60">{e.nodeId ?? "—"}</PortalTableCell>
+                    <PortalTableCell className="text-black/60">{e.actor ?? "—"}</PortalTableCell>
+                  </PortalTableRow>
                 ))}
-              </tbody>
-            </table>
+              </PortalTableBody>
+            </PortalTable>
           )}
         </div>
       </section>

@@ -11,7 +11,7 @@ import { formatDate, formatMoney } from "@/lib/forms/format"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 
 const inputClass =
-  "mt-2 block w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 py-2.5 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+  "mt-2 block w-full rounded-[var(--portal-panel-radius)] portal-glass-panel px-3 py-2.5 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
 const labelClass = "text-[10px] font-light uppercase tracking-[0.18em] text-black/40"
 const primaryButton =
   "inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:cursor-not-allowed disabled:opacity-40"
@@ -134,7 +134,7 @@ export function OfferLetterForm({
 
       <div className="grid gap-6 lg:grid-cols-2">
 // __PART2__
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">Structured terms</h2>
           </div>
@@ -212,7 +212,7 @@ export function OfferLetterForm({
           )}
         </section>
 // __PART3__
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">Preview</h2>
           </div>

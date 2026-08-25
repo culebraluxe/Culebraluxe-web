@@ -43,7 +43,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
       </Link>
 
       {/* Header */}
-      <header className="flex flex-wrap items-start justify-between gap-4 rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
+      <header className="flex flex-wrap items-start justify-between gap-4 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 lg:p-8">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-light uppercase tracking-[0.22em] text-black/45">
             <GitBranch className="h-3.5 w-3.5 text-[var(--portal-blue-gray)]" />
@@ -64,7 +64,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         {/* Timeline (definition display-order) */}
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 lg:p-8">
           <h2 className="font-serif text-xl font-light text-[var(--portal-navy)]">Progress</h2>
           <ol className="mt-6 space-y-0">
             {(detail.displayOrder.length > 0
@@ -112,7 +112,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
 
         {/* Operational work */}
         <section className="space-y-6">
-          <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
             <h2 className="font-serif text-xl font-light text-[var(--portal-navy)]">Milestones</h2>
             <ul className="mt-4 space-y-2">
               {detail.activeMilestoneNodeIds.map((id) => (
@@ -131,7 +131,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
             </ul>
           </div>
 
-          <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
             <h2 className="font-serif text-xl font-light text-[var(--portal-navy)]">Operational</h2>
             <dl className="mt-4 space-y-2 text-sm font-light text-black/60">
               <div className="flex justify-between">
@@ -151,7 +151,7 @@ export function WorkflowInstanceDetail({ detail }: { detail: WorkflowDetail }) {
             </dl>
           </div>
 
-          <div className="rounded-sm border border-[var(--portal-border)] bg-white p-6">
+          <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
             <h2 className="font-serif text-xl font-light text-[var(--portal-navy)]">Recent activity</h2>
             <ol className="mt-4 space-y-3">
               {detail.events.slice(0, 8).map((e) => (

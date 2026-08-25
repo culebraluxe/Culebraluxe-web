@@ -33,7 +33,7 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
         <div>
           <h2 className="font-serif text-2xl font-light">{title}</h2>
@@ -152,7 +152,7 @@ export function Showings({
         subtitle="Showing lifecycle records — requested, scheduled, completed, and cancelled — drawn from the canonical showing table."
       />
 
-      <section className="mb-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <section className="mb-6 rounded-[var(--portal-panel-radius)] portal-glass-panel">
         <div className="border-b border-[var(--portal-border)] px-6 py-5">
           <h2 className="font-serif text-2xl font-light">Request a showing</h2>
           <p className="mt-1 text-xs font-light text-black/40">
@@ -165,7 +165,7 @@ export function Showings({
       </section>
 
       {showings.length === 0 ? (
-        <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10">
+        <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-10">
           <p className="text-sm font-light text-black/45">
             No showings on record yet. Showings will appear here as they are
             requested and scheduled.

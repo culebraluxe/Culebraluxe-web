@@ -85,7 +85,7 @@ export function RelationshipDossier({
       <div>
         <PageHeader eyebrow="Relationships" title="Relationship Dossier" />
 
-        <div className="rounded-sm border border-[var(--portal-border)] bg-white p-10">
+        <div className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-10">
           <p className="text-sm font-light text-black/45">
             Person not found.
           </p>
@@ -117,7 +117,7 @@ export function RelationshipDossier({
         </Link>
       </PageHeader>
 
-      <section className="rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
+      <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 lg:p-8">
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           <Detail
             label="Assigned Agent"
@@ -156,7 +156,7 @@ export function RelationshipDossier({
         )}
       </section>
 
-      <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6 lg:p-8">
+      <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6 lg:p-8">
         <h2 className="font-serif text-2xl font-light">Relationship & Notes</h2>
         <p className="mt-1 text-xs font-light text-black/40">
           Relationship status, client notes, and manual timeline entries.
@@ -179,7 +179,7 @@ export function RelationshipDossier({
       </section>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">
               Open Tasks
@@ -236,7 +236,7 @@ export function RelationshipDossier({
           </div>
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">
               Deals
@@ -288,7 +288,7 @@ export function RelationshipDossier({
       </div>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">
               Interaction Timeline
@@ -344,7 +344,7 @@ export function RelationshipDossier({
           )}
         </section>
 
-        <section className="rounded-sm border border-[var(--portal-border)] bg-white">
+        <section className="rounded-[var(--portal-panel-radius)] portal-glass-panel">
           <div className="border-b border-[var(--portal-border)] px-6 py-5">
             <h2 className="font-serif text-2xl font-light">
               Property Interests
@@ -390,7 +390,7 @@ export function RelationshipDossier({
         </section>
       </div>
 
-      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">Showings</h2>
@@ -451,7 +451,7 @@ export function RelationshipDossier({
         )}
       </div>
 
-      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+      <div className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">Offers</h2>
@@ -507,7 +507,7 @@ export function RelationshipDossier({
         )}
       </div>
 
-      <div className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white p-6">
+      <div className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel p-6">
         <h2 className="font-serif text-2xl font-light">
           Relationship Notes
         </h2>

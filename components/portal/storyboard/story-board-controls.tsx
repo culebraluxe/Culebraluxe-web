@@ -23,10 +23,10 @@ import {
 // ---------------------------------------------------------------------------
 
 const selectClass =
-  "min-h-11 rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+  "min-h-11 rounded-[var(--portal-panel-radius)] portal-glass-panel px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
 
 const inputClass =
-  "min-h-11 w-full rounded-sm border border-[var(--portal-border)] bg-white px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
+  "min-h-11 w-full rounded-[var(--portal-panel-radius)] portal-glass-panel px-3 text-sm font-light text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
 
 const clearButtonClass =
   "min-h-11 inline-flex items-center justify-center rounded-sm border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40"
@@ -67,7 +67,7 @@ export function StoryBoardControls({
   const active = isStoryBoardFilterActive(filter)
 
   return (
-    <section className="mt-6 rounded-sm border border-[var(--portal-border)] bg-white">
+    <section className="mt-6 rounded-[var(--portal-panel-radius)] portal-glass-panel">
       <div className="border-b border-[var(--portal-border)] px-6 py-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>

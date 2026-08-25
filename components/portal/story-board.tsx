@@ -12,6 +12,14 @@ import { StoryBoardControls } from "@/components/portal/storyboard/story-board-c
 import { StoryBoardTable } from "@/components/portal/write/story-board-table"
 import { statusPillClasses } from "@/components/portal/storyboard/story-detail-sections"
 import Link from "next/link"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 // ---------------------------------------------------------------------------
 // Story Board — server view. Rollup counts and the Net-Net completion are
@@ -272,34 +280,22 @@ function SubgroupSection({
           No stories in this subgroup yet.
         </p>
       ) : (
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)]">
-                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-                  Story
-                </th>
-                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-                  Status
-                </th>
-                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-                  Execution
-                </th>
-                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-                  Latest run
-                </th>
-                <th className="px-4 py-2 text-[10px] font-light uppercase tracking-[0.18em] text-black/40">
-                  Completion
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+        <>
+        <div className="mt-3 hidden md:block">
+          <PortalTable>
+            <PortalTableHead>
+              <PortalTableRow className="hover:bg-transparent">
+                <PortalTableHeader>Story</PortalTableHeader>
+                <PortalTableHeader>Status</PortalTableHeader>
+                <PortalTableHeader>Execution</PortalTableHeader>
+                <PortalTableHeader>Latest run</PortalTableHeader>
+                <PortalTableHeader>Completion</PortalTableHeader>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {subgroup.stories.map((story) => (
-                <tr
-                  key={story.id}
-                  className="border-b border-[var(--portal-border)] transition-colors last:border-b-0 hover:bg-[var(--portal-blue-pale)]/50"
-                >
-                  <td className="px-4 py-3">
+                <PortalTableRow key={story.id}>
+                  <PortalTableCell>
                     <Link
                       href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
                       className="font-mono text-xs text-[var(--portal-navy)] transition hover:text-[var(--portal-archive)]"
@@ -309,30 +305,78 @@ function SubgroupSection({
                     <div className="mt-0.5 max-w-[280px] truncate text-sm font-light text-black/65">
                       {story.title}
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
+                  </PortalTableCell>
+                  <PortalTableCell>
                     <span
                       className={`inline-block whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${statusPillClasses(story.status)}`}
                     >
                       {story.status}
                     </span>
-                  </td>
-                  <td className="px-4 py-3">
+                  </PortalTableCell>
+                  <PortalTableCell>
                     <ExecutionBadge story={story} />
-                  </td>
-                  <td className="px-4 py-3 text-xs font-light text-black/45">
+                  </PortalTableCell>
+                  <PortalTableCell className="text-xs font-light text-black/45">
                     {story.execution?.latestRunAt
                       ? new Date(story.execution.latestRunAt).toLocaleDateString()
                       : "—"}
-                  </td>
-                  <td className="px-4 py-3 font-serif text-base font-light text-[var(--portal-navy)]">
+                  </PortalTableCell>
+                  <PortalTableCell className="font-serif text-base font-light text-[var(--portal-navy)]">
                     {story.completion}%
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               ))}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
         </div>
+
+        <div className="mt-3 divide-y divide-[var(--portal-border)] md:hidden">
+          {subgroup.stories.map((story) => (
+            <article key={story.id} className="space-y-3 px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Link
+                    href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
+                    className="font-mono text-xs text-[var(--portal-navy)] transition hover:text-[var(--portal-archive)]"
+                  >
+                    {story.id}
+                  </Link>
+                  <div className="mt-0.5 truncate text-sm font-light text-black/65">
+                    {story.title}
+                  </div>
+                </div>
+                <span
+                  className={`inline-block shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${statusPillClasses(story.status)}`}
+                >
+                  {story.status}
+                </span>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                <div>
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Execution</dt>
+                  <dd className="mt-1 font-light text-black/65">
+                    <ExecutionBadge story={story} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Latest run</dt>
+                  <dd className="mt-1 font-light text-black/65">
+                    {story.execution?.latestRunAt
+                      ? new Date(story.execution.latestRunAt).toLocaleDateString()
+                      : "—"}
+                  </dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Completion</dt>
+                  <dd className="mt-1 font-serif text-base font-light text-[var(--portal-navy)]">
+                    {story.completion}%
+                  </dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+        </>
       )}
     </div>
   )

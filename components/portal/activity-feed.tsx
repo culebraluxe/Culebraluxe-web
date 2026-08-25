@@ -43,7 +43,7 @@ export function ActivityFeed({
         subtitle="Every interaction across the book, ordered by when it happened."
       />
 
-      <section className="overflow-hidden rounded-sm border border-[var(--portal-border)] bg-white">
+      <section className="overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
         <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
           <div>
             <h2 className="font-serif text-2xl font-light">
