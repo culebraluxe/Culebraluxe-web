@@ -21,6 +21,8 @@ import type {
   ClientProfileFields,
 } from '@/lib/person-admin'
 import { createTask } from '@/db/tasks'
+import { applyFollowUpCommand } from '@/db/follow-up'
+import type { FollowUpCommandType } from '@/db/follow-up'
 import {
   cancelShowing,
   cancelTask,
@@ -257,6 +259,78 @@ export async function updateTaskDueAction(
       )
       revalidatePortal()
       return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+// ---------------------------------------------------------------
+// CORE-DAILY-01 — relationship follow-up lifecycle command.
+// Every call carries a caller-supplied commandId (idempotency key). A
+// replayed/duplicate commandId never re-applies a side effect (receipt unique).
+// ---------------------------------------------------------------
+export async function applyFollowUpCommandAction(input: {
+  commandId: string
+  commandType: FollowUpCommandType
+  payload: {
+    followUpId?: string | null
+    personId?: string | null
+    propertyId?: string | null
+    dealId?: string | null
+    title?: string | null
+    detail?: string | null
+    dueAt?: string | null
+    snoozeUntil?: string | null
+    outcome?: string | null
+    nextTouchAt?: string | null
+    nextTouchTitle?: string | null
+    source?: string | null
+    reason?: string | null
+    recommendationKey?: string | null
+  }
+}): Promise<
+  PortalWriteResult<{
+    duplicate: boolean
+    followUpId: string | null
+    nextFollowUpId: string | null
+  }>
+> {
+  const commandTypes: FollowUpCommandType[] = [
+    'create', 'snooze', 'complete', 'dismiss', 'cancel',
+  ]
+  if (!isUuid(input.commandId)) {
+    return { ok: false, code: 'validation', message: 'Invalid command identifier.' }
+  }
+  if (!commandTypes.includes(input.commandType)) {
+    return { ok: false, code: 'validation', message: 'Unknown command type.' }
+  }
+  const payloadIds = [input.payload.followUpId, input.payload.personId, input.payload.propertyId, input.payload.dealId].filter(Boolean) as string[]
+  if (payloadIds.some((id) => !isUuid(id))) {
+    return { ok: false, code: 'validation', message: 'Follow-up context identifiers are invalid.' }
+  }
+  return portalWrite('crm.write', async (actor) => {
+    try {
+      const result = await applyFollowUpCommand({
+        commandId: input.commandId,
+        commandType: input.commandType,
+        payload: {
+          ...input.payload,
+          dueAt: input.payload.dueAt != null ? toPortalInstant(input.payload.dueAt) : null,
+          snoozeUntil: input.payload.snoozeUntil != null ? toPortalInstant(input.payload.snoozeUntil) : null,
+          nextTouchAt: input.payload.nextTouchAt != null ? toPortalInstant(input.payload.nextTouchAt) : null,
+        },
+        actorUserId: actor.appUserId,
+      })
+      revalidatePortal()
+      return {
+        ok: true,
+        data: {
+          duplicate: result.duplicate,
+          followUpId: result.followUp?.id ?? null,
+          nextFollowUpId: result.nextFollowUp?.id ?? null,
+        },
+      }
     } catch (error) {
       return failure(error)
     }
