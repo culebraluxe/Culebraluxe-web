@@ -81,11 +81,23 @@ test('SUPPORT-2 test 11: canonical Clients view is preserved on the page', () =>
     'utf8',
   )
   assert.ok(page.includes('ClientManager'), 'canonical ClientManager is the CORE Clients UX')
-  assert.ok(page.includes('ClientAdmin'), 'canonical ClientAdmin still rendered')
+  assert.ok(!page.includes('ClientAdmin'), 'Client Administration is not on CORE Clients (moved to OPPS)')
   assert.ok(!/ClientsTabBar/.test(page), 'staging strip removed from CORE Clients')
   assert.ok(!/ImportedContactsPanel/.test(page), 'imported pane removed from CORE Clients')
   assert.ok(page.includes('ClientManager />'), 'paged ClientManager is self-contained')
   assert.ok(!/app\/portal\/clients\/imported/.test(page), 'no second top-level Clients page')
+})
+
+test('SUPPORT-2 test 14: Client Administration is preserved on an OPPS route', () => {
+  const page = readFileSync(
+    new URL('../../app/portal/client-admin/page.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(page.includes('ClientAdmin'), 'ClientAdmin still rendered under OPPS')
+  assert.ok(
+    page.includes('export const dynamic'),
+    'OPPS Client Administration route is request-time dynamic',
+  )
 })
 
 test('SUPPORT-2 test 13: Imported Contacts stewardship is preserved on an OPPS surface', () => {

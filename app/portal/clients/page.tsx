@@ -1,17 +1,13 @@
 import { ClientManager } from "@/components/portal/client-manager"
-import { ClientAdmin } from "@/components/portal/client-admin"
 
 export const dynamic = "force-dynamic"
 
-// CORE Clients — the canonical CRM working surface. It begins directly with
-// the People rail and the selected Client workspace. The staging/imported
-// strip (Canonical Clients | Imported Contacts) is intentionally NOT here;
-// Imported Contacts stewardship lives on the OPPS Identity Quality surface.
+// CORE Clients — the canonical relationship working surface. It begins directly
+// with the People rail and the selected Client workspace: Command + Status,
+// Client Card + Contact History, Interests + Notes. Staging/imported and
+// Client Administration (operational stewardship) are intentionally NOT here —
+// Imported Contacts stewardship lives on OPPS Identity Quality, and Client
+// Administration lives on its own OPPS route.
 export default async function ClientsPage() {
-  return (
-    <>
-      <ClientManager />
-      <ClientAdmin />
-    </>
-  )
+  return <ClientManager />
 }

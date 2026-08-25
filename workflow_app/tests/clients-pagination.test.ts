@@ -280,7 +280,7 @@ test('clients: the deleted small Last contact pane is absent from the working pa
   assert.ok(!/heading="Last contact"/.test(src), 'no Last contact pane between Act and Interests')
 })
 
-test('clients: Contact History is navy, scrolls X+Y, and is server-paged (source guard)', () => {
+test('clients: Contact History is navy, fills its row, scrolls internally, server-paged (source guard)', () => {
   const src = readFileSync(
     new URL('../../components/portal/contact-history.tsx', import.meta.url),
     'utf8',
@@ -288,8 +288,26 @@ test('clients: Contact History is navy, scrolls X+Y, and is server-paged (source
   assert.ok(/variant="feature"/.test(src), 'navy feature panel')
   assert.ok(/overflow-auto/.test(src), 'scrolls both axes (X and Y)')
   assert.ok(/min-w-\[34rem\]/.test(src), 'internal grid wider than the navy viewport (horizontal scroll)')
-  assert.ok(/max-h-\[24rem\]/.test(src), 'bounded vertical viewport (vertical scroll)')
+  assert.ok(/flex-1 overflow-auto/.test(src), 'fills the Client Card row and scrolls inside (never taller than the card)')
   assert.ok(/pageSize/.test(src), 'server-side paging')
+})
+
+test('clients: CORE Clients working pane is the balanced relationship workspace (source guard)', () => {
+  const src = readFileSync(
+    new URL('../../components/portal/client-manager.tsx', import.meta.url),
+    'utf8',
+  )
+  // Reused shared Command + Status band, not a local copy.
+  assert.ok(/CommandStatusBand/.test(src), 'reuses the shared Command + Status band')
+  // Client Card + Contact History equal 50/50 rows (plus Interests + Notes).
+  assert.ok(/ClientCard/.test(src), 'Client Card present')
+  assert.ok(/lg:grid-cols-2/.test(src), 'equal-width 50/50 working rows')
+  // Removed: Act manual-action grid, duplicate Timeline, Log-a-note mini-entry.
+  assert.ok(!/heading="Act"/.test(src), 'Act panel removed')
+  assert.ok(!/heading="Timeline"/.test(src), 'duplicate Timeline removed')
+  assert.ok(!/heading="Log a note"/.test(src), 'mini interaction-entry removed')
+  // Notes is a simple free-form + Save surface beside Interests.
+  assert.ok(/ClientNotes/.test(src), 'simple free-form Notes present')
 })
 
 test('clients: directory/history reads come from materialized views, not L/ODS (source guard)', () => {

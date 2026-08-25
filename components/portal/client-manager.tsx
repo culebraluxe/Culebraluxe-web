@@ -1,116 +1,103 @@
 "use client"
 
-import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
 import type {
   Client,
   ClientStatus,
-  InteractionChannel,
-  PropertyInterestStatus,
 } from "@/lib/portal/types"
 import type { ClientSummary, ClientsPageResult } from "@/db/clients"
 import { Panel } from "@/components/portal/panel"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
-import { InteractionLogForm } from "@/components/portal/write/interaction-log"
-import { ClientDailyActions } from "@/components/portal/client-daily-actions"
 import { ContactHistory } from "@/components/portal/contact-history"
-
-function formatCurrency(value?: number) {
-  if (!value) return "—"
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value)
-}
-
-function formatPhone(value?: string | null): string | null {
-  if (!value) return null
-  const digits = value.replace(/\D/g, "")
-  if (digits.length === 10) {
-    return digits.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3")
-  }
-  if (digits.length === 11) {
-    return `+${digits[0]} ${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  return value
-}
-
-function roleLabel(role: Client["role"]) {
-  if (role === "both") return "Buyer & Seller"
-  return role.charAt(0).toUpperCase() + role.slice(1)
-}
-
-function statusLabel(status: ClientStatus) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
-}
-
-function interestStatusLabel(status: PropertyInterestStatus) {
-  switch (status) {
-    case "tour_completed":
-      return "Tour completed"
-    case "shortlisted":
-      return "Shortlisted"
-    default:
-      return "Interested"
-  }
-}
-
-function channelLabel(channel: InteractionChannel) {
-  switch (channel) {
-    case "website":
-      return "Website"
-    case "calendar":
-      return "Calendar"
-    case "document":
-      return "Document"
-    case "manual":
-      return "Manual entry"
-    case "imessage":
-      return "iMessage"
-    case "sms":
-      return "SMS"
-    case "email":
-      return "Email"
-    case "call":
-      return "Phone call"
-    case "meeting":
-      return "Meeting"
-    case "showing":
-      return "Showing"
-    case "whatsapp":
-      return "WhatsApp"
-    default:
-      return "Note"
-  }
-}
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("")
-}
-
-const ghostBtn =
-  "inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
+import { ClientCard } from "@/components/portal/client-card"
+import { ClientNotes } from "@/components/portal/client-notes"
+import {
+  CommandStatus,
+  CommandStatusBand,
+} from "@/components/portal/command-status-band"
+import type { CommandStatusTone } from "@/components/portal/command-status-band"
+import {
+  formatCurrency,
+  formatPhone,
+  ghostBtn,
+  interestStatusLabel,
+  roleLabel,
+  statusLabel,
+  statusDot,
+} from "@/components/portal/client-display"
 
 const LIST_PAGE_SIZE = 50
 
-function statusDot(status: string) {
-  switch (status) {
-    case "active":
-      return "bg-[var(--portal-success)]"
-    case "warm":
-      return "bg-[var(--portal-navy-soft)]"
-    case "referral":
-      return "bg-[var(--portal-neutral)]"
-    default:
-      return "bg-black/25"
+// Minimal, honest Command slot for the Clients working pane. Client-level AI
+// orchestration is a staged capability — this band establishes the reusable
+// Command + Status pattern (consistent with Forms) without inventing a large
+// AI workflow. Submit reports the intent back through the Status panel.
+function ClientCommand({
+  clientName,
+  onRun,
+}: {
+  clientName: string
+  onRun: (prompt: string) => void
+}) {
+  const [prompt, setPrompt] = useState("")
+  const [note, setNote] = useState<string | null>(null)
+
+  function submit() {
+    const text = prompt.trim()
+    if (!text) {
+      setNote("Tell me what you'd like to do for this client, then tap Go.")
+      return
+    }
+    onRun(text)
+    setPrompt("")
+    setNote("Command noted — the Clients assistant is a staged capability.")
   }
+
+  return (
+    <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
+            Command
+          </p>
+          <input
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                submit()
+              }
+            }}
+            placeholder={`What should we do for ${clientName}?`}
+            className="mt-1.5 block h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={submit}
+          className="inline-flex h-10 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
+        >
+          Go
+        </button>
+      </div>
+      <p className="mt-2 text-center text-[11px] font-light text-black/45">
+        {note ??
+          "Client-level AI assistance is staged — this band sets up the pattern without inventing a workflow."}
+      </p>
+    </section>
+  )
+}
+
+function statusForClient(client: Client) {
+  const bits = [roleLabel(client.role), statusLabel(client.status)]
+  if (client.assignedAgent) bits.push(`Agent: ${client.assignedAgent}`)
+  return bits.join(" · ")
+}
+
+function toneForStatus(status: ClientStatus): CommandStatusTone {
+  return status === "active" ? "success" : "neutral"
 }
 
 export function ClientManager() {
@@ -407,226 +394,105 @@ function ClientPane({
   showEdit: boolean
   setShowEdit: (value: boolean) => void
 }) {
+  const [statusText, setStatusText] = useState(() => statusForClient(client))
+  const [statusTone, setStatusTone] = useState<CommandStatusTone>(() =>
+    toneForStatus(client.status)
+  )
+
+  // Reset the band's status when a different client is selected.
+  useEffect(() => {
+    setStatusText(statusForClient(client))
+    setStatusTone(toneForStatus(client.status))
+  }, [client])
+
   return (
     <div className="flex flex-col gap-3">
-      <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--portal-blue-pale)] font-serif text-base font-light text-[var(--portal-navy-soft)]">
-              {initials(client.displayName)}
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-serif text-2xl font-light leading-tight text-[var(--portal-navy)]">
-                {client.displayName}
-              </h2>
-              <p className="mt-0.5 truncate text-xs font-light text-black/45">
-                {roleLabel(client.role)}
-                {client.location ? ` · ${client.location}` : ""}
-                {client.email ? ` · ${client.email}` : ""}
-                {client.phone ? ` · ${client.phone}` : ""}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/portal/clients/${client.id}`} className={ghostBtn}>
-              Dossier
-            </Link>
-            <button
-              type="button"
-              onClick={() => setShowEdit(!showEdit)}
-              className={ghostBtn}
-            >
-              {showEdit ? "Close" : "Edit"}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 border-t border-[var(--portal-panel-border)] pt-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Detail
-            label="Budget"
-            value={
-              client.budgetMin || client.budgetMax
-                ? `${formatCurrency(client.budgetMin)} – ${formatCurrency(
-                    client.budgetMax
-                  )}`
-                : "—"
-            }
+      {/* Command + Status band — only in the main workspace (right of the People
+          rail); the People rail stays tall so more clients remain visible. */}
+      <CommandStatusBand
+        ratio="wide-command"
+        command={
+          <ClientCommand
+            clientName={client.displayName}
+            onRun={(prompt) => {
+              setStatusText(`“${prompt}” noted for ${client.displayName}.`)
+              setStatusTone("neutral")
+            }}
           />
-          <Detail
-            label="Preferred areas"
-            value={client.preferredAreas?.join(", ") ?? "—"}
-          />
-          <Detail label="Timeline" value={client.timeline ?? "—"} />
-          <Detail label="Agent" value={client.assignedAgent ?? "—"} />
-        </div>
+        }
+        status={
+          <CommandStatus label="Status" tone={statusTone}>
+            {statusText}
+          </CommandStatus>
+        }
+      />
 
-        {client.nextAction ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-3 py-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
-                Next action
-              </span>
-              <span className="truncate font-serif text-base text-[var(--portal-navy)]">
-                {client.nextAction.title}
-              </span>
-              {client.nextAction.occurredAt ? (
-                <span className="shrink-0 text-xs font-light text-black/45">
-                  {client.nextAction.occurredAt}
-                </span>
-              ) : null}
-            </div>
-            {client.nextAction.detail ? (
-              <span className="shrink-0 text-xs font-light text-black/50">
-                {client.nextAction.detail}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-
-        {showEdit ? (
-          <div className="mt-4 border-t border-[var(--portal-panel-border)] pt-4">
-            <ClientEditor
-              mode="edit"
-              client={client}
-              agents={agents}
-              onSaved={() => setShowEdit(false)}
-              onCancel={() => setShowEdit(false)}
-            />
-          </div>
-        ) : null}
-      </section>
-
-      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <Panel compact heading="Act">
-          <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
-        </Panel>
-
+      {/* Client Card + Contact History — equal 50/50 siblings, top AND bottom
+          aligned (the card sets the row height; history fills it and scrolls
+          internally). */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <ClientCard
+          client={client}
+          agents={agents}
+          showEdit={showEdit}
+          setShowEdit={setShowEdit}
+        />
         <ContactHistory clientId={client.id} />
       </div>
 
-      <Panel
-        compact
-        heading="Interests"
-        action={
-          <span className="text-xs font-light text-black/35">
-            {client.propertyInterests.length}
-          </span>
-        }
-        divider
-        flush
-      >
-        {client.propertyInterests.length > 0 ? (
-          <div className="grid sm:grid-cols-2">
-            {client.propertyInterests.map((interest) => (
-              <div
-                key={interest.id}
-                className="flex items-center gap-3 border-b border-[var(--portal-panel-border)] px-4 py-2.5 last:border-b-0 sm:odd:border-r"
-              >
-                {interest.heroMediaId ? (
-                  <img
-                    src={`/api/media/${interest.heroMediaId}`}
-                    alt={interest.propertyName}
-                    className="h-12 w-16 shrink-0 rounded-md object-cover"
-                  />
-                ) : (
-                  <div className="h-12 w-16 shrink-0 rounded-md bg-gradient-to-br from-[var(--portal-blue-pale)] to-[var(--portal-navy-soft)]" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-[var(--portal-navy)]">
-                    {interest.propertyName}
+      {/* Interests + Notes — equal-width lower row. */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Panel
+          compact
+          heading="Interests"
+          action={
+            <span className="text-xs font-light text-black/35">
+              {client.propertyInterests.length}
+            </span>
+          }
+          divider
+          flush
+          className="h-full"
+        >
+          {client.propertyInterests.length > 0 ? (
+            <div className="grid">
+              {client.propertyInterests.map((interest) => (
+                <div
+                  key={interest.id}
+                  className="flex items-center gap-3 border-b border-[var(--portal-panel-border)] px-4 py-2.5 last:border-b-0"
+                >
+                  {interest.heroMediaId ? (
+                    <img
+                      src={`/api/media/${interest.heroMediaId}`}
+                      alt={interest.propertyName}
+                      className="h-12 w-16 shrink-0 rounded-md object-cover"
+                    />
+                  ) : (
+                    <div className="h-12 w-16 shrink-0 rounded-md bg-gradient-to-br from-[var(--portal-blue-pale)] to-[var(--portal-navy-soft)]" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-[var(--portal-navy)]">
+                      {interest.propertyName}
+                    </div>
+                    <div className="truncate text-xs font-light text-black/45">
+                      {formatCurrency(interest.price)}
+                      {interest.location ? ` · ${interest.location}` : ""}
+                    </div>
                   </div>
-                  <div className="truncate text-xs font-light text-black/45">
-                    {formatCurrency(interest.price)}
-                    {interest.location ? ` · ${interest.location}` : ""}
-                  </div>
+                  <span className="shrink-0 rounded-full bg-[var(--portal-blue-pale)] px-2 py-0.5 text-[9px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                    {interestStatusLabel(interest.status)}
+                  </span>
                 </div>
-                <span className="shrink-0 rounded-full bg-[var(--portal-blue-pale)] px-2 py-0.5 text-[9px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
-                  {interestStatusLabel(interest.status)}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="px-4 py-6 text-sm font-light text-black/40">
-            No property interests yet.
-          </p>
-        )}
-      </Panel>
-
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <Panel compact heading="Timeline" divider flush>
-          {client.interactions.length > 0 ? (
-            client.interactions.slice(0, 8).map((interaction) => (
-              <div
-                key={interaction.id}
-                className="grid gap-1 border-b border-[var(--portal-panel-border)] px-4 py-2 last:border-b-0 sm:grid-cols-[9rem_1fr]"
-              >
-                <div className="text-[11px] font-light text-black/40">
-                  {interaction.occurredAt}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    <span className="mr-2 text-[10px] font-light uppercase tracking-[0.12em] text-[var(--portal-blue-gray)]">
-                      {channelLabel(interaction.channel)}
-                    </span>
-                    {interaction.title}
-                  </div>
-                  {interaction.summary ? (
-                    <p className="mt-0.5 line-clamp-2 text-xs font-light leading-5 text-black/50">
-                      {interaction.summary}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            ))
+              ))}
+            </div>
           ) : (
             <p className="px-4 py-6 text-sm font-light text-black/40">
-              No interaction history yet.
+              No property interests yet.
             </p>
           )}
         </Panel>
 
-        <div className="flex flex-col gap-3">
-          <Panel compact variant="soft" heading="Notes">
-            <p className="text-sm font-light leading-6 text-[var(--portal-text)]/75">
-              {client.notes ?? "No notes yet."}
-            </p>
-            {client.priorities && client.priorities.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {client.priorities.map((priority) => (
-                  <span
-                    key={priority}
-                    className="rounded-full border border-[var(--portal-panel-border)] bg-white/50 px-2.5 py-1 text-[10px] font-light text-[var(--portal-navy-soft)]"
-                  >
-                    {priority}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </Panel>
-          <Panel compact heading="Log a note">
-            <InteractionLogForm personId={client.id} />
-          </Panel>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Detail({
-  label,
-  value,
-}: {
-  label: string
-  value: string
-}) {
-  return (
-    <div>
-      <div className="text-[10px] font-light uppercase tracking-[0.16em] text-black/35">
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-light leading-5 text-black/70">
-        {value}
+        <ClientNotes personId={client.id} initialNotes={client.notes} />
       </div>
     </div>
   )

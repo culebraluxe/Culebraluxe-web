@@ -52,6 +52,7 @@ test('UI-01: every known /portal route belongs to a surface', () => {
     '/portal/activity',
     '/portal/attention',
     '/portal/clients',
+    '/portal/client-admin',
     '/portal/command-center',
     '/portal/command-console',
     '/portal/dashboard',
@@ -101,6 +102,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Media Audit',
       'Property Media',
       'Identity Quality',
+      'Client Administration',
       'Reporting',
     ],
     TECH: [

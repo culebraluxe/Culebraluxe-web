@@ -21,9 +21,10 @@ import type { ContactHistoryItem, ContactHistoryResult } from "@/db/contact-hist
 // Server-side paginated over the canonical `interaction` table (~20/page,
 // SQL ORDER BY occurred_at DESC + LIMIT/OFFSET). Newest-first rows show
 // channel, date/time, direction (inbound/outbound) and a short subject /
-// snippet. The list scrolls inside the pane (bounded max-height) so a long
-// history never stretches the page; the page resets to 1 when another client
-// is selected. No raw L/ODS tables are read by the component.
+// snippet. The list fills the shared Client Card row and scrolls INSIDE the
+// navy pane (overflow-auto) so a long history never grows taller than the
+// Client Card; the page resets to 1 when another client is selected. No raw
+// L/ODS tables are read by the component.
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 20
@@ -95,9 +96,9 @@ export function ContactHistory({ clientId }: { clientId: string }) {
       variant="feature"
       heading="Contact history"
       action={<span className="text-xs font-light text-white/50">{total.toLocaleString()}</span>}
-      className="min-h-0"
+      className="flex min-h-0 flex-col"
     >
-      <div className="max-h-[24rem] overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
           <p className="px-4 py-10 text-center text-sm font-light text-white/55">
             {loading ? "Loading…" : "No contact history yet."}

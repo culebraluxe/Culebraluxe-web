@@ -80,6 +80,11 @@ export const OPERATING_SURFACES: Record<
         href: '/portal/identity-quality',
         authority: 'portal.read',
       },
+      {
+        label: 'Client Administration',
+        href: '/portal/client-admin',
+        authority: 'portal.read',
+      },
       { label: 'Reporting', href: '/portal/reporting', authority: 'portal.read' },
     ],
   },
