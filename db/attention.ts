@@ -1,4 +1,5 @@
 import { sql } from './client'
+import type { QueryExecutor } from './query-executor'
 import { getRelationshipEvidenceForPersons } from './relationship-evidence'
 import { summarizeRelationshipEvidence } from '../lib/relationship-intel/relationship-context'
 
@@ -266,6 +267,31 @@ export async function getAttentionSnapshot(): Promise<AttentionSnapshot> {
       lastContactLabel: row.last_contact_label ?? null,
     })),
   }
+}
+
+/**
+ * REL-INTEL/CORE-DAILY — canonical contact evidence (person_identity) for a set
+ * of persons, used to render native contact actions from Catch-Up.
+ */
+export async function getContactEvidence(
+  personIds: string[],
+  execute: QueryExecutor = sql,
+): Promise<Record<string, { emails: string[]; phones: string[] }>> {
+  if (personIds.length === 0) return {}
+  const rows = (await execute`
+    select pi.person_id, pi.identity_type, pi.identity_value
+    from person_identity pi
+    join person p on p.id = pi.person_id
+    where pi.person_id = any (${personIds})
+      and p.archived_at is null
+  `) as { person_id: string; identity_type: string; identity_value: string }[]
+  const out: Record<string, { emails: string[]; phones: string[] }> = {}
+  for (const r of rows) {
+    const entry = (out[r.person_id] ??= { emails: [], phones: [] })
+    if (r.identity_type === 'email') entry.emails.push(r.identity_value)
+    else if (r.identity_type === 'phone') entry.phones.push(r.identity_value)
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------

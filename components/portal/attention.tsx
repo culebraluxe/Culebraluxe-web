@@ -6,6 +6,8 @@ import { TaskActions } from "@/components/portal/write/task-actions"
 import type { AttentionSnapshot, PersonRelationshipContext } from "@/db/attention"
 import type { ActivityFeedEntry } from "@/db/activity-feed"
 import type { Showing, ShowingStatus } from "@/db/showings"
+import { ContactActions } from "@/components/portal/contact-actions"
+import { FollowUpActions } from "@/components/portal/follow-up-actions"
 
 function sourceLabel(source: string): string {
   return source === "apple_contacts" ? "Apple" : source === "gmail_contacts" ? "Gmail" : source
@@ -89,11 +91,13 @@ export function Attention({
   showings,
   activity,
   relationshipContext,
+  contactEvidence,
 }: {
   snapshot: AttentionSnapshot
   showings: Showing[]
   activity: ActivityFeedEntry[]
   relationshipContext?: Record<string, PersonRelationshipContext>
+  contactEvidence?: Record<string, { emails: string[]; phones: string[] }>
 }) {
   const overdueIds = new Set(snapshot.overdueTasks.map((task) => task.id))
   const queue: QueueTask[] = [
@@ -162,6 +166,19 @@ export function Attention({
                   ) : null}
                   <TaskActions taskId={task.id} compact />
                 </div>
+                {task.personId ? (
+                  <div className="flex w-full flex-wrap items-center gap-3 border-t border-[var(--portal-border)]/50 pt-2">
+                    <ContactActions
+                      evidence={contactEvidence?.[task.personId] ?? { emails: [], phones: [] }}
+                      personName={task.personName}
+                    />
+                    <FollowUpActions
+                      followUpId={task.id}
+                      personId={task.personId}
+                      personName={task.personName}
+                    />
+                  </div>
+                ) : null}
               </div>
             ))
           ) : (

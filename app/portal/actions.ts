@@ -21,8 +21,12 @@ import type {
   ClientProfileFields,
 } from '@/lib/person-admin'
 import { createTask } from '@/db/tasks'
-import { applyFollowUpCommand } from '@/db/follow-up'
-import type { FollowUpCommandType } from '@/db/follow-up'
+import { applyFollowUpCommand, recordContactOutcome } from '@/db/follow-up'
+import type { FollowUpCommandType, ContactOutcomeCode } from '@/db/follow-up'
+import { NEXT_ACTION_PRESET_CODES, presetDefaultDue } from '@/lib/relationship-intel/next-action-presets'
+import { dismissRecommendation } from '@/db/recommendations'
+import type { RecommendationCode } from '@/lib/relationship-intel/recommendations'
+import { emitDailyLoopTelemetry } from '@/db/telemetry'
 import {
   cancelShowing,
   cancelTask,
@@ -323,6 +327,13 @@ export async function applyFollowUpCommandAction(input: {
         actorUserId: actor.appUserId,
       })
       revalidatePortal()
+      if (!result.duplicate && input.commandType === 'snooze') {
+        void emitDailyLoopTelemetry({ eventType: 'followup_snoozed', entityKind: 'follow_up', entityId: result.followUp?.id ?? null })
+      }
+      if (!result.duplicate && input.commandType === 'complete') {
+        void emitDailyLoopTelemetry({ eventType: 'followup_completed', entityKind: 'follow_up', entityId: result.followUp?.id ?? null })
+        if (result.nextFollowUp?.id) void emitDailyLoopTelemetry({ eventType: 'next_touch_created', entityKind: 'follow_up', entityId: result.nextFollowUp.id })
+      }
       return {
         ok: true,
         data: {
@@ -331,6 +342,174 @@ export async function applyFollowUpCommandAction(input: {
           nextFollowUpId: result.nextFollowUp?.id ?? null,
         },
       }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+// ---------------------------------------------------------------
+// CORE-DAILY-03 — record contact outcome (canonical Interaction + follow-up).
+// ---------------------------------------------------------------
+export async function recordOutcomeAction(input: {
+  commandId: string
+  personId: string
+  channel: string
+  outcome: string
+  occurredAt?: string | null
+  title?: string | null
+  summary?: string | null
+  propertyId?: string | null
+  dealId?: string | null
+  followUpId?: string | null
+  nextTouchAt?: string | null
+  nextTouchTitle?: string | null
+  source?: string | null
+}): Promise<
+  PortalWriteResult<{
+    duplicate: boolean
+    interactionId: string | null
+    followUpId: string | null
+    nextFollowUpId: string | null
+  }>
+> {
+  const outcomeCodes: ContactOutcomeCode[] = [
+    'connected', 'no_answer', 'left_message', 'sent_information', 'scheduled_follow_up',
+    'showing_discussed', 'offer_discussed', 'waiting_on_client', 'waiting_on_third_party',
+    'completed', 'custom',
+  ]
+  if (!isUuid(input.commandId) || !isUuid(input.personId)) {
+    return { ok: false, code: 'validation', message: 'Invalid command or person identifier.' }
+  }
+  if (!outcomeCodes.includes(input.outcome as ContactOutcomeCode)) {
+    return { ok: false, code: 'validation', message: 'Unknown outcome.' }
+  }
+  const ids = [input.propertyId, input.dealId, input.followUpId].filter(Boolean) as string[]
+  if (ids.some((id) => !isUuid(id))) {
+    return { ok: false, code: 'validation', message: 'Outcome context identifiers are invalid.' }
+  }
+  return portalWrite('crm.write', async (actor) => {
+    try {
+      const result = await recordContactOutcome({
+        commandId: input.commandId,
+        personId: input.personId,
+        channel: input.channel,
+        outcome: input.outcome as ContactOutcomeCode,
+        occurredAt: input.occurredAt ?? undefined,
+        title: input.title,
+        summary: input.summary,
+        propertyId: input.propertyId,
+        dealId: input.dealId,
+        followUpId: input.followUpId,
+        nextTouchAt: input.nextTouchAt != null ? toPortalInstant(input.nextTouchAt) : null,
+        nextTouchTitle: input.nextTouchTitle,
+        source: input.source,
+        actorUserId: actor.appUserId,
+      })
+      revalidatePortal()
+      if (!result.duplicate) {
+        void emitDailyLoopTelemetry({ eventType: 'outcome_recorded', entityKind: 'person', entityId: input.personId })
+        if (result.followUpId) void emitDailyLoopTelemetry({ eventType: 'followup_completed', entityKind: 'follow_up', entityId: result.followUpId })
+        if (result.nextFollowUpId) void emitDailyLoopTelemetry({ eventType: 'next_touch_created', entityKind: 'follow_up', entityId: result.nextFollowUpId })
+      }
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+// ---------------------------------------------------------------
+// CORE-DAILY-04 — quick next action from a preset (canonical follow-up create).
+// ---------------------------------------------------------------
+export async function createQuickNextActionAction(input: {
+  commandId: string
+  personId?: string | null
+  propertyId?: string | null
+  dealId?: string | null
+  preset: string
+  dueAt?: string | null
+  title?: string | null
+  detail?: string | null
+  source?: string | null
+}): Promise<
+  PortalWriteResult<{ duplicate: boolean; followUpId: string | null }>
+> {
+  if (!isUuid(input.commandId)) {
+    return { ok: false, code: 'validation', message: 'Invalid command identifier.' }
+  }
+  if (!NEXT_ACTION_PRESET_CODES.includes(input.preset as never)) {
+    return { ok: false, code: 'validation', message: 'Unknown next-action preset.' }
+  }
+  const ids = [input.personId, input.propertyId, input.dealId].filter(Boolean) as string[]
+  if (ids.some((id) => !isUuid(id))) {
+    return { ok: false, code: 'validation', message: 'Next-action context identifiers are invalid.' }
+  }
+  if (!input.personId && !input.propertyId && !input.dealId) {
+    return { ok: false, code: 'validation', message: 'Next action requires person, property, or deal context.' }
+  }
+  return portalWrite('crm.write', async () => {
+    try {
+      const presetTitle = input.title?.trim() || presetTitleFor(input.preset)
+      const dueAt = input.dueAt ?? presetDefaultDue(input.preset as never)
+      const result = await applyFollowUpCommand({
+        commandId: input.commandId,
+        commandType: 'create',
+        payload: {
+          personId: input.personId,
+          propertyId: input.propertyId,
+          dealId: input.dealId,
+          title: presetTitle,
+          detail: input.detail ?? null,
+          dueAt,
+          source: input.source ?? 'quick_next_action',
+        },
+      })
+      revalidatePortal()
+      return { ok: true, data: { duplicate: result.duplicate, followUpId: result.followUp?.id ?? null } }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+function presetTitleFor(code: string): string {
+  switch (code) {
+    case 'call_back': return 'Call back'
+    case 'send_information': return 'Send information'
+    case 'schedule_showing': return 'Schedule showing'
+    case 'prepare_offer': return 'Prepare offer'
+    case 'check_financing': return 'Check financing'
+    case 'follow_up_lawyer': return 'Follow up with lawyer'
+    case 'check_appraisal': return 'Check appraisal'
+    case 'check_inspection': return 'Check inspection'
+    case 'check_closing_readiness': return 'Check closing readiness'
+    default: return 'Custom reminder'
+  }
+}
+
+// ---------------------------------------------------------------
+// CORE-DAILY-08 — dismiss a recommendation (idempotent suppression).
+// ---------------------------------------------------------------
+export async function dismissRecommendationAction(input: {
+  personId: string
+  code: string
+}): Promise<PortalWriteResult<{ dismissed: boolean }>> {
+  const codes: RecommendationCode[] = [
+    'overdue_relationship_commitment', 'due_soon_relationship_commitment',
+    'unanswered_inbound', 'two_way_without_next_step', 'quiet_past_client',
+  ]
+  if (!isUuid(input.personId)) {
+    return { ok: false, code: 'validation', message: 'Invalid person identifier.' }
+  }
+  if (!codes.includes(input.code as RecommendationCode)) {
+    return { ok: false, code: 'validation', message: 'Unknown recommendation.' }
+  }
+  return portalWrite('crm.write', async (actor) => {
+    try {
+      await dismissRecommendation(input.personId, input.code as RecommendationCode, actor.appUserId)
+      revalidatePortal()
+      return { ok: true, data: { dismissed: true } }
     } catch (error) {
       return failure(error)
     }

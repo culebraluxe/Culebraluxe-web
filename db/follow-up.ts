@@ -343,3 +343,164 @@ export async function listActiveFollowUpsForPerson(
   return rows.map(mapFollowUp)
 }
 
+
+// ---------------------------------------------------------------------------
+// CORE-DAILY-03 — composed contact-outcome capture.
+//
+// One idempotent command (unique command_id receipt) that:
+//   - writes a canonical Interaction row reflecting what actually happened
+//     (contact launch ALONE never implies success),
+//   - completes the originating follow-up when provided,
+//   - optionally creates exactly one next obligation (replay-safe).
+// Correlation: the Interaction carries source_system='relationship_follow_up'
+// and source_external_id = commandId (unique), and the follow-up's
+// source_interaction_id is set to the created Interaction.
+// ---------------------------------------------------------------------------
+export type ContactOutcomeCode =
+  | 'connected'
+  | 'no_answer'
+  | 'left_message'
+  | 'sent_information'
+  | 'scheduled_follow_up'
+  | 'showing_discussed'
+  | 'offer_discussed'
+  | 'waiting_on_client'
+  | 'waiting_on_third_party'
+  | 'completed'
+  | 'custom'
+
+const OUTCOME_LABELS: Record<ContactOutcomeCode, string> = {
+  connected: 'Connected',
+  no_answer: 'No answer',
+  left_message: 'Left message',
+  sent_information: 'Sent information',
+  scheduled_follow_up: 'Scheduled follow-up',
+  showing_discussed: 'Showing discussed',
+  offer_discussed: 'Offer discussed',
+  waiting_on_client: 'Waiting on client',
+  waiting_on_third_party: 'Waiting on third party',
+  completed: 'Completed',
+  custom: 'Note',
+}
+
+const INTERACTION_CHANNELS = [
+  'call', 'email', 'sms', 'imessage', 'meeting', 'manual', 'note',
+] as const
+type InteractionChannel = (typeof INTERACTION_CHANNELS)[number]
+
+/** Map a contact channel to an allowed interaction channel (whatsapp -> sms). */
+export function mapContactChannelToInteraction(channel: string): InteractionChannel {
+  if ((INTERACTION_CHANNELS as readonly string[]).includes(channel)) {
+    return channel as InteractionChannel
+  }
+  if (channel === 'whatsapp') return 'sms'
+  return 'manual'
+}
+
+export function outcomeLabel(code: ContactOutcomeCode): string {
+  return OUTCOME_LABELS[code] ?? code
+}
+
+export type ContactOutcomeResult = {
+  duplicate: boolean
+  interactionId: string | null
+  followUpId: string | null
+  nextFollowUpId: string | null
+}
+
+export async function recordContactOutcome(
+  input: {
+    commandId: string
+    personId: string
+    channel: string
+    outcome: ContactOutcomeCode
+    occurredAt?: string
+    title?: string | null
+    summary?: string | null
+    propertyId?: string | null
+    dealId?: string | null
+    followUpId?: string | null
+    nextTouchAt?: string | null
+    nextTouchTitle?: string | null
+    source?: string | null
+    actorUserId?: string | null
+  },
+  execute: QueryExecutor = sql,
+): Promise<ContactOutcomeResult> {
+  const existing = (await execute`
+    select id, follow_up_id, applied from relationship_follow_up_receipt
+    where command_id = ${input.commandId} limit 1
+  `) as { id: string; follow_up_id: string | null; applied: boolean }[]
+  if (existing[0]) {
+    return { duplicate: true, interactionId: null, followUpId: existing[0].follow_up_id, nextFollowUpId: null }
+  }
+
+  await execute`
+    insert into relationship_follow_up_receipt (
+      command_id, command_type, follow_up_id, person_id, actor_user_id, applied, duplicate
+    ) values (
+      ${input.commandId}, 'complete', ${input.followUpId ?? null}, ${input.personId},
+      ${input.actorUserId ?? null}, false, false
+    )
+  `
+
+  // 1) Canonical Interaction — contact launch alone never implies success.
+  const interactionChannel = mapContactChannelToInteraction(input.channel)
+  const occurredAt = input.occurredAt ?? new Date().toISOString()
+  const interaction = (await execute`
+    insert into interaction (
+      person_id, property_id, deal_id, channel, event_type, direction,
+      occurred_at, title, summary, source_metadata, source_system, source_external_id
+    ) values (
+      ${input.personId}, ${input.propertyId ?? null}, ${input.dealId ?? null},
+      ${interactionChannel}, ${input.outcome}, 'outbound',
+      ${occurredAt},
+      ${input.title ?? null},
+      ${input.summary ?? `${OUTCOME_LABELS[input.outcome] ?? input.outcome} (recorded after contact)`},
+      ${JSON.stringify({ outcome: input.outcome, commandId: input.commandId })}::jsonb,
+      'relationship_follow_up', ${input.commandId}
+    )
+    returning id
+  `) as { id: string }[]
+  const interactionId = interaction[0]?.id ?? null
+
+  // 2) Complete the originating follow-up and correlate it to the Interaction.
+  let followUpId: string | null = null
+  let nextFollowUpId: string | null = null
+  if (input.followUpId) {
+    await execute`
+      update task set
+        status = 'completed',
+        completed_at = now(),
+        outcome = ${input.outcome},
+        next_touch_at = ${input.nextTouchAt ?? null},
+        source_interaction_id = ${interactionId},
+        updated_at = now()
+      where id = ${input.followUpId}
+    `
+    followUpId = input.followUpId
+  }
+
+  // 3) Optional next touch — exactly one next obligation.
+  if (input.nextTouchAt) {
+    const next = await insertFollowUp(execute, {
+      title: input.nextTouchTitle ?? 'Follow up',
+      personId: input.personId,
+      propertyId: input.propertyId,
+      dealId: input.dealId,
+      dueAt: input.nextTouchAt,
+      source: input.source ?? 'contact_outcome',
+      reason: 'next_touch_after_outcome',
+    })
+    nextFollowUpId = next.id
+  }
+
+  await execute`
+    update relationship_follow_up_receipt
+      set applied = true, follow_up_id = ${followUpId}, result = ${JSON.stringify({ interactionId, nextFollowUpId })}::jsonb
+    where command_id = ${input.commandId}
+  `
+
+  return { duplicate: false, interactionId, followUpId, nextFollowUpId }
+}
+
