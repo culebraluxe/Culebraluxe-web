@@ -152,6 +152,53 @@ export function DealWorkspace({
         </Link>
       </PageHeader>
 
+      {/* CORE-DAILY-10 — Contract operating summary (authoritative facts only). */}
+      <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-serif text-lg font-light">Operating summary</h2>
+          <span className="rounded-full border border-[var(--portal-border)] px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy-soft)]">
+            {stageLabel(deal.stage)}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Detail
+            label="Current gate"
+            value={
+              deal.closedAtLabel
+                ? `Closed · ${deal.closedAtLabel}`
+                : stageLabel(deal.stage)
+            }
+          />
+          <Detail
+            label="Next action"
+            value={
+              workspace.openTasks[0]
+                ? `${workspace.openTasks[0].title}${workspace.openTasks[0].dueAtLabel ? ` · ${workspace.openTasks[0].dueAtLabel}` : ""}`
+                : "No open task"
+            }
+          />
+          <Detail
+            label="Offer state"
+            value={
+              workspace.offers.length > 0
+                ? `${workspace.offers.length} offer${workspace.offers.length === 1 ? "" : "s"} · latest ${workspace.offers[workspace.offers.length - 1].status}`
+                : "No offers"
+            }
+          />
+          <Detail
+            label="Closing"
+            value={deal.closingDateLabel ?? (deal.closedAtLabel ? `Closed ${deal.closedAtLabel}` : "Not recorded")}
+          />
+        </div>
+        <div className="mt-4 grid gap-4 border-t border-[var(--portal-border)] pt-4 md:grid-cols-3">
+          <Detail label="Client" value={workspace.client?.displayName ?? "—"} />
+          <Detail label="Property" value={property?.name ?? "—"} />
+          <Detail label="Created" value={deal.createdAtLabel} />
+        </div>
+      </section>
+
+
+
       <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-4">
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           <Detail label="List Price" value={formatCurrency(deal.listPrice)} />

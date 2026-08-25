@@ -12,6 +12,7 @@ import { Panel } from "@/components/portal/panel"
 import { ClientEditor } from "@/components/portal/client-editor"
 import type { ClientEditorAgent } from "@/components/portal/client-editor"
 import { InteractionLogForm } from "@/components/portal/write/interaction-log"
+import { ClientDailyActions } from "@/components/portal/client-daily-actions"
 
 function formatCurrency(value?: number) {
   if (!value) return "—"
@@ -356,6 +357,11 @@ function ClientPane({
       </section>
 
       <div className="grid gap-3 lg:grid-cols-2">
+      <Panel compact heading="Act" className="mt-3">
+        <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
+      </Panel>
+
+
         <Panel compact variant="feature" heading="Next action">
           <div className="font-serif text-lg font-light">
             {client.nextAction?.title ?? "Nothing scheduled"}
