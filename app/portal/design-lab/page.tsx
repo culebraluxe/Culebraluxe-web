@@ -6,12 +6,9 @@ import {
   Activity,
   AlertCircle,
   AlertTriangle,
-  ArrowUpRight,
-  Ban,
   Building2,
   CalendarDays,
   CheckCircle2,
-  Circle,
   Clock,
   Eye,
   FilePlus2,
@@ -30,6 +27,33 @@ import {
 
 import { PageHeader } from "@/components/portal/page-header"
 import { Panel } from "@/components/portal/panel"
+import { PortalCombobox } from "@/components/portal/ui/portal-combobox"
+import {
+  PortalDialog,
+  PortalDialogClose,
+} from "@/components/portal/ui/portal-dialog"
+import {
+  PortalField,
+  PortalFieldDescription,
+  PortalFieldError,
+  PortalFieldLabel,
+  PortalFieldset,
+  PortalInput,
+  PortalLegend,
+  PortalSelect,
+  PortalTextarea,
+} from "@/components/portal/ui/portal-field"
+import { PortalRowMenu } from "@/components/portal/ui/portal-row-menu"
+import {
+  PortalPagination,
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
+import { ActivityTimeline, ProcessSteps } from "@/components/portal/ui/portal-timeline"
 
 // ---------------------------------------------------------------------------
 // TECH UI LAB — /portal/design-lab
@@ -52,10 +76,6 @@ const btnIcon =
   "inline-flex h-11 w-11 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--portal-gold)]/60"
 
 const labelCls = "text-[10px] font-light uppercase tracking-[0.18em] text-black/40"
-const inputCls =
-  "min-h-11 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 text-sm font-light text-[var(--portal-text)] outline-none placeholder:text-black/35 focus:border-[var(--portal-navy-soft)]"
-const selectCls = `${inputCls} appearance-none`
-
 const badgeTones: Record<string, string> = {
   active: "bg-[var(--portal-blue-pale)] text-[var(--portal-navy-soft)]",
   pending: "bg-[var(--portal-neutral-pale)] text-[var(--portal-neutral)]",
@@ -103,19 +123,20 @@ const demoActivity = [
   { at: "Yesterday", kind: "alert", actor: "System", text: "Financing deadline approaching for Solana Cottage.", detail: "Deal · Solana Cottage" },
 ]
 
-function ActivityIcon({ kind }: { kind: string }) {
-  const cls = "h-3.5 w-3.5"
-  switch (kind) {
-    case "call":
-      return <User className={`${cls} text-[var(--portal-blue-gray)]`} />
-    case "doc":
-      return <FileText className={`${cls} text-[var(--portal-gold-muted)]`} />
-    case "cal":
-      return <CalendarDays className={`${cls} text-[var(--portal-blue-gray)]`} />
-    default:
-      return <AlertCircle className={`${cls} text-[var(--portal-archive)]`} />
-  }
-}
+const demoClients = [
+  { value: "morgan-reed", label: "Morgan Reed", description: "Villa Rosada · Active buyer" },
+  { value: "alvarez-trust", label: "The Alvarez Trust", description: "Casa Palmera · Offer" },
+  { value: "jamie-ellis", label: "Jamie Ellis", description: "Blue Marlin House · Showing" },
+  { value: "dana-whitfield", label: "Dana Whitfield", description: "Solana Cottage · Qualified" },
+]
+
+const demoProcessSteps = [
+  { id: "offer", label: "Offer accepted", note: "Recorded on Oct 12", state: "complete" as const },
+  { id: "attorney", label: "Attorney review", note: "Draft contract", state: "complete" as const },
+  { id: "inspection", label: "Inspection", note: "Scheduled Oct 28", state: "current" as const },
+  { id: "financing", label: "Financing clear to close", note: "Waiting on lender", state: "blocked" as const },
+  { id: "closing", label: "Closing", note: "Target Nov 15", state: "upcoming" as const },
+]
 
 const iconSet: Array<{ icon: typeof User; label: string }> = [
   { icon: User, label: "Client" },
@@ -138,9 +159,20 @@ const iconSet: Array<{ icon: typeof User; label: string }> = [
 ]
 
 export default function DesignLabPage() {
-  const [tab, setTab] = useState("overview")
+  const [tab, setTab] = useState("All")
   const [search, setSearch] = useState("")
   const [toggled, setToggled] = useState(false)
+  const [clientName, setClientName] = useState("")
+  const [clientError, setClientError] = useState("")
+  const [tablePage, setTablePage] = useState(1)
+  const [lastAction, setLastAction] = useState("No demo action selected yet.")
+  const clientNameRef = useRef<HTMLInputElement>(null)
+  const filteredDeals = demoDeals.filter((deal) =>
+    `${deal.property} ${deal.client} ${deal.stage}`.toLowerCase().includes(search.toLowerCase()),
+  )
+  const tablePageCount = Math.max(1, Math.ceil(filteredDeals.length / 2))
+  const currentTablePage = Math.min(tablePage, tablePageCount)
+  const visibleDeals = filteredDeals.slice((currentTablePage - 1) * 2, currentTablePage * 2)
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -321,77 +353,134 @@ export default function DesignLabPage() {
       {/* 6 — INPUTS / FILTERS */}
       <Panel
         eyebrow="06 · INPUTS"
-        heading="Input + filter row"
-        subtitle="Token-styled text, search, select, date, textarea, checkbox/toggle, and one compact filter row. No form logic."
+        heading="Searchable selection + field states"
+        subtitle="Independent portal primitives: explicit labels, descriptions, validation, touch targets, and a keyboard-searchable client selector. Demo data only."
         className="mb-6"
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <label className="block">
-            <span className={labelCls}>Text input</span>
-            <input className={`${inputCls} mt-2`} placeholder="Client name…" />
-          </label>
-          <label className="block">
-            <span className={labelCls}>Search</span>
-            <div className="relative mt-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35" />
-              <input className={`${inputCls} pl-9`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search deals…" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <PortalFieldset className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white/55 p-5">
+            <PortalLegend>Field contract</PortalLegend>
+            <PortalFieldDescription>
+              Submit the empty required field to inspect its error state and announcement.
+            </PortalFieldDescription>
+            <PortalField>
+              <PortalFieldLabel htmlFor="lab-client-name">Client name</PortalFieldLabel>
+              <PortalInput
+                ref={clientNameRef}
+                id="lab-client-name"
+                value={clientName}
+                onChange={(event) => {
+                  setClientName(event.target.value)
+                  if (clientError) setClientError("")
+                }}
+                aria-describedby={clientError ? "lab-client-name-error" : "lab-client-name-help"}
+                aria-invalid={Boolean(clientError) || undefined}
+                placeholder="Client name…"
+              />
+              {clientError ? (
+                <PortalFieldError id="lab-client-name-error">{clientError}</PortalFieldError>
+              ) : (
+                <PortalFieldDescription id="lab-client-name-help">
+                  Required only because this demo exercises validation.
+                </PortalFieldDescription>
+              )}
+            </PortalField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PortalField>
+                <PortalFieldLabel htmlFor="lab-stage">Deal stage</PortalFieldLabel>
+                <PortalSelect id="lab-stage" defaultValue="">
+                  <option value="">All stages</option>
+                  <option>Under Contract</option>
+                  <option>Offer</option>
+                  <option>Showing</option>
+                </PortalSelect>
+              </PortalField>
+              <PortalField>
+                <PortalFieldLabel htmlFor="lab-date">Next date</PortalFieldLabel>
+                <PortalInput id="lab-date" type="date" />
+              </PortalField>
             </div>
-          </label>
-          <label className="block">
-            <span className={labelCls}>Select</span>
-            <select className={`${selectCls} mt-2`} defaultValue="">
-              <option value="">All stages</option>
-              <option>Under Contract</option>
-              <option>Offer</option>
-              <option>Showing</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className={labelCls}>Date</span>
-            <input type="date" className={`${inputCls} mt-2`} />
-          </label>
-          <label className="block md:col-span-2">
-            <span className={labelCls}>Textarea</span>
-            <textarea className={`${inputCls} mt-2 min-h-24 resize-y py-2`} placeholder="Notes…" />
-          </label>
-        </div>
-
-        <div className="mt-6">
-          <p className={`${labelCls} mb-2`}>Checkbox + toggle</p>
-          <div className="flex flex-wrap items-center gap-6">
-            <label className="flex min-h-11 items-center gap-2 text-sm font-light text-[var(--portal-text)]">
-              <input type="checkbox" className="h-4 w-4 accent-[var(--portal-navy)]" defaultChecked />
-              Include archived
-            </label>
-            <button type="button" onClick={() => setToggled((v) => !v)} aria-pressed={toggled} className="flex min-h-11 items-center gap-2 text-sm font-light text-[var(--portal-text)]">
-              <span className={["relative h-6 w-11 rounded-full transition-colors", toggled ? "bg-[var(--portal-navy)]" : "bg-[var(--portal-mist-4)]"].join(" ")}>
-                <span className={["absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", toggled ? "translate-x-[22px]" : "translate-x-0.5"].join(" ")} />
-              </span>
-              Auto-assign
+            <PortalField>
+              <PortalFieldLabel htmlFor="lab-notes">Notes</PortalFieldLabel>
+              <PortalTextarea id="lab-notes" placeholder="Relationship context…" />
+            </PortalField>
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={() => {
+                if (clientName.trim()) {
+                  setClientError("")
+                  setLastAction("Field validation passed.")
+                  return
+                }
+                setClientError("Enter a client name to continue.")
+                clientNameRef.current?.focus()
+              }}
+            >
+              Validate fields
             </button>
-          </div>
-        </div>
+          </PortalFieldset>
 
-        <div className="mt-6">
-          <p className={`${labelCls} mb-2`}>Compact filter row</p>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="block w-full max-w-[200px]">
-              <span className={labelCls}>Status</span>
-              <select className={`${selectCls} mt-2`} defaultValue="all">
-                <option value="all">All</option>
-                <option>Active</option>
-                <option>Blocked</option>
-              </select>
-            </label>
-            <label className="block w-full max-w-[200px]">
-              <span className={labelCls}>Owner</span>
-              <select className={`${selectCls} mt-2`} defaultValue="lp">
-                <option value="lp">Lisa Penfield</option>
-                <option>Any</option>
-              </select>
-            </label>
-            <button type="button" className={btnSecondary}>Apply filters</button>
-            <button type="button" className={btnGhost}>Reset</button>
+          <div className="space-y-6">
+            <PortalCombobox
+              label="Client"
+              description="Type a name or use the arrow keys. Selection is restricted to known clients."
+              options={demoClients}
+              defaultValue="morgan-reed"
+              onValueChange={(value) =>
+                setLastAction(value ? `Selected client: ${value}` : "Cleared client selection.")
+              }
+            />
+
+            <PortalField>
+              <PortalFieldLabel htmlFor="lab-search">Search deals</PortalFieldLabel>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35" />
+                <PortalInput
+                  id="lab-search"
+                  className="pl-9"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search deals…"
+                />
+              </div>
+            </PortalField>
+
+            <div>
+              <p className={`${labelCls} mb-2`}>Checkbox + toggle</p>
+              <div className="flex flex-wrap items-center gap-6">
+                <label className="flex min-h-11 items-center gap-2 text-sm font-light text-[var(--portal-text)]">
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--portal-navy)]" defaultChecked />
+                  Include archived
+                </label>
+                <button type="button" onClick={() => setToggled((value) => !value)} aria-pressed={toggled} className="flex min-h-11 items-center gap-2 text-sm font-light text-[var(--portal-text)]">
+                  <span className={["relative h-6 w-11 rounded-full transition-colors", toggled ? "bg-[var(--portal-navy)]" : "bg-[var(--portal-mist-4)]"].join(" ")}>
+                    <span className={["absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", toggled ? "translate-x-[22px]" : "translate-x-0.5"].join(" ")} />
+                  </span>
+                  Auto-assign
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <p className={`${labelCls} mb-2`}>Compact filter row</p>
+              <div className="flex flex-wrap items-end gap-3">
+                <PortalField className="w-full max-w-[200px]">
+                  <PortalFieldLabel htmlFor="lab-status">Status</PortalFieldLabel>
+                  <PortalSelect id="lab-status" defaultValue="all">
+                    <option value="all">All</option>
+                    <option>Active</option>
+                    <option>Blocked</option>
+                  </PortalSelect>
+                </PortalField>
+                <button type="button" className={btnSecondary}>Apply filters</button>
+                <button type="button" className={btnGhost}>Reset</button>
+              </div>
+            </div>
+
+            <p aria-live="polite" className="text-xs font-light text-black/45">
+              {lastAction}
+            </p>
           </div>
         </div>
       </Panel>
@@ -400,53 +489,137 @@ export default function DesignLabPage() {
       {/* 7 — TABLE / LIST */}
       <Panel
         eyebrow="07 · TABLE"
-        heading="Table + operational list row"
-        subtitle="Strong header, row separation, hover state, aligned numbers, status badge column, action column — plus one simpler list-row pattern. Fake data."
+        heading="Operational table + rare-action menu"
+        subtitle="Readable columns, aligned numbers, bounded row actions, and pagination. The existing search field filters this fake data; mobile switches to compact cards instead of crushing columns."
         className="mb-6"
+        flush
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--portal-panel-border)] bg-[var(--portal-blue-pale)]">
-                {["Property", "Client", "Stage", "Value", "Next milestone", "Status", ""].map((h) => (
-                  <th key={h} className="px-6 py-3 text-[10px] font-light uppercase tracking-[0.2em] text-black/40">
-                    {h}
-                  </th>
+        <div className="hidden md:block">
+          <PortalTable>
+            <PortalTableHead>
+              <PortalTableRow className="hover:bg-transparent">
+                {[
+                  { label: "Property" },
+                  { label: "Client" },
+                  { label: "Stage" },
+                  { label: "Value", className: "text-right" },
+                  { label: "Next milestone" },
+                  { label: "Status" },
+                  { label: "Actions", className: "w-16 text-right" },
+                ].map((heading) => (
+                  <PortalTableHeader key={heading.label} className={heading.className}>
+                    {heading.label}
+                  </PortalTableHeader>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {demoDeals.map((d) => (
-                <tr key={d.id} className="border-b border-[var(--portal-border)] transition-colors last:border-b-0 hover:bg-[var(--portal-blue-pale)]/50">
-                  <td className="px-6 py-4 font-medium text-[var(--portal-navy)]">{d.property}</td>
-                  <td className="px-6 py-4 font-light text-black/60">{d.client}</td>
-                  <td className="px-6 py-4 font-light text-black/60">{d.stage}</td>
-                  <td className="px-6 py-4 text-right tabular-nums font-light text-black/70">{d.value}</td>
-                  <td className="px-6 py-4 font-light text-black/50">{d.next}</td>
-                  <td className="px-6 py-4">
-                    <Badge tone={d.status} label={d.status} />
-                  </td>
-                  <td className="px-6 py-4">
-                    <button type="button" className={btnIcon} aria-label={`Open ${d.property}`}>
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
+              {visibleDeals.length ? (
+                visibleDeals.map((deal) => (
+                  <PortalTableRow key={deal.id}>
+                    <PortalTableCell className="font-medium text-[var(--portal-navy)]">
+                      {deal.property}
+                    </PortalTableCell>
+                    <PortalTableCell>{deal.client}</PortalTableCell>
+                    <PortalTableCell>{deal.stage}</PortalTableCell>
+                    <PortalTableCell className="text-right tabular-nums text-black/70">
+                      {deal.value}
+                    </PortalTableCell>
+                    <PortalTableCell className="text-black/50">{deal.next}</PortalTableCell>
+                    <PortalTableCell>
+                      <Badge tone={deal.status} label={deal.status} />
+                    </PortalTableCell>
+                    <PortalTableCell className="text-right">
+                      <PortalRowMenu
+                        ariaLabel={`Actions for ${deal.property}`}
+                        items={[
+                          {
+                            label: "Open deal",
+                            icon: Eye,
+                            onSelect: () => setLastAction(`Opened ${deal.property}.`),
+                          },
+                          {
+                            label: "Duplicate",
+                            icon: FilePlus2,
+                            onSelect: () => setLastAction(`Prepared a copy of ${deal.property}.`),
+                          },
+                          {
+                            label: "Archive",
+                            icon: Trash2,
+                            tone: "danger",
+                            onSelect: () => setLastAction(`Archive selected for ${deal.property}.`),
+                          },
+                        ]}
+                      />
+                    </PortalTableCell>
+                  </PortalTableRow>
+                ))
+              ) : (
+                <PortalTableRow>
+                  <PortalTableCell colSpan={7} className="py-10 text-center text-black/45">
+                    No demo deals match “{search}”.
+                  </PortalTableCell>
+                </PortalTableRow>
+              )}
+            </PortalTableBody>
+          </PortalTable>
         </div>
-
-        <p className={`${labelCls} mb-2 mt-8`}>Operational list row (simpler)</p>
-        <div className="divide-y divide-[var(--portal-border)]">
-          {demoActivity.slice(0, 2).map((a) => (
-            <div key={a.text} className="flex min-h-12 items-center gap-3 px-1 py-3">
-              <ActivityIcon kind={a.kind} />
-              <span className="min-w-0 flex-1 truncate text-sm font-light text-black/65">{a.text}</span>
-              <span className="shrink-0 text-xs font-light text-black/40">{a.at}</span>
-            </div>
-          ))}
+        <div className="divide-y divide-[var(--portal-border)] md:hidden">
+          {visibleDeals.length ? (
+            visibleDeals.map((deal) => (
+              <article key={deal.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="font-serif text-lg font-light text-[var(--portal-navy)]">
+                      {deal.property}
+                    </h3>
+                    <p className="mt-0.5 truncate text-xs font-light text-black/45">{deal.client}</p>
+                  </div>
+                  <PortalRowMenu
+                    ariaLabel={`Actions for ${deal.property}`}
+                    items={[
+                      { label: "Open deal", icon: Eye, onSelect: () => setLastAction(`Opened ${deal.property}.`) },
+                      { label: "Duplicate", icon: FilePlus2, onSelect: () => setLastAction(`Prepared a copy of ${deal.property}.`) },
+                      { label: "Archive", icon: Trash2, tone: "danger", onSelect: () => setLastAction(`Archive selected for ${deal.property}.`) },
+                    ]}
+                  />
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Stage</dt>
+                    <dd className="mt-1 font-light text-black/65">{deal.stage}</dd>
+                  </div>
+                  <div className="text-right">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Value</dt>
+                    <dd className="mt-1 tabular-nums font-light text-black/70">{deal.value}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Next</dt>
+                    <dd className="mt-1 font-light text-black/65">{deal.next}</dd>
+                  </div>
+                  <div className="text-right">
+                    <dt className="sr-only">Status</dt>
+                    <dd><Badge tone={deal.status} label={deal.status} /></dd>
+                  </div>
+                </dl>
+              </article>
+            ))
+          ) : (
+            <p className="px-4 py-10 text-center text-sm font-light text-black/45">
+              No demo deals match “{search}”.
+            </p>
+          )}
         </div>
+        <PortalPagination
+          page={currentTablePage}
+          pageCount={tablePageCount}
+          totalLabel={`${filteredDeals.length} demo deals`}
+          onPrevious={() => setTablePage((page) => Math.max(1, page - 1))}
+          onNext={() => setTablePage((page) => Math.min(tablePageCount, page + 1))}
+        />
+        <p aria-live="polite" className="border-t border-[var(--portal-panel-border)] px-4 py-3 text-xs font-light text-black/45 sm:px-6">
+          {lastAction}
+        </p>
       </Panel>
 
       {/* 8 — KPI / DATA DISPLAY */}
@@ -485,94 +658,77 @@ export default function DesignLabPage() {
       {/* 9 — TIMELINE / ACTIVITY */}
       <Panel
         eyebrow="09 · TIMELINE"
-        heading="Activity / timeline pattern"
-        subtitle="Timestamp + icon/status + actor + event text + optional secondary detail. Fake activity."
+        heading="Activity timeline"
+        subtitle="A reusable presentation primitive for source-driven relationship evidence: timestamp, actor, event, source context, and restrained status tone."
         className="mb-6"
       >
-        <div className="relative">
-          <span className="absolute bottom-2 left-[5px] top-2 w-px bg-[var(--portal-border)]" aria-hidden />
-          <div className="space-y-5">
-            {demoActivity.map((a) => (
-              <div key={a.text} className="relative flex gap-4 pl-6">
-                <span className="absolute left-0 top-1 flex h-3 w-3 items-center justify-center rounded-full border border-[var(--portal-border)] bg-white">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--portal-navy)]" />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-xs font-light text-black/40">{a.at}</div>
-                  <div className="mt-1 text-sm font-medium text-[var(--portal-navy)]">{a.actor}</div>
-                  <div className="mt-0.5 flex items-start gap-1.5 text-sm font-light leading-6 text-black/65">
-                    <ActivityIcon kind={a.kind} />
-                    <span>{a.text}</span>
-                  </div>
-                  <div className="mt-1 text-xs font-light text-black/40">{a.detail}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ActivityTimeline
+          items={demoActivity.map((activity, index) => ({
+            id: `activity-${index}`,
+            actor: activity.actor,
+            detail: activity.detail,
+            icon:
+              activity.kind === "call"
+                ? User
+                : activity.kind === "doc"
+                  ? FileText
+                  : activity.kind === "cal"
+                    ? CalendarDays
+                    : AlertCircle,
+            text: activity.text,
+            timestamp: activity.at,
+            tone: activity.kind === "alert" ? ("attention" as const) : ("default" as const),
+          }))}
+        />
       </Panel>
 
       {/* 10 — WORKFLOW / PROCESS */}
       <Panel
         eyebrow="10 · PROCESS"
-        heading="Simple process step pattern"
-        subtitle="Completed / current / upcoming / blocked — pure visual, no workflow engine behavior."
+        heading="Process steps"
+        subtitle="Completed, current, upcoming, and blocked states. The component explains an existing workflow; it does not create another workflow engine."
         className="mb-6"
       >
-        <ol className="space-y-0">
-          {[
-            { label: "Offer accepted", note: "Recorded on Oct 12", state: "done" as const },
-            { label: "Attorney review", note: "Draft contract", state: "done" as const },
-            { label: "Inspection", note: "Scheduled Oct 28", state: "current" as const },
-            { label: "Financing clear to close", note: "Waiting on lender", state: "blocked" as const },
-            { label: "Closing", note: "Target Nov 15", state: "upcoming" as const },
-          ].map((s) => (
-            <li key={s.label} className="relative flex gap-4 pb-6 last:pb-0">
-              {s.state !== "done" && s.state !== "current" && (
-                <span className="absolute left-[11px] top-7 h-full w-px bg-[var(--portal-border)]" />
-              )}
-              <span
-                className={[
-                  "relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
-                  s.state === "done"
-                    ? "border-[var(--portal-success)] bg-[var(--portal-success)] text-white"
-                    : s.state === "current"
-                      ? "border-[var(--portal-navy)] bg-[var(--portal-navy)] text-white"
-                      : s.state === "blocked"
-                        ? "border-[var(--portal-archive)] bg-[var(--portal-archive-pale)] text-[var(--portal-archive)]"
-                        : "border-[var(--portal-border)] bg-white text-black/30",
-                ].join(" ")}
-              >
-                {s.state === "done" ? (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                ) : s.state === "current" ? (
-                  <Clock className="h-3.5 w-3.5" />
-                ) : s.state === "blocked" ? (
-                  <Ban className="h-3.5 w-3.5" />
-                ) : (
-                  <Circle className="h-3 w-3" />
-                )}
-              </span>
-              <div className="min-w-0 pt-0.5">
-                <div className="text-sm font-medium text-[var(--portal-navy)]">{s.label}</div>
-                <div className="mt-0.5 text-xs font-light text-black/45">{s.note}</div>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <ProcessSteps steps={demoProcessSteps} />
       </Panel>
 
-      {/* 11 — DRAWER / DIALOG / POPOVER */}
+      {/* 11 — DIALOG / MENU */}
       <Panel
         eyebrow="11 · OVERLAYS"
-        heading="Dialog / drawer / popover"
-        subtitle="Native, token-styled implementations (no new dependency). If these look good, they can become shared primitives later."
+        heading="Critical dialog + rare-action menu"
+        subtitle="Two bounded jobs only: confirm a consequential action or expose infrequent row actions. The earlier global drawer candidate is intentionally rejected."
         className="mb-6"
       >
         <div className="flex flex-wrap items-center gap-3">
-          <DialogDemo />
-          <DrawerDemo />
-          <PopoverDemo />
+          <PortalDialog
+            trigger="Open confirmation"
+            title="Confirm archive"
+            description="Archiving Casa Palmera hides it from the active portfolio. You can restore it later."
+            actions={
+              <>
+                <PortalDialogClose className={btnGhost}>Cancel</PortalDialogClose>
+                <PortalDialogClose
+                  className={btnDestructive}
+                  onClick={() => setLastAction("Archive confirmed for Casa Palmera.")}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Archive
+                </PortalDialogClose>
+              </>
+            }
+          >
+            <div className="rounded-[var(--portal-tab-radius)] bg-[var(--portal-archive-pale)] p-4 text-sm font-light leading-6 text-[var(--portal-text)]/75">
+              This is deliberately narrow: no form wizard, no drawer, and no secondary navigation.
+            </div>
+          </PortalDialog>
+          <PortalRowMenu
+            ariaLabel="Demo actions"
+            items={[
+              { label: "Open deal", icon: Eye, onSelect: () => setLastAction("Open deal selected.") },
+              { label: "Duplicate", icon: FilePlus2, onSelect: () => setLastAction("Duplicate selected.") },
+              { label: "Archive", icon: Trash2, tone: "danger", onSelect: () => setLastAction("Archive selected.") },
+            ]}
+          />
+          <span aria-live="polite" className="text-xs font-light text-black/45">{lastAction}</span>
         </div>
       </Panel>
 
@@ -655,112 +811,3 @@ export default function DesignLabPage() {
     </div>
   )
 }
-
-
-// ---------------------------------------------------------------------------
-// Overlay demos — native, token-styled. No new dependency.
-// ---------------------------------------------------------------------------
-
-function DialogDemo() {
-  const ref = useRef<HTMLDialogElement>(null)
-  return (
-    <>
-      <button type="button" className={btnSecondary} onClick={() => ref.current?.showModal()}>
-        Open dialog
-      </button>
-      <dialog
-        ref={ref}
-        onClick={(e) => {
-          if (e.target === ref.current) ref.current?.close()
-        }}
-        className="m-auto w-[min(92vw,26rem)] rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-6 shadow-[var(--portal-panel-shadow)] backdrop:bg-[var(--portal-navy)]/40"
-      >
-        <h2 className="font-serif text-2xl font-light">Confirm archive</h2>
-        <p className="mt-2 text-sm font-light leading-6 text-black/55">
-          Archiving “Casa Palmera” hides it from the active portfolio. You can restore it later.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button type="button" className={btnGhost} onClick={() => ref.current?.close()}>
-            Cancel
-          </button>
-          <button type="button" className={btnDestructive} onClick={() => ref.current?.close()}>
-            <Trash2 className="h-3.5 w-3.5" /> Archive
-          </button>
-        </div>
-      </dialog>
-    </>
-  )
-}
-
-function DrawerDemo() {
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <button type="button" className={btnSecondary} onClick={() => setOpen(true)}>
-        Open drawer
-      </button>
-      {open ? (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-[var(--portal-navy)]/40" onClick={() => setOpen(false)} />
-          <aside className="absolute right-0 top-0 flex h-full w-[min(88vw,24rem)] flex-col bg-white shadow-[var(--portal-feature-shadow)]">
-            <header className="flex items-center justify-between border-b border-[var(--portal-panel-border)] px-6 py-5">
-              <h2 className="font-serif text-xl font-light">Quick actions</h2>
-              <button type="button" className={btnIcon} onClick={() => setOpen(false)} aria-label="Close drawer">
-                <XCircle className="h-4 w-4" />
-              </button>
-            </header>
-            <div className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
-              {["New client", "New deal", "Create form", "Log interaction"].map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="flex min-h-11 w-full items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 text-left text-sm font-light text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {a}
-                </button>
-              ))}
-            </div>
-          </aside>
-        </div>
-      ) : null}
-    </>
-  )
-}
-
-function PopoverDemo() {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        className={btnSecondary}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        Actions <ArrowUpRight className="h-3.5 w-3.5" />
-      </button>
-      {open ? (
-        <div className="absolute left-0 top-full z-20 mt-2 w-52 rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white p-1.5 shadow-[var(--portal-panel-shadow)]">
-          {[
-            { label: "Open deal", icon: Eye },
-            { label: "Duplicate", icon: FilePlus2 },
-            { label: "Archive", icon: Trash2 },
-          ].map(({ label, icon: Icon }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => setOpen(false)}
-              className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm font-light text-[var(--portal-navy-soft)] transition hover:bg-[var(--portal-rail-hover-bg)] hover:text-[var(--portal-navy)]"
-            >
-              <Icon className="h-3.5 w-3.5 text-[var(--portal-blue-gray)]" />
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
