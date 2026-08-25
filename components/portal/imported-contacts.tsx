@@ -2,6 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Panel } from "@/components/portal/panel"
+import { PortalInput } from "@/components/portal/ui/portal-field"
+import {
+  PortalPagination,
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 import type { ImportedContact, ImportedContactsResult } from "@/db/imported-contacts"
 
 // ---------------------------------------------------------------------------
@@ -87,37 +97,35 @@ export function ImportedContactsPanel({
       divider
       action={
         <div className="flex min-h-9 items-center gap-2">
-          <input
+          <PortalInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search imported contacts…"
-            className="min-h-9 w-56 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 text-sm font-light text-[var(--portal-navy)] outline-none transition placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+            aria-label="Search imported contacts"
+            className="min-h-9 w-56 bg-white/70"
           />
         </div>
       }
     >
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--portal-panel-border)] bg-[var(--portal-blue-pale)]/60">
-              <Th>Name</Th>
-              <Th>Organization</Th>
-              <Th>Email</Th>
-              <Th>Phone</Th>
-              <Th>Location</Th>
-              <Th>Source</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="hidden md:block">
+        <PortalTable>
+          <PortalTableHead>
+            <PortalTableRow className="hover:bg-transparent">
+              <PortalTableHeader>Name</PortalTableHeader>
+              <PortalTableHeader>Organization</PortalTableHeader>
+              <PortalTableHeader>Email</PortalTableHeader>
+              <PortalTableHeader>Phone</PortalTableHeader>
+              <PortalTableHeader>Location</PortalTableHeader>
+              <PortalTableHeader>Source</PortalTableHeader>
+              <PortalTableHeader>Status</PortalTableHeader>
+            </PortalTableRow>
+          </PortalTableHead>
+          <PortalTableBody>
             {rows.length > 0 ? (
               rows.map((row: ImportedContact) => (
-                <tr
-                  key={row.id}
-                  className="border-b border-[var(--portal-panel-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40"
-                >
-                  <Td>
+                <PortalTableRow key={row.id}>
+                  <PortalTableCell>
                     <div className="font-serif text-lg font-light text-[var(--portal-navy)]">
                       {row.displayName}
                     </div>
@@ -126,75 +134,95 @@ export function ImportedContactsPanel({
                         {row.sourceContactId}
                       </div>
                     ) : null}
-                  </Td>
-                  <Td>{row.organization ?? "—"}</Td>
-                  <Td>{row.email ?? "—"}</Td>
-                  <Td>{row.phone ?? "—"}</Td>
-                  <Td>{row.displayAddress ?? "—"}</Td>
-                  <Td>
+                  </PortalTableCell>
+                  <PortalTableCell>{row.organization ?? "—"}</PortalTableCell>
+                  <PortalTableCell>{row.email ?? "—"}</PortalTableCell>
+                  <PortalTableCell>{row.phone ?? "—"}</PortalTableCell>
+                  <PortalTableCell>{row.displayAddress ?? "—"}</PortalTableCell>
+                  <PortalTableCell>
                     <span className="text-xs font-light text-black/55">
                       {sourceLabel(row.source)}
                     </span>
-                  </Td>
-                  <Td>
+                  </PortalTableCell>
+                  <PortalTableCell>
                     <StatusBadge status={row.reconciliationStatus} />
-                  </Td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               ))
             ) : (
-              <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm font-light text-black/40">
+              <PortalTableRow>
+                <PortalTableCell colSpan={7} className="py-12 text-center text-black/45">
                   {loading ? "Loading imported contacts…" : "No imported contacts match."}
-                </td>
-              </tr>
+                </PortalTableCell>
+              </PortalTableRow>
             )}
-          </tbody>
-        </table>
+          </PortalTableBody>
+        </PortalTable>
       </div>
 
-      <div className="flex items-center justify-between border-t border-[var(--portal-panel-border)] px-4 py-3">
-        <span className="text-xs font-light text-black/45">
-          Page {page} of {totalPages} · {total.toLocaleString()} total
-        </span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => {
-              const next = page - 1
-              setPage(next)
-              void load(debouncedSearch, next)
-            }}
-            className="inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            disabled={page >= totalPages}
-            onClick={() => {
-              const next = page + 1
-              setPage(next)
-              void load(debouncedSearch, next)
-            }}
-            className="inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Next
-          </button>
-        </div>
+      <div className="divide-y divide-[var(--portal-border)] md:hidden">
+        {rows.length > 0 ? (
+          rows.map((row: ImportedContact) => (
+            <article key={row.id} className="space-y-3 px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="font-serif text-lg font-light text-[var(--portal-navy)]">
+                    {row.displayName}
+                  </h3>
+                  {row.sourceContactId ? (
+                    <p className="mt-0.5 truncate text-[10px] font-light uppercase tracking-[0.08em] text-black/30">
+                      {row.sourceContactId}
+                    </p>
+                  ) : null}
+                </div>
+                <StatusBadge status={row.reconciliationStatus} />
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                <div>
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Organization</dt>
+                  <dd className="mt-1 font-light text-black/65">{row.organization ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Source</dt>
+                  <dd className="mt-1 font-light text-black/65">{sourceLabel(row.source)}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Email</dt>
+                  <dd className="mt-1 break-words font-light text-black/65">{row.email ?? "—"}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Phone</dt>
+                  <dd className="mt-1 font-light text-black/65">{row.phone ?? "—"}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="font-light uppercase tracking-[0.12em] text-black/35">Location</dt>
+                  <dd className="mt-1 font-light text-black/65">{row.displayAddress ?? "—"}</dd>
+                </div>
+              </dl>
+            </article>
+          ))
+        ) : (
+          <p className="px-4 py-10 text-center text-sm font-light text-black/45">
+            {loading ? "Loading imported contacts…" : "No imported contacts match."}
+          </p>
+        )}
       </div>
+
+      <PortalPagination
+        page={page}
+        pageCount={totalPages}
+        totalLabel={`${total.toLocaleString()} total`}
+        onPrevious={() => {
+          const next = page - 1
+          setPage(next)
+          void load(debouncedSearch, next)
+        }}
+        onNext={() => {
+          const next = page + 1
+          setPage(next)
+          void load(debouncedSearch, next)
+        }}
+      />
     </Panel>
   )
-}
-
-function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-      {children}
-    </th>
-  )
-}
-
-function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 py-4 align-top text-sm font-light text-black/70">{children}</td>
 }

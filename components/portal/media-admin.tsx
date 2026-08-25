@@ -1,4 +1,12 @@
 import type { MediaAdminSnapshot } from "@/db/media-admin"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 function MetricCard({
   label,
@@ -19,14 +27,6 @@ function MetricCard({
       </div>
       <div className="mt-2 text-xs font-light text-black/40">{detail}</div>
     </div>
-  )
-}
-
-function TableHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-      {children}
-    </th>
   )
 }
 
@@ -111,53 +111,93 @@ export function MediaAdmin({
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
-                <TableHeading>Property</TableHeading>
-                <TableHeading>Hero</TableHeading>
-                <TableHeading>Images</TableHeading>
-                <TableHeading>Videos</TableHeading>
-                <TableHeading>Documents</TableHeading>
-                <TableHeading>Total</TableHeading>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="hidden md:block">
+          <PortalTable>
+            <PortalTableHead>
+              <PortalTableRow className="hover:bg-transparent">
+                <PortalTableHeader>Property</PortalTableHeader>
+                <PortalTableHeader>Hero</PortalTableHeader>
+                <PortalTableHeader>Images</PortalTableHeader>
+                <PortalTableHeader>Videos</PortalTableHeader>
+                <PortalTableHeader>Documents</PortalTableHeader>
+                <PortalTableHeader>Total</PortalTableHeader>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {snapshot.propertyRows.length > 0 ? (
                 snapshot.propertyRows.map((row) => (
-                  <tr
-                    key={row.propertyId}
-                    className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40"
-                  >
-                    <td className="px-4 py-4 font-serif text-lg font-light">
+                  <PortalTableRow key={row.propertyId}>
+                    <PortalTableCell className="font-serif text-lg font-light">
                       {row.propertyName}
-                    </td>
-                    <td className="px-4 py-4 text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.hasHero ? (
                         <span className="text-[var(--portal-success)]">✓</span>
                       ) : (
                         <span className="text-[var(--portal-archive)]">Missing</span>
                       )}
-                    </td>
-                    <td className="px-4 py-4 text-sm font-light">{row.imageCount}</td>
-                    <td className="px-4 py-4 text-sm font-light">{row.videoCount}</td>
-                    <td className="px-4 py-4 text-sm font-light">{row.documentCount}</td>
-                    <td className="px-4 py-4 text-sm font-light">{row.totalCount}</td>
-                  </tr>
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">{row.imageCount}</PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">{row.videoCount}</PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">{row.documentCount}</PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">{row.totalCount}</PortalTableCell>
+                  </PortalTableRow>
                 ))
               ) : (
-                <tr>
-                  <td
+                <PortalTableRow>
+                  <PortalTableCell
                     colSpan={6}
-                    className="px-4 py-12 text-center text-sm font-light text-black/40"
+                    className="py-12 text-center text-black/40"
                   >
                     No property media on file.
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               )}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
+        </div>
+
+        <div className="divide-y divide-[var(--portal-border)] md:hidden">
+          {snapshot.propertyRows.length > 0 ? (
+            snapshot.propertyRows.map((row) => (
+              <article key={row.propertyId} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-serif text-lg font-light text-[var(--portal-navy)]">
+                    {row.propertyName}
+                  </h3>
+                  <span className="text-xs font-light text-black/45">{row.totalCount} total</span>
+                </div>
+                <dl className="grid grid-cols-3 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Hero</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {row.hasHero ? (
+                        <span className="text-[var(--portal-success)]">✓</span>
+                      ) : (
+                        <span className="text-[var(--portal-archive)]">Missing</span>
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Images</dt>
+                    <dd className="mt-1 font-light text-black/65">{row.imageCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Videos</dt>
+                    <dd className="mt-1 font-light text-black/65">{row.videoCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Documents</dt>
+                    <dd className="mt-1 font-light text-black/65">{row.documentCount}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))
+          ) : (
+            <p className="px-4 py-10 text-center text-sm font-light text-black/40">
+              No property media on file.
+            </p>
+          )}
         </div>
       </section>
     </div>

@@ -2,6 +2,14 @@ import Link from "next/link"
 
 import type { PropertyAdminRow } from "@/db/property-admin"
 import { PropertyArchiveButton } from "@/components/portal/write/property-archive-button"
+import {
+  PortalTable,
+  PortalTableBody,
+  PortalTableCell,
+  PortalTableHead,
+  PortalTableHeader,
+  PortalTableRow,
+} from "@/components/portal/ui/portal-table"
 
 function formatCurrency(value?: number | null) {
   if (!value) return "—"
@@ -28,14 +36,6 @@ function statusLabel(status: string) {
     default:
       return status.charAt(0).toUpperCase() + status.slice(1)
   }
-}
-
-function TableHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-3 text-left text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">
-      {children}
-    </th>
-  )
 }
 
 const QUALITY_LABELS: Array<{
@@ -92,32 +92,29 @@ export function PropertyAdmin({
           <span className="text-xs font-light text-black/35">{rows.length} properties</span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1300px] border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--portal-border)] bg-[var(--portal-blue-pale)]">
-                <TableHeading>Property</TableHeading>
-                <TableHeading>Status</TableHeading>
-                <TableHeading>Featured</TableHeading>
-                <TableHeading>Price</TableHeading>
-                <TableHeading>Location</TableHeading>
-                <TableHeading>Beds / Baths / Area</TableHeading>
-                <TableHeading>Seller</TableHeading>
-                <TableHeading>Hero</TableHeading>
-                <TableHeading>Img / Vid / Doc</TableHeading>
-                <TableHeading>Data quality</TableHeading>
-                <TableHeading>Archived</TableHeading>
-                <TableHeading>Actions</TableHeading>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="hidden md:block">
+          <PortalTable>
+            <PortalTableHead>
+              <PortalTableRow className="hover:bg-transparent">
+                <PortalTableHeader>Property</PortalTableHeader>
+                <PortalTableHeader>Status</PortalTableHeader>
+                <PortalTableHeader>Featured</PortalTableHeader>
+                <PortalTableHeader>Price</PortalTableHeader>
+                <PortalTableHeader>Location</PortalTableHeader>
+                <PortalTableHeader>Beds / Baths / Area</PortalTableHeader>
+                <PortalTableHeader>Seller</PortalTableHeader>
+                <PortalTableHeader>Hero</PortalTableHeader>
+                <PortalTableHeader>Img / Vid / Doc</PortalTableHeader>
+                <PortalTableHeader>Data quality</PortalTableHeader>
+                <PortalTableHeader>Archived</PortalTableHeader>
+                <PortalTableHeader>Actions</PortalTableHeader>
+              </PortalTableRow>
+            </PortalTableHead>
+            <PortalTableBody>
               {rows.length > 0 ? (
                 rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-[var(--portal-border)] last:border-b-0 hover:bg-[var(--portal-blue-pale)]/40"
-                  >
-                    <td className="px-4 py-4 align-top">
+                  <PortalTableRow key={row.id}>
+                    <PortalTableCell>
                       <Link
                         href={`/portal/property-admin/${row.id}`}
                         className="font-serif text-lg font-light text-[var(--portal-navy-soft)] underline-offset-2 hover:underline"
@@ -147,20 +144,20 @@ export function PropertyAdmin({
                       >
                         Manage listing →
                       </Link>
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {statusLabel(row.status)}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.featured ? "Yes" : "—"}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {formatCurrency(row.listPrice)}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.location ?? "—"}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.bedrooms != null || row.bathrooms != null || row.squareFeet != null
                         ? [
                             row.bedrooms != null ? `${row.bedrooms} bed` : null,
@@ -172,21 +169,21 @@ export function PropertyAdmin({
                             .filter(Boolean)
                             .join(" · ")
                         : "—"}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.sellerName ?? "—"}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.heroMediaId ? (
                         <span className="text-[var(--portal-success)]">✓</span>
                       ) : (
                         <span className="text-[var(--portal-archive)]">Missing</span>
                       )}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.imageCount} / {row.videoCount} / {row.documentCount}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.issueCount === 0 ? (
                         <span className="text-[var(--portal-success)]">✓ Complete</span>
                       ) : (
@@ -199,31 +196,124 @@ export function PropertyAdmin({
                           </div>
                         </div>
                       )}
-                    </td>
-                    <td className="px-4 py-4 align-top text-sm font-light">
+                    </PortalTableCell>
+                    <PortalTableCell className="text-sm font-light">
                       {row.archived ? "Yes" : "—"}
-                    </td>
-                    <td className="px-4 py-4 align-top">
+                    </PortalTableCell>
+                    <PortalTableCell>
                       <PropertyArchiveButton
                         propertyId={row.id}
                         name={row.name}
                         archived={row.archived}
                       />
-                    </td>
-                  </tr>
+                    </PortalTableCell>
+                  </PortalTableRow>
                 ))
               ) : (
-                <tr>
-                  <td
+                <PortalTableRow>
+                  <PortalTableCell
                     colSpan={12}
-                    className="px-4 py-12 text-center text-sm font-light text-black/40"
+                    className="py-12 text-center text-black/40"
                   >
                     No properties on file.
-                  </td>
-                </tr>
+                  </PortalTableCell>
+                </PortalTableRow>
               )}
-            </tbody>
-          </table>
+            </PortalTableBody>
+          </PortalTable>
+        </div>
+
+        <div className="divide-y divide-[var(--portal-border)] md:hidden">
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <article key={row.id} className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/portal/property-admin/${row.id}`}
+                      className="font-serif text-lg font-light text-[var(--portal-navy-soft)] underline-offset-2 hover:underline"
+                    >
+                      {row.name}
+                    </Link>
+                    {row.propertyType && (
+                      <p className="mt-0.5 text-xs font-light text-black/40">{row.propertyType}</p>
+                    )}
+                  </div>
+                  <PropertyArchiveButton
+                    propertyId={row.id}
+                    name={row.name}
+                    archived={row.archived}
+                  />
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Status</dt>
+                    <dd className="mt-1 font-light text-black/65">{statusLabel(row.status)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Price</dt>
+                    <dd className="mt-1 font-light text-black/65">{formatCurrency(row.listPrice)}</dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Location</dt>
+                    <dd className="mt-1 font-light text-black/65">{row.location ?? "—"}</dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Beds / Baths / Area</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {row.bedrooms != null || row.bathrooms != null || row.squareFeet != null
+                        ? [
+                            row.bedrooms != null ? `${row.bedrooms} bed` : null,
+                            row.bathrooms != null ? `${row.bathrooms} bath` : null,
+                            row.squareFeet != null
+                              ? `${row.squareFeet.toLocaleString("en-US")} SF`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Hero</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {row.heroMediaId ? (
+                        <span className="text-[var(--portal-success)]">✓</span>
+                      ) : (
+                        <span className="text-[var(--portal-archive)]">Missing</span>
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Media</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {row.imageCount} / {row.videoCount} / {row.documentCount}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Featured</dt>
+                    <dd className="mt-1 font-light text-black/65">{row.featured ? "Yes" : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Archived</dt>
+                    <dd className="mt-1 font-light text-black/65">{row.archived ? "Yes" : "—"}</dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="font-light uppercase tracking-[0.12em] text-black/35">Data quality</dt>
+                    <dd className="mt-1 font-light text-black/65">
+                      {row.issueCount === 0
+                        ? "✓ Complete"
+                        : `${row.issueCount} issue${row.issueCount === 1 ? "" : "s"}: ${qualityIssues(row).join(" · ")}`}
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            ))
+          ) : (
+            <p className="px-4 py-10 text-center text-sm font-light text-black/40">
+              No properties on file.
+            </p>
+          )}
         </div>
       </section>
     </div>
