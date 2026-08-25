@@ -31,7 +31,9 @@ export function isPortalAuthBypass(): boolean {
 export function portalAuthBypassActor(): ActingUser {
   return {
     appUserId: TEMP_BYPASS_APP_USER_ID,
-    displayName: 'Portal Dev (TEMP BYPASS)',
+    // Cosmetic display name only — the obsolete dev label was removed from the
+    // user-facing surface. The bypass gate, identity, and authorities are unchanged.
+    displayName: 'CulebraLuxe Portal',
     email: 'lisa@culebraluxe.com',
     accountType: 'internal',
     roleCodes: ['owner'],
