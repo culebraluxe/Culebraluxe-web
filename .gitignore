@@ -24,3 +24,9 @@ node_modules
 
 # Apple Contacts — private export data (never commit)
 contact-export/contacts-export.json
+
+# Apple Messages — local exporter build artifacts + private export data (never commit)
+apple-messages-export/.build/
+apple-messages-output/
+apple-messages-export/output/
+messages_schema_recon.txt

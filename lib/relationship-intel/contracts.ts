@@ -7,7 +7,10 @@
 // source system, batch, and immutable staged profile.
 // ---------------------------------------------------------------------------
 
-export type RelationshipEvidenceSource = 'apple_contacts' | 'gmail_contacts'
+export type RelationshipEvidenceSource =
+  | 'apple_contacts'
+  | 'gmail_contacts'
+  | 'apple_messages'
 
 export type ReviewState =
   | 'unresolved'
