@@ -32,13 +32,19 @@ export const OPERATING_SURFACES: Record<
       'Real-estate operating environment — people, properties, deals, showings, offers, documents and activity.',
     home: '/portal/dashboard',
     items: [
-      // CORE — the visible primary operating menu. Workflows and Forms remain
-      // reachable at their routes but are deliberately not listed here.
+      // CORE — the visible primary operating menu. Per the 2026-08-25 CTO/Product
+      // Owner decision, Workflows and Forms are visible CORE destinations. This
+      // supersedes the earlier ARCH-HANDOFF continuity note ("Workflows and Forms
+      // remain functional but hidden from visible CORE navigation"). Both entries
+      // reuse the existing /portal/workflows and /portal/forms screens — nothing
+      // was rebuilt or re-routed.
       { label: 'Cockpit', href: '/portal/dashboard', authority: 'portal.read' },
       { label: 'Clients', href: '/portal/clients', authority: 'portal.read' },
       { label: 'Catch-Up', href: '/portal/attention', authority: 'portal.read' },
       { label: 'Contracts', href: '/portal/deals', authority: 'deal.read' },
       { label: 'Cabinet', href: '/portal/documents', authority: 'deal.read' },
+      { label: 'Workflows', href: '/portal/workflows', authority: 'portal.read' },
+      { label: 'Forms', href: '/portal/forms', authority: 'deal.read' },
     ],
   },
   OPS: {

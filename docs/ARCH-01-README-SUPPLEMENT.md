@@ -316,6 +316,13 @@ but are hidden from the visible CORE navigation. The portal logo returns to the
 public site; the misleading MAIN top-nav item is removed. The public-site Portal
 link is the far-right final navigation item.
 
+> **Superseding note (2026-08-25, CTO/Product Owner):** the prior statement that
+> "Workflows and Forms remain functional but are hidden from the visible CORE
+> navigation" is superseded. Workflows (`/portal/workflows`) and Forms
+> (`/portal/forms`) are now visible CORE secondary-navigation destinations. They
+> reuse their existing screens/routes; nothing was rebuilt or re-routed. This is
+> a navigation/visibility restoration only.
+
 ### 11.3 Current Git/portal checkpoint
 
 Observed `main` HEAD at the time of this checkpoint:

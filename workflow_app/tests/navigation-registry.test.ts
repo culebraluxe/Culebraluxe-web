@@ -57,6 +57,7 @@ test('UI-01: every known /portal route belongs to a surface', () => {
     '/portal/dashboard',
     '/portal/db-test',
     '/portal/deals',
+    '/portal/forms',
     '/portal/identity-quality',
     '/portal/media-admin',
     '/portal/media-test',
@@ -83,13 +84,16 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
   const expected: Record<string, string[]> = {
     NEXUS: [
       // CORE — the visible primary operating menu (label relabelled to CORE;
-      // the NEXUS token stays stable). Workflows and Forms remain reachable at
-      // their routes but are no longer listed.
+      // the NEXUS token stays stable). Per the 2026-08-25 CTO/Product Owner
+      // decision, Workflows and Forms are visible CORE destinations (supersedes
+      // the earlier "hidden from visible CORE navigation" note).
       'Cockpit',
       'Clients',
       'Catch-Up',
       'Contracts',
       'Cabinet',
+      'Workflows',
+      'Forms',
     ],
     OPS: [
       'Needs Review',
