@@ -497,7 +497,7 @@ function ClientPane({
       </section>
 
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <Panel compact heading="Act" className="mt-3">
+        <Panel compact heading="Act">
           <ClientDailyActions clientId={client.id} email={client.email} phone={client.phone} />
         </Panel>
 
