@@ -8,21 +8,21 @@ import { FavoritesLink } from "@/components/property/favorites-link";
 // Temporary visual-review switch. Set to false to restore the text wordmark.
 const USE_IMAGE_LOGO = true;
 
-// Public top-nav capsule treatment — a restrained glass capsule adapted to the
-// public-site navy/gold/ivory language. Every item is a ~44px rounded pill with
-// a translucent fill, fine border, soft inner highlight, backdrop blur, and
-// visible hover/focus states that read over both solid navy and imagery.
+// Public top-nav glass capsules — a restrained glass pill adapted to the
+// public-site navy/gold/ivory language. Labels are fully visible at rest
+// (strong ivory), shift to gold on hover/focus, and Portal reads as the
+// translucent gold entry point. Readable over both solid navy and imagery.
 const capsuleClass =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-ivory/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-colors duration-300 hover:bg-white/[0.14] hover:text-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-brand-ivory/25 bg-brand-ivory/[0.08] px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-ivory shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-ivory/40 hover:bg-brand-ivory/[0.16] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
 
 const portalCapsuleClass =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-brand-gold/45 bg-brand-gold/10 px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-md transition-colors duration-300 hover:bg-brand-gold/20 hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-brand-gold/50 bg-brand-gold/[0.14] px-4 text-[13px] font-medium uppercase tracking-[0.08em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-gold/70 hover:bg-brand-gold/[0.22] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
 
 const mobileCapsuleClass =
-  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-colors duration-300 hover:bg-white/[0.14] hover:text-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-brand-ivory/25 bg-brand-ivory/[0.08] px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-ivory shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-ivory/40 hover:bg-brand-ivory/[0.16] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
 
 const mobilePortalCapsuleClass =
-  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-brand-gold/45 bg-brand-gold/10 px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-md transition-colors duration-300 hover:bg-brand-gold/20 hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
+  "flex min-h-11 items-center justify-center gap-2 rounded-full border border-brand-gold/50 bg-brand-gold/[0.14] px-4 py-2 text-sm font-medium uppercase tracking-[0.22em] text-brand-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_2px_rgba(3,15,35,0.14)] backdrop-blur-md transition-colors duration-300 hover:border-brand-gold/70 hover:bg-brand-gold/[0.22] hover:text-brand-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold/70 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy";
 
 const NAV_LINKS = [
   { label: "Buyers", href: "/buyers" },

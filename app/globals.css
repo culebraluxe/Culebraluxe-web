@@ -348,20 +348,26 @@
 }
 
 .portal-top-nav-item {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   min-height: 44px;
   padding-inline: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--portal-ivory) 20%, transparent);
   border-radius: 999px;
-  color: color-mix(in srgb, var(--portal-ivory) 62%, transparent);
+  background: color-mix(in srgb, var(--portal-ivory) 8%, transparent);
+  color: var(--portal-ivory);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
-  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 2px rgba(10, 15, 26, 0.14);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 @media (min-width: 768px) {
@@ -373,18 +379,30 @@
   }
 }
 .portal-top-nav-item:hover {
-  color: var(--portal-ivory);
-  background-color: color-mix(in srgb, #ffffff 8%, transparent);
+  color: var(--portal-gold);
+  background: color-mix(in srgb, var(--portal-ivory) 15%, transparent);
+  border-color: color-mix(in srgb, var(--portal-ivory) 34%, transparent);
 }
 .portal-top-nav-item[aria-current='page'] {
-  color: var(--portal-navy);
-  background-color: var(--portal-gold);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 1px 2px rgba(10, 15, 26, 0.18);
+  color: var(--portal-ivory);
+  background: color-mix(in srgb, var(--portal-navy) 88%, transparent);
+  border-color: color-mix(in srgb, var(--portal-ivory) 24%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 2px rgba(10, 15, 26, 0.22);
+}
+.portal-top-nav-item[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 1.1rem;
+  bottom: 4px;
+  left: 1.1rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--portal-gold);
 }
 .portal-top-nav-item:focus-visible {
   outline: none;
-  color: var(--portal-ivory);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--portal-gold) 60%, transparent);
+  color: var(--portal-gold);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--portal-gold) 70%, transparent);
 }
 
 .portal-glass-rail {
