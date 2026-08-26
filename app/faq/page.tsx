@@ -17,7 +17,8 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export default async function FaqPage() {
-  const page = buildFaqPageContent(await getMarketingContent())
+  const contentResult = await getMarketingContent()
+  const page = buildFaqPageContent(contentResult.ok ? contentResult.data : [])
 
   return (
     <>

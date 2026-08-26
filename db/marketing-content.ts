@@ -3,6 +3,8 @@ import type {
   MarketingContentItem,
   MarketingContentKind,
 } from '../lib/marketing-content'
+import { db } from './database-gateway'
+import type { Result } from './database-gateway'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
 // ---------------------------------------------------------------------------
@@ -75,25 +77,26 @@ function mapBlock(
   }
 }
 
-export async function getMarketingContent(
-  execute?: QueryExecutor,
-): Promise<MarketingContentBlock[]> {
-  const q = execute ?? (await executor())
-
-  const blockRows = (await q`
+export async function getMarketingContent(): Promise<Result<MarketingContentBlock[]>> {
+  // DB-HARDEN-01C — public read: never throw a DB failure; return a Result.
+  const blockR = await db.query<MarketingContentBlockRow>`
     select id, kind, title, subtitle, eyebrow, body, cta_label, cta_href,
       image_path, image_alt, sort_order
     from marketing_content
     where is_active = true
     order by kind, sort_order, id
-  `) as MarketingContentBlockRow[]
+  `
+  if (!blockR.ok) return blockR
+  const blockRows = blockR.data
 
-  const itemRows = (await q`
+  const itemR = await db.query<MarketingContentItemRow>`
     select content_id, item_key, label, value, sort_order
     from marketing_content_item
     where is_active = true
     order by content_id, sort_order, created_at
-  `) as MarketingContentItemRow[]
+  `
+  if (!itemR.ok) return itemR
+  const itemRows = itemR.data
 
   const itemsByContentId = new Map<string, MarketingContentItem[]>()
   for (const row of itemRows) {
@@ -102,5 +105,8 @@ export async function getMarketingContent(
     itemsByContentId.set(row.content_id, bucket)
   }
 
-  return blockRows.map((row) => mapBlock(row, itemsByContentId.get(row.id) ?? []))
+  return {
+    ok: true,
+    data: blockRows.map((row) => mapBlock(row, itemsByContentId.get(row.id) ?? [])),
+  }
 }

@@ -35,23 +35,34 @@ export async function GET(
     authed = Boolean(token?.sub)
   }
 
-  const result = await sql`
-    SELECT
-      m.file_data,
-      m.mime_type,
-      COALESCE(
-        (
-          SELECT BOOL_AND(p.is_published = true AND p.archived_at IS NULL)
-          FROM property_media pm
-          JOIN property p ON p.id = pm.property_id
-          WHERE pm.media_id = m.id
-        ),
-        true
-      ) AS publicly_allowed
-    FROM media m
-    WHERE m.id = ${id}
-    LIMIT 1
-  `
+  let result: Array<Record<string, unknown>>
+  try {
+    result = await sql`
+      SELECT
+        m.file_data,
+        m.mime_type,
+        COALESCE(
+          (
+            SELECT BOOL_AND(p.is_published = true AND p.archived_at IS NULL)
+            FROM property_media pm
+            JOIN property p ON p.id = pm.property_id
+            WHERE pm.media_id = m.id
+          ),
+          true
+        ) AS publicly_allowed
+      FROM media m
+      WHERE m.id = ${id}
+      LIMIT 1
+    `
+  } catch (err) {
+    // DB-HARDEN-01C — public media read: contain DB failure as a controlled
+    // 503 (no SQL/stack leak, no global impact).
+    console.error(
+      '[media:gateway] public media read failed',
+      err instanceof Error ? err.message : 'unknown',
+    )
+    return new Response("Service Unavailable", { status: 503 })
+  }
 
   if (result.length === 0) {
     return new Response("Not found", { status: 404 })

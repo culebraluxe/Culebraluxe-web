@@ -14,7 +14,7 @@
 // scripts/verify-property-publication.ts.
 // ---------------------------------------------------------------------------
 
-import { test } from 'node:test'
+import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
@@ -25,8 +25,11 @@ import {
   getSimilarProperties,
 } from '../../db/properties'
 import { setPropertyPublished } from '../../db/portal-property'
+import { setDatabaseTestExecutor } from '../../db/client'
 import { PortalWriteError } from '../../lib/portal-write-error'
 import type { QueryExecutor } from '../../db/query-executor'
+
+afterEach(() => setDatabaseTestExecutor(null))
 
 type Captured = { sql: string; params: unknown[] }
 
@@ -47,8 +50,8 @@ function makeExecutor(
 
 test('HARDEN-05: getFilteredProperties (public buyers) gates on is_published', async () => {
   const captured: Captured[] = []
-  const fake = makeExecutor([[], []], captured)
-  await getFilteredProperties({ category: 'all' }, fake)
+  setDatabaseTestExecutor(makeExecutor([[], []], captured))
+  await getFilteredProperties({ category: 'all' })
   assert.ok(
     captured.length >= 2,
     'property + view queries both issued',
@@ -63,25 +66,28 @@ test('HARDEN-05: getFilteredProperties (public buyers) gates on is_published', a
 
 test('HARDEN-05: getSimilarProperties (public) gates on is_published', async () => {
   const captured: Captured[] = []
+  setDatabaseTestExecutor(makeExecutor([[]], captured))
   await getSimilarProperties(
     'prop-1',
     { propertyType: null, city: null, neighborhood: null, listPrice: null },
     3,
-    makeExecutor([[]], captured),
   )
   assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
 })
 
 test('HARDEN-05: getPublicPropertySlugs gates on is_published', async () => {
   const captured: Captured[] = []
-  await getPublicPropertySlugs(makeExecutor([[]], captured))
+  setDatabaseTestExecutor(makeExecutor([[]], captured))
+  await getPublicPropertySlugs()
   assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
 })
 
 test('HARDEN-05: getPropertyBySlug (public detail) gates on is_published (direct URL 404 for internal)', async () => {
   const captured: Captured[] = []
-  const result = await getPropertyBySlug('some-slug', makeExecutor([[]], captured))
-  assert.equal(result, null, 'no row -> null (page calls notFound())')
+  setDatabaseTestExecutor(makeExecutor([[]], captured))
+  const result = await getPropertyBySlug('some-slug')
+  assert.ok(result.ok, 'query ran')
+  if (result.ok) assert.equal(result.data, null, 'zero rows -> null (page calls notFound())')
   assert.ok(captured[0].sql.toLowerCase().includes('is_published = true'))
 })
 

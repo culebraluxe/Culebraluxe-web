@@ -21,13 +21,13 @@ export async function generateMetadata({
   const { slug } = await params
   const result = await getPropertyBySlug(slug)
 
-  if (!result) {
+  if (!result.ok || result.data === null) {
     return {
       title: 'Property — CulebraLuxe',
     }
   }
 
-  const { property } = result
+  const { property } = result.data
 
   const location = [
     property.neighborhood,
@@ -53,7 +53,28 @@ export default async function PropertyPage({
 
   const result = await getPropertyBySlug(slug)
 
-  if (!result) {
+  // DB failure -> controlled "Property temporarily unavailable" (NOT a 404).
+  if (!result.ok) {
+    return (
+      <>
+        <SiteHeader />
+        <main className="flex min-h-[70svh] items-center bg-[#f5f2ec] px-6 md:px-12">
+          <div className="mx-auto w-full max-w-2xl">
+            <h1 className="font-serif text-4xl font-light leading-[1.05] text-[#030f23]">
+              This property is temporarily unavailable.
+            </h1>
+            <p className="mt-6 max-w-xl text-sm font-light leading-relaxed text-[#030f23]/60">
+              We could not load this property right now. Please try again in a moment.
+            </p>
+          </div>
+        </main>
+        <SiteFooter />
+      </>
+    )
+  }
+
+  // Successful query with zero matching rows -> genuine 404.
+  if (result.data === null) {
     notFound()
   }
 
@@ -63,7 +84,7 @@ export default async function PropertyPage({
     galleryImages,
     videos,
     documents,
-  } = result
+  } = result.data
   const googleMapsApiKey =
     process.env.NODE_ENV === 'production'
       ? process.env.GOOGLE_MAPS_API_KEY?.trim() || null
@@ -71,7 +92,8 @@ export default async function PropertyPage({
         process.env.GOOGLE_MAPS_API_KEY?.trim() ||
         null
 
-  const publicSlugs = await getPublicPropertySlugs()
+  const publicSlugsResult = await getPublicPropertySlugs()
+  const publicSlugs = publicSlugsResult.ok ? publicSlugsResult.data : []
 
   return (
     <>

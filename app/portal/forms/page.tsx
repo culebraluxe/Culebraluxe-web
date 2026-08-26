@@ -15,11 +15,12 @@ export default async function FormsPage() {
   if (latest) redirect(`/portal/forms/${latest.id}`)
 
   const templates = listPortalFormTypes()
-  const [deals, clients, properties] = await Promise.all([
+  const [deals, clients, propertiesResult] = await Promise.all([
     getDeals(),
     getClients(),
     getProperties(),
   ])
+  const properties = propertiesResult.ok ? propertiesResult.data : []
   const result = await createFormAction({
     templateId: templates[0]?.id ?? "",
     dealId: deals[0]?.id,

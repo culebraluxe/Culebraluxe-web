@@ -20,12 +20,13 @@ export async function SimilarProperties({
   neighborhood,
   listPrice,
 }: SimilarPropertiesProps) {
-  const similar = await getSimilarProperties(propertyId, {
+  const result = await getSimilarProperties(propertyId, {
     propertyType: propertyType ?? null,
     city: city ?? null,
     neighborhood: neighborhood ?? null,
     listPrice: listPrice ?? null,
   })
+  const similar = result.ok ? result.data : []
 
   if (similar.length === 0) {
     return null

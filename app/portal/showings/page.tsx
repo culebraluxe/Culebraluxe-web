@@ -5,10 +5,11 @@ import { getShowings } from "@/db/showings"
 export const dynamic = "force-dynamic"
 
 export default async function ShowingsPage() {
-  const [showings, properties] = await Promise.all([
+  const [showings, propertiesResult] = await Promise.all([
     getShowings(),
     getProperties(),
   ])
+  const properties = propertiesResult.ok ? propertiesResult.data : []
 
   const propertyOptions = properties.map((property) => ({
     id: property.id,

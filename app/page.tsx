@@ -14,27 +14,35 @@ import { SiteFooter } from '@/components/site-footer'
 export const dynamic = 'force-dynamic'
 
 export default async function Page() {
-  const [properties, content] = await Promise.all([
+  // DB-HARDEN-01C — failure-safe orchestration. Each public read returns its
+  // own Result; a failure on one optional source never poisons the others or
+  // rejects the whole page. On failure we degrade only that module.
+  const [propertiesResult, contentResult] = await Promise.all([
     getProperties({ publicOnly: true }),
     getMarketingContent(),
   ])
-  const home = buildHomeContent(content)
 
-  const featured = properties.filter((property) => property.featured)
+  const properties = propertiesResult.ok ? propertiesResult.data : null
+  const home = contentResult.ok ? buildHomeContent(contentResult.data) : undefined
+  const featured = properties?.filter((property) => property.featured) ?? []
 
   return (
     <>
       <SiteHeader />
       <main>
-        {home.hero ? <Hero content={home.hero} /> : null}
-        <FeaturedProperties properties={featured} />
-        <HomeProperties properties={properties} />
-        {home.buyers && home.sellers ? (
+        {home?.hero ? <Hero content={home.hero} /> : null}
+        {properties && properties.length > 0 ? (
+          <>
+            <FeaturedProperties properties={featured} />
+            <HomeProperties properties={properties} />
+          </>
+        ) : null}
+        {home?.buyers && home?.sellers ? (
           <Services buyers={home.buyers} sellers={home.sellers} />
         ) : null}
-        {home.culture ? <Culture content={home.culture} /> : null}
-        {home.about ? <About content={home.about} /> : null}
-        {home.contact ? <Contact content={home.contact} /> : null}
+        {home?.culture ? <Culture content={home.culture} /> : null}
+        {home?.about ? <About content={home.about} /> : null}
+        {home?.contact ? <Contact content={home.contact} /> : null}
       </main>
       <SiteFooter />
     </>

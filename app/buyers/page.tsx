@@ -76,11 +76,45 @@ export default async function BuyersPage({ searchParams }: BuyersPageProps) {
   }
 
   // The full inventory feeds the featured carousel and compare; the filtered
-  // query drives the inventory list (server-side filtering contract).
-  const [allProperties, filteredResult] = await Promise.all([
+  // query drives the inventory list (server-side filtering contract). Each
+  // read returns a Result; a DB failure degrades only the affected module.
+  const [allPropertiesResult, filteredResult] = await Promise.all([
     getProperties({ publicOnly: true }),
     getFilteredProperties(filters),
   ])
+
+  // DB failure on the primary inventory -> controlled page-local unavailable
+  // state (NOT a fake empty inventory, NOT a 404, NOT a root crash).
+  if (!filteredResult.ok) {
+    return (
+      <>
+        <SiteHeader />
+        <main>
+          <PageHero
+            eyebrow="For Buyers"
+            title="Find your place on Culebra."
+            intro="Exceptional homes, villas, and land — presented with the perspective of people who know the island intimately."
+            image="/images/hero-villa.png"
+            imageAlt="A modern luxury villa overlooking the Culebra coastline"
+          />
+          <section className="px-6 py-24 md:px-12 md:py-32">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="font-serif text-3xl font-light leading-[1.1] text-foreground">
+                Listings temporarily unavailable.
+              </h2>
+              <p className="mx-auto mt-6 max-w-md text-sm font-light leading-relaxed text-foreground/60">
+                We could not load the current listings. Please try again in a moment.
+              </p>
+            </div>
+          </section>
+        </main>
+        <SiteFooter />
+      </>
+    )
+  }
+
+  const allProperties = allPropertiesResult.ok ? allPropertiesResult.data : []
+  const filtered = filteredResult.data
 
   return (
     <>
@@ -97,9 +131,9 @@ export default async function BuyersPage({ searchParams }: BuyersPageProps) {
 
         <Suspense fallback={null}>
           <BuyersPropertyShowroom
-            properties={filteredResult.properties}
+            properties={filtered.properties}
             featured={allProperties}
-            viewOptions={filteredResult.viewOptions}
+            viewOptions={filtered.viewOptions}
             initial={initial}
           />
         </Suspense>

@@ -1,4 +1,5 @@
-import { sql, db, DbFailureError } from "./client"
+import { db } from "./client"
+import type { Result } from "./client"
 import type { QueryExecutor } from "./query-executor"
 import type {
   GalleryImage,
@@ -155,18 +156,23 @@ export type PropertyIntro = {
 
 export async function getPropertyIntroById(
   propertyId: string,
-): Promise<PropertyIntro | null> {
-  const rows = await sql`
+): Promise<Result<PropertyIntro | null>> {
+  // DB-HARDEN-01C — public read: never throw a DB failure; return a Result.
+  const r = await db.queryOne<{ id: string; name: string; location: string | null }>`
     select id, name, location
     from property
     where id = ${propertyId}
       and archived_at is null
     limit 1
   `
-  const row = rows[0] as PropertyIntro | undefined
-  return row
-    ? { id: row.id, name: row.name, location: row.location ?? null }
-    : null
+  if (!r.ok) return r
+  const row = r.data
+  return {
+    ok: true,
+    data: row
+      ? { id: row.id, name: row.name, location: row.location ?? null }
+      : null,
+  }
 }
 
 function toNumber(value: string | null) {
@@ -266,7 +272,7 @@ export async function getProperties(opts: {
    * MUST pass publicOnly: true so internal Properties never leak.
    */
   publicOnly?: boolean
-} = {}): Promise<PropertySummary[]> {
+} = {}): Promise<Result<PropertySummary[]>> {
   const publicOnly = opts.publicOnly === true
 
   const r = await db.query<PropertySummaryRow>`
@@ -334,8 +340,8 @@ export async function getProperties(opts: {
       p.list_price desc nulls last,
       p.created_at desc
   `
-  if (!r.ok) throw new DbFailureError(r.error)
-  return r.data.map(mapSummary)
+  if (!r.ok) return r
+  return { ok: true, data: r.data.map(mapSummary) }
 }
 
 function mapSummary(row: PropertySummaryRow): PropertySummary {
@@ -391,8 +397,7 @@ export type PropertyFilterInput = {
 // inventory (so the view dropdown stays stable while filtering).
 export async function getFilteredProperties(
   filters: PropertyFilterInput,
-  execute: QueryExecutor = sql,
-): Promise<{ properties: PropertySummary[]; viewOptions: string[] }> {
+): Promise<Result<{ properties: PropertySummary[]; viewOptions: string[] }>> {
   const category = filters.category ?? 'all'
   const q = (filters.q ?? '').trim().toLowerCase()
   const maxPrice = filters.maxPrice ?? null
@@ -410,7 +415,7 @@ export async function getFilteredProperties(
     'sunset',
   ].includes(viewValue)
 
-  const propertyRows = await execute`
+  const propertyRowsR = await db.query<PropertySummaryRow>`
     select
       p.id,
       p.name,
@@ -516,8 +521,10 @@ export async function getFilteredProperties(
       p.list_price desc nulls last,
       p.created_at desc
   `
+  if (!propertyRowsR.ok) return propertyRowsR
+  const propertyRows = propertyRowsR.data
 
-  const viewRows = await execute`
+  const viewRowsR = await db.query`
     select
       has_ocean_view,
       has_bay_view,
@@ -532,6 +539,8 @@ export async function getFilteredProperties(
       and slug is not null
       and is_published = true
   `
+  if (!viewRowsR.ok) return viewRowsR
+  const viewRows = viewRowsR.data
 
   const viewSet = new Set<string>()
   for (const row of viewRows as Array<Record<string, boolean>>) {
@@ -541,8 +550,11 @@ export async function getFilteredProperties(
   }
 
   return {
-    properties: (propertyRows as PropertySummaryRow[]).map(mapSummary),
-    viewOptions: Array.from(viewSet).sort(),
+    ok: true,
+    data: {
+      properties: propertyRows.map(mapSummary),
+      viewOptions: Array.from(viewSet).sort(),
+    },
   }
 }
 
@@ -560,9 +572,8 @@ export async function getSimilarProperties(
     listPrice: number | null
   },
   limit = 3,
-  execute: QueryExecutor = sql,
-): Promise<PropertySummary[]> {
-  const rows = await execute`
+): Promise<Result<PropertySummary[]>> {
+  const r = await db.query<PropertySummaryRow>`
     select
       p.id,
       p.name,
@@ -641,17 +652,15 @@ export async function getSimilarProperties(
 
     limit ${limit}
   `
-
-  return (rows as PropertySummaryRow[]).map(mapSummary)
+  if (!r.ok) return r
+  return { ok: true, data: r.data.map(mapSummary) }
 }
 
 // Lightweight public-slug set used by browser-local "Recently Viewed" so
 // stored entries can be checked against currently live listings and stale
 // or missing slugs can be dropped safely.
-export async function getPublicPropertySlugs(
-  execute: QueryExecutor = sql,
-): Promise<string[]> {
-  const rows = await execute`
+export async function getPublicPropertySlugs(): Promise<Result<string[]>> {
+  const r = await db.query<{ slug: string }>`
     select slug
     from property
     where archived_at is null
@@ -659,7 +668,8 @@ export async function getPublicPropertySlugs(
       and is_published = true
     order by created_at asc
   `
-  return (rows as { slug: string }[]).map((row) => row.slug)
+  if (!r.ok) return r
+  return { ok: true, data: r.data.map((row) => row.slug) }
 }
 
 
@@ -669,9 +679,8 @@ export async function getPublicPropertySlugs(
 
 export async function getPropertyBySlug(
   slug: string,
-  execute: QueryExecutor = sql,
-): Promise<PropertyDetailResult | null> {
-  const rows = await execute`
+): Promise<Result<PropertyDetailResult | null>> {
+  const r = await db.query<PropertyRow>`
     select
       p.id,
       p.name,
@@ -777,8 +786,11 @@ export async function getPropertyBySlug(
     limit 1
   `
 
+  if (!r.ok) return r
+  const rows = r.data
   if (rows.length === 0) {
-    return null
+    // Successful query, zero matching rows -> genuine not-found (caller 404s).
+    return { ok: true, data: null }
   }
 
   const row = rows[0] as PropertyRow
@@ -881,12 +893,15 @@ export async function getPropertyBySlug(
   }
 
   return {
-    property,
-    heroUrl: hero
-      ? `/api/media/${hero.media_id}`
-      : null,
-    galleryImages,
-    videos,
-    documents,
+    ok: true,
+    data: {
+      property,
+      heroUrl: hero
+        ? `/api/media/${hero.media_id}`
+        : null,
+      galleryImages,
+      videos,
+      documents,
+    },
   }
 }

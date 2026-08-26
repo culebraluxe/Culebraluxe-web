@@ -38,17 +38,21 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
   const service = normalizeServiceKey(
     typeof query.service === 'string' ? query.service : undefined,
   )
+  let propertyName: string | null = null
+  if (query.propertyId) {
+    const introResult = await getPropertyIntroById(query.propertyId)
+    propertyName = introResult.ok ? introResult.data?.name ?? null : null
+  }
   const propertyContext = requestType
     ? {
         propertyId: query.propertyId,
         requestType,
-        propertyName: query.propertyId
-          ? (await getPropertyIntroById(query.propertyId))?.name ?? null
-          : null,
+        propertyName,
       }
     : undefined
 
-  const page = buildContactPageContent(await getMarketingContent())
+  const contentResult = await getMarketingContent()
+  const page = buildContactPageContent(contentResult.ok ? contentResult.data : [])
 
   return (
     <>

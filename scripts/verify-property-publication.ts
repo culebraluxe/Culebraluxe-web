@@ -39,11 +39,14 @@ type Prop = {
 }
 
 async function publicReads(): Promise<{ ids: Set<string>; slugs: Set<string> }> {
-  const [all, filtered, slugs] = await Promise.all([
+  const [allR, filteredR, slugsR] = await Promise.all([
     getProperties({ publicOnly: true }),
     getFilteredProperties({}),
     getPublicPropertySlugs(),
   ])
+  const all = allR.ok ? allR.data : []
+  const filtered = filteredR.ok ? filteredR.data : { properties: [], viewOptions: [] }
+  const slugs = slugsR.ok ? slugsR.data : []
   const ids = new Set<string>()
   for (const p of [...all, ...filtered.properties]) ids.add(p.id)
   return { ids, slugs: new Set(slugs) }
@@ -95,13 +98,13 @@ async function main() {
 
   // ---- INTERNAL: visible internally, absent publicly, media not public ----
   const privIntro = await getPropertyIntroById(priv.id)
-  check('INTERNAL visible internally', Boolean(privIntro), priv.slug ?? '(no slug)')
+  check('INTERNAL visible internally', Boolean(privIntro.ok && privIntro.data !== null), priv.slug ?? '(no slug)')
   const privPub = await publicReads()
   check('INTERNAL absent from public collection', !privPub.ids.has(priv.id))
   if (priv.slug) {
     check('INTERNAL absent from public slugs', !privPub.slugs.has(priv.slug))
     const privDetail = await getPropertyBySlug(priv.slug)
-    check('INTERNAL direct URL unavailable (null -> 404)', privDetail === null)
+    check('INTERNAL direct URL unavailable (null -> 404)', privDetail.ok && privDetail.data === null)
   }
   if (await propertyHasMedia(priv.id)) {
     check('INTERNAL media not publicly surfaced', !(await mediaPubliclyAllowed(priv.id)))
@@ -111,12 +114,12 @@ async function main() {
 
   // ---- PUBLIC: visible internally + publicly, detail + media work ----
   const pubIntro = await getPropertyIntroById(pub.id)
-  check('PUBLIC visible internally', Boolean(pubIntro))
+  check('PUBLIC visible internally', Boolean(pubIntro.ok && pubIntro.data !== null))
   const pubPub = await publicReads()
   check('PUBLIC present in public collection', pubPub.ids.has(pub.id))
   check('PUBLIC present in public slugs', pubPub.slugs.has(pub.slug!))
   const pubDetail = await getPropertyBySlug(pub.slug!)
-  check('PUBLIC detail available', pubDetail !== null)
+  check('PUBLIC detail available', pubDetail.ok && pubDetail.data !== null)
   check('PUBLIC media publicly surfaced', await mediaPubliclyAllowed(pub.id))
 
   // ---- Toggle PUBLIC -> INTERNAL (public removal) ----
@@ -125,10 +128,10 @@ async function main() {
   check('PUBLIC->INTERNAL removed from public collection', !downPub.ids.has(pub.id))
   check('PUBLIC->INTERNAL removed from public slugs', !downPub.slugs.has(pub.slug!))
   const downDetail = await getPropertyBySlug(pub.slug!)
-  check('PUBLIC->INTERNAL direct URL 404', downDetail === null)
+  check('PUBLIC->INTERNAL direct URL 404', downDetail.ok && downDetail.data === null)
   check('PUBLIC->INTERNAL media no longer public', !(await mediaPubliclyAllowed(pub.id)))
   const downIntro = await getPropertyIntroById(pub.id)
-  check('PUBLIC->INTERNAL still visible internally', Boolean(downIntro))
+  check('PUBLIC->INTERNAL still visible internally', Boolean(downIntro.ok && downIntro.data !== null))
 
   // ---- Toggle INTERNAL -> PUBLIC (public visibility) ----
   await setPropertyPublished(pub.id, true)
@@ -136,7 +139,7 @@ async function main() {
   check('INTERNAL->PUBLIC back in public collection', upPub.ids.has(pub.id))
   check('INTERNAL->PUBLIC back in public slugs', upPub.slugs.has(pub.slug!))
   const upDetail = await getPropertyBySlug(pub.slug!)
-  check('INTERNAL->PUBLIC detail available', upDetail !== null)
+  check('INTERNAL->PUBLIC detail available', upDetail.ok && upDetail.data !== null)
   check('INTERNAL->PUBLIC media public again', await mediaPubliclyAllowed(pub.id))
 
   console.log(

@@ -23,14 +23,24 @@ export async function GET(
     return new Response('Not found', { status: 404 })
   }
 
-  const result = await sql`
-    SELECT file_data, filename, mime_type, file_size
-    FROM media
-    WHERE id = ${id}
-      AND media_type = 'document'
-      AND file_data IS NOT NULL
-    LIMIT 1
-  `
+  let result: Array<Record<string, unknown>>
+  try {
+    result = await sql`
+      SELECT file_data, filename, mime_type, file_size
+      FROM media
+      WHERE id = ${id}
+        AND media_type = 'document'
+        AND file_data IS NOT NULL
+      LIMIT 1
+    `
+  } catch (err) {
+    // DB-HARDEN-01C — public media read: controlled 503 on DB failure.
+    console.error(
+      '[media:gateway] public document read failed',
+      err instanceof Error ? err.message : 'unknown',
+    )
+    return new Response('Service Unavailable', { status: 503 })
+  }
 
   if (result.length === 0) {
     return new Response('Not found', { status: 404 })
