@@ -1,4 +1,4 @@
-import { sql } from "./client"
+import { sql, db, DbFailureError } from "./client"
 import type { QueryExecutor } from "./query-executor"
 import type {
   GalleryImage,
@@ -267,12 +267,9 @@ export async function getProperties(opts: {
    */
   publicOnly?: boolean
 } = {}): Promise<PropertySummary[]> {
-  const visibilityGuard =
-    opts.publicOnly === true
-      ? sql`and p.is_published = true`
-      : sql`and p.status in ('active', 'coming_soon', 'under_contract')`
+  const publicOnly = opts.publicOnly === true
 
-  const rows = await sql`
+  const r = await db.query<PropertySummaryRow>`
     select
       p.id,
       p.name,
@@ -327,15 +324,18 @@ export async function getProperties(opts: {
 
     where p.archived_at is null
       and p.slug is not null
-      ${visibilityGuard}
+      and (
+        (${publicOnly}::boolean and p.is_published = true)
+        or (${!publicOnly}::boolean and p.status in ('active', 'coming_soon', 'under_contract'))
+      )
 
     order by
       p.featured desc,
       p.list_price desc nulls last,
       p.created_at desc
   `
-
-  return (rows as PropertySummaryRow[]).map(mapSummary)
+  if (!r.ok) throw new DbFailureError(r.error)
+  return r.data.map(mapSummary)
 }
 
 function mapSummary(row: PropertySummaryRow): PropertySummary {

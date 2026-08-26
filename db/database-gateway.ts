@@ -323,25 +323,35 @@ type SqlLike = {
   [key: string]: unknown
 }
 
-export const sql = new Proxy(function _sql() {} as unknown as SqlLike, {
-  apply(_target, _thisArg, args) {
-    const exec = getExecutor()
-    if (!exec) throw new DbFailureError(configFailure())
-    const strings = args[0] as TemplateStringsArray
-    return (exec as SqlLike)(strings, ...(args.slice(1) as unknown[]))
-  },
-  get(_target, prop) {
-    if (prop === 'then') return undefined
-    return (...args: unknown[]) => {
-      const exec = getExecutor()
-      if (!exec) throw new DbFailureError(configFailure())
-      const method = (exec as unknown as Record<string, unknown>)[
-        prop as string
-      ]
-      return (method as (...a: unknown[]) => unknown)(...args)
-    }
-  },
-}) as SqlLike
+// ---------- contained backward-compat tagged executor ----------
+/**
+ * Contained tagged executor routed through the gateway. Returns rows and
+ * throws a NORMALIZED DbFailureError on failure (never a raw driver error) —
+ * no raw Neon/Postgres exception can escape application code. Repositories
+ * doing local containment should prefer `db.query` (typed Result). Structural
+ * SQL fragments (e.g. constant ORDER BY / WHERE) must use the gateway `raw`
+ * builder, not this executor.
+ */
+export async function sql(
+  strings: TemplateStringsArray,
+  ...params: unknown[]
+): Promise<QueryRow[]> {
+  const result = await db.query(strings, ...params)
+  if (!result.ok) throw new DbFailureError(result.error)
+  return result.data as QueryRow[]
+}
+
+/**
+ * Safe structural-SQL fragment builder. Produces a real Neon fragment for
+ * CONSTANT, non-user-controlled SQL (e.g. a fixed ORDER BY clause) so it can be
+ * interpolated into a `db.query`/`sql` template. The fragment's bind values
+ * (if any) are still parameterized. Never pass user input here.
+ */
+export function raw(strings: TemplateStringsArray, ...values: unknown[]) {
+  const exec = getExecutor()
+  if (!exec) throw new DbFailureError(configFailure())
+  return (exec as SqlLike)(strings, ...values)
+}
 
 function configFailure(): DbFailure {
   return {

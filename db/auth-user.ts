@@ -1,4 +1,4 @@
-import { sql } from './client'
+import { db } from './client'
 import type { ActingUser } from '@/lib/auth/types'
 
 // AUTH-02 canonical security read service.
@@ -24,7 +24,7 @@ type SecurityPrincipalRow = {
 export async function getSecurityPrincipal(
   appUserId: string,
 ): Promise<ActingUser | null> {
-  const rows = await sql`
+  const r = await db.queryOne<SecurityPrincipalRow>`
     select
       u.id as app_user_id,
       u.display_name,
@@ -62,8 +62,12 @@ export async function getSecurityPrincipal(
       and u.active = true
     limit 1
   `
-
-  const row = rows[0] as SecurityPrincipalRow | undefined
+  // DB-HARDEN-01B — authorization FAILS CLOSED. If the canonical security
+  // projection cannot be resolved (DB unavailable / schema drift / timeout),
+  // return null (no principal → no access granted). The gateway logs the
+  // incident for observability; we never fabricate a principal on failure.
+  if (!r.ok) return null
+  const row = r.data
   if (!row) return null
 
   return {

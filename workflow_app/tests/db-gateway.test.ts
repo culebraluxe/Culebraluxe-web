@@ -18,9 +18,11 @@ import { spawnSync } from 'node:child_process'
 import {
   db,
   sql,
+  DbFailureError,
   setDatabaseTestExecutor,
   setDatabaseTestTransaction,
 } from '../../db/client'
+import { getSecurityPrincipal } from '../../db/auth-user'
 import type { QueryExecutor } from '../../db/query-executor'
 
 function faultExecutor(fail: () => Promise<unknown>): QueryExecutor {
@@ -152,17 +154,26 @@ test('Test H: database URL absent -> module import does not throw; op returns DA
   assert.match(res.stdout, /RESULT=DATABASE_UNAVAILABLE/)
 })
 
-test('contained sql executor routes through the gateway executor (driver error surfaces)', async () => {
+test('contained sql executor throws a NORMALIZED DbFailureError (no raw driver error)', async () => {
   setDatabaseTestExecutor(faultExecutor(async () => pgError('42703', 'bad column')))
   await assert.rejects(
     () => sql`select * from property`,
-    (err: unknown) => (err as { code?: string }).code === '42703',
+    (err: unknown) =>
+      err instanceof DbFailureError && err.failure.kind === 'SCHEMA_MISMATCH',
   )
 })
 
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+test('Test AUTH-FAIL-CLOSED: getSecurityPrincipal returns null (denies) on DB failure, no exception escapes', async () => {
+  setDatabaseTestExecutor(
+    faultExecutor(async () => pgError('42703', 'schema drift in auth projection')),
+  )
+  const principal = await getSecurityPrincipal('u-1')
+  assert.equal(principal, null, 'auth fails closed: no principal on DB failure')
+})
 
 test('ARCH: runtime application code must not import the Neon driver outside the gateway', async () => {
   const root = fileURLToPath(new URL('../../', import.meta.url))

@@ -1,4 +1,4 @@
-import { sql } from './client'
+import { sql, raw } from './client'
 import type { QueryExecutor } from './query-executor'
 
 // Read-only client administration projection (OPS-02). One row per active
@@ -142,7 +142,7 @@ export async function getClientAdminPage(
   const pageSize = Math.max(1, Math.min(50, opts.pageSize ?? 50))
   const offset = (page - 1) * pageSize
 
-  const guard = sql`
+  const guard = raw`
     where p.archived_at is null
     and (${like}::text is null or (
       p.display_name ilike ${like}

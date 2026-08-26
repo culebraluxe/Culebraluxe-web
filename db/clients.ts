@@ -1,4 +1,4 @@
-import { sql } from "./client"
+import { sql, raw } from "./client"
 import type { QueryExecutor } from "./query-executor"
 import type {
   Client,
@@ -407,10 +407,10 @@ const VALID_SORTS = ["name", "created", "recent"] as const
 // Sorts against the materialized read model (mv_client_directory) where the
 // resolved-first priority, name, created_at, and last_contact_at are already
 // pre-shaped columns — no request-time reconstruction.
-const ORDER_FRAGMENTS: Record<string, ReturnType<typeof sql>> = {
-  name: sql`mv.name_sort_priority desc, mv.display_name asc, mv.person_id asc`,
-  created: sql`mv.created_at desc, mv.display_name asc, mv.person_id asc`,
-  recent: sql`coalesce(mv.last_contact_at, mv.created_at) desc nulls last, mv.display_name asc, mv.person_id asc`,
+const ORDER_FRAGMENTS: Record<string, ReturnType<typeof raw>> = {
+  name: raw`mv.name_sort_priority desc, mv.display_name asc, mv.person_id asc`,
+  created: raw`mv.created_at desc, mv.display_name asc, mv.person_id asc`,
+  recent: raw`coalesce(mv.last_contact_at, mv.created_at) desc nulls last, mv.display_name asc, mv.person_id asc`,
 }
 
 /**
@@ -443,7 +443,7 @@ export async function getClientsPage(
   const pageSize = Math.max(1, Math.min(50, opts.pageSize ?? 50))
   const offset = (page - 1) * pageSize
 
-  const guard = sql`
+  const guard = raw`
     where (${like}::text is null or mv.search_text ilike ${like})
       and (${status}::text is null or mv.status = ${status})
       and (${role}::text is null or mv.role = ${role})

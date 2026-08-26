@@ -1,4 +1,4 @@
-import { sql } from './client'
+import { sql, raw } from './client'
 import type { QueryExecutor } from './query-executor'
 import {
   RUNBOOK,
@@ -29,7 +29,7 @@ import type {
 // Deterministic desired-open conditions from canonical application/workflow
 // facts. Reused (as a fragment) by both the create and resolve passes so they
 // can never disagree.
-const desiredCte = sql`
+const desiredCte = raw`
   with desired as (
     select src.type, src.severity, src.title, src.detail,
            src.domain_type, src.domain_id
