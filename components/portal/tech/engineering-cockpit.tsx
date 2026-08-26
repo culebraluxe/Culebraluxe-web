@@ -1,5 +1,16 @@
 import Link from "next/link"
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ClipboardList,
+  Hourglass,
+  LayoutGrid,
+  ListFilter,
+  ShieldCheck,
+} from "lucide-react"
 
+import { PortalProgressRing } from "@/components/portal/ui/portal-progress"
 import {
   KpiCard,
   StoryBoardLifecycleGrid,
@@ -39,7 +50,7 @@ function ActiveQueue({
   selectedId: string | null
 }) {
   return (
-    <section className="overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel-feature">
+    <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
       <div className="flex items-baseline justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
           <div className="text-[9px] font-light uppercase tracking-[0.18em] text-[var(--portal-on-navy)]/60">
@@ -128,7 +139,7 @@ function StoryDetail({ story }: { story: StoryRecord }) {
     { key: 'Notes', value: story.notes, open: false },
   ]
   return (
-    <section className="overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel-feature">
+    <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -211,9 +222,17 @@ function StoryDetail({ story }: { story: StoryRecord }) {
   )
 }
 
+function RunResultIcon({ result }: { result: string | null }) {
+  const r = result ?? ""
+  if (r === "Complete" || r === "Passed") return <CheckCircle2 size={12} className="text-[var(--portal-success)]" />
+  if (r === "Failed" || r === "Blocked" || r === "Cancelled") return <AlertTriangle size={12} className="text-[var(--portal-archive)]" />
+  if (r === "Running") return <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--portal-gold)]" />
+  return <Check size={12} className="text-white/40" />
+}
+
 function RunHistory({ storyId, runs }: { storyId: string | null; runs: StoryRun[] }) {
   return (
-    <section className="overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel-feature">
+    <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
       <div className="flex items-baseline justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
           <div className="text-[9px] font-light uppercase tracking-[0.18em] text-[var(--portal-on-navy)]/60">
@@ -249,7 +268,8 @@ function RunHistory({ storyId, runs }: { storyId: string | null; runs: StoryRun[
                     {run.runType ?? '—'}
                   </span>
                   <span className="min-w-16 shrink-0 font-light text-white/70">{run.agentRuntime ?? '—'}</span>
-                  <span className={`shrink-0 rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-light uppercase tracking-[0.12em] text-[var(--portal-on-navy)]`}>
+                  <span className={`shrink-0 inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-light uppercase tracking-[0.12em] text-[var(--portal-on-navy)]`}>
+                    <RunResultIcon result={run.resultStatus} />
                     {run.resultStatus ?? '—'}
                   </span>
                   <span className="shrink-0 tabular-nums text-white/60">{run.completion ?? 0}%</span>
@@ -342,30 +362,38 @@ export function EngineeringCockpit({
       </div>
 
       {/* KPI strip — six compact glass cards in one row. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        <KpiCard tone="dark" label="Total stories" value={String(kpis.total)} note="All canonical rows" />
-        <KpiCard tone="dark" accent label="Active queue" value={String(activeQueue.length)} note="Selected today" />
-        <KpiCard tone="dark" label="Open" value={String(kpis.open)} note="Current work queue" />
-        <KpiCard tone="dark" label="Backlog" value={String(kpis.backlog)} note="Current-version planned" />
-        <KpiCard tone="dark" label="Closed" value={String(kpis.complete)} note="Finished history" />
-        <KpiCard tone="dark" label="Completion" value={`${kpis.completionPercent.toFixed(1)}%`} note="Net-net" />
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+        <KpiCard tone="dark" icon={<LayoutGrid size={14} />} label="Total stories" value={String(kpis.total)} note="All canonical rows" />
+        <KpiCard tone="dark" accent icon={<ClipboardList size={14} />} label="Active queue" value={String(activeQueue.length)} note="Selected today" />
+        <KpiCard tone="dark" icon={<Hourglass size={14} />} label="Open" value={String(kpis.open)} note="Current work queue" />
+        <KpiCard tone="dark" icon={<ListFilter size={14} />} label="Backlog" value={String(kpis.backlog)} note="Current-version planned" />
+        <KpiCard tone="dark" icon={<CheckCircle2 size={14} />} label="Closed" value={String(kpis.complete)} note="Finished history" />
+        <KpiCard
+          tone="dark"
+          icon={<PortalProgressRing value={kpis.completionPercent} size={22} stroke={3} />}
+          label="Completion"
+          value={`${kpis.completionPercent.toFixed(1)}%`}
+          note="Net-net"
+        />
       </div>
 
-      {/* Active Engineering Workspace — compact master/detail. */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[42fr_58fr]">
-        <ActiveQueue activeQueue={activeQueue} selectedId={selectedStory?.id ?? null} />
-        <div className="flex flex-col gap-4">
-          {selectedStory ? (
-            <StoryDetail story={selectedStory} />
-          ) : (
-            <section className="portal-glass-panel-feature flex min-h-[9rem] items-center justify-center rounded-[var(--portal-panel-radius)] px-5 text-center">
-              <p className="max-w-md text-sm font-light leading-6 text-[var(--portal-on-navy)]/70">
-                Select a story from Active Work Queue, Open, or Backlog to inspect
-                its canonical specification and execution history.
-              </p>
-            </section>
-          )}
-          <RunHistory storyId={selectedStory?.id ?? null} runs={runs} />
+      {/* Active Engineering Workspace — ONE outer glass machine. */}
+      <div className="mt-3 rounded-[var(--portal-panel-radius)] portal-glass-panel-feature p-2.5">
+        <div className="grid gap-2.5 lg:grid-cols-[42fr_58fr]">
+          <ActiveQueue activeQueue={activeQueue} selectedId={selectedStory?.id ?? null} />
+          <div className="flex flex-col gap-2.5">
+            {selectedStory ? (
+              <StoryDetail story={selectedStory} />
+            ) : (
+              <section className="flex min-h-[9rem] items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 text-center">
+                <p className="max-w-md text-sm font-light leading-6 text-[var(--portal-on-navy)]/70">
+                  Select a story from Active Work Queue, Open, or Backlog to inspect
+                  its canonical specification and execution history.
+                </p>
+              </section>
+            )}
+            <RunHistory storyId={selectedStory?.id ?? null} runs={runs} />
+          </div>
         </div>
       </div>
 

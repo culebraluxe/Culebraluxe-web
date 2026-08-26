@@ -1,4 +1,5 @@
 import Link from "next/link"
+import type { ReactNode } from "react"
 
 import {
   LIFECYCLE_META,
@@ -25,17 +26,19 @@ export function KpiCard({
   note,
   accent = false,
   tone = "light",
+  icon,
 }: {
   label: string
   value: string
   note?: string
   accent?: boolean
   tone?: "light" | "dark"
+  icon?: ReactNode
 }) {
   const dark = tone === "dark"
   return (
     <div
-      className={`relative overflow-hidden rounded-[var(--portal-panel-radius)] border p-3.5 ${
+      className={`relative overflow-hidden rounded-[var(--portal-panel-radius)] border p-3 ${
         dark
           ? "portal-glass-panel-feature"
           : accent
@@ -43,15 +46,28 @@ export function KpiCard({
             : "border-[var(--portal-panel-border)] bg-white text-[var(--portal-navy)] shadow-[var(--portal-panel-shadow)]"
       }`}
     >
-      <div
-        className={`text-[9px] font-light uppercase tracking-[0.18em] ${
-          dark || accent ? "text-[var(--portal-feature-eyebrow)]" : "text-[var(--portal-blue-gray)]"
-        }`}
-      >
-        {label}
+      <div className="flex items-center gap-2">
+        {icon && (
+          <span
+            className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border ${
+              dark || accent
+                ? "border-[var(--portal-gold)]/40 text-[var(--portal-gold-soft)]"
+                : "border-[var(--portal-gold)]/40 text-[var(--portal-gold-muted)]"
+            }`}
+          >
+            {icon}
+          </span>
+        )}
+        <div
+          className={`text-[9px] font-light uppercase tracking-[0.18em] ${
+            dark || accent ? "text-[var(--portal-feature-eyebrow)]" : "text-[var(--portal-blue-gray)]"
+          }`}
+        >
+          {label}
+        </div>
       </div>
       <div
-        className={`mt-1 font-serif text-2xl font-light leading-none tabular-nums ${
+        className={`mt-1.5 font-serif text-2xl font-light leading-none tabular-nums ${
           dark || accent ? "text-white" : "text-[var(--portal-navy)]"
         }`}
       >
