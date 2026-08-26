@@ -55,6 +55,11 @@ export const OPERATING_SURFACES: Record<
     home: '/portal/needs-review',
     items: [
       {
+        label: 'Issue Queue',
+        href: '/portal/issues',
+        authority: 'portal.read',
+      },
+      {
         label: 'Needs Review',
         href: '/portal/needs-review',
         authority: 'portal.read',

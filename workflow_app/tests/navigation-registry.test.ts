@@ -98,6 +98,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Forms',
     ],
     OPS: [
+      'Issue Queue',
       'Needs Review',
       'Property Admin',
       'Media Audit',

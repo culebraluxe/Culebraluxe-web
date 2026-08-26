@@ -34,6 +34,7 @@ export const PORTAL_NAVIGATION: PortalNavGroup[] = [
   {
     label: 'Operations & Reporting',
     items: [
+      { label: 'Issue Queue', href: '/portal/issues', authority: 'portal.read' },
       { label: 'Deals', href: '/portal/deals', authority: 'deal.read' },
       { label: 'Workflows', href: '/portal/workflows', authority: 'portal.read' },
       { label: 'Showings', href: '/portal/showings', authority: 'portal.read' },
