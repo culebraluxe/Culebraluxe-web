@@ -66,6 +66,7 @@ import type {
 import {
   setPropertyHero,
   setPropertyMediaOrder,
+  setPropertyPublished,
   unlinkPropertyMedia,
   updateMediaMetadata,
   updatePropertyFacts,
@@ -1274,6 +1275,36 @@ export async function updatePropertyVisibilityAction(
   return portalWrite('listing.write', async () => {
     try {
       const result = await updatePropertyVisibility(propertyId, input)
+      revalidatePortal()
+      revalidatePropertyPublic()
+      return { ok: true, data: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+}
+
+export async function setPropertyPublishedAction(
+  propertyId: string,
+  isPublished: boolean,
+): Promise<PortalWriteResult<{ id: string; slug: string | null }>> {
+  if (!isUuid(propertyId)) {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'Invalid property identifier.',
+    }
+  }
+  if (typeof isPublished !== 'boolean') {
+    return {
+      ok: false,
+      code: 'validation',
+      message: 'isPublished must be a boolean.',
+    }
+  }
+  return portalWrite('listing.write', async () => {
+    try {
+      const result = await setPropertyPublished(propertyId, isPublished)
       revalidatePortal()
       revalidatePropertyPublic()
       return { ok: true, data: result }

@@ -1,4 +1,5 @@
 import { sql } from './client'
+import type { QueryExecutor } from './query-executor'
 import { PortalWriteError } from '@/lib/portal-write-error'
 import { getPropertyOpenTasks } from './tasks'
 import type { PropertyOpenTask } from './tasks'
@@ -916,6 +917,34 @@ export async function updatePropertyVisibility(
       featured = ${input.featured},
       status = ${input.status},
       updated_at = now()
+    where id = ${propertyId}
+    returning id, slug
+  `
+
+  const row = rows[0] as { id: string; slug: string | null } | undefined
+  if (!row) {
+    throw new PortalWriteError('not-found', 'Property not found.')
+  }
+  return { id: row.id, slug: row.slug ?? null }
+}
+
+export async function setPropertyPublished(
+  propertyId: string,
+  isPublished: boolean,
+  execute: QueryExecutor = sql,
+): Promise<{ id: string; slug: string | null }> {
+  // HARDEN-05 — publication is the single Property-level market-visibility
+  // authority. Idempotent: setting the same value again is a no-op update.
+  if (typeof isPublished !== 'boolean') {
+    throw new PortalWriteError(
+      'validation',
+      'isPublished must be a boolean.',
+    )
+  }
+
+  const rows = await execute`
+    update property
+    set is_published = ${isPublished}, updated_at = now()
     where id = ${propertyId}
     returning id, slug
   `

@@ -78,7 +78,7 @@ export default async function BuyersPage({ searchParams }: BuyersPageProps) {
   // The full inventory feeds the featured carousel and compare; the filtered
   // query drives the inventory list (server-side filtering contract).
   const [allProperties, filteredResult] = await Promise.all([
-    getProperties(),
+    getProperties({ publicOnly: true }),
     getFilteredProperties(filters),
   ])
 

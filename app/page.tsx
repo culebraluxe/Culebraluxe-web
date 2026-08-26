@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function Page() {
   const [properties, content] = await Promise.all([
-    getProperties(),
+    getProperties({ publicOnly: true }),
     getMarketingContent(),
   ])
   const home = buildHomeContent(content)

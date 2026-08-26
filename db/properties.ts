@@ -1,4 +1,5 @@
 import { sql } from "./client"
+import type { QueryExecutor } from "./query-executor"
 import type {
   GalleryImage,
   PropertyDetail,
@@ -256,7 +257,21 @@ function buildLifestyleTags(row: PropertyRow) {
    BUYERS / INVENTORY
    ============================================================ */
 
-export async function getProperties(): Promise<PropertySummary[]> {
+export async function getProperties(opts: {
+  /**
+   * HARDEN-05 — publicOnly: true returns only released (is_published) inventory
+   * for public listing surfaces. false (default) returns the legacy lifecycle
+   * set (active/coming_soon/under_contract, non-archived) used by internal
+   * portal pickers that may also work with staged rows. The PUBLIC surfaces
+   * MUST pass publicOnly: true so internal Properties never leak.
+   */
+  publicOnly?: boolean
+} = {}): Promise<PropertySummary[]> {
+  const visibilityGuard =
+    opts.publicOnly === true
+      ? sql`and p.is_published = true`
+      : sql`and p.status in ('active', 'coming_soon', 'under_contract')`
+
   const rows = await sql`
     select
       p.id,
@@ -312,11 +327,7 @@ export async function getProperties(): Promise<PropertySummary[]> {
 
     where p.archived_at is null
       and p.slug is not null
-      and p.status in (
-        'active',
-        'coming_soon',
-        'under_contract'
-      )
+      ${visibilityGuard}
 
     order by
       p.featured desc,
@@ -380,6 +391,7 @@ export type PropertyFilterInput = {
 // inventory (so the view dropdown stays stable while filtering).
 export async function getFilteredProperties(
   filters: PropertyFilterInput,
+  execute: QueryExecutor = sql,
 ): Promise<{ properties: PropertySummary[]; viewOptions: string[] }> {
   const category = filters.category ?? 'all'
   const q = (filters.q ?? '').trim().toLowerCase()
@@ -398,7 +410,7 @@ export async function getFilteredProperties(
     'sunset',
   ].includes(viewValue)
 
-  const propertyRows = await sql`
+  const propertyRows = await execute`
     select
       p.id,
       p.name,
@@ -453,7 +465,7 @@ export async function getFilteredProperties(
 
     where p.archived_at is null
       and p.slug is not null
-      and p.status in ('active', 'coming_soon', 'under_contract')
+      and p.is_published = true
 
       and (${category !== 'land'} or lower(coalesce(p.property_type, '')) = 'land')
       and (${category !== 'homes'} or lower(coalesce(p.property_type, '')) <> 'land')
@@ -505,7 +517,7 @@ export async function getFilteredProperties(
       p.created_at desc
   `
 
-  const viewRows = await sql`
+  const viewRows = await execute`
     select
       has_ocean_view,
       has_bay_view,
@@ -518,7 +530,7 @@ export async function getFilteredProperties(
     from property
     where archived_at is null
       and slug is not null
-      and status in ('active', 'coming_soon', 'under_contract')
+      and is_published = true
   `
 
   const viewSet = new Set<string>()
@@ -548,8 +560,9 @@ export async function getSimilarProperties(
     listPrice: number | null
   },
   limit = 3,
+  execute: QueryExecutor = sql,
 ): Promise<PropertySummary[]> {
-  const rows = await sql`
+  const rows = await execute`
     select
       p.id,
       p.name,
@@ -605,7 +618,7 @@ export async function getSimilarProperties(
     where p.id <> ${propertyId}
       and p.archived_at is null
       and p.slug is not null
-      and p.status in ('active', 'coming_soon', 'under_contract')
+      and p.is_published = true
 
     order by
       case when p.property_type = ${current.propertyType} then 0 else 1 end,
@@ -635,13 +648,15 @@ export async function getSimilarProperties(
 // Lightweight public-slug set used by browser-local "Recently Viewed" so
 // stored entries can be checked against currently live listings and stale
 // or missing slugs can be dropped safely.
-export async function getPublicPropertySlugs(): Promise<string[]> {
-  const rows = await sql`
+export async function getPublicPropertySlugs(
+  execute: QueryExecutor = sql,
+): Promise<string[]> {
+  const rows = await execute`
     select slug
     from property
     where archived_at is null
       and slug is not null
-      and status in ('active', 'coming_soon', 'under_contract')
+      and is_published = true
     order by created_at asc
   `
   return (rows as { slug: string }[]).map((row) => row.slug)
@@ -653,9 +668,10 @@ export async function getPublicPropertySlugs(): Promise<string[]> {
    ============================================================ */
 
 export async function getPropertyBySlug(
-  slug: string
+  slug: string,
+  execute: QueryExecutor = sql,
 ): Promise<PropertyDetailResult | null> {
-  const rows = await sql`
+  const rows = await execute`
     select
       p.id,
       p.name,
@@ -756,6 +772,7 @@ export async function getPropertyBySlug(
 
     where p.slug = ${slug}
       and p.archived_at is null
+      and p.is_published = true
 
     limit 1
   `
