@@ -274,10 +274,6 @@ export type StoryRecord = {
   completion: number
   /** Whether the story participates in the workstream rollup. */
   rollup: boolean
-  /** PORTAL-13 — explicit active-engineering-work selection flag. */
-  isActiveWork: boolean
-  /** PORTAL-13 — deterministic active-queue order (null = not active). */
-  activeWorkOrder: number | null
   plannedStartAt: string | null
   actualStartAt: string | null
   completedAt: string | null
@@ -966,25 +962,13 @@ export function buildStoryBoardCockpit(
 }
 
 // ---------------------------------------------------------------------------
-// PORTAL-13 — Active Engineering Queue + copy-packet formatters.
+// PORTAL-13A — copy-packet formatters.
 //
-// Active Queue is a SELECTION (isActiveWork) with a deterministic order
-// (activeWorkOrder) — it never changes story status and never launches work.
-// The copy formatters produce a clean, paste-ready engineering packet for
+// Active Queue membership now lives in storyboard_active_work (a first-class
+// child relation) and is read via db/storyboard.listActiveWork(); the copy
+// formatters below produce a clean, paste-ready engineering packet for
 // ChatGPT/Cline/another engineer. All content comes from canonical rows.
 // ---------------------------------------------------------------------------
-
-/** Active-queue stories, deterministically ordered (activeWorkOrder then id). */
-export function buildActiveQueue(stories: StoryRecord[]): StoryRecord[] {
-  return stories
-    .filter((s) => s.isActiveWork)
-    .sort((a, b) => {
-      const oa = a.activeWorkOrder ?? Number.MAX_SAFE_INTEGER
-      const ob = b.activeWorkOrder ?? Number.MAX_SAFE_INTEGER
-      if (oa !== ob) return oa - ob
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-    })
-}
 
 function section(label: string, value: string | null | undefined): string {
   const v = value?.trim()

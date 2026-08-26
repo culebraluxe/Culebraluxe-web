@@ -22,9 +22,12 @@ import { readFile } from 'node:fs/promises'
 
 import { setDatabaseTestExecutor } from '../../db/client'
 import type { QueryExecutor, QueryRow } from '../../db/query-executor'
-import { setActiveWork, listStoryRuns } from '../../db/storyboard'
 import {
-  buildActiveQueue,
+  listActiveWork,
+  listStoryRuns,
+  setActiveWork,
+} from '../../db/storyboard'
+import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
   formatRunPacket,
@@ -38,12 +41,7 @@ import type { SessionAdapter } from '../../lib/auth/session-adapter'
 
 afterEach(() => setDatabaseTestExecutor(null))
 
-function story(
-  id: string,
-  status: StoryStatus,
-  isActiveWork = false,
-  order: number | null = null,
-): StoryRecord {
+function story(id: string, status: StoryStatus): StoryRecord {
   return {
     id,
     workstream: 'AUTH',
@@ -64,8 +62,6 @@ function story(
     architectBriefUpdatedAt: null,
     completion: 50,
     rollup: true,
-    isActiveWork,
-    activeWorkOrder: order,
     plannedStartAt: null,
     actualStartAt: null,
     completedAt: null,
@@ -107,37 +103,33 @@ function runRow(id: string, storyId: string, startedAt: string): QueryRow {
   }
 }
 
-test('PORTAL-13 A: active-work flag never changes story status', async () => {
+test('PORTAL-13 A: adding/removing Active Work touches only storyboard_active_work', async () => {
   const captured: string[] = []
-  await setActiveWork('AUTH-09', true, captureExecutor(captured))
-  await setActiveWork('AUTH-09', false, captureExecutor(captured))
+  await setActiveWork('AUTH-09', true, 'user-1', captureExecutor(captured))
+  await setActiveWork('AUTH-09', false, 'user-1', captureExecutor(captured))
+  const add = captured.find((s) => /insert into storyboard_active_work/i.test(s))
+  const del = captured.find((s) => /delete from storyboard_active_work/i.test(s))
+  assert.ok(add, 'add inserts into storyboard_active_work')
+  assert.ok(/selected_by_app_user_id/.test(add ?? ''), 'add records selected_by_app_user_id')
+  assert.ok(del, 'remove deletes from storyboard_active_work')
   for (const sql of captured) {
-    assert.ok(/is_active_work/.test(sql), 'update touches is_active_work')
-    assert.ok(/active_work_order/.test(sql), 'update touches active_work_order')
-    assert.ok(!/set\s+status\s*=/.test(sql), 'update must NOT set status')
+    assert.ok(!/update\s+storyboard_story/i.test(sql), 'never updates storyboard_story')
   }
 })
 
-test('PORTAL-13 B: active queue contains only explicitly selected stories', () => {
-  const stories = [
-    story('A-1', 'In Progress', true, 1),
-    story('A-2', 'Planned', true, 2),
-    story('A-3', 'Planned', false),
-    story('A-4', 'Complete', false),
-  ]
-  const queue = buildActiveQueue(stories)
-  assert.deepEqual(queue.map((s) => s.id), ['A-1', 'A-2'])
+test('PORTAL-13 B: active queue membership comes from storyboard_active_work join', async () => {
+  const captured: string[] = []
+  await listActiveWork(captureExecutor(captured))
+  const sql = captured[0]
+  assert.ok(/from storyboard_active_work aw/i.test(sql), 'reads from storyboard_active_work')
+  assert.ok(/join storyboard_story s on s.id = aw.story_id/i.test(sql), 'joins canonical story')
 })
 
-test('PORTAL-13 C: active queue ordering is deterministic', () => {
-  const stories = [
-    story('C-3', 'In Progress', true, 3),
-    story('C-1', 'In Progress', true, 1),
-    story('C-2', 'In Progress', true, null),
-    story('C-4', 'In Progress', true, 2),
-  ]
-  const queue = buildActiveQueue(stories)
-  assert.deepEqual(queue.map((s) => s.id), ['C-1', 'C-4', 'C-3', 'C-2'])
+test('PORTAL-13 C: active queue ordering is work_order then story_id', async () => {
+  const captured: string[] = []
+  await listActiveWork(captureExecutor(captured))
+  const sql = captured[0]
+  assert.ok(/order by aw.work_order, aw.story_id/i.test(sql), 'deterministic order by work_order, story_id')
 })
 
 test('PORTAL-13 D: selected parent detail uses canonical storyboard_story fields', () => {
@@ -276,6 +268,70 @@ test('PORTAL-13 K: cockpit KPI counts remain canonical', () => {
   assert.equal(cockpit.kpis.backlog, 1)
   assert.equal(cockpit.kpis.complete, 1)
   assert.equal(cockpit.kpis.nextVersion, 1)
+})
+
+test('PORTAL-13 G: Active Queue KPI counts storyboard_active_work rows', async () => {
+  const page = await readFile(new URL('../../app/portal/tech/page.tsx', import.meta.url), 'utf8')
+  const cockpit = await readFile(
+    new URL('../../components/portal/tech/engineering-cockpit.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(page.includes('listActiveWork'), 'page reads the active-work relation')
+  assert.ok(
+    /Active queue[\s\S]*activeQueue\.length/.test(cockpit),
+    'active KPI derives from the active-queue count',
+  )
+  assert.ok(!/is_active_work/.test(page), 'KPI no longer counts a story flag')
+})
+
+test('PORTAL-13 I: no canonical story fields are duplicated into storyboard_active_work', async () => {
+  const migration = await readFile(
+    new URL('../../db/migrations/085_storyboard_active_work.sql', import.meta.url),
+    'utf8',
+  )
+  const create = migration.split('create table')[1]?.split(';')[0] ?? ''
+  const nonMembership = [
+    'title',
+    'status',
+    'priority',
+    'completion',
+    'workstream',
+    'goal',
+    'scope',
+    'architect_brief',
+    'acceptance_criteria',
+    'notes',
+    'operating_surface',
+  ]
+  for (const col of nonMembership) {
+    assert.ok(!new RegExp(`\\b${col}\\b`).test(create), `must NOT duplicate ${col}`)
+  }
+  assert.ok(/story_id/.test(create), 'has story_id PK')
+  assert.ok(/work_order/.test(create), 'has work_order')
+  assert.ok(/selected_at/.test(create), 'has selected_at')
+})
+
+test('PORTAL-13 J: selected_at is persisted on the relation', async () => {
+  const src = await readFile(new URL('../../db/storyboard.ts', import.meta.url), 'utf8')
+  assert.ok(/insert into storyboard_active_work[\s\S]*selected_at/.test(src), 'insert persists selected_at')
+})
+
+test('PORTAL-13 K: selected_by_app_user_id uses the ActingUser', async () => {
+  const action = await readFile(new URL('../../app/portal/tech/actions.ts', import.meta.url), 'utf8')
+  assert.ok(
+    /setActiveWork\(storyId, active, access\.ok \? access\.actor\.appUserId : null\)/.test(action),
+    'action passes the acting user id',
+  )
+})
+
+test('PORTAL-13 M: run_type / agent_runtime from migration 084 remain intact', async () => {
+  const migration = await readFile(
+    new URL('../../db/migrations/085_storyboard_active_work.sql', import.meta.url),
+    'utf8',
+  )
+  const sql = migration.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.ok(!/storyboard_story_run/.test(sql), '085 SQL must not touch storyboard_story_run')
+  assert.ok(!/run_type/.test(sql), '085 SQL must not drop run_type')
 })
 
 test('PORTAL-13 L: TECH route remains tech.access protected', async () => {

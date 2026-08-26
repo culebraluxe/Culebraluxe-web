@@ -20,5 +20,5 @@ export async function setActiveWorkAction(formData: FormData): Promise<void> {
   const storyId = String(formData.get("storyId") ?? "").trim()
   const active = formData.get("active") === "true"
   if (!storyId) return
-  await setActiveWork(storyId, active)
+  await setActiveWork(storyId, active, access.ok ? access.actor.appUserId : null)
 }

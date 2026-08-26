@@ -125,7 +125,7 @@ function ActiveQueue({
   )
 }
 
-function StoryDetail({ story }: { story: StoryRecord }) {
+function StoryDetail({ story, isActive }: { story: StoryRecord; isActive: boolean }) {
   const domain = storyDomainOf(story)
   const domainLabel = domain === 'UNCLASSIFIED' ? 'UNCLASSIFIED' : storyDomainName(domain)
   const spec = [
@@ -188,16 +188,16 @@ function StoryDetail({ story }: { story: StoryRecord }) {
         </dl>
         <form action={setActiveWorkAction} className="mt-2.5">
           <input type="hidden" name="storyId" value={story.id} />
-          <input type="hidden" name="active" value={story.isActiveWork ? 'false' : 'true'} />
+          <input type="hidden" name="active" value={isActive ? 'false' : 'true'} />
           <button
             type="submit"
             className={`inline-flex min-h-8 items-center rounded-md border px-3 text-[10px] font-light uppercase tracking-[0.12em] transition ${
-              story.isActiveWork
+              isActive
                 ? 'border-[var(--portal-gold)]/40 text-[var(--portal-gold-soft)] hover:border-[var(--portal-gold)]'
                 : 'border-white/15 text-[var(--portal-on-navy)] hover:border-[var(--portal-gold)]/50 hover:text-[var(--portal-gold-soft)]'
             }`}
           >
-            {story.isActiveWork ? 'Remove from Active' : 'Add to Active'}
+            {isActive ? 'Remove from Active' : 'Add to Active'}
           </button>
         </form>
       </div>
@@ -323,12 +323,14 @@ export function EngineeringCockpit({
   cockpit,
   activeQueue,
   selectedStory,
+  selectedIsActive,
   runs,
   freshness,
 }: {
   cockpit: StoryBoardCockpitData
   activeQueue: StoryRecord[]
   selectedStory: StoryRecord | null
+  selectedIsActive: boolean
   runs: StoryRun[]
   freshness: string
 }) {
@@ -383,7 +385,7 @@ export function EngineeringCockpit({
           <ActiveQueue activeQueue={activeQueue} selectedId={selectedStory?.id ?? null} />
           <div className="flex flex-col gap-2.5">
             {selectedStory ? (
-              <StoryDetail story={selectedStory} />
+              <StoryDetail story={selectedStory} isActive={selectedIsActive} />
             ) : (
               <section className="flex min-h-[9rem] items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 text-center">
                 <p className="max-w-md text-sm font-light leading-6 text-[var(--portal-on-navy)]/70">

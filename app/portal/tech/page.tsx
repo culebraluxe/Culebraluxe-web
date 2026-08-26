@@ -5,11 +5,11 @@ import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import {
-  buildActiveQueue,
   buildStoryBoardCockpit,
   buildStoryBoardModel,
 } from "@/lib/storyboard-data"
 import {
+  listActiveWork,
   listStoryExecutionSummaries,
   listStoryRuns,
   listStoryboardStories,
@@ -51,13 +51,18 @@ export default async function TechPage({
 
   const model = buildStoryBoardModel(withExecution)
   const cockpit = buildStoryBoardCockpit(model)
-  const activeQueue = buildActiveQueue(withExecution)
+  // Active Queue membership comes from storyboard_active_work (joined to the
+  // canonical story). KPI active count = row count of that relation.
+  const activeQueue = await listActiveWork()
 
   const validId =
     selectedId && withExecution.some((s) => s.id === selectedId) ? selectedId : null
   const selectedStory = validId
     ? (withExecution.find((s) => s.id === validId) ?? null)
     : null
+  const selectedIsActive = validId
+    ? activeQueue.some((s) => s.id === validId)
+    : false
   // Bounded: only the selected story's run rows (not all runs for all stories).
   const runs = validId ? await listStoryRuns(validId) : []
   const freshness =
@@ -69,6 +74,7 @@ export default async function TechPage({
       cockpit={cockpit}
       activeQueue={activeQueue}
       selectedStory={selectedStory}
+      selectedIsActive={selectedIsActive}
       runs={runs}
       freshness={freshness}
     />
