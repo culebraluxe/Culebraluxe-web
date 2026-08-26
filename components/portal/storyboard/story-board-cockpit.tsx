@@ -1,0 +1,215 @@
+import Link from "next/link"
+
+import {
+  LIFECYCLE_META,
+  type CockpitPanel,
+  type StoryBoardCockpitData,
+  type StoryRecord,
+} from "@/lib/storyboard-data"
+import { statusPillClasses } from "@/components/portal/storyboard/story-detail-sections"
+
+// ---------------------------------------------------------------------------
+// PORTAL-12 — Story Board Operating Cockpit.
+//
+// Server-rendered glass operating cockpit: a top KPI strip + a 2×2 lifecycle
+// layout (OPEN / BACKLOG / CLOSED / NEXT VERSION). Every value comes from the
+// canonical Story Board projection (buildStoryBoardCockpit); no second state
+// system and no status reinterpretation. CLOSED is intentionally subdued so
+// history never dominates the current work queue. Each panel scrolls within its
+// own bounded region.
+// ---------------------------------------------------------------------------
+
+function KpiCard({
+  label,
+  value,
+  note,
+  accent = false,
+}: {
+  label: string
+  value: string
+  note?: string
+  accent?: boolean
+}) {
+  return (
+    <div
+      className={`rounded-[var(--portal-panel-radius)] border ${
+        accent
+          ? "border-[var(--portal-gold)]/40 [background:var(--portal-feature-gradient)] text-white shadow-[var(--portal-feature-shadow)]"
+          : "border-[var(--portal-panel-border)] bg-white text-[var(--portal-navy)] shadow-[var(--portal-panel-shadow)]"
+      } p-5`}
+    >
+      <div
+        className={`text-[10px] font-light uppercase tracking-[0.18em] ${
+          accent ? "text-[var(--portal-feature-eyebrow)]" : "text-[var(--portal-blue-gray)]"
+        }`}
+      >
+        {label}
+      </div>
+      <div className="mt-2 font-serif text-3xl font-light leading-none tabular-nums">
+        {value}
+      </div>
+      {note && (
+        <div
+          className={`mt-2 text-xs font-light leading-5 ${accent ? "text-white/55" : "text-black/40"}`}
+        >
+          {note}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StoryMiniCard({ story, subdued }: { story: StoryRecord; subdued?: boolean }) {
+  return (
+    <Link
+      href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
+      className={`group block rounded-md border ${
+        subdued ? "border-black/5 bg-black/[0.02]" : "border-[var(--portal-border)] bg-white/60"
+      } p-3 transition hover:border-[var(--portal-gold)]/50`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className={`font-mono text-[11px] ${subdued ? "text-black/35" : "text-[var(--portal-navy)]"}`}>
+            {story.id}
+          </div>
+          <div
+            className={`mt-0.5 line-clamp-2 text-sm font-light leading-5 ${
+              subdued ? "text-black/45" : "text-black/70"
+            }`}
+          >
+            {story.title}
+          </div>
+        </div>
+        <span
+          className={`inline-block shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
+            subdued ? "border border-black/10 text-black/35" : statusPillClasses(story.status)
+          }`}
+        >
+          {story.status}
+        </span>
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-3">
+        <span
+          className={`text-[10px] font-light uppercase tracking-[0.12em] ${
+            subdued ? "text-black/30" : "text-black/40"
+          }`}
+        >
+          {story.priority}
+        </span>
+        <div className="flex min-w-24 items-center gap-2">
+
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-black/10">
+            <div
+              className={`h-full rounded-full ${subdued ? "bg-black/25" : "bg-[var(--portal-navy)]"}`}
+              style={{ width: `${Math.max(0, Math.min(100, story.completion))}%` }}
+            />
+          </div>
+          <span
+            className={`text-[10px] font-light tabular-nums ${subdued ? "text-black/30" : "text-black/50"}`}
+          >
+            {Math.round(story.completion)}%
+          </span>
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+function LifecyclePanel({
+  panel,
+  subdued,
+  attention,
+}: {
+  panel: CockpitPanel
+  subdued?: boolean
+  attention?: boolean
+}) {
+  const meta = LIFECYCLE_META.find((m) => m.bucket === panel.bucket)!
+  return (
+    <section
+      className={`overflow-hidden rounded-[var(--portal-panel-radius)] ${
+        attention ? "portal-glass-panel-attention" : "portal-glass-panel"
+      } ${subdued ? "opacity-90" : ""}`}
+    >
+      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--portal-border)] px-5 py-4">
+        <div>
+          <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+            {meta.eyebrow}
+          </div>
+          <h2
+            className={`mt-0.5 font-serif text-xl font-light leading-none ${
+              subdued ? "text-black/55" : "text-[var(--portal-navy)]"
+            }`}
+          >
+            {meta.title}
+          </h2>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 font-serif text-sm font-light tabular-nums ${
+            attention
+              ? "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]"
+              : "border border-[var(--portal-border)] text-black/50"
+          }`}
+        >
+          {panel.count}
+        </span>
+      </div>
+
+      <div className="max-h-[26rem] overflow-y-auto p-3">
+        {panel.groups.length === 0 ? (
+          <p className="px-3 py-8 text-center text-xs font-light italic text-black/35">
+            No {meta.title.toLowerCase()} stories right now.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {panel.groups.map((group) => (
+              <div key={group.group}>
+                <div
+                  className={`mb-2 px-1 text-[10px] font-light uppercase tracking-[0.2em] ${
+                    subdued ? "text-black/30" : "text-[var(--portal-navy-soft)]"
+                  }`}
+                >
+                  {group.group}
+                </div>
+                <div className="space-y-2">
+                  {group.stories.map((story) => (
+                    <StoryMiniCard key={story.id} story={story} subdued={subdued} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+export function StoryBoardCockpit({ cockpit }: { cockpit: StoryBoardCockpitData }) {
+  const { kpis } = cockpit
+  return (
+    <div>
+      {/* KPI strip — canonical Story Board values. */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <KpiCard label="Total stories" value={String(kpis.total)} note="All canonical board rows" />
+        <KpiCard label="Open" value={String(kpis.open)} accent note="Current work queue" />
+        <KpiCard label="Backlog" value={String(kpis.backlog)} note="Current-version planned" />
+        <KpiCard label="Blocked / Hold" value={String(kpis.blockedHold)} accent note="Attention required" />
+        <KpiCard label="Complete" value={String(kpis.complete)} note="Finished history" />
+        <KpiCard
+          label="Completion"
+          value={`${kpis.completionPercent.toFixed(1)}%`}
+          note="Net-net of the five domains"
+        />
+      </div>
+
+      {/* 2×2 lifecycle cockpit — OPEN, BACKLOG, CLOSED, NEXT VERSION. */}
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <LifecyclePanel panel={cockpit.panels.open} attention />
+        <LifecyclePanel panel={cockpit.panels.backlog} />
+        <LifecyclePanel panel={cockpit.panels.closed} subdued />
+        <LifecyclePanel panel={cockpit.panels['next-version']} />
+      </div>
+    </div>
+  )
+}

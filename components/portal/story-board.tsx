@@ -8,8 +8,10 @@ import {
   isExecutionActive,
   isExecutionError,
 } from "@/lib/storyboard-data"
+import { buildStoryBoardCockpit } from "@/lib/storyboard-data"
 import { StoryBoardControls } from "@/components/portal/storyboard/story-board-controls"
 import { StoryBoardTable } from "@/components/portal/write/story-board-table"
+import { StoryBoardCockpit } from "@/components/portal/storyboard/story-board-cockpit"
 import { statusPillClasses } from "@/components/portal/storyboard/story-detail-sections"
 import Link from "next/link"
 import {
@@ -445,13 +447,7 @@ export function StoryBoard({
         </p>
       </header>
 
-      <SummaryStrip model={model} />
-
-      <section className="mt-8 space-y-6">
-        {model.domains.map((d) => (
-          <DomainRollupSection key={d.domain} domain={d} />
-        ))}
-      </section>
+      <StoryBoardCockpit cockpit={buildStoryBoardCockpit(model)} />
 
       <NextWorkSection selection={nextWork} />
 

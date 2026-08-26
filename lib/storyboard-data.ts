@@ -837,3 +837,126 @@ export function buildStoryBoardModel(stories: StoryRecord[]): StoryBoardModel {
     ).length,
   }
 }
+
+// ---------------------------------------------------------------------------
+// PORTAL-12 — Story Board Operating Cockpit projection.
+//
+// One bounded, framework-free read projection for the operating cockpit page.
+// It derives everything (KPI values, lifecycle classification, domain grouping,
+// deterministic story order) from the canonical Story Board model — no second
+// state system, no status reinterpretation at the UI layer. Each stored status
+// maps to exactly ONE lifecycle bucket so a story appears in exactly one panel.
+// ---------------------------------------------------------------------------
+
+export type StoryLifecycle = 'open' | 'backlog' | 'closed' | 'next-version'
+
+export const LIFECYCLE_META: ReadonlyArray<{
+  bucket: StoryLifecycle
+  title: string
+  eyebrow: string
+}> = [
+  { bucket: 'open', title: 'Open', eyebrow: 'Current work queue' },
+  { bucket: 'backlog', title: 'Backlog', eyebrow: 'Current-version waiting' },
+  { bucket: 'closed', title: 'Closed', eyebrow: 'Finished history' },
+  { bucket: 'next-version', title: 'Next Version', eyebrow: 'Intentionally future' },
+]
+
+/**
+ * Deterministic lifecycle classification of a stored status. Canonical story
+ * status remains authoritative; this layer only maps it into a panel bucket:
+ *   OPEN        — In Progress, Partial, Ready, Blocked, Hold, Failed
+ *   BACKLOG     — Planned
+ *   CLOSED      — Complete
+ *   NEXT VERSION — Deferred
+ * Every status in STORY_STATUSES is covered exactly once (a story appears in
+ * exactly one panel).
+ */
+const LIFECYCLE_BY_STATUS: Record<StoryStatus, StoryLifecycle> = {
+  'In Progress': 'open',
+  Partial: 'open',
+  Ready: 'open',
+  Blocked: 'open',
+  Hold: 'open',
+  Failed: 'open',
+  Planned: 'backlog',
+  Complete: 'closed',
+  Deferred: 'next-version',
+}
+
+export function storyLifecycleOf(status: string): StoryLifecycle {
+  return LIFECYCLE_BY_STATUS[status as StoryStatus] ?? 'open'
+}
+
+export type CockpitGroup = {
+  group: string
+  stories: StoryRecord[]
+}
+
+export type CockpitPanel = {
+  bucket: StoryLifecycle
+  groups: CockpitGroup[]
+  count: number
+}
+
+export type StoryBoardCockpitData = {
+  kpis: {
+    total: number
+    open: number
+    backlog: number
+    blockedHold: number
+    complete: number
+    nextVersion: number
+    completionPercent: number
+  }
+  panels: Record<StoryLifecycle, CockpitPanel>
+}
+
+/** Build the cockpit projection from the canonical Story Board model. */
+export function buildStoryBoardCockpit(
+  model: StoryBoardModel,
+): StoryBoardCockpitData {
+  const byLifecycle: Record<StoryLifecycle, StoryRecord[]> = {
+    open: [],
+    backlog: [],
+    closed: [],
+    'next-version': [],
+  }
+  for (const s of model.stories) {
+    byLifecycle[storyLifecycleOf(s.status)].push(s)
+  }
+
+  const panels = {} as Record<StoryLifecycle, CockpitPanel>
+  for (const meta of LIFECYCLE_META) {
+    const grouped = new Map<string, StoryRecord[]>()
+    for (const s of byLifecycle[meta.bucket]) {
+      const g = storySubgroupOf(s)
+      const list = grouped.get(g) ?? []
+      list.push(s)
+      grouped.set(g, list)
+    }
+    const groups: CockpitGroup[] = [...grouped.entries()]
+      .map(([group, stories]) => ({
+        group,
+        stories: [...stories].sort((a, b) =>
+          a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+        ),
+      }))
+      .sort((a, b) => a.group.localeCompare(b.group))
+    panels[meta.bucket] = { bucket: meta.bucket, groups, count: byLifecycle[meta.bucket].length }
+  }
+
+  return {
+    kpis: {
+      total: model.totalStories,
+      open: byLifecycle.open.length,
+      backlog: byLifecycle.backlog.length,
+      blockedHold: model.stories.filter(
+        (s) => s.status === 'Blocked' || s.status === 'Hold',
+      ).length,
+      complete: byLifecycle.closed.length,
+      nextVersion: byLifecycle['next-version'].length,
+      completionPercent: model.netNet,
+    },
+    panels,
+  }
+}
