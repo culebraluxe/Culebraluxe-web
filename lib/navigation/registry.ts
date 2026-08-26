@@ -98,22 +98,30 @@ export const OPERATING_SURFACES: Record<
     label: 'TECH',
     description:
       'Engineering and platform capability — Forge, Story Board, workflow engineering, MQ/replay, integration checkpoints and engineering evidence.',
-    home: '/portal/storyboard',
+    // Accessing TECH requires tech.access (ROOT only). Non-tech actors (e.g.
+    // BUSINESS_POWER) must not see it in nav and must not open TECH routes.
+    accessAuthority: 'tech.access',
+    home: '/portal/tech',
     items: [
+      {
+        label: 'Tech Overview',
+        href: '/portal/tech',
+        authority: 'tech.access',
+      },
       {
         label: 'Command Center',
         href: '/portal/command-center',
-        authority: 'portal.read',
+        authority: 'tech.access',
       },
-      { label: 'Story Board', href: '/portal/storyboard', authority: 'portal.read' },
+      { label: 'Story Board', href: '/portal/storyboard', authority: 'tech.access' },
       {
         label: 'Command Console',
         href: '/portal/command-console',
-        authority: 'portal.read',
+        authority: 'tech.access',
       },
-      { label: 'UI Lab', href: '/portal/design-lab', authority: 'portal.read' },
-      { label: 'DB Test', href: '/portal/db-test', authority: 'portal.read' },
-      { label: 'Media Test', href: '/portal/media-test', authority: 'portal.read' },
+      { label: 'UI Lab', href: '/portal/design-lab', authority: 'tech.access' },
+      { label: 'DB Test', href: '/portal/db-test', authority: 'tech.access' },
+      { label: 'Media Test', href: '/portal/media-test', authority: 'tech.access' },
     ],
   },
   SUPPORT: {

@@ -18,6 +18,7 @@ export type AuthorityCode =
   | 'deal.write'
   | 'settings.read'
   | 'settings.manage'
+  | 'tech.access'
   | 'external.properties.save'
   | 'external.deal.read_own'
 

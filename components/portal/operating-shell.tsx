@@ -54,7 +54,10 @@ export function OperatingShell({
     (item) => !item.authority || actor.authorityCodes.includes(item.authority),
   )
 
-  // Exact display order: CORE | OPPS | SUPPORT | TECH.
+  // Exact display order: CORE | OPPS | SUPPORT | TECH. A surface with an
+  // accessAuthority (e.g. TECH → tech.access) is hidden from the Tier-1 nav for
+  // actors lacking it. Cosmetic UI gating only — the security boundary stays the
+  // server-side guards.
   const tier1Items: Array<{
     key: string
     label: string
@@ -67,7 +70,11 @@ export function OperatingShell({
       href: surfaceHome('NEXUS'),
       external: false,
     },
-    ...OPERATING_SURFACE_ORDER.filter((s) => s !== 'NEXUS').map((s) => ({
+    ...OPERATING_SURFACE_ORDER.filter((s) => {
+      if (s === 'NEXUS') return false
+      const def = OPERATING_SURFACES[s]
+      return !def.accessAuthority || actor.authorityCodes.includes(def.accessAuthority)
+    }).map((s) => ({
       key: s,
       label: OPERATING_SURFACES[s].label,
       href: surfaceHome(s),

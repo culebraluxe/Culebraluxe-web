@@ -32,6 +32,12 @@ export type OperatingSurfaceDefinition = {
   label: string
   /** One-line description of the operating world. */
   description: string
+  /**
+   * Optional authority required to even SEE the Tier-1 surface capsule (e.g.
+   * TECH requires tech.access). Cosmetic UI gating only — the security boundary
+   * remains the server-side guards; hiding nav is never security enforcement.
+   */
+  accessAuthority?: AuthorityCode
   /** Landing destination when the surface is selected (portal.read reachable). */
   home: string
   /** Tier-2 contextual navigation (existing routes only). */
