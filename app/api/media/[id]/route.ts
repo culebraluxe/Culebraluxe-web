@@ -1,16 +1,21 @@
 import { sql } from "@/db/client"
-import { guardPortalUpload } from "@/lib/auth/portal-session"
+import { getToken } from "next-auth/jwt"
 
 // ---------------------------------------------------------------------------
-// HARDEN-05 — Public media inherits Property publication state.
+// HARDEN-05 + AUTH-BOUNDARY — Public media inherits Property publication state.
 //
 // PROPERTY OWNS PUBLICATION STATE; listing media does not carry independent
 // public state. A media asset is publicly reachable only when every Property
 // it is linked to (via property_media) is published (is_published = true) and
 // not archived. Media with no Property link is not listing media and remains
-// reachable. Authenticated portal viewers (portal.read) may still fetch
-// internal-Property media; that internal traffic is cached `private` so it can
-// never leak through a public/CDN cache.
+// reachable.
+//
+// AUTH-BOUNDARY — this is a PUBLIC route. It must never construct Auth.js or
+// depend on Portal security modules, so a broken Auth.js configuration (e.g.
+// MissingSecret) cannot take down public media. The authenticated-portal
+// escape hatch is implemented with the lightweight JWT decoder (next-auth/jwt)
+// only — no `@/auth` import, no database identity lookup. When AUTH_SECRET is
+// absent (or decoding fails) we fail closed to the publication gate.
 // ---------------------------------------------------------------------------
 
 export async function GET(
@@ -19,14 +24,15 @@ export async function GET(
 ) {
   const { id } = await context.params
 
-  // Authenticated portal escape hatch. On any failure (anonymous, wrong
-  // authority, or unexpected) we fail closed to the public publication gate.
+  // Authenticated portal escape hatch — JWT-only. Does NOT initialize Auth.js
+  // and does not hit the DB, so it cannot affect public media when the Portal
+  // auth subsystem is broken. Any authenticated session (portal.read holder)
+  // may fetch internal-Property media; anonymous requests use the gate below.
+  const secret = process.env.AUTH_SECRET
   let authed = false
-  try {
-    const guard = await guardPortalUpload("portal.read")
-    authed = guard.ok
-  } catch {
-    authed = false
+  if (secret) {
+    const token = await getToken({ req: request, secret }).catch(() => null)
+    authed = Boolean(token?.sub)
   }
 
   const result = await sql`
