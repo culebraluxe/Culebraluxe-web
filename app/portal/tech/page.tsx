@@ -1,48 +1,76 @@
-import type { ReactNode } from "react"
 import { redirect } from "next/navigation"
 
+import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
+import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
+import {
+  buildActiveQueue,
+  buildStoryBoardCockpit,
+  buildStoryBoardModel,
+} from "@/lib/storyboard-data"
+import {
+  listStoryExecutionSummaries,
+  listStoryRuns,
+  listStoryboardStories,
+} from "@/db/storyboard"
 
 export const dynamic = "force-dynamic"
 
-// AUTH-09E — TECH operating-world landing. Requires tech.access (ROOT only).
-// The /portal layout already requires portal.read for the whole portal; this
-// page adds the TECH-only authority. Non-tech actors (BUSINESS_POWER) are
-// redirected to /login/unauthorized even on a direct URL. Nav hiding is cosmetic;
-// this server-side guard is the security boundary.
-export default async function TechPage() {
-  const result = await resolvePortalAccess(
+// PORTAL-13 — TECH / Engineering Cockpit landing page. Requires tech.access
+// (ROOT only); non-tech actors are redirected to /login/unauthorized even on a
+// direct URL. Loads one bounded projection (stories + execution summary + the
+// selected story's runs) — never N+1 run queries for the whole board.
+export default async function TechPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
+  const access = await resolvePortalAccess(
     createAuthJsSessionAdapter(),
     "tech.access",
   )
-  if (!result.ok) redirect(result.redirectTo)
+  if (!access.ok) redirect(access.redirectTo)
+
+  const params = await searchParams
+  const selectedId = typeof params.story === "string" ? params.story : null
+
+  const [stories, executions] = await Promise.all([
+    listStoryboardStories(),
+    listStoryExecutionSummaries(),
+  ])
+  if (!stories) {
+    return <StoryBoardNotReady />
+  }
+
+  const execMap = new Map(executions.map((e) => [e.storyId, e]))
+  const withExecution = stories.map((s) => ({
+    ...s,
+    execution: execMap.get(s.id) ?? null,
+  }))
+
+  const model = buildStoryBoardModel(withExecution)
+  const cockpit = buildStoryBoardCockpit(model)
+  const activeQueue = buildActiveQueue(withExecution)
+
+  const validId =
+    selectedId && withExecution.some((s) => s.id === selectedId) ? selectedId : null
+  const selectedStory = validId
+    ? (withExecution.find((s) => s.id === validId) ?? null)
+    : null
+  // Bounded: only the selected story's run rows (not all runs for all stories).
+  const runs = validId ? await listStoryRuns(validId) : []
+  const freshness =
+    withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
+    new Date().toISOString()
 
   return (
-    <div className="max-w-3xl">
-      <h1 className="font-serif text-2xl font-light text-[var(--portal-ink)]">
-        TECH Overview
-      </h1>
-      <p className="mt-2 text-sm font-light leading-6 text-[var(--portal-ink)]/60">
-        Engineering and platform capability. This surface requires the{" "}
-        <code>tech.access</code> authority and is restricted to ROOT actors.
-      </p>
-      <div className="mt-6 rounded-sm border border-black/10 bg-white p-6 text-sm font-light text-[var(--portal-ink)]/70">
-        <dl className="space-y-2">
-          <div className="flex justify-between">
-            <dt className="text-black/60">Actor</dt>
-            <dd>{result.actor.displayName}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-black/60">Role</dt>
-            <dd>{result.actor.roleCodes.join(", ") || "—"}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-black/60">tech.access</dt>
-            <dd>granted</dd>
-          </div>
-        </dl>
-      </div>
-    </div>
+    <EngineeringCockpit
+      cockpit={cockpit}
+      activeQueue={activeQueue}
+      selectedStory={selectedStory}
+      runs={runs}
+      freshness={freshness}
+    />
   )
 }

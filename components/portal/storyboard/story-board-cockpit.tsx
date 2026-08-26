@@ -19,7 +19,7 @@ import { statusPillClasses } from "@/components/portal/storyboard/story-detail-s
 // own bounded region.
 // ---------------------------------------------------------------------------
 
-function KpiCard({
+export function KpiCard({
   label,
   value,
   note,
@@ -185,31 +185,43 @@ function LifecyclePanel({
   )
 }
 
+export function StoryBoardKpiStrip({ kpis }: { kpis: StoryBoardCockpitData['kpis'] }) {
+  return (
+    <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <KpiCard label="Total stories" value={String(kpis.total)} note="All canonical board rows" />
+      <KpiCard label="Open" value={String(kpis.open)} accent note="Current work queue" />
+      <KpiCard label="Backlog" value={String(kpis.backlog)} note="Current-version planned" />
+      <KpiCard label="Blocked / Hold" value={String(kpis.blockedHold)} accent note="Attention required" />
+      <KpiCard label="Complete" value={String(kpis.complete)} note="Finished history" />
+      <KpiCard
+        label="Completion"
+        value={`${kpis.completionPercent.toFixed(1)}%`}
+        note="Net-net of the five domains"
+      />
+    </div>
+  )
+}
+
+export function StoryBoardLifecycleGrid({
+  panels,
+}: {
+  panels: StoryBoardCockpitData['panels']
+}) {
+  return (
+    <div className="mt-6 grid gap-5 lg:grid-cols-2">
+      <LifecyclePanel panel={panels.open} attention />
+      <LifecyclePanel panel={panels.backlog} />
+      <LifecyclePanel panel={panels.closed} subdued />
+      <LifecyclePanel panel={panels['next-version']} />
+    </div>
+  )
+}
+
 export function StoryBoardCockpit({ cockpit }: { cockpit: StoryBoardCockpitData }) {
-  const { kpis } = cockpit
   return (
     <div>
-      {/* KPI strip — canonical Story Board values. */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Total stories" value={String(kpis.total)} note="All canonical board rows" />
-        <KpiCard label="Open" value={String(kpis.open)} accent note="Current work queue" />
-        <KpiCard label="Backlog" value={String(kpis.backlog)} note="Current-version planned" />
-        <KpiCard label="Blocked / Hold" value={String(kpis.blockedHold)} accent note="Attention required" />
-        <KpiCard label="Complete" value={String(kpis.complete)} note="Finished history" />
-        <KpiCard
-          label="Completion"
-          value={`${kpis.completionPercent.toFixed(1)}%`}
-          note="Net-net of the five domains"
-        />
-      </div>
-
-      {/* 2×2 lifecycle cockpit — OPEN, BACKLOG, CLOSED, NEXT VERSION. */}
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <LifecyclePanel panel={cockpit.panels.open} attention />
-        <LifecyclePanel panel={cockpit.panels.backlog} />
-        <LifecyclePanel panel={cockpit.panels.closed} subdued />
-        <LifecyclePanel panel={cockpit.panels['next-version']} />
-      </div>
+      <StoryBoardKpiStrip kpis={cockpit.kpis} />
+      <StoryBoardLifecycleGrid panels={cockpit.panels} />
     </div>
   )
 }

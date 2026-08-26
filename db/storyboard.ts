@@ -38,6 +38,11 @@ export type StoryboardStory = {
   architectBriefUpdatedAt: string | null
   completion: number
   rollup: boolean
+  /** Explicit "selected active engineering work" flag (PORTAL-13). A selection
+   *  flag only — it never changes story status. */
+  isActiveWork: boolean
+  /** Deterministic active-queue ordering (PORTAL-13). */
+  activeWorkOrder: number | null
   plannedStartAt: string | null
   actualStartAt: string | null
   completedAt: string | null
@@ -92,6 +97,8 @@ export type StoryRow = QueryRow & {
   architect_brief_updated_at: string | null
   completion: number
   rollup: boolean
+  is_active_work: boolean | null
+  active_work_order: number | null
   planned_start_at: string | null
   actual_start_at: string | null
   completed_at: string | null
@@ -141,6 +148,8 @@ export function mapStory(row: StoryRow): StoryboardStory {
     architectBriefUpdatedAt: dateOrNull(row.architect_brief_updated_at),
     completion: row.completion,
     rollup: row.rollup,
+    isActiveWork: row.is_active_work ?? false,
+    activeWorkOrder: row.active_work_order ?? null,
     plannedStartAt: dateOrNull(row.planned_start_at),
     actualStartAt: dateOrNull(row.actual_start_at),
     completedAt: dateOrNull(row.completed_at),
@@ -171,7 +180,8 @@ export async function listStoryboardStories(
       batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
-      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      completion, rollup, is_active_work, active_work_order,
+      planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
     from storyboard_story
     order by workstream, id
@@ -244,7 +254,8 @@ export async function getStoryboardStory(
       batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
-      completion, rollup, planned_start_at, actual_start_at, completed_at,
+      completion, rollup, is_active_work, active_work_order,
+      planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
     from storyboard_story
     where id = ${storyId}
@@ -380,12 +391,65 @@ export async function setStoryboardStatus(
 // Execution runs (storyboard_story_run)
 // ---------------------------------------------------------------------------
 
+/**
+ * PORTAL-13 — Active Queue selection seam. Selecting a story for Active Work is
+ * an INTENT flag only: it never changes story status, never touches Forge run
+ * state, never creates an agent work item, and never launches work. Adding a
+ * story appends it (max+1 order); removing clears the flag and order.
+ */
+export async function setActiveWork(
+  storyId: string,
+  active: boolean,
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  if (active) {
+    await q`
+      update storyboard_story
+      set is_active_work = true,
+          active_work_order = coalesce((
+            select max(s2.active_work_order) from storyboard_story s2
+            where s2.is_active_work = true
+          ), 0) + 1,
+          updated_at = now()
+      where id = ${storyId}
+    `
+  } else {
+    await q`
+      update storyboard_story
+      set is_active_work = false,
+          active_work_order = null,
+          updated_at = now()
+      where id = ${storyId}
+    `
+  }
+}
+
+/** PORTAL-13 — deterministic active-queue reorder by explicit id order. */
+export async function reorderActiveWork(
+  ids: string[],
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  for (let i = 0; i < ids.length; i++) {
+    await q`
+      update storyboard_story
+      set active_work_order = ${i + 1}, updated_at = now()
+      where id = ${ids[i]} and is_active_work = true
+    `
+  }
+}
+
 export type StoryRun = {
   id: string
   storyId: string
   startedAt: string
   endedAt: string | null
   resultStatus: string | null
+  /** Run classification (ARCHITECTURE | IMPLEMENTATION | VERIFICATION). */
+  runType: string | null
+  /** Agent / runtime identity (e.g. DeepSeek | Cline | Forge profile). */
+  agentRuntime: string | null
   completion: number | null
   notes: string | null
   commitHash: string | null
@@ -418,6 +482,8 @@ type RunRow = QueryRow & {
   started_at: string
   ended_at: string | null
   result_status: string | null
+  run_type: string | null
+  agent_runtime: string | null
   completion: number | null
   notes: string | null
   commit_hash: string | null
@@ -440,6 +506,8 @@ function mapRun(row: RunRow): StoryRun {
     startedAt: dateOrNull(row.started_at) ?? '',
     endedAt: dateOrNull(row.ended_at),
     resultStatus: row.result_status,
+    runType: row.run_type ?? null,
+    agentRuntime: row.agent_runtime ?? null,
     completion: row.completion,
     notes: row.notes,
     commitHash: row.commit_hash,
@@ -475,7 +543,8 @@ export async function listStoryboardRuns(
   if (!ready) return null
 
   const rows = await q`
-    select id, story_id, started_at, ended_at, result_status, completion,
+    select id, story_id, started_at, ended_at, result_status, run_type,
+      agent_runtime, completion,
       notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
@@ -493,7 +562,8 @@ export async function listStoryRuns(
 ): Promise<StoryRun[]> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select id, story_id, started_at, ended_at, result_status, completion,
+    select id, story_id, started_at, ended_at, result_status, run_type,
+      agent_runtime, completion,
       notes, commit_hash, tests_summary, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,

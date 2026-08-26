@@ -274,6 +274,10 @@ export type StoryRecord = {
   completion: number
   /** Whether the story participates in the workstream rollup. */
   rollup: boolean
+  /** PORTAL-13 — explicit active-engineering-work selection flag. */
+  isActiveWork: boolean
+  /** PORTAL-13 — deterministic active-queue order (null = not active). */
+  activeWorkOrder: number | null
   plannedStartAt: string | null
   actualStartAt: string | null
   completedAt: string | null
@@ -959,4 +963,99 @@ export function buildStoryBoardCockpit(
     },
     panels,
   }
+}
+
+// ---------------------------------------------------------------------------
+// PORTAL-13 — Active Engineering Queue + copy-packet formatters.
+//
+// Active Queue is a SELECTION (isActiveWork) with a deterministic order
+// (activeWorkOrder) — it never changes story status and never launches work.
+// The copy formatters produce a clean, paste-ready engineering packet for
+// ChatGPT/Cline/another engineer. All content comes from canonical rows.
+// ---------------------------------------------------------------------------
+
+/** Active-queue stories, deterministically ordered (activeWorkOrder then id). */
+export function buildActiveQueue(stories: StoryRecord[]): StoryRecord[] {
+  return stories
+    .filter((s) => s.isActiveWork)
+    .sort((a, b) => {
+      const oa = a.activeWorkOrder ?? Number.MAX_SAFE_INTEGER
+      const ob = b.activeWorkOrder ?? Number.MAX_SAFE_INTEGER
+      if (oa !== ob) return oa - ob
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
+}
+
+function section(label: string, value: string | null | undefined): string {
+  const v = value?.trim()
+  return v ? `\n## ${label}\n${v}` : ''
+}
+
+/** Clean Markdown engineering packet for a story (Copy Story). */
+export function formatStoryPacket(story: StoryRecord): string {
+  const domain = storyDomainOf(story)
+  const domainLabel = domain === 'UNCLASSIFIED' ? 'UNCLASSIFIED' : storyDomainName(domain)
+  return [
+    `# ${story.id} — ${story.title}`,
+    `- Status: ${story.status}`,
+    `- Priority: ${story.priority}`,
+    `- Completion: ${Math.round(story.completion)}%`,
+    `- Workstream: ${workstreamName(story.workstream)}`,
+    `- Domain: ${domainLabel}`,
+    `- Operating Surface: ${operatingSurfaceName(story.operatingSurface)}`,
+    section('Goal', story.goal),
+    section('Architecture Brief', story.architectBrief),
+    section('Scope', story.scope),
+    section('Preconditions', story.preconditions),
+    section('Acceptance Criteria', story.acceptanceCriteria),
+    section('Postconditions', story.postconditions),
+    section('Context / References', story.contextRefs),
+    section('Notes', story.notes),
+  ].join('\n')
+}
+
+/** Structural input for a run packet (matches db/storyboard StoryRun). */
+export type RunPacketInput = {
+  id: string
+  startedAt: string
+  endedAt: string | null
+  resultStatus: string | null
+  completion: number | null
+  notes: string | null
+  commitHash: string | null
+  testsSummary: string | null
+  executionEnvironment: string | null
+  runType: string | null
+  agentRuntime: string | null
+  goalSnapshot: string | null
+  architectBriefSnapshot: string | null
+  preconditionsSnapshot: string | null
+  acceptanceCriteriaSnapshot: string | null
+  postconditionsSnapshot: string | null
+  contextRefsSnapshot: string | null
+}
+
+/** Clean Markdown run-evidence packet, including the FROZEN spec snapshot. */
+export function formatRunPacket(storyId: string, run: RunPacketInput): string {
+  return [
+    `# Run — ${storyId} / ${run.id}`,
+    `- Pass / type: ${run.runType ?? '—'}`,
+    `- Agent / runtime: ${run.agentRuntime ?? '—'}`,
+    `- Result: ${run.resultStatus ?? '—'}`,
+    `- Completion: ${run.completion ?? 0}%`,
+    `- Commit: ${run.commitHash ?? '—'}`,
+    `- Tests: ${run.testsSummary ?? '—'}`,
+    `- Environment: ${run.executionEnvironment ?? '—'}`,
+    `- Started: ${run.startedAt}`,
+    run.endedAt ? `- Ended: ${run.endedAt}` : null,
+    section('Notes', run.notes),
+    section('Frozen Goal', run.goalSnapshot),
+    section('Frozen Architecture Brief', run.architectBriefSnapshot),
+    section('Frozen Preconditions', run.preconditionsSnapshot),
+    section('Frozen Acceptance Criteria', run.acceptanceCriteriaSnapshot),
+    section('Frozen Postconditions', run.postconditionsSnapshot),
+    section('Frozen Context / References', run.contextRefsSnapshot),
+  ]
+    .filter((line): line is string => typeof line === 'string')
+    .join('\n')
 }
