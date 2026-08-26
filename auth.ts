@@ -46,6 +46,23 @@ export function breakGlassSubject(appUserId: string): string {
 function buildProviders() {
   const config = getAuthProviderConfig()
 
+  // AUTH-08 — fail-closed, explicit DEV diagnostic. When the default Google
+  // provider lacks credentials, Auth.js would otherwise surface a generic
+  // "server configuration" error at sign-in. Log the missing variable NAMES
+  // (never values) so Chris knows exactly what to configure. Production still
+  // fails closed at sign-in; this warning never fabricates credentials.
+  if (config.provider === 'google' && (!config.clientId || !config.clientSecret)) {
+    const missing = [
+      !config.clientId ? 'AUTH_GOOGLE_ID' : null,
+      !config.clientSecret ? 'AUTH_GOOGLE_SECRET' : null,
+    ].filter(Boolean)
+    console.warn(
+      `[auth] Google OAuth unavailable: ${missing.join(' and ')} missing. ` +
+        'Set them in .env.local (see docs/auth-google-setup.md). ' +
+        'Normal Google login will fail closed until configured.',
+    )
+  }
+
   // Generic OIDC (AUTH_PROVIDER=oidc + AUTH_ISSUER) or Google (default).
   // Client credentials come from environment only. Auth.js's OAuth config
   // treats clientId/clientSecret/issuer as optional, so an unconfigured DEV
