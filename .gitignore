@@ -18,6 +18,7 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules
 .next/
+output/pdf/
 .DS_Store
 .neon
 .aider*

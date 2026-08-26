@@ -42,6 +42,7 @@ export class IssueDocumentCommand
         commandId: envelope.commandId,
         formInstanceId,
         actorAppUserId: envelope.actorAppUserId ?? null,
+        issuedAt: envelope.requestedAt,
       },
       ctx.run,
     )

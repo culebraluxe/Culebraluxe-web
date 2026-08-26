@@ -72,11 +72,22 @@ export type TemplateSectionSegment =
   | { kind: 'value'; field: string }
 
 /** Rendering metadata sufficient for the POC PDF renderer + preview. */
+export type TemplatePresentation =
+  | 'agreement'
+  | 'letter'
+  | 'information'
+  | 'report'
+
 export type TemplateRendering = {
   /** PDF document title (e.g. 'OFFER LETTER'). */
   title: string
   /** Party heading / issuer line. */
   issuer: string
+  /**
+   * Bounded document-composition profile. This is a presentation hint, not a
+   * form-specific renderer or executable template logic.
+   */
+  presentation: TemplatePresentation
 }
 
 /**

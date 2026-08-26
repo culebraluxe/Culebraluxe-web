@@ -95,7 +95,9 @@ export function pickFormSigners(input: {
       if (person.role === role) add(person)
     }
   }
-  for (const person of input.people) add(person)
+  // Only declared signature roles have rendered anchor geometry. Showing an
+  // unrelated participant here would let the operator select a person whose
+  // execution slot can never be placed in the immutable PDF.
   for (const group of input.template.signatureGroups) {
     if (!group.field) continue
     const name = (input.fieldValues[group.field] ?? "").trim()

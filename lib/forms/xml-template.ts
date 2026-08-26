@@ -29,6 +29,7 @@ import type {
   TemplateFieldType,
   TemplateFieldBinding,
   TemplateParticipantRole,
+  TemplatePresentation,
   TemplateSectionDefinition,
   TemplateSectionSegment,
   TemplateSignatureGroup,
@@ -58,6 +59,12 @@ const KNOWN_FORM_CHILDREN = new Set(['field', 'section', 'participants', 'signat
 const KNOWN_SECTION_CHILDREN = new Set(['value'])
 const KNOWN_PARTICIPANT_CHILDREN = new Set(['participant'])
 const KNOWN_SIGNATURES_CHILDREN = new Set(['signature-group'])
+const PRESENTATIONS: readonly TemplatePresentation[] = [
+  'agreement',
+  'letter',
+  'information',
+  'report',
+]
 
 // ---------------------------------------------------------------------------
 // Tiny XML tokenizer for the controlled vocabulary (elements, attributes,
@@ -87,12 +94,12 @@ function tokenize(source: string): Token[] {
     const lt = source.indexOf('<', i)
     if (lt === -1) {
       const text = source.slice(i)
-      if (text.trim()) tokens.push({ kind: 'text', value: decodeEntities(text.trim()) })
+      if (text.trim()) tokens.push({ kind: 'text', value: decodeEntities(text) })
       break
     }
     if (lt > i) {
       const text = source.slice(i, lt)
-      if (text.trim()) tokens.push({ kind: 'text', value: decodeEntities(text.trim()) })
+      if (text.trim()) tokens.push({ kind: 'text', value: decodeEntities(text) })
     }
 
     if (source.startsWith('<!--', lt)) {
@@ -289,7 +296,10 @@ function parseSection(
 
   for (const child of el.children) {
     if (typeof child === 'string') {
-      if (child.trim()) segments.push({ kind: 'text', text: child.trim() })
+      // Preserve boundary whitespace around inline <value/> nodes. The final
+      // interpolation pass normalizes it, but trimming each XML text token
+      // would concatenate words with substituted values ("betweenAna").
+      if (child.trim()) segments.push({ kind: 'text', text: child })
       continue
     }
     if (!KNOWN_SECTION_CHILDREN.has(child.name)) {
@@ -379,6 +389,12 @@ export function parseTemplateXml(xml: string): TemplateDefinition {
   const title = requireAttr(root, 'title')
   const documentType = root.attrs['documentType'] ?? title
   const issuer = root.attrs['issuer'] ?? 'CulebraLuxe Real Estate'
+  const presentation = root.attrs['presentation'] ?? 'report'
+  if (!(PRESENTATIONS as readonly string[]).includes(presentation)) {
+    throw new TemplateXmlError(
+      `<form> presentation must be one of ${PRESENTATIONS.join(', ')} (got "${presentation}").`,
+    )
+  }
 
   const fieldIds = new Set<string>()
   const sectionIds = new Set<string>()
@@ -426,8 +442,10 @@ export function parseTemplateXml(xml: string): TemplateDefinition {
     sections,
     participants,
     signatureGroups,
-    rendering: { title, issuer },
+    rendering: {
+      title,
+      issuer,
+      presentation: presentation as TemplatePresentation,
+    },
   }
 }
-
-

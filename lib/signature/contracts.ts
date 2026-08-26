@@ -195,6 +195,12 @@ export type SendSignatureRequestCommandInput = {
   executionSlotId?: string | null
   /** CRM-27 — the single intended recipient email for a slot-bound send. */
   slotRecipientEmail?: string | null
+  /**
+   * Provider-neutral visual role used to resolve the immutable PDF anchor.
+   * Transient delivery input only; lifecycle/execution authority remains on
+   * executionRole/executionSlotId and the canonical signature request.
+   */
+  signatureRole?: string | null
 }
 
 export type StatusSignatureRequestCommandInput = {
@@ -262,6 +268,10 @@ export type ProviderSendRequest = {
   transactionDocumentId: string
   recipients: SignatureRecipient[]
   message: string | null
+  /** Semantic signature group in the immutable document layout. */
+  signatureRole?: string | null
+  /** Immutable participant slot when the request is slot-bound. */
+  signatureSlotId?: string | null
 }
 
 /**

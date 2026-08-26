@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 
 import type { CommandResult } from '../lib/workflow/contracts'
 import { getTemplate } from '../lib/forms/template-registry'
-import { renderFormPdf } from '../lib/forms/pdf'
+import { renderFormPdfArtifact } from '../lib/forms/pdf'
 import { validateFormValues } from '../lib/forms/offer-letter-data'
 import { neonTx, type TxRunner } from './tx'
 import {
@@ -16,6 +16,7 @@ import { getFormInstance, updateFormInstance } from './document-form-instance'
 import { listFormSignerPeople } from './form-signer'
 import { canonicalizeExecutionParticipants } from '../lib/agreements/participants'
 import type { QueryExecutor } from './query-executor'
+import { resolveBrokerSignatureForIssuance } from './broker-signature'
 
 // ---------------------------------------------------------------------------
 // DOC-06 — canonical issued-document issuance service.
@@ -37,6 +38,8 @@ export type IssueDocumentInput = {
   commandId: string
   formInstanceId: string
   actorAppUserId?: string | null
+  /** Deterministic human issuance boundary (CommandEnvelope.requestedAt). */
+  issuedAt?: string | null
 }
 
 /** Read the exact stored bytes of a media row (for download/verification). */
@@ -73,10 +76,12 @@ export async function getIssuedDocumentForFormInstance(
   checksum: string
   createdAt: string
   mediaId: string | null
+  sourceSnapshot: Record<string, unknown> | null
 } | null> {
   const q = execute ?? (await import('./client')).sql
   const rows = await q`
-    select id, issued_version, issued_checksum_sha256, created_at, media_id
+    select id, issued_version, issued_checksum_sha256, created_at, media_id,
+      source_snapshot
     from transaction_document
     where form_instance_id = ${formInstanceId}
       and source = 'generated'
@@ -90,6 +95,7 @@ export async function getIssuedDocumentForFormInstance(
         issued_checksum_sha256?: unknown
         created_at?: unknown
         media_id?: unknown
+        source_snapshot?: unknown
       }
     | undefined
   if (!row?.id) return null
@@ -101,7 +107,30 @@ export async function getIssuedDocumentForFormInstance(
       ? new Date(row.created_at as string).toISOString()
       : '',
     mediaId: row.media_id ? String(row.media_id) : null,
+    sourceSnapshot:
+      row.source_snapshot && typeof row.source_snapshot === 'object'
+        ? (row.source_snapshot as Record<string, unknown>)
+        : null,
   }
+}
+
+/** Preview must derive the same lineage version that issuance will use. */
+export async function getNextIssuedVersionForTemplate(
+  input: { dealId: string | null; templateId: string },
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await import('./client')).sql
+  const rows = await q`
+    select issued_version
+    from transaction_document
+    where deal_id is not distinct from ${input.dealId}
+      and template_id = ${input.templateId}
+      and source = 'generated'
+      and issued_version is not null
+    order by issued_version desc, created_at desc
+    limit 1
+  `
+  return Number((rows[0] as { issued_version?: unknown } | undefined)?.issued_version ?? 0) + 1
 }
 
 async function insertIssuedMedia(
@@ -162,7 +191,11 @@ export async function issueFormDocument(
   }
 
   return run(async (tx) => {
-    const claimed = await claimReceipt(tx, input.commandId)
+    const claimed = await claimReceipt(
+      tx,
+      input.commandId,
+      input.actorAppUserId ?? null,
+    )
     if (!claimed) {
       const receipt = await readFinalReceipt(tx, input.commandId)
       const replay = replayOutcome(receipt)
@@ -228,13 +261,56 @@ export async function issueFormDocument(
     const issuedVersion = Number(prior?.issued_version ?? 0) + 1
     const supersedesId = prior?.id ?? null
 
-    // Deterministic rendering + checksum BEFORE any irreversible write.
-    const pdfBytes = await renderFormPdf(
+    // PARTICIPANT CARDINALITY (CRM-27): resolve the immutable participant set
+    // before rendering so each printed signature block and provider-neutral
+    // anchor belongs to the exact issued slot it can satisfy.
+    const issuedSlots = canonicalizeExecutionParticipants(
+      await listFormSignerPeople(form.id, tx),
+    )
+
+    const brokerSignature = await resolveBrokerSignatureForIssuance(
+      {
+        template,
+        values: form.fieldValues,
+        participants: issuedSlots,
+        actorAppUserId: input.actorAppUserId ?? null,
+        issuedAt: input.issuedAt ?? null,
+      },
+      tx,
+    )
+    if (!brokerSignature.ok) {
+      await finalizeReceipt(
+        tx,
+        input.commandId,
+        brokerSignature.outcome,
+        null,
+        brokerSignature.message,
+        input.actorAppUserId ?? null,
+      )
+      return {
+        commandId: input.commandId,
+        outcome: brokerSignature.outcome,
+        emittedEvents: [],
+        aggregateId: null,
+        message: brokerSignature.message,
+        replayed: false,
+      }
+    }
+
+    // Deterministic composition + resolved geometry BEFORE any irreversible
+    // write. Preview consumes this same renderer; the bytes and signature
+    // anchors are one artifact, not independently inferred representations.
+    const rendered = await renderFormPdfArtifact(
       template,
       form.fieldValues,
       form.sections,
       issuedVersion,
+      {
+        participants: issuedSlots,
+        appliedSignatures: brokerSignature.signatures,
+      },
     )
+    const pdfBytes = rendered.bytes
     const checksum = createHash('sha256').update(pdfBytes).digest('hex')
 
     const mediaId = await insertIssuedMedia(
@@ -255,15 +331,6 @@ export async function issueFormDocument(
     const partyPersonId =
       form.personId ??
       (form.dealId ? await resolvePartyPersonId(tx, form.dealId) : null)
-
-    // PARTICIPANT CARDINALITY (CRM-27): snapshot the resolved participant set AT
-    // ISSUANCE into the immutable issued-document lineage. Later mutable
-    // draft-participant edits cannot change the required-slot set for THIS issued
-    // version — each issued slot is a stable provider-neutral identity that must
-    // carry its own execution evidence.
-    const issuedSlots = canonicalizeExecutionParticipants(
-      await listFormSignerPeople(form.id, tx),
-    )
 
     const document = await createTransactionDocument(
       {
@@ -286,6 +353,13 @@ export async function issueFormDocument(
           fieldValues: form.fieldValues,
           sections: form.sections,
           issuedParticipants: issuedSlots,
+          signatureAnchors: rendered.signatureAnchors,
+          appliedSignatures: rendered.appliedSignatures,
+          pdfLayout: {
+            pageCount: rendered.pageCount,
+            pageSize: rendered.pageSize,
+            coordinateSpace: 'pdf-points-bottom-left',
+          },
         },
         issuedVersion,
         formInstanceId: form.id,
@@ -301,6 +375,7 @@ export async function issueFormDocument(
       'success',
       document.id,
       null,
+      input.actorAppUserId ?? null,
     )
 
     return {
@@ -320,4 +395,3 @@ export async function issueFormDocument(
     }
   })
 }
-

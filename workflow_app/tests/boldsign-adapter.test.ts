@@ -22,7 +22,10 @@ import { createCommandRegistry } from '../../lib/commands/register'
 import { CommandDispatcherImpl } from '../../lib/commands/dispatcher'
 import { PostgresCommandReceiptRepository } from '../../db/command-receipt-repository'
 import { SignatureApplication } from '../../lib/signature/application'
-import { BoldSignSignatureProvider } from '../../lib/signature/boldsign/adapter'
+import {
+  BoldSignSignatureProvider,
+  pdfAnchorToBoldSignBounds,
+} from '../../lib/signature/boldsign/adapter'
 import { BoldSignClient, type BoldSignClientDeps } from '../../lib/signature/boldsign/client'
 import { loadBoldSignConfig, type BoldSignConfig } from '../../lib/signature/boldsign/config'
 import { classifyBoldSignError, isTransientHttpStatus } from '../../lib/signature/boldsign/errors'
@@ -358,7 +361,12 @@ class FakeDb {
         : undefined
       return Promise.resolve(
         mediaRow
-          ? [{ file_data: mediaRow.file_data, filename: mediaRow.filename, mime_type: mediaRow.mime_type }]
+          ? [{
+              file_data: mediaRow.file_data,
+              filename: mediaRow.filename,
+              mime_type: mediaRow.mime_type,
+              source_snapshot: doc.source_snapshot ?? null,
+            }]
           : [],
       )
     }
@@ -531,6 +539,23 @@ function makeApp(db: FakeDb, provider: BoldSignSignatureProvider) {
 
 function seedDocument(db: FakeDb, overrides: Row = {}): string {
   const id = overrides.id ?? 'doc-1'
+  const anchor = (
+    slotId: string,
+    kind: 'signature' | 'date',
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ) => ({
+    role: 'SIGNER',
+    slotId,
+    kind,
+    pageIndex: 1,
+    pageWidth: 612,
+    pageHeight: 792,
+    rect: { x, y, width, height },
+    coordinateSpace: 'pdf-points-bottom-left',
+  })
   db.documents.push({
     id,
     deal_id: 'deal-1',
@@ -539,6 +564,14 @@ function seedDocument(db: FakeDb, overrides: Row = {}): string {
     state: 'ready',
     source: 'generated',
     media_id: 'media-1',
+    source_snapshot: {
+      signatureAnchors: [
+        anchor('SIGNER:1', 'signature', 52, 170, 252, 34),
+        anchor('SIGNER:1', 'date', 404, 170, 156, 20),
+        anchor('SIGNER:2', 'signature', 52, 80, 252, 34),
+        anchor('SIGNER:2', 'date', 404, 80, 156, 20),
+      ],
+    },
     ...overrides,
   })
   // Default unsigned PDF media so direct-PDF send can load the bytes.
@@ -568,6 +601,22 @@ const RECIPIENTS: SignatureRecipient[] = [
   { role: 'signer', name: 'Buyer One', email: 'buyer1@example.com', order: 1 },
   { role: 'signer', name: 'Buyer Two', email: 'buyer2@example.com', order: 2 },
 ]
+
+test('adapter geometry: PDF bottom-left bounds convert to BoldSign top-left bounds', () => {
+  assert.deepEqual(
+    pdfAnchorToBoldSignBounds({
+      role: 'BUYER',
+      slotId: 'BUYER:1',
+      kind: 'signature',
+      pageIndex: 1,
+      pageWidth: 612,
+      pageHeight: 792,
+      rect: { x: 52, y: 170, width: 252, height: 34 },
+      coordinateSpace: 'pdf-points-bottom-left',
+    }),
+    { x: 52, y: 588, width: 252, height: 34 },
+  )
+})
 
 /** Build a raw BoldSign webhook body (the EXACT bytes that get signed). */
 function webhookBody(
@@ -838,6 +887,26 @@ test('adapter: send creates ONE envelope, persists provider ids in bold_sign_req
     assert.ok(row.envelopeId)
     assert.equal(row.documentIds.length, 0, 'file ids observed on the first status poll')
     assert.equal(row.status, 'InProgress')
+
+    const providerRequest = server.requests.find(
+      (request) => request.path === '/v1/document/send',
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="signers\[0\]\.formFields\[0\]\.fieldType"\s+Signature/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="signers\[0\]\.formFields\[0\]\.bounds\.y"\s+588/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="signers\[0\]\.formFields\[1\]\.fieldType"\s+DateSigned/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="signers\[0\]\.formFields\[1\]\.dateFormat"\s+MMM dd, yyyy/,
+    )
 
     // provider ids live ONLY in the provider row — never in canonical rows
     const envelopeId = row.envelopeId

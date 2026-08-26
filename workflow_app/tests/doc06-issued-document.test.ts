@@ -47,7 +47,7 @@ test('DOC-06/07 proof 1: reference template loads through TemplateDefinition', (
 
   const names = template.fields.map((f) => f.name)
   for (const expected of [
-    'buyerName', 'property', 'offerAmount', 'deposit', 'financing',
+    'buyerName', 'sellerName', 'brokerName', 'property', 'offerAmount', 'deposit', 'financing',
     'closingDate', 'expiration', 'contingencies',
   ]) {
     assert.ok(names.includes(expected), `field ${expected} defined`)
@@ -64,6 +64,8 @@ test('DOC-06/07 proof 2: canonical values prepopulate where available', () => {
     closingDate: '2026-10-15',
   })
   assert.equal(values.buyerName, 'Jane Buyer')
+  assert.equal(values.sellerName, '')
+  assert.equal(values.brokerName, '')
   assert.equal(values.property, 'Villa Rosa')
   assert.equal(values.offerAmount, '1250000')
   assert.equal(values.financing, 'Cash')
@@ -80,6 +82,8 @@ test('DOC-06/07 proof 2: canonical values prepopulate where available', () => {
 test('DOC-06/07 proof 3: edited form state previews as a real PDF', async () => {
   const values = {
     buyerName: 'Jane Buyer',
+    sellerName: 'Carlos Vega',
+    brokerName: 'Lisa Penfield',
     property: 'Villa Rosa',
     offerAmount: '1250000',
     deposit: '50000',
@@ -221,6 +225,8 @@ function formFixture(
     status: overrides.status ?? 'draft',
     fieldValues: overrides.fieldValues ?? {
       buyerName: 'Jane Buyer',
+      sellerName: 'Carlos Vega',
+      brokerName: 'Lisa Penfield',
       property: 'Villa Rosa',
       offerAmount: '1250000',
       deposit: '50000',
@@ -276,6 +282,14 @@ test('DOC-06/07 proofs 4-7: first issuance creates a PDF, persists evidence, mat
   assert.equal(snapshot.fieldValues.buyerName, 'Jane Buyer')
   assert.equal(snapshot.fieldValues.offerAmount, '1250000')
   assert.equal(snapshot.sections.specialTerms, 'Closing by October 15, 2026, subject to attorney approval.')
+  assert.equal(snapshot.pdfLayout.coordinateSpace, 'pdf-points-bottom-left')
+  assert.ok(snapshot.pdfLayout.pageCount >= 1)
+  assert.ok(
+    snapshot.signatureAnchors.some(
+      (anchor: { role: string; kind: string }) =>
+        anchor.role === 'BUYER' && anchor.kind === 'signature',
+    ),
+  )
 
   // proof 6 — checksum matches the stored canonical artifact bytes.
   assert.equal(doc.issued_checksum_sha256, sha256(pdf))
@@ -379,5 +393,3 @@ test('DOC-06/07 proof 10b: saving the form again writes a new vault version', as
   assert.equal(state.mediaRows.length, 1)
   assert.equal(state.docs.length, 1)
 })
-
-

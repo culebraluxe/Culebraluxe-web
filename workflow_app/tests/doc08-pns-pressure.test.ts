@@ -6,6 +6,7 @@ import {
   PURCHASE_SALE_TEMPLATE_ID,
 } from '../../lib/forms/template-registry'
 import { buildPurchaseSalePdf, interpolateSectionText } from '../../lib/forms/pdf'
+import { parseTemplateXml } from '../../lib/forms/xml-template'
 
 // ---------------------------------------------------------------------------
 // DOC-08 Phase 2 — P&S pressure test.
@@ -58,7 +59,7 @@ test('DOC-08 P&S: signature groups carry roles, name fields and initials', () =>
   assert.equal(seller.initials, true)
   const broker = groups.find((g) => g.role === 'SELLER_BROKER')
   assert.ok(broker)
-  assert.equal(broker.initials, false)
+  assert.equal(broker.initials, true)
   for (const g of groups) {
     if (g.field) assert.ok(pns.fields.some((f) => f.name === g.field))
   }
@@ -89,6 +90,7 @@ test('DOC-08 P&S: structured facts bind into boilerplate prose via <value>', () 
   assert.ok(text.includes('Ana Rivera'))
   assert.ok(text.includes('Marco Silva'))
   assert.ok(text.includes('the "Buyer"'))
+  assert.match(text, /between Ana Rivera \(the "Buyer"\) and Marco Silva/)
 
   // <value> is a declarative substitution — no expression constructs exist.
   assert.ok(!text.includes('if('))
@@ -152,8 +154,6 @@ test('DOC-08 P&S: no conditional primitive is required by this template', () => 
 })
 
 test('DOC-08 P&S: XML model bends nowhere — a malformed P&S variant is rejected', () => {
-  const { parseTemplateXml } =
-    require('../../lib/forms/xml-template') as typeof import('../../lib/forms/xml-template')
   // Signature group referencing an undeclared field fails at load time.
   assert.throws(
     () =>
@@ -173,4 +173,3 @@ test('DOC-08 P&S: XML model bends nowhere — a malformed P&S variant is rejecte
     /Unknown element/,
   )
 })
-

@@ -6,6 +6,7 @@ import { listSignatureRequestsByDocument } from "@/db/signature-request"
 import { listFormSignerPeople } from "@/db/form-signer"
 import { getTemplate, listPortalFormTypes } from "@/lib/forms/template-registry"
 import { pickFormSigners } from "@/lib/forms/signer-resolution"
+import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
 export const dynamic = "force-dynamic"
@@ -23,6 +24,18 @@ export default async function FormPage({
   const savedForms = await listFormInstances()
 
   const issuedDocument = await getIssuedDocumentForFormInstance(form.id)
+  const issuedFieldValues = issuedDocument?.sourceSnapshot?.fieldValues
+  const issuedSections = issuedDocument?.sourceSnapshot?.sections
+  const issuedContentFingerprint =
+    issuedFieldValues &&
+    typeof issuedFieldValues === "object" &&
+    issuedSections &&
+    typeof issuedSections === "object"
+      ? formContentFingerprint(
+          issuedFieldValues as Record<string, string>,
+          issuedSections as Record<string, string>,
+        )
+      : null
   const signatureRequests = issuedDocument
     ? await listSignatureRequestsByDocument(issuedDocument.documentId)
     : []
@@ -75,6 +88,7 @@ export default async function FormPage({
               documentId: issuedDocument.documentId,
               issuedVersion: issuedDocument.issuedVersion,
               checksum: issuedDocument.checksum,
+              contentFingerprint: issuedContentFingerprint,
             }
           : null
       }

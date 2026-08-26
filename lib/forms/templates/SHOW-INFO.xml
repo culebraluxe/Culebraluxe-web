@@ -3,16 +3,19 @@
   id="SHOW-INFO"
   version="1"
   title="OFFER / SHOWING INFORMATION"
+  presentation="information"
   documentType="Offer / Showing Information"
   issuer="CulebraLuxe Real Estate">
 
   <participants>
     <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Property Owner" multiple="true"/>
     <participant role="BUYER_BROKER" label="Buyer's Broker"/>
   </participants>
 
   <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
-  <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
+  <field id="sellerName" label="Property Owner" type="text" required="true"/>
+  <field id="buyerBrokerName" label="Buyer's Broker" type="text" required="true"/>
   <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
   <field id="showingDate" label="Showing Date" type="date" required="true"/>
   <field id="showingTime" label="Showing Time" type="text"/>
@@ -35,7 +38,8 @@
   </section>
 
   <signatures>
-    <signature-group role="BUYER" label="Buyer" field="buyerName"/>
-    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="buyerBrokerName"/>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+    <signature-group role="SELLER" label="Property Owner" field="sellerName" initials="true"/>
+    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="buyerBrokerName" initials="true"/>
   </signatures>
 </form>

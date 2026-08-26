@@ -12,7 +12,6 @@ import {
 } from "@/app/portal/forms/actions"
 import {
   documentBodyText,
-  formatFieldValue,
   formatMoney,
 } from "@/lib/forms/format"
 import {
@@ -28,6 +27,8 @@ import {
 } from "@/lib/forms/signer-resolution"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 import { FormGrokHelper } from "@/components/portal/forms/form-grok-helper"
+import { PdfPreview } from "@/components/portal/forms/pdf-preview"
+import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import {
   CommandStatus,
   CommandStatusBand,
@@ -162,6 +163,7 @@ export function FormEditor({
     documentId: string
     issuedVersion: number
     checksum: string
+    contentFingerprint: string | null
   } | null
   signerCandidates?: FormSignerCandidate[]
   signatureRequest?: { id: string; status: string } | null
@@ -190,6 +192,7 @@ export function FormEditor({
     documentId: string
     issuedVersion: number
     checksum: string
+    contentFingerprint: string | null
   } | null>(issuedDocument)
   const [busy, setBusy] = useState(false)
   const [draftSaving, setDraftSaving] = useState(false)
@@ -285,18 +288,6 @@ export function FormEditor({
       setBusy(false)
     }
   }
-  const signatureGroups =
-    template.signatureGroups.length > 0
-      ? template.signatureGroups
-      : [
-          {
-            role: "PARTY",
-            label: "Signature",
-            field: template.fields[0]?.name ?? null,
-            initials: false,
-          },
-        ]
-
   function composedSections(
     nextDetails = detailsText,
   ): Record<string, string> {
@@ -379,21 +370,21 @@ export function FormEditor({
     if (!result.ok) {
       throw new Error(result.message ?? "Could not save the PDF to the vault.")
     }
-    setIssued(result.data)
-    return result.data
+    const contentFingerprint = formContentFingerprint(
+      valuesRef.current,
+      { ...sectionsRef.current, body: detailsRef.current },
+    )
+    const document = { ...result.data, contentFingerprint }
+    setIssued(document)
+    return document
   }
 
-  async function livePdfFile() {
-    const response = await fetch(`/portal/forms/${form.id}/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fieldValues: values,
-        sections: composedSections(),
-      }),
-    })
+  async function issuedPdfFile(documentId: string) {
+    const response = await fetch(
+      `/portal/documents/${documentId}/download?inline=1`,
+    )
     if (!response.ok) {
-      throw new Error("Could not build the PDF.")
+      throw new Error("Could not retrieve the issued PDF from the vault.")
     }
     return fileFromPdfBytes(await response.arrayBuffer(), pdfFilename())
   }
@@ -414,14 +405,26 @@ export function FormEditor({
 
   async function sharePdf() {
     setError(null)
+    if (typeof navigator.share !== "function") {
+      setMessage(
+        "This browser can't attach a PDF from the page. Save PDF, then attach that exact vault file in Mail or Messages.",
+      )
+      return
+    }
+    setBusy(true)
     try {
-      const file = await livePdfFile()
-      if (typeof navigator.share !== "function") {
-        setMessage(
-          "This browser can't attach a PDF from the page. Save PDF, then attach that file in Mail or Messages.",
-        )
-        return
-      }
+      // Sharing is an issued-document action: dirty drafts are issued first;
+      // a clean current version reuses its immutable vault bytes. Never share
+      // a newly regenerated "similar" preview PDF.
+      const currentFingerprint = formContentFingerprint(
+        values,
+        composedSections(),
+      )
+      const document =
+        !issued || issued.contentFingerprint !== currentFingerprint
+          ? await savePdfToVault()
+          : issued
+      const file = await issuedPdfFile(document.documentId)
       await navigator.share({
         title: "CulebraLuxe Document",
         text: "CulebraLuxe transaction document",
@@ -438,6 +441,8 @@ export function FormEditor({
         return
       }
       setError(caught instanceof Error ? caught.message : "Could not share the PDF.")
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -491,6 +496,7 @@ export function FormEditor({
         documentId: result.data.documentId,
         issuedVersion: result.data.issuedVersion,
         checksum: issued?.checksum ?? "",
+        contentFingerprint: formContentFingerprint(values, composedSections()),
       })
       setSignatureState({
         id: result.data.signatureRequestId,
@@ -1018,86 +1024,11 @@ export function FormEditor({
         </section>
 
         <section className="portal-glass-panel min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)]">
-          <div className="h-full overflow-y-auto bg-[var(--portal-blue-pale)]/55 px-3 py-4 lg:px-5 lg:py-5">
-            <article className="relative mx-auto min-h-[calc(100%-0.5rem)] w-full max-w-[40rem] bg-white px-10 py-11 text-black/80 shadow-[0_12px_36px_rgba(24,43,64,0.14)] ring-1 ring-black/[0.06]">
-            <img
-              src="/brand/CLLOGO.png"
-              alt="CulebraLuxe"
-              className="pointer-events-none absolute right-10 top-10 z-10 h-[52px] w-auto object-contain"
-            />
-            <div className="relative z-20 pr-44">
-              <h2 className="font-serif text-xl font-bold text-[var(--portal-navy)]">
-                {template.rendering.title}
-              </h2>
-            </div>
-
-            <p className="my-5 border-y border-black/10 py-4 font-serif text-[15px] font-light leading-7">
-              {template.fields
-                .map((field) => {
-                  const raw = (values[field.name] ?? "").trim()
-                  if (!raw) return null
-                  return formatFieldValue(field, raw)
-                })
-                .filter((part): part is string => Boolean(part))
-                .join(" · ")}
-            </p>
-
-            {detailsText.split(/\n{2,}/).map((block, index) => {
-              const lines = block.split("\n")
-              const heading = lines[0]?.trim() ?? ""
-              const para = lines.slice(1).join("\n").trim()
-              if (!heading && !para) return null
-              return (
-                <article key={index} className="mt-5">
-                  {para ? (
-                    <>
-                      <h3 className={sectionHeadingClass}>{heading}</h3>
-                      <p className="mt-2 whitespace-pre-wrap font-serif text-[15px] font-light leading-7">
-                        {para}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="whitespace-pre-wrap font-serif text-[15px] font-light leading-7">
-                      {heading}
-                    </p>
-                  )}
-                </article>
-              )
-            })}
-
-            <div className="mt-10 border-t border-black/20 pt-6">
-              <h3 className={sectionHeadingClass}>Signatures</h3>
-              <div className="mt-4 grid gap-6 sm:grid-cols-2">
-                {signatureGroups.map((group) => {
-                  const name = group.field
-                    ? (values[group.field] ?? "").trim()
-                    : ""
-                  return (
-                    <div key={`${group.role}-${group.label}`}>
-                      <p className={labelClass}>{group.label}</p>
-                      <p className="mt-0.5 font-serif text-sm font-light text-[var(--portal-navy)]">
-                        {name || "Name on file"}
-                      </p>
-                      <div className="mt-5 border-b border-black/45 pb-0.5 text-[10px] font-light text-black/40">
-                        Signature
-                      </div>
-                      <div className="mt-4 flex items-end gap-5">
-                        {group.initials ? (
-                          <div className="w-20 border-b border-black/45 pb-0.5 text-[10px] font-light text-black/40">
-                            Initials
-                          </div>
-                        ) : null}
-                        <div className="min-w-[7rem] flex-1 border-b border-black/45 pb-0.5 text-[10px] font-light text-black/40">
-                          Date
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-            </article>
-          </div>
+          <PdfPreview
+            formId={form.id}
+            fieldValues={values}
+            sections={composedSections()}
+          />
         </section>
       </div>
     </div>

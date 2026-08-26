@@ -46,7 +46,7 @@ export type PortalUploadGuardResult =
 // before any multipart parsing or write work. AuthError is mapped to a
 // deterministic JSON status (401 unauthenticated, 403 everything else);
 // any other failure is rethrown so the route can fail closed with a 500.
-export async function guardPortalUpload(
+export async function guardPortalRoute(
   authority: AuthorityCode,
   adapter: SessionAdapter = portalSessionAdapter,
 ): Promise<PortalUploadGuardResult> {
@@ -65,3 +65,6 @@ export async function guardPortalUpload(
     throw error
   }
 }
+
+/** Backward-compatible name retained for existing upload handlers. */
+export const guardPortalUpload = guardPortalRoute

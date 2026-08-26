@@ -12,6 +12,7 @@ import {
   type AgreementExecutionVerdict,
 } from './execution'
 import { parseIssuedParticipants } from './participants'
+import { parseAppliedSignatureSlotIds } from '../forms/applied-signature'
 
 // ---------------------------------------------------------------------------
 // CRM-27 — Agreement Completion evaluation (provider-neutral wiring).
@@ -264,7 +265,12 @@ export async function evaluateAgreementCompletion(
       }
     }
 
-    const satisfiedSlotIds = await getCompletedExecutionSlots(documentId, deps.execute)
+    const satisfiedSlotIds = [
+      ...new Set([
+        ...(await getCompletedExecutionSlots(documentId, deps.execute)),
+        ...parseAppliedSignatureSlotIds(ctx.sourceSnapshot?.appliedSignatures),
+      ]),
+    ]
 
     const verdict = evaluateAgreementExecution({
       documentVersion: `${templateId}-v${issuedVersion}`,

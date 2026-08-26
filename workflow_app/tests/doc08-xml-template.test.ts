@@ -13,12 +13,12 @@ import type { TemplateDefinition } from '../../lib/forms/template-types'
 //
 // OFFER-01 now originates as XML (lib/forms/templates/OFFER-01.xml) and is
 // parsed + validated into the canonical TemplateDefinition at load. These
-// proofs confirm the effective definition is identical to the prior TypeScript
-// fixture, that validation fails loudly on unknown/malformed input, and that
-// the Offer Letter workflow (render + checksum) is unchanged.
+// proofs confirm the effective business-ready definition, that validation
+// fails loudly on unknown/malformed input, and that the Offer Letter workflow
+// continues to render through the same XML-backed seam.
 // ---------------------------------------------------------------------------
 
-/** The prior TypeScript fixture, reconstructed as the byte-identity baseline. */
+/** The approved business-ready Offer definition used as the XML projection baseline. */
 const legacyOfferDefinition: TemplateDefinition = {
   id: 'OFFER-01',
   version: 1,
@@ -26,6 +26,8 @@ const legacyOfferDefinition: TemplateDefinition = {
   documentTypeLabel: 'Offer Letter',
   fields: [
     { name: 'buyerName', label: 'Buyer / Client', type: 'text', required: true, binding: 'deal.client.name' },
+    { name: 'sellerName', label: 'Seller / Owner', type: 'text', required: true, binding: null },
+    { name: 'brokerName', label: "Buyer's Broker", type: 'text', required: true, binding: null },
     { name: 'property', label: 'Property', type: 'text', required: true, binding: 'deal.property.label' },
     { name: 'offerAmount', label: 'Offer amount', type: 'money', required: true, binding: 'deal.offer.amount' },
     { name: 'deposit', label: 'Deposit', type: 'money', required: false, binding: null },
@@ -35,11 +37,21 @@ const legacyOfferDefinition: TemplateDefinition = {
     { name: 'contingencies', label: 'Contingencies', type: 'textarea', required: false, binding: null },
   ],
   sections: [{ name: 'specialTerms', label: 'Special Terms', editable: true, segments: [], values: [] }],
-  participants: [],
+  participants: [
+    { role: 'BUYER', label: 'Buyer', multiple: true },
+    { role: 'SELLER', label: 'Seller', multiple: true },
+    { role: 'BUYER_BROKER', label: "Buyer's Broker", multiple: false },
+  ],
   signatureGroups: [
     { role: 'BUYER', label: 'Buyer', field: 'buyerName', initials: true },
+    { role: 'SELLER', label: 'Seller / Owner', field: 'sellerName', initials: true },
+    { role: 'BUYER_BROKER', label: "Buyer's Broker", field: 'brokerName', initials: true },
   ],
-  rendering: { title: 'OFFER LETTER', issuer: 'CulebraLuxe Real Estate' },
+  rendering: {
+    title: 'OFFER LETTER',
+    issuer: 'CulebraLuxe Real Estate',
+    presentation: 'letter',
+  },
 }
 
 const xmlTemplate = getTemplate(OFFER_LETTER_TEMPLATE_ID)
@@ -62,7 +74,7 @@ test('DOC-08 XML: parses into stable id/version/title/document type', () => {
 })
 
 test('DOC-08 XML: required fields survive correctly', () => {
-  for (const name of ['buyerName', 'property', 'offerAmount', 'financing', 'closingDate', 'expiration']) {
+  for (const name of ['buyerName', 'sellerName', 'brokerName', 'property', 'offerAmount', 'financing', 'closingDate', 'expiration']) {
     assert.equal(fieldProjection(xmlTemplate, name).required, true, `${name} required`)
   }
   for (const name of ['deposit', 'contingencies']) {
@@ -76,6 +88,8 @@ test('DOC-08 XML: source bindings survive correctly', () => {
   assert.equal(fieldProjection(xmlTemplate, 'offerAmount').binding, 'deal.offer.amount')
   assert.equal(fieldProjection(xmlTemplate, 'financing').binding, 'deal.financing.type')
   assert.equal(fieldProjection(xmlTemplate, 'closingDate').binding, 'deal.closing.date')
+  assert.equal(fieldProjection(xmlTemplate, 'sellerName').binding, null)
+  assert.equal(fieldProjection(xmlTemplate, 'brokerName').binding, null)
   assert.equal(fieldProjection(xmlTemplate, 'deposit').binding, null)
   assert.equal(fieldProjection(xmlTemplate, 'expiration').binding, null)
   assert.equal(fieldProjection(xmlTemplate, 'contingencies').binding, null)
@@ -93,7 +107,7 @@ test('DOC-08 XML: editable sections survive correctly', () => {
 })
 
 // __PART2__
-test('DOC-08 XML: fields/sections match the prior fixture exactly (byte identity)', () => {
+test('DOC-08 XML: fields/sections match the approved business-ready definition', () => {
   assert.deepEqual(
     xmlTemplate.fields.map((f) => {
       const { options, ...rest } = f
@@ -109,12 +123,15 @@ test('DOC-08 XML: fields/sections match the prior fixture exactly (byte identity
     legacyOfferDefinition.sections.map((s) => ({ name: s.name, label: s.label, editable: s.editable })),
   )
   assert.deepEqual(xmlTemplate.rendering, legacyOfferDefinition.rendering)
+  assert.deepEqual(xmlTemplate.participants, legacyOfferDefinition.participants)
   assert.deepEqual(xmlTemplate.signatureGroups, legacyOfferDefinition.signatureGroups)
 })
 
 test('DOC-08 XML: PDF is a real document with the same content from XML or fixture', async () => {
   const values = {
     buyerName: 'Jane Buyer',
+    sellerName: 'Carlos Vega',
+    brokerName: 'Lisa Penfield',
     property: 'Villa Rosa',
     offerAmount: '1250000',
     deposit: '50000',
@@ -165,4 +182,3 @@ test('DOC-08 XML: malformed XML fails clearly', () => {
 test('DOC-08 XML: version must be a positive integer', () => {
   assert.throws(() => parseTemplateXml(`<form id="X" version="0" title="T"><field id="a" label="A" type="text"/></form>`), /positive integer/)
 })
-

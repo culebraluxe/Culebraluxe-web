@@ -6,8 +6,9 @@
 // (signature_request, transaction_document) see only neutral types — BoldSign
 // strings/ids never cross this adapter.
 //
-//   send          — map the neutral send request to a BoldSign template
-//                   envelope; persist envelope id + provider document ids in
+//   send          — map the neutral send request and immutable issued PDF to a
+//                   BoldSign direct-document envelope; persist envelope id +
+//                   provider document ids in
 //                   the provider table (bold_sign_request) keyed by
 //                   signature_request_id (one row per request); idempotent —
 //                   an existing provider row returns the existing envelope,
@@ -54,7 +55,11 @@ import { BoldSignClient, type BoldSignDirectSigner } from './client'
 import { classifyBoldSignError } from './errors'
 import { mapBoldSignWebhookEvent } from './events'
 import { parseBoldSignWebhookPayload, verifyBoldSignWebhookSignature } from './webhook'
-import { PDFDocument } from 'pdf-lib'
+import {
+  parseFormSignatureAnchors,
+  resolveFormSignatureAnchors,
+  type FormSignatureAnchor,
+} from '../../forms/signature-anchors'
 
 export type BoldSignSignatureProviderDeps = {
   config: BoldSignConfig
@@ -90,16 +95,51 @@ type TransactionDocumentPdf = {
   bytes: Uint8Array
   filename: string
   mimeType: string
+  signatureAnchors: FormSignatureAnchor[]
 }
 
-/** Number of pages in the PDF, so a signature box can be placed on the last page. */
-async function lastPageNumber(bytes: Uint8Array): Promise<number> {
-  try {
-    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true })
-    return Math.max(1, doc.getPageCount())
-  } catch {
-    return 1
+/**
+ * The canonical renderer records bottom-left PDF points. BoldSign's bounds use
+ * a top-left y origin, so the adapter owns the one explicit origin conversion.
+ */
+export function pdfAnchorToBoldSignBounds(anchor: FormSignatureAnchor) {
+  return {
+    x: anchor.rect.x,
+    y: anchor.pageHeight - anchor.rect.y - anchor.rect.height,
+    width: anchor.rect.width,
+    height: anchor.rect.height,
   }
+}
+
+function anchorFields(anchors: readonly FormSignatureAnchor[]) {
+  const order = { signature: 0, initial: 1, date: 2 } as const
+  return [...anchors]
+    .sort((a, b) => order[a.kind] - order[b.kind])
+    .map((anchor) => ({
+      fieldType:
+        anchor.kind === 'signature'
+          ? 'Signature'
+          : anchor.kind === 'initial'
+            ? 'Initial'
+            : 'DateSigned',
+      pageNumber: anchor.pageIndex + 1,
+      bounds: pdfAnchorToBoldSignBounds(anchor),
+      isRequired: true,
+      fontSize:
+        anchor.kind === 'signature' ? 14 : anchor.kind === 'initial' ? 10 : 9,
+      ...(anchor.kind === 'date' ? { dateFormat: 'MMM dd, yyyy' } : {}),
+    }))
+}
+
+function groupAnchorSets(anchors: readonly FormSignatureAnchor[]) {
+  const grouped = new Map<string, FormSignatureAnchor[]>()
+  for (const anchor of anchors) {
+    const key = `${anchor.role}:${anchor.slotId ?? ''}`
+    const current = grouped.get(key) ?? []
+    current.push(anchor)
+    grouped.set(key, current)
+  }
+  return [...grouped.values()]
 }
 
 async function loadTransactionDocumentPdf(
@@ -108,14 +148,19 @@ async function loadTransactionDocumentPdf(
 ): Promise<TransactionDocumentPdf> {
   const q = execute ?? (await lazyExecutor())
   const rows = await q`
-    select m.file_data, m.filename, m.mime_type
+    select m.file_data, m.filename, m.mime_type, d.source_snapshot
     from transaction_document d
     join media m on m.id = d.media_id
     where d.id = ${transactionDocumentId}
     limit 1
   `
   const row = rows[0] as
-    | { file_data?: unknown; filename?: unknown; mime_type?: unknown }
+    | {
+        file_data?: unknown
+        filename?: unknown
+        mime_type?: unknown
+        source_snapshot?: unknown
+      }
     | undefined
   if (!row || row.file_data == null) {
     throw new Error(
@@ -126,6 +171,19 @@ async function loadTransactionDocumentPdf(
     row.file_data instanceof Uint8Array
       ? new Uint8Array(row.file_data)
       : new Uint8Array(Buffer.from(row.file_data as ArrayLike<number>))
+  let sourceSnapshot: Record<string, unknown> | null = null
+  if (row.source_snapshot && typeof row.source_snapshot === 'object') {
+    sourceSnapshot = row.source_snapshot as Record<string, unknown>
+  } else if (typeof row.source_snapshot === 'string') {
+    try {
+      const parsed = JSON.parse(row.source_snapshot) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        sourceSnapshot = parsed as Record<string, unknown>
+      }
+    } catch {
+      sourceSnapshot = null
+    }
+  }
   return {
     bytes,
     filename:
@@ -136,6 +194,9 @@ async function loadTransactionDocumentPdf(
       typeof row.mime_type === 'string' && row.mime_type.trim() !== ''
         ? row.mime_type
         : 'application/pdf',
+    signatureAnchors: parseFormSignatureAnchors(
+      sourceSnapshot?.signatureAnchors,
+    ),
   }
 }
 
@@ -172,34 +233,40 @@ export class BoldSignSignatureProvider implements SignatureProvider {
         request.transactionDocumentId,
         this.deps.execute,
       )
-      const signaturePage = await lastPageNumber(pdf.bytes)
-      // Map the neutral recipients onto BoldSign direct-send signers. Each
-      // signer carries at least one REQUIRED Signature form field (BoldSign
-      // rejects a signer with null/empty FormFields with HTTP 400) placed on the
-      // final PDF page in a safe lower-page area. The neutral role/order
-      // vocabulary stays neutral — this mapping is adapter-internal.
-      const signers: BoldSignDirectSigner[] = request.recipients.map((recipient) => ({
-        name: recipient.name,
-        emailAddress: recipient.email,
-        signerType: (recipient.role === 'approver' ? 'Reviewer' : 'Signer') as
-          | 'Signer'
-          | 'Reviewer',
-        signerOrder: recipient.order,
-        formFields: [
-          {
-            fieldType: 'Signature',
-            pageNumber: signaturePage,
-            // A modest, proportionate signature field: `fontSize` (BoldSign
-            // defaults a typed signature to ~48pt — explicit 14pt keeps it
-            // readable) plus a compact bounds box so a drawn signature is
-            // scaled to a reasonable size too. Placed bottom-left of the final
-            // page, clear of the printed signature block above it.
-            bounds: { x: 56, y: 84, width: 200, height: 44 },
-            isRequired: true,
-            fontSize: 14,
-          },
-        ],
-      }))
+      if (pdf.signatureAnchors.length === 0) {
+        throw new Error(
+          'The issued PDF has no immutable signature anchors. Reissue the document with the current Forms renderer before sending it for signature.',
+        )
+      }
+      const selected = resolveFormSignatureAnchors(pdf.signatureAnchors, {
+        role: request.signatureRole ?? null,
+        slotId: request.signatureSlotId ?? null,
+      })
+      const availableSets = groupAnchorSets(pdf.signatureAnchors)
+      const perRecipient =
+        selected.length > 0 && request.recipients.length === 1
+          ? [selected]
+          : availableSets.length === request.recipients.length
+            ? availableSets
+            : []
+      if (perRecipient.length !== request.recipients.length) {
+        throw new Error(
+          'The issued PDF signature anchor is missing or ambiguous for the selected participant. Reissue the document and select a declared signature role.',
+        )
+      }
+      // Map the exact immutable PDF anchor set onto provider fields. No page,
+      // x/y, or fallback placement is invented inside the adapter.
+      const signers: BoldSignDirectSigner[] = request.recipients.map(
+        (recipient, index) => ({
+          name: recipient.name,
+          emailAddress: recipient.email,
+          signerType: (recipient.role === 'approver' ? 'Reviewer' : 'Signer') as
+            | 'Signer'
+            | 'Reviewer',
+          signerOrder: recipient.order,
+          formFields: anchorFields(perRecipient[index]),
+        }),
+      )
       const created = await this.client.sendDocument({
         fileBytes: pdf.bytes,
         filename: pdf.filename,

@@ -3,6 +3,7 @@
   id="LISTING-01"
   version="1"
   title="EXCLUSIVE LISTING AGREEMENT"
+  presentation="agreement"
   documentType="Listing Agreement"
   issuer="CulebraLuxe Real Estate">
 
@@ -53,6 +54,6 @@
 
   <signatures>
     <signature-group role="SELLER" label="Seller" field="sellerName" initials="true"/>
-    <signature-group role="SELLER_BROKER" label="Listing Broker" field="brokerName"/>
+    <signature-group role="SELLER_BROKER" label="Listing Broker" field="brokerName" initials="true"/>
   </signatures>
 </form>

@@ -505,6 +505,7 @@ export async function sendFormForSignatureAction(
           executionRole,
           executionSlotId,
           slotRecipientEmail,
+          signatureRole: executionRole ?? input.signerRole ?? null,
           createdByUserId: actor.appUserId,
         },
         { actorAppUserId: actor.appUserId },

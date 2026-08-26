@@ -14,6 +14,7 @@
 //
 // Endpoints (v1):
 //   POST /v1/template/send?templateId=...   -> 201 { documentId }
+//   POST /v1/document/send                  -> 201 { documentId }
 //   GET  /v1/document/properties?documentId=... -> { documentId, status, files }
 //   POST /v1/document/revoke                -> 200 { }
 // ---------------------------------------------------------------------------
@@ -65,6 +66,8 @@ export type BoldSignDirectFormField = {
    * `fontSize` keeps the rendered signature readable instead of dominating the page.
    */
   fontSize?: number
+  /** BoldSign DateSigned display format. */
+  dateFormat?: string
 }
 
 /**
@@ -191,6 +194,9 @@ export class BoldSignClient {
         }
         if (field.fontSize !== undefined) {
           form.append(`${fp}.fontSize`, String(field.fontSize))
+        }
+        if (field.dateFormat) {
+          form.append(`${fp}.dateFormat`, field.dateFormat)
         }
       })
     })

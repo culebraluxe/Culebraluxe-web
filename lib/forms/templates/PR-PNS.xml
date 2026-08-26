@@ -19,6 +19,7 @@
   id="PR-PNS"
   version="1"
   title="PURCHASE AND SALE AGREEMENT"
+  presentation="agreement"
   documentType="Purchase and Sale Agreement"
   issuer="CulebraLuxe Real Estate">
 
@@ -227,8 +228,7 @@
   <signatures>
     <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
     <signature-group role="SELLER" label="Seller" field="sellerName" initials="true"/>
-    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName"/>
+    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName" initials="true"/>
   </signatures>
 
 </form>
-

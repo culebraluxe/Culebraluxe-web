@@ -29,6 +29,11 @@ const ENV_KEYS = [
   'MUX_TOKEN_SECRET_PROD',
   'MUX_TOKEN_ID_DEV',
   'MUX_TOKEN_SECRET_DEV',
+  'BROKER_SIGNATURE_ENABLED',
+  'BROKER_SIGNATURE_APP_USER_ID',
+  'BROKER_SIGNATURE_MEDIA_ID',
+  'BROKER_SIGNATURE_SIGNER_NAME',
+  'BROKER_SIGNATURE_LICENSE_NUMBER',
 ]
 
 function withEnv(
@@ -65,6 +70,11 @@ const PROD_SECRETS: Record<string, string> = {
   GOOGLE_MAPS_API_KEY: 'maps-prod-key-present',
   MUX_TOKEN_ID_PROD: 'mux-token-id-present',
   MUX_TOKEN_SECRET_PROD: 'mux-token-secret-present',
+  BROKER_SIGNATURE_ENABLED: 'true',
+  BROKER_SIGNATURE_APP_USER_ID: 'owner-user-present',
+  BROKER_SIGNATURE_MEDIA_ID: 'signature-media-present',
+  BROKER_SIGNATURE_SIGNER_NAME: 'Lisa Penfield',
+  BROKER_SIGNATURE_LICENSE_NUMBER: 'C-9931',
 }
 
 test('AUTH-04: readiness surface is booleans only, even with no env configured', () => {
@@ -102,6 +112,8 @@ test('AUTH-04: production fails closed when required secrets are missing', () =>
       assert.equal(readiness.authProviderConfigured, false)
       assert.equal(readiness.googleMapsKeyConfigured, false)
       assert.equal(readiness.muxConfigured, false)
+      assert.equal(readiness.brokerSignatureConfigured, false)
+      assert.equal(readiness.brokerSignatureEnabled, false)
       assert.equal(readiness.allProductionRequiredConfigured, false)
     },
   )
@@ -118,6 +130,8 @@ test('AUTH-04: production fully configured reports ready', () => {
     assert.equal(readiness.googleMapsKeyConfigured, true)
     assert.equal(readiness.googleMapsDemoKeyAbsentInProduction, true)
     assert.equal(readiness.muxConfigured, true)
+    assert.equal(readiness.brokerSignatureConfigured, true)
+    assert.equal(readiness.brokerSignatureEnabled, true)
     assert.equal(readiness.allProductionRequiredConfigured, true)
   })
 })

@@ -13,8 +13,17 @@ import {
   SHOWING_INFO_TEMPLATE_ID,
   SHOWING_REPORT_TEMPLATE_ID,
 } from '../../lib/forms/template-registry'
-import { renderFormPdf, buildOfferLetterPdf } from '../../lib/forms/pdf'
+import {
+  renderFormPdf,
+  renderFormPdfArtifact,
+  buildOfferLetterPdf,
+} from '../../lib/forms/pdf'
 import { prefillFieldValues, emptySectionValues } from '../../lib/forms/offer-letter-data'
+import { formContentFingerprint } from '../../lib/forms/artifact-identity'
+import {
+  BROKER_SIGNATURE_CONSENT_BASIS,
+  BROKER_SIGNATURE_DATE_SEMANTIC,
+} from '../../lib/forms/applied-signature'
 
 test('FORMS-01: all production templates load and validate', () => {
   const ids = [
@@ -41,6 +50,85 @@ test('FORMS-01: P&S has role collections and signature groups', () => {
   assert.ok(template.participants.some((p) => p.role === 'SELLER' && p.multiple))
   assert.ok(template.signatureGroups.some((g) => g.role === 'BUYER'))
   assert.ok(template.signatureGroups.some((g) => g.role === 'SELLER'))
+})
+
+test('FORMS-BR: every production form renders at least three complete signer sets', async () => {
+  for (const template of listTemplates()) {
+    assert.equal(
+      template.signatureGroups.every((group) => group.initials),
+      true,
+      `${template.id} requires Initials on every signer row`,
+    )
+
+    const values: Record<string, string> = {}
+    for (const field of template.fields) {
+      values[field.name] =
+        field.type === 'money'
+          ? '1000000'
+          : field.type === 'date'
+            ? '2026-09-01'
+            : field.type === 'select'
+              ? (field.options?.[0] ?? 'Review option')
+              : /broker|agent/i.test(field.name)
+                ? 'Lisa Penfield'
+                : `${field.label} review value`
+    }
+
+    const participants =
+      template.id === LISTING_AGREEMENT_TEMPLATE_ID
+        ? [
+            { role: 'SELLER', slotId: 'SELLER:1', name: 'Carlos Vega' },
+            { role: 'SELLER', slotId: 'SELLER:2', name: 'Elena Morales' },
+            {
+              role: 'SELLER_BROKER',
+              slotId: 'SELLER_BROKER:1',
+              name: 'Lisa Penfield',
+            },
+          ]
+        : template.signatureGroups.map((group, index) => ({
+            role: group.role,
+            slotId: `${group.role}:1`,
+            name: group.role.endsWith('_BROKER')
+              ? 'Lisa Penfield'
+              : `External Party ${index + 1}`,
+          }))
+
+    assert.ok(
+      participants.length >= 3,
+      `${template.id} declares two external parties plus Lisa`,
+    )
+    assert.equal(
+      participants.filter((participant) => participant.name === 'Lisa Penfield').length,
+      1,
+      `${template.id} has exactly one Lisa broker row`,
+    )
+
+    const artifact = await renderFormPdfArtifact(
+      template,
+      values,
+      emptySectionValues(template),
+      1,
+      { participants },
+    )
+    const anchorsBySlot = new Map<string, Set<string>>()
+    for (const anchor of artifact.signatureAnchors) {
+      const slot = anchor.slotId ?? `${anchor.role}:fallback`
+      const kinds = anchorsBySlot.get(slot) ?? new Set<string>()
+      kinds.add(anchor.kind)
+      anchorsBySlot.set(slot, kinds)
+    }
+    assert.ok(
+      anchorsBySlot.size >= 3,
+      `${template.id} renders at least three signer rows`,
+    )
+    for (const [slot, kinds] of anchorsBySlot) {
+      assert.deepEqual(
+        [...kinds].sort(),
+        ['date', 'initial', 'signature'],
+        `${template.id} ${slot} renders Signature, Initials, and Date`,
+      )
+    }
+  }
 })
 
 test('FORMS-01: XML rejects unknown bindings and duplicate fields', () => {
@@ -100,6 +188,134 @@ test('FORMS-01: P&S preview and issuance share renderer and paginate', async () 
   const { PDFDocument } = await import('pdf-lib')
   const loaded = await PDFDocument.load(issued)
   assert.ok(loaded.getPageCount() >= 2, 'P&S must be multi-page')
+})
+
+test('FORMS-BR: renderer emits bounded bottom-left anchors after pagination', async () => {
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)!
+  const values = prefillFieldValues(template, {
+    clientName: 'Ana María Rivera',
+    propertyLabel: 'Villa del Mar, Culebra, Puerto Rico',
+    offerAmount: '4950000',
+    financingType: 'Cash',
+    closingDate: '2026-11-15',
+  })
+  values.sellerName = 'Isla Holdings LLC'
+  values.deposit = '150000'
+  const artifact = await renderFormPdfArtifact(
+    template,
+    values,
+    emptySectionValues(template),
+    3,
+    {
+      participants: [
+        { role: 'BUYER', slotId: 'BUYER:1', name: 'Ana María Rivera' },
+        { role: 'SELLER', slotId: 'SELLER:1', name: 'Isla Holdings LLC' },
+      ],
+    },
+  )
+  assert.ok(artifact.pageCount >= 2)
+  assert.ok(artifact.signatureAnchors.length >= 6)
+  assert.ok(
+    artifact.signatureAnchors.some(
+      (anchor) =>
+        anchor.slotId === 'BUYER:1' && anchor.kind === 'signature',
+    ),
+  )
+  for (const anchor of artifact.signatureAnchors) {
+    assert.equal(anchor.coordinateSpace, 'pdf-points-bottom-left')
+    assert.ok(anchor.pageIndex >= 0 && anchor.pageIndex < artifact.pageCount)
+    assert.ok(anchor.rect.x >= 0 && anchor.rect.y >= 0)
+    assert.ok(anchor.rect.x + anchor.rect.width <= anchor.pageWidth)
+    assert.ok(anchor.rect.y + anchor.rect.height <= anchor.pageHeight)
+  }
+})
+
+test('FORMS-BR: identical inputs produce byte-identical PDFs', async () => {
+  const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID)!
+  const values: Record<string, string> = {
+    visitorName: 'José Muñoz',
+    agentName: 'Lisa Penfield',
+    property: 'Casa Luar',
+    showingDate: '2026-09-01',
+    duration: '45 minutes',
+    outcome: 'Interested',
+    feedbackScore: '5',
+  }
+  const sections = emptySectionValues(template)
+  const first = await renderFormPdf(template, values, sections, 2)
+  const second = await renderFormPdf(template, values, sections, 2)
+  assert.deepEqual(first, second)
+})
+
+test('FORMS-BR: an authorized issuance signature replaces only its signature/date anchors', async () => {
+  const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID)!
+  const logoBytes = readFileSync(
+    join(process.cwd(), 'public/brand/CLLOGO.png'),
+  )
+  const artifact = await renderFormPdfArtifact(
+    template,
+    {
+      visitorName: 'José Muñoz',
+      agentName: 'Test Owner',
+      property: 'Casa Luar',
+      showingDate: '2026-08-26',
+      duration: '45 minutes',
+      outcome: 'Interested',
+      feedbackScore: '5',
+    },
+    emptySectionValues(template),
+    4,
+    {
+      participants: [
+        {
+          role: 'BUYER_BROKER',
+          slotId: 'BUYER_BROKER:1',
+          name: 'Test Owner',
+        },
+      ],
+      appliedSignatures: [
+        {
+          role: 'BUYER_BROKER',
+          slotId: 'BUYER_BROKER:1',
+          signerName: 'Test Owner',
+          credentialLine: 'Real Estate Broker License #: C-9931',
+          signerAppUserId: 'owner-user',
+          imageBytes: logoBytes,
+          imageMimeType: 'image/png',
+          assetMediaId: 'test-protected-media',
+          assetChecksumSha256: 'a'.repeat(64),
+          // 01:30 UTC is still August 26 in Puerto Rico.
+          appliedAt: '2026-08-27T01:30:00.000Z',
+          consentBasis: BROKER_SIGNATURE_CONSENT_BASIS,
+          dateSemantic: BROKER_SIGNATURE_DATE_SEMANTIC,
+        },
+      ],
+    },
+  )
+  assert.equal(artifact.appliedSignatures.length, 1)
+  assert.equal(artifact.appliedSignatures[0].renderedDate, 'August 26, 2026')
+  assert.equal(artifact.appliedSignatures[0].slotId, 'BUYER_BROKER:1')
+  assert.equal(
+    artifact.appliedSignatures[0].credentialLine,
+    'Real Estate Broker License #: C-9931',
+  )
+  assert.equal(
+    artifact.signatureAnchors.some(
+      (anchor) =>
+        anchor.slotId === 'BUYER_BROKER:1' &&
+        (anchor.kind === 'signature' || anchor.kind === 'date'),
+    ),
+    false,
+    'BoldSign must not ask the owner to sign/date an already composed line',
+  )
+  assert.equal('imageBytes' in artifact.appliedSignatures[0], false)
+})
+
+test('FORMS-BR: draft identity ignores record insertion order', () => {
+  assert.equal(
+    formContentFingerprint({ b: '2', a: '1' }, { z: 'last', m: 'middle' }),
+    formContentFingerprint({ a: '1', b: '2' }, { m: 'middle', z: 'last' }),
+  )
 })
 
 test('FORMS-01: remaining production templates render PDFs', async () => {

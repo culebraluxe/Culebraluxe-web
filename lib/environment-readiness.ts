@@ -41,6 +41,9 @@ export type EnvironmentReadiness = {
   googleMapsDemoKeyAbsentInProduction: boolean
   // Mux.
   muxConfigured: boolean
+  // Authorized broker-signature composition (presence only; no values).
+  brokerSignatureConfigured: boolean
+  brokerSignatureEnabled: boolean
   // Aggregate fail-closed posture for the current environment.
   allProductionRequiredConfigured: boolean
 }
@@ -90,6 +93,14 @@ export function getEnvironmentReadiness(): EnvironmentReadiness {
     : configured(process.env.MUX_TOKEN_ID_DEV) &&
       configured(process.env.MUX_TOKEN_SECRET_DEV)
 
+  const brokerSignatureEnabled =
+    process.env.BROKER_SIGNATURE_ENABLED?.trim().toLowerCase() === 'true'
+  const brokerSignatureConfigured =
+    configured(process.env.BROKER_SIGNATURE_APP_USER_ID) &&
+    configured(process.env.BROKER_SIGNATURE_MEDIA_ID) &&
+    configured(process.env.BROKER_SIGNATURE_SIGNER_NAME) &&
+    configured(process.env.BROKER_SIGNATURE_LICENSE_NUMBER)
+
   const productionRequired = [
     databaseConfigured,
     authSecretConfigured,
@@ -97,6 +108,8 @@ export function getEnvironmentReadiness(): EnvironmentReadiness {
     googleMapsKeyConfigured,
     googleMapsDemoKeyAbsentInProduction,
     muxConfigured,
+    brokerSignatureEnabled,
+    brokerSignatureConfigured,
   ]
   const allProductionRequiredConfigured = isProduction
     ? productionRequired.every(Boolean)
@@ -113,6 +126,8 @@ export function getEnvironmentReadiness(): EnvironmentReadiness {
     googleMapsKeyConfigured,
     googleMapsDemoKeyAbsentInProduction,
     muxConfigured,
+    brokerSignatureConfigured,
+    brokerSignatureEnabled,
     allProductionRequiredConfigured,
   }
 }

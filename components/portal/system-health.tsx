@@ -256,6 +256,12 @@ function EnvironmentReadinessPanel({
       ready: readiness.googleMapsDemoKeyAbsentInProduction,
     },
     { label: "Mux tokens configured", ready: readiness.muxConfigured },
+    {
+      label: "Broker signature configured",
+      ready:
+        readiness.brokerSignatureConfigured &&
+        readiness.brokerSignatureEnabled,
+    },
   ]
 
   return (

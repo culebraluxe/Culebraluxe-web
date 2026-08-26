@@ -178,6 +178,40 @@ test('10. two Buyers require two separate completed slot-bound requests before e
   assert.equal(full.shouldEmit, true)
 })
 
+test('locally composed owner signature is immutable execution-slot evidence', async () => {
+  const { runner } = makeRun()
+  const result = await evaluateAgreementCompletion('doc-1', 'evt-local-owner', {
+    execute: makeExec({
+      snapshot: {
+        issuedParticipants: VALID_PARTICIPANTS,
+        appliedSignatures: [
+          {
+            role: 'SELLER_BROKER',
+            slotId: 'SELLER_BROKER:1',
+            signerName: 'Lisa Penfield',
+            credentialLine: 'Real Estate Broker License #: C-9931',
+            signerAppUserId: 'owner-user',
+            assetMediaId: 'protected-media',
+            assetChecksumSha256: 'a'.repeat(64),
+            appliedAt: '2026-08-26T18:30:00.000Z',
+            consentBasis: 'authenticated-owner-issuance',
+            dateSemantic: 'issuance-requested-at',
+            renderedDate: 'August 26, 2026',
+            pageIndex: 3,
+            signatureRect: { x: 52, y: 130, width: 302, height: 34 },
+            dateRect: { x: 374, y: 130, width: 186, height: 20 },
+          },
+        ],
+      },
+      satisfied: ['BUYER:1', 'SELLER:1'],
+    }),
+    run: runner,
+  })
+  assert.equal(result.outcome, 'success')
+  assert.equal(result.verdict.fullyExecuted, true)
+  assert.equal(result.shouldEmit, true)
+})
+
 test('parseIssuedParticipants: a role inconsistent with its slot id is rejected', () => {
   const parsed = parseIssuedParticipants([
     { slotId: 'BUYER:1', role: 'SELLER', personId: 'p', name: 'X', email: 'x@x.com', required: true, order: 0 },

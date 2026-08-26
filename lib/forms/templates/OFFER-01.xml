@@ -10,10 +10,19 @@
   id="OFFER-01"
   version="1"
   title="OFFER LETTER"
+  presentation="letter"
   documentType="Offer Letter"
   issuer="CulebraLuxe Real Estate">
 
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+  </participants>
+
   <field id="buyerName" label="Buyer / Client" type="text" required="true" source="deal.client.name"/>
+  <field id="sellerName" label="Seller / Owner" type="text" required="true"/>
+  <field id="brokerName" label="Buyer's Broker" type="text" required="true"/>
   <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
   <field id="offerAmount" label="Offer amount" type="money" required="true" source="deal.offer.amount"/>
   <field id="deposit" label="Deposit" type="money"/>
@@ -26,6 +35,8 @@
 
   <signatures>
     <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+    <signature-group role="SELLER" label="Seller / Owner" field="sellerName" initials="true"/>
+    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="brokerName" initials="true"/>
   </signatures>
 
 </form>

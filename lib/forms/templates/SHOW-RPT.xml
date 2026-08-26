@@ -3,15 +3,18 @@
   id="SHOW-RPT"
   version="1"
   title="SHOWING REPORT"
+  presentation="report"
   documentType="Showing Report"
   issuer="CulebraLuxe Real Estate">
 
   <participants>
     <participant role="BUYER" label="Visitor" multiple="true"/>
+    <participant role="SELLER" label="Property Owner" multiple="true"/>
     <participant role="BUYER_BROKER" label="Showing Agent"/>
   </participants>
 
   <field id="visitorName" label="Visitor" type="text" required="true" source="person.displayName"/>
+  <field id="propertyOwnerName" label="Property Owner" type="text" required="true"/>
   <field id="agentName" label="Showing Agent" type="text" required="true"/>
   <field id="property" label="Property" type="text" required="true" source="property.name"/>
   <field id="showingDate" label="Date" type="date" required="true"/>
@@ -35,6 +38,8 @@
   </section>
 
   <signatures>
-    <signature-group role="BUYER_BROKER" label="Showing Agent" field="agentName"/>
+    <signature-group role="BUYER" label="Visitor" field="visitorName" initials="true"/>
+    <signature-group role="SELLER" label="Property Owner" field="propertyOwnerName" initials="true"/>
+    <signature-group role="BUYER_BROKER" label="Showing Agent" field="agentName" initials="true"/>
   </signatures>
 </form>

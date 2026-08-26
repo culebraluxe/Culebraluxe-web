@@ -60,6 +60,11 @@ Classification legend:
 | `AUTH_BREAK_GLASS_ENABLED` | production-only (bootstrap) | `lib/auth/break-glass-config.ts` | `false` (break-glass disabled). |
 | `AUTH_BREAK_GLASS_APP_USER_ID` | production-only (bootstrap) | `lib/auth/break-glass-config.ts` | `null` → break-glass not configured. |
 | `AUTH_BREAK_GLASS_SECRET_HASH` | production-only (scrypt **hash**) | `lib/auth/break-glass-config.ts` | `null` → break-glass not configured. Only ever a hash, never the raw secret. |
+| `BROKER_SIGNATURE_ENABLED` | **production-required** feature gate | `db/broker-signature.ts`, `lib/environment-readiness.ts` | Anything except `true` leaves local signature composition disabled and readiness false. |
+| `BROKER_SIGNATURE_APP_USER_ID` | **production-required** identity binding | `db/broker-signature.ts`, `lib/environment-readiness.ts` | Missing → enabled composition fails closed; no signature is applied. |
+| `BROKER_SIGNATURE_MEDIA_ID` | **production-required** protected asset reference | `db/broker-signature.ts`, `lib/environment-readiness.ts` | Missing/invalid/non-image media → enabled composition fails closed. The signature must never be stored under `public/`. |
+| `BROKER_SIGNATURE_SIGNER_NAME` | **production-required** signer binding | `db/broker-signature.ts`, `lib/environment-readiness.ts` | Missing or inconsistent with the active owner/form broker field → no signature is applied or issuance fails closed. |
+| `BROKER_SIGNATURE_LICENSE_NUMBER` | **production-required** broker credential | `db/broker-signature.ts`, `lib/environment-readiness.ts` | Missing → enabled composition fails closed so an issued Lisa-signed PDF cannot omit the required credential line. Configure `C-9931`; the renderer prefixes the legal label. |
 
 ### 1.3 Maps / media / CMS
 
@@ -118,6 +123,10 @@ test seams, not production configuration.
    configuration, never DEV/demo values.
 5. **`.env.local` is never loaded into production.** It is gitignored and local
    only; Vercel environments carry their own variables.
+6. **Broker signature bytes remain protected.** The configured media id points
+   to an image in the existing private media store. Composition requires the
+   authenticated configured owner, active `owner` role, an allow-listed
+   template/role, matching signer identity, and a deterministic issuance time.
 
 ---
 
@@ -134,6 +143,7 @@ Production boot/requests that require a secret must **fail loudly or report
 | `lib/execution-target.ts` | `assertExecutionTargetSafe` throws before any database-affecting work when DEV/PROD URLs collide; `parseExecutionEnvironment` throws on unknown values. |
 | Auth.js (`auth.ts`, `app/api/auth/[...nextauth]`) | Auth.js v5 fails closed when `AUTH_SECRET` is missing in production; provider credentials missing → sign-in fails at the provider step. `AUTH_TRUST_HOST=true` is required on Vercel so the host header is trusted. Readiness probe reports not-configured for each missing item. |
 | `lib/environment-readiness.ts` | Returns booleans only; each production-required secret reports `false` ("Not configured") when absent, and the aggregate `allProductionRequiredConfigured` is `false` until every production-required item is present. |
+| Broker signature composition | Disabled unless explicitly enabled. When enabled, missing identity/asset configuration, an inactive/non-owner signer, an unauthorized actor, or an unsupported asset fails closed before PDF bytes are issued. |
 
 Rejected behaviors (per the AUTH-04 brief): printing/persisting secret values,
 a shared single Neon branch for DEV+PROD, silent fallback to demo/dev keys in
@@ -175,6 +185,11 @@ Run before any production deploy. Booleans only — never print values.
       `GOOGLE_MAPS_DEMO_KEY` **absent** from the production environment.
 - [ ] **Mux**: `MUX_TOKEN_ID_PROD` + `MUX_TOKEN_SECRET_PROD` set (and differing
       from the DEV token pair).
+- [ ] **Broker signature**: approved Lisa asset uploaded to protected `media`;
+      `BROKER_SIGNATURE_ENABLED=true`; owner app-user id, media id, and signer
+      name configured; broker license number configured as `C-9931`; issuance
+      and revocation proof recorded without logging the asset or environment
+      values.
 - [ ] **Migrations**: every `db/migrations/*` file ≤ current HEAD applied to
       production (see §4); no ad-hoc DDL on production.
 - [ ] **Readiness screen**: Portal → System Health → *Environment & Secrets

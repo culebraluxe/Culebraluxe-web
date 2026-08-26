@@ -42,11 +42,21 @@ test('pickFormSigners prefers CRM people for signature roles, then form fields',
         email: null,
         role: 'SELLER',
       },
+      {
+        personId: 'p-buyer-broker',
+        name: 'Broker Without Signature Block',
+        email: 'broker@example.test',
+        role: 'BUYER_BROKER',
+      },
     ],
   })
   assert.equal(picked[0]?.name, 'Ana Rivera')
   assert.equal(picked[0]?.email, 'ana@clients.test')
   assert.equal(picked.some((item) => item.name === 'Marco Silva'), true)
+  assert.equal(
+    picked.some((item) => item.name === 'Broker Without Signature Block'),
+    false,
+  )
 })
 
 test('Grok fill JSON only writes known template fields and select options', () => {
