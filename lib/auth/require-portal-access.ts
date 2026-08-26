@@ -14,6 +14,7 @@
 import { getActingUser } from './get-acting-user'
 import { requireAuthority } from './authority'
 import { AuthError } from './errors'
+import { devAuthLog } from './dev-auth-log'
 import type { SessionAdapter } from './session-adapter'
 import type { ActingUser, AuthorityCode } from './types'
 import { isPortalAuthBypass, portalAuthBypassActor } from './dev-bypass'
@@ -34,15 +35,18 @@ export async function resolvePortalAccess(
   try {
     const actor = await getActingUser(adapter)
     requireAuthority(actor, authority)
+    devAuthLog('AUTH_PORTAL_AUTHORIZED')
     return { ok: true, actor }
   } catch (error) {
     if (error instanceof AuthError) {
+      devAuthLog('APPLICATION_AUTHORIZATION', error.code)
       return {
         ok: false,
         redirectTo:
           error.code === 'unauthenticated' ? '/login' : '/login/unauthorized',
       }
     }
+    devAuthLog('APPLICATION_AUTHORIZATION', 'UNKNOWN')
     throw error
   }
 }

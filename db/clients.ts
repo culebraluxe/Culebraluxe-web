@@ -280,7 +280,7 @@ export async function getClients(opts: { id?: string } = {}): Promise<Client[]> 
       and (${opts.id ?? null}::text is null or p.id = ${opts.id ?? null})
 
     order by p.display_name asc
-    ${opts.id ? sql`limit 1` : sql``}
+    limit ${opts.id ? 1 : null}
   `
 
   return (rows as ClientRow[]).map((row) => {

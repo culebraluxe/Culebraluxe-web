@@ -70,17 +70,7 @@ function propertyDescriptor(row: DealRow) {
 export async function getDeals(
   actor?: Pick<ActingUser, "accountType" | "personId">,
 ): Promise<Deal[]> {
-  const externalScope =
-    actor?.accountType === "external"
-      ? sql`
-        and d.id in (
-          select dp.deal_id
-          from deal_participant dp
-          where dp.person_id = ${actor.personId}
-            and dp.active = true
-        )
-      `
-      : sql``
+  const external = actor?.accountType === "external"
 
   const rows = await sql`
     select
@@ -218,7 +208,15 @@ export async function getDeals(
     ) latest_offer on true
 
     where 1 = 1
-    ${externalScope}
+      and (
+        ${external} = false
+        or d.id in (
+          select dp.deal_id
+          from deal_participant dp
+          where dp.person_id = ${actor?.personId ?? null}
+            and dp.active = true
+        )
+      )
 
     order by
       case d.stage

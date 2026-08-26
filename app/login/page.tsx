@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { signIn } from "@/auth"
+import { devAuthLog } from "@/lib/auth/dev-auth-log"
 
 export const dynamic = "force-dynamic"
 
@@ -35,7 +36,8 @@ export default function LoginPage() {
             <form
               action={async () => {
                 "use server"
-                await signIn("google", { redirectTo: "/portal" })
+                devAuthLog("AUTH_SIGNIN_STARTED")
+                await signIn("google", { redirectTo: "/portal-auth-proof" })
               }}
               className="mt-8 w-full"
             >

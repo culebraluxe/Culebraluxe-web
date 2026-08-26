@@ -1,148 +1,71 @@
-// AUTH-01 — Auth.js (v5) instance for Portal authentication.
+// AUTH-08F — minimal Auth.js v5 + Google baseline.
 //
-// Boundary: this module ONLY proves identity ("who"). It exposes the Auth.js
-// primitives ({ handlers, auth, signIn, signOut }) and maps an authenticated
-// provider to a stable provider subject. It never resolves roles/authorities —
-// that is the application security layer's job (getActingUser → AUTH-02), and
-// business services must never call `auth()` directly.
+// This module ONLY proves identity ("who"): it authenticates via Google and
+// exposes { handlers, auth, signIn, signOut }. It makes NO database calls, NO
+// app_user lookup, NO role/authority snapshot, NO authorization inside Auth.js
+// callbacks. Application authorization happens AFTER authentication, server-side
+// in the Portal guard (getActingUser -> auth_identity -> app_user -> authorities).
 //
-// Providers:
-//   - Google (default) or a generic OIDC provider, configured exclusively from
-//     environment (AUTH_PROVIDER / AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET /
-//     AUTH_ISSUER).
-//   - "break-glass" Credentials provider: verifies the recovery secret via the
-//     canonical authenticateBreakGlass() and returns a stable subject derived
-//     from the configured root app_user, so recovery sessions resolve through
-//     the SAME application projection as normal logins.
+// Provider: Google, configured exclusively from environment.
+// Session strategy: JWT (no Auth.js database adapter). The provider `sub` is the
+// stable identity key; email is never used as an identity key.
 //
-// Session strategy: JWT (no Auth.js database adapter — the canonical identity
-// mapping lives in auth_identity). The provider `sub` is the stable identity
-// key; email is never used as an identity key.
+// Break-glass is TEMPORARILY kept out of this baseline (restored later as a
+// separate provider path with authorization after authentication, same as
+// Google). The pure helper exports below remain so the auth persistence tests
+// still compile; no break-glass provider is registered.
 
 import NextAuth from 'next-auth'
 import Google from 'next-auth/providers/google'
-import Credentials from 'next-auth/providers/credentials'
 import type { DefaultSession } from 'next-auth'
 
-import { authenticateBreakGlass } from '@/lib/auth/break-glass-authenticate'
-import { getAuthProviderConfig } from '@/lib/auth/provider-config'
-import { getSessionAuthoritySnapshot } from '@/lib/auth/session-capability-snapshot'
+import { devAuthLog } from '@/lib/auth/dev-auth-log'
 
 // Stable provider identifiers surfaced through the session adapter.
 export const AUTH_PROVIDER_GOOGLE = 'google'
 export const AUTH_PROVIDER_BREAK_GLASS = 'break-glass'
 
-// JWT session expiry (Auth.js `session.maxAge`). Signed-out users clear the
-// cookie via /api/auth/signout; the JWT simply stops being accepted after this.
+// JWT session expiry. Signed-out users clear the cookie via /api/auth/signout.
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
 
-// Stable subject for a break-glass session: derived from the configured root
-// app_user id, never from email. Matches the auth_identity mapping created by
-// db/manual/2026-08-20_v7_break_glass_identity.sql.
+// Stable subject for a future break-glass session (matches the auth_identity
+// mapping in db/manual/2026-08-20_v7_break_glass_identity.sql). Not used while
+// the break-glass provider is out of the baseline.
 export function breakGlassSubject(appUserId: string): string {
   return `${AUTH_PROVIDER_BREAK_GLASS}:${appUserId}`
 }
 
-function buildProviders() {
-  const config = getAuthProviderConfig()
-
-  // AUTH-08 — fail-closed, explicit DEV diagnostic. When the default Google
-  // provider lacks credentials, Auth.js would otherwise surface a generic
-  // "server configuration" error at sign-in. Log the missing variable NAMES
-  // (never values) so Chris knows exactly what to configure. Production still
-  // fails closed at sign-in; this warning never fabricates credentials.
-  if (config.provider === 'google' && (!config.clientId || !config.clientSecret)) {
-    const missing = [
-      !config.clientId ? 'AUTH_GOOGLE_ID' : null,
-      !config.clientSecret ? 'AUTH_GOOGLE_SECRET' : null,
-    ].filter(Boolean)
-    console.warn(
-      `[auth] Google OAuth unavailable: ${missing.join(' and ')} missing. ` +
-        'Set them in .env.local (see docs/auth-google-setup.md). ' +
-        'Normal Google login will fail closed until configured.',
-    )
-  }
-
-  // Generic OIDC (AUTH_PROVIDER=oidc + AUTH_ISSUER) or Google (default).
-  // Client credentials come from environment only. Auth.js's OAuth config
-  // treats clientId/clientSecret/issuer as optional, so an unconfigured DEV
-  // process constructs cleanly and fails closed at sign-in time.
-  const oauthProvider =
-    config.provider === 'oidc' && config.issuer
-      ? {
-          id: 'oidc',
-          name: 'OpenID Connect',
-          type: 'oidc' as const,
-          issuer: config.issuer,
-          clientId: config.clientId ?? undefined,
-          clientSecret: config.clientSecret ?? undefined,
-        }
-      : Google({
-          clientId: config.clientId ?? undefined,
-          clientSecret: config.clientSecret ?? undefined,
-        })
-
-  return [
-    oauthProvider,
-    Credentials({
-      id: AUTH_PROVIDER_BREAK_GLASS,
-      name: 'Break-glass recovery',
-      credentials: {
-        secret: { label: 'Recovery credential', type: 'password' },
-      },
-      async authorize(credentials) {
-        const secret = credentials?.secret
-        if (typeof secret !== 'string' || secret.length === 0) return null
-        const result = await authenticateBreakGlass(secret)
-        if (!result.ok) return null
-        // Stable subject for the configured root app_user. authenticateBreakGlass
-        // already resolved the root through the NORMAL role/authority projection,
-        // so the ActingUser shape is identical to a normal provider login.
-        return {
-          id: breakGlassSubject(result.actingUser.appUserId),
-          name: result.actingUser.displayName,
-          email: result.actingUser.email ?? undefined,
-        }
-      },
-    }),
-  ]
-}
+// (No buildProviders — baseline registers only Google directly below.)
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  // AUTH-08 — explicitly bind the env-backed Auth.js signing secret. Auth.js
-  // v5 normally auto-detects AUTH_SECRET, but a fresh serverless build can miss
-  // that auto-detection and fail with MissingSecret even when the env var is
-  // present. Explicit binding removes the reliance on auto-detection while
-  // keeping the SAME env name and value. An absent AUTH_SECRET stays undefined
-  // and Auth.js still fails closed (MissingSecret) — no fallback is invented.
+  // Explicitly bind the env-backed Auth.js signing secret.
   secret: process.env.AUTH_SECRET,
-  providers: buildProviders(),
-  session: {
-    strategy: 'jwt',
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  },
+  providers: [
+    Google({
+      clientId: process.env.AUTH_GOOGLE_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    }),
+  ],
+  session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE_SECONDS },
+  // Custom safe error page (DEV shows a diagnostic; PROD stays generic).
+  pages: { error: '/auth/error' },
   callbacks: {
-    async jwt({ token, user, account }) {
-      if (user?.id) token.sub = user.id
-      if (account?.provider) {
-        token.provider = account.provider
-      } else if (user?.id?.startsWith(`${AUTH_PROVIDER_BREAK_GLASS}:`)) {
-        // Credentials sign-in may not carry an account object; derive the
-        // provider deterministically from the stable subject prefix.
-        token.provider = AUTH_PROVIDER_BREAK_GLASS
+    // Minimal: stamp only the stable subject + provider. NO DB, NO authorities.
+    //
+    // Canonical identity key = account.providerAccountId (the provider's stable
+    // account id, for Google the numeric `sub` from profile.sub). Do NOT use
+    // `user.id`: in Auth.js v5 WITHOUT a database adapter, `user.id` is a fresh
+    // crypto.randomUUID() minted per sign-in (see @auth/core oauth/callback),
+    // so it is NOT stable. The provider subject is the durable identity key;
+    // email is never an identity key.
+    jwt({ token, account }) {
+      const stableSubject = account?.providerAccountId
+      if (stableSubject) {
+        token.sub = stableSubject
+        devAuthLog('AUTH_GOOGLE_CALLBACK_RECEIVED')
+        devAuthLog('AUTH_SESSION_CREATED')
       }
-      // AUTH-02: stamp the coarse authority snapshot for the Edge middleware
-      // gate. Runs ONLY at sign-in (user present, Node runtime) — the snapshot
-      // then rides in the JWT and is never re-resolved on subsequent requests.
-      // The snapshot is not authoritative (server-side guards re-resolve from
-      // the DB on every protected request), so a resolution failure degrades to
-      // null: the cheap gate passes through and the layout guard decides.
-      if (user?.id && token.provider) {
-        token.capabilities = await getSessionAuthoritySnapshot(
-          token.provider as string,
-          token.sub as string,
-        ).catch(() => null)
-      }
+      if (account?.provider) token.provider = account.provider
       return token
     },
     session({ session, token }) {

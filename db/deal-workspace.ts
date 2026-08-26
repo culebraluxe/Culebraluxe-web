@@ -208,23 +208,18 @@ export async function getDealWorkspace(
   actor?: Pick<ActingUser, 'accountType' | 'personId'>,
 ): Promise<DealWorkspace> {
   const external = actor?.accountType === 'external'
-  const externalScope = external
-    ? sql`
-      and d.id in (
-        select dp.deal_id
-        from deal_participant dp
-        where dp.person_id = ${actor.personId}
-          and dp.active = true
-      )
-    `
-    : sql``
 
   if (external) {
     const scopedDeal = await sql`
       select d.id
       from deal d
       where d.id = ${dealId}
-      ${externalScope}
+        and d.id in (
+          select dp.deal_id
+          from deal_participant dp
+          where dp.person_id = ${actor?.personId ?? null}
+            and dp.active = true
+        )
       limit 1
     `
     if ((scopedDeal as { id: string }[]).length === 0) {
@@ -304,7 +299,15 @@ export async function getDealWorkspace(
         limit 1
       ) client_phone on true
       where d.id = ${dealId}
-      ${externalScope}
+        and (
+          ${external} = false
+          or d.id in (
+            select dp.deal_id
+            from deal_participant dp
+            where dp.person_id = ${actor?.personId ?? null}
+              and dp.active = true
+          )
+        )
       limit 1
     `,
     sql`
