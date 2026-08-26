@@ -24,33 +24,44 @@ export function KpiCard({
   value,
   note,
   accent = false,
+  tone = "light",
 }: {
   label: string
   value: string
   note?: string
   accent?: boolean
+  tone?: "light" | "dark"
 }) {
+  const dark = tone === "dark"
   return (
     <div
-      className={`rounded-[var(--portal-panel-radius)] border ${
-        accent
-          ? "border-[var(--portal-gold)]/40 [background:var(--portal-feature-gradient)] text-white shadow-[var(--portal-feature-shadow)]"
-          : "border-[var(--portal-panel-border)] bg-white text-[var(--portal-navy)] shadow-[var(--portal-panel-shadow)]"
-      } p-5`}
+      className={`relative overflow-hidden rounded-[var(--portal-panel-radius)] border p-3.5 ${
+        dark
+          ? "portal-glass-panel-feature"
+          : accent
+            ? "border-[var(--portal-gold)]/40 [background:var(--portal-feature-gradient)] text-white shadow-[var(--portal-feature-shadow)]"
+            : "border-[var(--portal-panel-border)] bg-white text-[var(--portal-navy)] shadow-[var(--portal-panel-shadow)]"
+      }`}
     >
       <div
-        className={`text-[10px] font-light uppercase tracking-[0.18em] ${
-          accent ? "text-[var(--portal-feature-eyebrow)]" : "text-[var(--portal-blue-gray)]"
+        className={`text-[9px] font-light uppercase tracking-[0.18em] ${
+          dark || accent ? "text-[var(--portal-feature-eyebrow)]" : "text-[var(--portal-blue-gray)]"
         }`}
       >
         {label}
       </div>
-      <div className="mt-2 font-serif text-3xl font-light leading-none tabular-nums">
+      <div
+        className={`mt-1 font-serif text-2xl font-light leading-none tabular-nums ${
+          dark || accent ? "text-white" : "text-[var(--portal-navy)]"
+        }`}
+      >
         {value}
       </div>
       {note && (
         <div
-          className={`mt-2 text-xs font-light leading-5 ${accent ? "text-white/55" : "text-black/40"}`}
+          className={`mt-1 text-[10px] font-light leading-4 ${
+            dark || accent ? "text-white/55" : "text-black/40"
+          }`}
         >
           {note}
         </div>
@@ -59,54 +70,62 @@ export function KpiCard({
   )
 }
 
-function StoryMiniCard({ story, subdued }: { story: StoryRecord; subdued?: boolean }) {
+function StoryMiniCard({
+  story,
+  subdued,
+  tone = "light",
+}: {
+  story: StoryRecord
+  subdued?: boolean
+  tone?: "light" | "dark"
+}) {
+  const dark = tone === "dark"
   return (
     <Link
       href={`/portal/storyboard/${encodeURIComponent(story.id)}`}
-      className={`group block rounded-md border ${
-        subdued ? "border-black/5 bg-black/[0.02]" : "border-[var(--portal-border)] bg-white/60"
-      } p-3 transition hover:border-[var(--portal-gold)]/50`}
+      className={`group block rounded-md border px-2.5 py-1.5 transition ${
+        dark
+          ? subdued
+            ? "border-white/5 bg-white/[0.02] hover:border-[var(--portal-gold)]/30"
+            : "border-white/10 bg-white/[0.03] hover:border-[var(--portal-gold)]/40"
+          : subdued
+            ? "border-black/5 bg-black/[0.02]"
+            : "border-[var(--portal-border)] bg-white/60 hover:border-[var(--portal-gold)]/50"
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className={`font-mono text-[11px] ${subdued ? "text-black/35" : "text-[var(--portal-navy)]"}`}>
+          <div className={`font-mono text-[11px] ${dark ? "text-[var(--portal-on-navy)]" : subdued ? "text-black/35" : "text-[var(--portal-navy)]"}`}>
             {story.id}
           </div>
-          <div
-            className={`mt-0.5 line-clamp-2 text-sm font-light leading-5 ${
-              subdued ? "text-black/45" : "text-black/70"
-            }`}
-          >
+          <div className={`mt-0.5 line-clamp-2 text-sm font-light leading-5 ${dark ? "text-white/70" : subdued ? "text-black/45" : "text-black/70"}`}>
             {story.title}
           </div>
         </div>
         <span
           className={`inline-block shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-light uppercase tracking-[0.14em] ${
-            subdued ? "border border-black/10 text-black/35" : statusPillClasses(story.status)
+            dark
+              ? "border border-white/10 text-[var(--portal-on-navy)]"
+              : subdued
+                ? "border border-black/10 text-black/35"
+                : statusPillClasses(story.status)
           }`}
         >
           {story.status}
         </span>
       </div>
-      <div className="mt-2.5 flex items-center justify-between gap-3">
-        <span
-          className={`text-[10px] font-light uppercase tracking-[0.12em] ${
-            subdued ? "text-black/30" : "text-black/40"
-          }`}
-        >
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <span className={`text-[10px] font-light uppercase tracking-[0.12em] ${dark ? "text-white/40" : subdued ? "text-black/30" : "text-black/40"}`}>
           {story.priority}
         </span>
         <div className="flex min-w-24 items-center gap-2">
-
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-black/10">
+          <div className={`h-1 flex-1 overflow-hidden rounded-full ${dark ? "bg-white/15" : "bg-black/10"}`}>
             <div
-              className={`h-full rounded-full ${subdued ? "bg-black/25" : "bg-[var(--portal-navy)]"}`}
+              className={`h-full rounded-full ${dark ? "bg-[var(--portal-gold)]/80" : subdued ? "bg-black/25" : "bg-[var(--portal-navy)]"}`}
               style={{ width: `${Math.max(0, Math.min(100, story.completion))}%` }}
             />
           </div>
-          <span
-            className={`text-[10px] font-light tabular-nums ${subdued ? "text-black/30" : "text-black/50"}`}
-          >
+          <span className={`text-[10px] font-light tabular-nums ${dark ? "text-white/45" : subdued ? "text-black/30" : "text-black/50"}`}>
             {Math.round(story.completion)}%
           </span>
         </div>
@@ -119,61 +138,58 @@ function LifecyclePanel({
   panel,
   subdued,
   attention,
+  tone = "light",
 }: {
   panel: CockpitPanel
   subdued?: boolean
   attention?: boolean
+  tone?: "light" | "dark"
 }) {
   const meta = LIFECYCLE_META.find((m) => m.bucket === panel.bucket)!
+  const dark = tone === "dark"
   return (
     <section
       className={`overflow-hidden rounded-[var(--portal-panel-radius)] ${
-        attention ? "portal-glass-panel-attention" : "portal-glass-panel"
-      } ${subdued ? "opacity-90" : ""}`}
+        dark ? "portal-glass-panel-feature" : attention ? "portal-glass-panel-attention" : "portal-glass-panel"
+      } ${subdued ? (dark ? "opacity-80" : "opacity-90") : ""}`}
     >
-      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--portal-border)] px-5 py-4">
+      <div className={`flex items-baseline justify-between gap-3 border-b px-4 py-3 ${dark ? "border-white/10" : "border-[var(--portal-border)]"}`}>
         <div>
-          <div className="text-[10px] font-light uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">
+          <div className={`text-[9px] font-light uppercase tracking-[0.18em] ${dark ? "text-[var(--portal-on-navy)]/60" : "text-[var(--portal-blue-gray)]"}`}>
             {meta.eyebrow}
           </div>
-          <h2
-            className={`mt-0.5 font-serif text-xl font-light leading-none ${
-              subdued ? "text-black/55" : "text-[var(--portal-navy)]"
-            }`}
-          >
+          <h2 className={`mt-0.5 font-serif text-lg font-semibold leading-none ${dark ? "text-white" : subdued ? "text-black/55" : "text-[var(--portal-navy)]"}`}>
             {meta.title}
           </h2>
         </div>
         <span
-          className={`rounded-full px-3 py-1 font-serif text-sm font-light tabular-nums ${
-            attention
-              ? "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]"
-              : "border border-[var(--portal-border)] text-black/50"
+          className={`rounded-full px-2.5 py-0.5 font-serif text-sm font-light tabular-nums ${
+            dark
+              ? "border border-white/10 text-[var(--portal-on-navy)]"
+              : attention
+                ? "bg-[var(--portal-gold-pale)] text-[var(--portal-gold-muted)]"
+                : "border border-[var(--portal-border)] text-black/50"
           }`}
         >
           {panel.count}
         </span>
       </div>
 
-      <div className="max-h-[26rem] overflow-y-auto p-3">
+      <div className="max-h-72 overflow-y-auto p-2.5">
         {panel.groups.length === 0 ? (
-          <p className="px-3 py-8 text-center text-xs font-light italic text-black/35">
+          <p className={`px-3 py-8 text-center text-xs font-light italic ${dark ? "text-[var(--portal-on-navy)]/45" : "text-black/35"}`}>
             No {meta.title.toLowerCase()} stories right now.
           </p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {panel.groups.map((group) => (
               <div key={group.group}>
-                <div
-                  className={`mb-2 px-1 text-[10px] font-light uppercase tracking-[0.2em] ${
-                    subdued ? "text-black/30" : "text-[var(--portal-navy-soft)]"
-                  }`}
-                >
+                <div className={`mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.18em] ${dark ? "text-[var(--portal-feature-eyebrow)]/70" : subdued ? "text-black/30" : "text-[var(--portal-navy-soft)]"}`}>
                   {group.group}
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {group.stories.map((story) => (
-                    <StoryMiniCard key={story.id} story={story} subdued={subdued} />
+                    <StoryMiniCard key={story.id} story={story} subdued={subdued} tone={tone} />
                   ))}
                 </div>
               </div>
@@ -204,15 +220,17 @@ export function StoryBoardKpiStrip({ kpis }: { kpis: StoryBoardCockpitData['kpis
 
 export function StoryBoardLifecycleGrid({
   panels,
+  tone = "light",
 }: {
   panels: StoryBoardCockpitData['panels']
+  tone?: "light" | "dark"
 }) {
   return (
-    <div className="mt-6 grid gap-5 lg:grid-cols-2">
-      <LifecyclePanel panel={panels.open} attention />
-      <LifecyclePanel panel={panels.backlog} />
-      <LifecyclePanel panel={panels.closed} subdued />
-      <LifecyclePanel panel={panels['next-version']} />
+    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <LifecyclePanel panel={panels.open} attention tone={tone} />
+      <LifecyclePanel panel={panels.backlog} tone={tone} />
+      <LifecyclePanel panel={panels.closed} subdued tone={tone} />
+      <LifecyclePanel panel={panels['next-version']} tone={tone} />
     </div>
   )
 }
