@@ -25,6 +25,11 @@ export function isPortalAuthBypass(): boolean {
   // node:test loads .env.local (which sets the flag); never bypass there.
   if (process.env['PORTAL_AUTH_BYPASS'] !== '1') return false
   if (process.env['NODE_TEST_CONTEXT']) return false
+  // HARDEN-01/HARDEN-04 — fail closed on production: a production deployment
+  // must NEVER honor the DEV bypass, even if the flag is accidentally set.
+  // Production auth configuration mismatch must deny, not silently open access.
+  if (process.env['NODE_ENV'] === 'production') return false
+  if (process.env['APP_ENV'] === 'production') return false
   return true
 }
 

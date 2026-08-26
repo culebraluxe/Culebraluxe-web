@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 
 import { guardPortalUpload } from '@/lib/auth/portal-session'
 import { sql } from '@/db/client'
+import {
+  MAX_MEDIA_UPLOAD_BYTES,
+  sanitizeUploadFilename,
+} from '@/lib/media/upload-policy'
 
 export const runtime = 'nodejs'
 
@@ -59,6 +63,14 @@ export async function POST(request: Request) {
       )
     }
 
+    // HARDEN-06: bounded image size + sanitized filename.
+    if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: 'Image is too large (max 50 MB).' },
+        { status: 400 },
+      )
+    }
+
     const bytes = new Uint8Array(
       await file.arrayBuffer(),
     )
@@ -74,7 +86,7 @@ export async function POST(request: Request) {
       )
       VALUES (
         ${bytes},
-        ${file.name},
+        ${sanitizeUploadFilename(file.name)},
         ${file.type},
         ${file.size},
         ${
