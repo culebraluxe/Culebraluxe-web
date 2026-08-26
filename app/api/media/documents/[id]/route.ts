@@ -36,11 +36,21 @@ export async function GET(
     return new Response('Not found', { status: 404 })
   }
 
-  const row = result[0]
+  const row = result[0] as
+    | {
+        file_data: Buffer | Uint8Array | null
+        filename: string | null
+        mime_type: string | null
+        file_size: string | number | null
+      }
+    | undefined
+  if (!row) {
+    return new Response('Not found', { status: 404 })
+  }
   const download = new URL(request.url).searchParams.get('download') === '1'
   const headers = new Headers({
-    'Content-Type': row.mime_type,
-    'Content-Disposition': contentDisposition(row.filename, download),
+    'Content-Type': String(row.mime_type ?? 'application/octet-stream'),
+    'Content-Disposition': contentDisposition(String(row.filename ?? 'document'), download),
     'Cache-Control': 'private, max-age=0, must-revalidate',
     'X-Content-Type-Options': 'nosniff',
   })

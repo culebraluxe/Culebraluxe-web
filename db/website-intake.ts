@@ -1,4 +1,4 @@
-import { sql } from './client'
+import { sql, db, DbFailureError } from './client'
 
 import type {
   CanonicalWebsiteIntakeInput,
@@ -26,10 +26,13 @@ type ReceiptRow = {
   updated_at: string
 }
 
-const runNeonTransaction: TransactionExecutor = async (buildQueries) =>
-  (await sql.transaction((transactionSql) =>
-    buildQueries(transactionSql as unknown as QueryExecutor) as never,
-  )) as QueryRow[][]
+const runNeonTransaction: TransactionExecutor = async (buildQueries) => {
+  const result = await db.transaction('website-intake.tx', async (tx) =>
+    Promise.all(buildQueries(tx as QueryExecutor)),
+  )
+  if (!result.ok) throw new DbFailureError(result.error)
+  return result.data as QueryRow[][]
+}
 
 function mapReceipt(row: ReceiptRow): WebsiteIntakeReceipt {
   return {

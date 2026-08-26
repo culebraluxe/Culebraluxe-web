@@ -1,6 +1,4 @@
-import { Pool } from '@neondatabase/serverless'
-
-import { databaseUrl } from './client'
+import { db, DbFailureError } from './database-gateway'
 
 // ---------------------------------------------------------------------------
 // CLIENTS — materialized application read-model refresh seam.
@@ -14,14 +12,15 @@ import { databaseUrl } from './client'
 // client read models are rebuilt; it is called at the ingestion/promotion
 // boundaries and after the ClientManager's own canonical write actions — never
 // by the web server on startup.
+//
+// DB-HARDEN-01: routes through the DatabaseGateway (no direct Neon/Pool
+// import). A failure surfaces as a normalized DbFailureError so the caller
+// never sees a false success.
 // ---------------------------------------------------------------------------
 
 export async function refreshClientReadModels(): Promise<void> {
-  const pool = new Pool({ connectionString: databaseUrl })
-  try {
-    await pool.query('refresh materialized view concurrently mv_client_directory')
-    await pool.query('refresh materialized view concurrently mv_client_contact_history')
-  } finally {
-    await pool.end()
-  }
+  const r1 = await db.execute`refresh materialized view concurrently mv_client_directory`
+  if (!r1.ok) throw new DbFailureError(r1.error)
+  const r2 = await db.execute`refresh materialized view concurrently mv_client_contact_history`
+  if (!r2.ok) throw new DbFailureError(r2.error)
 }

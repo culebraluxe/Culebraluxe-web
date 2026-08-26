@@ -57,7 +57,17 @@ export async function GET(
     return new Response("Not found", { status: 404 })
   }
 
-  const row = result[0]
+  const row = result[0] as
+    | {
+        file_data: Buffer | Uint8Array | null
+        mime_type: string
+        publicly_allowed: boolean
+      }
+    | undefined
+  if (!row) {
+    return new Response("Not found", { status: 404 })
+  }
+
   const allowed = authed || row.publicly_allowed === true
   if (!allowed) {
     // 404 (not 403) so internal media ids are not distinguishable.

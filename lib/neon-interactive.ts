@@ -20,8 +20,8 @@ function getPool(): Promise<any> {
   if (!poolPromise) {
     poolPromise = (async () => {
       const { Pool } = await import('@neondatabase/serverless')
-      const { databaseUrl } = await import('../db/client')
-      return new Pool({ connectionString: databaseUrl })
+      const { getDatabaseUrl } = await import('../db/client')
+      return new Pool({ connectionString: getDatabaseUrl() })
     })()
   }
   return poolPromise

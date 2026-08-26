@@ -51,7 +51,9 @@ export async function getMediaBytes(
     where id = ${mediaId}
     limit 1
   `
-  const row = rows[0]
+  const row = rows[0] as
+    | { file_data: Buffer | Uint8Array | null; filename: string | null; mime_type: string | null }
+    | undefined
   if (!row) return null
   return {
     bytes: Buffer.isBuffer(row.file_data)

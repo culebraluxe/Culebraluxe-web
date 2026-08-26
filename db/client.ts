@@ -1,16 +1,20 @@
-import { neon } from "@neondatabase/serverless"
+// DB-HARDEN-01 — the application database facade.
+//
+// Everything routes through the single DatabaseGateway. Importing this module
+// never throws and never loads the Neon driver — the connection is resolved
+// lazily on first database use. Repositories import `sql` (a contained tagged
+// executor that returns rows and throws a NORMALIZED DbFailureError on
+// failure) or use `db.query`/`db.queryOne`/`db.transaction` for typed Results.
 
-const appEnv = process.env.APP_ENV ?? "development"
-
-export const databaseUrl =
-  appEnv === "production"
-    ? process.env.DATABASE_URL_PROD
-    : process.env.DATABASE_URL_DEV
-
-if (!databaseUrl) {
-  throw new Error(
-    `Database URL is not configured for APP_ENV="${appEnv}"`
-  )
-}
-
-export const sql = neon(databaseUrl)
+export { db, sql, getDatabaseUrl, DatabaseGateway } from './database-gateway'
+export {
+  DbConfigError,
+  DbFailureError,
+  setDatabaseTestExecutor,
+  setDatabaseTestTransaction,
+} from './database-gateway'
+export type {
+  DbFailure,
+  DbFailureKind,
+  Result,
+} from './database-gateway'

@@ -1,4 +1,4 @@
-import { sql } from './client'
+import { sql, db, DbFailureError } from './client'
 
 import type {
   IdentityMatch,
@@ -14,10 +14,13 @@ import type {
   TransactionExecutor,
 } from './query-executor'
 
-const runNeonTransaction: TransactionExecutor = async (buildQueries) =>
-  (await sql.transaction((transactionSql) =>
-    buildQueries(transactionSql as unknown as QueryExecutor) as never,
-  )) as QueryRow[][]
+const runNeonTransaction: TransactionExecutor = async (buildQueries) => {
+  const result = await db.transaction('person-identities.tx', async (tx) =>
+    Promise.all(buildQueries(tx as QueryExecutor)),
+  )
+  if (!result.ok) throw new DbFailureError(result.error)
+  return result.data as QueryRow[][]
+}
 
 export async function personExists(
   personId: string,

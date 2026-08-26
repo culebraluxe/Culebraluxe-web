@@ -47,8 +47,10 @@ async function main(): Promise<void> {
     return
   }
 
-  const { sql } = await import('../../db/client')
-  const exec = (s: string) => sql.unsafe(s) as unknown as Promise<unknown[]>
+  const { neon } = await import('@neondatabase/serverless')
+  const { getDatabaseUrl } = await import('../../db/client')
+  const exec = (s: string) =>
+    neon(getDatabaseUrl()).unsafe(s) as unknown as Promise<unknown[]>
   const results = await resetDevWorkflowsCore(exec)
   console.log('DEV workflow reset complete:')
   for (const r of results) {

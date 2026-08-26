@@ -228,8 +228,10 @@ function createDeps(): WorkflowCliDeps {
     resetDev: async () => {
       const { assertDevResetAllowed, resetDevWorkflowsCore } = await import('../workflow_app/reset')
       assertDevResetAllowed(process.env.APP_ENV)
-      const { sql } = await import('../db/client')
-      const exec = (s: string) => sql.unsafe(s) as unknown as Promise<unknown[]>
+      const { neon } = await import('@neondatabase/serverless')
+      const { getDatabaseUrl } = await import('../db/client')
+      const exec = (s: string) =>
+        neon(getDatabaseUrl()).unsafe(s) as unknown as Promise<unknown[]>
       return resetDevWorkflowsCore(exec)
     },
   }
