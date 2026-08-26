@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { signIn } from "@/auth"
 
 export const dynamic = "force-dynamic"
 
@@ -31,12 +32,20 @@ export default function LoginPage() {
               accounts are provisioned by an administrator.
             </p>
 
-            <Link
-              href="/api/auth/signin/google"
-              className="mt-8 flex min-h-12 w-full items-center justify-center gap-3 rounded-sm border border-[#030f23]/15 px-4 text-sm font-light text-[#030f23] transition hover:border-[#030f23]"
+            <form
+              action={async () => {
+                "use server"
+                await signIn("google", { redirectTo: "/portal" })
+              }}
+              className="mt-8 w-full"
             >
-              Continue with Google
-            </Link>
+              <button
+                type="submit"
+                className="flex min-h-12 w-full items-center justify-center gap-3 rounded-sm border border-[#030f23]/15 px-4 text-sm font-light text-[#030f23] transition hover:border-[#030f23]"
+              >
+                Continue with Google
+              </button>
+            </form>
 
             <p className="mt-4 text-xs font-light text-black/40">
               Having trouble? Contact a CulebraLuxe administrator.
