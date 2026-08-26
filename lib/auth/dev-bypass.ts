@@ -12,6 +12,7 @@ const TEMP_BYPASS_ALL_AUTHORITIES: AuthorityCode[] = [
   'deal.write',
   'settings.read',
   'settings.manage',
+  'tech.access',
   'external.properties.save',
   'external.deal.read_own',
 ]
