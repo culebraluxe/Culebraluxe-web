@@ -109,6 +109,13 @@ function buildProviders() {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // AUTH-08 — explicitly bind the env-backed Auth.js signing secret. Auth.js
+  // v5 normally auto-detects AUTH_SECRET, but a fresh serverless build can miss
+  // that auto-detection and fail with MissingSecret even when the env var is
+  // present. Explicit binding removes the reliance on auto-detection while
+  // keeping the SAME env name and value. An absent AUTH_SECRET stays undefined
+  // and Auth.js still fails closed (MissingSecret) — no fallback is invented.
+  secret: process.env.AUTH_SECRET,
   providers: buildProviders(),
   session: {
     strategy: 'jwt',
