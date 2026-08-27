@@ -16,6 +16,7 @@ import type {
 /** Stable Tier-1 ordering. */
 export const OPERATING_SURFACE_ORDER: readonly OperatingSurface[] = [
   'NEXUS',
+  'ACCOUNTING',
   'OPS',
   'SUPPORT',
   'TECH',
@@ -45,6 +46,36 @@ export const OPERATING_SURFACES: Record<
       { label: 'Cabinet', href: '/portal/documents', authority: 'deal.read' },
       { label: 'Workflows', href: '/portal/workflows', authority: 'portal.read' },
       { label: 'Forms', href: '/portal/forms', authority: 'deal.read' },
+    ],
+  },
+  ACCOUNTING: {
+    surface: 'ACCOUNTING',
+    label: 'ACCOUNTING',
+    description:
+      'Brokerage accounting — receivables, expenses, P&L and receipt intake. A simple cash-oriented management view (not QuickBooks).',
+    home: '/portal/accounting',
+    items: [
+      { label: 'Dashboard', href: '/portal/accounting', authority: 'portal.read' },
+      {
+        label: 'Receivables',
+        href: '/portal/accounting/receivables',
+        authority: 'portal.read',
+      },
+      {
+        label: 'Expenses',
+        href: '/portal/accounting/expenses',
+        authority: 'portal.read',
+      },
+      {
+        label: 'P&L Statement',
+        href: '/portal/accounting/pnl',
+        authority: 'portal.read',
+      },
+      {
+        label: 'Receipt Scanner',
+        href: '/portal/accounting/receipt-scanner',
+        authority: 'portal.read',
+      },
     ],
   },
   OPS: {

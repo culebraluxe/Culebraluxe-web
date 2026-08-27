@@ -19,11 +19,11 @@ import {
 } from '@/lib/navigation'
 
 // ---------------------------------------------------------------------------
-// UI-01 — Operating shell: one application, four operating worlds, ONE
+// UI-01 — Operating shell: one application, five operating worlds, ONE
 // navigation model on every screen size.
 //
 //   Top nav (navy header, WITH the logo):
-//     CORE | OPPS | SUPPORT | TECH
+//     CORE | ACCOUNTING | OPPS | SUPPORT | TECH
 //     The logo returns to the public CulebraLuxe site. These items are never
 //     moved to a second row, never hamburger-only.
 //   Submenu  contextual glass rail for the active surface (horizontally
@@ -85,7 +85,7 @@ export function OperatingShell({
   return (
     <div className="portal-page">
       <header className="sticky top-0 z-20">
-        {/* ONE top nav: logo + the four worlds (CORE, OPPS, SUPPORT, TECH) + account. */}
+        {/* ONE top nav: logo + the five worlds (CORE, ACCOUNTING, OPPS, SUPPORT, TECH) + account. */}
         <div className="border-b border-[var(--portal-gold)]/25 bg-brand-navy text-white">
           <div className="flex min-h-12 items-stretch gap-3 px-3 sm:px-6 lg:px-10">
             <Link

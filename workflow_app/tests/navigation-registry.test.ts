@@ -49,6 +49,11 @@ test('UI-01: sub-routes inherit their parent surface', () => {
 
 test('UI-01: every known /portal route belongs to a surface', () => {
   const routes = [
+    '/portal/accounting',
+    '/portal/accounting/receivables',
+    '/portal/accounting/expenses',
+    '/portal/accounting/pnl',
+    '/portal/accounting/receipt-scanner',
     '/portal/activity',
     '/portal/attention',
     '/portal/catch-up',
@@ -107,7 +112,15 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Client Administration',
       'Reporting',
     ],
+    ACCOUNTING: [
+      'Dashboard',
+      'Receivables',
+      'Expenses',
+      'P&L Statement',
+      'Receipt Scanner',
+    ],
     TECH: [
+      'Tech Overview',
       'Command Center',
       'Story Board',
       'Command Console',
@@ -119,7 +132,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
   }
   assert.deepEqual(
     OPERATING_SURFACE_ORDER.map((s) => OPERATING_SURFACES[s].label),
-    ['CORE', 'OPPS', 'SUPPORT', 'TECH'],
+    ['CORE', 'ACCOUNTING', 'OPPS', 'SUPPORT', 'TECH'],
   )
   for (const surface of OPERATING_SURFACE_ORDER) {
     const labels = navigationForSurface(surface).map((item) => item.label)
@@ -135,9 +148,10 @@ test('UI-01: surface homes are stable and belong to their surface', () => {
     OPERATING_SURFACE_ORDER.map((s) => surfaceHome(s)),
     [
       '/portal/dashboard',
+      '/portal/accounting',
       '/portal/needs-review',
       '/portal/system-health',
-      '/portal/storyboard',
+      '/portal/tech',
     ],
   )
   for (const surface of OPERATING_SURFACE_ORDER) {

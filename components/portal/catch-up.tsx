@@ -12,6 +12,14 @@ import { CatchUpWorkQueue } from '@/components/portal/catch-up-work-queue'
 import { CatchUpTaskDetail } from '@/components/portal/catch-up-task-detail'
 import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidate'
 import {
+  createTaskAction,
+  saveTaskAction,
+} from '@/app/portal/catch-up/actions'
+import {
+  interpretAraCommand,
+  type AraRuntimeContext,
+} from '@/lib/catchup/ara'
+import {
   buildCatchUpNavRows,
   firstCatchUpTaskId,
   getCatchUpWorkstreams,
@@ -219,18 +227,116 @@ export function CatchUp({
   )
 
 
+  // ARA — real command execution. The staged status-text path is replaced by a
+  // deterministic interpreter that resolves EDIT / CREATE against the selected
+  // task, then invokes the EXISTING canonical seams (saveTaskAction /
+  // createTaskAction — which wrap db/portal-writes.updateTask and
+  // db/tasks.createTask with auth + revalidation). No second task mutation path,
+  // no direct database write, no calendar. Status text is always truthful.
+  const handleAraRun = useCallback(
+    async (prompt: string) => {
+      const context: AraRuntimeContext = {
+        currentWorkstream: activeWorkstream,
+        selectedTask: selectedTask
+          ? {
+              id: selectedTask.id,
+              title: selectedTask.title,
+              detail: selectedTask.detail,
+              dueAt: selectedTask.dueAt,
+              workstream: selectedTask.workstream,
+              category: selectedTask.category,
+              priority: selectedTask.priority,
+            }
+          : null,
+      }
+
+      const result = interpretAraCommand(prompt, context)
+
+      if (result.kind === 'ask') {
+        setStatusText(result.question)
+        setStatusTone('neutral')
+        return
+      }
+      if (result.kind === 'unsupported') {
+        setStatusText(result.message)
+        setStatusTone('neutral')
+        return
+      }
+
+      if (result.kind === 'edit') {
+        try {
+          const formData = new FormData()
+          formData.set('taskId', result.taskId)
+          formData.set('title', result.fields.title)
+          formData.set('detail', result.fields.detail ?? '')
+          formData.set('targetDate', result.fields.dueAt ?? '')
+          formData.set('priority', String(result.fields.priority))
+          formData.set('workstream', result.fields.workstream)
+          formData.set('category', result.fields.category ?? '')
+          const state = await saveTaskAction(null, formData)
+          if (state && state.ok) {
+            handleSaved({
+              id: result.taskId,
+              title: state.title ?? result.fields.title,
+              detail: state.detail ?? null,
+              dueAt: state.dueAt ?? null,
+              priority: state.priority ?? result.fields.priority,
+              workstream: state.workstream ?? result.fields.workstream,
+              category: state.category ?? null,
+            })
+            setStatusText(result.message)
+            setStatusTone('success')
+          } else {
+            setStatusText(state?.ok === false ? state.error ?? 'Could not save the task.' : 'Could not save the task.')
+            setStatusTone('danger')
+          }
+        } catch {
+          setStatusText('Could not save the task.')
+          setStatusTone('danger')
+        }
+        return
+      }
+
+      try {
+        const formData = new FormData()
+        formData.set('title', result.fields.title)
+        formData.set('detail', result.fields.detail ?? '')
+        formData.set('targetDate', result.fields.dueAt ?? '')
+        formData.set('priority', String(result.fields.priority))
+        formData.set('workstream', result.fields.workstream)
+        formData.set('category', result.fields.category ?? '')
+        const state = await createTaskAction(null, formData)
+        if (state && state.ok && state.taskId) {
+          handleCreated({
+            id: state.taskId,
+            title: state.title ?? result.fields.title,
+            detail: state.detail ?? null,
+            dueAt: state.dueAt ?? null,
+            priority: state.priority ?? result.fields.priority,
+            workstream: state.workstream ?? result.fields.workstream,
+            category: state.category ?? null,
+          })
+          setStatusText(result.message)
+          setStatusTone('success')
+        } else {
+          setStatusText(state?.ok === false ? state.error ?? 'Could not create the task.' : 'Could not create the task.')
+          setStatusTone('danger')
+        }
+      } catch {
+        setStatusText('Could not create the task.')
+        setStatusTone('danger')
+      }
+    },
+    [activeWorkstream, selectedTask, handleSaved, handleCreated],
+  )
+
   return (
     <div className="flex flex-col gap-3">
       <CommandStatusBand
         ratio="command-6040"
         command={
           <CatchUpCommand
-            onRun={(prompt) => {
-              setStatusText(
-                `“${prompt}” noted — Ara's deeper understanding is staged.`,
-              )
-              setStatusTone('neutral')
-            }}
+            onRun={handleAraRun}
           />
         }
         status={

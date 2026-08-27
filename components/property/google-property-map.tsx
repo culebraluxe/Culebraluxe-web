@@ -7,6 +7,11 @@ import {
   type GoogleMapInstance,
 } from '@/lib/google-maps-loader'
 
+// AdvancedMarkerElement requires a mapId on the map instance. This mirrors the
+// established Google demo map id used by the dev spike. A dedicated production
+// map id can be swapped in here later without touching marker semantics.
+const PROPERTY_MAP_ID = 'DEMO_MAP_ID'
+
 export function GooglePropertyMap({
   apiKey,
   latitude,
@@ -28,7 +33,7 @@ export function GooglePropertyMap({
 
     let disposed = false
     let map: GoogleMapInstance | null = null
-    let marker: { setMap: (map: GoogleMapInstance | null) => void } | null = null
+    let marker: (HTMLElement & { map: GoogleMapInstance | null }) | null = null
     let clearMapListeners: ((instance: object) => void) | null = null
 
     loadGoogleMaps(apiKey)
@@ -40,6 +45,7 @@ export function GooglePropertyMap({
         map = new maps.Map(containerRef.current, {
           center: coordinate,
           zoom: 14,
+          mapId: PROPERTY_MAP_ID,
           mapTypeId: maps.MapTypeId.ROADMAP,
           mapTypeControl: true,
           mapTypeControlOptions: {
@@ -67,15 +73,20 @@ export function GooglePropertyMap({
           </svg>
         `.trim()
 
-        marker = new maps.Marker({
+        // Advanced markers centre the content element on the coordinate; the SVG
+        // is 44x52 and its pin tip is at the bottom edge (the legacy anchor was
+        // 22,52). translateY(-26px) lifts it half its height so the tip still
+        // rests exactly on the property coordinate (same visual intent).
+        const markerContent = document.createElement('div')
+        markerContent.style.cssText = 'transform: translateY(-26px);'
+        markerContent.innerHTML = markerSvg
+
+        marker = new maps.marker.AdvancedMarkerElement({
           map,
           position: coordinate,
           title: `${title} property location`,
-          icon: {
-            url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(markerSvg)}`,
-            scaledSize: new maps.Size(44, 52),
-            anchor: new maps.Point(22, 52),
-          },
+          content: markerContent,
+          gmpClickable: true,
         })
 
         setStatus('ready')
@@ -86,7 +97,7 @@ export function GooglePropertyMap({
 
     return () => {
       disposed = true
-      marker?.setMap(null)
+      if (marker) marker.map = null
 
       if (map) clearMapListeners?.(map)
     }
