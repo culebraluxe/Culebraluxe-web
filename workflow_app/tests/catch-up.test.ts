@@ -260,6 +260,46 @@ test('catch-up screen composes flat navigator + FullCalendar and preserves Optio
   assert.ok(/IlamyCalendar/.test(optionA), 'Option A source preserved')
 })
 
+// --- task workspace: navy feature panel + edit/complete ---
+test('catch-up workspace is a navy feature panel with save/complete/create wiring (no Edit gate)', () => {
+  const src = readFileSync(
+    new URL('../../components/portal/catch-up-task-detail.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/variant="feature"/.test(src), 'navy Feature workspace')
+  assert.ok(/Task Workspace/.test(src), 'heading is Task Workspace')
+  assert.ok(/saveTaskAction/.test(src), 'reuses the canonical save action seam')
+  assert.ok(/completeTaskAction/.test(src), 'reuses the canonical complete action seam')
+  assert.ok(/createTaskAction/.test(src), 'reuses the canonical create action seam')
+  assert.ok(/name="title"/.test(src), 'editable title')
+  assert.ok(/name="detail"/.test(src), 'editable detail/notes')
+  assert.ok(/name="targetDate"/.test(src), 'editable Target Date')
+  assert.ok(/name="priority"/.test(src), 'priority selector')
+  assert.ok(/name="workstream"/.test(src) && /name="category"/.test(src), 'taxonomy dropdowns')
+  assert.ok(!/startEdit/.test(src), 'no Edit mode-switch gate')
+  assert.ok(/\bSave\b/.test(src) && /\bComplete\b/.test(src), 'Save/Complete actions')
+  assert.ok(/New Task/.test(src) && /Create Task/.test(src), 'NEW TASK / CREATE TASK present')
+  assert.ok(!/Delete/.test(src), 'no delete action')
+  assert.ok(!/Archive/.test(src), 'no archive action')
+  assert.ok(!/Duplicate/.test(src), 'no duplicate action')
+})
+
+// --- task workspace: shell gates selection + manages the active queue ---
+test('catch-up shell tracks unsaved edits and manages the active queue + new-task flow', () => {
+  const src = readFileSync(
+    new URL('../../components/portal/catch-up.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/onDirtyChange/.test(src), 'tracks unsaved changes from the workspace')
+  assert.ok(/onSaved/.test(src), 'reconciles a saved task back into active tasks')
+  assert.ok(/onCompleted/.test(src), 'handles canonical completion')
+  assert.ok(/onCreate/.test(src), 'handles canonical new-task creation')
+  assert.ok(/onNewTask/.test(src), 'exposes the + NEW TASK entry')
+  assert.ok(/activeTasks/.test(src), 'manages the active queue in client state')
+  assert.ok(/activeWorkstream/.test(src), 'owns the current workstream tab (create default)')
+  assert.ok(/window.confirm/.test(src), 'confirms before discarding unsaved edits')
+})
+
 // --- website lead intake ---
 test('lead intake: accepts Name + Email', () => {
   const r = normalizeLeadInput({ name: 'Jane Doe', email: 'jane@example.com' })

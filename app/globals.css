@@ -568,17 +568,24 @@
 
 /* Compact glass rail — a miniature of the shared portal-glass-rail for dense
    surfaces (e.g. the Catch-Up workstream selector). Same material/blur/gold
-   hairline, just tighter padding, wrapping, and shorter tabs. */
+   hairline, tightened so all tabs fit on one row. If a very narrow pane forces
+   overflow, it scrolls quietly instead of wrapping or clipping invisibly. */
 .portal-glass-rail--compact {
   width: 100%;
-  flex-wrap: wrap;
+  gap: 0.125rem;
   padding: 0.2rem;
-  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.portal-glass-rail--compact::-webkit-scrollbar {
+  display: none;
 }
 .portal-glass-tab--compact {
   min-height: 30px;
-  padding-inline: 0.6rem;
-  font-size: 10px;
+  padding-inline: 0.4rem;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

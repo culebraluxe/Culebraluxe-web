@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  CulebraLuxe calendar sync — periodic EventKit snapshot invoker.
+
+  Generated from this template by `pnpm calendar:sync:install`
+  (scripts/calendar-sync-agent.mjs), which substitutes {{SUPPORT_DIR}},
+  {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}}, {{LABEL}}, {{CADENCE_SECONDS}}, and
+  {{SNAPSHOT}}, validates the result with plutil, and bootstraps it into
+  launchd (gui/$(id -u)).
+
+  The LaunchAgent invokes a deployed copy of
+  scripts/macbridge/sync-calendar-eventkit.sh at {{SUPPORT_DIR}} (outside the
+  TCC-protected ~/Documents folder). It runs the existing EventKit bridge
+  (pnpm calendar:sync) and appends a lightweight status line to the invocation
+  log.
+
+  Cadence: StartInterval {{CADENCE_SECONDS}} seconds (default 1800 = 30 min).
+  Change it by reinstalling with CALENDAR_SYNC_CADENCE_SECONDS=<seconds>.
+
+  The generated JSON snapshot ({{SNAPSHOT}}) is ignored runtime state; the web
+  app degrades gracefully when it is missing/stale.
+
+  Manage with:
+    pnpm calendar:sync:install
+    pnpm calendar:sync:status
+    pnpm calendar:sync:run
+    pnpm calendar:sync:stop       (kill switch)
+    pnpm calendar:sync:uninstall
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{LABEL}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{SUPPORT_DIR}}/calendar-sync-once.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{SUPPORT_DIR}}</string>
+
+  <key>StartInterval</key>
+  <integer>{{CADENCE_SECONDS}}</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>CULEBRALUXE_REPO</key>
+    <string>{{REPO_ROOT}}</string>
+    <key>CULEBRALUXE_CALENDAR_LOG_DIR</key>
+    <string>{{LOG_DIR}}</string>
+    <key>MAC_BRIDGE_CALENDAR_JSON</key>
+    <string>{{SNAPSHOT}}</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/calendar-sync.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/calendar-sync.err.log</string>
+</dict>
+</plist>

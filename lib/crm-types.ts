@@ -89,4 +89,7 @@ export interface CreateTaskInput {
   dueAt?: string | Date
   taskKind?: TaskKind
   priority?: number
+  /** Catch-Up taxonomy (task.workstream / task.category). */
+  workstream?: string | null
+  category?: string | null
 }

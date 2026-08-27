@@ -65,6 +65,52 @@ export async function updateTaskDue(taskId: string, dueAt: string | null) {
   return { taskId, dueAt }
 }
 
+// Bounded Catch-Up task edit — title / detail / due / priority only. This is the
+// everyday operator update; it never touches person/property/deal context, owner
+// assignment rules, or lifecycle status. The action layer always supplies all
+// four fields (detail/due may be null to clear them). Reuses the same canonical
+// task write service as completeTask/updateTaskDue — no second task mutation
+// system.
+export async function updateTask(
+  taskId: string,
+  input: {
+    title: string
+    detail: string | null
+    dueAt: string | null
+    priority: number
+    workstream?: string | null
+    category?: string | null
+  },
+): Promise<{ taskId: string }> {
+  if (!input.title.trim()) {
+    throw new PortalWriteError('validation', 'Task title is required.')
+  }
+  const priority = input.priority
+  if (!Number.isInteger(priority) || priority < 0 || priority > 32767) {
+    throw new PortalWriteError(
+      'validation',
+      'Task priority must be an integer between 0 and 32767.',
+    )
+  }
+
+  const rows = await sql`
+    update task
+    set title = ${input.title.trim()},
+        detail = ${input.detail},
+        due_at = ${input.dueAt},
+        priority = ${priority},
+        workstream = coalesce(${input.workstream ?? null}, workstream),
+        category = coalesce(${input.category ?? null}, category),
+        updated_at = now()
+    where id = ${taskId}
+    returning id
+  `
+  if (rows.length === 0) {
+    throw new PortalWriteError('not-found', 'Task not found.')
+  }
+  return { taskId }
+}
+
 // ---------------------------------------------------------------
 // STORY 2 — Manual interaction / note logging (append-only)
 // ---------------------------------------------------------------

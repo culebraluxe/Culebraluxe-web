@@ -85,6 +85,7 @@ export type CatchUpTask = {
   status: string
   priority: number
   detail: string | null
+  createdAt: string
   assignedUserId: string | null
   ownerName: string | null
   dueAt: string | null
@@ -113,6 +114,7 @@ export async function getCatchUpTasks(
       t.detail,
       t.priority,
       t.status,
+      t.created_at::text as created_at,
       t.assigned_user_id,
       t.due_at::text as due_at,
       t.person_id,
@@ -145,6 +147,7 @@ export async function getCatchUpTasks(
     detail: string | null
     priority: number
     status: string
+    created_at: string
     assigned_user_id: string | null
     due_at: string | null
     person_id: string | null
@@ -164,6 +167,7 @@ export async function getCatchUpTasks(
     status: row.status,
     priority: row.priority,
     detail: row.detail,
+    createdAt: row.created_at,
     assignedUserId: row.assigned_user_id,
     ownerName: row.owner_name,
     dueAt: row.due_at,
@@ -258,13 +262,6 @@ export async function createTask(
     throw new PortalWriteError('validation', 'Task title is required.')
   }
 
-  if (!input.personId && !input.propertyId && !input.dealId) {
-    throw new PortalWriteError(
-      'validation',
-      'A task requires person, property, or deal context.',
-    )
-  }
-
   const priority = input.priority ?? 0
   if (!Number.isInteger(priority) || priority < 0 || priority > 32767) {
     throw new PortalWriteError(
@@ -292,7 +289,9 @@ export async function createTask(
       assigned_user_id,
       due_at,
       task_kind,
-      priority
+      priority,
+      workstream,
+      category
     ) values (
       ${input.title.trim()},
       ${input.detail ?? null},
@@ -303,7 +302,9 @@ export async function createTask(
       ${input.assignedUserId ?? null},
       ${dueAt ?? null},
       ${taskKind},
-      ${priority}
+      ${priority},
+      ${input.workstream ?? null},
+      ${input.category ?? null}
     )
     returning
       id,

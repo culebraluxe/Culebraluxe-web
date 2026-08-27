@@ -44,11 +44,15 @@ import type { CatchUpTask } from '@/db/tasks'
 export function CatchUpWorkQueue({
   tasks,
   selectedTaskId,
+  activeWorkstream,
   onSelectTask,
+  onWorkstreamChange,
 }: {
   tasks: CatchUpTask[]
   selectedTaskId: string | null
+  activeWorkstream: string | null
   onSelectTask: (taskId: string | null) => void
+  onWorkstreamChange: (workstream: string | null) => void
 }) {
   const leafTasks = useMemo(
     () =>
@@ -63,9 +67,6 @@ export function CatchUpWorkQueue({
   const workstreams = useMemo(
     () => getCatchUpWorkstreams(leafTasks),
     [leafTasks],
-  )
-  const [activeWorkstream, setActiveWorkstream] = useState<string | null>(
-    () => workstreams[0] ?? null,
   )
 
   const rows = useMemo(
@@ -102,6 +103,35 @@ export function CatchUpWorkQueue({
     }
   }, [taskRows.length, focusedIndex])
 
+  // Stable ref to onSelectTask so the selection-stability effect below only
+  // re-runs when the queue actually changes, not when the handler identity does.
+  const onSelectRef = useRef(onSelectTask)
+  useEffect(() => {
+    onSelectRef.current = onSelectTask
+  }, [onSelectTask])
+
+  // If the active workstream became empty (e.g. its last task was completed),
+  // fall back to the first workstream that still has tasks.
+  useEffect(() => {
+    if (workstreams.length === 0) {
+      onWorkstreamChange(null)
+      return
+    }
+    if (!activeWorkstream || !workstreams.includes(activeWorkstream)) {
+      onWorkstreamChange(workstreams[0])
+    }
+  }, [workstreams, activeWorkstream, onWorkstreamChange])
+
+  // Keep a valid selection: when the selected task is no longer in the active
+  // workstream (e.g. it was completed and removed from the queue), select the
+  // first remaining task, or clear the selection if the workstream is empty.
+  useEffect(() => {
+    const ids = new Set(taskRows.map((row) => row.id))
+    if (selectedTaskId && ids.has(selectedTaskId)) return
+    const first = taskRows[0]
+    onSelectRef.current(first ? first.id : null)
+  }, [taskRows, selectedTaskId])
+
   // Keep the focused task visible while moving through the list.
   useEffect(() => {
     const id = taskRows[focusedIndex]?.id
@@ -115,7 +145,7 @@ export function CatchUpWorkQueue({
 
   function selectWorkstream(ws: string) {
     if (ws === activeWorkstream) return
-    setActiveWorkstream(ws)
+    onWorkstreamChange(ws)
     setFocusedIndex(0)
     listRef.current?.scrollTo({ top: 0 })
     const first = buildCatchUpNavRows(leafTasks, ws).find((r) => r.kind === 'task')
@@ -159,7 +189,7 @@ export function CatchUpWorkQueue({
 
 
   return (
-    <Panel compact lifted heading="Catch-Up" className="flex h-full min-h-0 min-w-0 flex-col">
+    <Panel compact lifted headingSize="xl" heading="Catch-Up" className="flex h-full min-h-0 min-w-0 flex-col">
       {workstreams.length === 0 ? (
         <p className="flex flex-1 items-center justify-center px-4 text-center text-sm font-light text-black/40">
           No active workstream tasks right now.
@@ -197,7 +227,12 @@ export function CatchUpWorkQueue({
             onKeyDown={handleKeyDown}
             className="min-h-0 flex-1 overflow-y-auto rounded-md focus:outline-none"
           >
-            {rows.map((row) => {
+            {rows.length === 0 ? (
+              <p className="px-2 py-4 text-center text-sm font-light text-black/40">
+                No tasks left in this workstream.
+              </p>
+            ) : (
+              rows.map((row) => {
               if (row.kind === 'category') {
                 return (
                   <div
@@ -234,7 +269,8 @@ export function CatchUpWorkQueue({
                   </span>
                 </div>
               )
-            })}
+            }))}
+
           </div>
         </>
       )}

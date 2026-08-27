@@ -1,26 +1,18 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 
-type SpeechRecognitionLike = {
-  lang: string
-  interimResults: boolean
-  continuous: boolean
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
-  onerror: (() => void) | null
-  onend: (() => void) | null
-  start: () => void
-  stop: () => void
-}
+import { AraMicButton } from "@/components/portal/ara-mic-button"
 
-function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
-  if (typeof window === "undefined") return null
-  const speech = window as Window & {
-    SpeechRecognition?: new () => SpeechRecognitionLike
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike
-  }
-  return speech.SpeechRecognition ?? speech.webkitSpeechRecognition ?? null
-}
+// ---------------------------------------------------------------------------
+// FORMS — Grok / Ara command slot (the COMMAND side of CommandStatusBand).
+//
+// The typed command path (prompt -> onAsk -> validated Forms mutation seam) is
+// UNCHANGED and remains the single source of truth. ARA-VOICE-01: the mic is
+// INPUT ONLY — recognized speech fills the SAME editable prompt field used by
+// typing, and Go / Enter submits through the same onAsk handler. The mic never
+// submits on its own; transcripts stay editable before submission.
+// ---------------------------------------------------------------------------
 
 export function FormGrokHelper({
   formTitle,
@@ -32,41 +24,12 @@ export function FormGrokHelper({
   onAsk: (prompt: string) => Promise<string>
 }) {
   const [prompt, setPrompt] = useState("")
-  const [listening, setListening] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
-  useEffect(() => {
-    return () => {
-      recognitionRef.current?.stop()
-    }
-  }, [])
-
-  function startListening() {
-    const Recognition = getSpeechRecognition()
-    if (!Recognition) {
-      setNote("This browser can’t take voice yet. Type, or try Safari / Chrome.")
-      return
-    }
-    const recognition = new Recognition()
-    recognition.lang = "en-US"
-    recognition.interimResults = false
-    recognition.continuous = false
-    recognition.onresult = (event) => {
-      const spoken = event.results[0]?.[0]?.transcript?.trim()
-      if (spoken) setPrompt((current) => (current ? `${current} ${spoken}` : spoken))
-    }
-    recognition.onerror = () => setListening(false)
-    recognition.onend = () => {
-      setListening(false)
-      recognitionRef.current = null
-    }
-    recognitionRef.current = recognition
-    setListening(true)
-    setNote(null)
-    recognition.start()
-  }
+  // Voice converges into the editable prompt (append, editable before submit).
+  const appendTranscript = (text: string) =>
+    setPrompt((current) => (current ? `${current} ${text}` : text))
 
   async function submitPrompt() {
     const text = prompt.trim()
@@ -106,25 +69,7 @@ export function FormGrokHelper({
               className="mt-1.5 block h-10 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (listening) {
-                recognitionRef.current?.stop()
-                return
-              }
-              startListening()
-            }}
-            className={[
-              "inline-flex h-10 min-w-10 items-center justify-center rounded-[var(--portal-tab-radius)] border px-3 text-[10px] font-medium uppercase tracking-[0.12em] transition",
-              listening
-                ? "border-[var(--portal-gold)] bg-[var(--portal-gold-pale)] text-[var(--portal-navy)]"
-                : "border-[var(--portal-panel-border)] text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]",
-            ].join(" ")}
-            aria-pressed={listening}
-          >
-            {listening ? "Listening" : "Mic"}
-          </button>
+          <AraMicButton onTranscript={appendTranscript} ariaLabel="Use microphone to command Grok" />
           <button
             type="button"
             disabled={busy || working}

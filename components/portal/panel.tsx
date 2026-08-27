@@ -53,6 +53,7 @@ export function Panel({
   flush = false,
   compact = false,
   lifted = false,
+  headingSize = 'md',
   className = '',
   children,
 }: {
@@ -66,6 +67,8 @@ export function Panel({
   compact?: boolean
   /** Layer the optional portal-glass-panel-lifted specular overlay on this pane. */
   lifted?: boolean
+  /** 'md' (default) or 'xl' (larger serif heading for primary work panes). */
+  headingSize?: 'md' | 'xl'
   className?: string
   children?: ReactNode
 }) {
@@ -104,7 +107,11 @@ export function Panel({
             {heading ? (
               <h2
                 className={`${eyebrow ? 'mt-1' : ''} font-serif font-light ${
-                  compact ? 'text-lg' : 'mt-1.5 text-2xl'
+                  headingSize === 'xl'
+                    ? 'text-2xl'
+                    : compact
+                      ? 'text-lg'
+                      : 'mt-1.5 text-2xl'
                 } ${headingTone[variant]}`}
               >
                 {heading}

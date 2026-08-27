@@ -38,7 +38,7 @@ export function FullCalendarCandidate({
   }, [])
 
   return (
-    <Panel compact lifted heading={heading} className="flex h-full min-h-0 min-w-0 flex-col">
+    <Panel compact lifted headingSize="xl" heading={heading} className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Fills the shared three-pane row height on desktop (lg:min-h-0 + flex-1);
           keeps a floor for the stacked/mobile layout. FullCalendar uses
           height="100%", so it fills this container instead of sizing the row. */}
