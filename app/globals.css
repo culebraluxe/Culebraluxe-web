@@ -529,6 +529,58 @@
   background: var(--portal-attention-bg);
 }
 
+/* LIFTED GLASS — optional enhancement layered ON TOP of portal-glass-panel.
+   Adds a restrained reflected-light/specular overlay (mirroring the glass
+   rail) so a major work pane reads with more depth than the flat standard
+   panel: a subtle top-to-transparent white gradient plus a faint gold hairline
+   edge. No opaque white, no gaudy glow, no fake 3D bevel. Blur/saturation and
+   the inset edge come from portal-glass-panel itself and are retained. Layer
+   this only when a surface is a primary work pane; do not replace
+   portal-glass-panel. */
+.portal-glass-panel-lifted {
+  position: relative;
+  isolation: isolate;
+}
+.portal-glass-panel-lifted::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 38%);
+}
+.portal-glass-panel-lifted::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 16px;
+  left: 16px;
+  z-index: 2;
+  height: 1px;
+  pointer-events: none;
+  background: var(--portal-rail-gold-edge);
+}
+.portal-glass-panel-lifted > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Compact glass rail — a miniature of the shared portal-glass-rail for dense
+   surfaces (e.g. the Catch-Up workstream selector). Same material/blur/gold
+   hairline, just tighter padding, wrapping, and shorter tabs. */
+.portal-glass-rail--compact {
+  width: 100%;
+  flex-wrap: wrap;
+  padding: 0.2rem;
+  gap: 0.25rem;
+}
+.portal-glass-tab--compact {
+  min-height: 30px;
+  padding-inline: 0.6rem;
+  font-size: 10px;
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .portal-glass-nav {
     background: #d7e2eb;

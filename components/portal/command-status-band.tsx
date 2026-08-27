@@ -27,13 +27,16 @@ import type { ReactNode } from "react"
 //   <CommandStatus label="Status" tone="success">…</CommandStatus>
 // ---------------------------------------------------------------------------
 
-export type CommandStatusBandRatio = "wide-command" | "balanced" | "wide-status"
+export type CommandStatusBandRatio = "wide-command" | "balanced" | "wide-status" | "command-6040"
 
 // Constrained layout presets (CSS grid fr values). No arbitrary per-page CSS.
 const RATIO_GRID: Record<CommandStatusBandRatio, string> = {
   "wide-command": "lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]", // ~65 / 35
   balanced: "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]", // 50 / 50
   "wide-status": "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]", // ~40 / 60
+  // 60 / 40 — aligns the Command | Status seam with a 20 / 40 / 40 lower pane
+  // seam (Command spans Navigator + Task; Status aligns over Calendar).
+  "command-6040": "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
 }
 
 export function CommandStatusBand({
@@ -74,7 +77,7 @@ export function CommandStatus({
   return (
     <section
       aria-label={label}
-      className="portal-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
+      className="portal-glass-panel portal-glass-panel-lifted flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
         <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">

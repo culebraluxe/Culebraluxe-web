@@ -52,6 +52,7 @@ export function Panel({
   divider = false,
   flush = false,
   compact = false,
+  lifted = false,
   className = '',
   children,
 }: {
@@ -63,6 +64,8 @@ export function Panel({
   divider?: boolean
   flush?: boolean
   compact?: boolean
+  /** Layer the optional portal-glass-panel-lifted specular overlay on this pane. */
+  lifted?: boolean
   className?: string
   children?: ReactNode
 }) {
@@ -74,6 +77,7 @@ export function Panel({
         'overflow-hidden rounded-[var(--portal-panel-radius)]',
         flush ? '' : compact ? 'p-4' : 'p-[var(--portal-panel-padding)]',
         variantSurface[variant],
+        lifted ? 'portal-glass-panel-lifted' : '',
         className,
       ].join(' ')}
     >

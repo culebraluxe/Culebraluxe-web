@@ -64,7 +64,7 @@ export function CatchUp({
   return (
     <div className="flex flex-col gap-3">
       <CommandStatusBand
-        ratio="balanced"
+        ratio="command-6040"
         command={
           <CatchUpCommand
             onRun={(prompt) => {
@@ -82,7 +82,7 @@ export function CatchUp({
         }
       />
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(340px,2fr)_minmax(0,2fr)] lg:gap-4">
+      <div className="grid min-h-0 grid-cols-1 gap-3 lg:h-[36rem] lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)] lg:gap-4">
         <CatchUpWorkQueue
           tasks={tasks}
           selectedTaskId={selectedTaskId}

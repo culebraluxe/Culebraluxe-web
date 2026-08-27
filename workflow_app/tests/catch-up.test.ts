@@ -236,7 +236,7 @@ test('catch-up calendar: normalize + week bucketing', () => {
 test('catch-up reuses CommandStatusBand (balanced 50/50, no local copy)', () => {
   const src = readFileSync(new URL('../../components/portal/catch-up.tsx', import.meta.url), 'utf8')
   assert.ok(/CommandStatusBand/.test(src), 'imports the shared band')
-  assert.ok(/ratio="balanced"/.test(src), 'uses the shared balanced (50/50) ratio preset')
+  assert.ok(/ratio="command-6040"/.test(src), 'uses the shared 60/40 ratio preset aligned to the Calendar seam')
   assert.ok(!/RATIO_GRID/.test(src), 'no local ratio system')
   // The band's desktop gap must line up with the TREE | DETAIL | CALENDAR row.
   assert.ok(/lg:gap-4/.test(src), 'workspace row shares the band gap for exact seam alignment')

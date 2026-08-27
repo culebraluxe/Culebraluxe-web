@@ -36,14 +36,10 @@ import type { CatchUpTask } from '@/db/tasks'
 // Mouse click selects a task immediately.
 // ---------------------------------------------------------------------------
 
-function workstreamBtnClass(active: boolean) {
-  return [
-    'inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] border px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition',
-    active
-      ? 'border-[var(--portal-navy)] bg-[var(--portal-navy)] text-white'
-      : 'border-[var(--portal-panel-border)] text-[var(--portal-navy-soft)] hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)]',
-  ].join(' ')
-}
+// The workstream selector uses the shared compact glass-rail material (see
+// .portal-glass-rail--compact / .portal-glass-tab--compact in globals.css): a
+// single floating glass control with navy active + restrained gold cue, instead
+// of five unrelated outlined buttons.
 
 export function CatchUpWorkQueue({
   tasks,
@@ -163,7 +159,7 @@ export function CatchUpWorkQueue({
 
 
   return (
-    <Panel compact heading="Catch-Up" className="flex h-full min-h-0 flex-col">
+    <Panel compact lifted heading="Catch-Up" className="flex h-full min-h-0 min-w-0 flex-col">
       {workstreams.length === 0 ? (
         <p className="flex flex-1 items-center justify-center px-4 text-center text-sm font-light text-black/40">
           No active workstream tasks right now.
@@ -171,7 +167,7 @@ export function CatchUpWorkQueue({
       ) : (
         <>
           <div
-            className="mb-3 flex flex-wrap gap-1"
+            className="portal-glass-rail portal-glass-rail--compact mb-3"
             role="tablist"
             aria-label="Workstreams"
           >
@@ -183,8 +179,9 @@ export function CatchUpWorkQueue({
                   type="button"
                   role="tab"
                   aria-selected={active}
+                  aria-current={active ? 'page' : undefined}
                   onClick={() => selectWorkstream(ws)}
-                  className={workstreamBtnClass(active)}
+                  className="portal-glass-tab portal-glass-tab--compact"
                 >
                   {ws}
                 </button>
@@ -226,7 +223,7 @@ export function CatchUpWorkQueue({
                   className={[
                     'cursor-pointer rounded-md px-2 py-2 transition-colors',
                     selected
-                      ? 'bg-[var(--portal-gold-pale)] text-[var(--portal-navy)]'
+                      ? 'bg-[var(--portal-gold-pale)] text-[var(--portal-navy)] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]'
                       : focused
                         ? 'bg-black/[0.04] text-[var(--portal-navy)]'
                         : 'text-[var(--portal-navy)] hover:bg-black/[0.03]',

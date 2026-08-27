@@ -31,7 +31,7 @@ export function CatchUpCommand({
   }
 
   return (
-    <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] px-4 py-3 sm:px-5">
+    <section className="portal-glass-panel portal-glass-panel-lifted rounded-[var(--portal-panel-radius)] px-4 py-3 sm:px-5">
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
