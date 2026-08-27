@@ -57,6 +57,19 @@ export interface Interaction {
   sourceMetadata: JsonObject
 }
 
+export interface RelationshipActivity {
+  sources: string[]
+  inboundCount: number
+  outboundCount: number
+  observedCommunicationCount: number
+  twoWay: boolean
+  lastObservedAt: string | null
+  lastMeaningfulContactAt: string | null
+  lastInboundAt: string | null
+  lastOutboundAt: string | null
+  coverageLimited: boolean
+}
+
 export interface Client {
   id: string
   displayName: string
@@ -94,6 +107,7 @@ export interface Client {
 
   propertyInterests: PropertyInterest[]
   interactions: Interaction[]
+  relationshipActivity?: RelationshipActivity
 }
 
 export interface Deal {

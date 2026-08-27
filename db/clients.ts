@@ -9,6 +9,9 @@ import type {
   PropertyInterestStatus,
 } from "@/lib/portal/types"
 import type { JsonObject } from '@/lib/crm-types'
+import { getRelationshipEvidenceForPersons } from './relationship-evidence'
+import { summarizeRelationshipEvidence } from '@/lib/relationship-intel/relationship-context'
+import type { RelationshipActivity } from '@/lib/portal/types'
 
 type PropertyInterestRow = {
   id: string
@@ -364,7 +367,32 @@ export async function getClients(opts: { id?: string } = {}): Promise<Client[]> 
 /** The full canonical Client for a single person (for the working-pane detail). */
 export async function getClientById(id: string): Promise<Client | null> {
   const rows = await getClients({ id })
-  return rows[0] ?? null
+  const client = rows[0]
+  if (!client) return null
+
+  const evidenceByPerson = await getRelationshipEvidenceForPersons([id])
+  return {
+    ...client,
+    relationshipActivity: toRelationshipActivity(evidenceByPerson[id] ?? []),
+  }
+}
+
+function toRelationshipActivity(
+  evidence: Parameters<typeof summarizeRelationshipEvidence>[0],
+): RelationshipActivity {
+  const summary = summarizeRelationshipEvidence(evidence)
+  return {
+    sources: summary.sources,
+    inboundCount: summary.inboundCount,
+    outboundCount: summary.outboundCount,
+    observedCommunicationCount: summary.observedCommunicationCount,
+    twoWay: summary.twoWay,
+    lastObservedAt: summary.lastObservedAt,
+    lastMeaningfulContactAt: summary.lastMeaningfulContactAt,
+    lastInboundAt: summary.lastInboundAt,
+    lastOutboundAt: summary.lastOutboundAt,
+    coverageLimited: summary.coverageLimited,
+  }
 }
 
 export type ClientSummary = {
@@ -379,6 +407,7 @@ export type ClientSummary = {
   assignedAgent: string | null
   lastContactLabel: string | null
   sources: string[]
+  relationshipActivity: RelationshipActivity
 }
 
 export type ClientsPageResult = {
@@ -418,6 +447,7 @@ const ORDER_FRAGMENTS: Record<string, ReturnType<typeof raw>> = {
  * mv_client_directory. One row per canonical Person.
  *   - separate COUNT(*) + SQL LIMIT/OFFSET (50/page default)
  *   - search / filters / sort applied in SQL against the pre-shaped view
+ *   - one bounded evidence query enriches only the returned canonical people
  *   - no correlated subqueries / lateral joins / repeated identity lookups /
  *     provenance aggregation / last-contact assembly at request time
  */
@@ -473,6 +503,9 @@ export async function getClientsPage(
     limit ${pageSize} offset ${offset}
   `) as ClientSummaryRaw[]
 
+  const personIds = rows.map((row) => row.person_id)
+  const evidenceByPerson = await getRelationshipEvidenceForPersons(personIds, execute)
+
   return {
     rows: rows.map((row) => ({
       id: row.person_id,
@@ -486,6 +519,7 @@ export async function getClientsPage(
       assignedAgent: row.assigned_agent ?? null,
       lastContactLabel: row.last_contact_label ?? null,
       sources: Array.isArray(row.sources) ? (row.sources as string[]) : [],
+      relationshipActivity: toRelationshipActivity(evidenceByPerson[row.person_id] ?? []),
     })),
     total,
     page,

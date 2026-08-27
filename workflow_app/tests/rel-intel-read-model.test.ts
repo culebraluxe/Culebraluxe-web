@@ -15,6 +15,8 @@ import {
 function ev(overrides: Partial<RelationshipEvidenceForContext> = {}): RelationshipEvidenceForContext {
   return {
     source: 'gmail_contacts',
+    inboundCount: 3,
+    outboundCount: 2,
     lastObservedAt: '2013-12-31T00:00:00.000Z',
     isAutomatedOrBulk: false,
     isOrganizationOrService: false,
@@ -88,4 +90,14 @@ test('REL-INTEL: two-way indicator is aggregated', () => {
     ev({ isTwoWay: true }),
   ])
   assert.equal(s.twoWay, true)
+})
+
+test('REL-INTEL: aggregate communication counts stay distinct from canonical interactions', () => {
+  const s = summarizeRelationshipEvidence([
+    ev({ source: 'apple_messages', inboundCount: 2431, outboundCount: 2413, isTwoWay: true, lastObservedAt: null }),
+  ])
+  assert.equal(s.inboundCount, 2431)
+  assert.equal(s.outboundCount, 2413)
+  assert.equal(s.observedCommunicationCount, 4844)
+  assert.equal(s.lastObservedAt, null)
 })

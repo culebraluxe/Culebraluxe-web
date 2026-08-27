@@ -14,6 +14,7 @@ import {
 
 import { Panel } from "@/components/portal/panel"
 import type { ContactHistoryItem, ContactHistoryResult } from "@/db/contact-history"
+import type { RelationshipActivity } from "@/lib/portal/types"
 
 // ---------------------------------------------------------------------------
 // CLIENTS — Contact History pane (navy right column of the Client working pane).
@@ -58,7 +59,13 @@ function channelMeta(channel: string): { label: string; Icon: LucideIcon } {
 const navBtn =
   "inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] border border-white/20 px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
 
-export function ContactHistory({ clientId }: { clientId: string }) {
+export function ContactHistory({
+  clientId,
+  relationshipActivity,
+}: {
+  clientId: string
+  relationshipActivity?: RelationshipActivity
+}) {
   const [page, setPage] = useState(1)
   const [data, setData] = useState<ContactHistoryResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -90,19 +97,34 @@ export function ContactHistory({ clientId }: { clientId: string }) {
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const rows = data?.rows ?? []
+  const observedCommunicationCount =
+    relationshipActivity?.observedCommunicationCount ?? 0
 
   return (
     <Panel
       variant="feature"
       heading="Contact history"
-      action={<span className="text-xs font-light text-white/50">{total.toLocaleString()}</span>}
+      action={
+        <span className="text-xs font-light text-white/50">
+          {total.toLocaleString()} detailed
+          {observedCommunicationCount > 0
+            ? ` · ${observedCommunicationCount.toLocaleString()} observed`
+            : ""}
+        </span>
+      }
       className="flex min-h-0 flex-col"
     >
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm font-light text-white/55">
-            {loading ? "Loading…" : "No contact history yet."}
-          </p>
+          <div className="px-4 py-10 text-center text-sm font-light text-white/55">
+            <p>{loading ? "Loading…" : "No detailed contact history yet."}</p>
+            {!loading && observedCommunicationCount > 0 ? (
+              <p className="mt-2 text-xs leading-5 text-white/40">
+                {observedCommunicationCount.toLocaleString()} aggregate communications
+                are linked to this client; individual historical messages were not imported.
+              </p>
+            ) : null}
+          </div>
         ) : (
           <div className="min-w-[34rem]">
             <div className="grid grid-cols-[6rem_8.5rem_3.5rem_1fr] items-center gap-x-3 border-b border-white/10 px-4 py-1.5 text-[9px] font-light uppercase tracking-[0.14em] text-white/40">

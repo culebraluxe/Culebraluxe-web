@@ -26,12 +26,13 @@ import {
 type Row = Record<string, any>
 
 /** Fake tagged-template QueryExecutor that answers COUNT + page queries. */
-function fakeExecute(pageRows: Row[], total: number) {
+function fakeExecute(pageRows: Row[], total: number, evidenceRows: Row[] = []) {
   const calls: Array<{ text: string; params: any[] }> = []
   const fn: any = (strings: TemplateStringsArray, ...params: any[]) => {
     const text = strings.join('__')
     calls.push({ text, params })
     if (text.includes('as total')) return [{ total }]
+    if (text.includes('integration_relationship_evidence')) return evidenceRows
     return pageRows
   }
   ;(fn as any).calls = calls
@@ -54,7 +55,41 @@ test('clients: getClientsPage issues COUNT + LIMIT/OFFSET page over the read mod
       sources: ['apple_messages'],
     },
   ]
-  const execute = fakeExecute(pageRows, 137)
+  const execute = fakeExecute(pageRows, 137, [
+    {
+      id: 'e1',
+      source: 'apple_messages',
+      source_account: 'E:lisapenfield@icloud.com',
+      source_identity_key: '+18609895020',
+      source_label: 'iMessage',
+      display_name: null,
+      organization: null,
+      emails: [],
+      phones: [{ value: '+18609895020', normalized: '8609895020', label: null }],
+      first_observed_at: null,
+      last_observed_at: null,
+      last_inbound_at: null,
+      last_outbound_at: null,
+      inbound_count: 2431,
+      outbound_count: 2413,
+      is_two_way: true,
+      is_owner_initiated: null,
+      is_automated_or_bulk: null,
+      is_organization_or_service: null,
+      known_apple_contact: false,
+      has_email: false,
+      has_phone: true,
+      coverage_note: null,
+      canonical_person_id: 'p1',
+      match_method: 'exact_phone',
+      match_confidence: 'exact',
+      review_state: 'exact_linked',
+      match_reason: 'promoted_new_identity',
+      rule_version: 'rel-intel/v1',
+      evidence_fingerprint: 'ami-proof',
+      updated_at: '2026-08-25T11:50:37.299Z',
+    },
+  ])
   const result = await getClientsPage(
     { search: 'jane', status: 'active', role: 'buyer', sort: 'name', page: 3, pageSize: 50 },
     execute as never,
@@ -68,6 +103,11 @@ test('clients: getClientsPage issues COUNT + LIMIT/OFFSET page over the read mod
   assert.equal(row.displayName, 'Jane Doe')
   assert.equal(row.primaryEmail, 'jane@example.com')
   assert.deepEqual(row.sources, ['apple_messages'])
+  assert.equal(row.relationshipActivity.observedCommunicationCount, 4844)
+  assert.equal(row.relationshipActivity.inboundCount, 2431)
+  assert.equal(row.relationshipActivity.outboundCount, 2413)
+  assert.equal(row.relationshipActivity.twoWay, true)
+  assert.equal(row.relationshipActivity.lastObservedAt, null)
 
   // separate COUNT(*) and a page query both ran
   assert.ok(execute.calls.some((c) => c.text.includes('count(*)')), 'COUNT query present')
@@ -333,4 +373,3 @@ test('clients: refresh seam uses CONCURRENTLY (replay/refresh safe, unique index
   )
   assert.ok(/create unique index mv_client_directory_pk/.test(migration), 'unique index for concurrent refresh')
 })
-

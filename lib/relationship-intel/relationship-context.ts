@@ -9,6 +9,8 @@
 
 export type RelationshipEvidenceForContext = {
   source: string
+  inboundCount?: number | null
+  outboundCount?: number | null
   lastObservedAt?: string | null
   lastInboundAt?: string | null
   lastOutboundAt?: string | null
@@ -23,6 +25,9 @@ export type RelationshipEvidenceForContext = {
 export type RelationshipContextSummary = {
   hasEvidence: boolean
   sources: string[]
+  inboundCount: number
+  outboundCount: number
+  observedCommunicationCount: number
   lastObservedAt: string | null
   lastMeaningfulContactAt: string | null
   lastInboundAt: string | null
@@ -51,7 +56,8 @@ export function summarizeRelationshipEvidence(
     return {
       hasEvidence: false, sources: [], lastObservedAt: null, lastMeaningfulContactAt: null,
       lastInboundAt: null, lastOutboundAt: null, twoWay: false, hasEmail: false,
-      hasPhone: false, coverageLimited: false, reason: null,
+      hasPhone: false, coverageLimited: false, reason: null, inboundCount: 0,
+      outboundCount: 0, observedCommunicationCount: 0,
     }
   }
 
@@ -68,6 +74,8 @@ export function summarizeRelationshipEvidence(
   const hasEmail = evidence.some((e) => e.hasEmail)
   const hasPhone = evidence.some((e) => e.hasPhone)
   const coverageLimited = evidence.some((e) => e.coverageNote)
+  const inboundCount = evidence.reduce((total, e) => total + (e.inboundCount ?? 0), 0)
+  const outboundCount = evidence.reduce((total, e) => total + (e.outboundCount ?? 0), 0)
 
   let reason: string | null = null
   if (lastMeaningfulContactAt) {
@@ -83,6 +91,7 @@ export function summarizeRelationshipEvidence(
   return {
     hasEvidence: true, sources, lastObservedAt, lastMeaningfulContactAt,
     lastInboundAt, lastOutboundAt, twoWay, hasEmail, hasPhone,
-    coverageLimited, reason,
+    coverageLimited, reason, inboundCount, outboundCount,
+    observedCommunicationCount: inboundCount + outboundCount,
   }
 }

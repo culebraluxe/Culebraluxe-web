@@ -299,6 +299,12 @@ export function ClientManager() {
                           client.primaryEmail ??
                           roleLabel(client.role as Client["role"])}
                       </div>
+                      {client.relationshipActivity.observedCommunicationCount > 0 ? (
+                        <div className="truncate text-[10px] font-light text-black/35">
+                          {client.relationshipActivity.observedCommunicationCount.toLocaleString()} observed
+                          {client.relationshipActivity.twoWay ? " · two-way" : ""}
+                        </div>
+                      ) : null}
                     </div>
                   </button>
                 )
@@ -437,7 +443,10 @@ function ClientPane({
           showEdit={showEdit}
           setShowEdit={setShowEdit}
         />
-        <ContactHistory clientId={client.id} />
+        <ContactHistory
+          clientId={client.id}
+          relationshipActivity={client.relationshipActivity}
+        />
       </div>
 
       {/* Interests + Notes — equal-width lower row. */}

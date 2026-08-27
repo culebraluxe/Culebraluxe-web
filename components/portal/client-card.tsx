@@ -41,6 +41,14 @@ function CardDetail({ label, value }: { label: string; value: string }) {
   )
 }
 
+function evidenceDate(value: string | null | undefined) {
+  if (!value) return "Not available"
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? "Not available"
+    : date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+}
+
 export function ClientCard({
   client,
   agents,
@@ -120,6 +128,18 @@ export function ClientCard({
           }
         />
         <CardDetail label="Timeline" value={client.timeline ?? "—"} />
+        <CardDetail
+          label="Observed communications"
+          value={(client.relationshipActivity?.observedCommunicationCount ?? 0).toLocaleString()}
+        />
+        <CardDetail
+          label="Relationship signal"
+          value={client.relationshipActivity?.twoWay ? "Two-way" : "—"}
+        />
+        <CardDetail
+          label="Last observed"
+          value={evidenceDate(client.relationshipActivity?.lastObservedAt)}
+        />
       </div>
 
       {client.nextAction ? (
