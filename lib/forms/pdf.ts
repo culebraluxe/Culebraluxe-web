@@ -245,7 +245,7 @@ function overviewFields(
 class DocumentComposer {
   private page!: PDFPage
   private pageIndex = -1
-  private cursorY = TOKENS.bodyTop
+  private cursorY: number = TOKENS.bodyTop
   private readonly anchors: FormSignatureAnchor[] = []
   private readonly appliedEvidence: AppliedSignatureEvidence[] = []
 

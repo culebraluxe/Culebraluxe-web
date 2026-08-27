@@ -449,18 +449,14 @@ export async function sendFormForSignatureAction(
           raw.replace(/^document\.issue failed:\s*/i, ''),
         )
       }
-      const value = issueResult.value as {
-        documentId: string
-        issuedVersion: number
-        checksum: string
-      }
-      issued = {
-        documentId: value.documentId,
-        issuedVersion: value.issuedVersion,
-        checksum: value.checksum,
-        createdAt: new Date().toISOString(),
-        mediaId: null,
-      }
+      // Reload the immutable issued row so `issued` carries the canonical
+      // issued-document shape (including the server-persisted sourceSnapshot)
+      // rather than a hand-built partial object.
+      issued = await getIssuedDocumentForFormInstance(formId)
+    }
+
+    if (!issued) {
+      return fail('unknown', 'Could not load the issued document.')
     }
 
     const media = issued.mediaId

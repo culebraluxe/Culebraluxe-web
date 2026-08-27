@@ -163,82 +163,89 @@ const participantSamples: Record<
   ],
 }
 
-const templateId = process.argv[2] ?? PURCHASE_SALE_TEMPLATE_ID
-const output = resolve(
-  process.argv[3] ?? `output/pdf/${templateId.toLowerCase()}-review.pdf`,
-)
-const signatureAssetPath = process.argv[4]
-const template = getTemplate(templateId)
-if (!template) throw new Error(`Unknown template ${templateId}`)
+async function main() {
+  const templateId = process.argv[2] ?? PURCHASE_SALE_TEMPLATE_ID
+  const output = resolve(
+    process.argv[3] ?? `output/pdf/${templateId.toLowerCase()}-review.pdf`,
+  )
+  const signatureAssetPath = process.argv[4]
+  const template = getTemplate(templateId)
+  if (!template) throw new Error(`Unknown template ${templateId}`)
 
-const values: Record<string, string> = {}
-for (const field of template.fields) {
-  const value = samples[templateId]?.[field.name]
-  if (!value) {
-    throw new Error(`Review sample ${templateId} is missing field ${field.name}.`)
+  const values: Record<string, string> = {}
+  for (const field of template.fields) {
+    const value = samples[templateId]?.[field.name]
+    if (!value) {
+      throw new Error(`Review sample ${templateId} is missing field ${field.name}.`)
+    }
+    values[field.name] = value
   }
-  values[field.name] = value
-}
 
-const participants = participantSamples[templateId]
-if (!participants || participants.length < 3) {
-  throw new Error(`Review sample ${templateId} requires at least three signer participants.`)
-}
+  const participants = participantSamples[templateId]
+  if (!participants || participants.length < 3) {
+    throw new Error(`Review sample ${templateId} requires at least three signer participants.`)
+  }
 
-const body = template.sections
-  .map((section) => {
-    const override = (sectionSamples[templateId]?.[section.name] ?? '').trim()
-    if (override) return `${section.label}\n${override}`
-    return documentBodyText(
-      { fields: template.fields, sections: [section] },
-      values,
-    )
-  })
-  .join('\n\n')
+  const body = template.sections
+    .map((section) => {
+      const override = (sectionSamples[templateId]?.[section.name] ?? '').trim()
+      if (override) return `${section.label}\n${override}`
+      return documentBodyText(
+        { fields: template.fields, sections: [section] },
+        values,
+      )
+    })
+    .join('\n\n')
 
-const brokerSignatureGroup = template.signatureGroups.find(
-  (group) => group.role.endsWith('_BROKER'),
-)
-const brokerParticipant = brokerSignatureGroup
-  ? participants.find(
-      (participant) => participant.role === brokerSignatureGroup.role,
-    )
-  : null
-const signatureBytes =
-  signatureAssetPath && brokerSignatureGroup
-    ? await readFile(resolve(signatureAssetPath))
+  const brokerSignatureGroup = template.signatureGroups.find(
+    (group) => group.role.endsWith('_BROKER'),
+  )
+  const brokerParticipant = brokerSignatureGroup
+    ? participants.find(
+        (participant) => participant.role === brokerSignatureGroup.role,
+      )
     : null
-const appliedSignatures =
-  signatureBytes && brokerSignatureGroup
-    ? [
-        {
-          role: brokerSignatureGroup.role,
-          slotId: brokerParticipant?.slotId ?? null,
-          signerName: 'Lisa Penfield',
-          credentialLine: 'Real Estate Broker License #: C-9931',
-          signerAppUserId: 'review-owner-user',
-          imageBytes: signatureBytes,
-          imageMimeType: 'image/png' as const,
-          assetMediaId: 'review-protected-signature-asset',
-          assetChecksumSha256: createHash('sha256')
-            .update(signatureBytes)
-            .digest('hex'),
-          appliedAt: '2026-08-26T18:30:00.000Z',
-          consentBasis: 'authenticated-owner-issuance' as const,
-          dateSemantic: 'issuance-requested-at' as const,
-        },
-      ]
-    : []
+  const signatureBytes =
+    signatureAssetPath && brokerSignatureGroup
+      ? await readFile(resolve(signatureAssetPath))
+      : null
+  const appliedSignatures =
+    signatureBytes && brokerSignatureGroup
+      ? [
+          {
+            role: brokerSignatureGroup.role,
+            slotId: brokerParticipant?.slotId ?? null,
+            signerName: 'Lisa Penfield',
+            credentialLine: 'Real Estate Broker License #: C-9931',
+            signerAppUserId: 'review-owner-user',
+            imageBytes: signatureBytes,
+            imageMimeType: 'image/png' as const,
+            assetMediaId: 'review-protected-signature-asset',
+            assetChecksumSha256: createHash('sha256')
+              .update(signatureBytes)
+              .digest('hex'),
+            appliedAt: '2026-08-26T18:30:00.000Z',
+            consentBasis: 'authenticated-owner-issuance' as const,
+            dateSemantic: 'issuance-requested-at' as const,
+          },
+        ]
+      : []
 
-const artifact = await renderFormPdfArtifact(
-  template,
-  values,
-  { body },
-  1,
-  { participants, appliedSignatures },
-)
-await mkdir(dirname(output), { recursive: true })
-await writeFile(output, artifact.bytes)
-process.stdout.write(
-  `${output}\n${artifact.pageCount} pages · ${artifact.signatureAnchors.length} signature fields · ${artifact.appliedSignatures.length} composed owner signatures\n`,
-)
+  const artifact = await renderFormPdfArtifact(
+    template,
+    values,
+    { body },
+    1,
+    { participants, appliedSignatures },
+  )
+  await mkdir(dirname(output), { recursive: true })
+  await writeFile(output, artifact.bytes)
+  process.stdout.write(
+    `${output}\n${artifact.pageCount} pages · ${artifact.signatureAnchors.length} signature fields · ${artifact.appliedSignatures.length} composed owner signatures\n`,
+  )
+}
+
+void main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error)
+  process.exitCode = 1
+})
