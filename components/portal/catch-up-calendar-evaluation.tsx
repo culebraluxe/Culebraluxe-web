@@ -5,12 +5,15 @@ import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidat
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 
 // ---------------------------------------------------------------------------
-// CATCH-UP — CAL-02 temporary dual-calendar A/B (ilamy vs FullCalendar).
+// CATCH-UP — CAL-02 PRESERVED A/B EVALUATION HARNESS (legacy, NOT rendered).
 //
-// Both candidates consume the SAME normalized events and open on the SAME
-// month, stacked full-width so Lisa compares engines fairly. Labels are neutral
-// (OPTION A / OPTION B) — pricing is discussed only after she chooses. After
-// selection, delete the losing candidate component and render the winner here.
+// Lisa selected CALENDAR OPTION B (FullCalendar). The active Catch-Up screen no
+// longer renders this harness — it renders <FullCalendarCandidate /> directly.
+//
+// This file (and its Option A sibling components/portal/catch-up-calendar.tsx)
+// is PRESERVED INTACT for reversibility. Option B is NOT rewritten here; it is
+// simply promoted to the one visible calendar. Option A's @ilamy/calendar
+// source remains so it can be restored later if ever needed.
 // ---------------------------------------------------------------------------
 
 export function CatchUpCalendarEvaluation({

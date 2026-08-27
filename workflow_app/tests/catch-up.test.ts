@@ -238,8 +238,26 @@ test('catch-up reuses CommandStatusBand (balanced 50/50, no local copy)', () => 
   assert.ok(/CommandStatusBand/.test(src), 'imports the shared band')
   assert.ok(/ratio="balanced"/.test(src), 'uses the shared balanced (50/50) ratio preset')
   assert.ok(!/RATIO_GRID/.test(src), 'no local ratio system')
-  // The band's desktop seam must line up with the QUEUE | CALENDAR row beneath it.
-  assert.ok(/lg:grid-cols-2 lg:gap-4/.test(src), 'workspace row shares the band gap for exact seam alignment')
+  // The band's desktop gap must line up with the TREE | DETAIL | CALENDAR row.
+  assert.ok(/lg:gap-4/.test(src), 'workspace row shares the band gap for exact seam alignment')
+  assert.ok(/grid-cols-\[minmax/.test(src), 'three-pane desktop grid (TREE | DETAIL | CALENDAR)')
+  assert.ok(!/lg:grid-cols-2/.test(src), 'no longer a two-column layout')
+})
+
+// --- three-pane composition (navigator + FullCalendar) ---
+test('catch-up screen composes flat navigator + FullCalendar and preserves Option A source', () => {
+  const src = readFileSync(new URL('../../components/portal/catch-up.tsx', import.meta.url), 'utf8')
+  assert.ok(/CatchUpWorkQueue/.test(src), 'left pane is the flat work-queue navigator')
+  assert.ok(/CatchUpTaskDetail/.test(src), 'middle pane is the task workspace')
+  assert.ok(/FullCalendarCandidate/.test(src), 'right pane is FullCalendar (Option B)')
+  assert.ok(!/CatchUpTaskTree/.test(src), 'the active screen no longer uses the Arborist tree')
+  assert.ok(!/CatchUpCalendarEvaluation/.test(src), 'the A/B evaluation harness is not rendered')
+  // Option A (@ilamy/calendar) source is preserved in the repo, not rendered.
+  const optionA = readFileSync(
+    new URL('../../components/portal/catch-up-calendar.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.ok(/IlamyCalendar/.test(optionA), 'Option A source preserved')
 })
 
 // --- website lead intake ---

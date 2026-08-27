@@ -1,18 +1,21 @@
 import { CatchUp } from '@/components/portal/catch-up'
 import { getCatchUpEligiblePage } from '@/db/catch-up'
+import { getCatchUpTasks } from '@/db/tasks'
 import { buildCatchUpQueue } from '@/lib/catchup/queue'
 import { getCatchUpCalendarEvents } from '@/db/catch-up-calendar'
 import { getEvaluationCalendarEvents } from '@/lib/catchup/eval-data'
 
 export const dynamic = 'force-dynamic'
 
-// CATCH-UP — CORE destination. Server-side initial queue + calendar projection;
-// the queue re-pages client-side over the bounded /api/portal/catch-up read.
+// CATCH-UP — CORE destination. Server-side initial queue + task tree + calendar
+// projection; the queue re-pages client-side over the bounded /api/portal/catch-up
+// read. The task tree reads the canonical public.task rows (workstream taxonomy).
 // CAL-02: real showings + deterministic evaluation events are combined ONCE
 // into a single normalized array that BOTH calendar candidates consume.
 export default async function CatchUpPage() {
-  const [{ rows }, realEvents] = await Promise.all([
+  const [{ rows }, tasks, realEvents] = await Promise.all([
     getCatchUpEligiblePage({ page: 1, pageSize: 50 }),
+    getCatchUpTasks(),
     getCatchUpCalendarEvents(),
   ])
 
@@ -35,5 +38,11 @@ export default async function CatchUpPage() {
   const statusCue =
     parts.length > 0 ? parts.join(' · ') : 'No urgent follow-ups'
 
-  return <CatchUp calendarEvents={calendarEvents} statusCue={statusCue} />
+  return (
+    <CatchUp
+      calendarEvents={calendarEvents}
+      statusCue={statusCue}
+      tasks={tasks}
+    />
+  )
 }

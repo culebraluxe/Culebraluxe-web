@@ -77,6 +77,105 @@ export async function getTaskById(
   return row ? mapTask(row) : null
 }
 
+export type CatchUpTask = {
+  id: string
+  title: string
+  workstream: string | null
+  category: string | null
+  status: string
+  priority: number
+  detail: string | null
+  assignedUserId: string | null
+  ownerName: string | null
+  dueAt: string | null
+  personId: string | null
+  personName: string | null
+  propertyId: string | null
+  propertyName: string | null
+  dealId: string | null
+  dealName: string | null
+}
+
+// CATCH-UP — purpose-built bounded Task read for the Catch-Up three-pane layout
+// (workstream tree + task detail). Canonical source is public.task. Returns
+// active tasks that carry a workstream, ordered deterministically so the tree
+// groups cleanly. The tree renderer only consumes id/title/workstream/category;
+// the extra context/detail fields feed the sibling Task Detail surface.
+export async function getCatchUpTasks(
+  execute: QueryExecutor = sql,
+): Promise<CatchUpTask[]> {
+  const rows = (await execute`
+    select
+      t.id,
+      t.title,
+      t.workstream,
+      t.category,
+      t.detail,
+      t.priority,
+      t.status,
+      t.assigned_user_id,
+      t.due_at::text as due_at,
+      t.person_id,
+      t.property_id,
+      t.deal_id,
+      person.display_name as person_name,
+      property.name as property_name,
+      deal_property.name as deal_name,
+      app_user.display_name as owner_name
+    from task t
+    left join person
+      on person.id = t.person_id
+    left join property
+      on property.id = t.property_id
+    left join deal
+      on deal.id = t.deal_id
+    left join property deal_property
+      on deal_property.id = deal.property_id
+    left join app_user
+      on app_user.id = t.assigned_user_id
+    where t.status in ('open', 'snoozed')
+      and t.workstream is not null
+      and t.workstream <> ''
+    order by t.workstream asc, t.category asc nulls last, t.title asc
+  `) as Array<{
+    id: string
+    title: string
+    workstream: string | null
+    category: string | null
+    detail: string | null
+    priority: number
+    status: string
+    assigned_user_id: string | null
+    due_at: string | null
+    person_id: string | null
+    person_name: string | null
+    property_id: string | null
+    property_name: string | null
+    deal_id: string | null
+    deal_name: string | null
+    owner_name: string | null
+  }>
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    workstream: row.workstream,
+    category: row.category,
+    status: row.status,
+    priority: row.priority,
+    detail: row.detail,
+    assignedUserId: row.assigned_user_id,
+    ownerName: row.owner_name,
+    dueAt: row.due_at,
+    personId: row.person_id,
+    personName: row.person_name,
+    propertyId: row.property_id,
+    propertyName: row.property_name,
+    dealId: row.deal_id,
+    dealName: row.deal_name,
+  }))
+}
+
 export type PropertyOpenTask = {
   id: string
   title: string
