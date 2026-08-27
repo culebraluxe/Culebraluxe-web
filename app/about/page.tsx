@@ -120,9 +120,11 @@ export default function AboutPage() {
                     </p>
 
                     <p>
-                      Licensed in Puerto Rico and a full-time resident of the island, she
-                      works with a deliberately small number of clients each year — enough
-                      to give every search, listing, and negotiation her full attention.
+                      Licensed in Puerto Rico since 2002, Lisa also brings 20 years of
+                      experience in luxury hospitality and corporate travel at Hyatt
+                      Dorado Beach. A full-time resident of Culebra, she works with a
+                      deliberately small number of clients each year — enough to give every
+                      search, listing, and negotiation her full attention.
                     </p>
                   </div>
 
