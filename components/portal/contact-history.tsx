@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
 import {
   Calendar,
@@ -84,6 +85,109 @@ function lastDirection(projection: RelationshipChannelProjection): "Inbound" | "
   return null
 }
 
+function relativeTime(iso: string | null): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000)
+  if (days <= 0) return "today"
+  if (days === 1) return "yesterday"
+  if (days < 30) return `${days} days ago`
+  return formatLastObserved(iso)
+}
+
+function LastInteractionSummary({
+  relationshipActivity,
+  channel,
+}: {
+  relationshipActivity?: RelationshipActivity
+  channel?: RelationshipChannelProjection
+}) {
+  const lastAt =
+    relationshipActivity?.lastMeaningfulContactAt ??
+    relationshipActivity?.lastObservedAt ??
+    null
+  const rel = relativeTime(lastAt)
+  const label = channel ? channelMeta(channel.channel).label : null
+  const dir = channel ? lastDirection(channel) : null
+  if (!rel) return null
+  return (
+    <div className="border-b border-white/10 px-4 py-3">
+      <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-white/40">
+        Last interaction
+      </p>
+      <p className="mt-1 font-serif text-base font-light text-white">
+        {rel ? `Last interaction ${rel}` : "No interaction recorded yet"}
+      </p>
+      {label && lastAt ? (
+        <p className="mt-1 text-[11px] font-light text-white/55">
+          Most recent · {label}
+          {dir ? ` · ${dir}` : ""}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+const dockActionCls =
+  "inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded-[var(--portal-tab-radius)] border border-white/15 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-white/75 transition hover:border-[var(--portal-gold)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+
+function QuickActionDock({
+  email,
+  phone,
+  clientId,
+}: {
+  email?: string | null
+  phone?: string | null
+  clientId: string
+}) {
+  const digits = phone ? phone.replace(/[^\d+]/g, "") : null
+  const tel = digits ? `tel:${digits}` : null
+  const sms = digits ? `sms:${digits}` : null
+  const mail = email ? `mailto:${email}` : null
+  return (
+    <div className="grid grid-cols-4 gap-2 border-t border-white/10 px-3 py-2">
+      {tel ? (
+        <a href={tel} className={dockActionCls}>
+          <Phone className="h-3.5 w-3.5" aria-hidden />
+          Call
+        </a>
+      ) : (
+        <button type="button" disabled title="No phone on file" className={dockActionCls}>
+          <Phone className="h-3.5 w-3.5" aria-hidden />
+          Call
+        </button>
+      )}
+      {mail ? (
+        <a href={mail} className={dockActionCls}>
+          <Mail className="h-3.5 w-3.5" aria-hidden />
+          Email
+        </a>
+      ) : (
+        <button type="button" disabled title="No email on file" className={dockActionCls}>
+          <Mail className="h-3.5 w-3.5" aria-hidden />
+          Email
+        </button>
+      )}
+      {sms ? (
+        <a href={sms} className={dockActionCls}>
+          <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+          Message
+        </a>
+      ) : (
+        <button type="button" disabled title="No phone on file" className={dockActionCls}>
+          <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+          Message
+        </button>
+      )}
+      <Link href={`/portal/clients/${clientId}`} className={dockActionCls}>
+        <Globe className="h-3.5 w-3.5" aria-hidden />
+        More
+      </Link>
+    </div>
+  )
+}
+
 function SourceSummary({ channels }: { channels: RelationshipChannelProjection[] }) {
   if (channels.length === 0) return null
   return (
@@ -121,9 +225,13 @@ function SourceSummary({ channels }: { channels: RelationshipChannelProjection[]
 export function ContactHistory({
   clientId,
   relationshipActivity,
+  email,
+  phone,
 }: {
   clientId: string
   relationshipActivity?: RelationshipActivity
+  email?: string | null
+  phone?: string | null
 }) {
   const [page, setPage] = useState(1)
   const [data, setData] = useState<ContactHistoryResult | null>(null)
@@ -163,7 +271,7 @@ export function ContactHistory({
   return (
     <Panel
       variant="feature"
-      heading="Contact history"
+      heading="Contact History"
       action={
         <span className="text-xs font-light text-white/50">
           {total.toLocaleString()} detailed
@@ -174,6 +282,10 @@ export function ContactHistory({
       }
       className="flex min-h-0 flex-col"
     >
+      <LastInteractionSummary
+        relationshipActivity={relationshipActivity}
+        channel={channels[0]}
+      />
       <SourceSummary channels={channels} />
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
@@ -184,7 +296,14 @@ export function ContactHistory({
                 {observedCommunicationCount.toLocaleString()} aggregate communications
                 are linked to this client; individual historical messages were not imported.
               </p>
-            ) : null}
+            ) : (
+              !loading && (
+                <p className="mt-2 text-xs leading-5 text-white/40">
+                  Once real events are reconciled to this client, they will appear here
+                  newest-first.
+                </p>
+              )
+            )}
           </div>
         ) : (
           <div className="min-w-[34rem]">
@@ -219,6 +338,7 @@ export function ContactHistory({
           Next →
         </button>
       </div>
+      <QuickActionDock email={email} phone={phone} clientId={clientId} />
     </Panel>
   )
 }

@@ -383,6 +383,7 @@ function toRelationshipActivity(
   const summary = summarizeRelationshipEvidence(evidence)
   return {
     sources: summary.sources,
+    firstObservedAt: summary.firstObservedAt,
     inboundCount: summary.inboundCount,
     outboundCount: summary.outboundCount,
     observedCommunicationCount: summary.observedCommunicationCount,

@@ -446,6 +446,8 @@ function ClientPane({
         <ContactHistory
           clientId={client.id}
           relationshipActivity={client.relationshipActivity}
+          email={client.email}
+          phone={client.phone}
         />
       </div>
 

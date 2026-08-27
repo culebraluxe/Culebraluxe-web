@@ -9,6 +9,7 @@
 
 export type RelationshipEvidenceForContext = {
   source: string
+  firstObservedAt?: string | null
   inboundCount?: number | null
   outboundCount?: number | null
   lastObservedAt?: string | null
@@ -25,6 +26,7 @@ export type RelationshipEvidenceForContext = {
 export type RelationshipContextSummary = {
   hasEvidence: boolean
   sources: string[]
+  firstObservedAt: string | null
   inboundCount: number
   outboundCount: number
   observedCommunicationCount: number
@@ -50,6 +52,7 @@ export type RelationshipContextSummary = {
 export type RelationshipChannelProjection = {
   source: string
   channel: string
+  firstObservedAt: string | null
   observedCommunicationCount: number
   inboundCount: number
   outboundCount: number
@@ -71,6 +74,11 @@ function latest(values: Array<string | null | undefined>): string | null {
   return present.length > 0 ? [...present].sort().pop() ?? null : null
 }
 
+function earliest(values: Array<string | null | undefined>): string | null {
+  const present = values.filter((v): v is string => Boolean(v))
+  return present.length > 0 ? [...present].sort()[0] ?? null : null
+}
+
 /**
  * Pure summary over neutral evidence rows for one canonical person.
  * Bulk/service rows are excluded from meaningful-contact computations, so they
@@ -81,7 +89,7 @@ export function summarizeRelationshipEvidence(
 ): RelationshipContextSummary {
   if (evidence.length === 0) {
     return {
-      hasEvidence: false, sources: [], lastObservedAt: null, lastMeaningfulContactAt: null,
+      hasEvidence: false, sources: [], firstObservedAt: null, lastObservedAt: null, lastMeaningfulContactAt: null,
       lastInboundAt: null, lastOutboundAt: null, twoWay: false, hasEmail: false,
       hasPhone: false, coverageLimited: false, reason: null, inboundCount: 0,
       outboundCount: 0, observedCommunicationCount: 0, channels: [],
@@ -111,6 +119,7 @@ export function summarizeRelationshipEvidence(
     channels.push({
       source,
       channel: CHANNEL_BY_SOURCE[source],
+      firstObservedAt: earliest(rows.map((e) => e.firstObservedAt)),
       observedCommunicationCount: inboundCount + outboundCount,
       inboundCount,
       outboundCount,
@@ -143,7 +152,8 @@ export function summarizeRelationshipEvidence(
   }
 
   return {
-    hasEvidence: true, sources, lastObservedAt, lastMeaningfulContactAt,
+    hasEvidence: true, sources, firstObservedAt: earliest(evidence.map((e) => e.firstObservedAt)),
+    lastObservedAt, lastMeaningfulContactAt,
     lastInboundAt, lastOutboundAt, twoWay, hasEmail, hasPhone,
     coverageLimited, reason, inboundCount, outboundCount,
     observedCommunicationCount: inboundCount + outboundCount,

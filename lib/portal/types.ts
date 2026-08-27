@@ -60,6 +60,7 @@ export interface Interaction {
 export interface RelationshipChannelProjection {
   source: string
   channel: string
+  firstObservedAt: string | null
   observedCommunicationCount: number
   inboundCount: number
   outboundCount: number
@@ -72,6 +73,7 @@ export interface RelationshipChannelProjection {
 
 export interface RelationshipActivity {
   sources: string[]
+  firstObservedAt: string | null
   inboundCount: number
   outboundCount: number
   observedCommunicationCount: number
