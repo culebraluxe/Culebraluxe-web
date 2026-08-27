@@ -392,6 +392,7 @@ function toRelationshipActivity(
     lastInboundAt: summary.lastInboundAt,
     lastOutboundAt: summary.lastOutboundAt,
     coverageLimited: summary.coverageLimited,
+    channels: summary.channels,
   }
 }
 

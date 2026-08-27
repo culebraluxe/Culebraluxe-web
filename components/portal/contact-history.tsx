@@ -14,7 +14,10 @@ import {
 
 import { Panel } from "@/components/portal/panel"
 import type { ContactHistoryItem, ContactHistoryResult } from "@/db/contact-history"
-import type { RelationshipActivity } from "@/lib/portal/types"
+import type {
+  RelationshipActivity,
+  RelationshipChannelProjection,
+} from "@/lib/portal/types"
 
 // ---------------------------------------------------------------------------
 // CLIENTS — Contact History pane (navy right column of the Client working pane).
@@ -59,6 +62,62 @@ function channelMeta(channel: string): { label: string; Icon: LucideIcon } {
 const navBtn =
   "inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] border border-white/20 px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
 
+function formatLastObserved(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+// A source-level aggregate tells us last-observed, last-inbound and last-outbound.
+// The exact direction of last_observed_at is only truthful when it equals one of
+// the direction timestamps; otherwise show no direction rather than guessing.
+function lastDirection(projection: RelationshipChannelProjection): "Inbound" | "Outbound" | null {
+  const last = projection.lastObservedAt
+  if (last && last === projection.lastInboundAt) return "Inbound"
+  if (last && last === projection.lastOutboundAt) return "Outbound"
+  return null
+}
+
+function SourceSummary({ channels }: { channels: RelationshipChannelProjection[] }) {
+  if (channels.length === 0) return null
+  return (
+    <div className="grid gap-2 border-b border-white/10 p-3 sm:grid-cols-2">
+      {channels.map((c) => {
+        const { label, Icon } = channelMeta(c.channel)
+        const dir = lastDirection(c)
+        return (
+          <div
+            key={c.source}
+            className="rounded-[var(--portal-tab-radius)] border border-white/10 bg-white/[0.04] px-3 py-2"
+          >
+            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white/70">
+              <Icon className="h-3.5 w-3.5 shrink-0 text-white/55" aria-hidden />
+              {label}
+            </div>
+            <p className="mt-1 text-[11px] font-light text-white/85">
+              {c.lastObservedAt
+                ? `Last observed ${formatLastObserved(c.lastObservedAt)}`
+                : "No observed contact"}
+            </p>
+            <p className="text-[10px] font-light text-white/50">
+              {dir ? `${dir} · ` : ""}
+              {c.observedCommunicationCount.toLocaleString()} observed
+              {c.twoWay ? " · two-way" : ""}
+              {c.coverageLimited ? " · partial history" : ""}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function ContactHistory({
   clientId,
   relationshipActivity,
@@ -99,6 +158,7 @@ export function ContactHistory({
   const rows = data?.rows ?? []
   const observedCommunicationCount =
     relationshipActivity?.observedCommunicationCount ?? 0
+  const channels = relationshipActivity?.channels ?? []
 
   return (
     <Panel
@@ -114,6 +174,7 @@ export function ContactHistory({
       }
       className="flex min-h-0 flex-col"
     >
+      <SourceSummary channels={channels} />
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm font-light text-white/55">
@@ -165,6 +226,14 @@ export function ContactHistory({
 function HistoryRow({ row }: { row: ContactHistoryItem }) {
   const { label, Icon } = channelMeta(row.channel)
   const dir = row.direction === "inbound" ? "In" : row.direction === "outbound" ? "Out" : "—"
+  const fallback =
+    row.channel === "imessage" || row.channel === "sms" || row.channel === "whatsapp"
+      ? "Message"
+      : row.channel === "email"
+        ? "Email"
+        : row.channel === "call"
+          ? "Call"
+          : "—"
   return (
     <div className="grid grid-cols-[6rem_8.5rem_3.5rem_1fr] items-center gap-x-3 border-b border-white/10 px-4 py-2 last:border-b-0">
       <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white/70">
@@ -174,7 +243,7 @@ function HistoryRow({ row }: { row: ContactHistoryItem }) {
       <span className="text-[11px] font-light text-white/65">{row.occurredAt}</span>
       <span className="text-[10px] font-light uppercase text-white/50">{dir}</span>
       <span className="truncate text-xs font-light text-white/70">
-        {row.title ?? row.summary ?? "—"}
+        {row.title ?? row.summary ?? fallback}
       </span>
     </div>
   )

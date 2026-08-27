@@ -57,6 +57,19 @@ export interface Interaction {
   sourceMetadata: JsonObject
 }
 
+export interface RelationshipChannelProjection {
+  source: string
+  channel: string
+  observedCommunicationCount: number
+  inboundCount: number
+  outboundCount: number
+  lastObservedAt: string | null
+  lastInboundAt: string | null
+  lastOutboundAt: string | null
+  twoWay: boolean
+  coverageLimited: boolean
+}
+
 export interface RelationshipActivity {
   sources: string[]
   inboundCount: number
@@ -68,6 +81,8 @@ export interface RelationshipActivity {
   lastInboundAt: string | null
   lastOutboundAt: string | null
   coverageLimited: boolean
+  /** Source-specific relationship-memory projection (truthful per channel). */
+  channels: RelationshipChannelProjection[]
 }
 
 export interface Client {
