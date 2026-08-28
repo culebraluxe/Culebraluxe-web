@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
@@ -12,6 +12,7 @@ import {
   type MarketingContentBlock,
 } from '../../lib/marketing-content'
 import { getMarketingContent } from '../../db/marketing-content'
+import { setDatabaseTestExecutor } from '../../db/client'
 import type { QueryExecutor } from '../../db/query-executor'
 
 // ---------------------------------------------------------------------------
@@ -190,6 +191,10 @@ class FakeMarketingDb {
   }
 }
 
+// getMarketingContent reads through the DatabaseGateway (DB-HARDEN Result), so
+// the repository tests inject the fake via the gateway test seam.
+afterEach(() => setDatabaseTestExecutor(null))
+
 test('getMarketingContent returns blocks with items attached, in row order', async () => {
   const fake = new FakeMarketingDb()
   fake.blockRows = [
@@ -227,7 +232,10 @@ test('getMarketingContent returns blocks with items attached, in row order', asy
     { content_id: 'unknown-slot', item_key: 'list', label: null, value: 'orphan', sort_order: 10 },
   ]
 
-  const blocks = await getMarketingContent(fake.tx)
+  setDatabaseTestExecutor(fake.tx)
+  const result = await getMarketingContent()
+  assert.equal(result.ok, true)
+  const blocks = result.data
   assert.equal(blocks.length, 2)
 
   const hero = blocks[0]
@@ -273,7 +281,10 @@ test('getMarketingContent maps null columns to null and empty lists to []', asyn
   ]
   fake.itemRows = []
 
-  const blocks = await getMarketingContent(fake.tx)
+  setDatabaseTestExecutor(fake.tx)
+  const result = await getMarketingContent()
+  assert.equal(result.ok, true)
+  const blocks = result.data
   assert.equal(blocks.length, 1)
   assert.deepEqual(blocks[0], {
     id: 'faq.list',
@@ -294,5 +305,8 @@ test('getMarketingContent returns [] when the tables hold no rows', async () => 
   const fake = new FakeMarketingDb()
   fake.blockRows = []
   fake.itemRows = []
-  assert.deepEqual(await getMarketingContent(fake.tx), [])
+  setDatabaseTestExecutor(fake.tx)
+  const result = await getMarketingContent()
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.data, [])
 })

@@ -52,7 +52,7 @@ test('edit: "Make this high priority" changes only priority', () => {
 
 // --- EDIT: change target date to tomorrow ------------------------------------
 test('edit: "Change the target date to tomorrow" sets dueAt only', () => {
-  const r = interpretAraCommand('Change the target date to tomorrow.', ctx(selected()))
+  const r = interpretAraCommand('Change the target date to tomorrow.', ctx(selected()), NOW)
   assert.equal(r.kind, 'edit')
   if (r.kind !== 'edit') return
   assert.equal(r.fields.dueAt, tomorrowIso)
@@ -128,6 +128,7 @@ test('create: "Create a task to call Lisa tomorrow" uses current workstream + da
   const r = interpretAraCommand(
     'Create a task to call Lisa tomorrow.',
     ctx(null, 'CORE'),
+    NOW,
   )
   assert.equal(r.kind, 'create')
   if (r.kind !== 'create') return

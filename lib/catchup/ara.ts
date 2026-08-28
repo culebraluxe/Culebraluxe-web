@@ -231,6 +231,7 @@ function parseTaxonomy(prompt: string): TaxonomyResult | null {
 function parseCreate(
   prompt: string,
   ctx: AraRuntimeContext,
+  now: Date,
 ): Extract<AraResult, { kind: 'create' }> | Extract<AraResult, { kind: 'ask' }> {
   let text = prompt.trim().replace(/[.]+$/, '')
 
@@ -284,7 +285,7 @@ function parseCreate(
     return { kind: 'ask', question: 'Which workstream should this task belong to?' }
   }
 
-  const due = extractDatePhrase(title)
+  const due = extractDatePhrase(title, now)
 
   const fields: AraCreateFields = {
     title,
@@ -300,6 +301,7 @@ function parseCreate(
 function parseEdit(
   prompt: string,
   ctx: AraRuntimeContext,
+  now: Date,
 ): Extract<AraResult, { kind: 'edit' }> | Extract<AraResult, { kind: 'ask' }> {
   const sel = ctx.selectedTask
   if (!sel) {
@@ -334,7 +336,7 @@ function parseEdit(
 
   const dateMatch = prompt.match(/(?:target date|due date|deadline)\s+to\s+(.+)/i)
   if (dateMatch) {
-    const date = extractDatePhrase(dateMatch[1])
+    const date = extractDatePhrase(dateMatch[1], now)
     if (date?.iso) {
       dueAt = date.iso
       changed = true
@@ -419,6 +421,7 @@ function detectCreateIntent(lower: string): boolean {
 export function interpretAraCommand(
   prompt: string,
   ctx: AraRuntimeContext,
+  now: Date = new Date(),
 ): AraResult {
   const original = prompt.trim()
   const lower = original.toLowerCase()
@@ -435,6 +438,8 @@ export function interpretAraCommand(
     }
   }
 
-  return detectCreateIntent(lower) ? parseCreate(original, ctx) : parseEdit(original, ctx)
+  return detectCreateIntent(lower)
+    ? parseCreate(original, ctx, now)
+    : parseEdit(original, ctx, now)
 }
 

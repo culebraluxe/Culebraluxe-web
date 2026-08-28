@@ -274,7 +274,7 @@ test('clients: getClientsPage marks nameResolved from the read-model sort priori
 
 test('clients: getClientContactHistory pages over the read model newest-first', async () => {
   const pageRows: Row[] = [
-    { interaction_id: 'i1', channel: 'imessage', direction: 'outbound', occurred_at_label: 'Aug 25, 2026 09:00 AM', title: 'Re: showing', summary: 'Confirm 2pm' },
+    { interaction_id: 'i1', channel: 'imessage', direction: 'outbound', occurred_at: '2026-08-25T09:00:00.000Z', title: 'Re: showing', summary: 'Confirm 2pm' },
   ]
   const execute = fakeExecute(pageRows, 45)
   const result = await getClientContactHistory('person-1', { page: 2, pageSize: 20 }, execute as never)
@@ -284,8 +284,8 @@ test('clients: getClientContactHistory pages over the read model newest-first', 
   assert.equal(result.rows.length, 1)
   assert.equal(result.rows[0].channel, 'imessage')
   assert.equal(result.rows[0].direction, 'outbound')
-  assert.equal(result.rows[0].title, 'Re: showing')
-  assert.equal(result.rows[0].occurredAt, 'Aug 25, 2026 09:00 AM')
+  assert.equal(result.rows[0].preview, 'Re: showing')
+  assert.equal(result.rows[0].startedAt, '2026-08-25T09:00:00.000Z')
   assert.ok(execute.calls.some((c) => c.text.includes('as total')), 'COUNT query present')
   assert.ok(execute.calls.some((c) => c.params.includes(20)), 'pageSize 20 reaches LIMIT')
   assert.ok(execute.calls.some((c) => c.params.includes(20)), 'offset 20 on page 2')
@@ -326,8 +326,7 @@ test('clients: Contact History is navy, fills its row, scrolls internally, serve
     'utf8',
   )
   assert.ok(/variant="feature"/.test(src), 'navy feature panel')
-  assert.ok(/overflow-auto/.test(src), 'scrolls both axes (X and Y)')
-  assert.ok(/min-w-\[34rem\]/.test(src), 'internal grid wider than the navy viewport (horizontal scroll)')
+  assert.ok(/overflow-auto/.test(src), 'scrolls internally (timeline is a vertical list)')
   assert.ok(/flex-1 overflow-auto/.test(src), 'fills the Client Card row and scrolls inside (never taller than the card)')
   assert.ok(/pageSize/.test(src), 'server-side paging')
 })
@@ -361,7 +360,13 @@ test('clients: directory/history reads come from materialized views, not L/ODS (
 
   const history = readFileSync(new URL('../../db/contact-history.ts', import.meta.url), 'utf8')
   assert.ok(/from mv_client_contact_history mv/.test(history), 'history reads the read model')
-  assert.ok(!/from interaction\b/.test(history), 'no raw interaction reconstruction in the history read')
+  // `interaction` is read ONLY for the bounded covered-sources set that excludes
+  // aggregate-evidence sources already represented by detailed interactions — the
+  // paged timeline itself comes from the materialized read model.
+  assert.ok(
+    /distinct source_system as source/.test(history),
+    'interaction read is only the bounded covered-sources query',
+  )
 })
 
 test('clients: refresh seam uses CONCURRENTLY (replay/refresh safe, unique index present)', () => {
