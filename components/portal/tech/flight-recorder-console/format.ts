@@ -16,26 +16,18 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(3)}s`;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+
 export function formatDisplayTime(iso: string): string {
   const d = new Date(iso)
-  const base = {
-    month: 'short' as const,
-    day: 'numeric' as const,
-    year: 'numeric' as const,
-    hour: 'numeric' as const,
-    minute: '2-digit' as const,
-    second: '2-digit' as const,
-    hour12: true,
-  }
-  try {
-    // fractionalSecondDigits is only honored by engines that support it
-    // (Chrome/Edge/Firefox 86+, Safari 16.4+). Guard so an older engine can't
-    // throw a RangeError mid-render and break the console.
-    return new Intl.DateTimeFormat('en-US', {
-      ...base,
-      fractionalSecondDigits: 3,
-    }).format(d)
-  } catch {
-    return new Intl.DateTimeFormat('en-US', base).format(d)
-  }
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  // Deterministic UTC rendering: Intl.DateTimeFormat's locale output differs
+  // between the Node server and browser ICU (e.g. "at" vs ","), which causes a
+  // hydration mismatch. Manual UTC formatting is byte-identical everywhere and
+  // independent of server/browser timezone.
+  const h = d.getUTCHours()
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  const ampm = h < 12 ? 'AM' : 'PM'
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()} at ${pad(h12)}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(d.getUTCMilliseconds(), 3)} ${ampm}`
 }
