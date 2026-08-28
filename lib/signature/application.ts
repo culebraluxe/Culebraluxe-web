@@ -2,9 +2,9 @@
 // DOC-03 — Signature Provider Seam: application router/orchestrator.
 //
 // The router dispatches by configured provider, never by provider-specific
-// command. Canonical state commits first; provider interaction occurs only
-// after commit. Webhooks normalize at the provider seam before entering the
-// canonical status command.
+// command. Sends commit canonical intent before provider dispatch. Cancellation
+// is intentionally the inverse safety order: the external legal envelope must
+// be proven revoked before the canonical active slot is released.
 // ---------------------------------------------------------------------------
 
 import { randomUUID } from 'node:crypto'
@@ -75,7 +75,6 @@ export class SignatureApplication {
     return rest
   }
 
-  /** Reconcile the neutral completion event emitted by a freshly-applied status. */
   private async reconcileIfCompleted(result: CommandResult): Promise<CommandResult | null> {
     if (!this.deps.reconciler) return null
     const event = result.emittedEvents.find(
@@ -98,15 +97,6 @@ export class SignatureApplication {
     }
   }
 
-  /**
-   * A provider can redeliver Completed after the canonical status has already
-   * committed. In that case the status command emits no second completion
-   * event, but artifact reconciliation may still need retrying (for example a
-   * transient PDF/audit download failure). This helper retries reconciliation
-   * only when the provider has just proven Completed and the status command
-   * itself succeeded. The DB reconciler is independently receipt-backed and
-   * guarded by signed_media_id, so repeated calls are safe.
-   */
   private async reconcileCompletedObservation(
     result: CommandResult,
     signatureRequestId: string,
@@ -137,10 +127,6 @@ export class SignatureApplication {
     }
   }
 
-  /**
-   * Send end-to-end: commit the neutral request, dispatch provider delivery,
-   * then record the provider-observed neutral envelope status.
-   */
   async send(
     input: SendSignatureRequestCommandInput,
     ctx: SignatureEnvelopeContext = {},
@@ -182,7 +168,6 @@ export class SignatureApplication {
     return statusResult
   }
 
-  /** Poll the provider and converge canonical envelope state. */
   async refreshStatus(
     signatureRequestId: string,
     ctx: SignatureEnvelopeContext = {},
@@ -202,20 +187,41 @@ export class SignatureApplication {
     return result
   }
 
-  /** Cancel canonical state, then revoke provider envelope after commit. */
+  /**
+   * Revoke-first cancellation. A canonical void frees the active signature
+   * slot and can permit a replacement envelope, so it is unsafe to commit that
+   * state until the provider confirms the old external envelope is revoked.
+   */
   async cancel(
     signatureRequestId: string,
     ctx: SignatureEnvelopeContext = {},
   ): Promise<CommandResult> {
-    const result = await this.deps.dispatcher.execute(
+    const providerResult = await this.deps.provider.cancel(signatureRequestId)
+    if (!providerResult.ok) {
+      const commandId = ctx.commandId ?? randomUUID()
+      return {
+        commandId,
+        outcome: 'conflict',
+        emittedEvents: [],
+        aggregateId: signatureRequestId,
+        message:
+          providerResult.error ??
+          'Provider revocation could not be proven; the signature request remains active.',
+        replayed: false,
+        error: {
+          code: 'provider_revoke_unconfirmed',
+          message:
+            providerResult.error ??
+            'Provider revocation could not be proven; the signature request remains active.',
+          retryable: true,
+        },
+      }
+    }
+    return this.deps.dispatcher.execute(
       this.envelope(SIGNATURE_REQUEST_CANCEL, signatureRequestId, {
         signatureRequestId,
       }, ctx),
     )
-    if (result.outcome === 'success') {
-      await this.deps.provider.cancel(signatureRequestId)
-    }
-    return result
   }
 
   async decline(
@@ -229,13 +235,6 @@ export class SignatureApplication {
     )
   }
 
-  /**
-   * Verify/normalize the webhook, apply its neutral envelope status, then make
-   * completion reconciliation part of webhook acknowledgement. A completed
-   * provider event is acknowledged only after the final PDF/audit has either
-   * reconciled successfully or is already reconciled. A transient artifact
-   * failure throws so the route returns non-2xx and BoldSign can redeliver.
-   */
   async handleWebhook(
     payload: unknown,
     signature: string,
