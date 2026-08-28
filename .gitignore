@@ -35,3 +35,6 @@ messages_schema_recon.txt
 
 # Mac EventKit bridge local snapshot (private Apple calendar data — never commit)
 culebraluxe-calendar*.json
+# Repository uses pnpm; reject accidental npm lockfiles and generated TS state
+package-lock.json
+*.tsbuildinfo
