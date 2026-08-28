@@ -86,19 +86,22 @@ export type SignatureRequestTerminalStatus =
   (typeof SIGNATURE_REQUEST_TERMINAL_STATUSES)[number]
 
 /**
- * Legal neutral status transitions (the story's model:
- * requested -> sent -> viewed -> signed -> completed, plus declined/voided/
- * expired/error sinks). Provider observations and application commands
- * (cancel -> voided, decline -> declined) are applied only along these edges.
+ * Legal ENVELOPE-level neutral transitions. Provider callbacks are not
+ * guaranteed to arrive in every intermediate state or in strict order, so an
+ * active request may advance directly to any provider-proven terminal state.
+ * Recipient-level Signed/Viewed activity must not be interpreted as completion
+ * of the whole envelope; BoldSign's adapter normalizes those events onto the
+ * active `viewed` plateau. The legacy `signed` state remains supported for
+ * provider-neutral compatibility and may also advance to any terminal outcome.
  */
 export const SIGNATURE_REQUEST_TRANSITIONS: Record<
   SignatureRequestStatus,
   readonly SignatureRequestStatus[]
 > = {
-  requested: ['sent', 'viewed', 'declined', 'voided', 'expired', 'error'],
-  sent: ['viewed', 'signed', 'declined', 'voided', 'expired', 'error'],
-  viewed: ['signed', 'declined', 'voided', 'expired', 'error'],
-  signed: ['completed', 'voided', 'expired', 'error'],
+  requested: ['sent', 'viewed', 'signed', 'completed', 'declined', 'voided', 'expired', 'error'],
+  sent: ['viewed', 'signed', 'completed', 'declined', 'voided', 'expired', 'error'],
+  viewed: ['signed', 'completed', 'declined', 'voided', 'expired', 'error'],
+  signed: ['completed', 'declined', 'voided', 'expired', 'error'],
   completed: [],
   declined: [],
   voided: [],
@@ -187,7 +190,10 @@ export function validateSignatureRecipients(
     }
     const key = r.email.trim().toLowerCase()
     if (seenEmails.has(key)) {
-      errors.push(`Duplicate recipient email: ${r.email}.`)
+      // Deliberate legal-identity invariant: each immutable signer slot requires
+      // its own mailbox because Email OTP is part of the signer evidence. Do
+      // not silently coalesce spouses/joint parties onto one address.
+      errors.push(`Each legal signer must use a unique email address; duplicate: ${r.email}.`)
     }
     seenEmails.add(key)
   }
