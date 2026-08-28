@@ -3,29 +3,7 @@ import { neonTx, type TxRunner } from './tx'
 
 // ---------------------------------------------------------------------------
 // BoldSign provider store (migration 037, DOC-04).
-//
-// PROVIDER-SPECIFIC persistence, BEHIND the DOC-03 SignatureProvider seam.
-// This table owns EVERYTHING BoldSign-specific: the provider envelope id, the
-// provider document/file ids, the last RAW provider status, and the observable
-// last_error with a retryable/non-retryable classification. Provider ids and
-// provider state NEVER live on the canonical `signature_request` (which stays
-// provider-free) and NEVER on `transaction_document` (rejected designs).
-//
-// Idempotency:
-//   - one row per canonical signature_request (PK);
-//   - at most one row per BoldSign envelope (partial unique index on
-//     envelope_id) — a provider envelope is never persisted twice, so `send`
-//     cannot create a duplicate envelope at the provider (the adapter looks
-//     the row up first and returns the existing envelope).
-//
-// The webhook_event table is the webhook replay dedupe (unique
-// provider_event_id) AND the durable enqueue record for the DOC-05 async
-// reconciler. A replayed webhook inserts nothing (ON CONFLICT DO NOTHING) and
-// the adapter returns the same neutral result — the canonical status command
-// is itself a no-op on re-application.
-//
-// These functions never call the provider (rejected design) — the adapter
-// (lib/signature/boldsign) composes provider calls with these writes.
+// Provider-specific persistence remains behind the neutral signature seam.
 // ---------------------------------------------------------------------------
 
 export type BoldSignRequestRow = QueryRow & {
@@ -78,10 +56,6 @@ function mapBoldSignRequest(row: BoldSignRequestRow): BoldSignRequest {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Reads (injectable executor; lazy default for production)
-// ---------------------------------------------------------------------------
-
 let defaultExecutor: QueryExecutor | null = null
 
 async function executor(): Promise<QueryExecutor> {
@@ -124,26 +98,13 @@ export async function getBoldSignRequestByEnvelopeId(
   return row ? mapBoldSignRequest(row) : null
 }
 
-// ---------------------------------------------------------------------------
-// Writes (injectable runner; default = the Neon interactive transaction)
-// ---------------------------------------------------------------------------
-
 export type CreateBoldSignRequestInput = {
   signatureRequestId: string
   envelopeId: string
   documentIds: string[]
-  /** RAW BoldSign status observed after send (mapped to neutral at the seam). */
   status: string
 }
 
-/**
- * Persist the provider row for a SUCCESSFUL send. Idempotent at the envelope
- * level: ON CONFLICT (envelope_id) WHERE envelope_id IS NOT NULL DO NOTHING —
- * a duplicate envelope insert is dropped and the winner's row is returned.
- * Returns null only when the conflict target was the PRIMARY KEY
- * (a concurrent duplicate of the SAME request insert won); the caller
- * re-selects by signature_request_id in that case.
- */
 export async function createBoldSignRequest(
   input: CreateBoldSignRequestInput,
   run: TxRunner = neonTx,
@@ -165,14 +126,10 @@ export async function createBoldSignRequest(
 
 export type UpdateBoldSignRequestStatusInput = {
   signatureRequestId: string
-  /** RAW BoldSign status observed (mapped to neutral only at the seam). */
   status: string
-  /** Latest observed provider document/file ids. */
   documentIds: string[]
 }
 
-/** Cache the last RAW provider status (and document ids) observed by a poll
- *  or cancel. Provider-specific state stays in the provider table. */
 export async function updateBoldSignRequestStatus(
   input: UpdateBoldSignRequestStatusInput,
   run: TxRunner = neonTx,
@@ -189,30 +146,31 @@ export async function updateBoldSignRequestStatus(
 export type RecordBoldSignRequestErrorInput = {
   signatureRequestId: string
   error: string
-  /** retryable/non-retryable classification of the provider error. */
   retryable: boolean
+  /**
+   * Raw provider-store status. Normally `error`. A retryable failure during a
+   * CREATE call is different: the provider may have accepted the envelope
+   * before the response was lost, so callers use `InProgress` to keep the
+   * canonical request active/fail-closed until a human resolves the ambiguity.
+   */
+  status?: string
 }
 
-/**
- * Record the observable last_error for a provider failure (send failures have
- * no envelope yet — the row is created with envelope_id NULL; poll/cancel
- * failures update the existing row). The neutral 'error' status is applied to
- * the canonical request by the seam; the DETAIL lives here, provider-specific.
- */
 export async function recordBoldSignRequestError(
   input: RecordBoldSignRequestErrorInput,
   run: TxRunner = neonTx,
 ): Promise<void> {
+  const status = input.status ?? 'error'
   await run((tx) => tx`
     insert into bold_sign_request (
       signature_request_id, envelope_id, document_ids, status,
       last_error, error_retryable
     ) values (
-      ${input.signatureRequestId}, null, '{}', 'error',
+      ${input.signatureRequestId}, null, '{}', ${status},
       ${input.error}, ${input.retryable}
     )
     on conflict (signature_request_id)
-    do update set status = 'error',
+    do update set status = ${status},
       last_error = ${input.error},
       error_retryable = ${input.retryable},
       updated_at = now()
@@ -228,12 +186,6 @@ export type InsertBoldSignWebhookEventInput = {
   payload: unknown
 }
 
-/**
- * Enqueue a normalized webhook event. Idempotent by the PROVIDER EVENT ID
- * (the webhook replay dedupe key): a re-delivered webhook inserts nothing and
- * returns false. The row doubles as the durable enqueue record for the DOC-05
- * async reconciler (which sets processed_at once it has handled the event).
- */
 export async function insertBoldSignWebhookEvent(
   input: InsertBoldSignWebhookEventInput,
   run: TxRunner = neonTx,
