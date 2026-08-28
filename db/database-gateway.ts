@@ -196,6 +196,40 @@ function appEnvLabel(): string {
   return resolveDbTarget() === 'prod' ? 'production' : 'development'
 }
 
+/**
+ * Safe, credential-free diagnostic: the resolved database target and the Neon
+ * branch token parsed from the connection HOST only (never the password/user).
+ * Lets an operator confirm which branch a deployment is actually reading.
+ */
+export function dbTargetInfo(): {
+  target: DbTarget
+  vercelEnv: string | undefined
+  appEnv: string | undefined
+  neonBranch: string | null
+} {
+  const target = resolveDbTarget()
+  const url =
+    target === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
+  let neonBranch: string | null = null
+  if (url) {
+    try {
+      const host = new URL(url).host
+      // Neon branch hosts carry the branch as the leading `--` token, e.g.
+      // `br-snowy-fog-axg3jae2--project-abc123...neon.tech`.
+      const m = host.match(/^([a-z0-9]+(?:-[a-z0-9]+)*)--/)
+      neonBranch = m ? m[1] : host
+    } catch {
+      neonBranch = null
+    }
+  }
+  return {
+    target,
+    vercelEnv: process.env.VERCEL_ENV,
+    appEnv: process.env.APP_ENV,
+    neonBranch,
+  }
+}
+
 type SqlExecutor = QueryExecutor
 
 /**
