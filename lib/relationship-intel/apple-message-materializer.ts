@@ -5,11 +5,11 @@
 // canonical `interaction` rows so Client Contact History reflects real
 // chronology, NOT just aggregate evidence.
 //
-// NON-NEGOTIABLE PRIVACY RULE:
-//   NEVER persist message text / attributed text / snippets / attachment
-//   contents / attachment filenames. The CRM remembers THAT a communication
-//   happened, through which channel, when, and in which direction — never the
-//   private prose. Apple/Gmail remain the source systems for content.
+// PRIVACY BOUNDARY:
+//   Persist ONLY a small bounded one-line memory cue (≤160 chars) as the
+//   interaction summary. Never archive full transcripts, attributed bodies,
+//   attachment contents, or attachment-filename dumps. Apple/Gmail remain the
+//   source systems for full content; the CRM remembers the relationship moment.
 //
 // The stable per-message identifier is the Apple `guid`. That becomes
 // interaction.source_external_id, which together with the stable
@@ -21,6 +21,24 @@ import {
   APPLE_MESSAGES_SOURCE,
   type AppleMessagesMessage,
 } from './apple-messages'
+
+/** Maximum length of the bounded one-line memory cue. */
+export const APPLE_PREVIEW_MAX_LENGTH = 160
+
+/**
+ * Derive a bounded one-line memory cue from Apple message text.
+ * - collapses whitespace / newlines to single spaces
+ * - trims
+ * - caps at ~160 characters
+ * - returns null when there is no usable text (never fabricates prose)
+ */
+export function boundedPreview(text: string | null | undefined): string | null {
+  if (!text) return null
+  const oneLine = text.replace(/\s+/g, ' ').trim()
+  if (!oneLine) return null
+  if (oneLine.length <= APPLE_PREVIEW_MAX_LENGTH) return oneLine
+  return `${oneLine.slice(0, APPLE_PREVIEW_MAX_LENGTH - 1).trimEnd()}…`
+}
 
 /** Map an Apple service value to the canonical interaction channel. */
 export function appleServiceToChannel(
@@ -36,13 +54,14 @@ export function appleServiceToChannel(
  * - personId: the reconciled canonical Person (only ever supplied by the
  *   caller AFTER an authoritative exact_link reconcile decision).
  * - channel: iMessage / SMS per Apple service evidence.
- * - event_type: 'message' (the canonical message event type; no prose).
+ * - event_type: 'message' (the canonical message event type).
  * - direction: inbound/outbound from Apple isFromMe.
  * - occurred_at: the real Apple event timestamp.
  * - source_system / source_external_id: stable Apple source + message GUID
  *   (replay key).
+ * - summary: bounded one-line preview (≤160 chars), or a neutral
+ *   "Message"/"Attachment" label when there is no usable text.
  * - source_metadata: minimal audit/provenance ONLY — never message content.
- * - title/summary: intentionally null (no private prose).
  */
 export function mapAppleMessageToInteraction(
   message: AppleMessagesMessage,
@@ -50,6 +69,12 @@ export function mapAppleMessageToInteraction(
   sourceAccount: string,
 ): CreateInteractionInput {
   const direction = message.isFromMe === 1 ? 'outbound' : 'inbound'
+  const hasText = Boolean(message.text?.trim())
+  const summary = hasText
+    ? boundedPreview(message.text)
+    : message.hasAttachments === 1
+      ? 'Attachment'
+      : 'Message'
   return {
     personId: canonicalPersonId,
     channel: appleServiceToChannel(message.service),
@@ -57,7 +82,7 @@ export function mapAppleMessageToInteraction(
     direction,
     occurredAt: message.dateISO ?? '',
     title: undefined,
-    summary: undefined,
+    summary: summary ?? undefined,
     sourceSystem: APPLE_MESSAGES_SOURCE,
     sourceExternalId: message.guid,
     sourceMetadata: {

@@ -1,29 +1,28 @@
 import { sql } from './client'
 import type { QueryExecutor } from './query-executor'
 import type { InteractionChannel, InteractionDirection } from '../lib/crm-types'
+import { groupIntoBursts } from '../lib/relationship-intel/conversation-bursts'
+import type { ConversationBurst } from '../lib/relationship-intel/conversation-bursts'
 
 // ---------------------------------------------------------------------------
 // CLIENTS — contact history for one canonical Person.
 //
 // Server-side-paginated read over the canonical `interaction` table (the
-// application communication timeline: calls, iMessage, SMS, email, meetings /
-// showings). Newest-first, SQL ORDER BY occurred_at DESC + LIMIT/OFFSET, so a
-// long history never ships to the browser in one payload. Only the current page
-// (~20 items) is returned; the component resets to page 1 when the selected
-// client changes. No raw L/ODS tables are exposed here.
+// application communication timeline) via mv_client_contact_history. Newest
+// first, SQL ORDER BY occurred_at DESC + LIMIT/OFFSET, so a long history never
+// ships to the browser in one payload. Dense message channels are grouped into
+// deterministic conversation bursts (≤30 min gap) so the timeline reads as
+// human-sized relationship moments rather than thousands of chat fragments;
+// Email / Call / Meeting / Showing / Note pass through as single moments.
 // ---------------------------------------------------------------------------
 
-export type ContactHistoryItem = {
-  id: string
+export type ContactHistoryMoment = ConversationBurst & {
   channel: InteractionChannel
-  direction: InteractionDirection | null
-  occurredAt: string
-  title: string | null
-  summary: string | null
+  preview: string | null
 }
 
 export type ContactHistoryResult = {
-  rows: ContactHistoryItem[]
+  rows: ContactHistoryMoment[]
   total: number
   page: number
   pageSize: number
@@ -33,9 +32,15 @@ type ContactHistoryRow = {
   interaction_id: string
   channel: string
   direction: string | null
-  occurred_at_label: string
+  occurred_at: string | Date
   title: string | null
   summary: string | null
+}
+
+/** Normalize a Postgres timestamptz (Date) or ISO string to an ISO string. */
+function toIso(value: string | Date): string {
+  const d = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(d.getTime()) ? String(value) : d.toISOString()
 }
 
 export async function getClientContactHistory(
@@ -59,7 +64,7 @@ export async function getClientContactHistory(
       mv.interaction_id,
       mv.channel,
       mv.direction,
-      mv.occurred_at_label,
+      mv.occurred_at,
       mv.title,
       mv.summary
     from mv_client_contact_history mv
@@ -68,15 +73,18 @@ export async function getClientContactHistory(
     limit ${pageSize} offset ${offset}
   `) as ContactHistoryRow[]
 
-  return {
-    rows: rows.map((r) => ({
+  const moments = groupIntoBursts(
+    rows.map((r) => ({
       id: r.interaction_id,
-      channel: r.channel as InteractionChannel,
+      channel: r.channel,
       direction: (r.direction as InteractionDirection | null) ?? null,
-      occurredAt: r.occurred_at_label,
-      title: r.title,
-      summary: r.summary,
+      occurredAt: toIso(r.occurred_at),
+      preview: r.title ?? r.summary ?? null,
     })),
+  ).map((m) => ({ ...m, channel: m.channel as InteractionChannel }))
+
+  return {
+    rows: moments,
     total,
     page,
     pageSize,

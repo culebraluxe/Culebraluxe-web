@@ -1,0 +1,292 @@
+// ---------------------------------------------------------------------------
+// REL-INTEL — DURABLE Apple Messages intake / materialization command.
+//
+// The reusable operator/runtime entry point for the full downstream lifecycle
+// once a valid Apple export package exists:
+//
+//   local Apple chat.db
+//     -> export package (identities.jsonl + messages.jsonl + conversations)
+//     -> ODS relationship-evidence upsert
+//     -> reconciliation to canonical Person
+//     -> canonical interaction materialization (exact_linked only)
+//     -> client read-model refresh
+//
+// This is the PRODUCTION materialization process, NOT the DEV ODS proof loader
+// (scripts/apple-messages-real-load.ts). It targets an EXPLICIT environment and
+// refuses to fall back to the wrong DATABASE_URL.
+//
+// Usage (from a Terminal with Full Disk Access only needed for the *snapshot
+// repair* step, not for this command):
+//
+//   DEV:  node --env-file=.env.local --import tsx scripts/apple-messages-intake.ts dev [--dir <path>]
+//   PROD: DATABASE_URL_PROD=postgres://... node --env-file=.env.local \
+//           --import tsx scripts/apple-messages-intake.ts prod [--dir <path>]
+//
+// Replay-safe: every canonical interaction reuses the createInteraction seam,
+// backed by the unique partial index on (source_system, source_external_id).
+// Running the same intake twice inserts N then 0 new interactions.
+// ---------------------------------------------------------------------------
+import { readFileSync, existsSync } from 'node:fs'
+import {
+  buildMessagesRelationshipEvidence,
+  APPLE_MESSAGES_SOURCE,
+  isGroupChatGuid,
+  type AppleMessagesExport,
+  type AppleMessagesHandle,
+  type AppleMessagesMessage,
+} from '../lib/relationship-intel/apple-messages'
+import { boundedPreview } from '../lib/relationship-intel/apple-message-materializer'
+import {
+  upsertRelationshipEvidence,
+  recordReconcileDecision,
+  getRelationshipEvidenceRows,
+} from '../db/relationship-evidence'
+import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
+import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
+import { materializeAppleMessages } from '../db/apple-message-materialization'
+import type { QueryExecutor } from '../db/query-executor'
+import { createPoolExecutor } from './lib/pool-executor'
+
+const DEFAULT_DIR = 'public/upload/data/apple-messages-export'
+const out = (...a: unknown[]) => console.log(...a)
+
+// ---------------------------------------------------------------------------
+// Argument parsing — explicit DEV/PROD target, NO silent DATABASE_URL fallback.
+// ---------------------------------------------------------------------------
+type EnvTarget = 'dev' | 'prod'
+
+function parseArgs(argv: string[]) {
+  const targetArg = argv[0] ?? ''
+  const target: EnvTarget | null =
+    targetArg === 'dev' || targetArg === 'prod' ? targetArg : null
+  if (!target) {
+    throw new Error(
+      'Usage: node --env-file=.env.local --import tsx scripts/apple-messages-intake.ts <dev|prod> [--dir <path>]',
+    )
+  }
+  let dir = DEFAULT_DIR
+  const dirIdx = argv.indexOf('--dir')
+  if (dirIdx !== -1 && argv[dirIdx + 1]) dir = argv[dirIdx + 1]
+  return { target, dir }
+}
+
+function resolveDatabaseUrl(target: EnvTarget): string {
+  if (target === 'prod') {
+    const url = process.env.DATABASE_URL_PROD ?? ''
+    if (!url) {
+      throw new Error(
+        'PROD target requires DATABASE_URL_PROD. Refusing to fall back to DEV/local.',
+      )
+    }
+    return url
+  }
+  const url = process.env.DATABASE_URL_DEV ?? ''
+  if (!url) {
+    throw new Error('DEV target requires DATABASE_URL_DEV (or set it explicitly).')
+  }
+  return url
+}
+
+// ---------------------------------------------------------------------------
+// Loaders
+// ---------------------------------------------------------------------------
+
+function readLines(dir: string, file: string): string[] {
+  const raw = readFileSync(`${dir}/${file}`, 'utf8')
+  return raw.split('\n').filter((l) => l.trim().length > 0)
+}
+
+function loadExportPackage(dir: string) {
+  if (!existsSync(`${dir}/identities.jsonl`) || !existsSync(`${dir}/messages.jsonl`)) {
+    throw new Error(`Export package incomplete at ${dir} (need identities.jsonl + messages.jsonl)`)
+  }
+  const manifestPath = `${dir}/manifest.json`
+  const manifest = existsSync(manifestPath)
+    ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>)
+    : {}
+  const handles = readLines(dir, 'identities.jsonl').map(
+    (l) => JSON.parse(l) as AppleMessagesHandle,
+  )
+  const messages = readLines(dir, 'messages.jsonl').map(
+    (l) => JSON.parse(l) as AppleMessagesMessage,
+  )
+  const conversationsPath = `${dir}/conversations.jsonl`
+  const conversationParticipantsPath = `${dir}/conversation-participants.jsonl`
+  const conversations = existsSync(conversationsPath)
+    ? readLines(dir, 'conversations.jsonl').map((l) => JSON.parse(l) as Record<string, unknown>)
+    : []
+  const conversationParticipants = existsSync(conversationParticipantsPath)
+    ? readLines(dir, 'conversation-participants.jsonl').map(
+        (l) => JSON.parse(l) as Record<string, unknown>,
+      )
+    : []
+  return { manifest, handles, messages, conversations, conversationParticipants }
+}
+
+/** Deterministic source account derived from the export messages. */
+function deriveSourceAccount(messages: AppleMessagesMessage[]): string {
+  for (const m of messages) {
+    const acct = (m as unknown as { account?: string }).account
+    if (acct && acct.includes('@')) return acct
+  }
+  return 'apple_messages_local'
+}
+
+// ---------------------------------------------------------------------------
+// Core reusable lifecycle (also importable by future runtime tools).
+// ---------------------------------------------------------------------------
+
+export type AppleMessagesIntakeResult = {
+  env: EnvTarget
+  sourceAccount: string
+  handles: number
+  messages: number
+  datedMessages: number
+  messagesWithBoundedText: number
+  groupChatMessages: number
+  evidenceRows: number
+  exactLinkedHandles: number
+  unmatchedOrReviewHandles: number
+  eventsSeen: number
+  interactionsInserted: number
+  interactionsReplayed: number
+  skippedNoTimestamp: number
+  skippedGroupChat: number
+  errors: number
+  reconcileTally: Record<string, number>
+}
+
+export async function runAppleMessagesIntake(
+  env: EnvTarget,
+  exportDir: string,
+  execute: QueryExecutor,
+  options: { refresh?: () => Promise<void> } = {},
+): Promise<AppleMessagesIntakeResult> {
+  const { manifest, handles, messages, conversations, conversationParticipants } =
+    loadExportPackage(exportDir)
+  const sourceAccount = deriveSourceAccount(messages)
+  const exportData: AppleMessagesExport = { sourceAccount, handles, messages }
+
+  out('=== Apple Messages intake / materialization ===')
+  out('env:', env)
+  out('export dir:', exportDir)
+  out('manifest generatedAt:', (manifest as { generatedAt?: string }).generatedAt)
+  out('sourceAccount derived:', sourceAccount)
+  out('handles loaded:', handles.length, '| messages loaded:', messages.length)
+  out('conversations loaded:', conversations.length, '| conversation-participants:', conversationParticipants.length)
+
+  const datedMessages = messages.filter((m) => m.dateISO).length
+  const messagesWithBoundedText = messages.filter(
+    (m) => boundedPreview(m.text) != null,
+  ).length
+  const groupChatMessages = messages.filter((m) => isGroupChatGuid(m.chatGuid)).length
+  out('dated messages:', datedMessages, '| with bounded text:', messagesWithBoundedText, '| group-chat messages:', groupChatMessages)
+
+  // --- 1. ODS evidence build + upsert ---
+  const evidenceBuilds = buildMessagesRelationshipEvidence(exportData)
+  out('built evidence rows:', evidenceBuilds.length)
+
+  const { lookup } = await createInMemoryPersonLookup(execute)
+  const reconcileTally: Record<string, number> = {}
+  await mapLimit(evidenceBuilds, 16, async ({ evidence, fingerprint }) => {
+    const id = await upsertRelationshipEvidence(evidence, fingerprint, undefined, execute)
+    const decision = await reconcileEvidence(evidence, lookup)
+    await recordReconcileDecision(id, decision, execute)
+    reconcileTally[decision.reviewState] = (reconcileTally[decision.reviewState] ?? 0) + 1
+  })
+  out('reconcile tally:', JSON.stringify(reconcileTally))
+
+  const evidenceRows = await getRelationshipEvidenceRows(APPLE_MESSAGES_SOURCE, execute)
+  const exactLinkedHandles = evidenceRows.filter(
+    (r) => r.reviewState === 'exact_linked' && r.canonicalPersonId != null,
+  ).length
+  const unmatchedOrReviewHandles = evidenceRows.length - exactLinkedHandles
+  out('evidence rows:', evidenceRows.length, '| exact-linked handles:', exactLinkedHandles, '| unmatched/review handles:', unmatchedOrReviewHandles)
+
+  // --- 2. Canonical interaction materialization (exact_linked only) ---
+  const refresh = options.refresh ?? (async () => {
+    await execute`refresh materialized view concurrently mv_client_directory`
+    await execute`refresh materialized view concurrently mv_client_contact_history`
+  })
+  const materialized = await materializeAppleMessages(exportData, execute, { refresh })
+  out('materialization:', JSON.stringify(materialized))
+
+  return {
+    env,
+    sourceAccount,
+    handles: handles.length,
+    messages: messages.length,
+    datedMessages,
+    messagesWithBoundedText,
+    groupChatMessages,
+    evidenceRows: evidenceRows.length,
+    exactLinkedHandles,
+    unmatchedOrReviewHandles,
+    eventsSeen: materialized.eventsSeen,
+    interactionsInserted: materialized.inserted,
+    interactionsReplayed: materialized.replayed,
+    skippedNoTimestamp: materialized.skippedNoTimestamp,
+    skippedGroupChat: materialized.skippedGroupChat,
+    errors: materialized.errors,
+    reconcileTally,
+  }
+}
+
+
+
+function printTally(r: AppleMessagesIntakeResult) {
+  out('\n=== INTAKE TALLY ===')
+  out('env:', r.env)
+  out('sourceAccount:', r.sourceAccount)
+  out('handles:', r.handles)
+  out('messages:', r.messages)
+  out('dated messages:', r.datedMessages)
+  out('messages with bounded text:', r.messagesWithBoundedText)
+  out('group-chat messages:', r.groupChatMessages)
+  out('evidence rows:', r.evidenceRows)
+  out('exact-linked handles:', r.exactLinkedHandles)
+  out('unmatched/review handles:', r.unmatchedOrReviewHandles)
+  out('events seen:', r.eventsSeen)
+  out('interactions inserted:', r.interactionsInserted)
+  out('interactions replayed:', r.interactionsReplayed)
+  out('skipped no timestamp:', r.skippedNoTimestamp)
+  out('skipped group chat:', r.skippedGroupChat)
+  out('errors:', r.errors)
+  out('reconcile tally:', JSON.stringify(r.reconcileTally))
+}
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+async function main() {
+  const { target, dir } = parseArgs(process.argv.slice(2))
+  const url = resolveDatabaseUrl(target)
+  const { execute, end } = createPoolExecutor(url)
+  try {
+    const first = await runAppleMessagesIntake(target, dir, execute)
+    printTally(first)
+
+    // --- replay idempotency proof: second run must insert 0 ---
+    out('\n=== REPLAY (second run — must insert 0) ===')
+    const second = await runAppleMessagesIntake(target, dir, execute)
+    printTally(second)
+    out(
+      '\nREPLAY inserted:',
+      second.interactionsInserted,
+      second.interactionsInserted === 0 ? '(PASS: no duplicates)' : '(FAIL)',
+    )
+  } finally {
+    await end()
+  }
+}
+
+// Allow import of runAppleMessagesIntake without executing the CLI.
+if (process.argv[1]?.endsWith('apple-messages-intake.ts')) {
+  main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err)
+      process.exit(1)
+    })
+}

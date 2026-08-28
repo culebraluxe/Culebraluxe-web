@@ -2,6 +2,7 @@ import { sql } from './client'
 import type { QueryExecutor } from './query-executor'
 import {
   APPLE_MESSAGES_SOURCE,
+  isGroupChatGuid,
   type AppleMessagesExport,
   type AppleMessagesMessage,
 } from '../lib/relationship-intel/apple-messages'
@@ -44,6 +45,7 @@ export type AppleMessageMaterializeResult = {
   inserted: number
   replayed: number
   skippedNoTimestamp: number
+  skippedGroupChat: number
   errors: number
 }
 
@@ -61,6 +63,7 @@ export async function materializeAppleMessages(
     inserted: 0,
     replayed: 0,
     skippedNoTimestamp: 0,
+    skippedGroupChat: 0,
     errors: 0,
   }
 
@@ -98,6 +101,11 @@ export async function materializeAppleMessages(
 
     const messages = byHandle.get(handle.rowid) ?? []
     for (const m of messages) {
+      // Group chats are never silently attributed to an individual person.
+      if (isGroupChatGuid(m.chatGuid)) {
+        result.skippedGroupChat += 1
+        continue
+      }
       if (!m.dateISO) {
         result.skippedNoTimestamp += 1
         continue

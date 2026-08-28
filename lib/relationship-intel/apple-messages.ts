@@ -13,6 +13,27 @@ import { normalizeEmail, normalizePhone, fingerprint } from './normalize'
 
 export const APPLE_MESSAGES_SOURCE = 'apple_messages' as const
 
+/** Group chats have an Apple chat GUID that contains this marker. */
+export const GROUP_CHAT_GUID_MARKER = 'group'
+
+/** A 1:1 vs group chat is determined by the Apple chat GUID. */
+export function isGroupChatGuid(chatGuid: string | null): boolean {
+  return chatGuid?.toLowerCase().includes(GROUP_CHAT_GUID_MARKER) ?? false
+}
+
+// Apple Messages stores message timestamps as INTEGER nanoseconds since the
+// Apple reference date (2001-01-01T00:00:00Z). Mirrors the Swift exporter
+// (appleTimestampToISO): raw / 1_000_000_000 + 978_307_200 -> Unix epoch.
+export const APPLE_EPOCH_UNIX_OFFSET_SECONDS = 978307200
+
+/** Convert an Apple INTEGER-nanoseconds timestamp to an ISO-8601 string. */
+export function appleNanosToIso(raw: number | null): string | null {
+  if (raw == null) return null
+  const unix = raw / 1_000_000_000 + APPLE_EPOCH_UNIX_OFFSET_SECONDS
+  if (!(unix > 0)) return null
+  return new Date(unix * 1000).toISOString()
+}
+
 export type AppleMessagesHandle = {
   rowid: number
   id: string

@@ -3,10 +3,16 @@ import assert from 'node:assert/strict'
 
 import {
   appleServiceToChannel,
+  boundedPreview,
   mapAppleMessageToInteraction,
   resolveHandlePerson,
+  APPLE_PREVIEW_MAX_LENGTH,
 } from '../../lib/relationship-intel/apple-message-materializer'
-import { APPLE_MESSAGES_SOURCE } from '../../lib/relationship-intel/apple-messages'
+import {
+  APPLE_MESSAGES_SOURCE,
+  isGroupChatGuid,
+  appleNanosToIso,
+} from '../../lib/relationship-intel/apple-messages'
 import { summarizeRelationshipEvidence } from '../../lib/relationship-intel/relationship-context'
 import type { AppleMessagesMessage } from '../../lib/relationship-intel/apple-messages'
 
@@ -43,7 +49,7 @@ test('appleServiceToChannel: iMessage vs SMS from Apple service evidence', () =>
   assert.equal(appleServiceToChannel(null), 'imessage')
 })
 
-test('mapAppleMessageToInteraction: inbound -> channel/direction/replay key, no body', () => {
+test('mapAppleMessageToInteraction: inbound -> channel/direction/replay key, bounded preview only', () => {
   const input = mapAppleMessageToInteraction(
     msg({ guid: 'GUID-IN-1', service: 'iMessage', isFromMe: 0, text: 'SECRET BODY' }),
     'person-1',
@@ -56,11 +62,13 @@ test('mapAppleMessageToInteraction: inbound -> channel/direction/replay key, no 
   assert.equal(input.occurredAt, '2026-08-25T20:42:00.000Z')
   assert.equal(input.sourceSystem, APPLE_MESSAGES_SOURCE)
   assert.equal(input.sourceExternalId, 'GUID-IN-1') // replay key
-  assert.equal(input.title, undefined) // no prose
-  assert.equal(input.summary, undefined) // no prose
+  assert.equal(input.title, undefined) // no separate title
+  // Contract: a SMALL bounded one-line memory cue, not the full transcript.
+  assert.equal(input.summary, 'SECRET BODY')
   const meta = input.sourceMetadata as Record<string, unknown>
   assert.equal(meta.sourceAccount, 'local_mac')
   assert.equal(meta.handleId, 1)
+  // source_metadata is provenance-only — it must never carry message content.
   assert.equal(JSON.stringify(input.sourceMetadata).includes('SECRET BODY'), false)
 })
 
@@ -73,6 +81,59 @@ test('mapAppleMessageToInteraction: outbound + sms channel', () => {
   assert.equal(input.channel, 'sms')
   assert.equal(input.direction, 'outbound')
   assert.equal(input.sourceExternalId, 'GUID-OUT-1')
+})
+
+test('mapAppleMessageToInteraction: no usable text -> neutral labels, never fabricated prose', () => {
+  const noText = mapAppleMessageToInteraction(
+    msg({ guid: 'GUID-NO-TEXT', isFromMe: 0, text: null, hasAttachments: 0 }),
+    'person-1',
+    'local_mac',
+  )
+  assert.equal(noText.summary, 'Message')
+
+  const attachmentOnly = mapAppleMessageToInteraction(
+    msg({ guid: 'GUID-ATT', isFromMe: 1, text: '', hasAttachments: 1 }),
+    'person-1',
+    'local_mac',
+  )
+  assert.equal(attachmentOnly.summary, 'Attachment')
+})
+
+test('boundedPreview: collapses whitespace/newlines, trims, and caps length', () => {
+  // Whitespace collapse + trim.
+  assert.equal(boundedPreview('  Let\'s  meet\nbefore\tyou leave  '), 'Let\'s meet before you leave')
+  // Long text is capped to ~160 chars with an ellipsis, single-line only.
+  const long = 'a'.repeat(500)
+  const preview = boundedPreview(long)
+  assert.ok(preview !== null)
+  assert.ok(preview!.length <= APPLE_PREVIEW_MAX_LENGTH)
+  assert.equal(preview!.endsWith('…'), true)
+  assert.equal(preview!.includes('\n'), false)
+  // Null / empty / whitespace-only -> null (never fabricate).
+  assert.equal(boundedPreview(null), null)
+  assert.equal(boundedPreview(undefined), null)
+  assert.equal(boundedPreview(''), null)
+  assert.equal(boundedPreview('   '), null)
+})
+
+test('appleNanosToIso: Apple INTEGER-nanoseconds timestamp conversion', () => {
+  // Raw 0 ns since Apple reference date == 2001-01-01T00:00:00Z.
+  assert.equal(appleNanosToIso(0), '2001-01-01T00:00:00.000Z')
+  // 1_000_000_000 ns == exactly 1 second past the Apple reference date.
+  assert.equal(appleNanosToIso(1_000_000_000), '2001-01-01T00:00:01.000Z')
+  // Realistic live value (~mid-2026) must land in 2026.
+  const mid2026 = appleNanosToIso(809312575831244416)
+  assert.equal(mid2026 !== null, true)
+  assert.equal(new Date(mid2026 as string).getUTCFullYear(), 2026)
+  // Null/invalid -> null.
+  assert.equal(appleNanosToIso(null), null)
+})
+
+test('isGroupChatGuid: group chats excluded from person-specific materialization', () => {
+  assert.equal(isGroupChatGuid('any;-;+17875550134'), false) // 1:1
+  assert.equal(isGroupChatGuid(null), false)
+  assert.equal(isGroupChatGuid('any;-;group;ABC123'), true) // group
+  assert.equal(isGroupChatGuid('any;-;GROUP;ABC123'), true) // case-insensitive
 })
 
 test('resolveHandlePerson: only exact_linked with canonical person qualifies', () => {

@@ -14,7 +14,7 @@ import {
 } from "lucide-react"
 
 import { Panel } from "@/components/portal/panel"
-import type { ContactHistoryItem, ContactHistoryResult } from "@/db/contact-history"
+import type { ContactHistoryMoment, ContactHistoryResult } from "@/db/contact-history"
 import type {
   RelationshipActivity,
   RelationshipChannelProjection,
@@ -258,25 +258,18 @@ export function ContactHistory({
         {rows.length === 0 ? (
           <div className="px-7 py-6">
             <p className="text-sm font-light text-white/60">
-              {loading ? "Loading…" : "No detailed contact history yet."}
+              {loading ? "Loading…" : "No contact history yet."}
             </p>
             {!loading && observedCommunicationCount > 0 ? (
               <p className="mt-1 text-xs leading-5 text-white/40">
                 {observedCommunicationCount.toLocaleString()} aggregate communications are
-                linked to this client; individual historical events were not imported.
+                linked to this client. Detailed events will appear here once reconciled.
               </p>
-            ) : (
-              !loading && (
-                <p className="mt-1 text-xs leading-5 text-white/40">
-                  Once real events are reconciled to this client, they will appear here
-                  newest-first.
-                </p>
-              )
-            )}
+            ) : null}
           </div>
         ) : (
           <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
-            {rows.map((row) => <TimelineRow key={row.id} row={row} />)}
+            {rows.map((moment) => <TimelineMoment key={moment.id} moment={moment} />)}
           </ol>
         )}
       </div>
@@ -306,6 +299,18 @@ export function ContactHistory({
   )
 }
 
+function formatMomentDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+function formatMomentTime(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+}
+
 function fallbackLabel(channel: string): string {
   if (channel === "imessage" || channel === "sms" || channel === "whatsapp") return "Message"
   if (channel === "email") return "Email"
@@ -313,18 +318,27 @@ function fallbackLabel(channel: string): string {
   return "—"
 }
 
-function TimelineRow({ row }: { row: ContactHistoryItem }) {
-  const { label, Icon } = channelMeta(row.channel)
-  const dir =
-    row.direction === "inbound"
-      ? "Inbound"
-      : row.direction === "outbound"
-        ? "Outbound"
-        : null
-  // One-line memory trigger. Preview text is intentionally NOT fabricated:
-  // until a bounded preview exists in the canonical event model we show the
-  // channel label (Message / Email / Call) instead of private prose.
-  const primary = row.title ?? row.summary ?? fallbackLabel(row.channel)
+function TimelineMoment({ moment }: { moment: ContactHistoryMoment }) {
+  const { label, Icon } = channelMeta(moment.channel)
+  const isBurst = moment.count > 1
+  const dirLabel =
+    moment.direction === "two-way"
+      ? "Two-way"
+      : moment.direction === "inbound"
+        ? "Inbound"
+        : moment.direction === "outbound"
+          ? "Outbound"
+          : null
+  const timeLine = isBurst
+    ? `${formatMomentDate(moment.startedAt)} · ${formatMomentTime(
+        moment.startedAt,
+      )}–${formatMomentTime(moment.endedAt)}`
+    : `${formatMomentDate(moment.startedAt)} · ${formatMomentTime(moment.startedAt)}`
+  const primary = isBurst
+    ? `${moment.count} message${moment.count === 1 ? "" : "s"}${
+        moment.preview ? ` · ${moment.preview}` : ""
+      }`
+    : (moment.preview ?? fallbackLabel(moment.channel))
   return (
     <li className="relative pl-8 pb-4">
       <span
@@ -332,16 +346,17 @@ function TimelineRow({ row }: { row: ContactHistoryItem }) {
         className="absolute left-[3px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--portal-gold)] ring-2 ring-[var(--portal-navy-deep)]"
       />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="text-[11px] font-light text-white/60">{row.occurredAt}</span>
-        {dir ? (
+        <span className="text-[11px] font-light text-white/60">{timeLine}</span>
+        {dirLabel ? (
           <span className="text-[9px] font-light uppercase tracking-[0.12em] text-white/40">
-            {dir}
+            {dirLabel}
           </span>
         ) : null}
       </div>
       <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
         <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
         {label}
+        {isBurst ? " conversation" : ""}
       </div>
       <p className="mt-0.5 truncate text-xs font-light text-white/85">{primary}</p>
     </li>

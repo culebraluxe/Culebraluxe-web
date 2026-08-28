@@ -11,6 +11,7 @@ import SQLite3
 //
 // Usage:
 //   swift run apple-messages-export [--out <dir>] [--maxMessages <n>] [--maxHandles <n>]
+//   swift run apple-messages-export --repair public/upload/data/apple-messages-export/messages.jsonl
 // ===========================================================================
 
 let home = FileManager.default.homeDirectoryForCurrentUser
@@ -32,6 +33,7 @@ struct Args {
     var outDir: URL?
     var maxMessages: Int?
     var maxHandles: Int?
+    var repair: URL?
 }
 
 func parseArgs() -> Args {
@@ -39,6 +41,7 @@ func parseArgs() -> Args {
     var outDir: URL?
     var maxMessages: Int?
     var maxHandles: Int?
+    var repair: URL?
     var i = 0
     while i < a.count {
         switch a[i] {
@@ -48,12 +51,14 @@ func parseArgs() -> Args {
             if i + 1 < a.count { maxMessages = Int(a[i + 1]); i += 1 }
         case "--maxHandles":
             if i + 1 < a.count { maxHandles = Int(a[i + 1]); i += 1 }
+        case "--repair":
+            if i + 1 < a.count { repair = URL(fileURLWithPath: a[i + 1]); i += 1 }
         default:
             break
         }
         i += 1
     }
-    return Args(outDir: outDir, maxMessages: maxMessages, maxHandles: maxHandles)
+    return Args(outDir: outDir, maxMessages: maxMessages, maxHandles: maxHandles, repair: repair)
 }
 
 func fail(_ message: String) -> Never {
@@ -258,54 +263,170 @@ func exportMessages(_ db: OpaquePointer, _ url: URL, _ maxMessages: Int?) -> Mes
     let limit = maxMessages.map { " LIMIT \($0)" } ?? ""
     let sql = "SELECT m.ROWID AS rowid, \(cols), cmj.chat_id AS chat_id, c.guid AS chat_guid, h.id AS handle_value FROM message m LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID LEFT JOIN chat c ON c.ROWID = cmj.chat_id LEFT JOIN handle h ON h.ROWID = m.handle_id ORDER BY m.ROWID" + limit
     stream(db, sql) { row in
-        let date = timestampDouble(row, "date")
-        let iso = date.flatMap(appleTimestampToISO)
-        if let iso {
+        let obj = buildMessageObject(row)
+        if let iso = obj["dateISO"] as? String {
             if stats.minISO == nil || iso < stats.minISO! { stats.minISO = iso }
             if stats.maxISO == nil || iso > stats.maxISO! { stats.maxISO = iso }
         }
-        var text: Any = NSNull()
-        if let t = row["text"] as? String, !t.isEmpty {
-            text = t
-            stats.withText += 1
-        }
-        let obj: [String: Any] = [
-            "rowid": row["rowid"] ?? NSNull(),
-            "guid": row["guid"] ?? NSNull(),
-            "chatGuid": row["chat_guid"] ?? NSNull(),
-            "handleId": row["handle_id"] ?? NSNull(),
-            "handleValue": row["handle_value"] ?? NSNull(),
-            "service": row["service"] ?? NSNull(),
-            "account": row["account"] ?? NSNull(),
-            "date": date ?? NSNull(),
-            "dateISO": iso ?? NSNull(),
-            "dateReadISO": timestampDouble(row, "date_read").flatMap(appleTimestampToISO) ?? NSNull(),
-            "dateDeliveredISO": timestampDouble(row, "date_delivered").flatMap(appleTimestampToISO) ?? NSNull(),
-            "isFromMe": row["is_from_me"] ?? NSNull(),
-            "isRead": row["is_read"] ?? NSNull(),
-            "isSent": row["is_sent"] ?? NSNull(),
-            "isDelivered": row["is_delivered"] ?? NSNull(),
-            "isFinished": row["is_finished"] ?? NSNull(),
-            "isEmpty": row["is_empty"] ?? NSNull(),
-            "isSystemMessage": row["is_system_message"] ?? NSNull(),
-            "isServiceMessage": row["is_service_message"] ?? NSNull(),
-            "hasAttachments": row["cache_has_attachments"] ?? NSNull(),
-            "isAudioMessage": row["is_audio_message"] ?? NSNull(),
-            "itemType": row["item_type"] ?? NSNull(),
-            "associatedMessageGuid": row["associated_message_guid"] ?? NSNull(),
-            "associatedMessageType": row["associated_message_type"] ?? NSNull(),
-            "replyToGuid": row["reply_to_guid"] ?? NSNull(),
-            "threadOriginatorGuid": row["thread_originator_guid"] ?? NSNull(),
-            "isSpam": row["is_spam"] ?? NSNull(),
-            "scheduleType": row["schedule_type"] ?? NSNull(),
-            "offGrid": row["sent_or_received_off_grid"] ?? NSNull(),
-            "text": text,
-        ]
+        if let t = row["text"] as? String, !t.isEmpty { stats.withText += 1 }
         appendLine(f, jsonLine(obj))
         stats.count += 1
     }
     f.closeFile()
     return stats
+}
+
+// Build one message export object (shared by full export and --repair).
+func buildMessageObject(_ row: [String: Any]) -> [String: Any] {
+    let date = timestampDouble(row, "date")
+    let iso = date.flatMap(appleTimestampToISO)
+    var text: Any = NSNull()
+    if let t = row["text"] as? String, !t.isEmpty { text = t }
+    return [
+        "rowid": row["rowid"] ?? NSNull(),
+        "guid": row["guid"] ?? NSNull(),
+        "chatGuid": row["chat_guid"] ?? NSNull(),
+        "handleId": row["handle_id"] ?? NSNull(),
+        "handleValue": row["handle_value"] ?? NSNull(),
+        "service": row["service"] ?? NSNull(),
+        "account": row["account"] ?? NSNull(),
+        "date": date ?? NSNull(),
+        "dateISO": iso ?? NSNull(),
+        "dateReadISO": timestampDouble(row, "date_read").flatMap(appleTimestampToISO) ?? NSNull(),
+        "dateDeliveredISO": timestampDouble(row, "date_delivered").flatMap(appleTimestampToISO) ?? NSNull(),
+        "isFromMe": row["is_from_me"] ?? NSNull(),
+        "isRead": row["is_read"] ?? NSNull(),
+        "isSent": row["is_sent"] ?? NSNull(),
+        "isDelivered": row["is_delivered"] ?? NSNull(),
+        "isFinished": row["is_finished"] ?? NSNull(),
+        "isEmpty": row["is_empty"] ?? NSNull(),
+        "isSystemMessage": row["is_system_message"] ?? NSNull(),
+        "isServiceMessage": row["is_service_message"] ?? NSNull(),
+        "hasAttachments": row["cache_has_attachments"] ?? NSNull(),
+        "isAudioMessage": row["is_audio_message"] ?? NSNull(),
+        "itemType": row["item_type"] ?? NSNull(),
+        "associatedMessageGuid": row["associated_message_guid"] ?? NSNull(),
+        "associatedMessageType": row["associated_message_type"] ?? NSNull(),
+        "replyToGuid": row["reply_to_guid"] ?? NSNull(),
+        "threadOriginatorGuid": row["thread_originator_guid"] ?? NSNull(),
+        "isSpam": row["is_spam"] ?? NSNull(),
+        "scheduleType": row["schedule_type"] ?? NSNull(),
+        "offGrid": row["sent_or_received_off_grid"] ?? NSNull(),
+        "text": text,
+    ]
+}
+
+
+// ===========================================================================
+// SNAPSHOT REPAIR — bounded: repair ONLY the GUIDs already present in an
+// existing messages.jsonl. Never adds a GUID, never removes one, and never
+// changes the row count. Uses the same READ-ONLY chat.db + Apple-nanoseconds
+// timestamp conversion as the full export, so the repaired snapshot carries
+// real dates/dateISO and direction/text for the exact existing GUID population.
+// ===========================================================================
+func repairSnapshot(_ db: OpaquePointer, _ path: URL) {
+    print("=== SNAPSHOT REPAIR ===")
+    print("messages.jsonl: \(path.path)")
+
+    let raw: String
+    do { raw = try String(contentsOf: path, encoding: .utf8) }
+    catch { fail("cannot read messages.jsonl: \(error)") }
+
+    let lines = raw.split(separator: "\n", omittingEmptySubsequences: true)
+    var original: [[String: Any]] = []
+    original.reserveCapacity(lines.count)
+    var guids: [String] = []
+    var guidSet = Set<String>()
+    var dupGuidCount = 0
+    for line in lines {
+        guard let data = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { continue }
+        original.append(obj)
+        if let g = obj["guid"] as? String, !g.isEmpty {
+            guids.append(g)
+            if !guidSet.insert(g).inserted { dupGuidCount += 1 }
+        }
+    }
+    let beforeCount = original.count
+    let beforeGuidCount = guidSet.count
+
+    // Query chat.db for ONLY the existing GUIDs (batched to respect SQLite's
+    // variable limit; GUIDs are single-quote-escaped before inlining).
+    let avail = availableColumns(db, "message")
+    let preferred = [
+        "guid", "handle_id", "service", "account", "account_guid", "date", "date_read",
+        "date_delivered", "is_from_me", "is_read", "is_sent", "is_delivered", "is_finished",
+        "is_empty", "is_system_message", "is_service_message", "cache_has_attachments",
+        "is_audio_message", "item_type", "associated_message_guid", "associated_message_type",
+        "reply_to_guid", "thread_originator_guid", "date_retracted", "date_edited", "is_spam",
+        "schedule_type", "sent_or_received_off_grid", "text",
+    ]
+    let chosen = preferred.filter { avail.contains($0) }
+    let cols = chosen.map { "m." + quoteIdent($0) }.joined(separator: ", ")
+
+    var sourceByGuid: [String: [String: Any]] = [:]
+    let ids = Array(guidSet)
+    let batch = 500
+    var offset = 0
+    while offset < ids.count {
+        let end = min(offset + batch, ids.count)
+        let slice = ids[offset..<end]
+        let quoted = slice.map { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }.joined(separator: ",")
+        let sql = "SELECT m.ROWID AS rowid, \(cols), cmj.chat_id AS chat_id, c.guid AS chat_guid, h.id AS handle_value FROM message m LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID LEFT JOIN chat c ON c.ROWID = cmj.chat_id LEFT JOIN handle h ON h.ROWID = m.handle_id WHERE m.guid IN (\(quoted))"
+        stream(db, sql) { row in
+            guard let g = row["guid"] as? String else { return }
+            sourceByGuid[g] = buildMessageObject(row)
+        }
+        offset = end
+    }
+
+    // Rewrite in the ORIGINAL order: found GUIDs are repaired with source data;
+    // missing GUIDs keep their original row (GUID population preserved exactly).
+    var outLines: [String] = []
+    outLines.reserveCapacity(original.count)
+    var repaired = 0
+    var dateISOAfter = 0
+    var missing: [String] = []
+    for (i, obj) in original.enumerated() {
+        let g = (i < guids.count) ? guids[i] : ""
+        if let src = sourceByGuid[g] {
+            if src["dateISO"] is String { dateISOAfter += 1 }
+            outLines.append(jsonLine(src))
+            repaired += 1
+        } else {
+            if obj["dateISO"] is String { dateISOAfter += 1 }
+            outLines.append(jsonLine(obj))
+            if !g.isEmpty { missing.append(g) }
+        }
+    }
+
+    do {
+        let tmp = path.appendingPathExtension("repair.tmp")
+        try (outLines.joined(separator: "\n") + "\n").write(to: tmp, atomically: true, encoding: .utf8)
+        _ = try FileManager.default.replaceItemAt(path, withItemAt: tmp)
+    } catch {
+        fail("write failed: \(error)")
+    }
+
+    // GUID population proof: set before == set after.
+    var afterGuids = Set<String>()
+    for line in outLines {
+        guard let data = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let g = obj["guid"] as? String, !g.isEmpty else { continue }
+        afterGuids.insert(g)
+    }
+    let setEqual = afterGuids == guidSet
+
+    print("source rows before: \(beforeCount)")
+    print("GUID count before: \(beforeGuidCount)")
+    print("GUID count repaired: \(repaired)")
+    print("missing GUIDs (kept as-is): \(missing.count)")
+    print("dateISO non-null after: \(dateISOAfter)")
+    print("duplicate GUID count: \(dupGuidCount)")
+    print("GUID set before == after: \(setEqual) (before \(beforeGuidCount), after \(afterGuids.count))")
+    print("REPAIR SUCCESS")
 }
 
 
@@ -403,6 +524,13 @@ struct AppleMessagesExport {
         let db = openReadOnly(defaultDB)
         defer { sqlite3_close(db) }
         print("Messages DB opened READ-ONLY: \(defaultDB.path)")
+
+        // Bounded snapshot repair mode: repair ONLY the existing GUID population
+        // in messages.jsonl, then exit. No full export is performed.
+        if let repairPath = args.repair {
+            repairSnapshot(db, repairPath)
+            exit(EXIT_SUCCESS)
+        }
 
         // Timestamp encoding recon (no body text printed). Live DB timestamps are
         // nanoseconds since 2001-01-01 (e.g. 809312575831244416 ns ~= mid-2026).
