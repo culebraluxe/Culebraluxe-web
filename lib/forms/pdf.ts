@@ -31,6 +31,7 @@ import {
   type PdfPointRectangle,
 } from './signature-anchors'
 import {
+  formatBrokerInitials,
   formatBrokerSignatureDate,
   type AppliedSignatureEvidence,
   type FormAppliedSignature,
@@ -595,6 +596,14 @@ class DocumentComposer {
       width: signatureWidth,
       height: 34,
     }
+    const initialsRect = input.initials
+      ? {
+          x: initialsX,
+          y: lineY + 2,
+          width: initialsWidth,
+          height: 27,
+        }
+      : null
     const dateRect = {
       x: dateX,
       y: lineY + 2,
@@ -604,13 +613,8 @@ class DocumentComposer {
     if (!input.appliedSignature) {
       this.addAnchor(input.role, input.slotId, 'signature', signatureRect)
     }
-    if (input.initials) {
-      this.addAnchor(input.role, input.slotId, 'initial', {
-        x: initialsX,
-        y: lineY + 2,
-        width: initialsWidth,
-        height: 27,
-      })
+    if (initialsRect && !input.appliedSignature) {
+      this.addAnchor(input.role, input.slotId, 'initial', initialsRect)
     }
     if (!input.appliedSignature) {
       this.addAnchor(input.role, input.slotId, 'date', dateRect)
@@ -644,6 +648,23 @@ class DocumentComposer {
           color: TOKENS.ink,
         })
       }
+      const renderedInitials = initialsRect
+        ? formatBrokerInitials(applied.signerName)
+        : null
+      if (initialsRect && renderedInitials) {
+        const initialsSize = 10.5
+        this.page.drawText(renderedInitials, {
+          x:
+            initialsRect.x +
+            (initialsRect.width -
+              textWidth(this.sansBold, renderedInitials, initialsSize)) /
+              2,
+          y: initialsRect.y + 6,
+          size: initialsSize,
+          font: this.sansBold,
+          color: TOKENS.ink,
+        })
+      }
       this.appliedEvidence.push({
         role: applied.role,
         slotId: applied.slotId,
@@ -656,8 +677,10 @@ class DocumentComposer {
         consentBasis: applied.consentBasis,
         dateSemantic: applied.dateSemantic,
         renderedDate,
+        renderedInitials,
         pageIndex: this.pageIndex,
         signatureRect,
+        initialsRect,
         dateRect,
       })
     }

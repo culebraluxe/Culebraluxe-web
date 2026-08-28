@@ -247,7 +247,7 @@ test('FORMS-BR: identical inputs produce byte-identical PDFs', async () => {
   assert.deepEqual(first, second)
 })
 
-test('FORMS-BR: an authorized issuance signature replaces only its signature/date anchors', async () => {
+test('FORMS-BR: an authorized issuance signature and initials replace all owner anchors', async () => {
   const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID)!
   const logoBytes = readFileSync(
     join(process.cwd(), 'public/brand/CLLOGO.png'),
@@ -256,7 +256,7 @@ test('FORMS-BR: an authorized issuance signature replaces only its signature/dat
     template,
     {
       visitorName: 'José Muñoz',
-      agentName: 'Test Owner',
+      agentName: 'Lisa Penfield',
       property: 'Casa Luar',
       showingDate: '2026-08-26',
       duration: '45 minutes',
@@ -270,14 +270,14 @@ test('FORMS-BR: an authorized issuance signature replaces only its signature/dat
         {
           role: 'BUYER_BROKER',
           slotId: 'BUYER_BROKER:1',
-          name: 'Test Owner',
+          name: 'Lisa Penfield',
         },
       ],
       appliedSignatures: [
         {
           role: 'BUYER_BROKER',
           slotId: 'BUYER_BROKER:1',
-          signerName: 'Test Owner',
+          signerName: 'Lisa Penfield',
           credentialLine: 'Real Estate Broker License #: C-9931',
           signerAppUserId: 'owner-user',
           imageBytes: logoBytes,
@@ -294,6 +294,7 @@ test('FORMS-BR: an authorized issuance signature replaces only its signature/dat
   )
   assert.equal(artifact.appliedSignatures.length, 1)
   assert.equal(artifact.appliedSignatures[0].renderedDate, 'August 26, 2026')
+  assert.equal(artifact.appliedSignatures[0].renderedInitials, 'LP')
   assert.equal(artifact.appliedSignatures[0].slotId, 'BUYER_BROKER:1')
   assert.equal(
     artifact.appliedSignatures[0].credentialLine,
@@ -303,10 +304,12 @@ test('FORMS-BR: an authorized issuance signature replaces only its signature/dat
     artifact.signatureAnchors.some(
       (anchor) =>
         anchor.slotId === 'BUYER_BROKER:1' &&
-        (anchor.kind === 'signature' || anchor.kind === 'date'),
+        (anchor.kind === 'signature' ||
+          anchor.kind === 'initial' ||
+          anchor.kind === 'date'),
     ),
     false,
-    'BoldSign must not ask the owner to sign/date an already composed line',
+    'BoldSign must not ask the owner to sign, initial, or date an already composed line',
   )
   assert.equal('imageBytes' in artifact.appliedSignatures[0], false)
 })

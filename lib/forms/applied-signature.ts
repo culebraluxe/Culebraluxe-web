@@ -41,9 +41,20 @@ export type AppliedSignatureEvidence = {
   consentBasis: typeof BROKER_SIGNATURE_CONSENT_BASIS
   dateSemantic: typeof BROKER_SIGNATURE_DATE_SEMANTIC
   renderedDate: string
+  renderedInitials: string | null
   pageIndex: number
   signatureRect: PdfPointRectangle
+  initialsRect: PdfPointRectangle | null
   dateRect: PdfPointRectangle
+}
+
+/** Deterministic initials printed beside a locally composed broker signature. */
+export function formatBrokerInitials(signerName: string): string {
+  const names = signerName.trim().split(/\s+/).filter(Boolean)
+  if (names.length === 0) return ''
+  const first = names[0][0] ?? ''
+  const last = names.length > 1 ? (names.at(-1)?.[0] ?? '') : (names[0][1] ?? '')
+  return `${first}${last}`.toLocaleUpperCase('en-US')
 }
 
 /** Format the issuance boundary in the brokerage's operating time zone. */
