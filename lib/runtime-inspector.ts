@@ -52,6 +52,9 @@ export type TimelineEntry = {
   durationMs: number | null
   nodeId: string | null
   causationId: string | null
+  /** Stable identity projections used by the causal graph overlay. */
+  commandId: string | null
+  domainEventId: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -220,6 +223,8 @@ export function buildTimeline(events: TraceEvent[]): TimelineEntry[] {
     durationMs: e.durationMs,
     nodeId: e.workflowNodeId,
     causationId: e.causationId,
+    commandId: e.commandId,
+    domainEventId: e.domainEventId,
     metadata: e.metadata,
   }))
 }
