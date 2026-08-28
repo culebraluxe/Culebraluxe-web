@@ -7,9 +7,9 @@
 //   - authenticates with the API key via the `X-API-KEY` header (never
 //     logged, never embedded in error messages);
 //   - enforces a per-attempt timeout (AbortController);
-//   - retries only TRANSIENT failures (network/timeout/408/429/5xx) with
-//     capped exponential backoff (maxAttempts, base/cap delays) — no retry
-//     storms; non-transient failures fail immediately;
+//   - retries only idempotent/read or explicitly safe operations; envelope
+//     creation is attempted exactly once because BoldSign has no request
+//     idempotency key and an ambiguous retry can create a second legal envelope;
 //   - parses JSON responses into the typed shapes the adapter needs.
 //
 // Endpoints (v1):
@@ -127,21 +127,21 @@ export class BoldSignClient {
     private readonly deps: BoldSignClientDeps = {},
   ) {}
 
-  /** Send a signature request from the configured template. Creates a NEW
-   *  BoldSign envelope (document). At-least-once note: a retry after a lost
-   *  response may create a duplicate envelope at BoldSign; the provider table
-   *  backstop (unique envelope_id) and the adapter's idempotent lookup ensure
-   *  at most ONE provider row per request — an orphaned envelope is surfaced
-   *  through last_error for manual reconciliation. */
+  /**
+   * Create a NEW BoldSign envelope from a template. This call is deliberately
+   * single-attempt: after a timeout/network failure the provider outcome is
+   * ambiguous, and retrying could create a second legally signable envelope.
+   */
   async sendEnvelopeFromTemplate(input: BoldSignSendEnvelopeInput): Promise<BoldSignEnvelopeCreated> {
     const query = new URLSearchParams({ templateId: input.templateId })
-    return this.requestWithRetry<BoldSignEnvelopeCreated>({
+    return this.requestOnce<BoldSignEnvelopeCreated>({
       method: 'POST',
       path: `/v1/template/send?${query.toString()}`,
       body: JSON.stringify({
         title: input.title,
         message: input.message,
         roles: input.roles,
+        enableReassign: false,
       }),
       parse: (json) => {
         const created = json as { documentId?: unknown }
@@ -156,11 +156,9 @@ export class BoldSignClient {
   /**
    * Send an existing PDF DIRECTLY to BoldSign as multipart/form-data
    * (POST /v1/document/send). The PDF bytes are already owned by CulebraLuxe;
-   * BoldSign only signs them. No BoldSign template is required. At-least-once
-   * note (same as template send): a retry after a lost response may create a
-   * duplicate envelope at BoldSign; the provider table backstop (unique
-   * envelope_id) and the adapter's idempotent lookup ensure at most ONE provider
-   * row per request.
+   * BoldSign only signs them. No BoldSign template is required. Like template
+   * send, envelope creation is attempted exactly once so an ambiguous provider
+   * timeout cannot be converted into an automatic duplicate legal envelope.
    */
   async sendDocument(input: BoldSignSendDocumentInput): Promise<BoldSignEnvelopeCreated> {
     const form = new FormData()
@@ -171,6 +169,9 @@ export class BoldSignClient {
     )
     form.set('title', input.title ?? '')
     form.set('message', input.message ?? '')
+    // Immutable participant-slot identity requires the intended signer to remain
+    // the signer. BoldSign defaults EnableReassign to true, so disable it explicitly.
+    form.set('enableReassign', 'false')
     // BoldSign's /v1/document/send binds via ASP.NET [FromForm]: a
     // List<DocumentSigner> is bound from NESTED form fields (signers[i].field),
     // not from a JSON string in a single `signers` field. Sending a JSON string
@@ -211,7 +212,7 @@ export class BoldSignClient {
     }
     if (input.enableSigningOrder) form.set('enableSigningOrder', 'true')
 
-    return this.requestWithRetry<BoldSignEnvelopeCreated>({
+    return this.requestOnce<BoldSignEnvelopeCreated>({
       method: 'POST',
       path: '/v1/document/send',
       body: form,
@@ -224,6 +225,7 @@ export class BoldSignClient {
       },
     })
   }
+
   async getDocumentProperties(documentId: string): Promise<BoldSignDocumentProperties> {
     const query = new URLSearchParams({ documentId })
     return this.requestWithRetry<BoldSignDocumentProperties>({
@@ -251,7 +253,7 @@ export class BoldSignClient {
     })
   }
 
-  /** Revoke/cancel an envelope (best-effort). */
+  /** Revoke/cancel an envelope. A retry is safe because revocation is convergent. */
   async revokeDocument(documentId: string, reason = 'Signature request cancelled.'): Promise<void> {
     await this.requestWithRetry<unknown>({
       method: 'POST',
@@ -263,17 +265,16 @@ export class BoldSignClient {
   }
 
   /**
-   * Download a signed document. BoldSign returns the file content base64-encoded
-   * in the JSON body (`{ file: <base64> }` — see developers.boldsign.com,
-   * "Download a Document as Base64"); this decodes it to bytes for the DOC-05
-   * signed-artifact append. `fileName`/`mimeType` are honored when present and
-   * default to deterministic PDF naming otherwise.
+   * Download a signed document as base64 JSON. BoldSign returns raw PDF bytes by
+   * default; `x-response-format: base64` is required for the `{ file: ... }`
+   * response shape decoded below.
    */
   async downloadDocument(documentId: string): Promise<BoldSignDocumentDownload> {
     const query = new URLSearchParams({ documentId })
     return this.requestWithRetry<BoldSignDocumentDownload>({
       method: 'GET',
       path: `/v1/document/download?${query.toString()}`,
+      headers: { 'x-response-format': 'base64' },
       parse: (json) => {
         const body = json as { file?: unknown; fileName?: unknown; mimeType?: unknown }
         if (typeof body?.file !== 'string' || body.file.trim() === '') {
@@ -317,6 +318,7 @@ export class BoldSignClient {
     method: string
     path: string
     body?: string | FormData
+    headers?: Record<string, string>
     parse: (json: unknown) => T
     acceptEmpty?: boolean
   }): Promise<T> {
@@ -393,6 +395,7 @@ export class BoldSignClient {
     method: string
     path: string
     body?: string | FormData
+    headers?: Record<string, string>
     parse: (json: unknown) => T
     acceptEmpty?: boolean
   }): Promise<T> {
@@ -405,6 +408,7 @@ export class BoldSignClient {
       const headers: Record<string, string> = {
         accept: 'application/json',
         'x-api-key': this.config.apiKey,
+        ...opts.headers,
       }
       if (typeof opts.body === 'string') headers['content-type'] = 'application/json'
       const response = await fetchFn(`${this.config.baseUrl}${opts.path}`, {
@@ -434,9 +438,6 @@ export class BoldSignClient {
       }
       return opts.parse(json)
     } catch (err) {
-      // Re-surface fetch network/timeout failures as retryable, preserving the
-      // original error (AbortError/TypeError) so classifyBoldSignError tags
-      // them transient.
       if (err instanceof Error && err.name === 'AbortError') {
         const timeoutErr = new Error(`BoldSign API ${opts.method} ${opts.path} timed out after ${this.config.timeoutMs}ms.`)
         timeoutErr.name = 'TimeoutError'
