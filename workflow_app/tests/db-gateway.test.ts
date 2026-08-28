@@ -18,6 +18,7 @@ import { spawnSync } from 'node:child_process'
 import {
   db,
   sql,
+  raw,
   DbFailureError,
   setDatabaseTestExecutor,
   setDatabaseTestTransaction,
@@ -76,6 +77,29 @@ test('Test E: valid query with zero rows is ok/empty — distinguishable from fa
   const one = await db.queryOne`select id from property where 1 = 0`
   assert.equal(one.ok, true)
   if (one.ok) assert.equal(one.data, null)
+})
+
+test('SQL fragments are flattened into structural SQL while values remain bound', async () => {
+  let capturedStrings: string[] = []
+  let capturedValues: unknown[] = []
+
+  setDatabaseTestExecutor(async (strings, ...values) => {
+    capturedStrings = Array.from(strings)
+    capturedValues = values
+    return []
+  })
+
+  const guard = raw`where status = ${'active'}`
+  const order = raw`display_name asc`
+  const result = await db.query`select * from person ${guard} order by ${order} limit ${25}`
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(capturedStrings, [
+    'select * from person where status = ',
+    ' order by display_name asc limit ',
+    '',
+  ])
+  assert.deepEqual(capturedValues, ['active', 25])
 })
 
 test('Test F: write failure -> no success, typed failure', async () => {

@@ -312,7 +312,8 @@ export class DatabaseGateway {
     try {
       const exec = getExecutor()
       if (!exec) throw new DbConfigError(appEnvLabel())
-      const rows = (await exec(strings, ...params)) as T[]
+      const query = flattenSqlTemplate(strings, params)
+      const rows = (await exec(query.strings, ...query.values)) as T[]
       return { ok: true, data: rows }
     } catch (e) {
       const failure = normalizeError(e, operation)
@@ -376,11 +377,6 @@ export const db = new DatabaseGateway()
  * Direct usage returns rows (or throws the driver error); repositories doing
  * local containment should prefer `db.query` (typed, normalized Result).
  */
-type SqlLike = {
-  (strings: TemplateStringsArray, ...values: unknown[]): Promise<QueryRow[]>
-  [key: string]: unknown
-}
-
 // ---------- contained backward-compat tagged executor ----------
 /**
  * Contained tagged executor routed through the gateway. Returns rows and
@@ -412,8 +408,72 @@ export async function sql(
  * executor (Neon or the gateway) when it is interpolated, which is where the
  * "database not configured" failure correctly surfaces.
  */
-export function raw(strings: TemplateStringsArray, ...values: unknown[]) {
-  return { strings, values };
+const SQL_FRAGMENT = Symbol('culebraluxe.sql-fragment')
+
+type SqlFragment = {
+  readonly [SQL_FRAGMENT]: true
+  readonly strings: readonly string[]
+  readonly values: readonly unknown[]
+}
+
+function isSqlFragment(value: unknown): value is SqlFragment {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as SqlFragment)[SQL_FRAGMENT] === true
+  )
+}
+
+function toTemplateStrings(parts: string[]): TemplateStringsArray {
+  const template = [...parts] as unknown as TemplateStringsArray
+  Object.defineProperty(template, 'raw', { value: [...parts] })
+  return template
+}
+
+/**
+ * Recursively compose structural fragments into the parent template before it
+ * reaches Neon. Fragment SQL becomes part of the template strings; fragment
+ * values remain ordinary positional bind parameters.
+ */
+function flattenSqlTemplate(
+  strings: readonly string[],
+  values: readonly unknown[],
+): { strings: TemplateStringsArray; values: unknown[] } {
+  const flattenedStrings = [strings[0] ?? '']
+  const flattenedValues: unknown[] = []
+
+  for (let index = 0; index < values.length; index++) {
+    const value = values[index]
+    const following = strings[index + 1] ?? ''
+
+    if (!isSqlFragment(value)) {
+      flattenedValues.push(value)
+      flattenedStrings.push(following)
+      continue
+    }
+
+    const nested = flattenSqlTemplate(value.strings, value.values)
+    flattenedStrings[flattenedStrings.length - 1] += nested.strings[0] ?? ''
+
+    for (let nestedIndex = 0; nestedIndex < nested.values.length; nestedIndex++) {
+      flattenedValues.push(nested.values[nestedIndex])
+      flattenedStrings.push(nested.strings[nestedIndex + 1] ?? '')
+    }
+
+    flattenedStrings[flattenedStrings.length - 1] += following
+  }
+
+  return {
+    strings: toTemplateStrings(flattenedStrings),
+    values: flattenedValues,
+  }
+}
+
+export function raw(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): SqlFragment {
+  return { [SQL_FRAGMENT]: true, strings, values }
 }
 
 function configFailure(): DbFailure {
