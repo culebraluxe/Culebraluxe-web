@@ -23,13 +23,15 @@ import type {
 // ---------------------------------------------------------------------------
 // CLIENTS — Contact History pane (navy right column of the Client working pane).
 //
-// Server-side paginated over the canonical `interaction` table (~20/page,
-// SQL ORDER BY occurred_at DESC + LIMIT/OFFSET). Newest-first rows show
-// channel, date/time, direction (inbound/outbound) and a short subject /
-// snippet. The list fills the shared Client Card row and scrolls INSIDE the
-// navy pane (overflow-auto) so a long history never grows taller than the
-// Client Card; the page resets to 1 when another client is selected. No raw
-// L/ODS tables are read by the component.
+// A Cloze-style relationship-memory sidebar: a compact "Last interaction"
+// summary on top, a vertical-spine chronological relationship timeline (newest
+// first), and a persistent Call / Email / Message / More action dock. Rows are
+// server-side paginated over the canonical `interaction` table (~20/page, SQL
+// ORDER BY occurred_at DESC + LIMIT/OFFSET); the list fills the shared Client
+// Card row and scrolls INSIDE the navy pane (overflow-auto) so a long history
+// never grows taller than the Client Card. The page resets to 1 when another
+// client is selected. Aggregate relationship evidence powers the top summary;
+// canonical interaction rows power the timeline. No raw L/ODS tables are read.
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 20
@@ -188,40 +190,6 @@ function QuickActionDock({
   )
 }
 
-function SourceSummary({ channels }: { channels: RelationshipChannelProjection[] }) {
-  if (channels.length === 0) return null
-  return (
-    <div className="grid gap-2 border-b border-white/10 p-3 sm:grid-cols-2">
-      {channels.map((c) => {
-        const { label, Icon } = channelMeta(c.channel)
-        const dir = lastDirection(c)
-        return (
-          <div
-            key={c.source}
-            className="rounded-[var(--portal-tab-radius)] border border-white/10 bg-white/[0.04] px-3 py-2"
-          >
-            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white/70">
-              <Icon className="h-3.5 w-3.5 shrink-0 text-white/55" aria-hidden />
-              {label}
-            </div>
-            <p className="mt-1 text-[11px] font-light text-white/85">
-              {c.lastObservedAt
-                ? `Last observed ${formatLastObserved(c.lastObservedAt)}`
-                : "No observed contact"}
-            </p>
-            <p className="text-[10px] font-light text-white/50">
-              {dir ? `${dir} · ` : ""}
-              {c.observedCommunicationCount.toLocaleString()} observed
-              {c.twoWay ? " · two-way" : ""}
-              {c.coverageLimited ? " · partial history" : ""}
-            </p>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export function ContactHistory({
   clientId,
   relationshipActivity,
@@ -286,19 +254,20 @@ export function ContactHistory({
         relationshipActivity={relationshipActivity}
         channel={channels[0]}
       />
-      <SourceSummary channels={channels} />
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm font-light text-white/55">
-            <p>{loading ? "Loading…" : "No detailed contact history yet."}</p>
+          <div className="px-7 py-6">
+            <p className="text-sm font-light text-white/60">
+              {loading ? "Loading…" : "No detailed contact history yet."}
+            </p>
             {!loading && observedCommunicationCount > 0 ? (
-              <p className="mt-2 text-xs leading-5 text-white/40">
-                {observedCommunicationCount.toLocaleString()} aggregate communications
-                are linked to this client; individual historical messages were not imported.
+              <p className="mt-1 text-xs leading-5 text-white/40">
+                {observedCommunicationCount.toLocaleString()} aggregate communications are
+                linked to this client; individual historical events were not imported.
               </p>
             ) : (
               !loading && (
-                <p className="mt-2 text-xs leading-5 text-white/40">
+                <p className="mt-1 text-xs leading-5 text-white/40">
                   Once real events are reconciled to this client, they will appear here
                   newest-first.
                 </p>
@@ -306,15 +275,9 @@ export function ContactHistory({
             )}
           </div>
         ) : (
-          <div className="min-w-[34rem]">
-            <div className="grid grid-cols-[6rem_8.5rem_3.5rem_1fr] items-center gap-x-3 border-b border-white/10 px-4 py-1.5 text-[9px] font-light uppercase tracking-[0.14em] text-white/40">
-              <span>Type</span>
-              <span>Date / Time</span>
-              <span>Dir</span>
-              <span>Summary</span>
-            </div>
-            {rows.map((row) => <HistoryRow key={row.id} row={row} />)}
-          </div>
+          <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
+            {rows.map((row) => <TimelineRow key={row.id} row={row} />)}
+          </ol>
         )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
@@ -343,28 +306,44 @@ export function ContactHistory({
   )
 }
 
-function HistoryRow({ row }: { row: ContactHistoryItem }) {
+function fallbackLabel(channel: string): string {
+  if (channel === "imessage" || channel === "sms" || channel === "whatsapp") return "Message"
+  if (channel === "email") return "Email"
+  if (channel === "call") return "Call"
+  return "—"
+}
+
+function TimelineRow({ row }: { row: ContactHistoryItem }) {
   const { label, Icon } = channelMeta(row.channel)
-  const dir = row.direction === "inbound" ? "In" : row.direction === "outbound" ? "Out" : "—"
-  const fallback =
-    row.channel === "imessage" || row.channel === "sms" || row.channel === "whatsapp"
-      ? "Message"
-      : row.channel === "email"
-        ? "Email"
-        : row.channel === "call"
-          ? "Call"
-          : "—"
+  const dir =
+    row.direction === "inbound"
+      ? "Inbound"
+      : row.direction === "outbound"
+        ? "Outbound"
+        : null
+  // One-line memory trigger. Preview text is intentionally NOT fabricated:
+  // until a bounded preview exists in the canonical event model we show the
+  // channel label (Message / Email / Call) instead of private prose.
+  const primary = row.title ?? row.summary ?? fallbackLabel(row.channel)
   return (
-    <div className="grid grid-cols-[6rem_8.5rem_3.5rem_1fr] items-center gap-x-3 border-b border-white/10 px-4 py-2 last:border-b-0">
-      <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white/70">
-        <Icon className="h-3 w-3 shrink-0 text-white/55" aria-hidden />
+    <li className="relative pl-8 pb-4">
+      <span
+        aria-hidden
+        className="absolute left-[3px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--portal-gold)] ring-2 ring-[var(--portal-navy-deep)]"
+      />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="text-[11px] font-light text-white/60">{row.occurredAt}</span>
+        {dir ? (
+          <span className="text-[9px] font-light uppercase tracking-[0.12em] text-white/40">
+            {dir}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
         {label}
-      </span>
-      <span className="text-[11px] font-light text-white/65">{row.occurredAt}</span>
-      <span className="text-[10px] font-light uppercase text-white/50">{dir}</span>
-      <span className="truncate text-xs font-light text-white/70">
-        {row.title ?? row.summary ?? fallback}
-      </span>
-    </div>
+      </div>
+      <p className="mt-0.5 truncate text-xs font-light text-white/85">{primary}</p>
+    </li>
   )
 }
