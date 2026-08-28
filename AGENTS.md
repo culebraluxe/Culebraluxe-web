@@ -20,23 +20,52 @@
 
 ## Working Style
 
+- CulebraLuxe operates as a startup with rapid fix-forward delivery, not Fortune-500-style change control.
+- Prefer complete vertical slices over chains of partial handoffs.
 - Work in bounded stories and inspect before modifying.
 - When diagnosing a bug, state the root cause before fixing it.
 - Preserve behavior outside the assigned story.
 - Prefer the smallest clean change.
+- Use targeted tests/builds unless a broader regression is specifically warranted.
+- Avoid branch/PR/release ceremony unless explicitly requested.
 - Report exact files changed and verification results.
-- Stop for human review after implementation.
+- When implementation is authorized, complete the full release obligation for that story rather than leaving known required deployment steps to Chris.
 
 ## Production Guardrails
 
-- Never commit or push unless explicitly authorized.
-- Never mutate production or business data unless explicitly authorized.
 - Never hardcode secrets.
-- Treat `main` as production-sensitive.
+- Treat `main` as production-sensitive, but do not invent extra enterprise approval gates around normal authorized release work.
 - `.env.local` is local configuration and must not be committed.
 - Vercel production environment variables are separate from local environment variables.
 - Capture database migrations in `db/migrations`.
 - If the live database is changed manually, record an equivalent migration.
+- Destructive production business-data changes require explicit human authorization.
+- Non-destructive PROD schema changes required by an authorized story are part of that same story and should be applied and verified by the implementing agent rather than handed back as a separate operator task.
+- Do not reset PROD, copy DEV over PROD, truncate canonical tables, or delete canonical business history to resolve schema drift.
+
+## Database Delivery Rule
+
+A database-affecting story is not complete when the migration file merely exists.
+
+For any released code that creates, changes, or depends on schema, the implementing agent owns the complete promotion cycle:
+
+1. create or reuse the numbered migration;
+2. apply and verify it in DEV;
+3. run the story's targeted tests/build;
+4. apply the same required migration(s) to PROD;
+5. verify the required PROD tables, columns, constraints, indexes, views, and materialized views exist and match the released code;
+6. refresh derived materialized read models when current data is required;
+7. only then report the story complete.
+
+Do not return with "migration ready for PROD", "DEV verified; PROD pending", or application code that references schema newer than PROD.
+
+The completion invariant is:
+
+> **Code + DEV schema + PROD schema + verification = done.**
+
+Vercel Production must never silently fall back to a DEV database. Environment-routing code must fail closed on contradictory or missing production configuration.
+
+See `docs/STARTUP-DELIVERY-OPERATING-RULES.md` for the durable operating contract that survives session/context resets.
 
 ## Database
 
@@ -107,9 +136,9 @@ Known issues:
 
 ### Builder
 
-- Implements only the assigned bounded story.
-- Does not commit or push.
-- Reports exact changes.
+- Implements the assigned bounded story through its actual completion point, including required non-destructive DEV/PROD schema promotion when the story changes or depends on schema.
+- Does not leave required PROD migration as a separate human follow-up when implementation/release is authorized.
+- Reports exact changes and verification.
 
 ### Reviewer
 
@@ -119,4 +148,4 @@ Known issues:
 
 ## Production Release State
 
-Honor any active production freeze or release restriction stated in the current task/context. Never assume production changes are permitted.
+Honor any active production freeze or explicit release restriction stated in the current task/context. Otherwise, do not assume a default production prohibition that conflicts with the startup delivery model above.
