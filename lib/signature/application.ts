@@ -1,20 +1,10 @@
 // ---------------------------------------------------------------------------
 // DOC-03 — Signature Provider Seam: application router/orchestrator.
 //
-// "The router dispatches by configured provider, never by provider-specific
-// command." UI / API / webhook callers invoke THIS class; it composes the
-// neutral commands (canonical, receipt-backed) with provider dispatch through
-// the configured SignatureProvider. Ordering invariant:
-//
-//   1. record/transition canonical state via a command (commits first,
-//      idempotent via claim-first receipts);
-//   2. THEN dispatch to the provider — strictly after commit, never inside a
-//      domain service (db/*) and never inside a transaction.
-//
-// The webhook path normalizes at the seam FIRST (provider.verifyWebhook ->
-// neutral {event, signatureRequestId}), then records the neutral status via
-// the same canonical command — a webhook handler never writes straight to
-// transaction_document (rejected design).
+// The router dispatches by configured provider, never by provider-specific
+// command. Canonical state commits first; provider interaction occurs only
+// after commit. Webhooks normalize at the provider seam before entering the
+// canonical status command.
 // ---------------------------------------------------------------------------
 
 import { randomUUID } from 'node:crypto'
@@ -39,35 +29,22 @@ import {
 import type { SignatureReconciliationHandler } from './reconciliation'
 
 export type SignatureApplicationDeps = {
-  /** The canonical command seam (all four neutral commands route here). */
   dispatcher: CommandDispatcher
-  /** The CONFIGURED provider — the router dispatches by it, never by
-   *  provider-specific command. */
   provider: SignatureProvider
-  /** DOC-05 — the neutral completed-event subscriber. When wired, the router
-   *  invokes it strictly AFTER a status command that committed the neutral
-   *  completed event (never before commit, never inside the transaction). */
   reconciler?: SignatureReconciliationHandler | null
-  /** Application clock (injectable for deterministic tests). */
   now?: () => Date
 }
 
-/** Envelope provenance: actor + correlation/causation chain. */
 export type SignatureEnvelopeContext = {
   actorAppUserId?: string | null
   correlationId?: string | null
   causationId?: string | null
-  /** Explicit commandId for replay-safe callers; default: fresh UUID. */
   commandId?: string
 }
 
 export type WebhookResult = {
-  /** The normalized neutral event (never a provider payload). */
   event: SignatureProviderEvent
   result: CommandResult
-  /** DOC-05 — the reconciliation outcome for the neutral completed event, when
-   *  this webhook completed a signature request. Null when no completion
-   *  occurred or no reconciler is wired. */
   reconciliation?: CommandResult | null
 }
 
@@ -93,22 +70,12 @@ export class SignatureApplication {
     }
   }
 
-  /** Drop the explicit commandId so a FOLLOW-UP command in the same flow gets
-   *  its own receipt (never a replay of the first command). */
   private withoutCommandId(ctx: SignatureEnvelopeContext): SignatureEnvelopeContext {
     const { commandId: _dropped, ...rest } = ctx
     return rest
   }
 
-  /**
-   * DOC-05 — POST-COMMIT subscription to the neutral completed event. Called
-   * only AFTER a status command has committed; when the command emitted
-   * SIGNATURE_REQUEST_COMPLETED and a reconciler is wired, the neutral event
-   * is handed to it (never the provider payload). A reconciliation failure
-   * (e.g. a signed-artifact download error) is recorded as a retryable
-   * result — the canonical status is already committed, and the event can be
-   * re-delivered/re-polled to retry.
-   */
+  /** Reconcile the neutral completion event emitted by a freshly-applied status. */
   private async reconcileIfCompleted(result: CommandResult): Promise<CommandResult | null> {
     if (!this.deps.reconciler) return null
     const event = result.emittedEvents.find(
@@ -132,12 +99,47 @@ export class SignatureApplication {
   }
 
   /**
-   * Send a signature request end-to-end: record the neutral request
-   * (idempotent — an existing active request for the transaction document is
-   * returned, never a duplicate), then dispatch to the provider strictly after
-   * the send command committed, then record the provider's observed status
-   * (mapped to neutral at the seam). Provider failures land as neutral 'error'
-   * and are later reconciled by status polls / webhooks (DOC-05).
+   * A provider can redeliver Completed after the canonical status has already
+   * committed. In that case the status command emits no second completion
+   * event, but artifact reconciliation may still need retrying (for example a
+   * transient PDF/audit download failure). This helper retries reconciliation
+   * only when the provider has just proven Completed and the status command
+   * itself succeeded. The DB reconciler is independently receipt-backed and
+   * guarded by signed_media_id, so repeated calls are safe.
+   */
+  private async reconcileCompletedObservation(
+    result: CommandResult,
+    signatureRequestId: string,
+    providerProvesCompleted: boolean,
+  ): Promise<CommandResult | null> {
+    const emitted = await this.reconcileIfCompleted(result)
+    if (emitted) return emitted
+    if (!providerProvesCompleted || !this.deps.reconciler || result.outcome !== 'success') {
+      return null
+    }
+    try {
+      return await this.deps.reconciler.retryCompletedRequest(
+        signatureRequestId,
+        randomUUID(),
+        (this.deps.now?.() ?? new Date()).toISOString(),
+      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        commandId: randomUUID(),
+        outcome: 'conflict',
+        emittedEvents: [],
+        aggregateId: signatureRequestId,
+        message: `Signed-artifact reconciliation retry failed: ${message}`,
+        replayed: false,
+        error: { code: 'reconciliation_failed', message, retryable: true },
+      }
+    }
+  }
+
+  /**
+   * Send end-to-end: commit the neutral request, dispatch provider delivery,
+   * then record the provider-observed neutral envelope status.
    */
   async send(
     input: SendSignatureRequestCommandInput,
@@ -159,8 +161,6 @@ export class SignatureApplication {
     if (sendResult.outcome !== 'success') return sendResult
     const request = (sendResult.value as { signatureRequest: SignatureRequest }).signatureRequest
 
-    // Provider dispatch AFTER the send command committed (never inside a
-    // transaction, never inside a domain service).
     const delivery = await this.deps.provider.send({
       signatureRequestId: request.id,
       transactionDocumentId: request.transactionDocumentId,
@@ -178,14 +178,11 @@ export class SignatureApplication {
         targetStatus: target,
       }, this.withoutCommandId(ctx)),
     )
-    // Post-commit subscription: if the provider already reports completed, the
-    // neutral event is reconciled after commit.
-    await this.reconcileIfCompleted(statusResult)
+    await this.reconcileCompletedObservation(statusResult, request.id, target === 'completed')
     return statusResult
   }
 
-  /** Poll the provider and apply the observed status (already mapped to
-   *  neutral at the seam by the adapter). */
+  /** Poll the provider and converge canonical envelope state. */
   async refreshStatus(
     signatureRequestId: string,
     ctx: SignatureEnvelopeContext = {},
@@ -197,14 +194,15 @@ export class SignatureApplication {
         targetStatus: observed.status,
       }, ctx),
     )
-    // Post-commit subscription: a poll that lands on completed reconciles the
-    // signed artifact into the transaction document after commit.
-    await this.reconcileIfCompleted(result)
+    await this.reconcileCompletedObservation(
+      result,
+      signatureRequestId,
+      observed.status === 'completed',
+    )
     return result
   }
 
-  /** Cancel: record neutral 'voided' (idempotent), then best-effort cancel at
-   *  the provider AFTER commit. Reconciliation converges on divergence. */
+  /** Cancel canonical state, then revoke provider envelope after commit. */
   async cancel(
     signatureRequestId: string,
     ctx: SignatureEnvelopeContext = {},
@@ -220,9 +218,6 @@ export class SignatureApplication {
     return result
   }
 
-  /** Record a recipient decline -> neutral 'declined' (idempotent). The
-   *  provider learns through its own system (webhook) — the provider interface
-   *  has no decline call. */
   async decline(
     signatureRequestId: string,
     ctx: SignatureEnvelopeContext = {},
@@ -235,12 +230,11 @@ export class SignatureApplication {
   }
 
   /**
-   * Webhook entrypoint: verify + normalize AT THE SEAM FIRST
-   * (provider.verifyWebhook -> neutral {event, signatureRequestId}), then
-   * record the neutral status through the canonical command. Invalid
-   * signatures reject (provider throws). The neutral events
-   * (sent/completed/declined/voided) are emitted by the command with the
-   * correlation/causation supplied here.
+   * Verify/normalize the webhook, apply its neutral envelope status, then make
+   * completion reconciliation part of webhook acknowledgement. A completed
+   * provider event is acknowledged only after the final PDF/audit has either
+   * reconciled successfully or is already reconciled. A transient artifact
+   * failure throws so the route returns non-2xx and BoldSign can redeliver.
    */
   async handleWebhook(
     payload: unknown,
@@ -255,9 +249,20 @@ export class SignatureApplication {
         targetStatus: target,
       }, ctx),
     )
-    // DOC-05 — subscribe to the NEUTRAL completed event AFTER commit; the
-    // provider payload is never passed to the reconciler.
-    const reconciliation = await this.reconcileIfCompleted(result)
+    const reconciliation = await this.reconcileCompletedObservation(
+      result,
+      verification.signatureRequestId,
+      target === 'completed',
+    )
+    if (
+      target === 'completed' &&
+      reconciliation &&
+      reconciliation.outcome !== 'success'
+    ) {
+      throw new Error(
+        reconciliation.message ?? 'Completed signature artifact reconciliation failed.',
+      )
+    }
     return { event: verification.event, result, reconciliation }
   }
 }
