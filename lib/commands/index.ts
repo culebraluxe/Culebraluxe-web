@@ -21,6 +21,7 @@ import type {
 import type { CommandDispatcherOptions } from './dispatcher'
 import { CommandDispatcherImpl } from './dispatcher'
 import { createCommandRegistry } from './register'
+import { flightRecorder } from '../../db/workflow-trace'
 
 export type { CommandDispatcher }
 export {
@@ -66,8 +67,15 @@ export function createCommandDispatcher(
 /**
  * The application-wide canonical dispatcher — the single seam UI/workflow/API/
  * agent callers share. (Workflow_app routes through this via command-router.)
+ *
+ * It is wired with the observer-only Flight Recorder so every command records
+ * COMMAND_RECEIVED / COMPLETED / FAILED + DOMAIN_EVENT_EMITTED trace evidence.
+ * The recorder is contained (never throws) and replay-safe, so it can never
+ * gate or slow-lock a business transaction.
  */
-export const commandDispatcher: CommandDispatcherImpl = createCommandDispatcher()
+export const commandDispatcher: CommandDispatcherImpl = createCommandDispatcher({
+  traceRecorder: flightRecorder.record,
+})
 
 /** Convenience facade: execute an envelope through the canonical dispatcher. */
 export function executeCommand<TPayload extends Record<string, unknown>>(
