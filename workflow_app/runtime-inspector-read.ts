@@ -12,6 +12,7 @@ export type RuntimeInspectionPayload = {
   inspection: RuntimeInspection
   nodeLabels: Record<string, string>
   nodeDescriptions: Record<string, string>
+  nodeTypes: Record<string, string>
 }
 
 /**
@@ -43,10 +44,12 @@ export async function getRuntimeInspection(
 
   const nodeLabels: Record<string, string> = {}
   const nodeDescriptions: Record<string, string> = {}
+  const nodeTypes: Record<string, string> = {}
   for (const [id, n] of Object.entries(graph.nodes)) {
     nodeLabels[id] = n.name ?? n.id
     nodeDescriptions[id] = n.description ?? ''
+    nodeTypes[id] = n.type ?? ''
   }
 
-  return { inspection, nodeLabels, nodeDescriptions }
+  return { inspection, nodeLabels, nodeDescriptions, nodeTypes }
 }

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Panel } from "@/components/portal/panel"
 import { buildCausalGraph, layoutGraph } from "@/lib/causal-graph"
 import type { GraphColor } from "@/lib/causal-graph"
+import { profileProcess } from "@/lib/process-profiler"
+import type { WaitCategory } from "@/lib/process-profiler"
 import type { RuntimeInspection, NodeRuntimeState } from "@/lib/runtime-inspector"
 
 // WORKFLOW RUNTIME INSPECTOR — expected topology + actual execution evidence
@@ -14,6 +16,7 @@ type Payload = {
   inspection: RuntimeInspection
   nodeLabels: Record<string, string>
   nodeDescriptions: Record<string, string>
+  nodeTypes: Record<string, string>
 }
 
 const STATE_META: Record<NodeRuntimeState, { label: string; cls: string }> = {
@@ -45,6 +48,20 @@ const COLOR_ORDER: GraphColor[] = [
   "external",
   "failure",
 ]
+
+// Process profiler: wait categories -> label + color (machine = active system
+// work, human = awaiting a person, external = awaiting a provider/timer).
+const PROFILER_LABEL: Record<WaitCategory, string> = {
+  machine: "Machine",
+  human: "Human",
+  external: "External",
+}
+const PROFILER_COLOR: Record<WaitCategory, string> = {
+  machine: "#7dd3fc",
+  human: "#c6a15b",
+  external: "#f472b6",
+}
+const PROFILER_CATS: WaitCategory[] = ["machine", "human", "external"]
 
 function trunc(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "…" : s
@@ -78,6 +95,7 @@ export function RuntimeInspector({ instanceId }: { instanceId: string }) {
   const [selEventId, setSelEventId] = useState<string | null>(null)
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null)
   const [showGraph, setShowGraph] = useState(true)
+  const [showProfile, setShowProfile] = useState(true)
 
   const load = useCallback(async (at: string | null) => {
     setError(null)
@@ -130,6 +148,12 @@ export function RuntimeInspector({ instanceId }: { instanceId: string }) {
     }
     return s
   }, [layout, hoverNodeId])
+
+  // Business Process Profiler: machine / human / external wait segmentation.
+  const profile = useMemo(
+    () => (payload ? profileProcess(payload.nodeTypes, payload.inspection.timeline) : null),
+    [payload],
+  )
 
   const eva = payload?.inspection.expectedVsActual
 
@@ -386,6 +410,73 @@ export function RuntimeInspector({ instanceId }: { instanceId: string }) {
                   </span>
                 ))}
               </div>
+            ) : null}
+          </div>
+
+          {/* Process profile */}
+          <div className="rounded-lg border border-white/10 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-[0.14em] text-white/45">Process profile</span>
+              <button
+                type="button"
+                onClick={() => setShowProfile((v) => !v)}
+                className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold)] hover:text-white"
+              >
+                {showProfile ? "hide" : "show"}
+              </button>
+            </div>
+            {showProfile && profile ? (
+              !profile.hasWorkflowEvidence ? (
+                <p className="text-xs font-light text-white/40">
+                  No workflow lifecycle evidence yet — cannot segment waits into machine / human / external.
+                </p>
+              ) : (
+                <>
+                  <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/5">
+                    {PROFILER_CATS.map((c) =>
+                      profile.breakdown[c].durationMs > 0 ? (
+                        <div
+                          key={c}
+                          className="h-full"
+                          style={{ width: `${profile.breakdown[c].pct}%`, background: PROFILER_COLOR[c] }}
+                        />
+                      ) : null,
+                    )}
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {PROFILER_CATS.map((c) => (
+                      <div key={c} className="rounded border border-white/10 px-2 py-1.5">
+                        <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-white/40">
+                          <span className="h-2 w-2 rounded-full" style={{ background: PROFILER_COLOR[c] }} />
+                          {PROFILER_LABEL[c]}
+                        </div>
+                        <div className="mt-0.5 text-sm font-light text-white/85">{fmtDur(profile.breakdown[c].durationMs)}</div>
+                        <div className="text-[9px] text-white/40">{profile.breakdown[c].pct}%</div>
+                      </div>
+                    ))}
+                  </div>
+                  {profile.nodeWaits.length > 0 ? (
+                    <div className="mt-2">
+                      <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/45">Wait hotspots</div>
+                      <ul className="space-y-1">
+                        {profile.nodeWaits.map((w) => (
+                          <li
+                            key={w.nodeId}
+                            className="flex items-center justify-between gap-2 rounded bg-white/[0.03] px-2 py-1 text-[11px]"
+                          >
+                            <span className="truncate text-white/70">{payload.nodeLabels[w.nodeId] ?? w.nodeId}</span>
+                            <span className="shrink-0 text-white/40">{PROFILER_LABEL[w.category]}</span>
+                            <span className="shrink-0 text-[var(--portal-gold)]">{fmtDur(w.durationMs)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <div className="mt-2 text-right text-[10px] font-light text-white/40">
+                    Total {fmtDur(profile.totalMs)}
+                  </div>
+                </>
+              )
             ) : null}
           </div>
 
