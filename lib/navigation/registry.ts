@@ -158,6 +158,11 @@ export const OPERATING_SURFACES: Record<
         href: '/portal/tech/flight-recorder',
         authority: 'tech.access',
       },
+      {
+        label: 'GROK',
+        href: '/portal/tech/grok',
+        authority: 'tech.access',
+      },
     ],
   },
   SUPPORT: {

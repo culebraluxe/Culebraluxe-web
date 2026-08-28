@@ -128,6 +128,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'DB Test',
       'Media Test',
       'Flight Recorder',
+      'GROK',
     ],
     SUPPORT: ['System Health', 'Security'],
   }
