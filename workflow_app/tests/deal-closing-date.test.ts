@@ -27,7 +27,7 @@ class FakeDb {
       return Promise.resolve([{ command_id: p[0] }])
     }
     if (t.includes('update workflow_command_receipt set outcome =')) {
-      const r = this.receipts.find((x) => x.command_id === p[3])
+      const r = this.receipts.find((x) => x.command_id === p[4])
       if (r) {
         r.outcome = p[0]
         r.aggregate_id = p[1]
@@ -35,9 +35,9 @@ class FakeDb {
       }
       return Promise.resolve([])
     }
-    if (t.includes('select command_id, outcome, aggregate_id, message from workflow_command_receipt') && t.includes('where command_id')) {
+    if (t.includes('from workflow_command_receipt') && t.includes('where command_id')) {
       const r = this.receipts.find((x) => x.command_id === p[0])
-      return Promise.resolve(r ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message }] : [])
+      return Promise.resolve(r ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message, actor_app_user_id: null }] : [])
     }
     if (t.includes('update deal set closing_date =') && t.includes('returning id')) {
       const row = this.deals.find((d) => d.id === p[1])

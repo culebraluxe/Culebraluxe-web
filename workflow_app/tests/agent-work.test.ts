@@ -90,6 +90,10 @@ class FakeQueueDb {
           finished_at: null,
           story_run_id: null,
           error_text: null,
+          role: 'operator',
+          model_profile: 'default',
+          execution_policy: 'Unattended OK',
+          execution_environment: 'DEV',
           created_at: this.now,
           updated_at: this.now,
         })
@@ -112,6 +116,10 @@ class FakeQueueDb {
       finished_at: null,
       story_run_id: null,
       error_text: null,
+      role: 'operator',
+      model_profile: 'default',
+      execution_policy: 'Unattended OK',
+      execution_environment: 'DEV',
       created_at: this.now,
       updated_at: this.now,
     })
@@ -183,12 +191,13 @@ class FakeQueueDb {
         notes: null,
         commit_hash: null,
         tests_summary: null,
-        goal_snapshot: p[1] ?? null,
-        preconditions_snapshot: p[2] ?? null,
-        architect_brief_snapshot: p[3] ?? null,
-        context_refs_snapshot: p[4] ?? null,
-        acceptance_criteria_snapshot: p[5] ?? null,
-        postconditions_snapshot: p[6] ?? null,
+        execution_environment: p[1] ?? null,
+        goal_snapshot: p[2] ?? null,
+        preconditions_snapshot: p[3] ?? null,
+        architect_brief_snapshot: p[4] ?? null,
+        context_refs_snapshot: p[5] ?? null,
+        acceptance_criteria_snapshot: p[6] ?? null,
+        postconditions_snapshot: p[7] ?? null,
         created_at: this.now,
         updated_at: this.now,
       }
@@ -215,10 +224,11 @@ class FakeQueueDb {
         if (p[3]) append(p[3])
         if (p[5] !== null) r.tests_summary = p[5]
       } else if (!t.includes('ended_at = now()')) {
-        // updateStoryRunProgress
+        // updateStoryRunProgress (note appears 5x in the heartbeat CASE):
+        //   [completion×2, note×5, tests×2, id]
         if (p[0] !== null) r.completion = p[0]
         if (p[2]) append(p[2])
-        if (p[6] !== null) r.tests_summary = p[6]
+        if (p[7] !== null) r.tests_summary = p[7]
       } else {
         // finishStoryRun
         r.ended_at = this.now

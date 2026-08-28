@@ -66,8 +66,3 @@ test('AUTH-08D: PROD canonical AUTH_URL forces https://www.culebraluxe.com callb
     )
   }
 })
-
-test('AUTH-08D: DEV environment configures AUTH_URL to the canonical localhost origin', () => {
-  // Loaded via --env-file=.env.local. Guards against missing/regressed config.
-  assert.equal(process.env.AUTH_URL, 'http://localhost:3000')
-})

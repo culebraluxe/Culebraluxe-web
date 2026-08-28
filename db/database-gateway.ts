@@ -404,11 +404,16 @@ export async function sql(
  * CONSTANT, non-user-controlled SQL (e.g. a fixed ORDER BY clause) so it can be
  * interpolated into a `db.query`/`sql` template. The fragment's bind values
  * (if any) are still parameterized. Never pass user input here.
+ *
+ * Building a fragment is a pure structural operation and MUST NOT require a
+ * live executor: repositories define constant fragments at module scope, and an
+ * eager executor resolution there makes importing the module depend on a
+ * configured database. The fragment is flattened + bound by the parent query's
+ * executor (Neon or the gateway) when it is interpolated, which is where the
+ * "database not configured" failure correctly surfaces.
  */
 export function raw(strings: TemplateStringsArray, ...values: unknown[]) {
-  const exec = getExecutor()
-  if (!exec) throw new DbFailureError(configFailure())
-  return (exec as SqlLike)(strings, ...values)
+  return { strings, values };
 }
 
 function configFailure(): DbFailure {
