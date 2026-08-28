@@ -63,6 +63,7 @@ export type FixtureEngineOptions = {
   app?: any
   now?: () => Date
   hooks?: any
+  traceRecorder?: any
 }
 
 /**
@@ -92,6 +93,7 @@ export class PersistenceFixture {
       app: options.app ? makeApp(options.app) : makeApp(),
       now: options.now ?? (() => new Date()),
       hooks: options.hooks,
+      traceRecorder: options.traceRecorder,
     })
   }
 

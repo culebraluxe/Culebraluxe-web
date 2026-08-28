@@ -20,6 +20,7 @@ import {
   TokenOutcome,
   EngineOptions,
   EngineHooks,
+  WorkflowTraceRecord,
   ApplicationCommandRequest,
   ApplicationCommandResult,
 } from './types';
@@ -85,12 +86,14 @@ export class WorkflowEngine {
   private app?: EngineOptions['app'];
   private now: () => Date;
   private hooks?: EngineHooks;
+  private traceRecorder?: (input: WorkflowTraceRecord, execute: any) => void | Promise<void>;
 
   constructor(private sql: SqlClient, options: EngineOptions = {}) {
     this.evaluate = options.evaluate ?? evaluateCondition;
     this.app = options.app;
     this.now = options.now ?? (() => new Date());
     this.hooks = options.hooks;
+    this.traceRecorder = options.traceRecorder;
   }
 
   // ----------------------------------------------------------------
@@ -169,6 +172,22 @@ export class WorkflowEngine {
           businessKey,
           variables,
         },
+      });
+
+      await this._trace(tx, {
+        workflowInstanceId: processInstanceId,
+        eventType: 'WORKFLOW_STARTED',
+        workflowDefinitionKey: definition.key,
+        workflowDefinitionVersion: definition.version,
+        workflowNodeId: graph.startNodeId,
+        summary: `Workflow ${definition.key} v${definition.version} started`,
+      });
+
+      await this._trace(tx, {
+        workflowInstanceId: processInstanceId,
+        eventType: 'NODE_ENTERED',
+        workflowNodeId: graph.startNodeId,
+        summary: `Entered node ${graph.startNodeId}`,
       });
 
       // Leave start node
@@ -1331,6 +1350,12 @@ export class WorkflowEngine {
   ) {
     const node = opts.graph.nodes[opts.token.nodeId];
     if (!node) throw new Error(`Node ${opts.token.nodeId} not found`);
+    await this._trace(tx, {
+      workflowInstanceId: opts.instance.id,
+      eventType: 'NODE_ENTERED',
+      workflowNodeId: opts.token.nodeId,
+      summary: `Entered node ${node.id}`,
+    });
     if (this.hooks?.beforeNodeArrive) {
       await this.hooks.beforeNodeArrive(node.id);
     }
@@ -1463,6 +1488,15 @@ export class WorkflowEngine {
       actor,
       data: { from: token.nodeId, transition: transitionName },
     });
+
+    await this._trace(tx, {
+      workflowInstanceId: token.processInstanceId,
+      eventType: 'TRANSITION_TAKEN',
+      workflowNodeId: token.nodeId,
+      workflowTransitionId: toNodeId,
+      summary: `Transition ${transitionName}: ${token.nodeId} -> ${toNodeId}`,
+      metadata: { from: token.nodeId, to: toNodeId, transition: transitionName },
+    });
   }
 
   private async _completeToken(
@@ -1533,6 +1567,13 @@ export class WorkflowEngine {
         actor,
         data: { outcome: 'completed' },
       });
+
+      await this._trace(tx, {
+        workflowInstanceId: processInstanceId,
+        eventType: 'WORKFLOW_COMPLETED',
+        outcome: 'completed',
+        summary: 'Workflow completed',
+      });
     }
   }
 
@@ -1571,6 +1612,14 @@ export class WorkflowEngine {
           version = version + 1
       WHERE id = ${processInstanceId}
     `;
+
+    await this._trace(tx, {
+      workflowInstanceId: processInstanceId,
+      eventType: outcome === 'completed' ? 'WORKFLOW_COMPLETED' : 'WORKFLOW_FAILED',
+      outcome,
+      summary:
+        outcome === 'completed' ? 'Workflow completed' : `Workflow terminated (${outcome})`,
+    });
 
     // Close every remaining active token as cancelled.
     const activeTokens = await tx`
@@ -2234,6 +2283,49 @@ export class WorkflowEngine {
         ${JSON.stringify(opts.data ?? {})}
       )
     `;
+  }
+
+  /**
+   * Observer-only execution trace at a workflow lifecycle point. Writes through
+   * the SAME open step transaction (atomic with the step) so a rolled-back step
+   * never leaves false evidence. Fully contained: a throwing recorder can never
+   * abort or gate the engine step.
+   */
+  private async _trace(
+    tx: SqlClient,
+    input: {
+      workflowInstanceId: string;
+      eventType: string;
+      outcome?: string | null;
+      workflowDefinitionKey?: string | null;
+      workflowDefinitionVersion?: number | null;
+      workflowNodeId?: string | null;
+      workflowTransitionId?: string | null;
+      summary?: string | null;
+      metadata?: Record<string, unknown> | null;
+    },
+  ) {
+    const recorder = this.traceRecorder;
+    if (!recorder) return;
+    const record: WorkflowTraceRecord = {
+      eventType: input.eventType,
+      system: 'workflow',
+      occurredAt: this.now().toISOString(),
+      outcome: input.outcome ?? null,
+      workflowInstanceId: input.workflowInstanceId,
+      workflowDefinitionKey: input.workflowDefinitionKey ?? null,
+      workflowDefinitionVersion: input.workflowDefinitionVersion ?? null,
+      workflowNodeId: input.workflowNodeId ?? null,
+      workflowTransitionId: input.workflowTransitionId ?? null,
+      correlationId: input.workflowInstanceId,
+      summary: input.summary ?? null,
+      metadata: input.metadata ?? null,
+    };
+    try {
+      await recorder(record, tx);
+    } catch {
+      /* contained: tracing must never affect the engine step */
+    }
   }
 
   private async _loadDefinition(

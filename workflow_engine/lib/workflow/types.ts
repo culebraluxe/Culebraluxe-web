@@ -288,6 +288,26 @@ export type EngineHooks = {
   afterCommandSideEffect?: (commandId: string) => void | Promise<void>;
 }
 
+/**
+ * Observer-only execution trace record emitted at workflow lifecycle points
+ * (process started / node entered / transition taken / process terminal).
+ * Carries no domain semantics and is never allowed to gate or abort a step.
+ */
+export type WorkflowTraceRecord = {
+  eventType: string;
+  system: string;
+  occurredAt: string;
+  outcome?: string | null;
+  workflowInstanceId?: string | null;
+  workflowDefinitionKey?: string | null;
+  workflowDefinitionVersion?: number | null;
+  workflowNodeId?: string | null;
+  workflowTransitionId?: string | null;
+  correlationId?: string | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export interface EngineOptions {
   /** Decision-condition evaluator. Defaults to the expr-eval-backed evaluator. */
   evaluate?: ConditionEvaluator;
@@ -297,6 +317,12 @@ export interface EngineOptions {
   now?: () => Date;
   /** Test-only synchronization / fault-injection hooks. */
   hooks?: EngineHooks;
+  /**
+   * Observer-only execution trace recorder. Called at lifecycle points with the
+   * open step transaction as the executor (atomic with the step, and the
+   * recorder itself must never throw — see `_trace` containment). Absent = no-op.
+   */
+  traceRecorder?: (input: WorkflowTraceRecord, execute: any) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
