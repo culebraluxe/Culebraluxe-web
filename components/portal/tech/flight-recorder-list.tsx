@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { GitBranch, Clock, Activity, ChevronRight } from "lucide-react"
+import { GitBranch, Clock, Activity, ChevronRight, Layers } from "lucide-react"
 
 import type { WorkflowSummary } from "@/workflow_app/read-service"
 
@@ -41,9 +41,8 @@ export function FlightRecorderList({
   return (
     <div className="space-y-3">
       {summaries.map((s) => (
-        <Link
+        <div
           key={s.instanceId}
-          href={`/portal/runtime-inspector/${s.instanceId}`}
           className="block rounded-[var(--portal-panel-radius)] portal-glass-panel p-5 transition-colors hover:border-[var(--portal-blue-gray)]/50"
         >
           <div className="flex items-start justify-between gap-4">
@@ -67,13 +66,25 @@ export function FlightRecorderList({
               <Clock className="h-3.5 w-3.5" />
               {s.instanceId}
             </span>
-            <span className="flex items-center gap-1 text-[var(--portal-blue-gray)]">
-              <Activity className="h-3.5 w-3.5" />
-              Inspect runtime
-              <ChevronRight className="h-3.5 w-3.5" />
+            <span className="flex items-center gap-2">
+              <Link
+                href={`/portal/runtime-inspector/${s.instanceId}`}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[var(--portal-blue-gray)] hover:bg-[var(--portal-navy)]/5"
+              >
+                <Activity className="h-3.5 w-3.5" />
+                Inspect
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+              <Link
+                href={`/portal/tech/flight-recorder/${s.instanceId}`}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[var(--portal-blue-gray)] hover:bg-[var(--portal-navy)]/5"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Console
+              </Link>
             </span>
           </div>
-        </Link>
+        </div>
       ))}
     </div>
   )
