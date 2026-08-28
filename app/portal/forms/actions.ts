@@ -9,8 +9,7 @@ import type { ActingUser } from '@/lib/auth/types'
 import { executeCommand } from '@/lib/commands'
 import { DOCUMENT_ISSUE } from '@/lib/commands/command-types'
 import type { CommandOutcome } from '@/lib/workflow/contracts'
-import type { SignatureRequest } from '@/lib/signature/contracts'
-import type { SignatureRecipient } from '@/lib/signature/contracts'
+import type { SignatureRequest, SignatureRecipient } from '@/lib/signature/contracts'
 import { getSignatureApplication } from '@/lib/signature/runtime'
 import {
   formSupportsSigning,
@@ -47,16 +46,6 @@ import {
 } from '@/db/document-form-instance'
 import { PortalWriteError } from '@/lib/portal-write-error'
 
-// ---------------------------------------------------------------------------
-// DOC-07 / DOC-06 — NEXUS Forms server actions.
-//
-// Draft editing (create/update a form instance) is MUTABLE working state and
-// intentionally does NOT go through the Business Command layer — no durable
-// business record is created. Issuance IS a meaningful business action and
-// routes through the canonical document.issue command (claim-first receipt,
-// one transaction, immutable transaction_document + media bytes).
-// ---------------------------------------------------------------------------
-
 export type FormActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: 'validation' | 'conflict' | 'not-found' | 'unknown'; message: string }
@@ -89,13 +78,6 @@ function outcomeCode(outcome: CommandOutcome): 'validation' | 'conflict' | 'not-
   return 'unknown'
 }
 
-/**
- * Build a safe, user-facing message for a BoldSign/provider send failure.
- * Redacts anything that could look like a credential (belt-and-suspenders; the
- * provider error already omits secrets by design) and truncates to a short
- * excerpt so the STATUS panel surfaces the actionable detail (e.g. the BoldSign
- * HTTP status) without exposing raw stack traces or sensitive payloads.
- */
 function describeSignatureFailure(detail: string | null | undefined): string {
   if (!detail) return 'Could not send document for signature. Please try again.'
   const redacted = detail
@@ -120,9 +102,7 @@ async function authorizedFormWrite<T>(
       handler,
     )
   } catch (error) {
-    if (error instanceof AuthError) {
-      return fail('unknown', error.message)
-    }
+    if (error instanceof AuthError) return fail('unknown', error.message)
     throw error
   }
 }
@@ -179,9 +159,7 @@ export async function createFormAction(input: {
         sections: emptySectionValues(template),
         createdByUserId: actor.appUserId,
       })
-      if (dealId) {
-        await seedFormParticipantsFromDeal(instance.id, dealId)
-      }
+      if (dealId) await seedFormParticipantsFromDeal(instance.id, dealId)
       revalidatePath('/portal/forms')
       return ok({ formId: instance.id })
     } catch (e) {
@@ -215,6 +193,21 @@ export async function issueFormAction(
     if (!formId.trim()) return fail('validation', 'formId is required.')
     const form = await getFormInstance(formId)
     if (!form) return fail('not-found', 'Form instance not found.')
+
+    // Never supersede an issued document while its external legal envelope is
+    // active. The operator must first revoke that envelope successfully; only
+    // then may a revised immutable version be issued.
+    const currentIssued = await getIssuedDocumentForFormInstance(formId)
+    if (currentIssued) {
+      const active = await getActiveSignatureRequestForDocument(currentIssued.documentId)
+      if (active) {
+        return fail(
+          'conflict',
+          'This issued document still has an active signature envelope. Revoke it successfully before issuing a revised version.',
+        )
+      }
+    }
+
     const result = await executeCommand({
       commandId: crypto.randomUUID(),
       commandType: DOCUMENT_ISSUE,
@@ -324,10 +317,6 @@ export async function sendFormForSignatureAction(
     if (!formSupportsSigning(template)) {
       return fail('validation', 'This form is not set up for signature.')
     }
-    // CRM-27: for an execution-eligible agreement the client is NOT authoritative
-    // for role/slot/name/email — the operator's participant selection is resolved
-    // server-side against the immutable issued snapshot. Generic (non-eligible)
-    // forms retain the existing client-supplied signer behavior.
     const executionEligible = isExecutionEligibleTemplate(template.id)
     const signerName = input.signerName?.trim() ?? ''
     const signerEmail = input.signerEmail?.trim() ?? ''
@@ -335,17 +324,10 @@ export async function sendFormForSignatureAction(
       if (!signerName) return fail('validation', 'Signer name is required.')
       if (!signerEmail) return fail('validation', 'Signer email is required.')
       if (!isUsableSignerEmail(signerEmail)) {
-        return fail(
-          'validation',
-          'Please enter a valid signer email and try again.',
-        )
+        return fail('validation', 'Please enter a valid signer email and try again.')
       }
     }
 
-    // CRM-27: server-owned slot-bound resolution. The operator's participant
-    // envelope is resolved from every required issued slot not already
-    // satisfied by Lisa's locally-applied signature. Names, emails, order and
-    // completion recipient are server-owned — never client authoritative.
     const resolveEligibleEnvelope = async (documentId: string): Promise<{
       recipients: SignatureRecipient[]
       completionRecipientEmail: string
@@ -390,6 +372,13 @@ export async function sendFormForSignatureAction(
       new Date(form.updatedAt).getTime() >
         new Date(issued?.createdAt ?? 0).getTime() + 2000
 
+    if (active && draftChanged) {
+      return fail(
+        'conflict',
+        'Your changes were saved as a draft, but the previously issued document still has an active signature envelope. Revoke that envelope successfully before issuing or sending the revised version.',
+      )
+    }
+
     if (active && !draftChanged) {
       if (executionEligible) {
         const resolved = await resolveEligibleEnvelope(issued!.documentId)
@@ -399,8 +388,6 @@ export async function sendFormForSignatureAction(
             'The selected participant cannot be resolved for this issued agreement.',
           )
         }
-        // One active request owns the entire issued-document envelope. A replay
-        // returns it and can never create a second provider envelope.
         return ok({
           signatureRequestId: active.id,
           documentId: issued!.documentId,
@@ -443,15 +430,10 @@ export async function sendFormForSignatureAction(
           raw.replace(/^document\.issue failed:\s*/i, ''),
         )
       }
-      // Reload the immutable issued row so `issued` carries the canonical
-      // issued-document shape (including the server-persisted sourceSnapshot)
-      // rather than a hand-built partial object.
       issued = await getIssuedDocumentForFormInstance(formId)
     }
 
-    if (!issued) {
-      return fail('unknown', 'Could not load the issued document.')
-    }
+    if (!issued) return fail('unknown', 'Could not load the issued document.')
 
     const media = issued.mediaId
       ? await getMediaBytes(issued.mediaId)
