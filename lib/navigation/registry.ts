@@ -153,6 +153,11 @@ export const OPERATING_SURFACES: Record<
       { label: 'UI Lab', href: '/portal/design-lab', authority: 'tech.access' },
       { label: 'DB Test', href: '/portal/db-test', authority: 'tech.access' },
       { label: 'Media Test', href: '/portal/media-test', authority: 'tech.access' },
+      {
+        label: 'Flight Recorder',
+        href: '/portal/tech/flight-recorder',
+        authority: 'tech.access',
+      },
     ],
   },
   SUPPORT: {
