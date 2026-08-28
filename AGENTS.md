@@ -67,6 +67,14 @@ Vercel Production must never silently fall back to a DEV database. Environment-r
 
 See `docs/STARTUP-DELIVERY-OPERATING-RULES.md` for the durable operating contract that survives session/context resets.
 
+## Repository Boundary Type Normalization
+
+- Repository boundaries own normalization of database-driver-native values into stable application contracts.
+- Code above the repository must not need to know whether Neon/Postgres returned a JavaScript `Date`, `BigInt`, `Buffer`, driver-specific object, or another transport/runtime representation.
+- Normalize values before they leave the repository (for example: timestamps to ISO strings or `null`, counts/numerics to the intended safe JavaScript type, and JSON fields to the expected application shape).
+- Do not patch UI, domain, or summarizer code to compensate for unnormalized driver types when the repository is the correct ownership boundary.
+- Database-backed regression tests must exercise the real driver/runtime value shape when practical, especially for multi-row and multi-source read models where code paths such as sorting, comparison, aggregation, and serialization only execute at higher cardinality.
+
 ## Database
 
 - `property` is the canonical listing record.
