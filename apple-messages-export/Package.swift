@@ -9,6 +9,8 @@ let package = Package(
     name: "apple-messages-export",
     targets: [
         .executableTarget(name: "apple-messages-export"),
+        // FDA-grantable launcher that launchd (com.culebraluxe.apple-sync) invokes.
+        .executableTarget(name: "apple-sync-launcher"),
     ],
     swiftLanguageModes: [.v6]
 )

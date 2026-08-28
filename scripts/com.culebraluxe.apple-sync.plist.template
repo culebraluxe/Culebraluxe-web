@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  CulebraLuxe Apple Messages production sync — twice-daily LaunchAgent.
+
+  Generated from this template by `pnpm apple:sync:install`
+  (scripts/apple-sync-agent.mjs), which substitutes {{LABEL}}, {{SUPPORT_DIR}},
+  {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}}, {{LAUNCHER}}, {{SCRIPT}}, and {{PATH}},
+  validates with plutil, and bootstraps it into launchd (gui/$(id -u)).
+
+  launchd invokes the compiled, FDA-grantable launcher at {{LAUNCHER}} (outside
+  the TCC-protected ~/Documents folder). That launcher execs the canonical sync
+  script at {{SCRIPT}} (a deployed copy of scripts/apple-sync.sh). Full Disk
+  Access is granted to {{LAUNCHER}} in System Settings once; TCC responsibility
+  propagates down so the chain can read ~/Library/Messages/chat.db READ-ONLY.
+
+  Schedule: StartCalendarInterval 08:00 and 18:00 local time (twice daily).
+  Edit by reinstalling; the plist is regenerated from this template.
+
+  Manage with:
+    pnpm apple:sync:install
+    pnpm apple:sync:status
+    pnpm apple:sync:run
+    pnpm apple:sync:verify-tcc
+    pnpm apple:sync:stop        (kill switch)
+    pnpm apple:sync:uninstall
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{LABEL}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{LAUNCHER}}</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{SUPPORT_DIR}}</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>8</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>18</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+    <key>CULEBRALUXE_REPO</key>
+    <string>{{REPO_ROOT}}</string>
+    <key>CULEBRALUXE_APPLE_SYNC_SCRIPT</key>
+    <string>{{SCRIPT}}</string>
+    <key>CULEBRALUXE_APPLE_LOG_DIR</key>
+    <string>{{LOG_DIR}}</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/apple-sync.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/apple-sync.err.log</string>
+</dict>
+</plist>
