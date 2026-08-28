@@ -7,6 +7,7 @@ import {
 } from '../../lib/relationship-intel/relationship-context'
 import { getRelationshipEvidenceForPersons } from '../../db/relationship-evidence'
 import type { QueryExecutor } from '../../db/query-executor'
+import { buildAggregateEvidenceItems } from '../../db/contact-history'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — relationship read-model distinctions (pure).
@@ -182,4 +183,67 @@ test('REL-INTEL: repository normalizes Date timestamptz into ISO strings (no Dat
   assert.ok(sum.sources.length >= 2)
   assert.equal(typeof sum.lastObservedAt, 'string')
   assert.ok(sum.channels.length >= 1)
+})
+
+// ---------------------------------------------------------------------------
+// REL-INTEL — Contact History aggregate-evidence timeline items.
+// A source with observed activity but no detailed canonical interactions gets
+// ONE bounded evidence-only item; identity-only and covered sources never do.
+// ---------------------------------------------------------------------------
+
+function channelsFor(evidence: RelationshipEvidenceForContext[]) {
+  return summarizeRelationshipEvidence(evidence).channels
+}
+
+test('REL-INTEL: gmail evidence-only produces ONE aggregate Email item (no fabrication)', () => {
+  const items = buildAggregateEvidenceItems(
+    channelsFor([
+      ev({ source: 'gmail_contacts', inboundCount: 9, outboundCount: 1, isTwoWay: true, firstObservedAt: '2013-10-25T00:00:00.000Z', lastObservedAt: '2013-12-26T00:00:00.000Z' }),
+    ]),
+    new Set(),
+  )
+  assert.equal(items.length, 1)
+  const item = items[0]
+  assert.equal(item.kind, 'aggregate_evidence')
+  assert.equal(item.channel, 'email')
+  assert.equal(item.source, 'gmail_contacts')
+  assert.equal(item.totalCount, 10)
+  assert.equal(item.inboundCount, 9)
+  assert.equal(item.outboundCount, 1)
+  assert.equal(item.isTwoWay, true)
+  assert.equal(item.firstObservedAt, '2013-10-25T00:00:00.000Z')
+  assert.equal(item.lastObservedAt, '2013-12-26T00:00:00.000Z')
+})
+
+test('REL-INTEL: identity-only Apple Contacts never yields a communication item', () => {
+  // apple_contacts has no communication counts and no channel projection.
+  const items = buildAggregateEvidenceItems(
+    channelsFor([ev({ source: 'apple_contacts', inboundCount: 0, outboundCount: 0 })]),
+    new Set(),
+  )
+  assert.deepEqual(items, [])
+})
+
+test('REL-INTEL: a source already represented by detailed events is NOT duplicated', () => {
+  const items = buildAggregateEvidenceItems(
+    channelsFor([ev({ source: 'apple_messages', inboundCount: 1, outboundCount: 1 })]),
+    new Set(['apple_messages']),
+  )
+  assert.deepEqual(items, [])
+})
+
+test('REL-INTEL: multi-source, only the uncovered source gets an aggregate item', () => {
+  const items = buildAggregateEvidenceItems(
+    channelsFor([
+      ev({ source: 'apple_messages', inboundCount: 2431, outboundCount: 2413 }),
+      ev({ source: 'gmail_contacts', inboundCount: 9, outboundCount: 1 }),
+    ]),
+    new Set(['apple_messages']),
+  )
+  assert.equal(items.length, 1)
+  assert.equal(items[0].source, 'gmail_contacts')
+})
+
+test('REL-INTEL: zero channels produces no aggregate items', () => {
+  assert.deepEqual(buildAggregateEvidenceItems(channelsFor([]), new Set()), [])
 })

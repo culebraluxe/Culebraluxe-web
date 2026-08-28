@@ -14,7 +14,12 @@ import {
 } from "lucide-react"
 
 import { Panel } from "@/components/portal/panel"
-import type { ContactHistoryMoment, ContactHistoryResult } from "@/db/contact-history"
+import type {
+  AggregateEvidenceHistoryItem,
+  ContactHistoryMoment,
+  ContactHistoryResult,
+  ContactHistoryRow,
+} from "@/db/contact-history"
 import type {
   RelationshipActivity,
   RelationshipChannelProjection,
@@ -93,6 +98,25 @@ function lastDirection(projection: RelationshipChannelProjection): "Inbound" | "
   return null
 }
 
+/** Effective "last interaction" date for a timeline row (detail or evidence). */
+function rowLastDate(row: ContactHistoryRow): string | null {
+  if (row.kind === "aggregate_evidence") return row.lastObservedAt
+  return row.startedAt ?? null
+}
+
+/** Generic single-event direction for the header summary (detail or evidence). */
+function rowGenericDirection(row: ContactHistoryRow): "inbound" | "outbound" | null {
+  if (row.kind === "aggregate_evidence") {
+    const { inboundCount, outboundCount } = row
+    if (inboundCount > 0 && outboundCount > 0) return null // two-way is ambiguous
+    if (outboundCount > 0) return "outbound"
+    if (inboundCount > 0) return "inbound"
+    return null
+  }
+  const ld = row.latestDirection
+  return ld === "outbound" ? "outbound" : ld === "inbound" ? "inbound" : null
+}
+
 function relativeTime(iso: string | null): string | null {
   if (!iso) return null
   const date = new Date(iso)
@@ -109,25 +133,26 @@ function LastInteractionSummary({
   relationshipActivity,
   channels,
 }: {
-  newestMoment?: ContactHistoryMoment | null
+  newestMoment?: ContactHistoryRow | null
   relationshipActivity?: RelationshipActivity
   channels: RelationshipChannelProjection[]
 }) {
-  // The top summary is driven by the newest canonical timeline moment when one
-  // exists; aggregate relationship evidence is only supplemental/fallback.
+  // The top summary is driven by the newest canonical timeline row when one
+  // exists (a detailed moment or an aggregate evidence item); aggregate
+  // relationship evidence is only supplemental/fallback.
   const lastAt =
-    newestMoment?.startedAt ??
-    relationshipActivity?.lastMeaningfulContactAt ??
-    relationshipActivity?.lastObservedAt ??
-    null
+    newestMoment
+      ? rowLastDate(newestMoment)
+      : relationshipActivity?.lastMeaningfulContactAt ??
+        relationshipActivity?.lastObservedAt ??
+        null
   const rel = relativeTime(lastAt)
 
   let channel: string | null = null
   let genericDirection: "inbound" | "outbound" | null = null
   if (newestMoment) {
     channel = newestMoment.channel
-    const ld = newestMoment.latestDirection
-    genericDirection = ld === "outbound" ? "outbound" : ld === "inbound" ? "inbound" : null
+    genericDirection = rowGenericDirection(newestMoment)
   }
   if (!channel) {
     const proj = channels[0]
@@ -297,9 +322,13 @@ export function ContactHistory({
           </div>
         ) : (
           <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
-            {rows.map((moment) => (
-              <TimelineMoment key={moment.id} moment={moment} clientName={clientName} />
-            ))}
+            {rows.map((row) =>
+              row.kind === "aggregate_evidence" ? (
+                <AggregateTimelineItem key={row.id} item={row} clientName={clientName} />
+              ) : (
+                <TimelineMoment key={row.id} moment={row} clientName={clientName} />
+              ),
+            )}
           </ol>
         )}
       </div>
@@ -374,6 +403,83 @@ function TimelineMoment({
       </div>
       {preview ? (
         <p className="mt-0.5 truncate text-xs font-light text-white/85">{preview}</p>
+      ) : null}
+    </li>
+  )
+}
+
+function formatAggDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+}
+
+/** Channel-appropriate plural noun for the observed-count line. */
+function channelNoun(channel: string): string {
+  switch (channel) {
+    case "email":
+      return "emails"
+    case "imessage":
+      return "iMessages"
+    case "sms":
+    case "whatsapp":
+      return "messages"
+    default:
+      return "communications"
+  }
+}
+
+// Aggregate evidence-only communication history (e.g. Gmail aggregate email that
+// is counted in Observed Communications but has no detailed canonical events).
+// Rendered in the same navy Cloze timeline, clearly marked as evidence history so
+// it never reads as a fabricated detailed interaction.
+function AggregateTimelineItem({
+  item,
+  clientName,
+}: {
+  item: AggregateEvidenceHistoryItem
+  clientName: string
+}) {
+  const { label, Icon } = channelMeta(item.channel)
+  const direction =
+    item.isTwoWay
+      ? humanDirection("two-way", clientName)
+      : item.outboundCount > 0 && item.inboundCount === 0
+        ? humanDirection("outbound", clientName)
+        : item.inboundCount > 0
+          ? humanDirection("inbound", clientName)
+          : null
+  const noun = channelNoun(item.channel)
+  const rangeLabel =
+    item.firstObservedAt && item.lastObservedAt
+      ? `Observed ${formatAggDate(item.firstObservedAt)} – ${formatAggDate(item.lastObservedAt)}`
+      : null
+  return (
+    <li className="relative pl-8 pb-4">
+      <span
+        aria-hidden
+        className="absolute left-[3px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--portal-gold)] ring-2 ring-[var(--portal-navy-deep)]"
+      />
+      <div className="text-[11px] font-light text-white/60">
+        {item.lastObservedAt ? formatAggDate(item.lastObservedAt) : "Observed history"}
+      </div>
+      {direction ? (
+        <div className="mt-0.5 text-[10px] font-medium text-white/85">{direction}</div>
+      ) : null}
+      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
+        {label} HISTORY
+      </div>
+      <p className="mt-0.5 text-xs font-light text-white/85">
+        {item.totalCount} observed {noun}
+      </p>
+      {item.totalCount > 0 ? (
+        <p className="mt-0.5 text-[11px] font-light text-white/60">
+          {item.inboundCount} inbound · {item.outboundCount} outbound
+        </p>
+      ) : null}
+      {rangeLabel ? (
+        <p className="mt-0.5 text-[11px] font-light text-white/45">{rangeLabel}</p>
       ) : null}
     </li>
   )
