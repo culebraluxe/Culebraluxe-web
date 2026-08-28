@@ -39,6 +39,8 @@ export default async function DocumentsPage() {
         propertyName: d.propertyName,
         dealName: d.dealName,
         createdAt: d.createdAt,
+        signedArtifactAvailable: d.signedArtifactAvailable,
+        signedAuditAvailable: d.signedAuditAvailable,
       }))}
     />
   )

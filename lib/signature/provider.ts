@@ -17,6 +17,7 @@ import type {
   ProviderSendResult,
   ProviderStatusResult,
   SignedArtifactDownload,
+  AuditTrailDownload,
   WebhookVerificationResult,
 } from './contracts'
 
@@ -51,4 +52,7 @@ export interface SignatureProvider {
    * document in its current (sent) state.
    */
   downloadSignedArtifact(requestId: string): Promise<SignedArtifactDownload>
+
+  /** Download the completed envelope's audit trail PDF. */
+  downloadAuditTrail(requestId: string): Promise<AuditTrailDownload>
 }

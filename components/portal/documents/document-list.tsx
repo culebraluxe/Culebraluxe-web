@@ -35,6 +35,8 @@ export function DocumentList({
     propertyName: string | null
     dealName: string | null
     createdAt: string
+    signedArtifactAvailable: boolean
+    signedAuditAvailable: boolean
   }[]
 }) {
   const [query, setQuery] = useState("")
@@ -156,8 +158,16 @@ export function DocumentList({
                         href={`/portal/documents/${d.id}/download`}
                         className="text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] underline underline-offset-4 hover:text-[var(--portal-archive)]"
                       >
-                        Download
+                        {d.signedArtifactAvailable ? "Final PDF" : "Issued PDF"}
                       </Link>
+                      {d.signedAuditAvailable ? (
+                        <Link
+                          href={`/portal/documents/${d.id}/download?artifact=audit`}
+                          className="ml-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] underline underline-offset-4 hover:text-[var(--portal-archive)]"
+                        >
+                          Audit
+                        </Link>
+                      ) : null}
                     </PortalTableCell>
                   </PortalTableRow>
                 ))
@@ -214,13 +224,21 @@ export function DocumentList({
                     <dd className="mt-1 font-light text-black/65">{d.issuedByDisplayName ?? "—"}</dd>
                   </div>
                 </dl>
-                <div>
+                <div className="flex flex-wrap gap-2">
                   <Link
                     href={`/portal/documents/${d.id}/download`}
                     className="inline-flex min-h-11 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-archive)]"
                   >
-                    Download
+                    {d.signedArtifactAvailable ? "Final PDF" : "Issued PDF"}
                   </Link>
+                  {d.signedAuditAvailable ? (
+                    <Link
+                      href={`/portal/documents/${d.id}/download?artifact=audit`}
+                      className="inline-flex min-h-11 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-archive)]"
+                    >
+                      Audit
+                    </Link>
+                  ) : null}
                 </div>
               </article>
             ))
@@ -230,4 +248,3 @@ export function DocumentList({
     </div>
   )
 }
-

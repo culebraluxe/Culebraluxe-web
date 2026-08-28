@@ -285,6 +285,19 @@ class FakeBoldSignServer {
       return
     }
 
+    if (req.method === 'GET' && url.pathname === '/v1/document/downloadAuditLog') {
+      const documentId = url.searchParams.get('documentId')
+      const envelope = documentId ? this.envelopes.get(documentId) : undefined
+      if (!envelope) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ message: 'Document not found' }))
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/pdf' })
+      res.end(Buffer.from(`audit:${envelope.documentId}:pdf`, 'utf8'))
+      return
+    }
+
     res.writeHead(404, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ message: `Fake BoldSign: no route ${req.method} ${url.pathname}` }))
   }
@@ -372,6 +385,9 @@ class FakeDb {
     }
 
     // ---- signature_request (canonical, provider-free) ----
+    if (t.includes('insert into signature_envelope_recipient')) {
+      return Promise.resolve([])
+    }
     if (t.includes('insert into signature_request')) {
       const dup = this.requests.find((r) => r.transaction_document_id === p[0] && isActive(r.status))
       if (dup) return Promise.resolve([]) // on conflict ... do nothing
@@ -875,8 +891,13 @@ test('adapter: send creates ONE envelope, persists provider ids in bold_sign_req
     const result = await provider.send({
       signatureRequestId: 'sig-1',
       transactionDocumentId: 'doc-1',
-      recipients: RECIPIENTS,
+      recipients: RECIPIENTS.map((recipient, index) => ({
+        ...recipient,
+        executionRole: 'SIGNER',
+        executionSlotId: `SIGNER:${index + 1}`,
+      })),
       message: 'Please sign',
+      completionRecipientEmails: ['lisa@culebraluxe.com'],
     })
     assert.equal(result.ok, true)
     assert.equal(result.providerStatus, 'InProgress')
@@ -887,6 +908,10 @@ test('adapter: send creates ONE envelope, persists provider ids in bold_sign_req
     assert.ok(row.envelopeId)
     assert.equal(row.documentIds.length, 0, 'file ids observed on the first status poll')
     assert.equal(row.status, 'InProgress')
+
+    const audit = await provider.downloadAuditTrail('sig-1')
+    assert.equal(audit.filename, `${row.envelopeId}-audit-trail.pdf`)
+    assert.equal(Buffer.from(audit.bytes).toString('utf8'), `audit:${row.envelopeId}:pdf`)
 
     const providerRequest = server.requests.find(
       (request) => request.path === '/v1/document/send',
@@ -906,6 +931,26 @@ test('adapter: send creates ONE envelope, persists provider ids in bold_sign_req
     assert.match(
       providerRequest?.raw ?? '',
       /name="signers\[0\]\.formFields\[1\]\.dateFormat"\s+MMM dd, yyyy/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="signers\[0\]\.authenticationType"\s+EmailOTP/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="signers\[1\]\.signerOrder"\s+2/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="enableSigningOrder"\s+true/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="cc\[0\]\.emailAddress"\s+lisa@culebraluxe\.com/,
+    )
+    assert.match(
+      providerRequest?.raw ?? '',
+      /name="recipientNotificationSettings\.completed"\s+true/,
     )
 
     // provider ids live ONLY in the provider row — never in canonical rows

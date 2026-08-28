@@ -37,11 +37,11 @@ import type {
   SendSignatureRequestCommandInput,
   StatusSignatureRequestCommandInput,
 } from '../../signature/contracts'
+import { normalizeEmail } from '../../agreements/participants'
 import {
   SIGNATURE_EVENT_TYPE_BY_STATUS,
   validateSignatureRecipients,
 } from '../../signature/contracts'
-import { normalizeEmail } from '../../agreements/participants'
 
 export {
   SIGNATURE_REQUEST_CANCEL,
@@ -100,36 +100,37 @@ export class SendSignatureRequestCommand
         replayed: false,
       }
     }
-    // CRM-27: a slot-bound request must contain exactly one recipient (one request
-    // per issued execution slot in V1).
-    if (input.executionSlotId && (input.recipients?.length ?? 0) !== 1) {
+    const completionEmails = input.completionRecipientEmails ?? []
+    if (
+      completionEmails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) ||
+      new Set(completionEmails.map(normalizeEmail)).size !== completionEmails.length
+    ) {
       return {
         commandId: envelope.commandId,
         outcome: 'validation_failure',
         emittedEvents: [],
         aggregateId: null,
-        message: 'A slot-bound signature request must have exactly one recipient.',
+        message: 'Completion recipient emails must be valid and unique.',
         replayed: false,
       }
     }
-    // CRM-27 (bind the ACTUAL provider recipient to the immutable slot): the
-    // supplied executionSlotId / executionRole / slotRecipientEmail and the actual
-    // provider recipient must all describe the same slot. The client must not be
-    // able to reach the provider with a recipient that differs from the slot even
-    // while supplying a "correct" auxiliary slotRecipientEmail.
+    // Backward-compatible single-slot boundary. New envelope sends bind each
+    // recipient directly; legacy callers still use the top-level slot fields.
     if (input.executionSlotId) {
-      const actualEmail = (input.recipients ?? [])[0]?.email ?? null
-      if (!input.slotRecipientEmail) {
+      if ((input.recipients?.length ?? 0) !== 1 || !input.slotRecipientEmail) {
         return {
           commandId: envelope.commandId,
           outcome: 'validation_failure',
           emittedEvents: [],
           aggregateId: null,
-          message: 'A slot-bound signature request requires slotRecipientEmail.',
+          message: 'A slot-bound signature request requires slotRecipientEmail and exactly one recipient.',
           replayed: false,
         }
       }
-      if (normalizeEmail(actualEmail) !== normalizeEmail(input.slotRecipientEmail)) {
+      if (
+        normalizeEmail(input.recipients[0].email) !==
+        normalizeEmail(input.slotRecipientEmail)
+      ) {
         return {
           commandId: envelope.commandId,
           outcome: 'validation_failure',
@@ -149,6 +150,7 @@ export class SendSignatureRequestCommand
         executionRole: input.executionRole ?? null,
         executionSlotId: input.executionSlotId ?? null,
         slotRecipientEmail: input.slotRecipientEmail ?? null,
+        recipients: input.recipients,
       },
       ctx.run,
     )

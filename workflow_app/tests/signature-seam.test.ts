@@ -103,6 +103,9 @@ class FakeDb {
 
     // ---- signature_request ----
     // insert ... on conflict (one active request per document) do nothing
+    if (t.includes('insert into signature_envelope_recipient')) {
+      return Promise.resolve([])
+    }
     if (t.includes('insert into signature_request')) {
       const dup = this.requests.find(
         (r) => r.transaction_document_id === p[0] && isActive(r.status),

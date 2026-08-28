@@ -13,6 +13,47 @@ import type {
 } from '../lib/forms/template-types'
 import type { QueryExecutor } from './query-executor'
 
+let defaultReadExecutor: QueryExecutor | null = null
+
+async function readExecutor(): Promise<QueryExecutor> {
+  if (!defaultReadExecutor) {
+    const client = await import('./client')
+    defaultReadExecutor = client.sql
+  }
+  return defaultReadExecutor
+}
+
+/** Resolve the locally-applied broker's canonical email for completion CC. */
+export async function getAppliedBrokerCompletionEmail(
+  appliedSignatures: unknown,
+  execute?: QueryExecutor,
+): Promise<string | null> {
+  if (!Array.isArray(appliedSignatures)) return null
+  const appUserIds = [
+    ...new Set(
+      appliedSignatures
+        .map((entry) =>
+          entry && typeof entry === 'object' &&
+          typeof (entry as Record<string, unknown>).signerAppUserId === 'string'
+            ? String((entry as Record<string, unknown>).signerAppUserId).trim()
+            : '',
+        )
+        .filter(Boolean),
+    ),
+  ]
+  if (appUserIds.length !== 1) return null
+  const q = execute ?? (await readExecutor())
+  const rows = await q`
+    select email
+    from app_user
+    where id = ${appUserIds[0]}
+      and active = true
+    limit 1
+  `
+  const email = rows[0]?.email
+  return typeof email === 'string' && email.trim() ? email.trim() : null
+}
+
 // Only these template-owned brokerage fields may receive the configured owner
 // signature. The field value must also identify the configured signer.
 const BROKER_SIGNATURE_ALLOWLIST: Record<

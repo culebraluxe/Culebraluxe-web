@@ -75,6 +75,7 @@ export type TransactionDocument = {
   partyPersonId: string | null
   mediaId: string | null
   signedMediaId: string | null
+  signedAuditMediaId: string | null
   signedAt: string | null
   supersedesDocumentId: string | null
   /** DOC-06 issued-evidence (set together or all null — migration 054). */
@@ -102,6 +103,7 @@ type TransactionDocumentRow = QueryRow & {
   party_person_id: string | null
   media_id: string | null
   signed_media_id: string | null
+  signed_audit_media_id?: string | null
   signed_at: string | null
   supersedes_document_id: string | null
   issued_checksum_sha256: string | null
@@ -148,6 +150,7 @@ function mapTransactionDocument(row: TransactionDocumentRow): TransactionDocumen
     partyPersonId: row.party_person_id ?? null,
     mediaId: row.media_id ?? null,
     signedMediaId: row.signed_media_id ?? null,
+    signedAuditMediaId: row.signed_audit_media_id ?? null,
     signedAt: dateOrNull(row.signed_at),
     supersedesDocumentId: row.supersedes_document_id ?? null,
     issuedChecksumSha256: row.issued_checksum_sha256 ?? null,
@@ -311,7 +314,7 @@ export async function createTransactionDocument(
       do nothing
     returning id, deal_id, document_type, document_type_label, title, state,
       source, source_system, source_external_id, prepared_by_user_id,
-      party_person_id, media_id, signed_media_id, signed_at,
+      party_person_id, media_id, signed_media_id, signed_audit_media_id, signed_at,
       supersedes_document_id, issued_checksum_sha256, template_id,
       template_version, source_snapshot, issued_version, form_instance_id,
       created_at, updated_at
@@ -323,7 +326,7 @@ export async function createTransactionDocument(
   const existing = await q`
     select id, deal_id, document_type, document_type_label, title, state,
       source, source_system, source_external_id, prepared_by_user_id,
-      party_person_id, media_id, signed_media_id, signed_at,
+      party_person_id, media_id, signed_media_id, signed_audit_media_id, signed_at,
       supersedes_document_id, issued_checksum_sha256, template_id,
       template_version, source_snapshot, issued_version, form_instance_id,
       created_at, updated_at
@@ -517,6 +520,8 @@ export type IssuedDocumentListItem = {
   propertyName: string | null
   dealName: string | null
   createdAt: string
+  signedArtifactAvailable: boolean
+  signedAuditAvailable: boolean
 }
 
 /**
@@ -532,7 +537,7 @@ export async function listIssuedDocuments(
   const rows = await q`
     select td.id, td.deal_id, td.document_type_label, td.title, td.state,
       td.template_id, td.template_version, td.issued_version,
-      td.issued_checksum_sha256,
+      td.issued_checksum_sha256, td.signed_media_id, td.signed_audit_media_id,
       u.display_name as issued_by_display_name,
       p.display_name as party_name,
       pr.name as property_name,
@@ -574,6 +579,7 @@ export async function listIssuedDocuments(
     propertyName: (row.property_name as string | null) ?? null,
     dealName: (row.deal_name as string | null) ?? null,
     createdAt: new Date(row.created_at as string).toISOString(),
+    signedArtifactAvailable: Boolean(row.signed_media_id),
+    signedAuditAvailable: Boolean(row.signed_audit_media_id),
   }))
 }
-

@@ -228,6 +228,13 @@ type SendFakeState = {
   docSnapshot?: unknown
   active?: { id: string; execution_slot_id: string | null }
   conflictOnInsert?: boolean
+  recipientRows?: Array<{
+    signatureRequestId: string
+    executionRole: string | null
+    executionSlotId: string | null
+    email: string
+    order: number
+  }>
 }
 
 function makeSendRun(state: SendFakeState) {
@@ -263,6 +270,16 @@ function makeSendRun(state: SendFakeState) {
             updated_at: '2026-08-24T12:00:00.000Z',
           },
         ])
+      }
+      if (sql.includes('insert into signature_envelope_recipient')) {
+        state.recipientRows?.push({
+          signatureRequestId: String(params[0]),
+          executionRole: params[1] ? String(params[1]) : null,
+          executionSlotId: params[2] ? String(params[2]) : null,
+          email: String(params[4]),
+          order: Number(params[5]),
+        })
+        return Promise.resolve([])
       }
       if (sql.includes('from signature_request') && sql.includes('status in')) {
         if (!state.active) return Promise.resolve([])
@@ -357,6 +374,35 @@ test('8. a slot-bound send persists the validated executionRole and executionSlo
   const req = (result.value as { signatureRequest?: { executionRole: string | null; executionSlotId: string | null } }).signatureRequest
   assert.equal(req?.executionRole, 'BUYER')
   assert.equal(req?.executionSlotId, 'BUYER:1')
+})
+
+test('one canonical envelope persists four independently slot-bound recipients', async () => {
+  const extra = [
+    { slotId: 'BUYER:2', role: 'BUYER', personId: 'b2', name: 'Buyer Two', email: 'buyer2@x.com', required: true, order: 3 },
+    { slotId: 'SELLER:2', role: 'SELLER', personId: 's2', name: 'Seller Two', email: 'seller2@x.com', required: true, order: 4 },
+  ]
+  const snapshot = { issuedParticipants: [...VALID_PARTICIPANTS, ...extra] }
+  const rows: NonNullable<SendFakeState['recipientRows']> = []
+  const recipients = [
+    { role: 'signer' as const, name: 'Buyer One', email: 'buyer1@x.com', order: 1, executionRole: 'BUYER', executionSlotId: 'BUYER:1' },
+    { role: 'signer' as const, name: 'Buyer Two', email: 'buyer2@x.com', order: 2, executionRole: 'BUYER', executionSlotId: 'BUYER:2' },
+    { role: 'signer' as const, name: 'Seller', email: 'seller@x.com', order: 3, executionRole: 'SELLER', executionSlotId: 'SELLER:1' },
+    { role: 'signer' as const, name: 'Seller Two', email: 'seller2@x.com', order: 4, executionRole: 'SELLER', executionSlotId: 'SELLER:2' },
+  ]
+  const result = await sendSignatureRequest(
+    {
+      commandId: 'c-envelope-4',
+      transactionDocumentId: 'doc-1',
+      recipients,
+    },
+    makeSendRun({ docSnapshot: snapshot, recipientRows: rows }),
+  )
+  assert.equal(result.outcome, 'success')
+  assert.equal(rows.length, 4)
+  assert.deepEqual(rows.map((row) => row.executionSlotId), [
+    'BUYER:1', 'BUYER:2', 'SELLER:1', 'SELLER:2',
+  ])
+  assert.deepEqual(rows.map((row) => row.order), [1, 2, 3, 4])
 })
 
 

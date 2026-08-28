@@ -89,6 +89,7 @@ export class SignatureReconciliationHandler {
       run: this.deps.run,
       execute: this.deps.execute,
       downloadSignedArtifact: (requestId) => this.deps.provider.downloadSignedArtifact(requestId),
+      downloadAuditTrail: (requestId) => this.deps.provider.downloadAuditTrail(requestId),
       now: this.deps.now,
     }
     const reconcile = await reconcileCompletedSignatureRequest(

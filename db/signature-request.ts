@@ -1,5 +1,6 @@
 import type { CommandResult, CommandOutcome } from '../lib/workflow/contracts'
 import type {
+  SignatureRecipient,
   SignatureRequest,
   SignatureRequestStatus,
 } from '../lib/signature/contracts'
@@ -97,6 +98,8 @@ export type SendSignatureRequestInput = {
    *  canonical send boundary verifies it matches the immutable slot; the client
    *  is never authoritative for it. */
   slotRecipientEmail?: string | null
+  /** The complete immutable recipient set owned by this one envelope. */
+  recipients?: SignatureRecipient[]
 }
 
 export type SendSignatureRequestResult = {
@@ -160,7 +163,11 @@ export async function sendSignatureRequest(
     let message: string | null = null
     let value: SendSignatureRequestResult | undefined
 
-    const docRows = input.executionSlotId
+    const boundRecipients = (input.recipients ?? []).filter(
+      (recipient) => recipient.executionSlotId,
+    )
+    const requiresSnapshot = Boolean(input.executionSlotId) || boundRecipients.length > 0
+    const docRows = requiresSnapshot
       ? await tx`
           select id, source_snapshot
           from transaction_document
@@ -187,7 +194,8 @@ export async function sendSignatureRequest(
       // cross-document slot label, a role mismatch, or a recipient mismatch.
       let proceed = true
       let slotRole: string | null = input.executionRole ?? null
-      if (input.executionSlotId) {
+      let parsedSlots: ReturnType<typeof parseIssuedParticipants> | null = null
+      if (requiresSnapshot) {
         const parsed = parseIssuedParticipants(
           (docRow!.source_snapshot as { issuedParticipants?: unknown } | undefined)
             ?.issuedParticipants,
@@ -197,25 +205,65 @@ export async function sendSignatureRequest(
           outcome = 'validation_failure'
           message = `Invalid issued-participant snapshot: ${parsed.error}`
         } else {
-          const slot = parsed.slots.find((s) => s.slotId === input.executionSlotId)
-          if (!slot) {
+          parsedSlots = parsed
+          const legacySlotId = input.executionSlotId
+          const slot = legacySlotId
+            ? parsed.slots.find((s) => s.slotId === legacySlotId)
+            : null
+          if (legacySlotId && !slot) {
             proceed = false
             outcome = 'validation_failure'
             message = `Execution slot '${input.executionSlotId}' does not exist in document ${input.transactionDocumentId}.`
-          } else if (input.executionRole && input.executionRole !== slot.role) {
+          } else if (slot && input.executionRole && input.executionRole !== slot.role) {
             proceed = false
             outcome = 'validation_failure'
             message = `Execution role '${input.executionRole}' does not match slot '${slot.slotId}'.`
-          } else if (
+          } else if (slot &&
             input.slotRecipientEmail &&
             normalizeEmail(input.slotRecipientEmail) !== normalizeEmail(slot.email)
           ) {
             proceed = false
             outcome = 'validation_failure'
             message = 'Recipient does not match the immutable execution slot.'
-          } else {
+          } else if (slot) {
             slotRole = slot.role
           }
+        }
+      }
+
+      if (proceed && parsedSlots?.ok && boundRecipients.length > 0) {
+        const seenSlots = new Set<string>()
+        for (const recipient of boundRecipients) {
+          const slotId = recipient.executionSlotId!
+          const slot = parsedSlots.slots.find((item) => item.slotId === slotId)
+          if (!slot) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = `Execution slot '${slotId}' does not exist in document ${input.transactionDocumentId}.`
+            break
+          }
+          if (seenSlots.has(slotId)) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = `Execution slot '${slotId}' is duplicated in the signature envelope.`
+            break
+          }
+          if (
+            recipient.executionRole &&
+            recipient.executionRole !== slot.role
+          ) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = `Execution role '${recipient.executionRole}' does not match slot '${slotId}'.`
+            break
+          }
+          if (normalizeEmail(recipient.email) !== normalizeEmail(slot.email)) {
+            proceed = false
+            outcome = 'validation_failure'
+            message = `Recipient for slot '${slotId}' does not match the immutable issued participant.`
+            break
+          }
+          seenSlots.add(slotId)
         }
       }
 
@@ -237,6 +285,18 @@ export async function sendSignatureRequest(
       `
       const row = rows[0] as SignatureRequestRow | undefined
       if (row) {
+        for (const recipient of input.recipients ?? []) {
+          await tx`
+            insert into signature_envelope_recipient (
+              signature_request_id, execution_role, execution_slot_id,
+              recipient_name, recipient_email, signer_order
+            ) values (
+              ${row.id}, ${recipient.executionRole ?? null},
+              ${recipient.executionSlotId ?? null}, ${recipient.name.trim()},
+              ${recipient.email.trim()}, ${recipient.order}
+            )
+          `
+        }
         aggregateId = row.id
         value = { signatureRequest: mapSignatureRequest(row), existing: false }
       } else {

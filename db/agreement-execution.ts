@@ -132,11 +132,22 @@ export async function getCompletedExecutionSlots(
   execute: QueryExecutor,
 ): Promise<string[]> {
   const rows = await execute`
-    select distinct execution_slot_id
-    from signature_request
-    where transaction_document_id = ${documentId}
-      and status = 'completed'
-      and execution_slot_id is not null
+    select distinct evidence.execution_slot_id
+    from (
+      select sr.execution_slot_id
+      from signature_request sr
+      where sr.transaction_document_id = ${documentId}
+        and sr.status = 'completed'
+        and sr.execution_slot_id is not null
+      union
+      select recipient.execution_slot_id
+      from signature_request sr
+      join signature_envelope_recipient recipient
+        on recipient.signature_request_id = sr.id
+      where sr.transaction_document_id = ${documentId}
+        and sr.status = 'completed'
+        and recipient.execution_slot_id is not null
+    ) evidence
   `
   return rows
     .map((row) => (typeof row.execution_slot_id === 'string' ? row.execution_slot_id : ''))

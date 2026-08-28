@@ -185,6 +185,18 @@ export class FakeSignatureProvider implements SignatureProvider {
       mimeType: 'application/pdf',
     }
   }
+
+
+  async downloadAuditTrail(requestId: string): Promise<SignedArtifactDownload> {
+    if (!this.requests.has(requestId)) {
+      throw new Error(`Fake provider: unknown request ${requestId}; cannot download the audit trail.`)
+    }
+    return {
+      bytes: new Uint8Array(Buffer.from(`audit:${requestId}:pdf`, 'utf8')),
+      filename: `${requestId}-audit-trail.pdf`,
+      mimeType: 'application/pdf',
+    }
+  }
 }
 
 export { FAKE_PROVIDER_STATUSES, type FakeProviderStatus }

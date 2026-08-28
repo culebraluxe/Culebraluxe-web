@@ -1,5 +1,5 @@
 import type { CommandResult, CommandOutcome } from '../lib/workflow/contracts'
-import type { SignedArtifactDownload } from '../lib/signature/contracts'
+import type { AuditTrailDownload, SignedArtifactDownload } from '../lib/signature/contracts'
 import type { QueryExecutor } from './query-executor'
 import type { TxRunner } from './tx'
 import { getSignatureRequest } from './signature-request'
@@ -90,6 +90,8 @@ export type ReconcileCompletedSignatureRequestDeps = {
    * service never touches provider tables or the provider directly.
    */
   downloadSignedArtifact: (signatureRequestId: string) => Promise<SignedArtifactDownload>
+  /** Completed-envelope audit trail downloaded beside the signed PDF. */
+  downloadAuditTrail?: (signatureRequestId: string) => Promise<AuditTrailDownload>
   /** Application clock (injectable for deterministic tests). */
   now?: () => Date
 }
@@ -101,6 +103,7 @@ export type SignatureReconciliationValue = {
   documentId: string
   /** The NEW signed media row id (absent on replay/no-op). */
   mediaId?: string | null
+  auditMediaId?: string | null
   /** signed_at recorded by the sent -> signed transition. */
   signedAt?: string | null
   /** The neutral signature request that completed. */
@@ -216,9 +219,12 @@ export async function reconcileCompletedSignatureRequest(
   // no DB transaction is held open across the provider call). A download
   // failure THROWS: nothing is mutated (the document keeps its current
   // 'sent' state) and the event is retried later. ----
-  const download = needsDownload
-    ? await deps.downloadSignedArtifact(input.signatureRequestId)
-    : null
+  const [download, auditDownload] = needsDownload
+    ? await Promise.all([
+        deps.downloadSignedArtifact(input.signatureRequestId),
+        deps.downloadAuditTrail?.(input.signatureRequestId) ?? Promise.resolve(null),
+      ])
+    : [null, null]
 
   // ---- Authoritative claim transaction: claim + resolve + append + advance
   // + sent->signed + finalize, committed as ONE atomic unit. ----
@@ -288,7 +294,18 @@ export async function reconcileCompletedSignatureRequest(
         } else {
           const signedAt = (deps.now?.() ?? new Date()).toISOString()
           const mediaId = await insertSignedMediaRow(download, tx)
+          const auditMediaId = auditDownload
+            ? await insertSignedMediaRow(auditDownload, tx)
+            : null
           aggregateId = doc.id
+
+          if (auditMediaId) {
+            await tx`
+              update transaction_document
+              set signed_audit_media_id = ${auditMediaId}
+              where id = ${doc.id}
+            `
+          }
 
           // Out-of-order tolerance: a completion that arrives while the
           // document is still draft/ready is recorded by advancing through the
@@ -335,6 +352,7 @@ export async function reconcileCompletedSignatureRequest(
             replayed: false,
             documentId: doc.id,
             mediaId,
+            auditMediaId,
             signedAt,
             signatureRequestId: input.signatureRequestId,
           }

@@ -139,7 +139,7 @@ function groupAnchorSets(anchors: readonly FormSignatureAnchor[]) {
     current.push(anchor)
     grouped.set(key, current)
   }
-  return [...grouped.values()]
+  return grouped
 }
 
 async function loadTransactionDocumentPdf(
@@ -238,18 +238,23 @@ export class BoldSignSignatureProvider implements SignatureProvider {
           'The issued PDF has no immutable signature anchors. Reissue the document with the current Forms renderer before sending it for signature.',
         )
       }
-      const selected = resolveFormSignatureAnchors(pdf.signatureAnchors, {
-        role: request.signatureRole ?? null,
-        slotId: request.signatureSlotId ?? null,
-      })
       const availableSets = groupAnchorSets(pdf.signatureAnchors)
-      const perRecipient =
-        selected.length > 0 && request.recipients.length === 1
-          ? [selected]
-          : availableSets.length === request.recipients.length
-            ? availableSets
-            : []
-      if (perRecipient.length !== request.recipients.length) {
+      const orderedSets = [...availableSets.values()]
+      const perRecipient = request.recipients.map((recipient, index) => {
+        const role = recipient.executionRole ?? request.signatureRole ?? null
+        const slotId = recipient.executionSlotId ?? request.signatureSlotId ?? null
+        if (role && slotId) {
+          return availableSets.get(`${role}:${slotId}`) ?? []
+        }
+        if (!role && !slotId && orderedSets.length === request.recipients.length) {
+          return orderedSets[index]
+        }
+        return resolveFormSignatureAnchors(pdf.signatureAnchors, { role, slotId })
+      })
+      if (
+        perRecipient.length !== request.recipients.length ||
+        perRecipient.some((anchors) => anchors.length === 0)
+      ) {
         throw new Error(
           'The issued PDF signature anchor is missing or ambiguous for the selected participant. Reissue the document and select a declared signature role.',
         )
@@ -264,6 +269,7 @@ export class BoldSignSignatureProvider implements SignatureProvider {
             | 'Signer'
             | 'Reviewer',
           signerOrder: recipient.order,
+          authenticationType: 'EmailOTP',
           formFields: anchorFields(perRecipient[index]),
         }),
       )
@@ -275,6 +281,7 @@ export class BoldSignSignatureProvider implements SignatureProvider {
         message: request.message,
         signers,
         enableSigningOrder: signers.length > 1,
+        completionCcEmails: request.completionRecipientEmails ?? [],
       })
       let row = await createBoldSignRequest(
         {
@@ -389,6 +396,16 @@ export class BoldSignSignatureProvider implements SignatureProvider {
     // table (DOC-04); no provider id crosses the seam. The download is
     // read-only — provider state is never written here.
     return this.client.downloadDocument(row.envelopeId)
+  }
+
+  async downloadAuditTrail(requestId: string): Promise<SignedArtifactDownload> {
+    const row = await getBoldSignRequestBySignatureRequestId(requestId, this.deps.execute)
+    if (!row?.envelopeId) {
+      throw new Error(
+        `BoldSign: no envelope exists for signature request ${requestId}; the audit trail cannot be downloaded.`,
+      )
+    }
+    return this.client.downloadAuditTrail(row.envelopeId)
   }
 
   // -------------------------------------------------------------------------

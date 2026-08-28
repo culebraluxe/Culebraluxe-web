@@ -146,6 +146,9 @@ export type SignatureRecipient = {
   email: string
   /** Signer ordering (1-based); provider adapters honor it. */
   order: number
+  /** Immutable agreement role/slot owned by this exact recipient. */
+  executionRole?: string | null
+  executionSlotId?: string | null
 }
 
 /** Transport-shape validation for the neutral send input (application owns authority). */
@@ -158,6 +161,8 @@ export function validateSignatureRecipients(
     return errors
   }
   const seenEmails = new Set<string>()
+  const seenOrders = new Set<number>()
+  const seenSlots = new Set<string>()
   for (const r of recipients) {
     if (!(SIGNATURE_RECIPIENT_ROLES as readonly string[]).includes(r.role)) {
       errors.push(`Invalid recipient role: ${String(r.role)}.`)
@@ -166,6 +171,19 @@ export function validateSignatureRecipients(
     if (!r.email.trim()) errors.push('Recipient email is required.')
     if (!Number.isInteger(r.order) || r.order < 1) {
       errors.push('Recipient order must be a positive integer.')
+    }
+    if (seenOrders.has(r.order)) errors.push(`Duplicate recipient order: ${r.order}.`)
+    seenOrders.add(r.order)
+    const hasRole = Boolean(r.executionRole)
+    const hasSlot = Boolean(r.executionSlotId)
+    if (hasRole !== hasSlot) {
+      errors.push('Recipient executionRole and executionSlotId must be supplied together.')
+    }
+    if (r.executionSlotId) {
+      if (seenSlots.has(r.executionSlotId)) {
+        errors.push(`Duplicate execution slot: ${r.executionSlotId}.`)
+      }
+      seenSlots.add(r.executionSlotId)
     }
     const key = r.email.trim().toLowerCase()
     if (seenEmails.has(key)) {
@@ -182,8 +200,8 @@ export function validateSignatureRecipients(
 
 export type SendSignatureRequestCommandInput = {
   transactionDocumentId: string
-  /** Neutral recipients — flow through the seam to the provider; never stored
-   *  on the canonical record (the canonical record is lifecycle-only). */
+  /** Neutral recipients persisted as the canonical envelope's immutable child
+   *  set, then delivered through the provider seam. */
   recipients: SignatureRecipient[]
   message?: string | null
   createdByUserId?: string | null
@@ -201,6 +219,8 @@ export type SendSignatureRequestCommandInput = {
    * executionRole/executionSlotId and the canonical signature request.
    */
   signatureRole?: string | null
+  /** Non-signer recipients who must receive BoldSign's completion notice. */
+  completionRecipientEmails?: string[]
 }
 
 export type StatusSignatureRequestCommandInput = {
@@ -272,6 +292,8 @@ export type ProviderSendRequest = {
   signatureRole?: string | null
   /** Immutable participant slot when the request is slot-bound. */
   signatureSlotId?: string | null
+  /** Non-signer completion recipients (for BoldSign CC completion notice). */
+  completionRecipientEmails?: string[]
 }
 
 /**
@@ -323,3 +345,6 @@ export type SignedArtifactDownload = {
   /** Storage mime type for the signed artifact media row. */
   mimeType: string
 }
+
+/** Provider-neutral completed-envelope audit PDF. */
+export type AuditTrailDownload = SignedArtifactDownload

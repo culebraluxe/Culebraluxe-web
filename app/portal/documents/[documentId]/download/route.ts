@@ -14,6 +14,7 @@ export async function GET(
 ) {
   const { documentId } = await params
   const inline = new URL(request.url).searchParams.get("inline") === "1"
+  const audit = new URL(request.url).searchParams.get("artifact") === "audit"
 
   const access = await resolvePortalAccess(
     createAuthJsSessionAdapter(),
@@ -39,7 +40,13 @@ export async function GET(
     }
   }
 
-  const media = await getMediaBytes(document.mediaId)
+  const mediaId = audit
+    ? document.signedAuditMediaId
+    : document.signedMediaId ?? document.mediaId
+  if (!mediaId) {
+    return new Response("Not found", { status: 404 })
+  }
+  const media = await getMediaBytes(mediaId)
   if (!media) {
     return new Response("Not found", { status: 404 })
   }

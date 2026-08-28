@@ -6,6 +6,7 @@ import { listSignatureRequestsByDocument } from "@/db/signature-request"
 import { listFormSignerPeople } from "@/db/form-signer"
 import { getTemplate, listPortalFormTypes } from "@/lib/forms/template-registry"
 import { pickFormSigners } from "@/lib/forms/signer-resolution"
+import { isExecutionEligibleTemplate } from "@/lib/agreements/execution"
 import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
@@ -93,6 +94,7 @@ export default async function FormPage({
           : null
       }
       signerCandidates={signerCandidates}
+      sendAllRequiredSigners={isExecutionEligibleTemplate(template.id)}
       signatureRequest={
         signatureRequest
           ? {

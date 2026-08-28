@@ -22,12 +22,14 @@ import {
 } from '@/db/issued-document'
 import { getActiveSignatureRequestForDocument } from '@/db/signature-request'
 import { getTransactionDocument } from '@/db/transaction-document'
-import { isExecutionEligibleTemplate } from '@/lib/agreements/execution'
 import {
-  decideActiveSlotSend,
-  parseIssuedParticipants,
-  resolveIssuedSlot,
-} from '@/lib/agreements/participants'
+  isExecutionEligibleTemplate,
+  resolveRequiredSlots,
+} from '@/lib/agreements/execution'
+import { parseIssuedParticipants } from '@/lib/agreements/participants'
+import { parseAppliedSignatureSlotIds } from '@/lib/forms/applied-signature'
+import { resolveSignatureEnvelopeRecipients } from '@/lib/forms/signature-envelope'
+import { getAppliedBrokerCompletionEmail } from '@/db/broker-signature'
 import { getBoldSignRequestBySignatureRequestId } from '@/db/bold-sign-request'
 import { getTemplate } from '@/lib/forms/template-registry'
 import { applyGrokFields, requestGrokFormFill } from '@/lib/forms/grok-fill'
@@ -298,6 +300,7 @@ export type FormSignatureSendData = {
   existing: boolean
   signerName: string
   signerEmail: string
+  signerCount: number
 }
 
 export async function sendFormForSignatureAction(
@@ -340,31 +343,30 @@ export async function sendFormForSignatureAction(
     }
 
     // CRM-27: server-owned slot-bound resolution. The operator's participant
-    // selection is resolved to exactly ONE slot in the issued document; role,
-    // slot, name and email are derived from the immutable snapshot — never from
-    // the client. Returns null for an unresolvable/ambiguous/missing-email case
-    // (the caller maps it to validation_failure).
-    const resolveEligibleRecipient = async (documentId: string): Promise<{
-      executionRole: string
-      executionSlotId: string
-      slotRecipientEmail: string
-      recipient: SignatureRecipient
+    // envelope is resolved from every required issued slot not already
+    // satisfied by Lisa's locally-applied signature. Names, emails, order and
+    // completion recipient are server-owned — never client authoritative.
+    const resolveEligibleEnvelope = async (documentId: string): Promise<{
+      recipients: SignatureRecipient[]
+      completionRecipientEmail: string
     } | null> => {
       const doc = await getTransactionDocument(documentId)
       const parsed = parseIssuedParticipants(doc?.sourceSnapshot?.issuedParticipants)
       if (!parsed.ok) return null
-      const resolved = resolveIssuedSlot(parsed.slots, {
-        role: input.signerRole ?? null,
-        personId: input.signerPersonId ?? null,
-      })
+      const resolved = resolveSignatureEnvelopeRecipients(
+        resolveRequiredSlots(template.id, parsed.slots),
+        parseAppliedSignatureSlotIds(doc?.sourceSnapshot?.appliedSignatures),
+      )
       if (!resolved.ok) return null
-      const slot = resolved.slot
-      if (!slot.email || !isUsableSignerEmail(slot.email)) return null
+      const completionRecipientEmail = await getAppliedBrokerCompletionEmail(
+        doc?.sourceSnapshot?.appliedSignatures,
+      )
+      if (!completionRecipientEmail || !isUsableSignerEmail(completionRecipientEmail)) {
+        return null
+      }
       return {
-        executionRole: slot.role,
-        executionSlotId: slot.slotId,
-        slotRecipientEmail: slot.email,
-        recipient: { role: 'signer', name: slot.name, email: slot.email, order: 1 },
+        recipients: resolved.recipients,
+        completionRecipientEmail,
       }
     }
 
@@ -390,33 +392,24 @@ export async function sendFormForSignatureAction(
 
     if (active && !draftChanged) {
       if (executionEligible) {
-        const resolved = await resolveEligibleRecipient(issued!.documentId)
+        const resolved = await resolveEligibleEnvelope(issued!.documentId)
         if (!resolved) {
           return fail(
             'validation',
             'The selected participant cannot be resolved for this issued agreement.',
           )
         }
-        // Close the active-slot bypass: a same-slot active request is a replay
-        // (no new provider envelope); a DIFFERENT active slot is a truthful
-        // conflict (never label the existing request with the newly selected
-        // participant, never send another envelope).
-        if (
-          decideActiveSlotSend(active.executionSlotId, resolved.executionSlotId).kind === 'conflict'
-        ) {
-          return fail(
-            'conflict',
-            'Another execution slot is active for this document; complete or void it before sending a different slot.',
-          )
-        }
+        // One active request owns the entire issued-document envelope. A replay
+        // returns it and can never create a second provider envelope.
         return ok({
           signatureRequestId: active.id,
           documentId: issued!.documentId,
           issuedVersion: issued!.issuedVersion,
           status: active.status,
           existing: true,
-          signerName: resolved.recipient.name,
-          signerEmail: resolved.recipient.email,
+          signerName: resolved.recipients.map((item) => item.name).join(', '),
+          signerEmail: resolved.recipients.length === 1 ? resolved.recipients[0].email : '',
+          signerCount: resolved.recipients.length,
         })
       }
       return ok({
@@ -427,6 +420,7 @@ export async function sendFormForSignatureAction(
         existing: true,
         signerName,
         signerEmail,
+        signerCount: 1,
       })
     }
 
@@ -469,27 +463,23 @@ export async function sendFormForSignatureAction(
       )
     }
 
-    let executionRole: string | null = null
-    let executionSlotId: string | null = null
-    let slotRecipientEmail: string | null = null
-    let recipient: SignatureRecipient = {
+    let recipients: SignatureRecipient[] = [{
       role: 'signer',
       name: signerName,
       email: signerEmail,
       order: 1,
-    }
+    }]
+    let completionRecipientEmails: string[] = []
     if (executionEligible) {
-      const resolved = await resolveEligibleRecipient(issued.documentId)
+      const resolved = await resolveEligibleEnvelope(issued.documentId)
       if (!resolved) {
         return fail(
           'validation',
-          'The selected participant cannot be resolved for this issued agreement.',
+          'The issued agreement must have valid external signer emails and a valid Lisa completion email.',
         )
       }
-      executionRole = resolved.executionRole
-      executionSlotId = resolved.executionSlotId
-      slotRecipientEmail = resolved.slotRecipientEmail
-      recipient = resolved.recipient
+      recipients = resolved.recipients
+      completionRecipientEmails = [resolved.completionRecipientEmail]
     }
 
     let sendResult
@@ -497,11 +487,12 @@ export async function sendFormForSignatureAction(
       sendResult = await getSignatureApplication().send(
         {
           transactionDocumentId: issued.documentId,
-          recipients: [recipient],
-          executionRole,
-          executionSlotId,
-          slotRecipientEmail,
-          signatureRole: executionRole ?? input.signerRole ?? null,
+          recipients,
+          executionRole: null,
+          executionSlotId: null,
+          slotRecipientEmail: null,
+          signatureRole: executionEligible ? null : input.signerRole ?? null,
+          completionRecipientEmails,
           createdByUserId: actor.appUserId,
         },
         { actorAppUserId: actor.appUserId },
@@ -549,8 +540,9 @@ export async function sendFormForSignatureAction(
       issuedVersion: issued.issuedVersion,
       status,
       existing: Boolean(active && !draftChanged),
-      signerName: recipient.name,
-      signerEmail: recipient.email,
+      signerName: recipients.map((item) => item.name).join(', '),
+      signerEmail: recipients.length === 1 ? recipients[0].email : '',
+      signerCount: recipients.length,
     })
   })
 }

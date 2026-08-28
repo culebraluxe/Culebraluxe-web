@@ -153,6 +153,7 @@ export class SignatureApplication {
         executionSlotId: input.executionSlotId ?? null,
         slotRecipientEmail: input.slotRecipientEmail ?? null,
         signatureRole: input.signatureRole ?? input.executionRole ?? null,
+        completionRecipientEmails: input.completionRecipientEmails ?? [],
       }, ctx),
     )
     if (sendResult.outcome !== 'success') return sendResult
@@ -167,6 +168,7 @@ export class SignatureApplication {
       message: request.message,
       signatureRole: input.signatureRole ?? input.executionRole ?? null,
       signatureSlotId: input.executionSlotId ?? null,
+      completionRecipientEmails: input.completionRecipientEmails ?? [],
     })
     const target = mapProviderStatus(this.deps.provider.name, delivery.providerStatus)
 

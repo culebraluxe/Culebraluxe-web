@@ -152,6 +152,11 @@ class FakeDb {
     }
 
     // ---- transaction_document ----
+    if (t.includes('update transaction_document set signed_audit_media_id =')) {
+      const r = this.documents.find((d) => d.id === p[1])
+      if (r) r.signed_audit_media_id = p[0]
+      return Promise.resolve([])
+    }
     // transition CAS: [to, to, signedMediaId, to, signedAt, id, from]
     if (t.includes('update transaction_document set state =')) {
       if (this.failNextDocumentTransition) {
@@ -174,6 +179,9 @@ class FakeDb {
 
     // ---- signature_request (send insert + status transition for the e2e
     // router path; reconciliation only reads) ----
+    if (t.includes('insert into signature_envelope_recipient')) {
+      return Promise.resolve([])
+    }
     if (t.includes('insert into signature_request')) {
       const dup = this.requests.find(
         (r) => r.transaction_document_id === p[0] && isActive(r.status),
@@ -714,7 +722,8 @@ test('the neutral subscriber ignores non-completed events and rejects malformed 
   const ok = await handler.onCompletedEvent(base)
   assert.equal(ok.outcome, 'success')
   assert.equal((ok.value as any).replayed, false)
-  assert.equal(db.media.length, 2)
+  assert.equal(db.media.length, 3, 'signed PDF and audit trail are both appended')
+  assert.ok(db.documents[0].signed_audit_media_id)
   assert.equal(db.documents[0].state, 'signed')
 })
 
@@ -750,8 +759,9 @@ test('e2e: a completed webhook reconciles the signed artifact; re-delivery (same
   const mediaId = (completedOutcome!.reconciliation!.value as any).mediaId
   assert.ok(mediaId && mediaId !== 'media-1', 'a NEW signed media row was appended')
   assert.equal(db.documents[0].state, 'signed')
-  assert.equal(db.media.length, 2, 'exactly one signed media row appended')
+  assert.equal(db.media.length, 3, 'one signed PDF and one audit trail are appended')
   assert.equal(db.documents[0].signed_media_id, mediaId)
+  assert.ok(db.documents[0].signed_audit_media_id)
 
   // Webhook duplication: the SAME provider event (same completed webhook) is
   // re-delivered. The status command is a no-op (no transition -> no neutral
@@ -761,7 +771,7 @@ test('e2e: a completed webhook reconciles the signed artifact; re-delivery (same
   assert.equal(redelivery.result.outcome, 'success')
   assert.equal(redelivery.result.emittedEvents.length, 0, 'no duplicate neutral event on re-delivery')
   assert.equal(redelivery.reconciliation, null, 'no reconciliation when no completion occurred')
-  assert.equal(db.media.length, 2, 'no duplicate signed media')
+  assert.equal(db.media.length, 3, 'no duplicate signed PDF or audit trail')
   assert.equal(db.documents[0].state, 'signed')
   assert.equal(db.documents[0].signed_media_id, mediaId, 'no double transition')
 

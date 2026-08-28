@@ -83,6 +83,7 @@ export type BoldSignDirectSigner = {
   emailAddress: string
   signerType: BoldSignSignerType
   signerOrder: number
+  authenticationType: 'EmailOTP'
   formFields: BoldSignDirectFormField[]
 }
 
@@ -95,6 +96,7 @@ export type BoldSignSendDocumentInput = {
   message: string | null
   signers: BoldSignDirectSigner[]
   enableSigningOrder: boolean
+  completionCcEmails: string[]
 }
 
 export type BoldSignEnvelopeCreated = {
@@ -181,6 +183,7 @@ export class BoldSignClient {
       form.append(`${prefix}.emailAddress`, signer.emailAddress)
       form.append(`${prefix}.signerType`, signer.signerType)
       form.append(`${prefix}.signerOrder`, String(signer.signerOrder))
+      form.append(`${prefix}.authenticationType`, signer.authenticationType)
       signer.formFields.forEach((field, fieldIndex) => {
         const fp = `${prefix}.formFields[${fieldIndex}]`
         form.append(`${fp}.fieldType`, field.fieldType)
@@ -200,6 +203,12 @@ export class BoldSignClient {
         }
       })
     })
+    input.completionCcEmails.forEach((email, index) => {
+      form.append(`cc[${index}].emailAddress`, email)
+    })
+    if (input.completionCcEmails.length > 0) {
+      form.set('recipientNotificationSettings.completed', 'true')
+    }
     if (input.enableSigningOrder) form.set('enableSigningOrder', 'true')
 
     return this.requestWithRetry<BoldSignEnvelopeCreated>({
@@ -289,6 +298,19 @@ export class BoldSignClient {
     })
   }
 
+  /** Download BoldSign's completed-envelope audit trail PDF. */
+  async downloadAuditTrail(documentId: string): Promise<BoldSignDocumentDownload> {
+    const query = new URLSearchParams({ documentId })
+    const bytes = await this.requestBinaryWithRetry(
+      `/v1/document/downloadAuditLog?${query.toString()}`,
+    )
+    return {
+      bytes,
+      filename: `${documentId}-audit-trail.pdf`,
+      mimeType: 'application/pdf',
+    }
+  }
+
   // -------------------------------------------------------------------------
 
   private async requestWithRetry<T>(opts: {
@@ -320,6 +342,48 @@ export class BoldSignClient {
           // eslint-disable-next-line no-await-in-loop
           await new Promise((resolve) => setTimeout(resolve, delay))
         }
+      }
+    }
+    throw lastError
+  }
+
+  private async requestBinaryWithRetry(path: string): Promise<Uint8Array> {
+    const maxAttempts = Math.max(1, this.config.maxAttempts)
+    let lastError: unknown
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs)
+      try {
+        const fetchFn = this.deps.fetchFn ?? fetch
+        const response = await fetchFn(`${this.config.baseUrl}${path}`, {
+          method: 'GET',
+          headers: { accept: 'application/pdf', 'x-api-key': this.config.apiKey },
+          signal: controller.signal,
+        })
+        if (!response.ok) {
+          const raw = await response.text()
+          const excerpt = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw
+          throw new BoldSignProviderError(
+            `BoldSign API GET ${path} failed with HTTP ${response.status}: ${excerpt}`,
+            response.status,
+            isTransientHttpStatus(response.status),
+          )
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        if (bytes.length === 0) throw new Error('BoldSign audit trail download returned an empty file.')
+        return bytes
+      } catch (error) {
+        const classified = classifyBoldSignError(error)
+        if (!classified.retryable || attempt >= maxAttempts) throw error
+        lastError = error
+        const delay = Math.min(
+          this.config.retryBaseDelayMs * 2 ** (attempt - 1),
+          this.config.retryMaxDelayMs,
+        )
+        if (this.deps.sleep) await this.deps.sleep(delay)
+        else await new Promise((resolve) => setTimeout(resolve, delay))
+      } finally {
+        clearTimeout(timeout)
       }
     }
     throw lastError

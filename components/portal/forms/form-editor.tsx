@@ -135,6 +135,7 @@ export function FormEditor({
   savedForms = [],
   issuedDocument = null,
   signerCandidates = [],
+  sendAllRequiredSigners = false,
   signatureRequest = null,
 }: {
   form: {
@@ -166,6 +167,7 @@ export function FormEditor({
     contentFingerprint: string | null
   } | null
   signerCandidates?: FormSignerCandidate[]
+  sendAllRequiredSigners?: boolean
   signatureRequest?: { id: string; status: string } | null
 }) {
   const router = useRouter()
@@ -462,11 +464,11 @@ export function FormEditor({
     setError(null)
     const name = signerName.trim()
     const email = signerEmail.trim()
-    if (!name) {
+    if (!sendAllRequiredSigners && !name) {
       setError("Signer name is required.")
       return
     }
-    if (!isUsableSignerEmail(email)) {
+    if (!sendAllRequiredSigners && !isUsableSignerEmail(email)) {
       setError("Please enter a valid signer email and try again.")
       return
     }
@@ -502,11 +504,13 @@ export function FormEditor({
         id: result.data.signatureRequestId,
         status: result.data.status,
       })
+      setSignerName(result.data.signerName)
+      setSignerEmail(result.data.signerEmail)
       setShowSignPanel(false)
       setMessage(
-        result.data.existing
-          ? `Sent for signature · ${result.data.signerName}`
-          : `Sent for signature · ${result.data.signerName} · ${result.data.signerEmail}`,
+        `Sent for signature · ${result.data.signerCount} external ` +
+          `part${result.data.signerCount === 1 ? 'y' : 'ies'} · ${result.data.signerName}` +
+          (result.data.signerEmail ? ` · ${result.data.signerEmail}` : ''),
       )
     } catch {
       setError(
@@ -860,7 +864,13 @@ export function FormEditor({
               <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--portal-navy)]">
                 Send for signature
               </p>
-              {signerCandidates.length > 1 ? (
+              {sendAllRequiredSigners ? (
+                <p className="mt-2 max-w-2xl text-sm font-light leading-6 text-black/55">
+                  One ordered BoldSign envelope will be sent to every external
+                  party required by this issued agreement. Lisa is already
+                  signed locally and will receive the completed document.
+                </p>
+              ) : signerCandidates.length > 1 ? (
                 <label className="mt-2 block">
                   <span className={labelClass}>Signer</span>
                   <select
@@ -887,7 +897,7 @@ export function FormEditor({
                   </select>
                 </label>
               ) : null}
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {!sendAllRequiredSigners ? <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <label>
                   <span className={labelClass}>Name</span>
                   <input
@@ -906,7 +916,7 @@ export function FormEditor({
                     className={inputClass}
                   />
                 </label>
-              </div>
+              </div> : null}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
