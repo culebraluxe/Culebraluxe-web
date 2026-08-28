@@ -1,33 +1,6 @@
 // ---------------------------------------------------------------------------
-// DOC-04 — BoldSign Integration: the BoldSignSignatureProvider adapter.
-//
-// Implements the DOC-03 SignatureProvider seam (lib/signature/provider.ts)
-// and owns EVERY BoldSign-specific concern. The seam and the canonical models
-// (signature_request, transaction_document) see only neutral types — BoldSign
-// strings/ids never cross this adapter.
-//
-//   send          — map the neutral send request and immutable issued PDF to a
-//                   BoldSign direct-document envelope; persist envelope id +
-//                   provider document ids in
-//                   the provider table (bold_sign_request) keyed by
-//                   signature_request_id (one row per request); idempotent —
-//                   an existing provider row returns the existing envelope,
-//                   never a duplicate. Credentials come from config/env only.
-//   status        — poll BoldSign envelope status; cache the RAW status in the
-//                   provider table; map to neutral at the seam (the interface
-//                   contract: status() returns the status ALREADY mapped).
-//   cancel        — best-effort revoke at BoldSign after the seam records
-//                   neutral 'voided'; reconciliation converges on divergence.
-//   verifyWebhook — verify the BoldSign HMAC signature (X-BoldSign-Signature,
-//                   constant-time), normalize the payload to a NEUTRAL event +
-//                   the NEUTRAL signature request id, and dedupe by the
-//                   provider event id (unique key in bold_sign_webhook_event —
-//                   also the DOC-05 async reconciler's durable enqueue).
-//
-// Provider ids/state live ONLY in bold_sign_request / bold_sign_webhook_event
-// (migration 037) — never in transaction_document and never in
-// signature_request (rejected designs). Provider errors map to neutral 'error'
-// with a retryable/non-retryable classification and an observable last_error.
+// DOC-04 — BoldSign provider adapter. BoldSign ids/state stay behind the
+// provider-neutral SignatureProvider seam.
 // ---------------------------------------------------------------------------
 
 import type { SignatureProvider } from '../provider'
@@ -63,23 +36,13 @@ import {
 
 export type BoldSignSignatureProviderDeps = {
   config: BoldSignConfig
-  /** Overridable for tests; default: a real client over the config. */
   client?: BoldSignClient
-  /** Provider-store executor (tests inject a fake; default: lazy Neon). */
   execute?: QueryExecutor
-  /** Provider-store write runner (tests inject a fake; default: Neon tx). */
   run?: TxRunner
-  /** Application clock (injectable for deterministic webhook verification). */
   now?: () => Date
 }
 
 const INITIAL_ENVELOPE_STATUS = 'InProgress'
-
-// ---------------------------------------------------------------------------
-// Direct-PDF source: load the existing unsigned PDF bytes the transaction
-// document references (media.file_data) so the adapter can send those exact
-// bytes to BoldSign for signing — BoldSign never sees a template.
-// ---------------------------------------------------------------------------
 
 let lazyDefaultExecutor: QueryExecutor | null = null
 
@@ -98,10 +61,6 @@ type TransactionDocumentPdf = {
   signatureAnchors: FormSignatureAnchor[]
 }
 
-/**
- * The canonical renderer records bottom-left PDF points. BoldSign's bounds use
- * a top-left y origin, so the adapter owns the one explicit origin conversion.
- */
 export function pdfAnchorToBoldSignBounds(anchor: FormSignatureAnchor) {
   return {
     x: anchor.rect.x,
@@ -194,30 +153,19 @@ async function loadTransactionDocumentPdf(
       typeof row.mime_type === 'string' && row.mime_type.trim() !== ''
         ? row.mime_type
         : 'application/pdf',
-    signatureAnchors: parseFormSignatureAnchors(
-      sourceSnapshot?.signatureAnchors,
-    ),
+    signatureAnchors: parseFormSignatureAnchors(sourceSnapshot?.signatureAnchors),
   }
 }
 
 export class BoldSignSignatureProvider implements SignatureProvider {
   readonly name = BOLD_SIGN_PROVIDER
-
   private readonly client: BoldSignClient
 
   constructor(private readonly deps: BoldSignSignatureProviderDeps) {
     this.client = deps.client ?? new BoldSignClient(deps.config)
   }
 
-  // -------------------------------------------------------------------------
-  // send
-  // -------------------------------------------------------------------------
-
   async send(request: ProviderSendRequest): Promise<ProviderSendResult> {
-    // Idempotency FIRST: a request that already owns a provider envelope must
-    // never create a second one (the seam re-invokes send for a duplicate
-    // send; the provider row is the dedupe). The partial unique index on
-    // envelope_id (migration 037) is the database backstop.
     const existing = await getBoldSignRequestBySignatureRequestId(
       request.signatureRequestId,
       this.deps.execute,
@@ -225,10 +173,21 @@ export class BoldSignSignatureProvider implements SignatureProvider {
     if (existing?.envelopeId) {
       return { ok: true, providerStatus: existing.status }
     }
+    if (existing?.errorRetryable) {
+      // A previous CREATE attempt ended ambiguously (timeout/network/5xx).
+      // We do not know whether BoldSign accepted the envelope. Never issue a
+      // second legal envelope automatically; keep the canonical request active
+      // until the provider account is reconciled by a human/operator path.
+      return {
+        ok: false,
+        providerStatus: INITIAL_ENVELOPE_STATUS,
+        error:
+          existing.lastError ??
+          'BoldSign send outcome is uncertain; do not resend until provider state is resolved.',
+      }
+    }
 
     try {
-      // Send the EXISTING unsigned PDF bytes CulebraLuxe already owns directly
-      // to BoldSign (multipart POST /v1/document/send) — no template needed.
       const pdf = await loadTransactionDocumentPdf(
         request.transactionDocumentId,
         this.deps.execute,
@@ -243,9 +202,7 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       const perRecipient = request.recipients.map((recipient, index) => {
         const role = recipient.executionRole ?? request.signatureRole ?? null
         const slotId = recipient.executionSlotId ?? request.signatureSlotId ?? null
-        if (role && slotId) {
-          return availableSets.get(`${role}:${slotId}`) ?? []
-        }
+        if (role && slotId) return availableSets.get(`${role}:${slotId}`) ?? []
         if (!role && !slotId && orderedSets.length === request.recipients.length) {
           return orderedSets[index]
         }
@@ -259,8 +216,6 @@ export class BoldSignSignatureProvider implements SignatureProvider {
           'The issued PDF signature anchor is missing or ambiguous for the selected participant. Reissue the document and select a declared signature role.',
         )
       }
-      // Map the exact immutable PDF anchor set onto provider fields. No page,
-      // x/y, or fallback placement is invented inside the adapter.
       const signers: BoldSignDirectSigner[] = request.recipients.map(
         (recipient, index) => ({
           name: recipient.name,
@@ -287,15 +242,12 @@ export class BoldSignSignatureProvider implements SignatureProvider {
         {
           signatureRequestId: request.signatureRequestId,
           envelopeId: created.documentId,
-          // Provider file ids are observed on the first status poll.
           documentIds: [],
           status: INITIAL_ENVELOPE_STATUS,
         },
         this.deps.run,
       )
       if (!row) {
-        // A concurrent duplicate of the SAME request won the insert (PK
-        // conflict): return the winner's row — never a second envelope.
         row = await getBoldSignRequestBySignatureRequestId(
           request.signatureRequestId,
           this.deps.execute,
@@ -310,63 +262,71 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       return { ok: true, providerStatus: row.status }
     } catch (err) {
       const classified = classifyBoldSignError(err)
-      // Observable last_error with the retryable classification — provider
-      // detail only; the seam maps the failure to neutral 'error' separately.
       await recordBoldSignRequestError(
         {
           signatureRequestId: request.signatureRequestId,
           error: classified.message,
           retryable: classified.retryable,
+          // Retryable CREATE failures have an UNKNOWN provider outcome. Keep
+          // them active instead of freeing the canonical slot for a resend.
+          status: classified.retryable ? INITIAL_ENVELOPE_STATUS : 'error',
         },
         this.deps.run,
       )
-      return { ok: false, providerStatus: 'error', error: classified.message }
+      return {
+        ok: false,
+        providerStatus: classified.retryable ? INITIAL_ENVELOPE_STATUS : 'error',
+        error: classified.message,
+      }
     }
   }
-
-  // -------------------------------------------------------------------------
-  // status
-  // -------------------------------------------------------------------------
 
   async status(requestId: string): Promise<ProviderStatusResult> {
     const row = await getBoldSignRequestBySignatureRequestId(requestId, this.deps.execute)
     if (!row?.envelopeId) {
-      // Unknown request (or a send that never produced an envelope).
-      return { status: 'error' }
+      // A retryable create failure is an UNKNOWN provider outcome, not proof
+      // that no envelope exists. Preserve the active slot; only a definite
+      // non-retryable send failure is terminal error.
+      return { status: row?.errorRetryable ? 'sent' : 'error' }
     }
     try {
       const props = await this.client.getDocumentProperties(row.envelopeId)
-      const documentIds =
-        row.documentIds.length > 0 ? row.documentIds : props.fileIds
+      const documentIds = row.documentIds.length > 0 ? row.documentIds : props.fileIds
       await updateBoldSignRequestStatus(
-        {
-          signatureRequestId: requestId,
-          status: props.status,
-          documentIds,
-        },
+        { signatureRequestId: requestId, status: props.status, documentIds },
         this.deps.run,
       )
-      // Mapped to neutral AT THE SEAM boundary — the caller never sees a
-      // BoldSign status string.
       return { status: mapProviderStatus(this.name, props.status) }
     } catch (err) {
       const classified = classifyBoldSignError(err)
       await recordBoldSignRequestError(
-        { signatureRequestId: requestId, error: classified.message, retryable: classified.retryable },
+        {
+          signatureRequestId: requestId,
+          error: classified.message,
+          retryable: classified.retryable,
+          // A transient poll failure does not make an existing envelope
+          // terminal. Preserve its last known provider status.
+          status: classified.retryable ? row.status : 'error',
+        },
         this.deps.run,
       )
-      return { status: 'error' }
+      return {
+        status: classified.retryable
+          ? mapProviderStatus(this.name, row.status)
+          : 'error',
+      }
     }
   }
-
-  // -------------------------------------------------------------------------
-  // cancel
-  // -------------------------------------------------------------------------
 
   async cancel(requestId: string): Promise<ProviderActionResult> {
     const row = await getBoldSignRequestBySignatureRequestId(requestId, this.deps.execute)
     if (!row?.envelopeId) {
-      return { ok: false, error: 'No BoldSign envelope exists for this request.' }
+      return {
+        ok: false,
+        error: row?.errorRetryable
+          ? 'BoldSign send outcome is uncertain; provider envelope id is unknown and automatic cancellation is unsafe.'
+          : 'No BoldSign envelope exists for this request.',
+      }
     }
     try {
       await this.client.revokeDocument(row.envelopeId)
@@ -377,13 +337,18 @@ export class BoldSignSignatureProvider implements SignatureProvider {
       return { ok: true }
     } catch (err) {
       const classified = classifyBoldSignError(err)
+      await recordBoldSignRequestError(
+        {
+          signatureRequestId: requestId,
+          error: classified.message,
+          retryable: classified.retryable,
+          status: row.status,
+        },
+        this.deps.run,
+      )
       return { ok: false, error: classified.message }
     }
   }
-
-  // -------------------------------------------------------------------------
-  // DOC-05 — one-time signed-artifact download (via the provider table)
-  // -------------------------------------------------------------------------
 
   async downloadSignedArtifact(requestId: string): Promise<SignedArtifactDownload> {
     const row = await getBoldSignRequestBySignatureRequestId(requestId, this.deps.execute)
@@ -392,9 +357,6 @@ export class BoldSignSignatureProvider implements SignatureProvider {
         `BoldSign: no envelope exists for signature request ${requestId}; the signed artifact cannot be downloaded.`,
       )
     }
-    // The adapter resolves its own provider envelope id through its provider
-    // table (DOC-04); no provider id crosses the seam. The download is
-    // read-only — provider state is never written here.
     return this.client.downloadDocument(row.envelopeId)
   }
 
@@ -408,16 +370,10 @@ export class BoldSignSignatureProvider implements SignatureProvider {
     return this.client.downloadAuditTrail(row.envelopeId)
   }
 
-  // -------------------------------------------------------------------------
-  // webhook
-  // -------------------------------------------------------------------------
-
   async verifyWebhook(
     payload: unknown,
     signature: string,
   ): Promise<WebhookVerificationResult> {
-    // HMAC is verified over the RAW body bytes (BoldSign signs
-    // `${t}.${rawBody}`); a parsed object can never reproduce those bytes.
     if (typeof payload !== 'string') {
       throw new Error(
         'BoldSign webhook payload must be the raw request body string (HMAC is verified over the exact raw bytes).',
@@ -437,14 +393,7 @@ export class BoldSignSignatureProvider implements SignatureProvider {
     if (!row) {
       throw new Error(`BoldSign webhook for unknown envelope ${normalized.envelopeId}.`)
     }
-    // Normalize the BoldSign event onto the neutral provider event vocabulary
-    // (fail closed when it maps to nothing the seam can apply).
     const neutral = mapBoldSignWebhookEvent(normalized.eventType, normalized.documentStatus)
-
-    // Dedupe by the PROVIDER EVENT ID (unique key): a replayed webhook inserts
-    // nothing and returns the same neutral result — the seam's canonical
-    // status command is itself a no-op on re-application. The row is also the
-    // durable enqueue record for the DOC-05 async reconciler.
     await insertBoldSignWebhookEvent(
       {
         providerEventId: normalized.providerEventId,
