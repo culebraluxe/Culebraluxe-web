@@ -68,7 +68,34 @@ export type CommandDispatcherOptions = {
    * without a consumer.
    */
   eventSink?: OutboxEventRepository | null
+  /**
+   * OPTIONAL observer-only Flight Recorder. When set, the dispatcher records
+   * COMMAND_RECEIVED / COMMAND_REPLAYED / COMMAND_COMPLETED / COMMAND_FAILED
+   * and DOMAIN_EVENT_EMITTED trace evidence. Recorder calls are ALWAYS wrapped
+   * in a contained try/catch — a recorder failure can never break command
+   * execution or its transaction. Absent (default) = no recording (zero change
+   * to existing callers/tests).
+   */
+  traceRecorder?: TraceRecorder | null
 }
+
+/** Structural, observer-only trace recorder signature (decoupled from the DB). */
+export type TraceRecorder = (input: {
+  eventType: string
+  system: string
+  occurredAt: string
+  completedAt?: string | null
+  durationMs?: number | null
+  outcome?: string | null
+  commandId?: string | null
+  domainEventId?: string | null
+  correlationId?: string | null
+  causationId?: string | null
+  dealId?: string | null
+  workflowInstanceId?: string | null
+  summary?: string | null
+  metadata?: Record<string, unknown> | null
+}) => Promise<void>
 
 function unknownCommandResult(envelope: CommandEnvelope): CommandResult {
   return {
@@ -134,52 +161,98 @@ export class CommandDispatcherImpl implements CommandDispatcher {
   async execute<TPayload extends Record<string, unknown>, TResult = unknown>(
     command: TypedCommandEnvelope<TPayload>,
   ): Promise<TypedCommandResult<TResult>> {
+    // OPTIONAL observer-only trace recorder. Never allowed to break the command.
+    const record = async (
+      input: Parameters<NonNullable<CommandDispatcherOptions['traceRecorder']>>[0],
+    ) => {
+      try {
+        await this.options.traceRecorder?.(input)
+      } catch {
+        /* contained: tracing must never affect the business operation */
+      }
+    }
+    const nowIso = () => (this.options.now?.() ?? new Date()).toISOString()
+    const startIso = nowIso()
+    const base = {
+      system: 'command',
+      occurredAt: startIso,
+      commandId: command.commandId,
+      correlationId: command.correlationId,
+      causationId: command.causationId,
+      dealId: command.aggregateType === 'deal' ? command.aggregateId : null,
+      workflowInstanceId: command.correlationId ?? null,
+    }
+    await record({ eventType: 'COMMAND_RECEIVED', ...base, summary: `Command ${command.commandType} received` })
+
     // 1. Resolve handler by commandType.
     const handler = this.options.registry.resolve(command.commandType)
     if (!handler) {
+      await record({
+        eventType: 'COMMAND_COMPLETED', ...base, occurredAt: nowIso(), outcome: 'not_found',
+        summary: `Unknown command ${command.commandType}`,
+      })
       return unknownCommandResult(command) as TypedCommandResult<TResult>
     }
 
-    // 2. Start the application transaction (commit once at the end).
-    return this.options.run(async (tx) => {
-      // 3-4. Replay fast-path: a terminal receipt replays without re-running.
-      const existing = await this.options.receipts.find(command.commandId, tx)
-      if (existing) {
-        return this.replayResult(
-          command,
-          existing,
-        ) as TypedCommandResult<TResult>
-      }
+    try {
+      // 2-10. The application transaction (commit once at the end).
+      const result = await this.options.run(async (tx) => {
+        // 3-4. Replay fast-path: a terminal receipt replays without re-running.
+        const existing = await this.options.receipts.find(command.commandId, tx)
+        if (existing) {
+          return this.replayResult(command, existing) as TypedCommandResult<TResult>
+        }
 
-      // 5-7. Execute the handler / canonical domain service. The handler's
-      // canonical service claims + finalizes the receipt inside THIS tx and
-      // mutates canonical truth; external side effects never run here.
-      const collector = new InMemoryDomainEventCollector()
-      const ctx: CommandExecutionContext = {
-        tx,
-        receipts: this.options.receipts,
-        registry: this.options.registry,
-        events: collector,
-        run: (cb) => cb(tx),
-        now: this.options.now ?? (() => new Date()),
-      }
-      const result = await handler.handle(command, ctx)
+        // 5-7. Execute the handler / canonical domain service.
+        const collector = new InMemoryDomainEventCollector()
+        const ctx: CommandExecutionContext = {
+          tx,
+          receipts: this.options.receipts,
+          registry: this.options.registry,
+          events: collector,
+          run: (cb) => cb(tx),
+          now: this.options.now ?? (() => new Date()),
+        }
+        const result = await handler.handle(command, ctx)
 
-      // 8. Outbox rows in the SAME transaction when the seam is enabled.
-      const emitted = collector.drain()
-      if (this.options.eventSink && emitted.length > 0) {
-        await this.options.eventSink.append(emitted, tx)
-      }
+        // 8. Outbox rows in the SAME transaction when the seam is enabled.
+        const emitted = collector.drain()
+        if (this.options.eventSink && emitted.length > 0) {
+          await this.options.eventSink.append(emitted, tx)
+        }
 
-      // 10. Normalize (receiptId is honest only when a receipt row exists).
-      const persisted = await this.options.receipts.find(command.commandId, tx)
-      return normalizeResult(
-        command,
-        result,
-        emitted,
-        persisted !== null,
-      ) as TypedCommandResult<TResult>
-    })
+        // 10. Normalize (receiptId is honest only when a receipt row exists).
+        const persisted = await this.options.receipts.find(command.commandId, tx)
+        return normalizeResult(command, result, emitted, persisted !== null) as TypedCommandResult<TResult>
+      })
+
+      const endIso = nowIso()
+      const durationMs = Math.max(0, new Date(endIso).getTime() - new Date(startIso).getTime())
+      await record({
+        eventType: result.replayed ? 'COMMAND_REPLAYED' : 'COMMAND_COMPLETED',
+        ...base, occurredAt: endIso, completedAt: endIso, durationMs,
+        outcome: result.outcome, summary: `Command ${command.commandType} ${result.outcome}`,
+      })
+      for (const e of result.emittedEvents) {
+        await record({
+          eventType: 'DOMAIN_EVENT_EMITTED', system: 'domain', occurredAt: e.occurredAt,
+          domainEventId: e.eventId, commandId: e.causationId ?? null,
+          correlationId: e.correlationId, causationId: e.causationId,
+          dealId: e.aggregateType === 'deal' ? e.aggregateId : null,
+          workflowInstanceId: e.correlationId ?? null,
+          summary: `Domain event ${e.eventType}`,
+        })
+      }
+      return result
+    } catch (err) {
+      const endIso = nowIso()
+      await record({
+        eventType: 'COMMAND_FAILED', ...base, occurredAt: endIso, completedAt: endIso, outcome: 'FAILURE',
+        summary: `Command ${command.commandType} failed`,
+        metadata: { error: err instanceof Error ? err.message.slice(0, 200) : String(err) },
+      })
+      throw err
+    }
   }
 
   private replayResult(

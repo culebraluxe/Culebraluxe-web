@@ -73,7 +73,7 @@ class FakeCommandDb {
         }
         return Promise.resolve([])
       }
-      if (t.includes('select command_id, outcome, aggregate_id, message from workflow_command_receipt') && t.includes('where command_id')) {
+      if (t.includes('select command_id, outcome, aggregate_id, message, actor_app_user_id from workflow_command_receipt') && t.includes('where command_id')) {
         const r = working.receipts.find((x) => x.command_id === p[0])
         return Promise.resolve(r ? [{ command_id: r.command_id, outcome: r.outcome, aggregate_id: r.aggregate_id, message: r.message, actor_app_user_id: r.actor_app_user_id ?? null }] : [])
       }
