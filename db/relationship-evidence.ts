@@ -63,6 +63,16 @@ type EvidenceRow = {
   updated_at: string
 }
 
+/** Safe ISO normalization for nullable timestamptz values. The Neon driver may
+ *  return these as JS Date objects; repositories must emit ISO strings (or null)
+ *  so downstream projections/comparators (e.g. `.localeCompare`) never receive a
+ *  Date. */
+function toIsoOrNull(value: string | Date | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const d = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
 function mapRow(row: EvidenceRow): RelationshipEvidenceRow {
   return {
     id: row.id,
@@ -74,10 +84,10 @@ function mapRow(row: EvidenceRow): RelationshipEvidenceRow {
     organization: row.organization,
     emails: Array.isArray(row.emails) ? row.emails : [],
     phones: Array.isArray(row.phones) ? row.phones : [],
-    firstObservedAt: row.first_observed_at,
-    lastObservedAt: row.last_observed_at,
-    lastInboundAt: row.last_inbound_at,
-    lastOutboundAt: row.last_outbound_at,
+    firstObservedAt: toIsoOrNull(row.first_observed_at),
+    lastObservedAt: toIsoOrNull(row.last_observed_at),
+    lastInboundAt: toIsoOrNull(row.last_inbound_at),
+    lastOutboundAt: toIsoOrNull(row.last_outbound_at),
     inboundCount: row.inbound_count,
     outboundCount: row.outbound_count,
     isTwoWay: row.is_two_way,
@@ -95,7 +105,7 @@ function mapRow(row: EvidenceRow): RelationshipEvidenceRow {
     matchReason: row.match_reason,
     ruleVersion: row.rule_version,
     evidenceFingerprint: row.evidence_fingerprint,
-    updatedAt: new Date(row.updated_at).toISOString(),
+    updatedAt: toIsoOrNull(row.updated_at) ?? '',
   }
 }
 

@@ -5,6 +5,8 @@ import {
   summarizeRelationshipEvidence,
   type RelationshipEvidenceForContext,
 } from '../../lib/relationship-intel/relationship-context'
+import { getRelationshipEvidenceForPersons } from '../../db/relationship-evidence'
+import type { QueryExecutor } from '../../db/query-executor'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — relationship read-model distinctions (pure).
@@ -100,4 +102,84 @@ test('REL-INTEL: aggregate communication counts stay distinct from canonical int
   assert.equal(s.outboundCount, 2413)
   assert.equal(s.observedCommunicationCount, 4844)
   assert.equal(s.lastObservedAt, null)
+})
+
+// ---------------------------------------------------------------------------
+// REL-INTEL — repository boundary normalizes timestamptz to ISO strings.
+// The Neon driver returns timestamptz as JS Date objects; mapRow() must emit
+// ISO strings (or null) so channel sorting (`.localeCompare`) never throws.
+// ---------------------------------------------------------------------------
+
+function evidenceRow(overrides: Record<string, unknown> = {}) {
+  const D = new Date('2026-02-25T17:36:43.709Z')
+  return {
+    id: 'e-1',
+    source: 'apple_messages',
+    source_account: 'acct',
+    source_identity_key: '+1',
+    source_label: null,
+    display_name: 'Alicia Geigel',
+    organization: null,
+    emails: [],
+    phones: [],
+    first_observed_at: D,
+    last_observed_at: D,
+    last_inbound_at: null,
+    last_outbound_at: D,
+    inbound_count: 0,
+    outbound_count: 1,
+    is_two_way: false,
+    is_owner_initiated: false,
+    is_automated_or_bulk: false,
+    is_organization_or_service: false,
+    known_apple_contact: true,
+    has_email: false,
+    has_phone: true,
+    coverage_note: null,
+    canonical_person_id: 'p-alicia',
+    match_method: 'exact',
+    match_confidence: 'high',
+    review_state: 'exact_linked',
+    match_reason: null,
+    rule_version: 'v1',
+    evidence_fingerprint: 'fp',
+    updated_at: D,
+    ...overrides,
+  }
+}
+
+test('REL-INTEL: repository normalizes Date timestamptz into ISO strings (no Date leaks)', async () => {
+  const execute: QueryExecutor = (async () => [
+    evidenceRow(),
+    evidenceRow({
+      id: 'e-2',
+      source: 'gmail_contacts',
+      first_observed_at: new Date('2013-10-25T23:05:13.000Z'),
+      last_observed_at: new Date('2013-12-26T16:41:49.000Z'),
+      last_inbound_at: new Date('2013-12-20T00:00:00.000Z'),
+      last_outbound_at: new Date('2013-12-26T16:41:49.000Z'),
+    }),
+  ]) as QueryExecutor
+
+  const byPerson = await getRelationshipEvidenceForPersons(['p-alicia'], execute)
+  const rows = byPerson['p-alicia'] ?? []
+  assert.equal(rows.length, 2)
+
+  for (const r of rows) {
+    for (const field of ['firstObservedAt', 'lastObservedAt', 'lastInboundAt', 'lastOutboundAt'] as const) {
+      const v = r[field]
+      assert.ok(v === null || typeof v === 'string', `${field} must be string|null, got ${typeof v}`)
+    }
+    assert.equal(typeof r.updatedAt, 'string')
+  }
+  assert.equal(rows[0].lastObservedAt, '2026-02-25T17:36:43.709Z')
+  assert.equal(rows[1].lastObservedAt, '2013-12-26T16:41:49.000Z')
+
+  // summarizeRelationshipEvidence now works over the normalized multi-channel rows
+  // (this is the exact regression that collapsed the Clients page at Alicia).
+  const sum = summarizeRelationshipEvidence(rows)
+  assert.equal(sum.hasEvidence, true)
+  assert.ok(sum.sources.length >= 2)
+  assert.equal(typeof sum.lastObservedAt, 'string')
+  assert.ok(sum.channels.length >= 1)
 })
