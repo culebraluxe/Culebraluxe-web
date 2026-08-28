@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { redirect } from "next/navigation"
 
 import { FlightRecorderPage } from "@/components/portal/tech/grok-flight-recorder/FlightRecorderPage"
@@ -20,7 +21,15 @@ export default async function GrokFlightRecorderPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-[#0b1220]">
-      <FlightRecorderPage />
+      <Suspense
+        fallback={
+          <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-400">
+            Loading trace…
+          </div>
+        }
+      >
+        <FlightRecorderPage />
+      </Suspense>
     </div>
   )
 }

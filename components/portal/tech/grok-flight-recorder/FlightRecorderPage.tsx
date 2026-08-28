@@ -398,7 +398,7 @@ function TimelineTable({
                 role="row"
                 aria-selected={selected}
                 onClick={() => onSelect(event.id)}
-                className={`absolute left-0 grid w-full grid-cols-[108px_minmax(0,1.2fr)_minmax(0,1.4fr)_140px] items-center border-b border-white/5 px-3 text-left text-sm ${
+                className={`absolute left-0 grid w-full grid-cols-[108px_minmax(0,1.2fr)_minmax(0,1.4fr)_140px] items-center overflow-hidden border-b border-white/5 px-3 text-left text-sm ${
                   selected ? 'bg-slate-800' : 'hover:bg-slate-900/80'
                 }`}
                 style={{ transform: `translateY(${row.start}px)`, height: rowHeight }}

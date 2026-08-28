@@ -17,14 +17,25 @@ export function formatDuration(ms: number): string {
 }
 
 export function formatDisplayTime(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
+  const d = new Date(iso)
+  const base = {
+    month: 'short' as const,
+    day: 'numeric' as const,
+    year: 'numeric' as const,
+    hour: 'numeric' as const,
+    minute: '2-digit' as const,
+    second: '2-digit' as const,
     hour12: true,
-  }).format(new Date(iso));
+  }
+  try {
+    // fractionalSecondDigits is only honored by engines that support it
+    // (Chrome/Edge/Firefox 86+, Safari 16.4+). Guard so an older engine can't
+    // throw a RangeError mid-render and break the console.
+    return new Intl.DateTimeFormat('en-US', {
+      ...base,
+      fractionalSecondDigits: 3,
+    }).format(d)
+  } catch {
+    return new Intl.DateTimeFormat('en-US', base).format(d)
+  }
 }

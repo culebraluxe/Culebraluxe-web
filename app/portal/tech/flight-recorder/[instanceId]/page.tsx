@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { redirect } from "next/navigation"
 
 import { FlightRecorderConsoleShell } from "@/components/portal/tech/flight-recorder-console-shell"
@@ -24,7 +25,15 @@ export default async function FlightRecorderConsolePage({
   const { instanceId } = await params
   return (
     <div className="h-screen overflow-hidden bg-[#0b1220]">
-      <FlightRecorderConsoleShell instanceId={instanceId} />
+      <Suspense
+        fallback={
+          <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-400">
+            Loading trace…
+          </div>
+        }
+      >
+        <FlightRecorderConsoleShell instanceId={instanceId} />
+      </Suspense>
     </div>
   )
 }
