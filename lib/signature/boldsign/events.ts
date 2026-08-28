@@ -1,17 +1,16 @@
 // ---------------------------------------------------------------------------
 // DOC-04 — BoldSign Integration: webhook event -> neutral event normalization.
 //
-// BoldSign webhook DOCUMENT events that map DIRECTLY onto a neutral lifecycle
-// event are mapped exactly. Events with no lifecycle meaning (Reminder,
-// Reassigned, SignerSaved, Edited, EditFailed, DeliveryFailed, ...) fall back
-// to the document's own status (data.status), which the document-status map
-// (lib/signature/status-mapping.ts) already normalizes — for a sent envelope
-// that is 'InProgress' -> neutral 'sent', a safe no-op re-application. A
-// payload whose event maps to neither fails closed (the seam cannot represent
-// it as a status transition).
+// Canonical signature_request status is ENVELOPE-level. BoldSign's Viewed and
+// Signed callbacks are recipient-level activity in a multi-party envelope;
+// neither proves that the whole agreement has been executed. Both therefore
+// remain on the active `viewed` plateau until BoldSign emits Completed.
 //
-// ALL BoldSign vocabulary stays inside the adapter: only the NEUTRAL event
-// crosses the seam.
+// Events that indicate an operator-visible delivery/authentication/identity
+// problem fail closed rather than being silently normalized to an ordinary
+// active state. The webhook endpoint then returns non-2xx, preserving provider
+// retry/operational visibility while the canonical request remains active and
+// cannot be replaced by a second legal envelope.
 // ---------------------------------------------------------------------------
 
 import type { SignatureProviderEvent } from '../contracts'
@@ -24,7 +23,8 @@ import {
 const BOLD_SIGN_WEBHOOK_EVENT_TO_NEUTRAL: Partial<Record<string, SignatureProviderEvent>> = {
   Sent: 'sent',
   Viewed: 'viewed',
-  Signed: 'signed',
+  // `Signed` means ONE recipient signed; it is not whole-envelope execution.
+  Signed: 'viewed',
   Completed: 'completed',
   Declined: 'declined',
   Revoked: 'voided',
@@ -32,31 +32,51 @@ const BOLD_SIGN_WEBHOOK_EVENT_TO_NEUTRAL: Partial<Record<string, SignatureProvid
   SendFailed: 'error',
 }
 
+const BOLD_SIGN_ATTENTION_EVENTS = new Set([
+  'DeliveryFailed',
+  'AuthenticationFailed',
+  'IdentityVerificationFailed',
+  'KBAFailed',
+  // Reassignment is explicitly disabled on send. Observing it anyway is an
+  // immutable-recipient invariant breach and must never be silently accepted.
+  'Reassigned',
+])
+
 /**
  * Normalize a BoldSign webhook event onto the neutral provider event
- * vocabulary. Direct eventType mappings are exact. Events with no lifecycle
- * meaning (Reminder, Reassigned, SignerSaved, ...) fall back to the
- * document's own status — but ONLY when that status maps to an ACTIVE neutral
- * state (sent/viewed/signed), i.e. a safe no-op/forward move for a request
- * that is in flight. A benign notification must never terminate a healthy
- * request: an unknown or terminal fallback fails closed (throw) rather than
- * fabricating a status the seam cannot safely apply.
+ * vocabulary. Direct lifecycle mappings are exact. Recipient-level activity
+ * stays active until Completed. Attention events throw intentionally so a
+ * delivery/authentication/identity problem is visible and the current legal
+ * envelope remains the sole active request.
+ *
+ * Benign events with no lifecycle meaning (Reminder, SignerSaved, Edited, ...)
+ * may fall back to the document's ACTIVE status only. Unknown or terminal
+ * fallbacks fail closed rather than fabricating a terminal outcome.
  */
 export function mapBoldSignWebhookEvent(
   eventType: string,
   documentStatus: string | null,
 ): SignatureProviderEvent {
+  if (BOLD_SIGN_ATTENTION_EVENTS.has(eventType)) {
+    throw new Error(
+      `BoldSign webhook event ${JSON.stringify(eventType)} requires operator attention; ` +
+        'the signature envelope remains active and must not be replaced automatically.',
+    )
+  }
+
   const direct = BOLD_SIGN_WEBHOOK_EVENT_TO_NEUTRAL[eventType]
   if (direct) return direct
+
   if (documentStatus !== null) {
     const fromStatus = mapProviderStatus(BOLD_SIGN_PROVIDER, documentStatus)
-    // Only ACTIVE neutral states are safe fallbacks (a pre-send 'requested'
-    // is never a webhook event; 'error'/'completed'/... would fabricate a
-    // terminal outcome from a notification that carries no lifecycle meaning).
     if (isActiveSignatureRequestStatus(fromStatus) && fromStatus !== 'requested') {
-      return fromStatus
+      // Normalize all nonterminal provider activity to the same active plateau;
+      // this prevents late/out-of-order recipient callbacks from moving the
+      // envelope backwards (for example Signed signer #1 then Viewed signer #2).
+      return 'viewed'
     }
   }
+
   throw new Error(
     `BoldSign webhook event ${JSON.stringify(eventType)} has no neutral lifecycle mapping.`,
   )
