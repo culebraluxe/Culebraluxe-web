@@ -23,6 +23,7 @@ function story(overrides: Partial<StoryboardStory> & { id: string }): Storyboard
   return {
     id: overrides.id,
     workstream: overrides.workstream ?? 'HARDEN',
+    operatingSurface: overrides.operatingSurface ?? null,
     title: overrides.title ?? `Story ${overrides.id}`,
     priority: overrides.priority ?? 'Medium',
     status: overrides.status ?? 'Planned',
@@ -145,14 +146,15 @@ function kpiValue(kpis: { value: number | null }[], id: string): number | null {
 
 test('outcome: net-net and completion rate come from the rollup model', () => {
   const stories = [
-    story({ id: 'ENG-15', status: 'Complete', completion: 100 }),
-    story({ id: 'ENG-16', status: 'In Progress', completion: 60 }),
-    story({ id: 'ENG-17', status: 'Planned', completion: 0 }),
+    story({ id: 'ENG-15', status: 'Complete', completion: 100, operatingSurface: 'TECH' }),
+    story({ id: 'ENG-16', status: 'In Progress', completion: 60, operatingSurface: 'TECH' }),
+    story({ id: 'ENG-17', status: 'Planned', completion: 0, operatingSurface: 'TECH' }),
   ]
   const kpis = buildFactoryKpis(kpiInput(stories, [], []))
-  // Net-net = AVG completion over rollup stories × workstream weight
-  // (HARDEN weight 5): (100+60+0)/3 × 5/100 = 2.7.
-  assert.equal(kpiValue(kpis.outcome, 'net-net completion'), 2.7)
+  // Net-net comes from the rollup model's CURRENT-SCOPE completion. ENG-17
+  // (Planned / Backlog) is excluded from both terms: TECH = (100+60)/2 = 80.
+  assert.equal(kpiValue(kpis.outcome, 'net-net completion'), 80)
+  // Completion rate is a status-based ratio over ALL rollup stories (1 of 3 Complete).
   assert.equal(kpiValue(kpis.outcome, 'completion rate'), 33.3)
 })
 

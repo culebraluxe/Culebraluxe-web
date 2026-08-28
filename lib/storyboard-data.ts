@@ -713,8 +713,22 @@ function isBlockedFailed(status: string): boolean {
   return status === 'Blocked' || status === 'Failed'
 }
 
+/**
+ * A story participates in CURRENT-scope completion when it is in the current
+ * lifecycle scope: OPEN (In Progress, Partial, Ready, Blocked, Hold, Failed) or
+ * CLOSED (Complete). BACKLOG (Planned) and NEXT VERSION (Deferred) are not
+ * current scope — they carry a 0 stored completion and would otherwise drag the
+ * numerator AND denominator down, misrepresenting current progress.
+ */
+function isCurrentScope(status: string): boolean {
+  const lifecycle = storyLifecycleOf(status)
+  return lifecycle === 'open' || lifecycle === 'closed'
+}
+
 function subgroupCompletion(stories: StoryRecord[]): number {
-  const participating = stories.filter((s) => s.rollup)
+  const participating = stories.filter(
+    (s) => s.rollup && isCurrentScope(s.status),
+  )
   if (participating.length === 0) return 0
   return round(
     participating.reduce((sum, s) => sum + s.completion, 0) /

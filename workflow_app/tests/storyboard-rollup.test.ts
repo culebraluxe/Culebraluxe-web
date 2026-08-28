@@ -117,10 +117,11 @@ test('domain totals reconcile: five domains sum to total story count', () => {
   assert.deepEqual(counts, { NEXUS: 5, MAIN: 3, OPPS: 2, SUPPORT: 2, TECH: 3 })
 })
 
-test('domain completion is the AVG of stored completion over rollup stories', () => {
+test('domain completion is the AVG of stored completion over CURRENT-SCOPE rollup stories', () => {
   const model = buildStoryBoardModel(FIXTURE)
   const nexus = model.domains.find((d) => d.domain === 'NEXUS')!
-  assert.equal(nexus.completionPercent, 42) // (100 + 40 + 0 + 50 + 20) / 5
+  // DOC-01 is Planned (Backlog) — excluded from current-scope completion.
+  assert.equal(nexus.completionPercent, 52.5) // (100 + 40 + 50 + 20) / 4
   const tech = model.domains.find((d) => d.domain === 'TECH')!
   assert.equal(tech.completionPercent, 68.3) // (5 + 100 + 100) / 3
   // Status is categorical - a status change alone never alters completion.
@@ -129,7 +130,7 @@ test('domain completion is the AVG of stored completion over rollup stories', ()
   )
   assert.equal(
     asBlocked.domains.find((d) => d.domain === 'NEXUS')!.completionPercent,
-    42,
+    52.5,
   )
 })
 
@@ -144,7 +145,9 @@ test('rollup=false parents are counted but carry no completion weight', () => {
   const nexus = model.domains.find((d) => d.domain === 'NEXUS')!
   assert.equal(nexus.storyCount, 3)
   assert.equal(nexus.completeCount, 1)
-  assert.equal(nexus.completionPercent, 50) // (100 + 0) / 2 over rollup only
+  // CRM-16 (rollup=false) and CRM-20 (Planned/Backlog) are excluded from
+  // completion; only CRM-19 (Partial, current scope) counts: (100) / 1.
+  assert.equal(nexus.completionPercent, 100)
 })
 
 test('net-net is the simple mean of the five domain completion percents', () => {
@@ -153,7 +156,51 @@ test('net-net is the simple mean of the five domain completion percents', () => 
   const expected =
     Math.round((percents.reduce((sum, p) => sum + p, 0) / percents.length) * 10) / 10
   assert.equal(model.netNet, expected)
-  assert.equal(model.netNet, 68.4)
+  assert.equal(model.netNet, 70.5)
+})
+
+test('current-scope completion excludes Backlog (Planned) stories from both terms', () => {
+  const model = buildStoryBoardModel([
+    story({ id: 'B-1', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Complete' }),
+    story({ id: 'B-2', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Planned', completion: 0 }),
+  ])
+  const nexus = model.domains.find((d) => d.domain === 'NEXUS')!
+  assert.equal(nexus.storyCount, 2) // the Planned story still appears in the panel
+  assert.equal(nexus.completionPercent, 100) // only the current-scope story counts
+})
+
+test('current-scope completion excludes Next Version (Deferred) stories from both terms', () => {
+  const model = buildStoryBoardModel([
+    story({ id: 'N-1', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Complete' }),
+    story({ id: 'N-2', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Deferred', completion: 0 }),
+  ])
+  const nexus = model.domains.find((d) => d.domain === 'NEXUS')!
+  assert.equal(nexus.storyCount, 2)
+  assert.equal(nexus.completionPercent, 100)
+})
+
+test('Open stories reduce completion; Backlog/Next-Version do not', () => {
+  const base = [
+    story({ id: 'O-1', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Complete' }),
+    story({ id: 'O-2', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'In Progress', completion: 40 }),
+  ]
+  const openOnly = buildStoryBoardModel(base)
+  assert.equal(openOnly.domains.find((d) => d.domain === 'NEXUS')!.completionPercent, 70) // (100+40)/2
+
+  // Adding Planned + Deferred (both 0) must NOT lower current completion.
+  const withBacklog = buildStoryBoardModel([
+    ...base,
+    story({ id: 'O-3', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Planned', completion: 0 }),
+    story({ id: 'O-4', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Deferred', completion: 0 }),
+  ])
+  assert.equal(withBacklog.domains.find((d) => d.domain === 'NEXUS')!.completionPercent, 70)
+
+  // A Partial OPEN story still counts (reduces the average) and is not excluded.
+  const withPartial = buildStoryBoardModel([
+    ...base,
+    story({ id: 'O-5', workstream: 'CRM', operatingSurface: 'NEXUS', status: 'Partial', completion: 20 }),
+  ])
+  assert.equal(withPartial.domains.find((d) => d.domain === 'NEXUS')!.completionPercent, 53.3) // (100+40+20)/3
 })
 
 test('execution counts come from the latest work item, distinct from status', () => {
