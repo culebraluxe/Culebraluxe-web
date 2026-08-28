@@ -158,18 +158,42 @@ function opFromTemplate(strings: TemplateStringsArray): string {
 }
 
 // ---------- lazy connection ----------
+export type DbTarget = 'prod' | 'dev'
+
+/**
+ * Resolve the effective database TARGET from the runtime environment.
+ *
+ * Vercel's built-in runtime env (`VERCEL_ENV`) is the authoritative signal for
+ * hosted deployments — Vercel does NOT set APP_ENV, so keying routing off
+ * APP_ENV alone previously sent EVERY deployment (including Production) to the
+ * DEV database (the `env=development` seen in prod runtime logs).
+ *
+ * Resolution order:
+ *   VERCEL_ENV=production           -> prod
+ *   VERCEL_ENV=preview|development  -> dev
+ *   otherwise (local / CLI / operator scripts):
+ *     APP_ENV=production            -> prod
+ *     otherwise                     -> dev
+ */
+export function resolveDbTarget(env: NodeJS.ProcessEnv = process.env): DbTarget {
+  const vercelEnv = env.VERCEL_ENV
+  if (vercelEnv === 'production') return 'prod'
+  if (vercelEnv === 'preview' || vercelEnv === 'development') return 'dev'
+  const appEnv = env.APP_ENV ?? 'development'
+  return appEnv === 'production' ? 'prod' : 'dev'
+}
+
 export function getDatabaseUrl(): string {
-  const appEnv = process.env.APP_ENV ?? 'development'
+  const target = resolveDbTarget()
   const url =
-    appEnv === 'production'
-      ? process.env.DATABASE_URL_PROD
-      : process.env.DATABASE_URL_DEV
-  if (!url) throw new DbConfigError(appEnv)
+    target === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
+  // Fail closed: never silently use the other environment for a deployment.
+  if (!url) throw new DbConfigError(target === 'prod' ? 'production' : 'development')
   return url
 }
 
 function appEnvLabel(): string {
-  return process.env.APP_ENV ?? 'development'
+  return resolveDbTarget() === 'prod' ? 'production' : 'development'
 }
 
 type SqlExecutor = QueryExecutor
@@ -230,7 +254,7 @@ function getExecutor(): SqlExecutor | null {
  *  every gateway query fail with that error code (e.g. 42703 = schema
  *  mismatch). Never activates in production. */
 function devFaultCode(): string | null {
-  if ((process.env.APP_ENV ?? 'development') === 'production') return null
+  if (resolveDbTarget() === 'prod') return null
   const code = process.env.DB_HARDEN_FAULT
   return code && code.length > 0 ? code : null
 }

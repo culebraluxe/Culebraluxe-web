@@ -48,8 +48,15 @@ export async function GET(req: NextRequest) {
 
     const result = await getClientsPage({ search, status, role, sort, page, pageSize })
     return NextResponse.json(result)
-  } catch {
-    // Canonical clients seam unavailable -> empty page (safe).
-    return NextResponse.json({ rows: [], total: 0, page, pageSize })
+  } catch (err) {
+    // The canonical clients seam is unavailable. Fail loudly instead of
+    // returning an empty page that could be mistaken for "no clients" (which is
+    // exactly how a production DB/routing failure previously looked like an
+    // empty portal). The gateway already logs the typed failure server-side.
+    console.error("[clients] database read failed:", err)
+    return NextResponse.json(
+      { error: "database_unavailable", rows: [], total: 0, page, pageSize },
+      { status: 503 },
+    )
   }
 }

@@ -6,7 +6,7 @@
 // executor that returns rows and throws a NORMALIZED DbFailureError on
 // failure) or use `db.query`/`db.queryOne`/`db.transaction` for typed Results.
 
-export { db, sql, raw, getDatabaseUrl, DatabaseGateway } from './database-gateway'
+export { db, sql, raw, getDatabaseUrl, resolveDbTarget, DatabaseGateway } from './database-gateway'
 export {
   DbConfigError,
   DbFailureError,
