@@ -19,6 +19,12 @@ import type {
   RelationshipActivity,
   RelationshipChannelProjection,
 } from "@/lib/portal/types"
+import {
+  channelLine,
+  cleanPreview,
+  headerDirectionLabel,
+  humanDirection,
+} from "@/lib/relationship-intel/moment-presentation"
 
 // ---------------------------------------------------------------------------
 // CLIENTS — Contact History pane (navy right column of the Client working pane).
@@ -99,32 +105,51 @@ function relativeTime(iso: string | null): string | null {
 }
 
 function LastInteractionSummary({
+  newestMoment,
   relationshipActivity,
-  channel,
+  channels,
 }: {
+  newestMoment?: ContactHistoryMoment | null
   relationshipActivity?: RelationshipActivity
-  channel?: RelationshipChannelProjection
+  channels: RelationshipChannelProjection[]
 }) {
+  // The top summary is driven by the newest canonical timeline moment when one
+  // exists; aggregate relationship evidence is only supplemental/fallback.
   const lastAt =
+    newestMoment?.startedAt ??
     relationshipActivity?.lastMeaningfulContactAt ??
     relationshipActivity?.lastObservedAt ??
     null
   const rel = relativeTime(lastAt)
-  const label = channel ? channelMeta(channel.channel).label : null
-  const dir = channel ? lastDirection(channel) : null
+
+  let channel: string | null = null
+  let genericDirection: "inbound" | "outbound" | null = null
+  if (newestMoment) {
+    channel = newestMoment.channel
+    const ld = newestMoment.latestDirection
+    genericDirection = ld === "outbound" ? "outbound" : ld === "inbound" ? "inbound" : null
+  }
+  if (!channel) {
+    const proj = channels[0]
+    if (proj) {
+      channel = proj.channel
+      const ld = lastDirection(proj)
+      genericDirection = ld === "Outbound" ? "outbound" : ld === "Inbound" ? "inbound" : null
+    }
+  }
+  const label = channel ? channelMeta(channel).label : null
+  const dirLabel = headerDirectionLabel(genericDirection)
+
   if (!rel) return null
   return (
     <div className="border-b border-white/10 px-4 py-3">
-      <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-white/40">
-        Last interaction
-      </p>
-      <p className="mt-1 font-serif text-base font-light text-white">
+      <p className="font-serif text-base font-light text-white">
         {rel ? `Last interaction ${rel}` : "No interaction recorded yet"}
       </p>
       {label && lastAt ? (
         <p className="mt-1 text-[11px] font-light text-white/55">
           Most recent · {label}
-          {dir ? ` · ${dir}` : ""}
+          {dirLabel ? ` · ${dirLabel}` : ""}
         </p>
       ) : null}
     </div>
@@ -192,11 +217,13 @@ function QuickActionDock({
 
 export function ContactHistory({
   clientId,
+  clientName,
   relationshipActivity,
   email,
   phone,
 }: {
   clientId: string
+  clientName: string
   relationshipActivity?: RelationshipActivity
   email?: string | null
   phone?: string | null
@@ -251,8 +278,9 @@ export function ContactHistory({
       className="flex min-h-0 flex-col"
     >
       <LastInteractionSummary
+        newestMoment={rows[0]}
         relationshipActivity={relationshipActivity}
-        channel={channels[0]}
+        channels={channels}
       />
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
@@ -269,7 +297,9 @@ export function ContactHistory({
           </div>
         ) : (
           <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
-            {rows.map((moment) => <TimelineMoment key={moment.id} moment={moment} />)}
+            {rows.map((moment) => (
+              <TimelineMoment key={moment.id} moment={moment} clientName={clientName} />
+            ))}
           </ol>
         )}
       </div>
@@ -311,54 +341,40 @@ function formatMomentTime(iso: string): string {
   return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
 }
 
-function fallbackLabel(channel: string): string {
-  if (channel === "imessage" || channel === "sms" || channel === "whatsapp") return "Message"
-  if (channel === "email") return "Email"
-  if (channel === "call") return "Call"
-  return "—"
-}
-
-function TimelineMoment({ moment }: { moment: ContactHistoryMoment }) {
+function TimelineMoment({
+  moment,
+  clientName,
+}: {
+  moment: ContactHistoryMoment
+  clientName: string
+}) {
   const { label, Icon } = channelMeta(moment.channel)
   const isBurst = moment.count > 1
-  const dirLabel =
-    moment.direction === "two-way"
-      ? "Two-way"
-      : moment.direction === "inbound"
-        ? "Inbound"
-        : moment.direction === "outbound"
-          ? "Outbound"
-          : null
-  const timeLine = isBurst
+  const stamp = isBurst
     ? `${formatMomentDate(moment.startedAt)} · ${formatMomentTime(
         moment.startedAt,
       )}–${formatMomentTime(moment.endedAt)}`
     : `${formatMomentDate(moment.startedAt)} · ${formatMomentTime(moment.startedAt)}`
-  const primary = isBurst
-    ? `${moment.count} message${moment.count === 1 ? "" : "s"}${
-        moment.preview ? ` · ${moment.preview}` : ""
-      }`
-    : (moment.preview ?? fallbackLabel(moment.channel))
+  const direction = humanDirection(moment.direction, clientName)
+  const line = channelLine(label, isBurst, moment.count)
+  const preview = cleanPreview(moment.preview)
   return (
     <li className="relative pl-8 pb-4">
       <span
         aria-hidden
         className="absolute left-[3px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--portal-gold)] ring-2 ring-[var(--portal-navy-deep)]"
       />
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="text-[11px] font-light text-white/60">{timeLine}</span>
-        {dirLabel ? (
-          <span className="text-[9px] font-light uppercase tracking-[0.12em] text-white/40">
-            {dirLabel}
-          </span>
-        ) : null}
-      </div>
+      <div className="text-[11px] font-light text-white/60">{stamp}</div>
+      {direction ? (
+        <div className="mt-0.5 text-[10px] font-medium text-white/85">{direction}</div>
+      ) : null}
       <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
         <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
-        {label}
-        {isBurst ? " conversation" : ""}
+        {line}
       </div>
-      <p className="mt-0.5 truncate text-xs font-light text-white/85">{primary}</p>
+      {preview ? (
+        <p className="mt-0.5 truncate text-xs font-light text-white/85">{preview}</p>
+      ) : null}
     </li>
   )
 }

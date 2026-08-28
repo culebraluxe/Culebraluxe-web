@@ -30,6 +30,8 @@ export type ConversationBurst = {
   id: string
   channel: string
   direction: BurstDirection
+  /** Direction of the single most recent event in the burst (truthful for headers). */
+  latestDirection: BurstEvent['direction']
   startedAt: string
   endedAt: string
   count: number
@@ -78,6 +80,7 @@ function finalizeBurst(events: BurstEvent[]): ConversationBurst {
     id: first.id,
     channel: first.channel,
     direction,
+    latestDirection: last.direction,
     startedAt: first.occurredAt,
     endedAt: last.occurredAt,
     count: events.length,

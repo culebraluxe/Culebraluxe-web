@@ -60,6 +60,8 @@ test('burst: correct in/out counts and two-way projection', () => {
   assert.equal(b.outboundCount, 2)
   assert.equal(b.twoWay, true)
   assert.equal(b.direction, 'two-way')
+  // latestDirection reflects the single most recent event (m3 = outbound).
+  assert.equal(b.latestDirection, 'outbound')
 
   const inboundOnly = groupIntoBursts([
     msg('m1', 'imessage', '2026-08-27T20:00:00.000Z', 'inbound'),
@@ -67,6 +69,7 @@ test('burst: correct in/out counts and two-way projection', () => {
   ])[0]
   assert.equal(inboundOnly.twoWay, false)
   assert.equal(inboundOnly.direction, 'inbound')
+  assert.equal(inboundOnly.latestDirection, 'inbound')
 })
 
 test('burst: deterministic latest non-empty preview', () => {
