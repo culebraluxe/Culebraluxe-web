@@ -132,8 +132,12 @@ test('appleNanosToIso: Apple INTEGER-nanoseconds timestamp conversion', () => {
 test('isGroupChatGuid: group chats excluded from person-specific materialization', () => {
   assert.equal(isGroupChatGuid('any;-;+17875550134'), false) // 1:1
   assert.equal(isGroupChatGuid(null), false)
-  assert.equal(isGroupChatGuid('any;-;group;ABC123'), true) // group
+  assert.equal(isGroupChatGuid('any;-;'), false) // bare 1:1 marker
+  assert.equal(isGroupChatGuid('any;-;+18609895020'), false) // Ami 1:1
+  assert.equal(isGroupChatGuid('any;-;group;ABC123'), true) // group marker
   assert.equal(isGroupChatGuid('any;-;GROUP;ABC123'), true) // case-insensitive
+  assert.equal(isGroupChatGuid('any;+;chat671086128536283356'), true) // Apple group (+) form
+  assert.equal(isGroupChatGuid('any;+;d9cccba7dc674c3e9c149038c45404a6'), true) // group style 43
 })
 
 test('resolveHandlePerson: only exact_linked with canonical person qualifies', () => {

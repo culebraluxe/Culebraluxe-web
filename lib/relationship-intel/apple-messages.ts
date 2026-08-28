@@ -13,12 +13,22 @@ import { normalizeEmail, normalizePhone, fingerprint } from './normalize'
 
 export const APPLE_MESSAGES_SOURCE = 'apple_messages' as const
 
-/** Group chats have an Apple chat GUID that contains this marker. */
+/** Group chats have an Apple chat GUID that carries a group marker. */
 export const GROUP_CHAT_GUID_MARKER = 'group'
+/** Apple group chats use the `any;+;` GUID form (style 43); 1:1 use `any;-;`. */
+export const GROUP_CHAT_GUID_PLUS_PREFIX = 'any;+;'
 
-/** A 1:1 vs group chat is determined by the Apple chat GUID. */
+/**
+ * A 1:1 vs group chat is determined by the Apple chat GUID.
+ * - `any;-;...` = 1:1 (identified by the single other handle)
+ * - `any;+;...` or `...group...` = group chat
+ */
 export function isGroupChatGuid(chatGuid: string | null): boolean {
-  return chatGuid?.toLowerCase().includes(GROUP_CHAT_GUID_MARKER) ?? false
+  if (!chatGuid) return false
+  const lower = chatGuid.toLowerCase()
+  if (lower.includes(GROUP_CHAT_GUID_MARKER)) return true
+  if (lower.startsWith(GROUP_CHAT_GUID_PLUS_PREFIX)) return true
+  return false
 }
 
 // Apple Messages stores message timestamps as INTEGER nanoseconds since the
