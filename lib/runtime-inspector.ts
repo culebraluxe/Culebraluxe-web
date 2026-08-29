@@ -56,6 +56,21 @@ export type TimelineEntry = {
   commandId: string | null
   domainEventId: string | null
   metadata: Record<string, unknown> | null
+  /**
+   * Real business-context and related-identity evidence carried through from the
+   * trace row so the Flight Recorder console can surface Grok-style "added
+   * information" with REAL data (deal/property/person, task, signature, node,
+   * transition). Nullable/optional: not every event belongs to every object and
+   * the engine may not yet populate some of them.
+   */
+  dealId?: string | null
+  propertyId?: string | null
+  personId?: string | null
+  transactionDocumentId?: string | null
+  taskId?: string | null
+  signatureRequestId?: string | null
+  workflowDefinitionKey?: string | null
+  workflowTransitionId?: string | null
 }
 
 export type ExpectedVsActual = {
@@ -226,6 +241,14 @@ export function buildTimeline(events: TraceEvent[]): TimelineEntry[] {
     commandId: e.commandId,
     domainEventId: e.domainEventId,
     metadata: e.metadata,
+    dealId: e.dealId ?? null,
+    propertyId: e.propertyId ?? null,
+    personId: e.personId ?? null,
+    transactionDocumentId: e.transactionDocumentId ?? null,
+    taskId: e.taskId ?? null,
+    signatureRequestId: e.signatureRequestId ?? null,
+    workflowDefinitionKey: e.workflowDefinitionKey ?? null,
+    workflowTransitionId: e.workflowTransitionId ?? null,
   }))
 }
 

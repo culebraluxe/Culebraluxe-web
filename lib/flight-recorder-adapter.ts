@@ -322,11 +322,20 @@ export function adaptRuntimeInspection(input: AdapterInput): FlightRecorderTrace
     const details: Record<string, string> = {}
     if (e.summary) details.Summary = e.summary
     if (e.nodeId) details.Node = e.nodeId
+    // Real business-context and related-identity evidence (no fabrication): the
+    // trace row carries these ids when the engine/dispatcher recorded them.
+    if (e.dealId) details.Deal = e.dealId
+    if (e.propertyId) details.Property = e.propertyId
+    if (e.personId) details.Client = e.personId
+    if (e.transactionDocumentId) details.Document = e.transactionDocumentId
+    if (e.taskId) details.Task = e.taskId
+    if (e.signatureRequestId) details.Signature = e.signatureRequestId
+    if (e.workflowTransitionId) details.Transition = e.workflowTransitionId
     const rawCause = unresolved.get(e.id)
     if (rawCause) details['Cause Ref'] = rawCause
     if (e.metadata) {
       for (const [k, v] of Object.entries(e.metadata)) {
-        if (Object.keys(details).length >= 6) break
+        if (Object.keys(details).length >= 10) break
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
           details[k] = String(v)
         } else if (v != null) {
@@ -402,12 +411,34 @@ export function adaptRuntimeInspection(input: AdapterInput): FlightRecorderTrace
     eventCount: events.length,
     systemCount: systems.size,
     status,
+    // Real business-context evidence carried through from the trace rows. Grok's
+    // mockup invented these; we surface the ACTUAL deal/property/person ids the
+    // engine recorded (first non-null across the timeline). Resolving those ids
+    // into human-readable labels is a follow-up.
     businessContext: {
+      dealId: firstOf(timeline, 'dealId'),
+      property: firstOf(timeline, 'propertyId'),
+      client: firstOf(timeline, 'personId'),
       workflow: inspection.definitionKey ?? undefined,
     },
   }
 
   return { summary, events }
+}
+
+/** First non-empty value of an optional TimelineEntry field across a timeline. */
+function firstOf(
+  timeline: TimelineEntry[],
+  field: keyof Pick<
+    TimelineEntry,
+    'dealId' | 'propertyId' | 'personId' | 'transactionDocumentId'
+  >,
+): string | undefined {
+  for (const e of timeline) {
+    const v = e[field]
+    if (v != null && v !== '') return String(v)
+  }
+  return undefined
 }
 
 /**

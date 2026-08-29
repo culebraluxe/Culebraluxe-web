@@ -33,6 +33,14 @@ function entry(partial: Partial<TimelineEntry> & { id: string }): TimelineEntry 
     commandId: partial.commandId ?? null,
     domainEventId: partial.domainEventId ?? null,
     metadata: partial.metadata ?? null,
+    dealId: partial.dealId ?? null,
+    propertyId: partial.propertyId ?? null,
+    personId: partial.personId ?? null,
+    transactionDocumentId: partial.transactionDocumentId ?? null,
+    taskId: partial.taskId ?? null,
+    signatureRequestId: partial.signatureRequestId ?? null,
+    workflowDefinitionKey: partial.workflowDefinitionKey ?? null,
+    workflowTransitionId: partial.workflowTransitionId ?? null,
   }
 }
 
@@ -141,6 +149,44 @@ test('adaptRuntimeInspection builds a connected console trace from a command→d
   const titles = domain.relatedEventIds.map((r) => r.id)
   assert.ok(titles.includes('c2'))
   assert.ok(titles.includes('w1'))
+})
+
+test('adaptRuntimeInspection surfaces real business-context and related ids (no fabrication)', () => {
+  const timeline = [
+    entry({
+      id: 'c1',
+      eventType: 'COMMAND_RECEIVED',
+      commandId: 'cmd-1',
+      dealId: 'DEAL-2025-000123',
+      propertyId: 'PROP-7',
+      personId: 'PERSON-9',
+      summary: 'Command deal.create received',
+      outcome: 'STARTED',
+    }),
+    entry({
+      id: 't1',
+      eventType: 'TASK_CREATED',
+      taskId: 'task-42',
+      signatureRequestId: 'sig-77',
+      dealId: 'DEAL-2025-000123',
+      causationId: 'c1',
+      occurredAt: '2026-08-28T14:00:01.000Z',
+      relativeMs: 1000,
+    }),
+  ]
+  const trace = adaptRuntimeInspection({ inspection: inspection(timeline) })
+
+  // Business Context carries the REAL ids across the timeline.
+  assert.equal(trace.summary.businessContext.dealId, 'DEAL-2025-000123')
+  assert.equal(trace.summary.businessContext.property, 'PROP-7')
+  assert.equal(trace.summary.businessContext.client, 'PERSON-9')
+  assert.equal(trace.summary.businessContext.workflow, 'purchase_transaction')
+
+  // Per-event details surface the recorded related ids.
+  const task = trace.events.find((e) => e.id === 't1')!
+  assert.equal(task.details.Task, 'task-42')
+  assert.equal(task.details.Signature, 'sig-77')
+  assert.equal(task.details.Deal, 'DEAL-2025-000123')
 })
 
 test('adaptRuntimeInspection is deterministic (same input → identical output)', () => {
