@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react"
 import { DEFAULT_INPUTS } from "@/lib/decision-analysis/defaults"
-import { compactMoney, evaluate, money, pct } from "@/lib/decision-analysis/model"
+import { evaluate, money, pct } from "@/lib/decision-analysis/model"
 import { buildDecisionPdf, downloadPdf } from "@/lib/decision-analysis/pdf"
 import type { Inputs, OptionId } from "@/lib/decision-analysis/types"
+import { TreeSvg } from "./TreeSvg"
 
 type NumKind = "money" | "months" | "pct"
 type ParentField = { key: keyof Inputs; label: string; kind: "text" | NumKind }
@@ -21,30 +22,6 @@ const PARENT: ParentField[] = [
 ]
 
 type OptField = { key: keyof Inputs; label: string; kind: NumKind }
-
-const COL: Record<OptionId, string> = {
-  1: "border-[#1B365D] bg-[#D6EAF8] text-[#1B365D]",
-  2: "border-[#0F6E6B] bg-[#D5F5E3] text-[#0F6E6B]",
-  3: "border-[#B85C38] bg-[#F5CBA7] text-[#B85C38]",
-  4: "border-[#6C3483] bg-[#E8DAEF] text-[#6C3483]",
-  5: "border-[#7D6608] bg-[#FCF3CF] text-[#7D6608]",
-}
-
-const PILL: Record<OptionId, string> = {
-  1: "bg-[#1B365D]",
-  2: "bg-[#0F6E6B]",
-  3: "bg-[#B85C38]",
-  4: "bg-[#6C3483]",
-  5: "bg-[#7D6608]",
-}
-
-const TIPS: Record<OptionId, [string, string][]> = {
-  1: [["1L", "LOW"], ["1M", "MID"], ["1H", "IDEAL"]],
-  2: [["2L", "LOW"], ["2M", "BASE"], ["2H", "HIGH"]],
-  3: [["3L", "LOW"], ["3M", "BASE"], ["3H", "HIGH"]],
-  4: [["4L", "LOW"], ["4M", "MID"], ["4H", "HIGH"]],
-  5: [["5L", "LOW"], ["5M", "MID"], ["5H", "HIGH"]],
-}
 
 const OPTIONS: {
   id: OptionId
@@ -151,7 +128,6 @@ export function DecisionStudio() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS)
   const [busy, setBusy] = useState(false)
   const model = useMemo(() => evaluate(inputs), [inputs])
-  const byId = Object.fromEntries(model.branches.map((b) => [b.id, b]))
 
   async function onPdf() {
     setBusy(true)
@@ -247,47 +223,9 @@ export function DecisionStudio() {
           })}
         </section>
 
-        <section className="rounded-xl border-2 border-[#1B365D] bg-white p-4 shadow-sm">
+        <section className="overflow-x-auto rounded-xl border-2 border-[#1B365D] bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-sm font-semibold">Live tree</h2>
-          <div className="grid min-h-[280px] grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {model.scores.map((s) => {
-              if (!s.on) return null
-              const fail = s.option === 3 ? byId["3F"] : undefined
-              return (
-                <div key={s.option} className="rounded-xl border border-[#1B365D]/20 bg-white p-2">
-                  <div className={`rounded-lg border px-3 py-2 text-center ${COL[s.option]}`}>
-                    <p className="text-xs font-semibold tracking-wide">{s.short.toUpperCase()}</p>
-                    <p className="text-[11px] opacity-70">{s.months} months</p>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {TIPS[s.option].map(([id, name]) => {
-                      const br = byId[id]
-                      if (!br) return (
-                        <div key={id} className="rounded-lg border border-dashed px-3 py-2 text-[11px] text-[#5D6D7E]">{name} missing</div>
-                      )
-                      return (
-                        <div key={id} className="rounded-lg border border-[#1B365D]/20 px-3 py-2">
-                          <p className="text-xs font-semibold">{pct(br.p)}  {name}</p>
-                          <p className="text-[11px] text-[#2C3E50]">{compactMoney(br.price)} list · PV {compactMoney(br.pv)}</p>
-                        </div>
-                      )
-                    })}
-                    {fail ? (
-                      <div className="rounded-lg border border-[#922B21] bg-[#FADBD8] px-3 py-2">
-                        <p className="text-xs font-semibold text-[#922B21]">{pct(fail.p)}  FAIL</p>
-                        <p className="text-[11px]">{compactMoney(fail.price)} salvage · PV {compactMoney(fail.pv)}</p>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-[#1B365D]/20 px-3 py-2 text-center text-[11px] text-[#5D6D7E]">no second chance node</div>
-                    )}
-                  </div>
-                  <div className={`mt-3 rounded-full px-3 py-1.5 text-center text-xs font-semibold text-white ${PILL[s.option]}`}>
-                    {compactMoney(s.emvPv)}{s.best ? "  BEST" : ""}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <TreeSvg inputs={inputs} model={model} />
         </section>
 
         <section className="overflow-x-auto rounded-xl border border-[#1B365D]/10 bg-white p-4 shadow-sm">
