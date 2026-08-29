@@ -20,7 +20,8 @@ export default async function FormPage({
   const { formId } = await params
   const form = await getFormInstance(formId)
   if (!form) notFound()
-  const template = getTemplate(form.templateId)
+  // A saved form opens against its exact stored template version.
+  const template = getTemplate(form.templateId, form.templateVersion)
   if (!template) notFound()
   const savedForms = await listFormInstances()
 

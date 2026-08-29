@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 import {
-  getTemplate,
+  getLatestTemplate,
   LISTING_AGREEMENT_TEMPLATE_ID,
   OFFER_LETTER_TEMPLATE_ID,
   PURCHASE_SALE_AMENDMENT_TEMPLATE_ID,
@@ -169,7 +169,7 @@ async function main() {
     process.argv[3] ?? `output/pdf/${templateId.toLowerCase()}-review.pdf`,
   )
   const signatureAssetPath = process.argv[4]
-  const template = getTemplate(templateId)
+  const template = getLatestTemplate(templateId)
   if (!template) throw new Error(`Unknown template ${templateId}`)
 
   const values: Record<string, string> = {}

@@ -54,7 +54,7 @@ const legacyOfferDefinition: TemplateDefinition = {
   },
 }
 
-const xmlTemplate = getTemplate(OFFER_LETTER_TEMPLATE_ID)
+const xmlTemplate = getTemplate(OFFER_LETTER_TEMPLATE_ID, 1)
 assert.ok(xmlTemplate, 'OFFER-01 must load from XML through the seam')
 
 function fieldProjection(template: TemplateDefinition, name: string) {

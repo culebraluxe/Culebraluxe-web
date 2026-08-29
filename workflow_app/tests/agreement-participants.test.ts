@@ -76,6 +76,7 @@ function makeExec(opts: { snapshot?: unknown; satisfied?: string[] }) {
         {
           id: 'doc-1',
           template_id: 'PR-PNS',
+          template_version: 1,
           issued_version: 1,
           deal_id: 'deal-1',
           document_type: 'agreement',

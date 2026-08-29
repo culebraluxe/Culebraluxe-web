@@ -45,6 +45,7 @@ class AgreementCommandDb {
   doc: {
     id: string
     template_id: string
+    template_version: number
     issued_version: number
     deal_id: string | null
     document_type: string
@@ -83,6 +84,7 @@ class AgreementCommandDb {
           {
             id: this.doc.id,
             template_id: this.doc.template_id,
+            template_version: this.doc.template_version,
             issued_version: this.doc.issued_version,
             deal_id: this.doc.deal_id,
             document_type: this.doc.document_type,
@@ -252,6 +254,7 @@ function doc(overrides: Partial<AgreementCommandDb['doc']> = {}): AgreementComma
   return {
     id: 'doc-1',
     template_id: 'PR-PNS',
+    template_version: 1,
     issued_version: 1,
     deal_id: 'deal-1',
     document_type: 'agreement',

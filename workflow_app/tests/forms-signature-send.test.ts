@@ -12,7 +12,7 @@ import { applyDateDefaults } from '../../lib/forms/offer-letter-data'
 import { applyGrokFields, parseGrokFillJson } from '../../lib/forms/grok-fill'
 
 test('signing is declared on XML signature groups, not a hardcoded form list', () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)
   assert.ok(template)
   assert.equal(formSupportsSigning(template), true)
   assert.ok(template.signatureGroups.some((group) => group.role === 'BUYER'))
@@ -25,7 +25,7 @@ test('signer email validation rejects blanks and requires a real address shape',
 })
 
 test('pickFormSigners prefers CRM people for signature roles, then form fields', () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)!
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
   const picked = pickFormSigners({
     template,
     fieldValues: { buyerName: 'Ana Rivera', sellerName: 'Marco Silva' },
@@ -60,7 +60,7 @@ test('pickFormSigners prefers CRM people for signature roles, then form fields',
 })
 
 test('Grok fill JSON only writes known template fields and select options', () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)!
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
   const parsed = parseGrokFillJson(
     '{"fieldValues":{"buyerName":"Ana Rivera","financing":"Cash","nope":"x"},"note":"Filled buyer and financing."}',
   )
@@ -75,7 +75,7 @@ test('Grok fill JSON only writes known template fields and select options', () =
 })
 
 test('empty date fields default to a real ISO date, not a grey placeholder', () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)!
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
   const filled = applyDateDefaults(template, { closingDate: '' })
   assert.match(filled.closingDate, /^\d{4}-\d{2}-\d{2}$/)
 })

@@ -220,14 +220,14 @@ export async function issueFormDocument(
         replayed: false,
       }
     }
-    const template = getTemplate(form.templateId)
+    const template = getTemplate(form.templateId, form.templateVersion)
     if (!template) {
       return {
         commandId: input.commandId,
         outcome: 'validation_failure',
         emittedEvents: [],
         aggregateId: null,
-        message: `document.issue failed: unknown template ${form.templateId}.`,
+        message: `document.issue failed: unknown template ${form.templateId} v${form.templateVersion}.`,
         replayed: false,
       }
     }

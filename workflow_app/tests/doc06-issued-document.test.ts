@@ -18,7 +18,7 @@ import type { TxRunner } from '../../db/tx'
 // DOC-08: the Offer Letter now originates from XML (lib/forms/templates/
 // OFFER-01.xml) through the TemplateDefinition seam; these proofs exercise the
 // same effective definition the UI/renderer/issuance consume.
-const OFFER_LETTER_TEMPLATE = getTemplate('OFFER-01')!
+const OFFER_LETTER_TEMPLATE = getTemplate('OFFER-01', 1)!
 
 // ---------------------------------------------------------------------------
 // DOC-06 / DOC-07 — POC proof suite.
@@ -38,7 +38,7 @@ const OFFER_LETTER_TEMPLATE = getTemplate('OFFER-01')!
 // --------------------------- pure proofs ----------------------------------
 
 test('DOC-06/07 proof 1: reference template loads through TemplateDefinition', () => {
-  const template = getTemplate('OFFER-01')
+  const template = getTemplate('OFFER-01', 1)
   assert.ok(template, 'OFFER-01 must be resolvable through the seam')
   assert.equal(template.id, 'OFFER-01')
   assert.equal(template.version, 1)

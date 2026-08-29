@@ -19,7 +19,7 @@ import { parseTemplateXml } from '../../lib/forms/xml-template'
 // groups with initials — and renders deterministically across multiple pages.
 // ---------------------------------------------------------------------------
 
-const pns = getTemplate(PURCHASE_SALE_TEMPLATE_ID)
+const pns = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)
 assert.ok(pns, 'PR-PNS must load from XML through the seam')
 
 const section = (name: string) => {

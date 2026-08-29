@@ -118,7 +118,7 @@ export async function resolveAgreementDocument(
   execute: QueryExecutor,
 ): Promise<AgreementDocumentContext> {
   const rows = await execute`
-    select id, template_id, issued_version, deal_id, document_type, source_snapshot
+    select id, template_id, template_version, issued_version, deal_id, document_type, source_snapshot
     from transaction_document
     where id = ${documentId}
     limit 1
@@ -127,6 +127,7 @@ export async function resolveAgreementDocument(
     | {
         id?: unknown
         template_id?: unknown
+        template_version?: unknown
         issued_version?: unknown
         deal_id?: unknown
         document_type?: unknown
@@ -144,6 +145,7 @@ export async function resolveAgreementDocument(
     }
   }
   const templateId = typeof row.template_id === 'string' ? row.template_id : ''
+  const templateVersion = Number(row.template_version ?? 0)
   const issuedVersion = Number(row.issued_version ?? 0)
   const dealId = typeof row.deal_id === 'string' ? row.deal_id : null
   const documentType = typeof row.document_type === 'string' ? row.document_type : ''
@@ -159,11 +161,11 @@ export async function resolveAgreementDocument(
       template: null,
     }
   }
-  const template = getTemplate(templateId)
+  const template = getTemplate(templateId, templateVersion)
   if (!template) {
     return {
       outcome: 'validation_failure',
-      error: `Unknown template ${templateId || '(none)'} for document ${documentId}.`,
+      error: `Unknown template ${templateId || '(none)'} v${templateVersion || 0} for document ${documentId}.`,
       document,
       templateId: templateId || null,
       dealId,

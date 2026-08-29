@@ -75,7 +75,7 @@ test('broker signature config requires an explicit enabled gate and all bindings
 })
 
 test('authenticated owner issuance resolves protected signature material and slot', async () => {
-  const template = getTemplate('SHOW-RPT')!
+  const template = getTemplate('SHOW-RPT', 1)!
   const result = await resolveBrokerSignatureForIssuance(
     {
       template,
@@ -111,7 +111,7 @@ test('authenticated owner issuance resolves protected signature material and slo
 })
 
 test('signature policy never signs another broker and rejects a different actor', async () => {
-  const template = getTemplate('SHOW-RPT')!
+  const template = getTemplate('SHOW-RPT', 1)!
   const otherBroker = await resolveBrokerSignatureForIssuance(
     {
       template,
@@ -141,7 +141,7 @@ test('signature policy never signs another broker and rejects a different actor'
 })
 
 test('PR-PNS requires Lisa to occupy one immutable seller-broker slot', async () => {
-  const template = getTemplate('PR-PNS')!
+  const template = getTemplate('PR-PNS', 1)!
   const result = await resolveBrokerSignatureForIssuance(
     {
       template,

@@ -200,6 +200,7 @@ const DEFAULT_PARTICIPANTS = [
 
 function makeExecute(opts: {
   templateId?: string
+  templateVersion?: number
   issuedVersion?: number
   satisfiedSlots?: string[]
   id?: string
@@ -214,6 +215,7 @@ function makeExecute(opts: {
         {
           id: opts.id ?? 'doc-1',
           template_id: opts.templateId ?? 'PR-PNS',
+          template_version: opts.templateVersion ?? 1,
           issued_version: opts.issuedVersion ?? 1,
           deal_id: opts.dealId ?? 'deal-1',
           document_type: opts.documentType ?? 'agreement',

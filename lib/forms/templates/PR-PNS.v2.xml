@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PR-PNS — Purchase and Sale Agreement (DOC-08/10 pressure test).
+
+  A representative model of a real Puerto Rico P&S, expressed in the tiny XML
+  vocabulary. Rules followed:
+    stable business facts    = structured <field>
+    negotiated language      = broad editable <section> prose (draft JSONB)
+    document shape           = this XML
+    runtime draft state      = existing JSONB form instance
+    issued truth             = immutable PDF via the existing DOC-06 path
+
+  NO conditionals are used: financing/appraisal/survey/inspection are
+  structured flags/dates plus editable negotiated-language sections. If a real
+  form later proves a conditional section is required, exactly one declarative
+  primitive would be added — this template does not need it.
+-->
+<form
+  id="PR-PNS"
+  version="2"
+  title="PURCHASE AND SALE AGREEMENT"
+  presentation="agreement"
+  documentType="Purchase and Sale Agreement"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+    <participant role="SELLER_BROKER" label="Seller's Broker"/>
+  </participants>
+
+  <!-- structured parties -->
+  <field id="buyerName" label="Buyer" type="text" required="true" source="deal.client.name"/>
+  <field id="sellerName" label="Seller" type="text" required="true"/>
+  <field id="buyerBrokerName" label="Buyer's Broker" type="text"/>
+  <field id="sellerBrokerName" label="Seller's Broker" type="text"/>
+
+  <!-- structured property identifiers -->
+  <field id="property" label="Property" type="text" required="true" source="deal.property.label"/>
+  <field id="municipality" label="Municipality" type="text"/>
+  <field id="catastroNumber" label="Catastro Number" type="text"/>
+  <field id="registryEntry" label="Registry Entry" type="text"/>
+
+  <!-- structured price / deposit / closing -->
+  <field id="purchasePrice" label="Purchase Price" type="money" required="true" source="deal.offer.amount"/>
+  <field id="deposit" label="Deposit (Escrow)" type="money" required="true"/>
+  <field id="closingDate" label="Closing Date" type="date" required="true" source="deal.closing.date"/>
+
+  <!-- structured financing / appraisal / survey / inspection -->
+  <field id="financing" label="Financing" type="select" options="Cash, Financed" required="true" source="deal.financing.type"/>
+  <field id="financingDeadline" label="Financing Commitment Deadline" type="date"/>
+  <field id="appraisalWaived" label="Appraisal Waived" type="select" options="Yes, No"/>
+  <field id="surveyDeadline" label="Survey Deadline" type="date"/>
+  <field id="inspectionDeadline" label="Inspection Deadline" type="date"/>
+
+  <!-- parties + property: structured values bound into boilerplate prose -->
+  <section id="parties" title="Parties" editable="false">
+    This Purchase and Sale Agreement is made between
+    <value field="buyerName"/> (the "Buyer") and
+    <value field="sellerName"/> (the "Seller"),
+    through their respective brokers.
+  </section>
+
+  <section id="propertyDescription" title="Property" editable="false">
+    The property subject to this Agreement is located at
+    <value field="property"/>,
+    Municipality of <value field="municipality"/>,
+    identified as Catastro Number <value field="catastroNumber"/>
+    and Registry Entry <value field="registryEntry"/>.
+  </section>
+
+  <section id="purchasePrice" title="Purchase Price and Deposit" editable="false">
+    The purchase price is <value field="purchasePrice"/>,
+    payable as follows: a deposit of <value field="deposit"/>
+    upon execution of this Agreement, with the balance payable at closing.
+  </section>
+
+  <section id="closing" title="Closing" editable="false">
+    Closing shall take place on or before <value field="closingDate"/>
+    at a time and place mutually agreed by the parties.
+  </section>
+
+  <!-- __PART2__ -->
+  <section id="titleInsurance" title="Title and Title Insurance" editable="false">
+    Seller shall deliver good and marketable title, free and clear of all
+    liens and encumbrances, and shall provide a standard title insurance
+    commitment at Seller's expense.
+  </section>
+
+  <section id="taxes" title="Taxes and Assessments" editable="false">
+    Real estate taxes and municipal assessments shall be prorated as of the
+    date of closing. Seller shall pay all taxes due through the day of closing.
+  </section>
+
+  <section id="closingCosts" title="Closing Costs" editable="false">
+    The parties shall bear their respective closing costs in accordance with
+    prevailing custom and practice, including notarial and registry fees as
+    provided by law.
+  </section>
+
+  <section id="risk" title="Risk of Loss" editable="false">
+    Risk of loss or damage to the Property shall remain with Seller until the
+    closing, after which it shall pass to Buyer.
+  </section>
+
+  <section id="default" title="Default" editable="false">
+    In the event of Buyer's default, the deposit may be retained by Seller as
+    liquidated damages. In the event of Seller's default, Buyer may terminate
+    this Agreement and receive a refund of the deposit.
+  </section>
+
+  <section id="notices" title="Notices" editable="false">
+    All notices required under this Agreement shall be in writing and delivered
+    to the parties at the addresses stated herein.
+  </section>
+
+  <section id="governingLaw" title="Governing Law" editable="false">
+    This Agreement shall be governed by and construed in accordance with the
+    laws of the Commonwealth of Puerto Rico.
+  </section>
+
+  <!-- broad negotiated language (editable) -->
+  <section id="financingTerms" title="Financing" editable="true">
+    Describe the financing commitment, lender, loan amount and the deadline to
+    obtain the financing commitment letter.
+  </section>
+
+  <section id="appraisalSurveyInspection" title="Appraisal, Survey and Inspection" editable="true">
+    Describe whether the appraisal is waived, the survey requirements and the
+    inspection period and resolution.
+  </section>
+
+  <section id="additionalTerms" title="Additional Terms" editable="true">
+    Additional negotiated terms of the transaction.
+  </section>
+
+  <section id="specialConditions" title="Special Conditions" editable="true">
+    Special conditions negotiated by the parties.
+  </section>
+
+  <section id="possession" title="Possession and Occupancy" editable="false">
+    Possession shall be delivered at closing, broom-clean, free of occupants
+    and personal property not included in the sale, unless the parties agree
+    otherwise in writing. Keys, codes and access devices shall be delivered
+    at closing.
+  </section>
+
+  <section id="fixtures" title="Fixtures and Personal Property" editable="false">
+    All fixtures permanently attached to the Property are included. Appliances,
+    furnishings and other personal property are included only if listed in
+    Additional Terms. Seller shall not remove included items after the date
+    of this Agreement.
+  </section>
+
+  <section id="asIs" title="Condition of Property" editable="false">
+    Except as required by law or expressly warranted in this Agreement, the
+    Property is sold in its present as-is condition. Buyer has had, or will
+    have during the inspection period, a reasonable opportunity to inspect.
+  </section>
+
+  <section id="walkthrough" title="Pre-Closing Walkthrough" editable="false">
+    Buyer may inspect the Property within forty-eight hours before closing
+    to confirm that it is in substantially the same condition as on the date
+    of this Agreement, ordinary wear excepted, and that agreed repairs have
+    been completed.
+  </section>
+
+  <section id="prorations" title="Prorations and Adjustments" editable="false">
+    Taxes, rents, HOA dues, utilities and similar recurring charges shall be
+    prorated as of the closing date. Prepaid items and deposits transferable
+    to Buyer shall be credited accordingly.
+  </section>
+
+  <section id="hoa" title="Homeowners Association" editable="false">
+    If the Property is subject to a homeowners or condominium association,
+    Seller shall provide the current documents, budget, and statement of
+    account. Buyer shall apply for membership as required by the association.
+  </section>
+
+  <section id="utilities" title="Utilities and Services" editable="false">
+    Seller shall maintain utility service through closing. Buyer shall arrange
+    transfer of service effective the closing date. Outstanding utility
+    charges remain Seller's responsibility through the day of closing.
+  </section>
+
+  <section id="attorneyNotary" title="Attorney and Notary" editable="false">
+    Each party may retain independent counsel. Closing shall be conducted
+    before a Puerto Rico notary public. Notarial and registry fees shall be
+    allocated as provided under Closing Costs, unless amended in Additional
+    Terms.
+  </section>
+
+  <section id="firpta" title="Tax Withholding" editable="false">
+    The parties shall cooperate with any withholding or reporting required
+    under applicable Puerto Rico and federal tax law in connection with the
+    transfer, including nonresident withholding if applicable.
+  </section>
+
+  <section id="assignment" title="Assignment" editable="false">
+    Buyer may not assign this Agreement without Seller's prior written
+    consent, except to an entity controlled by Buyer. No assignment shall
+    release Buyer from liability.
+  </section>
+
+  <section id="entireAgreement" title="Entire Agreement" editable="false">
+    This Agreement, including any addenda signed by the parties, constitutes
+    the entire agreement and supersedes all prior negotiations. Amendments
+    must be in writing and signed by Buyer and Seller.
+  </section>
+
+  <section id="counterparts" title="Counterparts and Electronic Delivery" editable="false">
+    This Agreement may be signed in counterparts, each of which is an
+    original. Electronic delivery of a signed counterpart is effective.
+  </section>
+
+  <section id="severability" title="Severability" editable="false">
+    If any provision is held unenforceable, the remaining provisions continue
+    in full force. The unenforceable provision shall be modified to the
+    minimum extent necessary to make it enforceable.
+  </section>
+
+  <section id="timeOfEssence" title="Time of Essence" editable="false">
+    Time is of the essence of this Agreement. Deadlines that fall on a
+    weekend or legal holiday in Puerto Rico run to the next business day.
+  </section>
+
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+    <signature-group role="SELLER" label="Seller" field="sellerName" initials="true"/>
+    <signature-group role="SELLER_BROKER" label="Seller's Broker" field="sellerBrokerName" initials="true"/>
+  </signatures>
+
+</form>

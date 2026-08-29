@@ -36,7 +36,7 @@ test('FORMS-01: all production templates load and validate', () => {
   ]
   const loaded = listTemplates()
   for (const id of ids) {
-    const template = getTemplate(id)
+    const template = getTemplate(id, 1)
     assert.ok(template, `${id} loads`)
     assert.ok(template.fields.length > 0, `${id} has fields`)
     assert.equal(loaded.some((item) => item.id === id), true)
@@ -44,7 +44,7 @@ test('FORMS-01: all production templates load and validate', () => {
 })
 
 test('FORMS-01: P&S has role collections and signature groups', () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)
   assert.ok(template)
   assert.ok(template.participants.some((p) => p.role === 'BUYER' && p.multiple))
   assert.ok(template.participants.some((p) => p.role === 'SELLER' && p.multiple))
@@ -149,7 +149,7 @@ test('FORMS-01: XML rejects unknown bindings and duplicate fields', () => {
 })
 
 test('FORMS-01: unified renderer matches Offer Letter', async () => {
-  const template = getTemplate(OFFER_LETTER_TEMPLATE_ID)!
+  const template = getTemplate(OFFER_LETTER_TEMPLATE_ID, 1)!
   const values = prefillFieldValues(template, {
     clientName: 'James Lee',
     propertyLabel: 'Sunset Point',
@@ -167,7 +167,7 @@ test('FORMS-01: unified renderer matches Offer Letter', async () => {
 })
 
 test('FORMS-01: P&S preview and issuance share renderer and paginate', async () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)!
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
   const values = prefillFieldValues(template, {
     clientName: 'James Lee',
     propertyLabel: 'Sunset Point, Culebra',
@@ -191,7 +191,7 @@ test('FORMS-01: P&S preview and issuance share renderer and paginate', async () 
 })
 
 test('FORMS-BR: renderer emits bounded bottom-left anchors after pagination', async () => {
-  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID)!
+  const template = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
   const values = prefillFieldValues(template, {
     clientName: 'Ana María Rivera',
     propertyLabel: 'Villa del Mar, Culebra, Puerto Rico',
@@ -231,7 +231,7 @@ test('FORMS-BR: renderer emits bounded bottom-left anchors after pagination', as
 })
 
 test('FORMS-BR: identical inputs produce byte-identical PDFs', async () => {
-  const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID)!
+  const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID, 1)!
   const values: Record<string, string> = {
     visitorName: 'José Muñoz',
     agentName: 'Lisa Penfield',
@@ -248,7 +248,7 @@ test('FORMS-BR: identical inputs produce byte-identical PDFs', async () => {
 })
 
 test('FORMS-BR: an authorized issuance signature and initials replace all owner anchors', async () => {
-  const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID)!
+  const template = getTemplate(SHOWING_REPORT_TEMPLATE_ID, 1)!
   const logoBytes = readFileSync(
     join(process.cwd(), 'public/brand/CLLOGO.png'),
   )
@@ -328,7 +328,7 @@ test('FORMS-01: remaining production templates render PDFs', async () => {
     SHOWING_INFO_TEMPLATE_ID,
     SHOWING_REPORT_TEMPLATE_ID,
   ]) {
-    const template = getTemplate(id)!
+    const template = getTemplate(id, 1)!
     const values: Record<string, string> = {}
     for (const field of template.fields) {
       values[field.name] = field.type === 'date' ? '2026-09-01' : 'Test'

@@ -9,7 +9,11 @@ import { canonicalizeExecutionParticipants } from '@/lib/agreements/participants
 import { guardPortalRoute } from '@/lib/auth/portal-session'
 import { getTemplate } from '@/lib/forms/template-registry'
 import { renderFormPdf } from '@/lib/forms/pdf'
-import type { TemplateFieldValues, TemplateSectionValues } from '@/lib/forms/template-types'
+import type {
+  TemplateDefinition,
+  TemplateFieldValues,
+  TemplateSectionValues,
+} from '@/lib/forms/template-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,17 +31,15 @@ function pdfResponse(bytes: Buffer) {
 async function previewRenderContext(
   formId: string,
   dealId: string | null,
-  templateId: string,
+  template: TemplateDefinition,
   actorAppUserId: string,
   fieldValues: TemplateFieldValues,
 ) {
   const [people, issuedVersion] = await Promise.all([
     listFormSignerPeople(formId),
-    getNextIssuedVersionForTemplate({ dealId, templateId }),
+    getNextIssuedVersionForTemplate({ dealId, templateId: template.id }),
   ])
   const participants = canonicalizeExecutionParticipants(people)
-  const template = getTemplate(templateId)
-  if (!template) return { error: 'Template not found.' } as const
   const brokerSignature = await resolveBrokerSignatureForIssuance(
     {
       template,
@@ -68,12 +70,13 @@ export async function GET(
   const { formId } = await context.params
   const form = await getFormInstance(formId)
   if (!form) return new NextResponse('Not found', { status: 404 })
-  const template = getTemplate(form.templateId)
+  // A saved form previews against its exact stored template version.
+  const template = getTemplate(form.templateId, form.templateVersion)
   if (!template) return new NextResponse('Not found', { status: 404 })
   const renderContext = await previewRenderContext(
     formId,
     form.dealId,
-    form.templateId,
+    template,
     guard.actor.appUserId,
     form.fieldValues,
   )
@@ -104,7 +107,8 @@ export async function POST(
   const { formId } = await context.params
   const form = await getFormInstance(formId)
   if (!form) return new NextResponse('Not found', { status: 404 })
-  const template = getTemplate(form.templateId)
+  // A saved form previews against its exact stored template version.
+  const template = getTemplate(form.templateId, form.templateVersion)
   if (!template) return new NextResponse('Not found', { status: 404 })
   let fieldValues: TemplateFieldValues = form.fieldValues
   let sections: TemplateSectionValues = form.sections
@@ -125,7 +129,7 @@ export async function POST(
   const renderContext = await previewRenderContext(
     formId,
     form.dealId,
-    form.templateId,
+    template,
     guard.actor.appUserId,
     fieldValues,
   )

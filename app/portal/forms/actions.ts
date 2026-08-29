@@ -30,7 +30,7 @@ import { parseAppliedSignatureSlotIds } from '@/lib/forms/applied-signature'
 import { resolveSignatureEnvelopeRecipients } from '@/lib/forms/signature-envelope'
 import { getAppliedBrokerCompletionEmail } from '@/db/broker-signature'
 import { getBoldSignRequestBySignatureRequestId } from '@/db/bold-sign-request'
-import { getTemplate } from '@/lib/forms/template-registry'
+import { getTemplate, getLatestTemplate } from '@/lib/forms/template-registry'
 import { applyGrokFields, requestGrokFormFill } from '@/lib/forms/grok-fill'
 import {
   emptyDealFacts,
@@ -120,7 +120,8 @@ export async function createFormAction(input: {
   propertyId?: string
 }): Promise<FormActionResult<{ formId: string }>> {
   return authorizedFormWrite(async (actor) => {
-    const template = getTemplate(input.templateId)
+    // New form creation uses the LATEST approved version for this form type.
+    const template = getLatestTemplate(input.templateId)
     if (!template) return fail('validation', 'Template not found.')
     const dealId = input.dealId?.trim() || null
     const personId = input.personId?.trim() || null
@@ -255,7 +256,7 @@ export async function grokFillFormAction(input: {
   return authorizedFormWrite(async () => {
     const prompt = input.prompt.trim()
     if (!prompt) return fail('validation', 'Tell Grok what happened first.')
-    const template = getTemplate(input.templateId)
+    const template = getLatestTemplate(input.templateId)
     if (!template) return fail('not-found', 'Template not found.')
     try {
       const filled = await requestGrokFormFill({
@@ -312,7 +313,8 @@ export async function sendFormForSignatureAction(
 
     const form = await getFormInstance(formId)
     if (!form) return fail('not-found', 'Form instance not found.')
-    const template = getTemplate(form.templateId)
+    // A saved form is permanently bound to its stored template version.
+    const template = getTemplate(form.templateId, form.templateVersion)
     if (!template) return fail('not-found', 'Template not found.')
     if (!formSupportsSigning(template)) {
       return fail('validation', 'This form is not set up for signature.')
