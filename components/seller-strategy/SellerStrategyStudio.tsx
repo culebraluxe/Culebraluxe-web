@@ -194,10 +194,8 @@ export function SellerStrategyStudio() {
   const maxPv = ranking.length ? ranking[0].emvPv : 1
   const activeScore = activeStrategy ? model.scores.find((s) => s.option === activeStrategy.id) : undefined
 
-
   return (
     <div className="space-y-5">
-      {/* Page header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.22em] text-[var(--portal-gold-muted)]">
@@ -229,7 +227,6 @@ export function SellerStrategyStudio() {
         </div>
       </div>
 
-      {/* Model validity flags */}
       {model.flags.length > 0 && (
         <div className="rounded-2xl border border-[var(--portal-danger)]/40 bg-[var(--portal-danger)]/10 px-4 py-3 text-sm text-[var(--portal-danger)]">
           {model.flags.map((f) => (
@@ -238,13 +235,24 @@ export function SellerStrategyStudio() {
         </div>
       )}
 
-      {/* A/B. Permanent Executive Summary shell: both regions stay inside one glass surface. */}
+      {/* Desktop cockpit layout: explicit CSS grid, independent of Tailwind breakpoints/arbitrary-grid generation. */}
       <section className="portal-glass-panel portal-glass-panel-lifted overflow-hidden rounded-2xl p-1">
-        <div className="grid grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] gap-1">
-          {/* A. Recommendation hero */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 2fr) minmax(280px, 1fr)",
+            gap: 4,
+          }}
+        >
           <div className="portal-glass-panel portal-glass-panel-feature min-w-0 rounded-xl p-5">
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(240px,300px)] gap-6">
-              <div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 2fr) minmax(240px, 1fr)",
+                gap: 24,
+              }}
+            >
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.24em] text-[var(--portal-feature-eyebrow)]">Recommended</p>
                 <h2 className="mt-2 font-serif text-3xl font-light text-white">{model.winner.name}</h2>
                 <p className="mt-2 text-lg text-white">
@@ -262,7 +270,7 @@ export function SellerStrategyStudio() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-white/12 bg-white/5 p-4">
+              <div className="min-w-0 rounded-xl border border-white/12 bg-white/5 p-4">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-feature-eyebrow)]">
                   Expected PV Ranking
                 </p>
@@ -289,21 +297,20 @@ export function SellerStrategyStudio() {
             </div>
           </div>
 
-          {/* B. Live Assumptions */}
           <div className="portal-glass-panel portal-glass-panel-soft min-w-0 rounded-xl p-5">
             <div className="mb-3 flex items-end justify-between gap-3">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Shared facts</p>
                 <h2 className="font-serif text-lg font-light text-[var(--portal-navy)]">Live Assumptions</h2>
               </div>
-              <p className="text-xs text-[var(--portal-muted)]">
+              <p className="text-right text-xs text-[var(--portal-muted)]">
                 Sunk {money(inputs.purchasePrice + inputs.extraSpent)} · basis {money(model.basis)}
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
               {PARENT_KEY.map((f) =>
                 f.key === "propertyName" ? (
-                  <div key={String(f.key)} className="sm:col-span-2">
+                  <div key={String(f.key)} style={{ gridColumn: "1 / -1" }}>
                     <Field inputs={inputs} setInputs={setInputs} field={f} />
                   </div>
                 ) : (
@@ -319,7 +326,7 @@ export function SellerStrategyStudio() {
               {editAll ? "Hide" : "Edit"} basis & sunk-cost fields
             </button>
             {editAll && (
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="mt-3" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
                 {PARENT_BASIS.map((f) => (
                   <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
                 ))}
@@ -329,19 +336,18 @@ export function SellerStrategyStudio() {
         </div>
       </section>
 
-      {/* C. Five strategy cards */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 16 }}>
         {STRATEGIES.map((opt) => {
           const score = model.scores.find((s) => s.option === opt.id)
           const on = Boolean(inputs[opt.onKey])
           return (
             <article
               key={opt.id}
-              className={`portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-4 transition ${on ? "" : "opacity-55"}`}
+              className={`portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted min-w-0 rounded-2xl p-4 transition ${on ? "" : "opacity-55"}`}
               style={{ borderTopColor: opt.accent, borderTopWidth: 2 }}
             >
               <div className="mb-2 flex items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-sm font-semibold text-[var(--portal-navy)]">{opt.title}</h3>
                   <p className="text-[11px] text-[var(--portal-muted)]">{opt.blurb}</p>
                 </div>
@@ -374,7 +380,6 @@ export function SellerStrategyStudio() {
         })}
       </section>
 
-      {/* C2. Inline Edit Assumptions — expands in the page, no modal/drawer */}
       {activeStrategy && (
         <section
           className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5"
@@ -400,7 +405,7 @@ export function SellerStrategyStudio() {
               Collapse
             </button>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
             {activeStrategy.fields.map((f) => (
               <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
             ))}
@@ -408,9 +413,15 @@ export function SellerStrategyStudio() {
         </section>
       )}
 
-      {/* D + E. Decision Map + Key Takeaways */}
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="portal-glass-panel portal-glass-panel-lifted rounded-2xl p-5">
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 3fr) minmax(280px, 1fr)",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <div className="portal-glass-panel portal-glass-panel-lifted min-w-0 rounded-2xl p-5">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Hero visual</p>
@@ -427,7 +438,7 @@ export function SellerStrategyStudio() {
           </div>
         </div>
 
-        <aside className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5">
+        <aside className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted min-w-0 rounded-2xl p-5">
           <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Read-out</p>
           <h2 className="font-serif text-lg font-light text-[var(--portal-navy)]">Key Takeaways</h2>
           <ul className="mt-3 space-y-2.5">
@@ -451,7 +462,6 @@ export function SellerStrategyStudio() {
         </aside>
       </section>
 
-      {/* F. Analysis Detail */}
       <section className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
