@@ -16,7 +16,8 @@ const SINGLE_VALUES: Record<string, string> = {
   propertyLocation: 'Carretera 250, Km 2.1, Culebra, PR 00775',
   catastroNumber: '473-000-001-01',
   listPrice: '1250000',
-  commission: '5% of sales price in a co-booking situation; 4% if Broker acts alone',
+  commission:
+    '5% of the sales price in a co-booking situation; 4% of the sales price if Broker acts alone',
   startDate: '2026-09-01',
   endDate: '2027-09-01',
   listingType: 'Exclusive Right to Sell',
