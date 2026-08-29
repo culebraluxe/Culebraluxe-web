@@ -627,7 +627,7 @@ export function FormEditor({
             busy={working}
             onAsk={async (prompt) => {
               const result = await grokFillFormAction({
-                templateId: template.id,
+                formId: form.id,
                 prompt,
                 fieldValues: values,
                 detailsText,

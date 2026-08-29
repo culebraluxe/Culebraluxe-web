@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import {
   getTemplate,
   getLatestTemplate,
+  getActiveTemplate,
+  ACTIVE_TEMPLATE_VERSIONS,
   resolveLatestTemplateVersion,
   listTemplates,
   PURCHASE_SALE_TEMPLATE_ID,
@@ -95,8 +97,67 @@ test('FORMS-VER 4: when only v1 exists, latest resolves to v1 (new form stores v
   assert.equal(resolveLatestTemplateVersion(onlyV1, PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
 })
 
-test('FORMS-VER 5: after v2 exists, a NEW form resolves the latest (v2)', () => {
+test('FORMS-VER 5: NEW form creation uses the ACTIVE version (v1), not the highest registered (v2)', () => {
+  // createFormAction resolves getActiveTemplate(id), so a new P&S form stores
+  // the human-approved version even though a higher version is registered.
+  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
   assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
+})
+
+test('FORMS-VER 16: PR-PNS v2 remains registered but is NOT the active/approved version', () => {
+  assert.equal(ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID], 1)
+  // v2 is registered (exact lookup works) and is the highest registered, but the
+  // approved/current version for NEW forms stays v1.
+  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)?.version, 2)
+  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
+  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
+})
+
+test('FORMS-VER 17: an existing persisted v2 form still resolves v2 exactly', () => {
+  // Never downgrade/migrate persisted instances — exact historical resolution stands.
+  const persistedV2 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 2 }
+  assert.equal(
+    getTemplate(persistedV2.templateId, persistedV2.templateVersion)?.version,
+    2,
+  )
+  // And v1 persists too.
+  const persistedV1 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 1 }
+  assert.equal(
+    getTemplate(persistedV1.templateId, persistedV1.templateVersion)?.version,
+    1,
+  )
+})
+
+test('FORMS-VER 18: registering a higher unapproved version does NOT affect new form creation', () => {
+  // The active manifest is the sole source of truth for NEW forms; a higher
+  // registered (unapproved) version never changes what a new form uses.
+  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
+  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
+  // Active is driven by the code-owned manifest, independent of registration.
+  assert.equal(
+    getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version,
+    ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID],
+  )
+})
+
+test('FORMS-VER 19: Grok Fill resolution seam — persisted v1 form uses v1 exactly', () => {
+  const persistedV1 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 1 }
+  const resolved = getTemplate(persistedV1.templateId, persistedV1.templateVersion)
+  assert.equal(resolved?.version, 1)
+})
+
+test('FORMS-VER 20: Grok Fill resolution seam — persisted v2 form uses v2 exactly', () => {
+  const persistedV2 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 2 }
+  const resolved = getTemplate(persistedV2.templateId, persistedV2.templateVersion)
+  assert.equal(resolved?.version, 2)
+})
+
+test('FORMS-VER 21: Grok Fill resolution seam — missing persisted template version fails closed', () => {
+  const persistedMissing = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 0 }
+  assert.equal(
+    getTemplate(persistedMissing.templateId, persistedMissing.templateVersion),
+    null,
+  )
 })
 
 test('FORMS-VER 6: an existing v1 form still resolves v1 after v2 exists', () => {

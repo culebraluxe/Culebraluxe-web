@@ -30,7 +30,7 @@ import { parseAppliedSignatureSlotIds } from '@/lib/forms/applied-signature'
 import { resolveSignatureEnvelopeRecipients } from '@/lib/forms/signature-envelope'
 import { getAppliedBrokerCompletionEmail } from '@/db/broker-signature'
 import { getBoldSignRequestBySignatureRequestId } from '@/db/bold-sign-request'
-import { getTemplate, getLatestTemplate } from '@/lib/forms/template-registry'
+import { getTemplate, getActiveTemplate } from '@/lib/forms/template-registry'
 import { applyGrokFields, requestGrokFormFill } from '@/lib/forms/grok-fill'
 import {
   emptyDealFacts,
@@ -120,8 +120,9 @@ export async function createFormAction(input: {
   propertyId?: string
 }): Promise<FormActionResult<{ formId: string }>> {
   return authorizedFormWrite(async (actor) => {
-    // New form creation uses the LATEST approved version for this form type.
-    const template = getLatestTemplate(input.templateId)
+    // New form creation uses the HUMAN-APPROVED (active) version, never merely
+    // the highest registered version.
+    const template = getActiveTemplate(input.templateId)
     if (!template) return fail('validation', 'Template not found.')
     const dealId = input.dealId?.trim() || null
     const personId = input.personId?.trim() || null
@@ -242,7 +243,7 @@ export async function issueFormAction(
 }
 
 export async function grokFillFormAction(input: {
-  templateId: string
+  formId: string
   prompt: string
   fieldValues: Record<string, string>
   detailsText: string
@@ -256,7 +257,12 @@ export async function grokFillFormAction(input: {
   return authorizedFormWrite(async () => {
     const prompt = input.prompt.trim()
     if (!prompt) return fail('validation', 'Tell Grok what happened first.')
-    const template = getLatestTemplate(input.templateId)
+    // Resolve the template from the PERSISTED form's exact version — never trust
+    // a client-supplied version, and never let Grok interpret a v1 draft against
+    // v2/v3 field definitions.
+    const form = await getFormInstance(input.formId)
+    if (!form) return fail('not-found', 'Form instance not found.')
+    const template = getTemplate(form.templateId, form.templateVersion)
     if (!template) return fail('not-found', 'Template not found.')
     try {
       const filled = await requestGrokFormFill({

@@ -88,9 +88,32 @@ export function getTemplate(id: string, version: number): TemplateDefinition | n
   return resolveTemplateVersion(TEMPLATES, id, version)
 }
 
-/** Highest registered version for a form type (used to create a NEW form). */
+/** Highest registered version for a form type (tooling/tests only). */
 export function getLatestTemplate(id: string): TemplateDefinition | null {
   return resolveLatestTemplateVersion(TEMPLATES, id)
+}
+
+/**
+ * The HUMAN-APPROVED version used to create NEW forms. A registered but
+ * unapproved version (e.g. the PR-PNS.v2 placeholder) must NEVER silently
+ * become the template used for new Forms. Changing the active version is a
+ * single explicit code-owned decision after the real legal content is approved.
+ * This is NOT a database table or approval-workflow UI.
+ */
+export const ACTIVE_TEMPLATE_VERSIONS: Readonly<Record<string, number>> = {
+  [OFFER_LETTER_TEMPLATE_ID]: 1,
+  [PURCHASE_SALE_TEMPLATE_ID]: 1,
+  [PURCHASE_SALE_AMENDMENT_TEMPLATE_ID]: 1,
+  [LISTING_AGREEMENT_TEMPLATE_ID]: 1,
+  [SHOWING_INFO_TEMPLATE_ID]: 1,
+  [SHOWING_REPORT_TEMPLATE_ID]: 1,
+}
+
+/** Approved/current version used for NEW form creation. */
+export function getActiveTemplate(id: string): TemplateDefinition | null {
+  const version = ACTIVE_TEMPLATE_VERSIONS[id]
+  if (version === undefined) return null
+  return getTemplate(id, version)
 }
 
 export function listTemplates(): readonly TemplateDefinition[] {
@@ -106,5 +129,5 @@ const PORTAL_FORM_TYPES: readonly { id: string; displayName: string }[] = [
 ]
 
 export function listPortalFormTypes(): readonly { id: string; displayName: string }[] {
-  return PORTAL_FORM_TYPES.filter((item) => getLatestTemplate(item.id))
+  return PORTAL_FORM_TYPES.filter((item) => getActiveTemplate(item.id))
 }
