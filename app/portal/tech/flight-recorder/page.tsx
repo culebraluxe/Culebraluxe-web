@@ -6,6 +6,7 @@ import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { getWorkflowSummaries } from "@/workflow_app/read-service"
 import { engineConfigured } from "@/workflow_app/engine-client"
+import { findGoldenQaWorkflowInstance } from "@/workflow_app/flight-recorder-read"
 
 export const dynamic = "force-dynamic"
 
@@ -22,6 +23,7 @@ export default async function FlightRecorderPage() {
 
   const configured = engineConfigured()
   const summaries = configured ? await getWorkflowSummaries() : []
+  const goldenQa = await findGoldenQaWorkflowInstance()
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-4 lg:p-6">
@@ -44,7 +46,11 @@ export default async function FlightRecorderPage() {
           ← Workflows
         </Link>
       </div>
-      <FlightRecorderList configured={configured} summaries={summaries} />
+      <FlightRecorderList
+        configured={configured}
+        summaries={summaries}
+        goldenQa={goldenQa}
+      />
     </div>
   )
 }

@@ -12,6 +12,8 @@
     "bank:load:dev": "node --env-file=.env.local --import tsx scripts/bank-transaction-load.ts --env dev",
     "bank:load:prod": "node --env-file=.env.local --import tsx scripts/bank-transaction-load.ts --env prod",
     "bank:dry-run": "node --env-file=.env.local --import tsx scripts/bank-transaction-load.ts --env dev --dry-run",
+    "flight-recorder:qa-seed": "node --env-file=.env.local --import tsx scripts/seed-flight-recorder-qa.ts",
+    "flight-recorder:qa-reset": "node --env-file=.env.local --import tsx scripts/seed-flight-recorder-qa.ts --reset",
     "calendar:sync": "swift scripts/macbridge/CalendarEventKit.swift --past-days 7 --future-days 60",
     "calendar:sync:install": "node scripts/calendar-sync-agent.mjs install",
     "calendar:sync:status": "node scripts/calendar-sync-agent.mjs status",

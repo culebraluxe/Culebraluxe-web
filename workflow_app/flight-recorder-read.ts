@@ -1,5 +1,6 @@
 import { engineConfigured, engineSql } from './engine-client'
 import { listTraceEvents } from '../db/workflow-trace'
+import { sql } from '../db/client'
 import { buildRuntimeInspection } from '../lib/runtime-inspector'
 import type { NodeRuntime } from '../lib/runtime-inspector'
 import { resolveBusinessContext } from './runtime-inspector-read'
@@ -314,3 +315,78 @@ export async function getFlightRecorderTransaction(
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// QA Golden transaction — durable DEV-only fixture for Product Owner QA.
+// ---------------------------------------------------------------------------
+
+/** Deterministic deal marker identifying the Flight Recorder QA golden fixture. */
+export const QA_GOLDEN_DEAL_MARKER = 'qa-flight-recorder-golden'
+
+export type GoldenQaInfo = {
+  instanceId: string
+  dealId: string
+  property: string | null
+  client: string | null
+}
+
+/**
+ * Find the durable QA golden transaction's primary workflow instance (if present).
+ * Returns null when the fixture has not been seeded. Used by the Flight Recorder
+ * entry point to surface a one-click "Golden QA Transaction" link.
+ */
+export async function findGoldenQaWorkflowInstance(): Promise<GoldenQaInfo | null> {
+  if (!engineConfigured()) return null
+  try {
+    const dealRows = await sql`
+      select d.id as deal_id, d.property_id, d.client_person_id
+      from deal d
+      where d.notes = ${QA_GOLDEN_DEAL_MARKER}
+      limit 1
+    `
+    if (dealRows.length === 0) return null
+    const d = dealRows[0] as { deal_id: unknown; property_id: unknown; client_person_id: unknown }
+    const esql = engineSql()
+    const instRows = await esql`
+      select pi.id
+      from process_instances pi
+      where pi.subject_type = 'deal' and pi.subject_id = ${String(d.deal_id)}
+      order by pi.created_at asc
+      limit 1
+    `
+    if (!instRows[0]) return null
+    const instanceId = String((instRows[0] as { id: unknown }).id)
+    const [property, client] = await Promise.all([
+      propertyNameLabel(esql, String(d.property_id)),
+      personNameLabel(esql, String(d.client_person_id)),
+    ])
+    return {
+      instanceId,
+      dealId: String(d.deal_id),
+      property: property,
+      client: client,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function propertyNameLabel(esql: QueryExecutor, propertyId: string): Promise<string | null> {
+  try {
+    const rows = await esql`select name as label from property where id::text = ${propertyId} limit 1`
+    const row = rows[0] as { label?: string } | undefined
+    return row?.label ?? null
+  } catch {
+    return null
+  }
+}
+
+async function personNameLabel(esql: QueryExecutor, personId: string): Promise<string | null> {
+  try {
+    const rows = await esql`select display_name as label from person where id::text = ${personId} limit 1`
+    const row = rows[0] as { label?: string } | undefined
+    return row?.label ?? null
+  } catch {
+    return null
+  }
+}

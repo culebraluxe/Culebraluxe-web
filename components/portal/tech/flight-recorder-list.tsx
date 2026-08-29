@@ -19,9 +19,11 @@ function statusTone(outcome: string | null, status: string): string {
 export function FlightRecorderList({
   configured,
   summaries,
+  goldenQa,
 }: {
   configured: boolean
   summaries: WorkflowSummary[]
+  goldenQa?: { instanceId: string; dealId: string; property: string | null; client: string | null } | null
 }) {
   if (!configured) {
     return (
@@ -30,18 +32,40 @@ export function FlightRecorderList({
       </p>
     )
   }
-  if (summaries.length === 0) {
-    return (
-      <p className="text-sm font-light text-black/55">
-        No workflow executions recorded yet. Start a workflow to see its
-        runtime evidence here.
-      </p>
-    )
-  }
   return (
     <div className="space-y-3">
-      {summaries.map((s) => (
-        <div
+      {goldenQa && (
+        <div className="block rounded-[var(--portal-panel-radius)] border border-[var(--portal-gold)]/40 bg-[var(--portal-gold-pale)] p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-[10px] font-light uppercase tracking-[0.22em] text-[var(--portal-gold)]">
+                Golden QA Transaction
+              </div>
+              <h2 className="mt-1.5 font-serif text-lg font-light text-[var(--portal-navy)]">
+                {goldenQa.property ?? "Flight Recorder Golden Purchase"}
+              </h2>
+              {goldenQa.client && (
+                <p className="mt-1 text-xs font-light text-black/55">{goldenQa.client}</p>
+              )}
+            </div>
+            <Link
+              href={`/portal/tech/flight-recorder/${goldenQa.instanceId}`}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-[var(--portal-blue-gray)] hover:bg-[var(--portal-navy)]/5"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Open Console
+            </Link>
+          </div>
+        </div>
+      )}
+      {summaries.length === 0 ? (
+        <p className="text-sm font-light text-black/55">
+          No workflow executions recorded yet. Start a workflow to see its
+          runtime evidence here.
+        </p>
+      ) : (
+        summaries.map((s) => (
+          <div
           key={s.instanceId}
           className="block rounded-[var(--portal-panel-radius)] portal-glass-panel p-5 transition-colors hover:border-[var(--portal-blue-gray)]/50"
         >
@@ -85,7 +109,7 @@ export function FlightRecorderList({
             </span>
           </div>
         </div>
-      ))}
+      )))}
     </div>
   )
 }
