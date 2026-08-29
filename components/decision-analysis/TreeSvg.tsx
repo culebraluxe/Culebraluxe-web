@@ -11,58 +11,93 @@ const COL = {
   5: { stroke: "#7D6608", fill: "#FCF3CF" },
 } as const
 
+const TIPS: Record<OptionId, [string, string][]> = {
+  1: [["1L", "LOW"], ["1M", "MID"], ["1H", "IDEAL"]],
+  2: [["2L", "LOW"], ["2M", "BASE"], ["2H", "HIGH"]],
+  3: [["3L", "LOW"], ["3M", "BASE"], ["3H", "HIGH"]],
+  4: [["4L", "LOW"], ["4M", "MID"], ["4H", "HIGH"]],
+  5: [["5L", "LOW"], ["5M", "MID"], ["5H", "HIGH"]],
+}
+
 export function TreeSvg({ model }: { inputs: Inputs; model: ModelResult }) {
-  const b = Object.fromEntries(model.branches.map((x) => [x.id, x]))
+  const byId = Object.fromEntries(model.branches.map((x) => [x.id, x]))
   const cols = model.scores.filter((s) => s.on)
-  const width = Math.max(1100, 180 + cols.length * 230)
+  const n = Math.max(cols.length, 1)
+  const colW = 220
+  const gap = 16
+  const pad = 20
+  const width = pad * 2 + n * colW + (n - 1) * gap
+  const headerH = 54
+  const rowH = 52
+  const failH = 52
+  const emvY = headerH + 36 + rowH * 3 + failH + 16
+  const height = emvY + 40
+
   return (
-    <svg viewBox={`0 0 ${width} 420`} className="w-full h-auto" role="img" aria-label="Decision tree">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" role="img" aria-label="Five-path decision comparison">
       <style>{`
         .lbl { font: 700 11px ui-sans-serif, system-ui; }
         .sm { font: 600 10px ui-sans-serif, system-ui; fill: #2C3E50; }
         .tiny { font: 500 9px ui-sans-serif, system-ui; fill: #5D6D7E; }
         .wht { font: 700 10px ui-sans-serif, system-ui; fill: #fff; }
       `}</style>
-      <rect x="12" y="188" width="88" height="44" rx="4" fill="#1B365D" />
-      <text x="56" y="206" textAnchor="middle" className="wht">DECIDE</text>
-      <text x="56" y="220" textAnchor="middle" className="wht">now</text>
 
       {cols.map((s, i) => {
-        const x = 160 + i * 230
+        const x = pad + i * (colW + gap)
         const c = COL[s.option as OptionId]
-        const tips =
-          s.option === 3
-            ? [["3L", "LOW"], ["3M", "BASE"], ["3H", "HIGH"], ["3F", "FAIL"]]
-            : s.option === 1
-              ? [["1L", "LOW"], ["1M", "MID"], ["1H", "IDEAL"]]
-              : s.option === 2
-                ? [["2L", "LOW"], ["2M", "BASE"], ["2H", "HIGH"]]
-                : s.option === 4
-                  ? [["4L", "LOW"], ["4M", "MID"], ["4H", "HIGH"]]
-                  : [["5L", "LOW"], ["5M", "MID"], ["5H", "HIGH"]]
+        const mid = x + colW / 2
+        const tips = TIPS[s.option as OptionId]
+        const fail = s.option === 3 ? byId["3F"] : undefined
         return (
           <g key={s.option}>
-            <line x1="100" y1="210" x2={x + 70} y2="58" stroke={c.stroke} strokeWidth="1.4" />
-            <rect x={x} y="20" width="140" height="40" rx="4" fill={c.fill} stroke={c.stroke} />
-            <text x={x + 70} y="36" textAnchor="middle" className="lbl" fill={c.stroke}>{s.short.toUpperCase()}</text>
-            <text x={x + 70} y="52" textAnchor="middle" className="tiny">{s.months} mo</text>
-            <circle cx={x + 70} cy="84" r="16" fill={c.fill} stroke={c.stroke} />
-            <text x={x + 70} y="88" textAnchor="middle" className="tiny">chance</text>
+            <rect x={x} y={0} width={colW} height={headerH} rx="6" fill={c.fill} stroke={c.stroke} />
+            <text x={mid} y={22} textAnchor="middle" className="lbl" fill={c.stroke}>
+              {s.short.toUpperCase()}
+            </text>
+            <text x={mid} y={40} textAnchor="middle" className="tiny">
+              {s.months} months · chance of price
+            </text>
+
             {tips.map(([id, name], ti) => {
-              const yy = 118 + ti * 58
-              const br = b[id]
+              const y = headerH + 20 + ti * rowH
+              const br = byId[id]
               if (!br) return null
               return (
                 <g key={id}>
-                  <line x1={x + 70} y1="100" x2={x + 70} y2={yy - 16} stroke={c.stroke} />
-                  <rect x={x} y={yy - 16} width="200" height="44" rx="4" fill="#fff" stroke={c.stroke} />
-                  <text x={x + 8} y={yy + 2} className="lbl" fill={c.stroke}>{pct(br.p)}  {name}</text>
-                  <text x={x + 8} y={yy + 18} className="sm">{compactMoney(br.price)} · PV {compactMoney(br.pv)}</text>
+                  <rect x={x} y={y} width={colW} height={44} rx="5" fill="#fff" stroke={c.stroke} />
+                  <text x={x + 10} y={y + 18} className="lbl" fill={c.stroke}>
+                    {pct(br.p)}  {name}
+                  </text>
+                  <text x={x + 10} y={y + 34} className="sm">
+                    {compactMoney(br.price)} list · PV {compactMoney(br.pv)}
+                  </text>
                 </g>
               )
             })}
-            <rect x={x} y="368" width="140" height="26" rx="13" fill={c.stroke} />
-            <text x={x + 70} y="385" textAnchor="middle" className="wht">{compactMoney(s.emvPv)}{s.best ? " BEST" : ""}</text>
+
+            <g>
+              {fail ? (
+                <>
+                  <rect x={x} y={headerH + 20 + 3 * rowH} width={colW} height={44} rx="5" fill="#FADBD8" stroke="#922B21" />
+                  <text x={x + 10} y={headerH + 38 + 3 * rowH} className="lbl" fill="#922B21">
+                    {pct(fail.p)}  FAIL
+                  </text>
+                  <text x={x + 10} y={headerH + 54 + 3 * rowH} className="sm">
+                    {compactMoney(fail.price)} salvage · PV {compactMoney(fail.pv)}
+                  </text>
+                </>
+              ) : (
+                <text x={mid} y={headerH + 48 + 3 * rowH} textAnchor="middle" className="tiny">
+                  no second chance node
+                </text>
+              )}
+            </g>
+
+            <rect x={x + 24} y={emvY} width={colW - 48} height={26} rx="13" fill={c.stroke} />
+            <text x={mid} y={emvY + 17} textAnchor="middle" className="wht">
+              {compactMoney(s.emvPv)}
+              {s.best ? "  BEST" : ""}
+            </text>
           </g>
         )
       })}
