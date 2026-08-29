@@ -6,6 +6,8 @@ import {
   mapEventToWorkflowNode,
   toFlightRecorderEvent,
   QA_GOLDEN_DEAL_MARKER,
+  getFlightRecorderTransaction,
+  findGoldenQaWorkflowInstance,
 } from '../flight-recorder-read'
 import type { FlightRecorderWorkflow } from '../flight-recorder-read'
 import type { ProcessGraph } from '../../workflow_engine/lib/workflow/types'
@@ -228,6 +230,13 @@ test('FLIGHT-RECORDER-READ QA golden marker is a stable, deterministic identity'
   // Idempotency anchor: the marker is the business-key predicate used to find
   // and reset ONLY the QA fixture, never general DEV data.
   assert.ok(!QA_GOLDEN_DEAL_MARKER.includes("'"))
+})
+
+test('FLIGHT-RECORDER-READ MODULE CONTRACT: canonical exports resolve as functions', () => {
+  // Bounded regression guarding the module surface used by the portal/API routes
+  // (a DEV-only "module has no exports" artifact must never become a real defect).
+  assert.equal(typeof getFlightRecorderTransaction, 'function')
+  assert.equal(typeof findGoldenQaWorkflowInstance, 'function')
 })
 
 
