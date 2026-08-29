@@ -100,7 +100,10 @@ export function rawEventFields(e: TraceEvent): RawField[] {
   const pairs: RawField[] = [
     { key: 'eventType', value: e.type, mono: true },
     { key: 'eventId', value: e.id, mono: true },
-    { key: 'rawSystem', value: e.system, mono: true },
+    // RAW SYSTEM is the preserved producer value; NORMALIZED SYSTEM is the
+    // Flight Recorder presentation classification. Never conflate them.
+    { key: 'rawSystem', value: e.details['Raw System'] ?? e.system, mono: true },
+    { key: 'normalizedSystem', value: e.system, mono: true },
     { key: 'status', value: e.status },
     { key: 'occurredAt', value: e.occurredAt, mono: true },
     { key: 'offsetMs', value: String(e.offsetMs), mono: true },
@@ -115,4 +118,18 @@ export function rawEventFields(e: TraceEvent): RawField[] {
     { key: 'qaSimulation', value: (e.payload as { qa_simulation?: boolean } | null)?.qa_simulation === true ? 'true' : null, mono: true },
   ]
   return pairs.filter((p) => p.value != null && p.value !== '')
+}
+
+/**
+ * An edge is causally "active" for selection ONLY when the selected causal node
+ * is one of its endpoints. This deliberately excludes sibling edges (e.g.
+ * P -> X when S is selected and P -> S, P -> X) so emphasis never implies a
+ * relationship that is merely "nearby" rather than direct.
+ */
+export function isSelectedCausalEdge(
+  edge: { source: string; target: string },
+  selectedNodeId: string | null,
+): boolean {
+  if (!selectedNodeId) return false
+  return edge.source === selectedNodeId || edge.target === selectedNodeId
 }

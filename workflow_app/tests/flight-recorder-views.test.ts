@@ -6,6 +6,7 @@ import {
   buildUnresolvedCauses,
   buildSelectionCausality,
   groupEventsBySystem,
+  isSelectedCausalEdge,
   rawEventFields,
 } from '../../lib/flight-recorder-views'
 import type { TraceEvent } from '../../lib/flight-recorder-adapter'
@@ -127,3 +128,56 @@ test('RAW 15: QA simulation marker remains visible', () => {
   assert.ok(fields.some((f) => f.key === 'qaSimulation' && f.value === 'true'))
   assert.deepEqual(e.payload, { qa_simulation: true, provider: 'qa-simulation' })
 })
+test('RAW FIX: rawSystem reads the preserved producer, not the normalized system', () => {
+  // Unknown normalized system with a preserved raw producer (docusign).
+  const docusign = ev({
+    id: 'e1',
+    system: 'Unknown',
+    type: 'SIGNATURE_SENT',
+    details: { 'Raw System': 'docusign' },
+    payload: { qa_simulation: true, provider: 'docusign' },
+  })
+  let fields = rawEventFields(docusign)
+  assert.equal(fields.find((f) => f.key === 'rawSystem')?.value, 'docusign')
+  assert.equal(fields.find((f) => f.key === 'normalizedSystem')?.value, 'Unknown')
+  // Nothing else about the event was mutated.
+  assert.equal(docusign.system, 'Unknown')
+  assert.equal(docusign.details['Raw System'], 'docusign')
+  assert.deepEqual(docusign.payload, { qa_simulation: true, provider: 'docusign' })
+
+  // Known normalized system with its raw producer preserved.
+  const wf = ev({
+    id: 'e2',
+    system: 'Workflow Engine',
+    type: 'WORKFLOW_STARTED',
+    details: { 'Raw System': 'workflow' },
+  })
+  fields = rawEventFields(wf)
+  assert.equal(fields.find((f) => f.key === 'rawSystem')?.value, 'workflow')
+  assert.equal(fields.find((f) => f.key === 'normalizedSystem')?.value, 'Workflow Engine')
+
+  // No preserved raw producer -> raw falls back to the normalized system value.
+  const plain = ev({ id: 'e3', system: 'BoldSign', type: 'SIGNATURE_SENT' })
+  fields = rawEventFields(plain)
+  assert.equal(fields.find((f) => f.key === 'rawSystem')?.value, 'BoldSign')
+  assert.equal(fields.find((f) => f.key === 'normalizedSystem')?.value, 'BoldSign')
+})
+
+test('CAUSALITY FIX: only edges directly connected to the selected node highlight', () => {
+  // P -> S, P -> X, S -> C, Y -> C ; selected = S
+  const edge = (source: string, target: string) => ({ source, target })
+  const edges = [
+    edge('P', 'S'),
+    edge('P', 'X'),
+    edge('S', 'C'),
+    edge('Y', 'C'),
+  ]
+  const active = edges.filter((e) => isSelectedCausalEdge(e, 'S')).map((e) => `${e.source}->${e.target}`)
+  assert.deepEqual(active.sort(), ['P->S', 'S->C'])
+  // Sibling / unrelated edges are NOT highlighted.
+  assert.ok(!active.includes('P->X'))
+  assert.ok(!active.includes('Y->C'))
+  // No selection -> nothing active.
+  assert.equal(edges.filter((e) => isSelectedCausalEdge(e, null)).length, 0)
+})
+

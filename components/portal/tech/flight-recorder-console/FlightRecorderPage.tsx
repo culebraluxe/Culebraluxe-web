@@ -13,6 +13,7 @@ import {
   buildCausalEventPairs,
   buildSelectionCausality,
   groupEventsBySystem,
+  isSelectedCausalEdge,
   rawEventFields,
 } from '@/lib/flight-recorder-views';
 import {
@@ -643,11 +644,7 @@ function CausalGraphSvg({
         const a = layout.nodes.find((n) => n.id === edge.source);
         const b = layout.nodes.find((n) => n.id === edge.target);
         if (!a || !b) return null;
-        const active =
-          edge.source === selectedNodeId ||
-          edge.target === selectedNodeId ||
-          parentIds.has(edge.source) ||
-          childIds.has(edge.target);
+        const active = isSelectedCausalEdge(edge, selectedNodeId);
         return (
           <line
             key={`${edge.source}->${edge.target}`}
