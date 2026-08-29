@@ -64,6 +64,8 @@ export type TraceOutcome =
   | (string & {})
 
 export type TraceEvent = {
+  /** Durable trace row primary key (immutable event identity). */
+  id?: string | null
   eventType: TraceEventType
   system: string
   occurredAt: string

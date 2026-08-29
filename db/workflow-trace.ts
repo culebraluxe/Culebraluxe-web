@@ -103,6 +103,7 @@ export async function listTraceEvents(
 
 function rowToTraceEvent(r: Record<string, unknown>): TraceEvent {
   return {
+    id: str(r.id),
     eventType: String(r.event_type),
     system: String(r.system),
     occurredAt: toIso(r.occurred_at as string | Date),

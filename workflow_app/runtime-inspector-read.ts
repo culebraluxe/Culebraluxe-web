@@ -153,7 +153,7 @@ async function dealPropertyId(esql: QueryExecutor, dealId: string): Promise<stri
  * deal / property / person tables (a deal-scoped workflow derives its property
  * from the deal). Labels fall back to the id when a row isn't found.
  */
-async function resolveBusinessContext(
+export async function resolveBusinessContext(
   esql: QueryExecutor,
   subject: { subjectType?: string | null; subjectId?: string | null } | null,
   timeline: TimelineEntry[],
