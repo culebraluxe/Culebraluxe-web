@@ -18,7 +18,8 @@ const singleValues: Record<string, string> = {
   propertyLocation: 'Carretera 250, Km 2.1, Culebra, PR 00775',
   catastroNumber: '473-000-001-01',
   listPrice: '1250000',
-  commission: '5% co-booking / 4% Broker-only',
+  commission:
+    '5% of the sales price in a co-booking situation; 4% of the sales price if Broker acts alone',
   startDate: '2026-09-01',
   endDate: '2027-09-01',
   listingType: 'Exclusive Right to Sell',
@@ -63,10 +64,10 @@ async function renderScenario(
 
   const body = documentBodyText(template, values)
 
-  // Exact formatting / punctuation assertions before the same body reaches PDF.
   const requiredText = [
     label === 'single' ? '$1,250,000' : '$5,500,000',
-    '5% co-booking / 4% Broker-only',
+    '5% of the sales price in a co-booking situation',
+    '4% of the sales price if Broker acts alone',
     '$500',
     '$600',
     '50/50',
@@ -126,7 +127,6 @@ async function renderScenario(
     anchors: artifact.signatureAnchors.length,
     sha256: createHash('sha256').update(artifact.bytes).digest('hex'),
     bytes: artifact.bytes.length,
-    bodyChars: body.length,
   }
 }
 
