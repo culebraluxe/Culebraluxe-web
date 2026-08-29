@@ -15,12 +15,18 @@ export function KindGlyph({
   className = 'h-4 w-4',
   x,
   y,
+  width,
+  height,
 }: {
   kind: EventKind;
   className?: string;
   /** Optional explicit position for embedding inside a larger SVG. */
   x?: number;
   y?: number;
+  /** Explicit SVG width/height — required when embedded inside a parent SVG,
+   *  where CSS sizing alone is unreliable (the Swimlane glyph-size bug). */
+  width?: number;
+  height?: number;
 }) {
   return (
     <svg
@@ -31,6 +37,8 @@ export function KindGlyph({
       className={className}
       x={x}
       y={y}
+      width={width}
+      height={height}
     >
       <path d={PATHS[kind]} strokeLinecap="round" strokeLinejoin="round" />
     </svg>

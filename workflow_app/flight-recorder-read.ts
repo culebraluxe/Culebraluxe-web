@@ -73,6 +73,8 @@ export type FlightRecorderTransaction = {
     client: string | null
     correlationId: string | null
     status: string | null
+    initiatedBy: string | null
+    initiatedAt: string | null
   }
   workflows: FlightRecorderWorkflow[]
   events: FlightRecorderEvent[]
@@ -181,6 +183,7 @@ type LoadedInstance = {
   subjectType: string | null
   subjectId: string | null
   businessKey: string | null
+  startedBy: string | null
   definitionKey: string | null
   definitionVersion: number | null
   definitionMissing: boolean
@@ -201,6 +204,7 @@ async function loadInstance(
       pi.subject_type,
       pi.subject_id,
       pi.business_key,
+      pi.started_by,
       pd.key as definition_key,
       pd.version as definition_version,
       pd.definition
@@ -216,6 +220,7 @@ async function loadInstance(
     subject_type?: unknown
     subject_id?: unknown
     business_key?: unknown
+    started_by?: unknown
     definition_key?: unknown
     definition_version?: unknown
     definition?: unknown
@@ -229,6 +234,7 @@ async function loadInstance(
     subjectType: r.subject_type == null ? null : String(r.subject_type),
     subjectId: r.subject_id == null ? null : String(r.subject_id),
     businessKey: r.business_key == null ? null : String(r.business_key),
+    startedBy: r.started_by == null ? null : String(r.started_by),
     definitionKey: r.definition_key == null ? null : String(r.definition_key),
     definitionVersion: r.definition_version == null ? null : Number(r.definition_version),
     definitionMissing: r.definition == null,
@@ -302,16 +308,52 @@ export async function getFlightRecorderTransaction(
     [],
   )
 
+  // For a deal-scoped workflow, derive the Client from the canonical deal
+  // participant model (both QA clients appear as one label) — never fabricated.
+  const dealClient =
+    primary.subjectType === 'deal' && primary.subjectId
+      ? await resolveDealClientLabel(esql, primary.subjectId)
+      : null
+
+  const initiatedAt =
+    events.length > 0 ? events.reduce((m, e) => (e.occurredAt < m ? e.occurredAt : m), events[0].occurredAt) : null
+
   return {
     transaction: {
       dealId: bc.dealId ?? null,
       property: bc.property ?? null,
-      client: bc.client ?? null,
+      client: dealClient ?? bc.client ?? null,
       correlationId: primary.businessKey ?? null,
       status: primary.status ?? null,
+      initiatedBy: primary.startedBy ?? null,
+      initiatedAt,
     },
     workflows,
     events,
+  }
+}
+
+/** Resolve a deal's client participants (person display names) into one label. */
+async function resolveDealClientLabel(
+  esql: QueryExecutor,
+  dealId: string,
+): Promise<string | null> {
+  try {
+    const rows = await esql`
+      select p.display_name as name
+      from deal_participant dp
+      join person p on p.id = dp.person_id
+      where dp.deal_id::text = ${dealId}
+        and dp.role = 'client'
+        and dp.active = true
+      order by p.display_name asc
+    `
+    const names = rows
+      .map((r) => String((r as { name?: unknown }).name))
+      .filter((n) => n && n !== 'undefined')
+    return names.length ? names.join(' & ') : null
+  } catch {
+    return null
   }
 }
 

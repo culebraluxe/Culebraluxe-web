@@ -24,6 +24,12 @@ import {
   RESIDENTIAL_TRANSACTION_VERSION,
 } from '../workflow_app/workflow-config'
 import { QA_GOLDEN_DEAL_MARKER as QA_MARKER } from '../workflow_app/flight-recorder-read'
+import {
+  buildGoldenEventSpecs,
+  QA_SOURCE_SYSTEM,
+  QA_FIXTURE_VERSION,
+  type QaContext,
+} from '../lib/qa-golden'
 
 // Deterministic marker used to identify the golden fixture for reset/re-seed.
 const QA_PROPERTY_SLUG = 'qa-flight-recorder-golden-purchase'
@@ -107,49 +113,86 @@ async function startGoldenWorkflow(dealId: string): Promise<string | null> {
   }
 }
 
-async function recordQaEvidence(instanceId: string): Promise<void> {
-  const now = new Date().toISOString()
-  const mark = (m: Record<string, unknown>) => ({ qa_simulation: true, ...m })
-  const rows: Array<{
-    eventType: string
-    system: string
-    summary: string
-    metadata: Record<string, unknown>
-  }> = [
-    {
-      eventType: 'COMMAND_RECEIVED',
-      system: 'command',
-      summary: 'QA Create Deal command received',
-      metadata: mark({ command: 'deal.create' }),
-    },
-    {
-      eventType: 'DOCUMENT_CREATED',
-      system: 'document',
-      summary: 'QA Purchase Contract generated',
-      metadata: mark({ qa: true }),
-    },
-    {
-      eventType: 'SIGNATURE_REQUEST_CREATED',
-      system: 'signature',
-      summary: 'QA Signature request created (simulated)',
-      metadata: mark({ provider: 'qa-simulation' }),
-    },
-    {
-      eventType: 'SIGNATURE_SENT',
-      system: 'signature',
-      summary: 'QA Signature request sent (simulated provider)',
-      metadata: mark({ provider: 'qa-simulation' }),
-    },
-  ]
-  for (const row of rows) {
+async function ensureDealParticipants(
+  dealId: string,
+  mariaId: string,
+  juanId: string,
+): Promise<void> {
+  for (const personId of [mariaId, juanId]) {
+    const exists = await sql`
+      select 1 from deal_participant where deal_id = ${dealId} and person_id = ${personId} limit 1
+    `
+    if (exists.length === 0) {
+      await sql`
+        insert into deal_participant (deal_id, person_id, role, active)
+        values (${dealId}, ${personId}, 'client', true)
+      `
+    }
+  }
+}
+
+async function findQaPersonByPrefix(prefix: string): Promise<string | null> {
+  const rows = await sql`
+    select pi.person_id
+    from person_identity pi
+    where pi.source_system = ${QA_SOURCE_SYSTEM} and pi.identity_value like ${`${prefix}-%`}
+    limit 1
+  `
+  return rows[0] ? String((rows[0] as { person_id: unknown }).person_id) : null
+}
+
+async function loadWorkflowMeta(instanceId: string): Promise<{
+  definitionKey: string
+  definitionVersion: number
+}> {
+  const rows = await sql`
+    select pd.key as def_key, pd.version as def_version
+    from process_instances pi
+    join process_definitions pd on pd.id = pi.definition_id
+    where pi.id = ${instanceId}
+    limit 1
+  `
+  const r = rows[0] as { def_key?: unknown; def_version?: unknown } | undefined
+  return {
+    definitionKey: r?.def_key == null ? RESIDENTIAL_TRANSACTION_KEY : String(r.def_key),
+    definitionVersion: r?.def_version == null ? RESIDENTIAL_TRANSACTION_VERSION : Number(r.def_version),
+  }
+}
+
+/**
+ * Rebuild the deterministic 18-event Golden QA narrative for the instance.
+ * Deletes any prior QA-marked / narrative events for this instance, then inserts
+ * the 18 events with real timing offsets and causation resolved to the ACTUAL
+ * persisted event ids (via the deterministic source_system/source_event_id).
+ */
+async function rebuildGoldenEvidence(instanceId: string, ctx: QaContext): Promise<void> {
+  await sql`
+    delete from workflow_execution_trace_event
+    where workflow_instance_id = ${instanceId}
+      and (source_system = ${QA_SOURCE_SYSTEM} or metadata->>'qa_simulation' = 'true')
+  `
+
+  const traceStart = new Date()
+  const ids = new Map<string, string>()
+  for (const spec of buildGoldenEventSpecs()) {
+    const causeId = spec.causeSourceEventId ? (ids.get(spec.causeSourceEventId) ?? null) : null
     await recordTraceEvent({
-      eventType: row.eventType,
-      system: row.system,
-      occurredAt: now,
+      eventType: spec.eventType,
+      system: spec.system,
+      occurredAt: new Date(traceStart.getTime() + spec.offsetMs).toISOString(),
       workflowInstanceId: instanceId,
-      summary: row.summary,
-      metadata: row.metadata,
+      summary: spec.summary,
+      causationId: causeId,
+      metadata: { ...spec.metadata(ctx), qa_fixture_version: QA_FIXTURE_VERSION },
+      sourceSystem: QA_SOURCE_SYSTEM,
+      sourceEventId: spec.sourceEventId,
     })
+    const row = await sql`
+      select id from workflow_execution_trace_event
+      where source_system = ${QA_SOURCE_SYSTEM} and source_event_id = ${spec.sourceEventId}
+      limit 1
+    `
+    ids.set(spec.sourceEventId, String((row[0] as { id: unknown }).id))
   }
 }
 
@@ -174,6 +217,24 @@ Flight Recorder QA fixture ready
 async function seed(): Promise<void> {
   const existing = await findGolden()
   if (existing && existing.instanceId) {
+    // Reuse the durable golden fixture; ensure both QA clients participate.
+    const mariaId = existing.personId
+    const juanId = (await findQaPersonByPrefix('qa-juan')) ?? mariaId
+    await ensureDealParticipants(existing.dealId, mariaId, juanId)
+    const meta = await loadWorkflowMeta(existing.instanceId)
+    const ctx: QaContext = {
+      dealId: existing.dealId,
+      propertyId: existing.propertyId,
+      propertyName: 'QA — 123 Ocean View Drive',
+      mariaId,
+      juanId,
+      mariaName: 'QA Maria Rodriguez',
+      juanName: 'QA Juan Rodriguez',
+      workflowInstanceId: existing.instanceId,
+      workflowDefinitionKey: meta.definitionKey,
+      workflowDefinitionVersion: meta.definitionVersion,
+    }
+    await rebuildGoldenEvidence(existing.instanceId, ctx)
     printResult(existing)
     return
   }
@@ -201,7 +262,7 @@ async function seed(): Promise<void> {
     displayName: 'QA Maria Rodriguez',
     role: 'buyer',
     identities: [
-      { kind: 'external', normalizedValue: `qa-maria-${mariaId}`, sourceSystem: 'flight-recorder-qa', isPrimary: true },
+      { kind: 'external', normalizedValue: `qa-maria-${mariaId}`, sourceSystem: QA_SOURCE_SYSTEM, isPrimary: true },
     ],
   })
   await createPersonWithIdentities({
@@ -209,7 +270,7 @@ async function seed(): Promise<void> {
     displayName: 'QA Juan Rodriguez',
     role: 'buyer',
     identities: [
-      { kind: 'external', normalizedValue: `qa-juan-${juanId}`, sourceSystem: 'flight-recorder-qa', isPrimary: true },
+      { kind: 'external', normalizedValue: `qa-juan-${juanId}`, sourceSystem: QA_SOURCE_SYSTEM, isPrimary: true },
     ],
   })
 
@@ -218,10 +279,24 @@ async function seed(): Promise<void> {
     clientPersonId: mariaId,
     notes: QA_MARKER,
   })
+  await ensureDealParticipants(deal.id, mariaId, juanId)
 
   const instanceId = await startGoldenWorkflow(deal.id)
   if (instanceId) {
-    await recordQaEvidence(instanceId)
+    const meta = await loadWorkflowMeta(instanceId)
+    const ctx: QaContext = {
+      dealId: deal.id,
+      propertyId: prop.id,
+      propertyName: 'QA — 123 Ocean View Drive',
+      mariaId,
+      juanId,
+      mariaName: 'QA Maria Rodriguez',
+      juanName: 'QA Juan Rodriguez',
+      workflowInstanceId: instanceId,
+      workflowDefinitionKey: meta.definitionKey,
+      workflowDefinitionVersion: meta.definitionVersion,
+    }
+    await rebuildGoldenEvidence(instanceId, ctx)
   }
 
   printResult({ dealId: deal.id, propertyId: prop.id, personId: mariaId, instanceId })

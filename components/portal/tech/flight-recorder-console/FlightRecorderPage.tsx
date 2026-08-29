@@ -491,7 +491,9 @@ function TraceMapMini({
                 kind={n.semanticKind}
                 x={-7}
                 y={-7}
-                className="h-[14px] w-[14px] text-white"
+                width={14}
+                height={14}
+                className="text-white"
               />
               <circle
                 r={layout.nodeRadius + 9}
@@ -863,7 +865,7 @@ function Swimlane({
               tabIndex={0}
             >
               <title>{`${e.title} · ${e.system} · ${formatClock(e.occurredAt)} · ${e.status}`}</title>
-              <KindGlyph kind={e.kind} x={-8} y={-8} className="h-4 w-4" />
+              <KindGlyph kind={e.kind} x={-8} y={-8} width={16} height={16} />
               <circle
                 r={selected || isParent || isChild ? 10 : 9}
                 fill="none"

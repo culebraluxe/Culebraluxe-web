@@ -214,7 +214,7 @@ export function eventTypeToKind(eventType: string): EventKind {
     return 'Workflow'
   if (u.startsWith('TASK_') || u.startsWith('TIMER_') || u.startsWith('JOB_')) return 'Task'
   if (u.startsWith('SIGNATURE_')) return 'Integration'
-  if (u.startsWith('DOCUMENT_')) return 'Persistence'
+  if (u.startsWith('DOCUMENT_') || u.startsWith('PERSISTENCE_')) return 'Persistence'
   // Truthful fallback: an unrecognized event is NOT forced into a known domain.
   return 'Unknown'
 }
@@ -656,6 +656,8 @@ export function adaptFlightRecorderTransaction(
       property: tx.transaction.property ?? undefined,
       client: tx.transaction.client ?? undefined,
       workflow: primary?.definitionKey ?? undefined,
+      initiatedBy: tx.transaction.initiatedBy ?? undefined,
+      initiatedAt: tx.transaction.initiatedAt ?? undefined,
     },
   }
 
