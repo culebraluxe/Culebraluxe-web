@@ -278,11 +278,12 @@ export function adaptWhatsAppEvent(
     }
     const actorPhone = externalPhones[0]
 
-    // Free-form messages require text; template/service messages may carry
-    // optional text (templates additionally require a template reference).
+    // Content is optional because metadata-only connectors intentionally do
+    // not retain message bodies. When a reviewed connector supplies text, it
+    // is still normalized and bounded here.
     let summary: string | undefined
     if (event.contentClass === 'free_form') {
-      summary = normalizeMessage(event.plainText)
+      if (event.plainText !== undefined) summary = normalizeMessage(event.plainText)
     } else {
       if (event.contentClass === 'template' && event.templateId === undefined) {
         return { status: 'rejected', reason: 'missing_template_id' }
@@ -297,6 +298,9 @@ export function adaptWhatsAppEvent(
     const metadata: JsonObject = {
       transport: 'whatsapp',
       contentClass: event.contentClass,
+    }
+    if (event.messageType) {
+      metadata.messageType = sourceToken(event.messageType, 'messageType')
     }
     if (event.templateId) metadata.templateId = opaqueId(event.templateId, 'templateId')
     if (correlationId) metadata.correlationId = correlationId

@@ -38,6 +38,8 @@ export interface WhatsAppProviderEvent {
   trustedDirection?: WhatsAppDirection
   actorAssurance: WhatsAppAssurance
   contentClass: WhatsAppMessageClass
+  /** Bounded transport-level message kind (text, image, document, etc.). */
+  messageType?: string
   plainText?: string
   templateId?: string
   correlationId?: string
@@ -51,6 +53,8 @@ export interface OwnedWhatsAppLine {
 }
 
 export interface WhatsAppAdapterConfiguration {
+  /** Provider token used in canonical source identity; defaults to macos. */
+  provider?: string
   ownedLines: OwnedWhatsAppLine[]
   sharedExternalPhones?: string[]
   systemEndpoints?: string[]

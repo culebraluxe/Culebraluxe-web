@@ -206,6 +206,7 @@ export function mapMessagesEvent(
 /** Lower a neutral whatsapp fact into the existing WhatsAppProviderEvent. */
 export function mapWhatsAppEvent(
   event: ExternalActivityEvent,
+  provider = MAC_OBSERVER_PROVIDER,
 ): WhatsAppProviderEvent {
   const sender = externalIdentitiesOf(event, 'sender')[0]
   const recipients = externalIdentitiesOf(event, 'recipient')
@@ -214,7 +215,7 @@ export function mapWhatsAppEvent(
       .filter((i) => i.kind === 'phone' || i.kind === 'whatsapp')
       .map((i) => ({ kind: 'address' as const, value: i.value }))
   return {
-    provider: MAC_OBSERVER_PROVIDER,
+    provider,
     accountNamespace: tokenizeAccountNamespace(event.sourceAccount),
     providerMessageId: event.externalEventId,
     occurredAt: event.occurredAt,
@@ -223,6 +224,7 @@ export function mapWhatsAppEvent(
     trustedDirection: event.direction,
     actorAssurance: 'transport_observed',
     contentClass: 'free_form',
+    messageType: event.eventType.split('.').at(-1),
     plainText: event.content?.summary,
     correlationId: event.correlationId,
     displayNameHint:

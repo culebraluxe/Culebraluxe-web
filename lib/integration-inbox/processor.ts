@@ -231,7 +231,10 @@ export async function processExternalActivityEvent(
           record,
           () =>
             prepareWhatsAppIntake(
-              mapWhatsAppEvent(event),
+              mapWhatsAppEvent(
+                event,
+                input.channels.whatsapp.provider,
+              ),
               input.channels.whatsapp,
               input.repositories,
             ),
