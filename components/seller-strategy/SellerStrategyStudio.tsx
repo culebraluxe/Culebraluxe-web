@@ -240,10 +240,10 @@ export function SellerStrategyStudio() {
 
       {/* A/B. Permanent Executive Summary shell: both regions stay inside one glass surface. */}
       <section className="portal-glass-panel portal-glass-panel-lifted overflow-hidden rounded-2xl p-1">
-        <div className="grid gap-1 md:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <div className="grid grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] gap-1">
           {/* A. Recommendation hero */}
           <div className="portal-glass-panel portal-glass-panel-feature min-w-0 rounded-xl p-5">
-            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(240px,300px)] gap-6">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-[var(--portal-feature-eyebrow)]">Recommended</p>
                 <h2 className="mt-2 font-serif text-3xl font-light text-white">{model.winner.name}</h2>
