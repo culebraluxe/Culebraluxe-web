@@ -5,6 +5,7 @@ import {
   buildFlightRecorderWorkflow,
   mapEventToWorkflowNode,
   toFlightRecorderEvent,
+  QA_GOLDEN_DEAL_MARKER,
 } from '../flight-recorder-read'
 import type { FlightRecorderWorkflow } from '../flight-recorder-read'
 import type { ProcessGraph } from '../../workflow_engine/lib/workflow/types'
@@ -220,4 +221,13 @@ test('FLIGHT-RECORDER-READ TEST 1/8: historical fidelity — the passed exact de
   assert.ok(wf.nodeStates['legacy'], 'v2.3.1 node present')
   assert.ok(!wf.nodeStates['task_a'], 'newer v2.4 node absent from a historical execution')
 })
+
+test('FLIGHT-RECORDER-READ QA golden marker is a stable, deterministic identity', () => {
+  assert.equal(QA_GOLDEN_DEAL_MARKER, 'qa-flight-recorder-golden')
+  assert.ok(QA_GOLDEN_DEAL_MARKER.length > 0)
+  // Idempotency anchor: the marker is the business-key predicate used to find
+  // and reset ONLY the QA fixture, never general DEV data.
+  assert.ok(!QA_GOLDEN_DEAL_MARKER.includes("'"))
+})
+
 

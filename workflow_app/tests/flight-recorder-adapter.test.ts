@@ -5,6 +5,7 @@ import {
   eventTypeToKind,
   systemToSystemId,
   outcomeToStatus,
+  nodeTypeToKind,
   adaptRuntimeInspection,
   adaptFlightRecorderTransaction,
   toTimelineEntries,
@@ -84,27 +85,34 @@ test('eventTypeToKind maps the engine vocabulary onto console kinds', () => {
   assert.equal(eventTypeToKind('TIMER_FIRED'), 'Task')
   assert.equal(eventTypeToKind('SIGNATURE_SENT'), 'Integration')
   assert.equal(eventTypeToKind('DOCUMENT_CREATED'), 'Persistence')
-  assert.equal(eventTypeToKind('FAILURE'), 'Workflow')
+  // An unrecognized event is NOT forced into a known domain.
+  assert.equal(eventTypeToKind('FAILURE'), 'Unknown')
+  assert.equal(eventTypeToKind('SOME_FUTURE_EVENT'), 'Unknown')
 })
 
-test('systemToSystemId maps the real engine systems and falls back by kind', () => {
+test('systemToSystemId maps real engine producers and stays Unknown for unknown evidence', () => {
   assert.equal(systemToSystemId('command', 'Command'), 'API Gateway')
   assert.equal(systemToSystemId('domain', 'DomainEvent'), 'Domain Model')
   assert.equal(systemToSystemId('workflow', 'Workflow'), 'Workflow Engine')
-  assert.equal(systemToSystemId('signature', 'Integration'), 'BoldSign')
+  assert.equal(systemToSystemId('boldsign', 'Integration'), 'BoldSign')
   assert.equal(systemToSystemId('postgres', 'Persistence'), 'PostgreSQL')
-  // Unknown producer falls back from its kind (honest, stable).
-  assert.equal(systemToSystemId('some_new_service', 'Persistence'), 'PostgreSQL')
-  assert.equal(systemToSystemId('some_new_service', 'Command'), 'API Gateway')
+  // Unknown producers must NOT inherit a named subsystem from the event kind.
+  assert.equal(systemToSystemId('some_new_service', 'Persistence'), 'Unknown')
+  assert.equal(systemToSystemId('some_new_service', 'Command'), 'Unknown')
+  assert.equal(systemToSystemId('some_new_service', 'Workflow'), 'Unknown')
+  // A real other provider never becomes BoldSign automatically.
+  assert.equal(systemToSystemId('docusign', 'Integration'), 'Unknown')
 })
 
-test('outcomeToStatus surfaces failures and pending starts', () => {
+test('outcomeToStatus surfaces failures, pending starts, and stays Unknown otherwise', () => {
   assert.equal(outcomeToStatus('SUCCESS', 'COMMAND_COMPLETED'), 'Success')
   assert.equal(outcomeToStatus('FAILURE', 'COMMAND_FAILED'), 'Failed')
   assert.equal(outcomeToStatus('STARTED', 'TASK_CREATED'), 'Pending')
   assert.equal(outcomeToStatus(null, 'NODE_ENTERED'), 'Pending')
-  assert.equal(outcomeToStatus(null, 'WORKFLOW_COMPLETED'), 'Success')
   assert.equal(outcomeToStatus('RECOVERED', 'RECOVERED'), 'Success')
+  // Absence of failure is NOT proof of success.
+  assert.equal(outcomeToStatus(null, 'WORKFLOW_COMPLETED'), 'Unknown')
+  assert.equal(outcomeToStatus(null, 'SOME_FUTURE_EVENT'), 'Unknown')
 })
 
 test('adaptRuntimeInspection builds a connected console trace from a command→domain→workflow chain', () => {
@@ -338,5 +346,86 @@ test('adaptFlightRecorderTransaction maps the master workflow + real events for 
   assert.equal(supporting.workflowNodeId, null)
   assert.equal(supporting.details.Signature, 'sig-1')
   assert.equal(trace.events.length, 3, 'supporting event kept in the timeline')
+})
+
+test('FLIGHT-RECORDER-VISUAL: semantic kind is derived from node type and never mutates with state', () => {
+  // Central node-type -> Grok semantic mapping.
+  assert.equal(nodeTypeToKind('task'), 'Task')
+  assert.equal(nodeTypeToKind('command'), 'Command')
+  assert.equal(nodeTypeToKind('start'), 'Workflow')
+  assert.equal(nodeTypeToKind('integration'), 'Integration')
+  assert.equal(nodeTypeToKind('persistence'), 'Persistence')
+  assert.equal(nodeTypeToKind('domain_event'), 'DomainEvent')
+  assert.equal(nodeTypeToKind('weird_new_node_type'), 'Unknown')
+
+  // In the console workflow projection, state is an OVERLAY — it never mutates
+  // the semantic kind. Build a task node in each execution state.
+  const base = {
+    workflowInstanceId: 'wf-1',
+    definitionId: 'def-1',
+    definitionKey: 'purchase_transaction',
+    definitionVersion: 1,
+    definitionMissing: false,
+    status: 'active',
+    graph: {
+      startNodeId: 'start',
+      nodes: {
+        start: { id: 'start', type: 'start', name: 'Start', transitions: [{ name: 'go', to: 'task_a' }] },
+        task_a: { id: 'task_a', type: 'task', name: 'P&S', transitions: [{ name: 'done', to: 'end' }] },
+        end: { id: 'end', type: 'end', name: 'End' },
+      },
+    },
+  }
+  const nodeStates = (state: 'COMPLETED' | 'CURRENT' | 'NOT_VISITED') => ({
+    start: { nodeId: 'start', state: 'COMPLETED' as const, executionCount: 1, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+    task_a: { nodeId: 'task_a', state, executionCount: 1, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+    end: { nodeId: 'end', state: 'NOT_VISITED' as const, executionCount: 0, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+  })
+  const build = (state: 'COMPLETED' | 'CURRENT' | 'NOT_VISITED') =>
+    adaptFlightRecorderTransaction({
+      transaction: { dealId: 'd-1', property: null, client: null, correlationId: 'c-1', status: 'active' },
+      workflows: [{ ...base, nodeStates: nodeStates(state) }],
+      events: [],
+    })
+
+  for (const state of ['COMPLETED', 'CURRENT', 'NOT_VISITED'] as const) {
+    const task = build(state).workflow?.nodes.find((n) => n.id === 'task_a')
+    assert.equal(task?.semanticKind, 'Task', `task keeps Task kind when ${state}`)
+    assert.equal(task?.state, state, `state reflected when ${state}`)
+  }
+})
+
+test('FLIGHT-RECORDER-VISUAL: unknown node type gets Unknown kind with no false subsystem', () => {
+  const trace = adaptFlightRecorderTransaction({
+    transaction: { dealId: null, property: null, client: null, correlationId: 'c-1', status: 'active' },
+    workflows: [
+      {
+        workflowInstanceId: 'wf-1',
+        definitionId: 'def-1',
+        definitionKey: 'purchase_transaction',
+        definitionVersion: 1,
+        definitionMissing: false,
+        status: 'active',
+        currentNodeId: null,
+        graph: {
+          startNodeId: 'start',
+          nodes: {
+            start: { id: 'start', type: 'start', name: 'Start', transitions: [{ name: 'go', to: 'mystery' }] },
+            mystery: { id: 'mystery', type: 'some_future_node', name: 'Mystery', transitions: [{ name: 'done', to: 'end' }] },
+            end: { id: 'end', type: 'end', name: 'End' },
+          },
+        },
+        nodeStates: {
+          start: { nodeId: 'start', state: 'COMPLETED', executionCount: 1, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+          mystery: { nodeId: 'mystery', state: 'NOT_VISITED', executionCount: 0, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+          end: { nodeId: 'end', state: 'NOT_VISITED', executionCount: 0, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+        },
+      },
+    ],
+    events: [],
+  })
+  const mystery = trace.workflow?.nodes.find((n) => n.id === 'mystery')
+  assert.equal(mystery?.semanticKind, 'Unknown', 'unknown node type stays Unknown')
+  assert.equal(mystery?.state, 'NOT_VISITED')
 })
 
