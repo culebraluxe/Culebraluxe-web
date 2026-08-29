@@ -46,6 +46,7 @@ export const OPERATING_SURFACES: Record<
       { label: 'Cabinet', href: '/portal/documents', authority: 'deal.read' },
       { label: 'Workflows', href: '/portal/workflows', authority: 'portal.read' },
       { label: 'Forms', href: '/portal/forms', authority: 'deal.read' },
+      { label: 'Seller Strategy', href: '/portal/core/seller-strategy', authority: 'portal.read' },
     ],
   },
   ACCOUNTING: {

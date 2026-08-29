@@ -61,6 +61,7 @@ test('UI-01: every known /portal route belongs to a surface', () => {
     '/portal/client-admin',
     '/portal/command-center',
     '/portal/command-console',
+    '/portal/core/seller-strategy',
     '/portal/dashboard',
     '/portal/db-test',
     '/portal/deals',
@@ -101,6 +102,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Cabinet',
       'Workflows',
       'Forms',
+      'Seller Strategy',
     ],
     OPS: [
       'Issue Queue',
