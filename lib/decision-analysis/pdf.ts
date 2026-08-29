@@ -29,8 +29,8 @@ function wrap(text: string, max: number) {
 export async function buildDecisionPdf(inputs: Inputs, model: ModelResult): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.TimesRoman)
-  const bold = await doc.embedFont(StandardFonts.TimesBold)
-  const italic = await doc.embedFont(StandardFonts.TimesItalic)
+  const bold = await doc.embedFont(StandardFonts.TimesRomanBold)
+  const italic = await doc.embedFont(StandardFonts.TimesRomanItalic)
   const page = doc.addPage([612, 792])
   const W = 612
   const H = 792
