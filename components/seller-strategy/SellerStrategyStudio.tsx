@@ -238,96 +238,96 @@ export function SellerStrategyStudio() {
         </div>
       )}
 
-      {/* A/B. Two-panel top row: Recommendation (left) + Live Assumptions (right) */}
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-
-      {/* A. Recommendation hero */}
-      <section className="portal-glass-panel portal-glass-panel-feature portal-glass-panel-lifted rounded-2xl p-5">
-        <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-          <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-[var(--portal-feature-eyebrow)]">Recommended</p>
-            <h2 className="mt-2 font-serif text-3xl font-light text-white">{model.winner.name}</h2>
-            <p className="mt-2 text-lg text-white">
-              {money(model.winner.emvPv)}{" "}
-              <span className="text-sm text-[var(--portal-feature-muted)]">expected PV</span>
-              <span className="mx-2 text-[var(--portal-feature-muted)]">·</span>
-              {model.winner.months}
-              <span className="text-sm text-[var(--portal-feature-muted)]"> months to liquidity</span>
-            </p>
-            <div className="mt-3 rounded-xl border border-white/12 bg-white/5 p-3">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-feature-eyebrow)]">
-                Why this strategy?
-              </p>
-              <p className="mt-1 text-sm leading-5 text-[var(--portal-feature-muted)]">{rationale}</p>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-white/12 bg-white/5 p-4">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-feature-eyebrow)]">
-              Expected PV Ranking
-            </p>
-            <div className="mt-3 space-y-2.5">
-              {ranking.map((s) => {
-                const width = maxPv > 0 ? Math.max(4, (s.emvPv / maxPv) * 100) : 0
-                return (
-                  <div key={s.option} className="flex items-center gap-2">
-                    <span className="w-14 flex-none text-[11px] font-medium text-white">{s.short}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/12">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${width}%`, backgroundColor: s.best ? "var(--portal-gold)" : "rgba(255,255,255,0.5)" }}
-                      />
-                    </div>
-                    <span className="w-20 flex-none text-right text-[11px] text-[var(--portal-feature-muted)]">
-                      {money(s.emvPv)}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-
-      {/* B. Live Assumptions */}
-      <section className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Shared facts</p>
-            <h2 className="font-serif text-lg font-light text-[var(--portal-navy)]">Live Assumptions</h2>
-          </div>
-          <p className="text-xs text-[var(--portal-muted)]">
-            Sunk {money(inputs.purchasePrice + inputs.extraSpent)} · basis {money(model.basis)}
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {PARENT_KEY.map((f) =>
-            f.key === "propertyName" ? (
-              <div key={String(f.key)} className="sm:col-span-2">
-                <Field inputs={inputs} setInputs={setInputs} field={f} />
+      {/* A/B. Permanent Executive Summary shell: both regions stay inside one glass surface. */}
+      <section className="portal-glass-panel portal-glass-panel-lifted overflow-hidden rounded-2xl p-1">
+        <div className="grid gap-1 md:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+          {/* A. Recommendation hero */}
+          <div className="portal-glass-panel portal-glass-panel-feature min-w-0 rounded-xl p-5">
+            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--portal-feature-eyebrow)]">Recommended</p>
+                <h2 className="mt-2 font-serif text-3xl font-light text-white">{model.winner.name}</h2>
+                <p className="mt-2 text-lg text-white">
+                  {money(model.winner.emvPv)}{" "}
+                  <span className="text-sm text-[var(--portal-feature-muted)]">expected PV</span>
+                  <span className="mx-2 text-[var(--portal-feature-muted)]">·</span>
+                  {model.winner.months}
+                  <span className="text-sm text-[var(--portal-feature-muted)]"> months to liquidity</span>
+                </p>
+                <div className="mt-3 rounded-xl border border-white/12 bg-white/5 p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-feature-eyebrow)]">
+                    Why this strategy?
+                  </p>
+                  <p className="mt-1 text-sm leading-5 text-[var(--portal-feature-muted)]">{rationale}</p>
+                </div>
               </div>
-            ) : (
-              <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
-            ),
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setEditAll((v) => !v)}
-          className="mt-3 text-xs font-medium text-[var(--portal-navy)] underline decoration-[var(--portal-gold)] underline-offset-2 hover:text-[var(--portal-navy-soft)]"
-        >
-          {editAll ? "Hide" : "Edit"} basis & sunk-cost fields
-        </button>
-        {editAll && (
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {PARENT_BASIS.map((f) => (
-              <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
-            ))}
+
+              <div className="rounded-xl border border-white/12 bg-white/5 p-4">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-feature-eyebrow)]">
+                  Expected PV Ranking
+                </p>
+                <div className="mt-3 space-y-2.5">
+                  {ranking.map((s) => {
+                    const width = maxPv > 0 ? Math.max(4, (s.emvPv / maxPv) * 100) : 0
+                    return (
+                      <div key={s.option} className="flex items-center gap-2">
+                        <span className="w-14 flex-none text-[11px] font-medium text-white">{s.short}</span>
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/12">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${width}%`, backgroundColor: s.best ? "var(--portal-gold)" : "rgba(255,255,255,0.5)" }}
+                          />
+                        </div>
+                        <span className="w-20 flex-none text-right text-[11px] text-[var(--portal-feature-muted)]">
+                          {money(s.emvPv)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
-        )}
+
+          {/* B. Live Assumptions */}
+          <div className="portal-glass-panel portal-glass-panel-soft min-w-0 rounded-xl p-5">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Shared facts</p>
+                <h2 className="font-serif text-lg font-light text-[var(--portal-navy)]">Live Assumptions</h2>
+              </div>
+              <p className="text-xs text-[var(--portal-muted)]">
+                Sunk {money(inputs.purchasePrice + inputs.extraSpent)} · basis {money(model.basis)}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {PARENT_KEY.map((f) =>
+                f.key === "propertyName" ? (
+                  <div key={String(f.key)} className="sm:col-span-2">
+                    <Field inputs={inputs} setInputs={setInputs} field={f} />
+                  </div>
+                ) : (
+                  <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
+                ),
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditAll((v) => !v)}
+              className="mt-3 text-xs font-medium text-[var(--portal-navy)] underline decoration-[var(--portal-gold)] underline-offset-2 hover:text-[var(--portal-navy-soft)]"
+            >
+              {editAll ? "Hide" : "Edit"} basis & sunk-cost fields
+            </button>
+            {editAll && (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {PARENT_BASIS.map((f) => (
+                  <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
-      </div>
 
       {/* C. Five strategy cards */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -502,4 +502,3 @@ export function SellerStrategyStudio() {
     </div>
   )
 }
-
