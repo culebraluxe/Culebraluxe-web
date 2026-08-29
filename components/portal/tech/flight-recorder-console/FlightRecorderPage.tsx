@@ -38,6 +38,7 @@ const KIND_ORDER: EventKind[] = [
   'Task',
   'Integration',
   'Persistence',
+  'Unknown',
 ];
 
 /** Minimal structural slice of the virtualizer the timeline actually uses,
@@ -398,12 +399,15 @@ function TraceMapMini({
     );
   }
 
-  const stateFill: Record<ConsoleWorkflowNode['state'], string> = {
-    COMPLETED: '#34d399',
-    CURRENT: '#c6a15b',
-    FAILED: '#f87171',
-    RECOVERED: '#fbbf24',
-    NOT_VISITED: '#475569',
+  // SEMANTIC IDENTITY: fill by Grok semantic kind (never by node name).
+  const semanticFill: Record<EventKind, string> = {
+    Command: '#a78bfa',
+    DomainEvent: '#60a5fa',
+    Workflow: '#34d399',
+    Task: '#c6a15b',
+    Integration: '#f472b6',
+    Persistence: '#22d3ee',
+    Unknown: '#94a3b8',
   };
 
   return (
@@ -427,28 +431,60 @@ function TraceMapMini({
         ))}
         {layout.nodes.map((n) => {
           const selected = n.id === selectedNodeId;
+          // EXECUTION STATE is an OVERLAY: it mutates opacity/ring/outline but
+          // never replaces the semantic kind color.
+          const future = n.state === 'NOT_VISITED';
+          const current = n.state === 'CURRENT';
+          const failed = n.state === 'FAILED';
+          const recovered = n.state === 'RECOVERED';
+          const ringColor = selected
+            ? '#ffffff'
+            : current
+              ? '#c6a15b'
+              : recovered
+                ? '#fbbf24'
+                : failed
+                  ? '#f87171'
+                  : 'rgba(255,255,255,0.25)';
+          const ringWidth = selected || current ? 2.5 : failed ? 2 : 1;
           return (
             <g key={n.id} transform={`translate(${n.x},${n.y})`}>
               <circle
-                r={layout.nodeRadius + (selected ? 2 : 0)}
-                fill={stateFill[n.state]}
-                opacity={n.state === 'NOT_VISITED' ? 0.4 : 0.9}
-                stroke={
-                  selected ? '#fff' : n.state === 'CURRENT' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)'
-                }
-                strokeWidth={selected ? 2 : n.state === 'CURRENT' ? 1.5 : 1}
+                r={layout.nodeRadius + 2}
+                fill="none"
+                stroke={ringColor}
+                strokeWidth={ringWidth}
+                opacity={future ? 0.4 : 1}
               />
               <circle
-                r={layout.nodeRadius + 7}
+                r={layout.nodeRadius}
+                fill={semanticFill[n.semanticKind]}
+                opacity={future ? 0.35 : 0.92}
+                stroke={failed ? '#f87171' : 'rgba(0,0,0,0.25)'}
+                strokeWidth={failed ? 1.5 : 0.75}
+              />
+              <KindGlyph
+                kind={n.semanticKind}
+                x={-7}
+                y={-7}
+                className="h-[14px] w-[14px] text-white"
+              />
+              <circle
+                r={layout.nodeRadius + 9}
                 fill="transparent"
                 style={{ cursor: 'pointer' }}
                 onClick={() => onSelectNode(n.id)}
               >
-                <title>{`${n.name} — ${n.state}`}</title>
+                <title>{`${n.name} — ${n.state} (${n.semanticKind})`}</title>
               </circle>
-              <text y={-layout.nodeRadius - 4} textAnchor="middle" fontSize={8} className="fill-slate-300">
+              <text y={-layout.nodeRadius - 5} textAnchor="middle" fontSize={8} className="fill-slate-300">
                 {n.name}
               </text>
+              {n.state === 'COMPLETED' && (
+                <text textAnchor="middle" fontSize={9} className="fill-white">
+                  ✓
+                </text>
+              )}
             </g>
           );
         })}
@@ -462,7 +498,7 @@ function layoutMasterWorkflow(workflow: ConsoleWorkflowView): {
   width: number;
   height: number;
   nodeRadius: number;
-  nodes: { id: string; name: string; state: ConsoleWorkflowNode['state']; x: number; y: number }[];
+  nodes: { id: string; name: string; semanticKind: EventKind; state: ConsoleWorkflowNode['state']; x: number; y: number }[];
   edges: { x1: number; y1: number; x2: number; y2: number }[];
 } {
   const nodeRadius = 10;
@@ -499,7 +535,7 @@ function layoutMasterWorkflow(workflow: ConsoleWorkflowView): {
   const height = pad * 2 + maxRows * rowH;
   const nodes = workflow.nodes.map((n) => {
     const p = pos.get(n.id) ?? { x: pad, y: pad };
-    return { id: n.id, name: n.name, state: n.state, x: p.x, y: p.y };
+    return { id: n.id, name: n.name, semanticKind: n.semanticKind, state: n.state, x: p.x, y: p.y };
   });
   const edges = workflow.transitions
     .filter((t) => pos.has(t.from) && pos.has(t.to))

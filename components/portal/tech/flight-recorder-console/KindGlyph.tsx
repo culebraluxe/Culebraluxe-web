@@ -7,11 +7,31 @@ const PATHS: Record<EventKind, string> = {
   Task: 'M9 3h6l1 3h3v15H5V6h3l1-3zm0 8h6m-6 4h4',
   Integration: 'M7 12a5 5 0 015-5h2m3 5a5 5 0 01-5 5h-2M8 12h8',
   Persistence: 'M4 7a8 3 0 0016 0A8 3 0 004 7zm0 5c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3',
+  Unknown: 'M12 3a9 9 0 100 18 9 9 0 000-18zm.5 6v6m0 3h.01',
 };
 
-export function KindGlyph({ kind, className = 'h-4 w-4' }: { kind: EventKind; className?: string }) {
+export function KindGlyph({
+  kind,
+  className = 'h-4 w-4',
+  x,
+  y,
+}: {
+  kind: EventKind;
+  className?: string;
+  /** Optional explicit position for embedding inside a larger SVG. */
+  x?: number;
+  y?: number;
+}) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" className={className}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      className={className}
+      x={x}
+      y={y}
+    >
       <path d={PATHS[kind]} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );

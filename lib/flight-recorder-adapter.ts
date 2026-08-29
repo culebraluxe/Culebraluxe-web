@@ -35,6 +35,7 @@ export type EventKind =
   | 'Task'
   | 'Integration'
   | 'Persistence'
+  | 'Unknown'
 
 export type SystemId =
   | 'API Gateway'
@@ -43,8 +44,9 @@ export type SystemId =
   | 'Task Service'
   | 'BoldSign'
   | 'PostgreSQL'
+  | 'Unknown'
 
-export type EventStatus = 'Success' | 'Failed' | 'Pending' | 'Skipped'
+export type EventStatus = 'Success' | 'Failed' | 'Pending' | 'Skipped' | 'Unknown'
 
 export interface RelatedEventRef {
   id: string
@@ -116,6 +118,8 @@ export type ConsoleWorkflowNode = {
   id: string
   name: string
   type: string
+  /** Grok semantic identity derived from the workflow node type (never the name). */
+  semanticKind: EventKind
   state: NodeRuntimeState
 }
 
@@ -179,6 +183,12 @@ export const KIND_TOKENS: Record<
     chip: 'bg-teal-500/20 text-teal-200 ring-1 ring-teal-400/30',
     label: 'Persistence',
   },
+  Unknown: {
+    bg: 'bg-slate-500',
+    text: 'text-slate-300',
+    chip: 'bg-slate-500/20 text-slate-200 ring-1 ring-slate-400/30',
+    label: 'Unknown',
+  },
 }
 
 export const SYSTEM_CHIP: Record<SystemId, string> = {
@@ -188,6 +198,7 @@ export const SYSTEM_CHIP: Record<SystemId, string> = {
   'Task Service': 'bg-amber-600/20 text-amber-200 ring-1 ring-amber-400/30',
   BoldSign: 'bg-pink-500/20 text-pink-200 ring-1 ring-pink-400/30',
   PostgreSQL: 'bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/30',
+  Unknown: 'bg-slate-500/20 text-slate-200 ring-1 ring-slate-400/30',
 }
 
 // ---------------------------------------------------------------------------
@@ -204,30 +215,26 @@ export function eventTypeToKind(eventType: string): EventKind {
   if (u.startsWith('TASK_') || u.startsWith('TIMER_') || u.startsWith('JOB_')) return 'Task'
   if (u.startsWith('SIGNATURE_')) return 'Integration'
   if (u.startsWith('DOCUMENT_')) return 'Persistence'
-  // Bare operational signals (FAILURE / RETRY / RECOVERED) carry no subsystem;
-  // surface them as Task and let the status chip carry the failure meaning.
-  return 'Workflow'
+  // Truthful fallback: an unrecognized event is NOT forced into a known domain.
+  return 'Unknown'
 }
 
 /**
- * Map the engine's open-ended `system` string onto the console's closed
- * SystemId enum. The engine currently records 'command' | 'domain' |
- * 'workflow'; the fallbacks keep unknown producers stable and honest.
+ * Map the engine's open-ended `system` string onto the console's SystemId enum.
+ * A named subsystem is assigned ONLY when the raw producer string itself supports
+ * it. Unknown producers stay 'Unknown' — the raw value is preserved separately
+ * on the event so the UI never guesses a provider (no automatic BoldSign /
+ * PostgreSQL / API Gateway / Workflow Engine for unknown evidence).
  */
-export function systemToSystemId(system: string, kind: EventKind): SystemId {
+export function systemToSystemId(system: string, _kind: EventKind): SystemId {
   const s = system.toLowerCase()
   if (s.includes('domain')) return 'Domain Model'
   if (s.includes('command') || s.includes('api') || s.includes('gateway')) return 'API Gateway'
   if (s.includes('workflow')) return 'Workflow Engine'
   if (s.includes('task')) return 'Task Service'
-  if (s.includes('signature') || s.includes('bolder') || s.includes('sig')) return 'BoldSign'
-  if (s.includes('postgres') || s.includes('db') || s.includes('persist') || s.includes('sql'))
-    return 'PostgreSQL'
-  if (kind === 'Command') return 'API Gateway'
-  if (kind === 'DomainEvent') return 'Domain Model'
-  if (kind === 'Integration') return 'BoldSign'
-  if (kind === 'Persistence') return 'PostgreSQL'
-  return 'Workflow Engine'
+  if (s.includes('boldsign') || s.includes('signature')) return 'BoldSign'
+  if (s.includes('postgres') || s.includes('sql') || s.includes('persist')) return 'PostgreSQL'
+  return 'Unknown'
 }
 
 /** Map an engine outcome onto the console's EventStatus. */
@@ -258,7 +265,36 @@ export function outcomeToStatus(
     u === 'DOCUMENT_CREATED'
   )
     return 'Pending'
-  return 'Success'
+  // Absence of failure is NOT proof of success.
+  return 'Unknown'
+}
+
+/**
+ * Map a master-workflow NodeDefinition.type onto a Grok semantic EventKind so
+ * the Master Workflow view reuses the same visual language as the Timeline.
+ * The mapping is CENTRAL here (presentation transform), driven by actual node
+ * semantics, never by display name. Unrecognized types stay 'Unknown'.
+ */
+export function nodeTypeToKind(nodeType: string): EventKind {
+  const t = nodeType.trim().toLowerCase()
+  if (t === 'command') return 'Command'
+  if (t === 'state' || t === 'domain' || t === 'domain_event') return 'DomainEvent'
+  if (t === 'task' || t === 'user_task' || t === 'human') return 'Task'
+  if (t === 'integration' || t === 'external' || t === 'provider' || t === 'signature')
+    return 'Integration'
+  if (t === 'persistence' || t === 'document' || t === 'storage') return 'Persistence'
+  if (
+    t === 'start' ||
+    t === 'end' ||
+    t === 'decision' ||
+    t === 'fork' ||
+    t === 'join' ||
+    t === 'timer' ||
+    t === 'subprocess' ||
+    t === 'workflow'
+  )
+    return 'Workflow'
+  return 'Unknown'
 }
 
 function humanize(s: string): string {
@@ -380,6 +416,7 @@ export function adaptRuntimeInspection(input: AdapterInput): FlightRecorderTrace
     if (e.taskId) details.Task = e.taskId
     if (e.signatureRequestId) details.Signature = e.signatureRequestId
     if (e.workflowTransitionId) details.Transition = e.workflowTransitionId
+    if (system === 'Unknown' && e.system) details['Raw System'] = e.system
     const rawCause = unresolved.get(e.id)
     if (rawCause) details['Cause Ref'] = rawCause
     if (e.metadata) {
@@ -558,6 +595,7 @@ export function adaptFlightRecorderTransaction(
     if (e.domainEventId) details['Domain Event'] = e.domainEventId
     if (e.documentId) details.Document = e.documentId
     if (e.signatureRequestId) details.Signature = e.signatureRequestId
+    if (system === 'Unknown' && e.sourceSystem) details['Raw System'] = e.sourceSystem
     if (e.metadata) {
       for (const [k, v] of Object.entries(e.metadata)) {
         if (Object.keys(details).length >= 10) break
@@ -631,6 +669,7 @@ function buildConsoleWorkflow(wf: FlightRecorderWorkflow): ConsoleWorkflowView {
       id: n.id,
       name: n.name ?? n.id,
       type: n.type ?? 'node',
+      semanticKind: nodeTypeToKind(n.type ?? ''),
       state: st?.state ?? 'NOT_VISITED',
     }
   })

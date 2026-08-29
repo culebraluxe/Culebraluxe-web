@@ -60,6 +60,7 @@ export function useFlightRecorderState(
     'Task',
     'Integration',
     'Persistence',
+    'Unknown',
   ] as const);
   const systems = parseList(params.get('systems'), [
     'API Gateway',
@@ -68,6 +69,7 @@ export function useFlightRecorderState(
     'Task Service',
     'BoldSign',
     'PostgreSQL',
+    'Unknown',
   ] as const);
   const tags = params.get('tags')?.split(',').filter(Boolean) ?? [];
 
