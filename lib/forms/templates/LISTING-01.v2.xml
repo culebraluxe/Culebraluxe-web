@@ -70,7 +70,27 @@
   </section>
 
   <section id="internetMarketing" title="Internet Marketing" editable="false">
-    Broker will market on multiple Internet sites wholly owned by the Broker; public advertising sites such as Zillow.com, ClasificadosOnline.com, Trulia.com, Facebook.com; Internet sites of other Realtors; and any other sites deemed advantageous for advertising by either the Broker or Owner.
+    Broker will market on multiple Internet sites wholly owned by the Broker; public advertising sites such as Zillow.com, ClasificadosOnline.com, Trulia.com, Facebook.com, Puerto Rico MLS; Internet sites of other Realtors; and any other sites deemed advantageous for advertising by either the Broker or Owner.
+  </section>
+
+  <section id="supplierCoordination" title="Supplier Coordination" editable="false">
+    Broker will coordinate appointments for surveyors, appraisers, and inspectors on an as-needed basis to best position the Property in the highest light possible.
+  </section>
+
+  <section id="governmentAgencyRepresentation" title="Government Agency Representation" editable="false">
+    Local Broker will coordinate a POA from Owner in order to provide representation at CRIM, the Department of Hacienda, and the IRS to coordinate paperwork required for the closing statements.
+  </section>
+
+  <section id="legalRecommendations" title="Legal Recommendations" editable="false">
+    Broker can recommend closing attorneys and any other professionals that may be needed in order to facilitate a swift closing.
+  </section>
+
+  <section id="absenteeClosings" title="Absentee Closings" editable="false">
+    Broker can represent Owner at the closing with a legal POA paid for by the Owner.
+  </section>
+
+  <section id="taxProfessionalReferrals" title="Tax Professional Referrals" editable="false">
+    Broker can recommend tax experts to address capital gains taxes and other liabilities.
   </section>
 
   <section id="askingPrice" title="Asking Price" editable="false">
