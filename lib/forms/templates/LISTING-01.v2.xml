@@ -34,7 +34,7 @@
   <field id="listingType" label="Listing Type" type="select" required="true" options="Exclusive Right to Sell, Exclusive Agency"/>
 
   <section id="partnership" title="Parties, Appointment and Partnership" editable="false">
-    This contract is between the property Owner and Culebraluxe LLC, represented by Lisa Penfield, Puerto Rico Real Estate Broker #9931. The party or parties of the first part, <value field="sellerName"/>, of legal age, <value field="sellerCivilStatus"/>, with residence at <value field="sellerResidenceAddress"/>, are hereinafter referred to as the "Owner." The Owner holds title to the property known as <value field="property"/>, located at <value field="propertyLocation"/>, Catastro Number <value field="catastroNumber"/>, hereinafter referred to as the "Property." The party of the second part, Culebraluxe LLC, represented by Broker <value field="brokerName"/>, is hereinafter referred to as the "Broker," Puerto Rico Real Estate Broker License #9931, with mailing address P.O. Box 737, Culebra, PR 00775. In consideration of the services to be provided by the Broker, the Owner grants the Broker an <value field="listingType"/> to market, show, and sell the Property. This Agreement is a simple partnership to sell your property with confidence. Broker handles the marketing, showings, offers, and closing, keeping you informed throughout the process to create a successful sale of your property.
+    This contract is between the property Owner and Culebraluxe LLC, represented by Lisa Penfield, Puerto Rico Real Estate Broker #9931. The term "Owner" refers to <value field="sellerName"/>, of legal age, <value field="sellerCivilStatus"/>, with residence at <value field="sellerResidenceAddress"/>. The Owner holds title to the property known as <value field="property"/>, located at <value field="propertyLocation"/>, Catastro Number <value field="catastroNumber"/>, hereinafter referred to as the "Property." The party of the second part, Culebraluxe LLC, represented by Broker <value field="brokerName"/>, is hereinafter referred to as the "Broker," Puerto Rico Real Estate Broker License #9931, with mailing address P.O. Box 737, Culebra, PR 00775. In consideration of the services to be provided by the Broker, the Owner grants the Broker the <value field="listingType"/> listing authority to market, show, and sell the Property. This Agreement is a simple partnership to sell your property with confidence. The Broker handles the marketing, showings, offers, and closing, keeping you informed throughout the process to create a successful sale of your property.
   </section>
 
   <section id="propertyPrequalification" title="Property Pre-Qualification" editable="false">
@@ -78,7 +78,7 @@
   </section>
 
   <section id="brokerCommission" title="Broker Commission" editable="false">
-    In the event that an offer is accepted and a sale is closed, Owner agrees to pay Broker the following commission: <value field="commission"/>. In a co-booking situation, the commission may be shared with the other broker according to the agreed commission arrangement.
+    In the event that an offer is accepted and a sale is closed, Owner agrees to pay Broker a commission of <value field="commission"/>. In a co-booking situation, the commission will be shared equally with the other broker.
   </section>
 
   <section id="commissionLaw" title="Commission Not Set by Law" editable="false">
