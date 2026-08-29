@@ -16,6 +16,8 @@ import { createPersonWithIdentities } from '../db/person-identities'
 import { createDeal } from '../db/deal-admin-writes'
 import { recordTraceEvent } from '../db/workflow-trace'
 import { sql } from '../db/client'
+import { neonTx } from '../db/tx'
+import { resetGoldenData } from '../lib/qa-reset'
 import { engineConfigured, engineSql } from '../workflow_app/engine-client'
 import { createApplicationPort } from '../workflow_app/application-port'
 import { WorkflowEngine } from '../workflow_engine/lib/workflow/engine'
@@ -80,30 +82,9 @@ async function resetGolden(): Promise<void> {
     console.log('[flight-recorder-qa] nothing to reset (no golden fixture).')
     return
   }
-  const instanceRows = await sql`
-    select id from process_instances
-    where subject_type = 'deal' and subject_id = ${found.dealId}
-  `
-  for (const row of instanceRows as Array<{ id: unknown }>) {
-    const id = String(row.id)
-    await sql`delete from workflow_execution_trace_event where workflow_instance_id = ${id}`
-    await sql`delete from tokens where process_instance_id = ${id}`
-    await sql`delete from process_instances where id = ${id}`
-  }
-  await sql`delete from deal_participant where deal_id = ${found.dealId}`
-  await sql`delete from deal where id = ${found.dealId}`
-  // Remove ALL Golden-owned persons (Maria + Juan) by their deterministic QA
-  // identities — never general DEV people. person_identity cascades on delete.
-  const qaPeople = await sql`
-    select distinct pi.person_id as id
-    from person_identity pi
-    where pi.source_system = ${QA_SOURCE_SYSTEM}
-      and (pi.identity_value like 'qa-maria-%' or pi.identity_value like 'qa-juan-%')
-  `
-  for (const row of qaPeople as Array<{ id: unknown }>) {
-    await sql`delete from person where id = ${String(row.id)}`
-  }
-  await sql`delete from property where id = ${found.propertyId}`
+  // Atomic: the whole bounded reset runs in ONE interactive transaction. If any
+  // delete fails, everything rolls back — never a half-reset QA fixture.
+  await neonTx(async (tx) => resetGoldenData(tx, { dealId: found.dealId, propertyId: found.propertyId }))
   console.log('[flight-recorder-qa] reset complete (golden fixture only).')
 }
 async function startGoldenWorkflow(dealId: string): Promise<string | null> {
