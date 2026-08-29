@@ -27,7 +27,7 @@
     "apple:sync:verify-tcc": "node scripts/apple-sync-agent.mjs verify-tcc",
     "apple:sync:stop": "node scripts/apple-sync-agent.mjs stop",
     "apple:sync:uninstall": "node scripts/apple-sync-agent.mjs uninstall",
-    "build": "next build",
+    "build": "tsx scripts/listing-v2-dryrun.ts && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
