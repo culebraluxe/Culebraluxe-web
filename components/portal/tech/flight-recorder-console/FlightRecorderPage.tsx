@@ -9,6 +9,13 @@ import {
   type GraphColor,
 } from '@/lib/causal-graph';
 import {
+  buildUnresolvedCauses,
+  buildCausalEventPairs,
+  buildSelectionCausality,
+  groupEventsBySystem,
+  rawEventFields,
+} from '@/lib/flight-recorder-views';
+import {
   KIND_TOKENS,
   SYSTEM_CHIP,
   toTimelineEntries,
@@ -40,6 +47,18 @@ const KIND_ORDER: EventKind[] = [
   'Persistence',
   'Unknown',
 ];
+
+/** Grok semantic hex per EventKind, shared by SVG views (swimlane etc.). */
+const SEMANTIC_HEX: Record<EventKind, string> = {
+  Command: '#a78bfa',
+  DomainEvent: '#60a5fa',
+  Workflow: '#34d399',
+  Task: '#c6a15b',
+  Integration: '#f472b6',
+  Persistence: '#22d3ee',
+  Unknown: '#94a3b8',
+};
+const SWIMLANE_HEX = SEMANTIC_HEX;
 
 /** Minimal structural slice of the virtualizer the timeline actually uses,
  *  so the component isn't coupled to the library's generic parameters. */
@@ -235,7 +254,11 @@ export function FlightRecorderPage({
               onSelect={selectEvent}
             />
           ) : (
-            <RawEvents events={filteredEvents} />
+            <RawEvents
+              events={filteredEvents}
+              selectedEventId={selectedEventId}
+              onSelect={selectEvent}
+            />
           )}
         </main>
 
@@ -552,10 +575,12 @@ function layoutMasterWorkflow(workflow: ConsoleWorkflowView): {
 function CausalGraphSvg({
   layout,
   selectedEventId,
+  unresolvedEventIds,
   onSelect,
 }: {
   layout: CausalLayout;
   selectedEventId: string | null;
+  unresolvedEventIds: Set<string>;
   onSelect: (id: string) => void;
 }) {
   const FILL: Record<GraphColor, string> = {
@@ -569,6 +594,20 @@ function CausalGraphSvg({
     neutral: '#94a3b8',
   };
 
+  // The selected node + its immediate proven parents (cause) and children
+  // (effect), so the operator can read "what caused this" / "what came out".
+  const selectedNodeId = selectedEventId
+    ? (layout.nodes.find((n) => n.members.some((m) => m.id === selectedEventId))?.id ?? null)
+    : null;
+  const parentIds = new Set<string>();
+  const childIds = new Set<string>();
+  if (selectedNodeId) {
+    for (const edge of layout.edges) {
+      if (edge.target === selectedNodeId) parentIds.add(edge.source);
+      if (edge.source === selectedNodeId) childIds.add(edge.target);
+    }
+  }
+
   return (
     <svg
       width={layout.width}
@@ -576,10 +615,39 @@ function CausalGraphSvg({
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       className="min-w-full"
     >
+      <defs>
+        <marker
+          id="causal-arrow"
+          markerWidth="7"
+          markerHeight="7"
+          refX="6"
+          refY="3.5"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path d="M0,0 L7,3.5 L0,7 z" fill="rgba(255,255,255,0.4)" />
+        </marker>
+        <marker
+          id="causal-arrow-active"
+          markerWidth="7"
+          markerHeight="7"
+          refX="6"
+          refY="3.5"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#c6a15b" />
+        </marker>
+      </defs>
       {layout.edges.map((edge) => {
         const a = layout.nodes.find((n) => n.id === edge.source);
         const b = layout.nodes.find((n) => n.id === edge.target);
         if (!a || !b) return null;
+        const active =
+          edge.source === selectedNodeId ||
+          edge.target === selectedNodeId ||
+          parentIds.has(edge.source) ||
+          childIds.has(edge.target);
         return (
           <line
             key={`${edge.source}->${edge.target}`}
@@ -587,24 +655,28 @@ function CausalGraphSvg({
             y1={a.y}
             x2={b.x}
             y2={b.y}
-            stroke="rgba(255,255,255,0.18)"
-            strokeWidth={1}
+            stroke={active ? '#c6a15b' : 'rgba(255,255,255,0.16)'}
+            strokeWidth={active ? 1.6 : 1}
+            markerEnd={active ? 'url(#causal-arrow-active)' : 'url(#causal-arrow)'}
           />
         );
       })}
       {layout.nodes.map((n) => {
-        const selected = n.members.some((m) => m.id === selectedEventId);
+        const selected = n.id === selectedNodeId;
+        const isParent = parentIds.has(n.id);
+        const isChild = childIds.has(n.id);
+        const hasUnresolved = n.members.some((m) => unresolvedEventIds.has(m.id));
+        const dim = selectedNodeId != null && !selected && !isParent && !isChild;
         return (
-          <g key={n.id} transform={`translate(${n.x},${n.y})`}>
+          <g key={n.id} transform={`translate(${n.x},${n.y})`} opacity={dim ? 0.4 : 1}>
             <circle
-              r={layout.nodeRadius + (selected ? 2 : 0)}
+              r={layout.nodeRadius + (selected ? 3 : isParent || isChild ? 2 : 0)}
               fill={FILL[n.color]}
-              opacity={selected ? 1 : 0.85}
-              stroke={selected ? '#fff' : 'rgba(255,255,255,0.25)'}
-              strokeWidth={selected ? 2 : 1}
+              stroke={selected ? '#fff' : isParent ? '#c6a15b' : 'rgba(255,255,255,0.25)'}
+              strokeWidth={selected || isParent || isChild ? 2 : 1}
             />
             <circle
-              r={layout.nodeRadius + 7}
+              r={layout.nodeRadius + 8}
               fill="transparent"
               style={{ cursor: 'pointer' }}
               onClick={() => onSelect(n.members[0].id)}
@@ -619,6 +691,16 @@ function CausalGraphSvg({
             >
               {n.count > 1 ? `${n.label} ×${n.count}` : n.label}
             </text>
+            {hasUnresolved && (
+              <text
+                y={layout.nodeRadius + 12}
+                textAnchor="middle"
+                fontSize={7}
+                className="fill-amber-400"
+              >
+                ? missing cause
+              </text>
+            )}
           </g>
         );
       })}
@@ -641,24 +723,33 @@ function CausalityGraph({
   const timeline = useMemo(() => toTimelineEntries(events), [events]);
   const graph = useMemo(() => buildCausalGraph(timeline), [timeline]);
   const layout = useMemo(() => layoutGraph(graph), [graph]);
+  const unresolvedEventIds = useMemo(
+    () => new Set(buildUnresolvedCauses(events).map((u) => u.event.id)),
+    [events],
+  );
 
   if (layout.nodes.length === 0) {
     return (
       <div className="grid flex-1 place-items-center text-sm text-slate-500">
-        No causal links in the current selection.
+        No causal relationships recorded for these events.
       </div>
     );
   }
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
-      <CausalGraphSvg layout={layout} selectedEventId={selectedEventId} onSelect={onSelect} />
+      <CausalGraphSvg
+        layout={layout}
+        selectedEventId={selectedEventId}
+        unresolvedEventIds={unresolvedEventIds}
+        onSelect={onSelect}
+      />
     </div>
   );
 }
 
-// System swimlane: one lane per SystemId, events placed by elapsed offset so the
-// parallel flow across producers is readable at a glance.
+// System swimlane: one lane per truthful normalized SystemId, time left to
+// right, cross-system handoffs drawn only where explicit causation exists.
 function Swimlane({
   events,
   selectedEventId,
@@ -668,75 +759,260 @@ function Swimlane({
   selectedEventId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const { systems, maxMs } = useMemo(() => {
-    const order: SystemId[] = [];
-    const seen = new Set<string>();
-    for (const e of events) {
-      if (!seen.has(e.system)) {
-        seen.add(e.system);
-        order.push(e.system);
-      }
-    }
-    return { systems: order, maxMs: Math.max(1, ...events.map((e) => e.offsetMs)) };
-  }, [events]);
+  const lanes = useMemo(() => groupEventsBySystem(events), [events]);
+  const pairs = useMemo(() => buildCausalEventPairs(events), [events]);
+  const maxMs = useMemo(() => Math.max(1, ...events.map((e) => e.offsetMs)), [events]);
+  const sel = useMemo(
+    () => buildSelectionCausality(events, selectedEventId ?? ''),
+    [events, selectedEventId],
+  );
 
   if (events.length === 0) {
     return (
       <div className="grid flex-1 place-items-center text-sm text-slate-500">
-        No events in the current selection.
+        No recorded events to display.
+      </div>
+    );
+  }
+
+  // Bounded/scaled time so a giant gap does not collapse early events into one
+  // pixel. This is NOT exact proportional duration; the ruler + tooltips carry
+  // real timestamps.
+  const laneH = 56;
+  const rulerH = 26;
+  const labelW = 120;
+  const pad = 18;
+  const width = 1100;
+  const height = rulerH + pad * 2 + lanes.length * laneH;
+  const xFor = (ms: number) =>
+    pad + labelW + Math.pow(ms / maxMs, 0.5) * (width - pad * 2 - labelW);
+  const laneY = (i: number) => rulerH + pad + i * laneH + laneH / 2;
+  const laneBySystem = new Map(lanes.map((l, i) => [l.system, i]));
+
+  const crossPairs = pairs.filter((p) => p.from.system !== p.to.system);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto">
+      <div className="flex items-center gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-slate-500">
+        <span>System Swimlane</span>
+        <span className="text-slate-600">time → · bounded scale (timestamps shown on hover)</span>
+      </div>
+      <svg width={width} height={height} className="min-w-full" role="group" aria-label="System swimlane">
+        {/* time ruler ticks */}
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+          const x = pad + labelW + f * (width - pad * 2 - labelW);
+          return (
+            <g key={f}>
+              <line x1={x} y1={rulerH - 6} x2={x} y2={rulerH} stroke="rgba(255,255,255,0.25)" />
+              <text x={x} y={rulerH - 9} textAnchor="middle" fontSize={8} className="fill-slate-500">
+                {Math.round(f * maxMs)}ms
+              </text>
+            </g>
+          );
+        })}
+        {/* lane rows */}
+        {lanes.map((lane, i) => {
+          const y = laneY(i);
+          return (
+            <g key={lane.system}>
+              <line x1={pad + labelW} y1={y - laneH / 2} x2={width - pad} y2={y - laneH / 2} stroke="rgba(255,255,255,0.06)" />
+              <text x={pad + 6} y={y + 3} fontSize={10} className="fill-slate-400">
+                {lane.system}
+              </text>
+            </g>
+          );
+        })}
+        {/* cross-system causal handoff connectors */}
+        {crossPairs.map((p, i) => {
+          const fromY = laneY(laneBySystem.get(p.from.system) ?? 0);
+          const toY = laneY(laneBySystem.get(p.to.system) ?? 0);
+          const active =
+            p.from.id === selectedEventId ||
+            p.to.id === selectedEventId ||
+            sel.parents.includes(p.from.id) ||
+            sel.children.includes(p.to.id);
+          return (
+            <line
+              key={`handoff-${i}`}
+              x1={xFor(p.from.offsetMs)}
+              y1={fromY}
+              x2={xFor(p.to.offsetMs)}
+              y2={toY}
+              stroke={active ? '#c6a15b' : 'rgba(198,161,91,0.35)'}
+              strokeWidth={active ? 1.6 : 1}
+              strokeDasharray="3 2"
+            />
+          );
+        })}
+        {/* event markers */}
+        {events.map((e) => {
+          const lane = laneBySystem.get(e.system);
+          if (lane == null) return null;
+          const x = xFor(e.offsetMs);
+          const y = laneY(lane);
+          const selected = e.id === selectedEventId;
+          const isParent = sel.parents.includes(e.id);
+          const isChild = sel.children.includes(e.id);
+          const dim =
+            selectedEventId != null && !selected && !isParent && !isChild;
+          return (
+            <g
+              key={e.id}
+              transform={`translate(${x},${y})`}
+              opacity={dim ? 0.45 : 1}
+              style={{ cursor: 'pointer', color: SWIMLANE_HEX[e.kind] }}
+              onClick={() => onSelect(e.id)}
+              role="button"
+              tabIndex={0}
+            >
+              <title>{`${e.title} · ${e.system} · ${formatClock(e.occurredAt)} · ${e.status}`}</title>
+              <KindGlyph kind={e.kind} x={-8} y={-8} className="h-4 w-4" />
+              <circle
+                r={selected || isParent || isChild ? 10 : 9}
+                fill="none"
+                stroke={selected ? '#fff' : isParent || isChild ? '#c6a15b' : 'rgba(255,255,255,0.3)'}
+                strokeWidth={selected || isParent || isChild ? 1.6 : 1}
+              />
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// Raw Events: the forensic truth view — dense evidence rows exposing immutable
+// identifiers, raw vs normalized values, and the unmodified payload.
+function RawEvents({
+  events,
+  selectedEventId,
+  onSelect,
+}: {
+  events: TraceEvent[];
+  selectedEventId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  if (events.length === 0) {
+    return (
+      <div className="grid flex-1 place-items-center text-sm text-slate-500">
+        No recorded events to display.
       </div>
     );
   }
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
-        <span>Offset</span>
-        <span className="text-slate-600">0 → {maxMs} ms</span>
-      </div>
-      {systems.map((system) => (
-        <div key={system}>
-          <div className="mb-1 flex items-center gap-2">
-            <span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] ${SYSTEM_CHIP[system]}`}>
-              {system}
-            </span>
-          </div>
-          <div className="relative h-12 rounded-lg border border-white/5 bg-slate-900/40">
-            {events
-              .filter((e) => e.system === system)
-              .map((e) => {
-                const left = (e.offsetMs / maxMs) * 100;
-                const selected = e.id === selectedEventId;
-                return (
-                  <button
-                    key={e.id}
-                    type="button"
-                    title={`${e.title} (${e.kind}, ${e.status})`}
-                    aria-label={e.title}
-                    onClick={() => onSelect(e.id)}
-                    className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${KIND_TOKENS[e.kind].bg} ${
-                      selected ? 'ring-2 ring-white' : ''
-                    }`}
-                    style={{ left: `${left}%` }}
-                  />
-                );
-              })}
-          </div>
-        </div>
-      ))}
+    <div className="min-h-0 flex-1 overflow-auto">
+      <table className="w-full border-collapse text-left text-xs">
+        <thead className="sticky top-0 bg-[#0b1220] text-[10px] uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-3 py-2">Time</th>
+            <th className="px-3 py-2">Event type</th>
+            <th className="px-3 py-2">Event id</th>
+            <th className="px-3 py-2">System</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Node</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e) => {
+            const selected = e.id === selectedEventId;
+            const expanded = e.id === expandedId;
+            return (
+              <RawEventRow
+                key={e.id}
+                event={e}
+                selected={selected}
+                expanded={expanded}
+                onSelect={() => onSelect(e.id)}
+                onToggle={() => setExpandedId(expanded ? null : e.id)}
+              />
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-// Raw Events: the adapted console read-model as a deterministic JSON dump.
-function RawEvents({ events }: { events: TraceEvent[] }) {
+function RawEventRow({
+  event,
+  selected,
+  expanded,
+  onSelect,
+  onToggle,
+}: {
+  event: TraceEvent;
+  selected: boolean;
+  expanded: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+}) {
+  const fields = rawEventFields(event);
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
-      <pre className="rounded-lg bg-[#0a1018] p-4 font-mono text-[11px] leading-relaxed text-slate-300">
-        {JSON.stringify(events, null, 2)}
-      </pre>
-    </div>
+    <>
+      <tr
+        className={`cursor-pointer border-b border-white/5 ${
+          selected ? 'bg-slate-800' : 'hover:bg-slate-900/80'
+        }`}
+        onClick={onSelect}
+      >
+        <td className="px-3 py-1.5 font-mono text-[11px] text-slate-300">
+          {formatClock(event.occurredAt)}
+        </td>
+        <td className="px-3 py-1.5 font-mono text-[11px] text-slate-200">{event.type}</td>
+        <td className="px-3 py-1.5 font-mono text-[11px] text-slate-300">{event.id}</td>
+        <td className="px-3 py-1.5">
+          <span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] ${SYSTEM_CHIP[event.system]}`}>
+            {event.system}
+          </span>
+        </td>
+        <td className="px-3 py-1.5">{event.status}</td>
+        <td className="px-3 py-1.5 font-mono text-[11px] text-slate-400">
+          {event.workflowNodeId ?? '—'}
+        </td>
+        <td className="px-2 py-1.5 text-right">
+          <button type="button" onClick={onToggle} className="rounded px-2 py-0.5 text-slate-400 hover:text-white">
+            {expanded ? '−' : '+'}
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-white/5 bg-[#0a1018]">
+          <td colSpan={7} className="px-4 py-3">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+              {fields.map((f) => (
+                <div key={f.key} className="flex items-baseline gap-2 text-[11px]">
+                  <span className="w-40 shrink-0 text-slate-500">{f.key}</span>
+                  <code className={`break-all text-slate-200 ${f.mono ? 'font-mono' : ''}`}>{f.value}</code>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-slate-500">Payload</span>
+              <button
+                type="button"
+                onClick={() => copyText(JSON.stringify(event.payload ?? null, null, 2))}
+                className="rounded border border-white/10 px-2 py-0.5 text-[11px] text-slate-300 hover:text-white"
+              >
+                Copy JSON
+              </button>
+            </div>
+            <pre className="mt-1 overflow-x-auto rounded-md bg-black/30 p-2 font-mono text-[10px] leading-relaxed text-slate-300">
+              {JSON.stringify(event.payload ?? null, null, 2)}
+            </pre>
+          </td>
+        </tr>
+      )}
+    </>
   );
+}
+
+/** Copy text to the clipboard (contained; falls back to no-op on failure). */
+function copyText(text: string) {
+  if (typeof navigator === 'undefined') return;
+  navigator.clipboard?.writeText(text).catch(() => undefined);
 }
 
 // Export/Download helper: serialize a JSON payload as a client-side file.
