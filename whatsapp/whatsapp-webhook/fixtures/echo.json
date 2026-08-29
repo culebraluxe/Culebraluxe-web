@@ -1,0 +1,30 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA_ID",
+      "changes": [
+        {
+          "field": "smb_message_echoes",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "17875550000",
+              "phone_number_id": "PHONE_NUMBER_ID"
+            },
+            "message_echoes": [
+              {
+                "from": "17875550000",
+                "to": "17875551212",
+                "id": "wamid.ECHO_TEST_001",
+                "timestamp": "1756440060",
+                "type": "text",
+                "text": { "body": "Yes — I can show it Saturday at 10." }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
