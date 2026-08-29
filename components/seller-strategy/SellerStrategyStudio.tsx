@@ -291,7 +291,7 @@ export function SellerStrategyStudio() {
 
 
       {/* B. Live Assumptions */}
-      <section className="portal-glass-panel portal-glass-panel-soft rounded-2xl p-5">
+      <section className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Shared facts</p>
@@ -301,10 +301,16 @@ export function SellerStrategyStudio() {
             Sunk {money(inputs.purchasePrice + inputs.extraSpent)} · basis {money(model.basis)}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          {PARENT_KEY.map((f) => (
-            <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
-          ))}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {PARENT_KEY.map((f) =>
+            f.key === "propertyName" ? (
+              <div key={String(f.key)} className="sm:col-span-2">
+                <Field inputs={inputs} setInputs={setInputs} field={f} />
+              </div>
+            ) : (
+              <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
+            ),
+          )}
         </div>
         <button
           type="button"
@@ -314,7 +320,7 @@ export function SellerStrategyStudio() {
           {editAll ? "Hide" : "Edit"} basis & sunk-cost fields
         </button>
         {editAll && (
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {PARENT_BASIS.map((f) => (
               <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
             ))}
@@ -331,7 +337,7 @@ export function SellerStrategyStudio() {
           return (
             <article
               key={opt.id}
-              className={`portal-glass-panel portal-glass-panel-soft rounded-2xl p-4 transition ${on ? "" : "opacity-55"}`}
+              className={`portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-4 transition ${on ? "" : "opacity-55"}`}
               style={{ borderTopColor: opt.accent, borderTopWidth: 2 }}
             >
               <div className="mb-2 flex items-start justify-between gap-2">
@@ -371,7 +377,7 @@ export function SellerStrategyStudio() {
       {/* C2. Inline Edit Assumptions — expands in the page, no modal/drawer */}
       {activeStrategy && (
         <section
-          className="portal-glass-panel portal-glass-panel-soft rounded-2xl p-5"
+          className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5"
           style={{ borderTopColor: activeStrategy.accent, borderTopWidth: 2 }}
         >
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -415,13 +421,13 @@ export function SellerStrategyStudio() {
             </p>
           </div>
           <div className="overflow-x-auto rounded-xl">
-            <div className="min-w-[840px]">
+            <div className="mx-auto w-full min-w-[620px] max-w-[700px]">
               <TreeSvg inputs={inputs} model={model} />
             </div>
           </div>
         </div>
 
-        <aside className="portal-glass-panel portal-glass-panel-soft rounded-2xl p-5">
+        <aside className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5">
           <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Read-out</p>
           <h2 className="font-serif text-lg font-light text-[var(--portal-navy)]">Key Takeaways</h2>
           <ul className="mt-3 space-y-2.5">
@@ -446,7 +452,7 @@ export function SellerStrategyStudio() {
       </section>
 
       {/* F. Analysis Detail */}
-      <section className="portal-glass-panel portal-glass-panel-soft rounded-2xl p-5">
+      <section className="portal-glass-panel portal-glass-panel-soft portal-glass-panel-lifted rounded-2xl p-5">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">Evidence</p>
