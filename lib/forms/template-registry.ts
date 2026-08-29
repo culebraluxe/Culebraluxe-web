@@ -36,6 +36,7 @@ export const SHOWING_REPORT_TEMPLATE_ID = 'SHOW-RPT'
  * A form type may span multiple files/versions; each file's <form version>
  * attribute declares its version. PR-PNS.xml is v1; PR-PNS.v2.xml is the
  * durable v2 placeholder (real legal content supplied separately by the human).
+ * LISTING-01.v2.xml is registered for review but remains inactive until approved.
  */
 const TEMPLATE_FILES = [
   'OFFER-01.xml',
@@ -43,6 +44,7 @@ const TEMPLATE_FILES = [
   'PR-PNS.v2.xml',
   'PR-PNS-AMD.xml',
   'LISTING-01.xml',
+  'LISTING-01.v2.xml',
   'SHOW-INFO.xml',
   'SHOW-RPT.xml',
 ]
