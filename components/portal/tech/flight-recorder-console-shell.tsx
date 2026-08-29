@@ -2,24 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-import type { RuntimeInspection } from "@/lib/runtime-inspector"
 import {
-  adaptRuntimeInspection,
+  adaptFlightRecorderTransaction,
   type FlightRecorderTrace,
-  type ResolvedConsoleContext,
 } from "@/lib/flight-recorder-adapter"
+import type { FlightRecorderTransaction } from "@/workflow_app/flight-recorder-read"
 import { FlightRecorderPage } from "./flight-recorder-console/FlightRecorderPage"
 
-// FLIGHT-RECORDER-CONSOLE-SHELL — the bridge component for the new parallel
-// portal route. It loads the real engine's Runtime Inspector payload from the
-// existing API, adapts it into the Flight Recorder console read-model, and
-// renders the console. The Runtime Inspector page itself is left untouched.
-type RawPayload = {
-  inspection: RuntimeInspection
-  nodeTypes: Record<string, string>
-  businessContext?: ResolvedConsoleContext
-}
-
+// FLIGHT-RECORDER-CONSOLE-SHELL — the bridge component for the portal route.
+// It loads the canonical Flight Recorder transaction read model (real deal,
+// exact workflow instance(s), exact persisted definitions, real trace evidence)
+// and adapts it into the console read-model. Runtime Inspector remains a
+// separate engineering surface.
 export function FlightRecorderConsoleShell({
   instanceId,
   defaultEventId,
@@ -33,19 +27,13 @@ export function FlightRecorderConsoleShell({
   const load = useCallback(async () => {
     setError(null)
     try {
-      const res = await fetch(`/api/portal/runtime-inspector/${instanceId}`)
+      const res = await fetch(`/api/portal/flight-recorder/${instanceId}`)
       if (!res.ok) {
         if (res.status === 404) throw new Error("Trace not found for this instance")
         throw new Error(`HTTP ${res.status}`)
       }
-      const json = (await res.json()) as RawPayload
-      setTrace(
-        adaptRuntimeInspection({
-          inspection: json.inspection,
-          nodeTypes: json.nodeTypes,
-          resolvedBusinessContext: json.businessContext,
-        }),
-      )
+      const json = (await res.json()) as FlightRecorderTransaction
+      setTrace(adaptFlightRecorderTransaction(json))
     } catch (err) {
       setError((err as Error)?.message ?? "failed to load")
     }

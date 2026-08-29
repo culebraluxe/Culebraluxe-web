@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   buildCausalGraph,
@@ -12,6 +12,8 @@ import {
   KIND_TOKENS,
   SYSTEM_CHIP,
   toTimelineEntries,
+  type ConsoleWorkflowNode,
+  type ConsoleWorkflowView,
   type EventKind,
   type FlightRecorderTrace,
   type MainTab,
@@ -68,6 +70,22 @@ export function FlightRecorderPage({
     selectedEvent,
   } = useFlightRecorderState(trace.events, defaultEventId);
 
+  // Cross-selection between the Trace Map (master workflow nodes) and the
+  // Timeline (real events): selecting a node emphasizes its events; selecting an
+  // event highlights its workflow node (by immutable workflowNodeId).
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const selectEvent = useCallback(
+    (id: string) => {
+      setSelectedEventId(id);
+      const ev = trace.events.find((e) => e.id === id);
+      setSelectedNodeId(ev?.workflowNodeId ?? null);
+    },
+    [trace.events, setSelectedEventId],
+  );
+  const selectNode = useCallback((nodeId: string) => {
+    setSelectedNodeId((cur) => (cur === nodeId ? null : nodeId));
+  }, []);
+
   const rowHeight = density === 'compact' ? 56 : 88;
 
   const virtualizer = useVirtualizer({
@@ -95,18 +113,21 @@ export function FlightRecorderPage({
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         const next = filteredEvents[Math.min(idx + 1, filteredEvents.length - 1)];
-        if (next) setSelectedEventId(next.id);
+        if (next) selectEvent(next.id);
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         const prev = filteredEvents[Math.max(idx - 1, 0)];
-        if (prev) setSelectedEventId(prev.id);
+        if (prev) selectEvent(prev.id);
       }
-      if (e.key === 'Escape') setSelectedEventId(null);
+      if (e.key === 'Escape') {
+        setSelectedEventId(null);
+        setSelectedNodeId(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [filteredEvents, selectedEventId, setSelectedEventId]);
+  }, [filteredEvents, selectedEventId, selectEvent, setSelectedEventId, setSelectedNodeId]);
 
   const kindCounts = useMemo(() => {
     const counts = Object.fromEntries(KIND_ORDER.map((k) => [k, 0])) as Record<EventKind, number>;
@@ -125,7 +146,9 @@ export function FlightRecorderPage({
           activeKinds={filters.kinds}
           onToggleKind={toggleKind}
           selectedEventId={selectedEventId}
-          onSelect={setSelectedEventId}
+          selectedNodeId={selectedNodeId}
+          onSelect={selectEvent}
+          onSelectNode={selectNode}
         />
 
         <main className="flex min-w-0 flex-1 flex-col border-x border-white/5">
@@ -193,7 +216,8 @@ export function FlightRecorderPage({
               events={filteredEvents}
               virtualizer={virtualizer}
               selectedEventId={selectedEventId}
-              onSelect={setSelectedEventId}
+              highlightNodeId={selectedNodeId}
+              onSelect={selectEvent}
               density={density}
               rowHeight={rowHeight}
             />
@@ -201,20 +225,20 @@ export function FlightRecorderPage({
             <CausalityGraph
               events={filteredEvents}
               selectedEventId={selectedEventId}
-              onSelect={setSelectedEventId}
+              onSelect={selectEvent}
             />
           ) : tab === 'swimlane' ? (
             <Swimlane
               events={filteredEvents}
               selectedEventId={selectedEventId}
-              onSelect={setSelectedEventId}
+              onSelect={selectEvent}
             />
           ) : (
             <RawEvents events={filteredEvents} />
           )}
         </main>
 
-        <EventDetails event={selectedEvent} onSelect={setSelectedEventId} onTag={(tag) => setQuery(tag)} />
+        <EventDetails event={selectedEvent} onSelect={selectEvent} onTag={(tag) => setQuery(tag)} />
       </div>
     </div>
   );
@@ -257,14 +281,18 @@ function LeftRail({
   activeKinds,
   onToggleKind,
   selectedEventId,
+  selectedNodeId,
   onSelect,
+  onSelectNode,
 }: {
   trace: FlightRecorderTrace;
   kindCounts: Record<EventKind, number>;
   activeKinds: EventKind[];
   onToggleKind: (k: EventKind) => void;
   selectedEventId: string | null;
+  selectedNodeId: string | null;
   onSelect: (id: string) => void;
+  onSelectNode: (id: string) => void;
 }) {
   const { summary } = trace;
   return (
@@ -318,8 +346,12 @@ function LeftRail({
       </section>
 
       <section>
-        <h2 className="text-[10px] uppercase tracking-wide text-slate-500">Trace Map</h2>
-        <TraceMapMini events={trace.events} selectedEventId={selectedEventId} onSelect={onSelect} />
+        <h2 className="text-[10px] uppercase tracking-wide text-slate-500">Master Workflow</h2>
+        <TraceMapMini
+          workflow={trace.workflow}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={onSelectNode}
+        />
       </section>
 
       <section>
@@ -348,35 +380,135 @@ function LeftRail({
 }
 
 function TraceMapMini({
-  events,
-  selectedEventId,
-  onSelect,
+  workflow,
+  selectedNodeId,
+  onSelectNode,
 }: {
-  events: TraceEvent[];
-  selectedEventId: string | null;
-  onSelect: (id: string) => void;
+  workflow?: ConsoleWorkflowView;
+  selectedNodeId: string | null;
+  onSelectNode: (id: string) => void;
 }) {
-  // Reuse the engine's real causal projection + deterministic layered layout
-  // (lib/causal-graph) instead of hand-laying-out the nodes. Round-tripping the
-  // adapted events through toTimelineEntries preserves command/domain grouping,
-  // so the DAG connects and groups exactly like the Runtime Inspector.
-  const timeline = useMemo(() => toTimelineEntries(events), [events]);
-  const graph = useMemo(() => buildCausalGraph(timeline), [timeline]);
-  const layout = useMemo(() => layoutGraph(graph), [graph]);
+  const layout = useMemo(() => (workflow ? layoutMasterWorkflow(workflow) : null), [workflow]);
 
-  if (layout.nodes.length === 0) {
+  if (!workflow || !layout || workflow.nodes.length === 0) {
     return (
       <div className="mt-2 rounded-lg border border-white/5 bg-slate-900/40 p-3 text-xs text-slate-500">
-        No causal links to map.
+        No master workflow to map.
       </div>
     );
   }
 
+  const stateFill: Record<ConsoleWorkflowNode['state'], string> = {
+    COMPLETED: '#34d399',
+    CURRENT: '#c6a15b',
+    FAILED: '#f87171',
+    RECOVERED: '#fbbf24',
+    NOT_VISITED: '#475569',
+  };
+
   return (
     <div className="mt-2 h-52 overflow-auto rounded-lg border border-white/5 bg-slate-900/40">
-      <CausalGraphSvg layout={layout} selectedEventId={selectedEventId} onSelect={onSelect} />
+      <svg
+        width={layout.width}
+        height={layout.height}
+        viewBox={`0 0 ${layout.width} ${layout.height}`}
+        className="min-w-full"
+      >
+        {layout.edges.map((e, i) => (
+          <line
+            key={i}
+            x1={e.x1}
+            y1={e.y1}
+            x2={e.x2}
+            y2={e.y2}
+            stroke="rgba(255,255,255,0.15)"
+            strokeWidth={1}
+          />
+        ))}
+        {layout.nodes.map((n) => {
+          const selected = n.id === selectedNodeId;
+          return (
+            <g key={n.id} transform={`translate(${n.x},${n.y})`}>
+              <circle
+                r={layout.nodeRadius + (selected ? 2 : 0)}
+                fill={stateFill[n.state]}
+                opacity={n.state === 'NOT_VISITED' ? 0.4 : 0.9}
+                stroke={
+                  selected ? '#fff' : n.state === 'CURRENT' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)'
+                }
+                strokeWidth={selected ? 2 : n.state === 'CURRENT' ? 1.5 : 1}
+              />
+              <circle
+                r={layout.nodeRadius + 7}
+                fill="transparent"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelectNode(n.id)}
+              >
+                <title>{`${n.name} — ${n.state}`}</title>
+              </circle>
+              <text y={-layout.nodeRadius - 4} textAnchor="middle" fontSize={8} className="fill-slate-300">
+                {n.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
+}
+
+/** Deterministic layered layout of the exact persisted master workflow. */
+function layoutMasterWorkflow(workflow: ConsoleWorkflowView): {
+  width: number;
+  height: number;
+  nodeRadius: number;
+  nodes: { id: string; name: string; state: ConsoleWorkflowNode['state']; x: number; y: number }[];
+  edges: { x1: number; y1: number; x2: number; y2: number }[];
+} {
+  const nodeRadius = 10;
+  const layerW = 170;
+  const rowH = 58;
+  const pad = 30;
+  const incoming = new Map<string, number>();
+  for (const t of workflow.transitions) incoming.set(t.to, (incoming.get(t.to) ?? 0) + 1);
+  const starts = workflow.nodes.filter((n) => (incoming.get(n.id) ?? 0) === 0);
+  const byId = new Map(workflow.nodes.map((n) => [n.id, n]));
+  const layers: string[][] = [];
+  const seen = new Set<string>();
+  let frontier = (starts.length ? starts : workflow.nodes.slice(0, 1)).map((n) => n.id);
+  while (frontier.length > 0) {
+    const layer = frontier.filter((id) => !seen.has(id));
+    if (layer.length === 0) break;
+    layers.push(layer);
+    layer.forEach((id) => seen.add(id));
+    const next: string[] = [];
+    for (const id of layer) {
+      for (const t of workflow.transitions) {
+        if (t.from === id && !seen.has(t.to) && byId.has(t.to)) next.push(t.to);
+      }
+    }
+    frontier = next;
+  }
+  for (const n of workflow.nodes) if (!seen.has(n.id)) layers.push([n.id]);
+  const pos = new Map<string, { x: number; y: number }>();
+  layers.forEach((layer, li) => {
+    layer.forEach((id, ri) => pos.set(id, { x: pad + li * layerW, y: pad + ri * rowH }));
+  });
+  const width = pad * 2 + layers.length * layerW;
+  const maxRows = Math.max(1, ...layers.map((l) => l.length));
+  const height = pad * 2 + maxRows * rowH;
+  const nodes = workflow.nodes.map((n) => {
+    const p = pos.get(n.id) ?? { x: pad, y: pad };
+    return { id: n.id, name: n.name, state: n.state, x: p.x, y: p.y };
+  });
+  const edges = workflow.transitions
+    .filter((t) => pos.has(t.from) && pos.has(t.to))
+    .map((t) => {
+      const a = pos.get(t.from)!;
+      const b = pos.get(t.to)!;
+      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+    });
+  return { width, height, nodeRadius, nodes, edges };
 }
 
 // Shared causal-DAG renderer. TraceMapMini and the full-pane Causality tab both
@@ -588,6 +720,7 @@ function TimelineTable({
   events,
   virtualizer,
   selectedEventId,
+  highlightNodeId,
   onSelect,
   density,
   rowHeight,
@@ -596,6 +729,7 @@ function TimelineTable({
   events: TraceEvent[];
   virtualizer: VirtualizerLike;
   selectedEventId: string | null;
+  highlightNodeId: string | null;
   onSelect: (id: string) => void;
   density: 'compact' | 'expanded';
   rowHeight: number;
@@ -614,6 +748,7 @@ function TimelineTable({
             const event = events[row.index];
             if (!event) return null;
             const selected = event.id === selectedEventId;
+            const matchesNode = highlightNodeId != null && event.workflowNodeId === highlightNodeId;
             const detailEntries = Object.entries(event.details);
             return (
               <button
@@ -623,8 +758,12 @@ function TimelineTable({
                 aria-selected={selected}
                 onClick={() => onSelect(event.id)}
                 className={`absolute left-0 grid w-full grid-cols-[108px_minmax(0,1.2fr)_minmax(0,1.4fr)_140px] items-center overflow-hidden border-b border-white/5 px-3 text-left text-sm ${
-                  selected ? 'bg-slate-800' : 'hover:bg-slate-900/80'
-                }`}
+                  selected
+                    ? 'bg-slate-800'
+                    : matchesNode
+                      ? 'bg-amber-500/10'
+                      : 'hover:bg-slate-900/80'
+                } ${matchesNode ? 'border-l-2 border-l-amber-400' : ''}`}
                 style={{ transform: `translateY(${row.start}px)`, height: rowHeight }}
               >
                 <div className="font-mono text-[11px] leading-tight text-slate-300">

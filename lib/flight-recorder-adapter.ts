@@ -17,7 +17,12 @@
 // the "payload". It never fabricates business facts that were not recorded.
 // ---------------------------------------------------------------------------
 
-import type { RuntimeInspection, TimelineEntry } from './runtime-inspector'
+import type { RuntimeInspection, TimelineEntry, NodeRuntimeState } from './runtime-inspector'
+import type {
+  FlightRecorderTransaction,
+  FlightRecorderEvent,
+  FlightRecorderWorkflow,
+} from '../workflow_app/flight-recorder-read'
 
 // ---------------------------------------------------------------------------
 // Console read-model (the contract the Flight Recorder console renders).
@@ -56,6 +61,8 @@ export interface TraceEvent {
   /** Stable identity projections carried through so causal grouping stays exact. */
   commandId: string | null
   domainEventId: string | null
+  /** The workflow node this event maps to (immutable workflowNodeId), if any. */
+  workflowNodeId?: string | null
   kind: EventKind
   type: string
   title: string
@@ -97,6 +104,34 @@ export interface TraceSummary {
 export interface FlightRecorderTrace {
   summary: TraceSummary
   events: TraceEvent[]
+  /**
+   * The EXACT persisted master-workflow graph for the primary workflow instance,
+   * with per-node execution state. Drives the Trace Map (expected process
+   * topology) — NOT the causal event graph.
+   */
+  workflow?: ConsoleWorkflowView
+}
+
+export type ConsoleWorkflowNode = {
+  id: string
+  name: string
+  type: string
+  state: NodeRuntimeState
+}
+
+export type ConsoleWorkflowTransition = {
+  from: string
+  to: string
+  name: string
+}
+
+export type ConsoleWorkflowView = {
+  workflowInstanceId: string
+  definitionKey: string | null
+  definitionVersion: number | null
+  currentNodeId: string | null
+  nodes: ConsoleWorkflowNode[]
+  transitions: ConsoleWorkflowTransition[]
 }
 
 export type TimelineDensity = 'compact' | 'expanded'
@@ -385,6 +420,7 @@ export function adaptRuntimeInspection(input: AdapterInput): FlightRecorderTrace
       causationId: parent,
       commandId: e.commandId,
       domainEventId: e.domainEventId,
+      workflowNodeId: e.nodeId ?? null,
       kind,
       type: e.eventType,
       title: e.summary ?? humanize(e.eventType),
@@ -488,6 +524,128 @@ export function toTimelineEntries(events: TraceEvent[]): TimelineEntry[] {
     domainEventId: e.domainEventId,
     metadata: (e.payload as Record<string, unknown> | null) ?? null,
   }))
+}
+
+/**
+ * Adapt the canonical Flight Recorder transaction read model into the console
+ * read-model. The console Trace Map renders the EXACT persisted master workflow
+ * graph (with execution state), the Timeline renders only real durable events,
+ * and event->node mapping comes from the read model's immutable ids.
+ */
+export function adaptFlightRecorderTransaction(
+  tx: FlightRecorderTransaction,
+): FlightRecorderTrace {
+  const primary = tx.workflows[0] ?? null
+  const baseMs = tx.events.length
+    ? Math.min(
+        ...tx.events
+          .map((e) => new Date(e.occurredAt).getTime())
+          .filter((t) => !Number.isNaN(t)),
+      )
+    : 0
+
+  const events: TraceEvent[] = tx.events.map((e) => {
+    const kind = eventTypeToKind(e.eventType)
+    const system = systemToSystemId(e.sourceSystem, kind)
+    const status = outcomeToStatus(e.outcome, e.eventType)
+    const details: Record<string, string> = {}
+    if (e.summary) details.Summary = e.summary
+    if (e.workflowNodeId) {
+      details.Node = e.mappedWorkflowNode?.name ?? e.workflowNodeId
+      details['Node ID'] = e.workflowNodeId
+    }
+    if (e.commandId) details.Command = e.commandId
+    if (e.domainEventId) details['Domain Event'] = e.domainEventId
+    if (e.documentId) details.Document = e.documentId
+    if (e.signatureRequestId) details.Signature = e.signatureRequestId
+    if (e.metadata) {
+      for (const [k, v] of Object.entries(e.metadata)) {
+        if (Object.keys(details).length >= 10) break
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          details[k] = String(v)
+        } else if (v != null) {
+          details[k] = JSON.stringify(v)
+        }
+      }
+    }
+    return {
+      id: e.eventId,
+      correlationId: e.correlationId ?? tx.transaction.correlationId ?? 'txn',
+      causationId: e.causationId,
+      commandId: e.commandId,
+      domainEventId: e.domainEventId,
+      workflowNodeId: e.workflowNodeId ?? null,
+      kind,
+      type: e.eventType,
+      title: e.summary ?? humanize(e.eventType),
+      subtitle: KIND_TOKENS[kind].label,
+      system,
+      status,
+      occurredAt: e.occurredAt,
+      offsetMs: Math.max(0, new Date(e.occurredAt).getTime() - baseMs),
+      durationMs: e.durationMs ?? 0,
+      details,
+      payload: e.metadata,
+      tags: [
+        ...new Set([
+          e.eventType.toLowerCase(),
+          e.sourceSystem.toLowerCase(),
+          status.toLowerCase(),
+        ]),
+      ].filter(Boolean),
+      relatedEventIds: [],
+    }
+  })
+
+  const root = events[0] ?? null
+  const workflow = primary ? buildConsoleWorkflow(primary) : undefined
+
+  const summary: TraceSummary = {
+    correlationId: tx.transaction.correlationId ?? primary?.workflowInstanceId ?? 'txn',
+    rootTitle: root?.title ?? primary?.definitionKey ?? 'Workflow Execution',
+    rootKind: root?.kind ?? 'Workflow',
+    durationMs: events.length ? Math.max(0, ...events.map((e) => e.offsetMs)) : 0,
+    eventCount: events.length,
+    systemCount: new Set(events.map((e) => e.system)).size,
+    status: events.some((e) => e.status === 'Failed')
+      ? 'Failed'
+      : tx.transaction.status === 'active'
+        ? 'InProgress'
+        : 'Completed',
+    businessContext: {
+      dealId: tx.transaction.dealId ?? undefined,
+      deal: tx.transaction.dealId ?? undefined,
+      property: tx.transaction.property ?? undefined,
+      client: tx.transaction.client ?? undefined,
+      workflow: primary?.definitionKey ?? undefined,
+    },
+  }
+
+  return { summary, events, workflow }
+}
+
+function buildConsoleWorkflow(wf: FlightRecorderWorkflow): ConsoleWorkflowView {
+  const nodes: ConsoleWorkflowNode[] = Object.values(wf.graph.nodes).map((n) => {
+    const st = wf.nodeStates[n.id]
+    return {
+      id: n.id,
+      name: n.name ?? n.id,
+      type: n.type ?? 'node',
+      state: st?.state ?? 'NOT_VISITED',
+    }
+  })
+  const transitions: ConsoleWorkflowTransition[] = []
+  for (const [fromId, n] of Object.entries(wf.graph.nodes)) {
+    for (const t of n.transitions ?? []) transitions.push({ from: fromId, to: t.to, name: t.name })
+  }
+  return {
+    workflowInstanceId: wf.workflowInstanceId,
+    definitionKey: wf.definitionKey,
+    definitionVersion: wf.definitionVersion,
+    currentNodeId: wf.currentNodeId,
+    nodes,
+    transitions,
+  }
 }
 
 function msOfIso(iso: string): number {
