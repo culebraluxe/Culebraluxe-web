@@ -6,10 +6,12 @@ import {
   systemToSystemId,
   outcomeToStatus,
   adaptRuntimeInspection,
+  adaptFlightRecorderTransaction,
   toTimelineEntries,
 } from '../../lib/flight-recorder-adapter'
 import { buildCausalGraph } from '../../lib/causal-graph'
 import type { RuntimeInspection, TimelineEntry } from '../../lib/runtime-inspector'
+import type { FlightRecorderTransaction } from '../../workflow_app/flight-recorder-read'
 
 // FLIGHT-RECORDER-ADAPTER — the pure bridge from real engine Runtime Inspection
 // evidence into the Flight Recorder console read-model. Tests exercise the
@@ -272,5 +274,69 @@ test('toTimelineEntries round-trips adapted events back into a connected causal 
   assert.ok(byId.has('dom:evt-1'), 'domain event node keyed by its own id')
   const cmdNode = byId.get('cmd:cmd-1')!
   assert.equal(cmdNode.count, 2, 'both COMMAND_ stage events grouped')
+})
+
+test('adaptFlightRecorderTransaction maps the master workflow + real events for the console', () => {
+  const tx: FlightRecorderTransaction = {
+    transaction: {
+      dealId: 'deal-1',
+      property: '123 Ocean View Dr',
+      client: 'Maria Rodriguez',
+      correlationId: 'corr-1',
+      status: 'active',
+    },
+    workflows: [
+      {
+        workflowInstanceId: 'wf-1',
+        definitionId: 'def-1',
+        definitionKey: 'purchase_transaction',
+        definitionVersion: 1,
+        definitionMissing: false,
+        status: 'active',
+        currentNodeId: 'task_a',
+        graph: {
+          startNodeId: 'start',
+          nodes: {
+            start: { id: 'start', type: 'start', name: 'Start', transitions: [{ name: 'go', to: 'task_a' }] },
+            task_a: { id: 'task_a', type: 'task', name: 'P&S', transitions: [{ name: 'done', to: 'end' }] },
+            end: { id: 'end', type: 'end', name: 'End' },
+          },
+        },
+        nodeStates: {
+          start: { nodeId: 'start', state: 'COMPLETED', executionCount: 1, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+          task_a: { nodeId: 'task_a', state: 'CURRENT', executionCount: 1, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+          end: { nodeId: 'end', state: 'NOT_VISITED', executionCount: 0, enteredAt: null, completedAt: null, durationMs: null, lastOutcome: null, triggerEventId: null },
+        },
+      },
+    ],
+    events: [
+      { eventId: 'e1', occurredAt: '2026-08-01T00:00:00.000Z', eventType: 'WORKFLOW_STARTED', sourceSystem: 'workflow', summary: 'Workflow started', outcome: 'STARTED', durationMs: null, traceId: null, correlationId: 'corr-1', workflowInstanceId: 'wf-1', workflowNodeId: 'start', causationId: null, commandId: null, domainEventId: null, documentId: null, signatureRequestId: null, metadata: null, mappedWorkflowNode: { id: 'start', name: 'Start', type: 'start', description: null } },
+      { eventId: 'e2', occurredAt: '2026-08-01T00:00:01.000Z', eventType: 'NODE_ENTERED', sourceSystem: 'workflow', summary: 'Entered P&S', outcome: null, durationMs: null, traceId: null, correlationId: 'corr-1', workflowInstanceId: 'wf-1', workflowNodeId: 'task_a', causationId: null, commandId: null, domainEventId: null, documentId: null, signatureRequestId: null, metadata: null, mappedWorkflowNode: { id: 'task_a', name: 'P&S', type: 'task', description: null } },
+      { eventId: 'e3', occurredAt: '2026-08-01T00:00:02.000Z', eventType: 'SIGNATURE_SENT', sourceSystem: 'signature', summary: 'Signature sent', outcome: null, durationMs: null, traceId: null, correlationId: 'corr-1', workflowInstanceId: null, workflowNodeId: null, causationId: null, commandId: null, domainEventId: null, documentId: null, signatureRequestId: 'sig-1', metadata: null, mappedWorkflowNode: null },
+    ],
+  }
+
+  const trace = adaptFlightRecorderTransaction(tx)
+
+  // Transaction context + workflow header.
+  assert.equal(trace.summary.businessContext.deal, 'deal-1')
+  assert.equal(trace.summary.businessContext.property, '123 Ocean View Dr')
+  assert.equal(trace.summary.businessContext.client, 'Maria Rodriguez')
+  assert.equal(trace.summary.businessContext.workflow, 'purchase_transaction')
+
+  // Master workflow view: all definition nodes with execution state.
+  assert.equal(trace.workflow?.nodes.length, 3)
+  assert.equal(trace.workflow?.nodes.find((n) => n.id === 'task_a')?.state, 'CURRENT')
+  assert.equal(trace.workflow?.nodes.find((n) => n.id === 'end')?.state, 'NOT_VISITED')
+  assert.equal(trace.workflow?.transitions.length, 2)
+
+  // Events map to nodes by immutable id; supporting event kept.
+  const nodeEvent = trace.events.find((e) => e.id === 'e2')!
+  assert.equal(nodeEvent.workflowNodeId, 'task_a')
+  assert.equal(nodeEvent.details.Node, 'P&S')
+  const supporting = trace.events.find((e) => e.id === 'e3')!
+  assert.equal(supporting.workflowNodeId, null)
+  assert.equal(supporting.details.Signature, 'sig-1')
+  assert.equal(trace.events.length, 3, 'supporting event kept in the timeline')
 })
 
