@@ -238,6 +238,9 @@ export function SellerStrategyStudio() {
         </div>
       )}
 
+      {/* A/B. Two-panel top row: Recommendation (left) + Live Assumptions (right) */}
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+
       {/* A. Recommendation hero */}
       <section className="portal-glass-panel portal-glass-panel-feature portal-glass-panel-lifted rounded-2xl p-5">
         <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
@@ -318,6 +321,7 @@ export function SellerStrategyStudio() {
           </div>
         )}
       </section>
+      </div>
 
       {/* C. Five strategy cards */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
