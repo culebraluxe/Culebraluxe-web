@@ -10,6 +10,7 @@ export const DEFAULT_INPUTS: Inputs = {
   discountRate: 0.1,
   taxRate: 0.15,
 
+  o1On: true,
   o1Months: 4,
   o1Salvage: 15000,
   o1LowDelta: 0,
@@ -19,6 +20,7 @@ export const DEFAULT_INPUTS: Inputs = {
   o1PMid: 0.4,
   o1PHigh: 0.2,
 
+  o2On: true,
   o2Capex: 80000,
   o2Months: 12,
   o2Recovery: 0.65,
@@ -30,6 +32,7 @@ export const DEFAULT_INPUTS: Inputs = {
   o2PMid: 0.5,
   o2PHigh: 0.2,
 
+  o3On: true,
   o3Capex: 175000,
   o3Months: 24,
   o3Noi: 90000,
@@ -42,4 +45,28 @@ export const DEFAULT_INPUTS: Inputs = {
   o3PLow: 0.3,
   o3PMid: 0.5,
   o3PHigh: 0.2,
+
+  o4On: true,
+  o4Capex: 25000,
+  o4Months: 8,
+  o4AssetBase: 40000,
+  o4Salvage: 8000,
+  o4LowDelta: -0.05,
+  o4MidDelta: 0.05,
+  o4HighDelta: 0.12,
+  o4PLow: 0.35,
+  o4PMid: 0.45,
+  o4PHigh: 0.2,
+
+  o5On: true,
+  o5Share: 1,
+  o5Months: 36,
+  o5PeriodCash: -36000,
+  o5Capex: 15000,
+  o5LowDelta: -0.05,
+  o5MidDelta: 0.08,
+  o5HighDelta: 0.2,
+  o5PLow: 0.3,
+  o5PMid: 0.5,
+  o5PHigh: 0.2,
 }
