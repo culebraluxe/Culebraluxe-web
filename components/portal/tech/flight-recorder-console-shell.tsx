@@ -45,7 +45,7 @@ export function FlightRecorderConsoleShell({
 
   if (error) {
     return (
-      <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-300">
+      <div className="grid h-full place-items-center bg-[#0b1220] text-sm text-slate-300">
         <div className="rounded-lg border border-white/10 px-6 py-4">{error}</div>
       </div>
     )
@@ -53,7 +53,7 @@ export function FlightRecorderConsoleShell({
 
   if (!trace) {
     return (
-      <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-400">
+      <div className="grid h-full place-items-center bg-[#0b1220] text-sm text-slate-400">
         Loading trace…
       </div>
     )

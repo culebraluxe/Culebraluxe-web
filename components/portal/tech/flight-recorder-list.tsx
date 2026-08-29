@@ -50,10 +50,10 @@ export function FlightRecorderList({
             </div>
             <Link
               href={`/portal/tech/flight-recorder/${goldenQa.instanceId}`}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-[var(--portal-blue-gray)] hover:bg-[var(--portal-navy)]/5"
+              className="flex items-center gap-1 rounded-md bg-[var(--portal-navy)] px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80"
             >
               <Layers className="h-3.5 w-3.5" />
-              Open Console
+              Open Flight Recorder
             </Link>
           </div>
         </div>
@@ -92,19 +92,19 @@ export function FlightRecorderList({
             </span>
             <span className="flex items-center gap-2">
               <Link
-                href={`/portal/runtime-inspector/${s.instanceId}`}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[var(--portal-blue-gray)] hover:bg-[var(--portal-navy)]/5"
+                href={`/portal/tech/flight-recorder/${s.instanceId}`}
+                className="flex items-center gap-1 rounded-md bg-[var(--portal-navy)] px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80"
               >
-                <Activity className="h-3.5 w-3.5" />
-                Inspect
+                <Layers className="h-3.5 w-3.5" />
+                Open Flight Recorder
                 <ChevronRight className="h-3.5 w-3.5" />
               </Link>
               <Link
-                href={`/portal/tech/flight-recorder/${s.instanceId}`}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[var(--portal-blue-gray)] hover:bg-[var(--portal-navy)]/5"
+                href={`/portal/runtime-inspector/${s.instanceId}`}
+                className="flex items-center gap-1 rounded-md border border-black/10 px-2.5 py-1.5 text-xs text-black/50 hover:border-black/25 hover:text-black/70"
               >
-                <Layers className="h-3.5 w-3.5" />
-                Console
+                <Activity className="h-3.5 w-3.5" />
+                Runtime Inspector
               </Link>
             </span>
           </div>

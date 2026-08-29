@@ -10,10 +10,10 @@ import { findGoldenQaWorkflowInstance } from "@/workflow_app/flight-recorder-rea
 
 export const dynamic = "force-dynamic"
 
-// PORTAL — Flight Recorder / Workflow Runtime Inspector entry point. Requires
-// tech.access (ROOT only). Lists workflow executions and opens the Runtime
-// Inspector (design-time topology overlay + causal graph + machine/human/
-// external process profile) for any instance.
+// PORTAL — Flight Recorder entry point. Requires tech.access (ROOT only). Lists
+// workflow executions; each opens the four-view Flight Recorder console
+// (Timeline / Causality / System Swimlane / Raw Events) over the canonical
+// transaction read model. Runtime Inspector remains a separate engineering tool.
 export default async function FlightRecorderPage() {
   const access = await resolvePortalAccess(
     createAuthJsSessionAdapter(),
@@ -33,10 +33,11 @@ export default async function FlightRecorderPage() {
             Flight Recorder
           </h1>
           <p className="mt-1 max-w-2xl text-sm font-light leading-6 text-black/55">
-            Workflow execution evidence — the Runtime Inspector overlays each
-            instance&apos;s design-time topology with command / domain / node /
-            transition trace data, a causal graph, and a machine / human /
-            external process profile.
+            End-to-end transaction execution evidence across the real workflow —
+            Timeline (what happened?), Causality Graph (why?), System Swimlane
+            (where?), and Raw Events (exactly what was recorded?). Each execution
+            opens the four-view Flight Recorder console. Runtime Inspector remains
+            a separate engineering diagnostic.
           </p>
         </div>
         <Link

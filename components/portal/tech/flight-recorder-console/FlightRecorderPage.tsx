@@ -157,7 +157,7 @@ export function FlightRecorderPage({
   }, [trace.events]);
 
   return (
-    <div className="flex h-screen flex-col bg-[#0b1220] text-slate-100">
+    <div className="flex h-full flex-col bg-[#0b1220] text-slate-100">
       <Header query={filters.query} onQuery={setQuery} />
 
       <div className="flex min-h-0 flex-1">
