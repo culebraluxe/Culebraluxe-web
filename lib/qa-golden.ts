@@ -19,6 +19,30 @@ export const QA_IDS = {
   envelope: 'qa-fr-envelope',
 } as const
 
+/**
+ * Canonical participant rows for the Golden fixture — conform to migration 034
+ * invariants (one ACTIVE structural role per deal) instead of attempting two
+ * active `client` rows (which would violate uq_deal_participant_active_structural_role):
+ *   - Maria: the canonical client (matches deal.client_person_id semantics).
+ *   - Juan:  a secondary buyer via the documented long-tail seam
+ *            role='other' + role_label (curated label, never a schema migration),
+ *            satisfying uq_deal_participant_active_other_label.
+ * Pure and importable so tests can prove the fixture conforms without a database.
+ */
+export type GoldenParticipantRow = {
+  personId: string
+  role: 'client' | 'other'
+  roleLabel: string | null
+  active: true
+}
+
+export function goldenParticipantRows(mariaId: string, juanId: string): GoldenParticipantRow[] {
+  return [
+    { personId: mariaId, role: 'client', roleLabel: null, active: true },
+    { personId: juanId, role: 'other', roleLabel: 'co-client', active: true },
+  ]
+}
+
 /** Real ids the seed binds the narrative to. */
 export type QaContext = {
   dealId: string

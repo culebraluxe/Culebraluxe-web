@@ -26,6 +26,7 @@ import {
 import { QA_GOLDEN_DEAL_MARKER as QA_MARKER } from '../workflow_app/flight-recorder-read'
 import {
   buildGoldenEventSpecs,
+  goldenParticipantRows,
   QA_SOURCE_SYSTEM,
   QA_FIXTURE_VERSION,
   type QaContext,
@@ -91,7 +92,17 @@ async function resetGolden(): Promise<void> {
   }
   await sql`delete from deal_participant where deal_id = ${found.dealId}`
   await sql`delete from deal where id = ${found.dealId}`
-  await sql`delete from person where id = ${found.personId}`
+  // Remove ALL Golden-owned persons (Maria + Juan) by their deterministic QA
+  // identities — never general DEV people. person_identity cascades on delete.
+  const qaPeople = await sql`
+    select distinct pi.person_id as id
+    from person_identity pi
+    where pi.source_system = ${QA_SOURCE_SYSTEM}
+      and (pi.identity_value like 'qa-maria-%' or pi.identity_value like 'qa-juan-%')
+  `
+  for (const row of qaPeople as Array<{ id: unknown }>) {
+    await sql`delete from person where id = ${String(row.id)}`
+  }
   await sql`delete from property where id = ${found.propertyId}`
   console.log('[flight-recorder-qa] reset complete (golden fixture only).')
 }
@@ -118,14 +129,27 @@ async function ensureDealParticipants(
   mariaId: string,
   juanId: string,
 ): Promise<void> {
-  for (const personId of [mariaId, juanId]) {
-    const exists = await sql`
-      select 1 from deal_participant where deal_id = ${dealId} and person_id = ${personId} limit 1
-    `
+  for (const row of goldenParticipantRows(mariaId, juanId)) {
+    // Idempotence pre-check matches the REAL uniqueness semantics per role:
+    //   - structural client is unique per (deal_id, role) among active rows
+    //   - long-tail is unique per (deal_id, lower(role_label)) among role='other'
+    // Checking by person_id only is not sufficient (it is not the unique key).
+    const exists =
+      row.role === 'client'
+        ? await sql`
+            select 1 from deal_participant
+            where deal_id = ${dealId} and role = 'client' and active = true
+              and person_id = ${row.personId} limit 1
+          `
+        : await sql`
+            select 1 from deal_participant
+            where deal_id = ${dealId} and role = 'other' and role_label = ${row.roleLabel}
+              and active = true and person_id = ${row.personId} limit 1
+          `
     if (exists.length === 0) {
       await sql`
-        insert into deal_participant (deal_id, person_id, role, active)
-        values (${dealId}, ${personId}, 'client', true)
+        insert into deal_participant (deal_id, person_id, role, role_label, active)
+        values (${dealId}, ${row.personId}, ${row.role}, ${row.roleLabel}, ${row.active})
       `
     }
   }
