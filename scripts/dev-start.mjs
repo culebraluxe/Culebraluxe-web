@@ -14,12 +14,17 @@
 //      this repository
 //   4. verifies port 3000 is free (refuses to kill unrelated processes)
 //   5. clears .next
-//   6. starts EXACTLY ONE `next dev -p 3000`
+//   6. starts EXACTLY ONE `next dev --webpack -p 3000`
+//
+// Local DEV intentionally uses Webpack. Next 16 Turbopack has produced an
+// intermittent internal Google-font resolver failure in this project
+// (`@vercel/turbopack-next/internal/font/google/font`). Webpack is the stable
+// local path and matches the build mode used for targeted verification.
 //
 // It never kills unrelated Node applications.
 //
-//   pnpm dev            → this launcher
-//   pnpm dev:raw        → direct `next dev`
+//   pnpm dev            → this launcher (Webpack)
+//   pnpm dev:raw        → direct `next dev` (Next default / Turbopack)
 // ---------------------------------------------------------------------------
 import { execSync, spawn } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
@@ -146,10 +151,10 @@ if (existsSync(resolve(ROOT, '.next'))) {
 }
 out('  ✓ Cleared .next')
 
-// E. Start exactly one Next dev server on port 3000.
-out(`  → Starting http://localhost:${PORT}`)
+// E. Start exactly one Next dev server on port 3000 using Webpack.
+out(`  → Starting http://localhost:${PORT} (Webpack)`)
 const nextBin = resolve(ROOT, 'node_modules/next/dist/bin/next')
-const child = spawn(process.execPath, [nextBin, 'dev', '-p', String(PORT)], {
+const child = spawn(process.execPath, [nextBin, 'dev', '--webpack', '-p', String(PORT)], {
   cwd: ROOT,
   env: process.env,
   stdio: 'inherit',
