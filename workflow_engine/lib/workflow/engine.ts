@@ -181,6 +181,7 @@ export class WorkflowEngine {
         workflowDefinitionVersion: definition.version,
         workflowNodeId: graph.startNodeId,
         summary: `Workflow ${definition.key} v${definition.version} started`,
+        ...this._subjectContext(subject),
       });
 
       await this._trace(tx, {
@@ -188,6 +189,7 @@ export class WorkflowEngine {
         eventType: 'NODE_ENTERED',
         workflowNodeId: graph.startNodeId,
         summary: `Entered node ${graph.startNodeId}`,
+        ...this._subjectContext(subject),
       });
 
       // Leave start node
@@ -1355,6 +1357,7 @@ export class WorkflowEngine {
       eventType: 'NODE_ENTERED',
       workflowNodeId: opts.token.nodeId,
       summary: `Entered node ${node.id}`,
+      ...this._subjectContext(opts.instance),
     });
     if (this.hooks?.beforeNodeArrive) {
       await this.hooks.beforeNodeArrive(node.id);
@@ -2303,6 +2306,9 @@ export class WorkflowEngine {
       workflowTransitionId?: string | null;
       summary?: string | null;
       metadata?: Record<string, unknown> | null;
+      dealId?: string | null;
+      propertyId?: string | null;
+      personId?: string | null;
     },
   ) {
     const recorder = this.traceRecorder;
@@ -2320,12 +2326,34 @@ export class WorkflowEngine {
       correlationId: input.workflowInstanceId,
       summary: input.summary ?? null,
       metadata: input.metadata ?? null,
+      dealId: input.dealId ?? null,
+      propertyId: input.propertyId ?? null,
+      personId: input.personId ?? null,
     };
     try {
       await recorder(record, tx);
     } catch {
       /* contained: tracing must never affect the engine step */
     }
+  }
+
+  /**
+   * Derive business-context ids from a workflow subject so a durable trace event
+   * carries "which deal / property / person was this about?". The subject's
+   * subjectType says which object id it is; other ids stay null (a deal-scoped
+   * workflow does not itself name its property/person — that resolution happens
+   * read-side).
+   */
+  private _subjectContext(
+    subject: { subjectType?: string | null; subjectId?: string | null } | null | undefined,
+  ): { dealId: string | null; propertyId: string | null; personId: string | null } {
+    const type = subject?.subjectType ?? null;
+    const id = subject?.subjectId ?? null;
+    return {
+      dealId: type === 'deal' ? id : null,
+      propertyId: type === 'property' ? id : null,
+      personId: type === 'person' ? id : null,
+    };
   }
 
   private async _loadDefinition(

@@ -144,3 +144,32 @@ test('a throwing trace recorder never gates the engine step', async () => {
     await f.cleanup()
   }
 })
+
+test('engine threads the workflow subject into the trace business context', async () => {
+  await assertEngineSchema()
+  const f = new PersistenceFixture()
+  const cap = capture()
+  try {
+    await f.seedDefinition('tunit_trace_subject', 1, LINEAR)
+    const engine = f.makeEngine({ traceRecorder: cap.recorder })
+    await engine.startProcess({
+      definitionKey: 'tunit_trace_subject',
+      version: 1,
+      tenantId: f.tenantId,
+      startedBy: 'tester',
+      subject: { subjectType: 'deal', subjectId: 'deal-777' },
+    })
+
+    const started = cap.records.find((r) => r.eventType === 'WORKFLOW_STARTED')!
+    assert.equal(started.dealId, 'deal-777', 'deal-scoped subject carries dealId')
+    assert.equal(started.propertyId, null, 'a deal subject does not name a property')
+    assert.equal(started.personId, null, 'a deal subject does not name a person')
+
+    const enteredStart = cap.records.find(
+      (r) => r.eventType === 'NODE_ENTERED' && r.workflowNodeId === 'start',
+    )!
+    assert.equal(enteredStart.dealId, 'deal-777', 'node entry inherits the subject context')
+  } finally {
+    await f.cleanup()
+  }
+})

@@ -298,7 +298,7 @@ function LeftRail({
         <h2 className="text-[10px] uppercase tracking-wide text-slate-500">Business Context</h2>
         <dl className="mt-2 space-y-1.5 text-xs">
           {Object.entries({
-            Deal: summary.businessContext.dealId,
+            Deal: summary.businessContext.deal ?? summary.businessContext.dealId,
             Property: summary.businessContext.property,
             Client: summary.businessContext.client,
             Workflow: summary.businessContext.workflow,

@@ -73,6 +73,8 @@ export interface TraceEvent {
 
 export interface BusinessContext {
   dealId?: string
+  /** Resolved human-readable deal label (falls back to the deal id). */
+  deal?: string
   property?: string
   client?: string
   workflow?: string
@@ -271,13 +273,25 @@ function resolveCausation(raw: string | null, idx: IdIndex): string | null {
 // The adapter.
 // ---------------------------------------------------------------------------
 
+/** Read-side resolved business-context labels merged into the console summary. */
+export type ResolvedConsoleContext = {
+  dealId?: string | null
+  propertyId?: string | null
+  personId?: string | null
+  deal?: string | null
+  property?: string | null
+  client?: string | null
+}
+
 export type AdapterInput = {
   inspection: RuntimeInspection
   nodeTypes?: Record<string, string>
+  /** Optional read-side resolved business-context labels (real deal/property/client). */
+  resolvedBusinessContext?: ResolvedConsoleContext
 }
 
 export function adaptRuntimeInspection(input: AdapterInput): FlightRecorderTrace {
-  const { inspection } = input
+  const { inspection, resolvedBusinessContext } = input
   const timeline = inspection.timeline
   const correlationId = inspection.workflowInstanceId
 
@@ -413,12 +427,19 @@ export function adaptRuntimeInspection(input: AdapterInput): FlightRecorderTrace
     status,
     // Real business-context evidence carried through from the trace rows. Grok's
     // mockup invented these; we surface the ACTUAL deal/property/person ids the
-    // engine recorded (first non-null across the timeline). Resolving those ids
-    // into human-readable labels is a follow-up.
+    // engine recorded (first non-null across the timeline) and, when the read
+    // side resolved them, the human-readable labels.
     businessContext: {
-      dealId: firstOf(timeline, 'dealId'),
-      property: firstOf(timeline, 'propertyId'),
-      client: firstOf(timeline, 'personId'),
+      dealId: resolvedBusinessContext?.dealId ?? firstOf(timeline, 'dealId'),
+      deal: resolvedBusinessContext?.deal ?? firstOf(timeline, 'dealId'),
+      property:
+        resolvedBusinessContext?.property ??
+        resolvedBusinessContext?.propertyId ??
+        firstOf(timeline, 'propertyId'),
+      client:
+        resolvedBusinessContext?.client ??
+        resolvedBusinessContext?.personId ??
+        firstOf(timeline, 'personId'),
       workflow: inspection.definitionKey ?? undefined,
     },
   }

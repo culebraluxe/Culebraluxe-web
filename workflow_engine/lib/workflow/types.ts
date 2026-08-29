@@ -306,6 +306,15 @@ export type WorkflowTraceRecord = {
   correlationId?: string | null;
   summary?: string | null;
   metadata?: Record<string, unknown> | null;
+  /**
+   * Business-context evidence derived from the workflow's subject, so a durable
+   * trace event can answer "which deal / property / person was this about?"
+   * without a read-time join. Nullable: not every workflow is deal/property/person
+   * scoped and the recorder writes these only when the subject says so.
+   */
+  dealId?: string | null;
+  propertyId?: string | null;
+  personId?: string | null;
 };
 
 export interface EngineOptions {

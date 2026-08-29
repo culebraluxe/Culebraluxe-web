@@ -189,6 +189,27 @@ test('adaptRuntimeInspection surfaces real business-context and related ids (no 
   assert.equal(task.details.Deal, 'DEAL-2025-000123')
 })
 
+test('adaptRuntimeInspection prefers read-side resolved labels in the business context', () => {
+  const timeline = [
+    entry({ id: 'a', eventType: 'WORKFLOW_STARTED', dealId: 'deal-9', outcome: 'STARTED' }),
+  ]
+  const trace = adaptRuntimeInspection({
+    inspection: inspection(timeline),
+    resolvedBusinessContext: {
+      dealId: 'deal-9',
+      deal: 'Deal #9 — 123 Ocean View Dr',
+      property: '123 Ocean View Dr',
+      client: 'Maria & Juan Rodriguez',
+    },
+  })
+
+  assert.equal(trace.summary.businessContext.deal, 'Deal #9 — 123 Ocean View Dr')
+  assert.equal(trace.summary.businessContext.property, '123 Ocean View Dr')
+  assert.equal(trace.summary.businessContext.client, 'Maria & Juan Rodriguez')
+  // dealId stays the raw id for reference.
+  assert.equal(trace.summary.businessContext.dealId, 'deal-9')
+})
+
 test('adaptRuntimeInspection is deterministic (same input → identical output)', () => {
   const timeline = [entry({ id: 'a', commandId: 'cmd-1', outcome: 'SUCCESS' })]
   const a = adaptRuntimeInspection({ inspection: inspection(timeline) })

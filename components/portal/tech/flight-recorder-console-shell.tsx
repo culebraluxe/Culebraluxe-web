@@ -6,6 +6,7 @@ import type { RuntimeInspection } from "@/lib/runtime-inspector"
 import {
   adaptRuntimeInspection,
   type FlightRecorderTrace,
+  type ResolvedConsoleContext,
 } from "@/lib/flight-recorder-adapter"
 import { FlightRecorderPage } from "./flight-recorder-console/FlightRecorderPage"
 
@@ -16,6 +17,7 @@ import { FlightRecorderPage } from "./flight-recorder-console/FlightRecorderPage
 type RawPayload = {
   inspection: RuntimeInspection
   nodeTypes: Record<string, string>
+  businessContext?: ResolvedConsoleContext
 }
 
 export function FlightRecorderConsoleShell({
@@ -38,7 +40,11 @@ export function FlightRecorderConsoleShell({
       }
       const json = (await res.json()) as RawPayload
       setTrace(
-        adaptRuntimeInspection({ inspection: json.inspection, nodeTypes: json.nodeTypes }),
+        adaptRuntimeInspection({
+          inspection: json.inspection,
+          nodeTypes: json.nodeTypes,
+          resolvedBusinessContext: json.businessContext,
+        }),
       )
     } catch (err) {
       setError((err as Error)?.message ?? "failed to load")
