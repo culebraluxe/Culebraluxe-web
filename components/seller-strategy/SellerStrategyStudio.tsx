@@ -171,7 +171,7 @@ export function SellerStrategyStudio() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS)
   const [busy, setBusy] = useState(false)
   const [editAll, setEditAll] = useState(false)
-  const [drawer, setDrawer] = useState<OptionId | null>(null)
+  const [activeEdit, setActiveEdit] = useState<OptionId | null>(null)
   const [showDetail, setShowDetail] = useState(false)
 
   const model: ModelResult = useMemo(() => evaluate(inputs), [inputs])
@@ -190,9 +190,9 @@ export function SellerStrategyStudio() {
     }
   }
 
-  const activeStrategy = STRATEGIES.find((s) => s.id === drawer) ?? null
+  const activeStrategy = STRATEGIES.find((s) => s.id === activeEdit) ?? null
   const maxPv = ranking.length ? ranking[0].emvPv : 1
-  const drawerScore = activeStrategy ? model.scores.find((s) => s.option === activeStrategy.id) : undefined
+  const activeScore = activeStrategy ? model.scores.find((s) => s.option === activeStrategy.id) : undefined
 
 
   return (
@@ -239,8 +239,8 @@ export function SellerStrategyStudio() {
       )}
 
       {/* A. Recommendation hero */}
-      <section className="portal-glass-panel portal-glass-panel-feature portal-glass-panel-lifted rounded-2xl p-6">
-        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <section className="portal-glass-panel portal-glass-panel-feature portal-glass-panel-lifted rounded-2xl p-5">
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-[var(--portal-feature-eyebrow)]">Recommended</p>
             <h2 className="mt-2 font-serif text-3xl font-light text-white">{model.winner.name}</h2>
@@ -251,7 +251,7 @@ export function SellerStrategyStudio() {
               {model.winner.months}
               <span className="text-sm text-[var(--portal-feature-muted)]"> months to liquidity</span>
             </p>
-            <div className="mt-4 rounded-xl border border-white/12 bg-white/5 p-4">
+            <div className="mt-3 rounded-xl border border-white/12 bg-white/5 p-3">
               <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-feature-eyebrow)]">
                 Why this strategy?
               </p>
@@ -353,17 +353,50 @@ export function SellerStrategyStudio() {
               </p>
               <button
                 type="button"
-                onClick={() => setDrawer(on ? opt.id : null)}
+                onClick={() => setActiveEdit((prev) => (prev === opt.id ? null : opt.id))}
                 disabled={!on}
                 className="mt-3 w-full rounded-full border border-[var(--portal-border)] bg-white/50 px-3 py-1.5 text-[11px] font-medium text-[var(--portal-navy)] transition hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Edit Assumptions
+                {activeEdit === opt.id ? "Close Assumptions" : "Edit Assumptions"}
               </button>
             </article>
           )
         })}
       </section>
 
+      {/* C2. Inline Edit Assumptions — expands in the page, no modal/drawer */}
+      {activeStrategy && (
+        <section
+          className="portal-glass-panel portal-glass-panel-soft rounded-2xl p-5"
+          style={{ borderTopColor: activeStrategy.accent, borderTopWidth: 2 }}
+        >
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">
+                {activeStrategy.short.toUpperCase()} ASSUMPTIONS
+              </p>
+              <h3 className="mt-1 font-serif text-lg font-light text-[var(--portal-navy)]">
+                {activeStrategy.title}
+              </h3>
+              <p className="text-xs text-[var(--portal-muted)]">
+                {money(activeScore?.emvPv ?? 0)} expected PV · changes apply immediately
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveEdit(null)}
+              className="rounded-full border border-[var(--portal-border)] bg-white/50 px-3 py-1.5 text-[11px] font-medium text-[var(--portal-navy)] transition hover:bg-white/70"
+            >
+              Collapse
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {activeStrategy.fields.map((f) => (
+              <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* D + E. Decision Map + Key Takeaways */}
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -456,47 +489,6 @@ export function SellerStrategyStudio() {
           </p>
         )}
       </section>
-
-
-      {/* Edit Assumptions drawer */}
-      {activeStrategy && (
-        <div className="fixed inset-0 z-50">
-          <button
-            type="button"
-            aria-label="Close assumptions"
-            className="absolute inset-0 h-full w-full cursor-default bg-[var(--portal-navy-deep)]/45 backdrop-blur-sm"
-            onClick={() => setDrawer(null)}
-          />
-          <div className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-[var(--portal-border)] bg-[#eef3f8]/95 p-5 shadow-2xl backdrop-blur-xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--portal-gold-muted)]">
-                  Edit Assumptions
-                </p>
-                <h3 className="font-serif text-lg font-light text-[var(--portal-navy)]">{activeStrategy.title}</h3>
-                <p className="text-xs text-[var(--portal-muted)]">
-                  {money(drawerScore?.emvPv ?? 0)} expected PV · changes apply immediately
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDrawer(null)}
-                className="rounded-full border border-[var(--portal-border)] bg-white/60 px-2.5 py-1 text-xs text-[var(--portal-navy)] hover:bg-white"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="space-y-3">
-              {activeStrategy.fields.map((f) => (
-                <Field key={String(f.key)} inputs={inputs} setInputs={setInputs} field={f} />
-              ))}
-            </div>
-            <p className="mt-4 border-t border-[var(--portal-border)]/60 pt-3 text-[11px] text-[var(--portal-muted)]">
-              Every field recalculates the recommendation, ranking, decision map, takeaways and detail table in real time.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
