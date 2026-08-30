@@ -58,6 +58,8 @@ export type ContactHistoryResult = {
   total: number
   page: number
   pageSize: number
+  /** True when this is a bounded "recent" projection (not the full paginated archive). */
+  recent?: boolean
 }
 
 type ContactHistoryDbRow = {
@@ -109,14 +111,22 @@ function effectiveDate(row: ContactHistoryRow): string {
 }
 
 
+/** Bound for the primary source-neutral "recent" relationship timeline. */
+export const RECENT_TIMELINE_LIMIT = 10
+
 export async function getClientContactHistory(
   personId: string,
-  opts: { page?: number; pageSize?: number },
+  opts: { page?: number; pageSize?: number; recent?: boolean },
   execute: QueryExecutor = sql,
 ): Promise<ContactHistoryResult> {
+  const recent = opts.recent === true
   const page = Math.max(1, opts.page ?? 1)
-  const pageSize = Math.max(1, Math.min(50, opts.pageSize ?? 20))
-  const offset = (page - 1) * pageSize
+  // The primary view is a bounded source-neutral recent timeline; the full
+  // paginated archive is secondary ("View all").
+  const pageSize = recent
+    ? RECENT_TIMELINE_LIMIT
+    : Math.max(1, Math.min(50, opts.pageSize ?? 20))
+  const offset = recent ? 0 : (page - 1) * pageSize
 
   const countRows = (await execute`
     select count(*)::int as total
@@ -169,12 +179,14 @@ export async function getClientContactHistory(
 
   const aggregates = buildAggregateEvidenceItems(summary.channels, coveredSources)
 
+  const allRows = [...moments, ...aggregates].sort((a, b) =>
+    effectiveDate(b).localeCompare(effectiveDate(a)),
+  )
   return {
-    rows: [...moments, ...aggregates].sort((a, b) =>
-      effectiveDate(b).localeCompare(effectiveDate(a)),
-    ),
+    rows: recent ? allRows.slice(0, RECENT_TIMELINE_LIMIT) : allRows,
     total,
     page,
     pageSize,
+    recent,
   }
 }

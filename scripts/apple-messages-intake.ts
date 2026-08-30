@@ -264,18 +264,11 @@ async function main() {
   const url = resolveDatabaseUrl(target)
   const { execute, end } = createPoolExecutor(url)
   try {
-    const first = await runAppleMessagesIntake(target, dir, execute)
-    printTally(first)
-
-    // --- replay idempotency proof: second run must insert 0 ---
-    out('\n=== REPLAY (second run — must insert 0) ===')
-    const second = await runAppleMessagesIntake(target, dir, execute)
-    printTally(second)
-    out(
-      '\nREPLAY inserted:',
-      second.interactionsInserted,
-      second.interactionsInserted === 0 ? '(PASS: no duplicates)' : '(FAIL)',
-    )
+    // A single operator run performs ONE intake pass. Replay/idempotency is
+    // proven in the regression harness (not by re-running tens of thousands of
+    // historical messages a second time on every PROD run).
+    const result = await runAppleMessagesIntake(target, dir, execute)
+    printTally(result)
   } finally {
     await end()
   }

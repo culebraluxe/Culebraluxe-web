@@ -72,6 +72,7 @@ export interface RelationshipChannelProjection {
 }
 
 export interface RelationshipActivity {
+  hasEvidence: boolean
   sources: string[]
   firstObservedAt: string | null
   inboundCount: number
