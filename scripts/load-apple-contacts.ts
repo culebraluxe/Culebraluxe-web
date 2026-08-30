@@ -76,10 +76,17 @@ async function runMain() {
   }
   const pool = new Pool({ connectionString: url, ssl: true })
   const q = makeExecutor(pool)
+  let errorCount = 0
   try {
-    await main(q)
+    errorCount = (await main(q)).errorCount
   } finally {
     await pool.end()
+  }
+  if (errorCount > 0) {
+    console.error(
+      `[contacts-sync] ${errorCount} contact(s) failed; batch marked failed; exiting non-zero after durable accounting`,
+    )
+    process.exit(1)
   }
 }
 if (isMain) {
@@ -171,6 +178,60 @@ export function batchReplayDecision(
   return 'conflict'
 }
 
+/**
+ * Pure classification for the replay fast path.
+ *   prior latest revision exists + same fingerprint + durable inbox receipt exists
+ *     -> 'replay' (exact replay: NO new staged revision, NO redundant DB writes)
+ *   otherwise -> 'write' (new / changed / replay-with-inbox-gap still needs the
+ *     heavier inbox + staging write path)
+ */
+export function classifyReplayFastPath(
+  prior: { payload_fingerprint: string } | undefined,
+  fingerprint: string,
+  inboxExists: boolean,
+): 'replay' | 'write' {
+  if (prior && prior.payload_fingerprint === fingerprint && inboxExists) return 'replay'
+  return 'write'
+}
+
+/** Truthful batch load status: any per-contact error marks the batch NOT fully loaded. */
+export function decideBatchLoadStatus(errorCount: number): 'loaded' | 'failed' {
+  return errorCount > 0 ? 'failed' : 'loaded'
+}
+
+/** Exit code after durable batch accounting: non-zero when any contact failed. */
+export function decideLoaderExit(errorCount: number): 0 | 1 {
+  return errorCount > 0 ? 1 : 0
+}
+
+/** Totals + balance for the batch (mirrors the integration_intake_batch CHECK). */
+export function batchTotals(
+  counts: { new: number; replay: number; changed: number; error: number },
+  inputCount: number,
+): { valid: number; balanced: boolean } {
+  const valid = counts.new + counts.replay + counts.changed
+  return {
+    valid,
+    balanced: inputCount === valid + counts.error && valid === counts.new + counts.replay + counts.changed,
+  }
+}
+
+/** Next immutable revision + supersedes link for a changed/new write. */
+export function stageWriteDecision(
+  prior: { id: string; revision: number } | undefined,
+): { nextRevision: number; supersedesId: string | null } {
+  return {
+    nextRevision: prior ? prior.revision + 1 : 1,
+    supersedesId: prior ? prior.id : null,
+  }
+}
+
+/** Aggregate progress line — never any PII (no names/emails/phones/sourceIds). */
+export function formatProgress(processed: number, total: number, elapsedMs: number): string {
+  const secs = Math.round(elapsedMs / 1000)
+  return `[contacts-sync] ODS ${processed}/${total} processed (${secs}s)`
+}
+
 type ContactOutcome = 'new' | 'replay' | 'changed' | 'error'
 
 async function main(q: QueryExecutor) {
@@ -239,13 +300,79 @@ async function main(q: QueryExecutor) {
     importedAt: new Date().toISOString(),
     sourceAccount,
   }
+  const startMs = Date.now()
 
-  for (const contact of batch.contacts) {
-    const outcome = await stageContact(contact, q, manifest, batchId, batch.schemaVersion)
-    counts[outcome]++
+  // Phase A — normalize + fingerprint every contact locally (no DB round trips).
+  const prepared = batch.contacts.map((contact) => {
+    const profile = normalizeProfile(contact)
+    return {
+      contact,
+      sourceId: contact.sourceId,
+      profile,
+      fingerprint: profileFingerprint(profile),
+    }
+  })
+
+  // Phase B — bulk-read the existing latest staged profile + durable inbox
+  // receipts for this source_account in bounded chunks, so exact replays can be
+  // classified in memory without per-contact SELECTs.
+  const stagedBySourceId = new Map<
+    string,
+    { id: string; revision: number; payload_fingerprint: string }
+  >()
+  const inboxExisting = new Set<string>()
+  const BULK_CHUNK = 400
+  for (let i = 0; i < prepared.length; i += BULK_CHUNK) {
+    const ids = prepared.slice(i, i + BULK_CHUNK).map((p) => p.sourceId)
+    const stagedRows = (await q`
+      select distinct on (source_contact_id) source_contact_id, id, revision, payload_fingerprint
+      from integration_staged_contact_profile
+      where source = ${APPLE_CONTACTS_SOURCE_SYSTEM}
+        and source_account = ${sourceAccount}
+        and source_contact_id = any(${ids}::text[])
+      order by source_contact_id, revision desc
+    `) as Array<{
+      source_contact_id: string
+      id: string
+      revision: number
+      payload_fingerprint: string
+    }>
+    for (const r of stagedRows) {
+      stagedBySourceId.set(r.source_contact_id, {
+        id: r.id,
+        revision: Number(r.revision),
+        payload_fingerprint: r.payload_fingerprint,
+      })
+    }
+    const inboxRows = (await q`
+      select external_event_id from integration_inbox
+      where source = ${APPLE_CONTACTS_SOURCE_SYSTEM}
+        and source_account = ${sourceAccount}
+        and external_event_id = any(${ids}::text[])
+    `) as Array<{ external_event_id: string }>
+    for (const r of inboxRows) inboxExisting.add(r.external_event_id)
+  }
+
+  // Phase C — classify: pure exact replays skip all per-contact DB work; every
+  // new / changed / replay-with-inbox-gap contact goes through the durable write
+  // path (inbox receipt + staged revision) exactly as before.
+  let processed = 0
+  for (const p of prepared) {
+    const prior = stagedBySourceId.get(p.sourceId)
+    if (classifyReplayFastPath(prior, p.fingerprint, inboxExisting.has(p.sourceId)) === 'replay') {
+      counts.replay++ // fast path: no new staged revision, durable inbox already present
+    } else {
+      const outcome = await stageContact(p.contact, q, manifest, batchId, batch.schemaVersion)
+      counts[outcome]++
+    }
+    processed++
+    if (processed % 500 === 0 || processed === prepared.length) {
+      console.log(formatProgress(processed, prepared.length, Date.now() - startMs))
+    }
   }
 
   const validCount = counts.new + counts.replay + counts.changed
+  const loadStatus = decideBatchLoadStatus(counts.error)
   await q`
     update integration_intake_batch set
       input_count = ${inputCount},
@@ -254,13 +381,14 @@ async function main(q: QueryExecutor) {
       replay_count = ${counts.replay},
       changed_revision_count = ${counts.changed},
       error_count = ${counts.error},
-      load_status = 'loaded',
+      load_status = ${loadStatus},
       updated_at = now()
     where id = ${batchId}
   `
 
   // ---- Non-PII aggregate report -----------------------------------------------
   const profile = dataQualityProfile(batch.contacts)
+  const totals = batchTotals(counts, inputCount)
   console.log(JSON.stringify({
     env,
     sourceAccount,
@@ -269,17 +397,20 @@ async function main(q: QueryExecutor) {
     fileSha256,
     batchCreated,
     batchId,
+    loadStatus,
     totals: {
       input: inputCount,
-      valid: validCount,
+      valid: totals.valid,
       new: counts.new,
       replay: counts.replay,
       changed: counts.changed,
       error: counts.error,
     },
-    balanced: inputCount === validCount + counts.error && validCount === counts.new + counts.replay + counts.changed,
+    balanced: totals.balanced,
     dataQuality: profile,
   }, null, 2))
+
+  return { errorCount: counts.error }
 }
 
 

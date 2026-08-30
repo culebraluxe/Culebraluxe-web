@@ -26,8 +26,15 @@ EXPORT_DIR="$REPO_ROOT/contact-export"
 EXPORT_FILE="$EXPORT_DIR/contacts-export.json"
 TMP_EXPORT="$EXPORT_FILE.tmp.$$"
 
+# Single-flight lock (distinct from the Apple Messages sync lock).
+source "$SELF_DIR/contacts-sync-lock.sh"
+LOCK_OWNED=0
+
 cleanup() {
   rm -f "$TMP_EXPORT"
+  if [ "$LOCK_OWNED" = "1" ]; then
+    contacts_release_lock 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -44,6 +51,13 @@ log() {
 [ -d "$EXPORT_DIR" ] || fail "missing contact-export package at $EXPORT_DIR"
 command -v swift >/dev/null 2>&1 || fail "swift not found in PATH"
 command -v node >/dev/null 2>&1 || fail "node not found in PATH"
+
+# Fail fast if another Contacts sync already owns the lock (never run two at once).
+if contacts_acquire_lock; then
+  LOCK_OWNED=1
+else
+  fail "another Contacts sync is already running (lock=$CONTACTS_SYNC_LOCK pid=$(contacts_lock_pid))"
+fi
 
 # Fail closed unless PROD is explicitly configured.
 node --env-file=.env.local -e '
@@ -115,9 +129,11 @@ NODE
 mv "$TMP_EXPORT" "$EXPORT_FILE"
 
 log "loading fresh export into PROD ODS"
-node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
+if ! node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
   --env prod \
   --file "$EXPORT_FILE" \
-  --source-account "$SOURCE_ACCOUNT"
+  --source-account "$SOURCE_ACCOUNT"; then
+  fail "Contacts ODS load did not fully succeed (see loader output); no SUCCESS reported"
+fi
 
 log "SUCCESS: Apple Contacts export -> PROD ODS intake complete"
