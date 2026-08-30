@@ -23,6 +23,7 @@ import { recordReconcileDecision } from './relationship-evidence'
 import { refreshClientReadModels } from './client-read-models'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
 import { isHumanName } from '../lib/relationship-intel/names'
+import type { ReviewState } from '../lib/relationship-intel/contracts'
 import type { NormalizedIdentityHint } from '../lib/crm-intake-types'
 
 type IdentityItem = { value: string; normalized?: string | null; label?: string | null }
@@ -94,20 +95,40 @@ export type PromoteResult = {
 }
 
 /**
- * Promote review-required evidence into canonical Persons (deduped by identity)
- * and link each evidence row to its canonical Person. Idempotent: re-running
- * finds the just-created identity and links existing instead of duplicating.
+ * Promote safe evidence into canonical Persons (deduped by identity) and link
+ * each evidence row to its canonical Person. Idempotent: re-running finds the
+ * just-created identity and links existing instead of duplicating.
+ *
+ * Only rows that reconcile to one of `opts.reviewStates` with a usable phone/
+ * email, are NOT automated/bulk or organization/service, and are NOT yet linked
+ * are promoted. Ambiguous, rejected, non_person, and deferred rows stay staged.
+ * The same evidence rows are preserved (never deleted). The client read models
+ * are refreshed once per promotion cycle.
  */
-export async function promoteReviewRequiredEvidence(): Promise<PromoteResult> {
-  const raw = (await sql`
-    select id, source, display_name, emails, phones
-    from integration_relationship_evidence
-    where review_state = 'review_required'
-      and canonical_person_id is null
-      and (is_automated_or_bulk is not true)
-      and (is_organization_or_service is not true)
-      and (has_email = true or has_phone = true)
-  `) as unknown[]
+export async function promoteEvidence(opts: {
+  source?: string
+  reviewStates: ReviewState[]
+}): Promise<PromoteResult> {
+  const raw = (opts.source
+    ? await sql`
+        select id, source, display_name, emails, phones
+        from integration_relationship_evidence
+        where source = ${opts.source}
+          and review_state = any(${opts.reviewStates})
+          and canonical_person_id is null
+          and (is_automated_or_bulk is not true)
+          and (is_organization_or_service is not true)
+          and (has_email = true or has_phone = true)
+      `
+    : await sql`
+        select id, source, display_name, emails, phones
+        from integration_relationship_evidence
+        where review_state = any(${opts.reviewStates})
+          and canonical_person_id is null
+          and (is_automated_or_bulk is not true)
+          and (is_organization_or_service is not true)
+          and (has_email = true or has_phone = true)
+      `) as unknown[]
 
   const rows: PromotionEvidence[] = raw.map((r) => {
     const row = r as {
@@ -185,5 +206,13 @@ export async function promoteReviewRequiredEvidence(): Promise<PromoteResult> {
   // cycle (the defined refresh boundary).
   await refreshClientReadModels()
   return result
+}
+
+/**
+ * Backward-compatible wrapper: promote the generic `review_required` evidence
+ * across all sources (the original single-state promotion).
+ */
+export async function promoteReviewRequiredEvidence(): Promise<PromoteResult> {
+  return promoteEvidence({ reviewStates: ['review_required'] })
 }
 

@@ -22,6 +22,8 @@ export interface ApplePersonInput {
   organization: string | null
   emails: IdentityEvidence[]
   phones: IdentityEvidence[]
+  /** Organization/service-only contact (no person name) — never a canonical Person. */
+  isOrganizationOrService?: boolean
 }
 
 /** Pure, deterministic projection of one Apple load row into neutral evidence. */
@@ -45,7 +47,7 @@ export function projectApplePersonToEvidence(input: ApplePersonInput): {
     isTwoWay: null,
     isOwnerInitiated: null,
     isAutomatedOrBulk: null,
-    isOrganizationOrService: null,
+    isOrganizationOrService: input.isOrganizationOrService ?? null,
     knownAppleContact: true,
     hasEmail: input.emails.length > 0,
     hasPhone: input.phones.length > 0,

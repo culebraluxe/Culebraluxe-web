@@ -135,5 +135,16 @@ if ! node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
   --source-account "$SOURCE_ACCOUNT"; then
   fail "Contacts ODS load did not fully succeed (see loader output); no SUCCESS reported"
 fi
+log "ODS complete"
 
-log "SUCCESS: Apple Contacts export -> PROD ODS intake complete"
+log "projecting current contacts (l_person relational load)"
+if ! node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env prod; then
+  fail "Contacts relational projection failed; no SUCCESS reported"
+fi
+
+log "reconciling + promoting contacts into canonical Person"
+if ! APP_ENV=production node --env-file=.env.local --import tsx scripts/promote-apple-contacts.ts --env prod; then
+  fail "Contacts canonical promotion / MV refresh failed; no SUCCESS reported"
+fi
+
+log "SUCCESS: Apple Contacts export -> PROD ODS -> canonical Person -> Clients read model complete"

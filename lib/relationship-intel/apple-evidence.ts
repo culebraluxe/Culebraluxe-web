@@ -23,6 +23,8 @@ type AppleLoadRow = {
   source_contact_id: string
   display_name: string | null
   organization: string | null
+  given_name: string | null
+  family_name: string | null
   identity_type: string
   identity_value: string
   normalized_value: string | null
@@ -31,12 +33,15 @@ type AppleLoadRow = {
 
 /**
  * Read the existing l_person relational-load rows and project them into the
- * neutral evidence seam (server-side, replay-safe upsert per contact).
+ * neutral evidence seam (server-side, replay-safe upsert per contact). A
+ * contact with no person name but an organization is an organization/service
+ * contact (isOrganizationOrService=true) so it is never promoted to Person.
  */
 export async function loadAppleEvidence(execute: QueryExecutor = sql): Promise<number> {
   const rows = (await execute`
     select
       lp.id, lp.source_account, lp.source_contact_id, lp.display_name, lp.organization,
+      lp.given_name, lp.family_name,
       li.identity_type, li.identity_value, li.normalized_value, li.source_label
     from l_person lp
     left join l_person_identity li on li.l_person_id = lp.id
@@ -48,6 +53,9 @@ export async function loadAppleEvidence(execute: QueryExecutor = sql): Promise<n
   for (const r of rows) {
     let person = byPerson.get(r.id)
     if (!person) {
+      const hasPersonName =
+        Boolean(r.given_name?.trim()) || Boolean(r.family_name?.trim())
+      const orgOnly = !hasPersonName && Boolean(r.organization?.trim())
       person = {
         id: r.id,
         sourceAccount: r.source_account,
@@ -56,6 +64,7 @@ export async function loadAppleEvidence(execute: QueryExecutor = sql): Promise<n
         organization: r.organization,
         emails: [],
         phones: [],
+        isOrganizationOrService: orgOnly,
       }
       byPerson.set(r.id, person)
     }
