@@ -24,11 +24,37 @@ async function snapshot() {
   return rows
 }
 
+async function dependencyGraph() {
+  return sql`
+    select
+      tc.table_schema,
+      tc.table_name,
+      kcu.column_name,
+      ccu.table_schema as referenced_table_schema,
+      ccu.table_name as referenced_table_name,
+      ccu.column_name as referenced_column_name,
+      rc.delete_rule
+    from information_schema.table_constraints tc
+    join information_schema.key_column_usage kcu
+      on tc.constraint_name = kcu.constraint_name
+     and tc.constraint_schema = kcu.constraint_schema
+    join information_schema.constraint_column_usage ccu
+      on ccu.constraint_name = tc.constraint_name
+     and ccu.constraint_schema = tc.constraint_schema
+    join information_schema.referential_constraints rc
+      on rc.constraint_name = tc.constraint_name
+     and rc.constraint_schema = tc.constraint_schema
+    where tc.constraint_type = 'FOREIGN KEY'
+      and ccu.table_name in ('document_form_instance', 'transaction_document', 'media')
+    order by ccu.table_name, tc.table_name, kcu.column_name
+  `
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url)
   if (url.searchParams.get('token') !== TOKEN) return new NextResponse('Not found', { status: 404 })
-  const forms = await snapshot()
-  return NextResponse.json({ ok: true, forms })
+  const [forms, dependencies] = await Promise.all([snapshot(), dependencyGraph()])
+  return NextResponse.json({ ok: true, forms, dependencies })
 }
 
 export async function POST(request: Request) {
