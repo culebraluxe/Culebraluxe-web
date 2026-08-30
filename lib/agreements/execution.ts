@@ -139,21 +139,21 @@ export function agreementExecutionTransition(
 /**
  * Per-template override of REQUIRED execution roles.
  *
- * CRM-27 (authoritative business decision): PR-PNS requires every actual
- * participant in BUYER, SELLER and SELLER_BROKER. This policy is a decision, not
- * a fixture default. Templates NOT execution-eligible are rejected before the
- * predicate is ever reached (precondition_failure) — they can never emit.
+ * PR-PNS requires every actual participant in BUYER, SELLER and SELLER_BROKER.
+ * LISTING-01 requires every SELLER plus SELLER_BROKER. The broker slot may be
+ * satisfied locally by Lisa's issuance-bound signature, so the provider
+ * envelope contains only the remaining external Seller slots.
  */
 const REQUIRED_EXECUTION_ROLE_OVERRIDES: Record<string, readonly string[]> = {
   'PR-PNS': ['BUYER', 'SELLER', 'SELLER_BROKER'],
+  'LISTING-01': ['SELLER', 'SELLER_BROKER'],
 }
 
-/**
- * Templates that participate in agreement-execution evaluation for this story.
- * Only PR-PNS (Purchase & Sale) is execution-eligible. An unknown / other
- * template is a precondition_failure — never a vacuous success.
- */
-export const EXECUTION_ELIGIBLE_TEMPLATES: ReadonlySet<string> = new Set(['PR-PNS'])
+/** Templates that use immutable participant slots + one ordered envelope. */
+export const EXECUTION_ELIGIBLE_TEMPLATES: ReadonlySet<string> = new Set([
+  'PR-PNS',
+  'LISTING-01',
+])
 
 /** Is this template eligible for agreement-execution evaluation? */
 export function isExecutionEligibleTemplate(templateId: string): boolean {
@@ -175,7 +175,8 @@ export function resolveRequiredExecutionRoles(
 
 /**
  * PR-PNS authoritative required-role set (CRM-27 participant-cardinality policy).
- * PR-PNS requires every actual participant in BUYER, SELLER and SELLER_BROKER.
+ * Retained for slot construction compatibility; template-specific requiredness
+ * is applied by resolveRequiredSlots at issuance/send/evaluation boundaries.
  */
 export const PR_PNS_REQUIRED_ROLES: ReadonlySet<string> = new Set([
   'BUYER',
@@ -213,17 +214,14 @@ export function buildIssuedExecutionSlots(
   })
 }
 
-/**
- * Resolve the REQUIRED issued slots for an eligible template (the PR-PNS
- * participant-cardinality policy). A required slot must carry its OWN execution
- * evidence; an optional slot must not be in the resolved required set.
- */
+/** Resolve required issued slots according to the eligible template's policy. */
 export function resolveRequiredSlots(
   templateId: string,
   issuedSlots: readonly IssuedExecutionSlot[],
 ): IssuedExecutionSlot[] {
   if (!isExecutionEligibleTemplate(templateId)) return []
+  const requiredRoles = new Set(REQUIRED_EXECUTION_ROLE_OVERRIDES[templateId] ?? [])
   return issuedSlots
-    .filter((slot) => PR_PNS_REQUIRED_ROLES.has(slot.role))
+    .filter((slot) => requiredRoles.has(slot.role))
     .map((slot) => ({ ...slot, required: true }))
 }
