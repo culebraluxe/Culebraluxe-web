@@ -77,6 +77,16 @@ function defaultDateFor(fieldName: string): string {
   return isoDate(0)
 }
 
+/** Human-approved template-owned defaults that are not domain facts. */
+const TEMPLATE_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'LISTING-01': {
+    // CulebraLuxe listing agreements are brokered by Lisa. This identity must
+    // be present before the protected local signature resolver is allowed to
+    // compose Lisa's transparent signature image, initials and issuance date.
+    brokerName: 'Lisa Penfield',
+  },
+}
+
 /** Fill empty date fields so the native date input is a real value, not a grey placeholder. */
 export function applyDateDefaults(
   template: TemplateDefinition,
@@ -93,20 +103,21 @@ export function applyDateDefaults(
 
 /**
  * Prefill a field-values map for a template from canonical facts. Bound fields
- * adopt the canonical value; unbound fields start blank (user-entered) except
- * dates, which default to today so the input is actually set.
+ * adopt the canonical value; unbound fields start blank unless the template has
+ * a human-approved business default. Dates receive their existing date default.
  */
 export function prefillFieldValues(
   template: TemplateDefinition,
   facts: DealFactsForForm,
 ): TemplateFieldValues {
   const values: TemplateFieldValues = {}
+  const defaults = TEMPLATE_FIELD_DEFAULTS[template.id] ?? {}
   for (const field of template.fields) {
     if (!field.binding) {
-      values[field.name] = ''
+      values[field.name] = defaults[field.name] ?? ''
       continue
     }
-    values[field.name] = resolveBinding(field.binding, facts) ?? ''
+    values[field.name] = resolveBinding(field.binding, facts) ?? defaults[field.name] ?? ''
   }
   return applyDateDefaults(template, values)
 }
