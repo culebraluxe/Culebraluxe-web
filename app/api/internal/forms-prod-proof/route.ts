@@ -38,10 +38,9 @@ export async function GET(request: Request) {
       participants,
       actorAppUserId: form.createdByUserId,
       issuedAt: new Date().toISOString(),
+      requireExecutionSlot: false,
     },
     sql,
-    undefined,
-    { requireExecutionSlot: false },
   )
   if (!broker.ok) {
     return NextResponse.json({ ok: false, stage: 'broker', message: broker.message }, { status: 500 })
