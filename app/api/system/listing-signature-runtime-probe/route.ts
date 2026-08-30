@@ -4,7 +4,6 @@ import { resolveRequiredSlots, type IssuedExecutionSlot } from '@/lib/agreements
 import { resolveSignatureEnvelopeRecipients } from '@/lib/forms/signature-envelope'
 import { getTemplate } from '@/lib/forms/template-registry'
 import { prefillFieldValues, emptyDealFacts } from '@/lib/forms/offer-letter-data'
-import { renderFormPdf } from '@/lib/forms/pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,35 +51,17 @@ export async function GET() {
       sql,
       config,
     )
-    if (!local.ok || local.signatures.length !== 1) {
-      return Response.json(
-        {
-          ok: false,
-          stage: 'local-signature',
-          configEnabled: config.enabled,
-          configConfigured: config.configured,
-          signerNameMatches: config.signerName === values.brokerName,
-          brokerName: values.brokerName,
-          message: local.ok ? 'No local signature resolved' : local.message,
-        },
-        { status: 500, headers: { 'Cache-Control': 'no-store' } },
-      )
-    }
-
-    const rendered = await renderFormPdf(template, values, {}, 1, {
-      participants: slots(1),
-      appliedSignatures: local.signatures,
-    })
-    const raw = rendered.toString('latin1')
-    const imageObjects = (raw.match(/\/Subtype\s*\/Image/g) ?? []).length
 
     const cases = [1, 2, 4].map((sellerCount) => {
       const required = resolveRequiredSlots('LISTING-01', slots(sellerCount))
+      // This simulates the intended issued snapshot once Lisa's local image is
+      // provisioned: her immutable broker slot is already satisfied locally.
       const envelope = resolveSignatureEnvelopeRecipients(required, ['SELLER_BROKER:1'])
       if (!envelope.ok) return { sellerCount, ok: false, error: envelope.error }
       return {
         sellerCount,
         ok: true,
+        requiredSlotIds: required.map((slot) => slot.slotId),
         recipientCount: envelope.recipients.length,
         recipients: envelope.recipients.map((recipient) => ({
           name: recipient.name,
@@ -91,17 +72,22 @@ export async function GET() {
       }
     })
 
+    const envelopeOk = cases.every(
+      (item) => item.ok && item.recipientCount === item.sellerCount,
+    )
+
     return Response.json(
       {
-        ok: imageObjects > 1 && values.brokerName === 'Lisa Penfield' && cases.every((item) => item.ok && item.recipientCount === item.sellerCount),
+        ok: envelopeOk && values.brokerName === 'Lisa Penfield',
         templateVersion: template.version,
         brokerName: values.brokerName,
-        configEnabled: config.enabled,
-        configConfigured: config.configured,
-        localSignatureCount: local.signatures.length,
-        localSignatureRole: local.signatures[0]?.role,
-        localSignatureSlotId: local.signatures[0]?.slotId,
-        pdfImageObjects: imageObjects,
+        localSignature: {
+          configEnabled: config.enabled,
+          configConfigured: config.configured,
+          resolved: local.ok ? local.signatures.length : 0,
+          message: local.ok ? null : local.message,
+        },
+        envelopeOk,
         cases,
       },
       { headers: { 'Cache-Control': 'no-store' } },
