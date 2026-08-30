@@ -1,5 +1,6 @@
 import { checkPdfLogoAsset } from '@/lib/forms/logo-health'
 
+// Temporary deployment-only probe; remove after serverless asset verification.
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
