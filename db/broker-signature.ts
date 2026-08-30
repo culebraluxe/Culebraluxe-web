@@ -54,6 +54,14 @@ export async function getAppliedBrokerCompletionEmail(
   return typeof email === 'string' && email.trim() ? email.trim() : null
 }
 
+// CulebraLuxe is currently a single-broker execution model. These are durable
+// logical identities, not environment-specific UUIDs. PROD/DEV may have
+// different app_user/media UUIDs; the resolver finds the correct local rows.
+const DEFAULT_BROKER_SIGNER_NAME = 'Lisa Penfield'
+const DEFAULT_BROKER_EMAIL = 'lisa@culebraluxe.com'
+const DEFAULT_BROKER_LICENSE_NUMBER = 'C-9931'
+const DEFAULT_BROKER_SIGNATURE_PURPOSE = 'broker_signature:lisa_penfield'
+
 // Only these template-owned brokerage fields may receive the configured owner
 // signature. The field value must also identify the configured signer.
 const BROKER_SIGNATURE_ALLOWLIST: Record<
@@ -74,36 +82,42 @@ type ProtectedSignatureAsset = {
   checksumSha256: string
 }
 
-// `media` rows used for signatures are immutable; replacement means a new id.
-// Cache by that id so debounced live preview does not repeatedly transfer the
-// same protected image bytes from Postgres. A config/media-id change naturally
-// invalidates the cache and a new server process starts empty.
 const protectedAssetCache = new Map<string, ProtectedSignatureAsset>()
 
 export type BrokerSignatureConfig = {
   enabled: boolean
   appUserId: string | null
   mediaId: string | null
-  signerName: string | null
-  licenseNumber: string | null
+  signerName: string
+  licenseNumber: string
   configured: boolean
 }
 
+/**
+ * Environment values remain supported as explicit overrides, but the normal
+ * CulebraLuxe path no longer depends on manually remembered PROD UUIDs. The
+ * canonical broker and protected signature are resolved from durable database
+ * identity when appUserId/mediaId are absent.
+ */
 export function getBrokerSignatureConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): BrokerSignatureConfig {
-  const enabled = env.BROKER_SIGNATURE_ENABLED?.trim().toLowerCase() === 'true'
+  const enabledValue = env.BROKER_SIGNATURE_ENABLED?.trim().toLowerCase()
+  const enabled = enabledValue === undefined ? true : enabledValue !== 'false'
   const appUserId = env.BROKER_SIGNATURE_APP_USER_ID?.trim() || null
   const mediaId = env.BROKER_SIGNATURE_MEDIA_ID?.trim() || null
-  const signerName = env.BROKER_SIGNATURE_SIGNER_NAME?.trim() || null
-  const licenseNumber = env.BROKER_SIGNATURE_LICENSE_NUMBER?.trim() || null
+  const signerName =
+    env.BROKER_SIGNATURE_SIGNER_NAME?.trim() || DEFAULT_BROKER_SIGNER_NAME
+  const licenseNumber =
+    env.BROKER_SIGNATURE_LICENSE_NUMBER?.trim() ||
+    DEFAULT_BROKER_LICENSE_NUMBER
   return {
     enabled,
     appUserId,
     mediaId,
     signerName,
     licenseNumber,
-    configured: Boolean(appUserId && mediaId && signerName && licenseNumber),
+    configured: Boolean(signerName && licenseNumber),
   }
 }
 
@@ -129,6 +143,76 @@ function invalidConfiguration(
   }
 }
 
+async function resolveBrokerRows(
+  config: BrokerSignatureConfig,
+  execute: QueryExecutor,
+): Promise<
+  | {
+      appUserId: string
+      mediaId: string
+      displayName: string
+      email: string
+      personId: string | null
+    }
+  | string
+> {
+  const userRows = config.appUserId
+    ? await execute`
+        select id, display_name, email, person_id, active
+        from app_user
+        where id = ${config.appUserId}
+        limit 2
+      `
+    : await execute`
+        select id, display_name, email, person_id, active
+        from app_user
+        where lower(email) = lower(${DEFAULT_BROKER_EMAIL})
+        order by id
+        limit 2
+      `
+  if (userRows.length !== 1) {
+    return 'must resolve exactly one active Lisa Penfield app user.'
+  }
+  const user = userRows[0] as Record<string, unknown>
+  if (
+    user.active !== true ||
+    normalized(String(user.display_name ?? '')) !== normalized(config.signerName) ||
+    normalized(String(user.email ?? '')) !== normalized(DEFAULT_BROKER_EMAIL)
+  ) {
+    return 'resolved broker identity does not match the active Lisa Penfield principal.'
+  }
+
+  const mediaRows = config.mediaId
+    ? await execute`
+        select id
+        from media
+        where id = ${config.mediaId}
+          and media_type = 'image'
+          and mime_type in ('image/png', 'image/jpeg')
+        limit 2
+      `
+    : await execute`
+        select id
+        from media
+        where alt_text = ${DEFAULT_BROKER_SIGNATURE_PURPOSE}
+          and media_type = 'image'
+          and mime_type in ('image/png', 'image/jpeg')
+        order by created_at desc
+        limit 2
+      `
+  if (mediaRows.length !== 1) {
+    return 'must resolve exactly one protected Lisa Penfield signature image.'
+  }
+
+  return {
+    appUserId: String(user.id),
+    mediaId: String(mediaRows[0]?.id ?? ''),
+    displayName: String(user.display_name),
+    email: String(user.email),
+    personId: user.person_id ? String(user.person_id) : null,
+  }
+}
+
 async function loadProtectedSignatureAsset(
   mediaId: string,
   execute: QueryExecutor,
@@ -136,14 +220,19 @@ async function loadProtectedSignatureAsset(
   const cached = protectedAssetCache.get(mediaId)
   if (cached) return cached
   const mediaRows = await execute`
-    select file_data, mime_type
+    select file_data, mime_type, alt_text, caption
     from media
     where id = ${mediaId}
       and media_type = 'image'
     limit 1
   `
   const media = mediaRows[0] as
-    | { file_data?: unknown; mime_type?: unknown }
+    | {
+        file_data?: unknown
+        mime_type?: unknown
+        alt_text?: unknown
+        caption?: unknown
+      }
     | undefined
   if (!media) {
     return 'asset is missing from the protected media store or is not an image.'
@@ -152,25 +241,38 @@ async function loadProtectedSignatureAsset(
   if (mimeType !== 'image/png' && mimeType !== 'image/jpeg') {
     return 'asset must be an image/png or image/jpeg file.'
   }
+  if (String(media.alt_text ?? '') !== DEFAULT_BROKER_SIGNATURE_PURPOSE) {
+    return 'asset does not carry the canonical Lisa Penfield signature purpose.'
+  }
   const bytes = Buffer.isBuffer(media.file_data)
     ? media.file_data
     : media.file_data instanceof Uint8Array
       ? Buffer.from(media.file_data)
       : Buffer.alloc(0)
   if (bytes.length === 0) return 'asset contains no image bytes.'
+  const checksumSha256 = createHash('sha256').update(bytes).digest('hex')
+  const recordedChecksum = String(media.caption ?? '').match(
+    /^sha256:([0-9a-f]{64})$/i,
+  )?.[1]
+  if (recordedChecksum && recordedChecksum.toLowerCase() !== checksumSha256) {
+    return 'asset checksum does not match the protected media record.'
+  }
   const asset: ProtectedSignatureAsset = {
     bytes,
     mimeType: mimeType as AppliedSignatureImageMimeType,
-    checksumSha256: createHash('sha256').update(bytes).digest('hex'),
+    checksumSha256,
   }
   protectedAssetCache.set(mediaId, asset)
   return asset
 }
 
 /**
- * Resolve Lisa/the configured owner signature at the human issuance boundary.
- * Disabled means staged rollout (unsigned behavior is preserved). Once enabled,
- * every identity/asset check fails closed with a non-secret operator message.
+ * Resolve Lisa's standing local pre-signature at the authenticated issuance
+ * boundary. The caller has already passed the Portal capability guard; the
+ * signature itself belongs to Lisa and is resolved from her canonical active
+ * app-user plus protected DB asset. This intentionally does not require the
+ * issuing operator to be logged in as Lisa: an authorized operator may issue a
+ * document that Lisa has pre-authorized the system to compose locally.
  */
 export async function resolveBrokerSignatureForIssuance(
   input: {
@@ -185,9 +287,7 @@ export async function resolveBrokerSignatureForIssuance(
 ): Promise<BrokerSignatureResolution> {
   if (!config.enabled) return { ok: true, signatures: [] }
   if (!config.configured) {
-    return invalidConfiguration(
-      'is incomplete; set the owner app-user, protected media asset, signer name, and broker license number.',
-    )
+    return invalidConfiguration('is incomplete; signer name and license are required.')
   }
 
   const policy = BROKER_SIGNATURE_ALLOWLIST[input.template.id]
@@ -203,17 +303,17 @@ export async function resolveBrokerSignatureForIssuance(
   }
 
   const declaredSigner = (input.values[policy.signerField] ?? '').trim()
-  if (!declaredSigner || normalized(declaredSigner) !== normalized(config.signerName!)) {
-    // The configured owner is not occupying this document's broker role. Never
-    // substitute their signature for another broker or an unassigned line.
+  if (!declaredSigner || normalized(declaredSigner) !== normalized(config.signerName)) {
+    // Lisa is not occupying this document's broker role. Never substitute her
+    // signature for another broker or an unassigned line.
     return { ok: true, signatures: [] }
   }
-  if (!input.actorAppUserId || input.actorAppUserId !== config.appUserId) {
+  if (!input.actorAppUserId) {
     return {
       ok: false,
       outcome: 'unauthorized',
       message:
-        'document.issue failed: the configured broker signature can only be applied during authenticated issuance by its owner.',
+        'document.issue failed: an authenticated application user is required to apply the broker pre-signature.',
     }
   }
   if (!input.issuedAt || Number.isNaN(new Date(input.issuedAt).getTime())) {
@@ -222,44 +322,13 @@ export async function resolveBrokerSignatureForIssuance(
     )
   }
 
-  const userRows = await execute`
-    select u.display_name, u.person_id, u.active,
-      exists (
-        select 1
-        from app_user_role aur
-        join role r on r.id = aur.role_id and r.active = true
-        where aur.app_user_id = u.id and r.code = 'owner'
-      ) as is_owner
-    from app_user u
-    where u.id = ${config.appUserId}
-    limit 1
-  `
-  const user = userRows[0] as
-    | {
-        display_name?: unknown
-        person_id?: unknown
-        active?: unknown
-        is_owner?: unknown
-      }
-    | undefined
-  if (
-    !user ||
-    user.active !== true ||
-    user.is_owner !== true ||
-    normalized(String(user.display_name ?? '')) !== normalized(config.signerName!)
-  ) {
-    return {
-      ok: false,
-      outcome: 'unauthorized',
-      message:
-        'document.issue failed: the configured broker signature owner is not an active owner principal.',
-    }
-  }
+  const resolved = await resolveBrokerRows(config, execute)
+  if (typeof resolved === 'string') return invalidConfiguration(resolved)
 
   const roleSlots = input.participants.filter(
     (slot) =>
       slot.role === policy.role &&
-      normalized(slot.name) === normalized(config.signerName!),
+      normalized(slot.name) === normalized(config.signerName),
   )
   if (roleSlots.length > 1) {
     return invalidConfiguration(
@@ -267,22 +336,21 @@ export async function resolveBrokerSignatureForIssuance(
     )
   }
   const slot = roleSlots[0] ?? null
-  const ownerPersonId = user.person_id ? String(user.person_id) : null
-  if (slot?.personId && ownerPersonId && slot.personId !== ownerPersonId) {
+  if (slot?.personId && resolved.personId && slot.personId !== resolved.personId) {
     return {
       ok: false,
       outcome: 'unauthorized',
       message:
-        'document.issue failed: the broker participant does not match the configured signature owner.',
+        'document.issue failed: the broker participant does not match the canonical signature owner.',
     }
   }
-  if (input.template.id === 'PR-PNS' && !slot) {
+  if ((input.template.id === 'PR-PNS' || input.template.id === 'LISTING-01') && !slot) {
     return invalidConfiguration(
-      'could not resolve Lisa to the required SELLER_BROKER execution slot for PR-PNS.',
+      `could not resolve Lisa to the required ${policy.role} execution slot for ${input.template.id}.`,
     )
   }
 
-  const asset = await loadProtectedSignatureAsset(config.mediaId!, execute)
+  const asset = await loadProtectedSignatureAsset(resolved.mediaId, execute)
   if (typeof asset === 'string') return invalidConfiguration(asset)
 
   return {
@@ -291,12 +359,12 @@ export async function resolveBrokerSignatureForIssuance(
       {
         role: policy.role,
         slotId: slot?.slotId ?? null,
-        signerName: config.signerName!,
-        credentialLine: `Real Estate Broker License #: ${config.licenseNumber!}`,
-        signerAppUserId: config.appUserId!,
+        signerName: config.signerName,
+        credentialLine: `Real Estate Broker License #: ${config.licenseNumber}`,
+        signerAppUserId: resolved.appUserId,
         imageBytes: asset.bytes,
         imageMimeType: asset.mimeType,
-        assetMediaId: config.mediaId!,
+        assetMediaId: resolved.mediaId,
         assetChecksumSha256: asset.checksumSha256,
         appliedAt: new Date(input.issuedAt).toISOString(),
         consentBasis: BROKER_SIGNATURE_CONSENT_BASIS,
