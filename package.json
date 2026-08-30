@@ -53,7 +53,7 @@
   "dependencies": {
     "@base-ui/react": "^1.5.0",
     "@fullcalendar/core": "7.0.2",
-    "@fullcalendar/react": "^7.0.2",
+    "@fullcalendar/react": "7.0.2",
     "@ilamy/calendar": "^2.0.3",
     "@mux/mux-player-react": "^3.13.2",
     "@neon/config": "^1.0.1",
