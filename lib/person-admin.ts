@@ -18,7 +18,7 @@ import {
   normalizePhone,
 } from './crm-intake-normalization'
 
-export const CLIENT_ROLES = ['buyer', 'seller', 'both'] as const
+export const CLIENT_ROLES = ['buyer', 'seller', 'both', 'unclassified'] as const
 export type ClientRole = (typeof CLIENT_ROLES)[number]
 
 export const CLIENT_STATUSES = ['new', 'warm', 'active', 'referral'] as const

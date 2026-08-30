@@ -33,7 +33,7 @@ const DISPOSITIONS = new Set<CallDisposition>([
   'canceled',
   'voicemail',
 ])
-const ROLES = new Set(['buyer', 'seller', 'both'])
+const ROLES = new Set(['buyer', 'seller', 'both', 'unclassified'])
 
 function sourceToken(value: string, field: string) {
   if (typeof value !== 'string') throw new Error(`${field} must be a string.`)

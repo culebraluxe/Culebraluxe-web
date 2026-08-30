@@ -7,8 +7,14 @@ import { projectApplePersonToEvidence } from '../../lib/relationship-intel/apple
 import {
   groupEvidenceForPromotion,
   pickPrimaryIdentity,
+  collectSafeIdentities,
+  planIdentityAttachments,
+  normalizeEvidenceIdentities,
   type PromotionEvidence,
 } from '../../db/promote-evidence'
+import { CLIENT_ROLES } from '../../lib/person-admin'
+import { roleLabel } from '../../components/portal/client-display'
+import type { PersonRole } from '../../lib/crm-person-types'
 
 // ---------------------------------------------------------------------------
 // Apple Contacts -> canonical Person lifecycle — targeted proofs (no PROD).
@@ -183,5 +189,118 @@ test('promotion 13: Edit Client / create backend remains available', () => {
   assert.ok(manager.includes('showEdit'), 'edit path preserved')
   assert.ok(editor.includes('mode === "create"'), 'create editor mode preserved')
   assert.ok(editor.includes('createClientAction'), 'create server action preserved')
+})
+
+// --- Canonical Person seam correction --------------------------------------
+
+test('A: new Apple Person with phone + email claims BOTH identities (one primary)', () => {
+  const rows: PromotionEvidence[] = [
+    {
+      id: 'e1',
+      source: 'apple_contacts',
+      displayName: 'Jessica Iverson',
+      emails: [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
+      phones: [{ value: '+34689351739', normalized: '34689351739' }],
+    },
+  ]
+  const group = groupEvidenceForPromotion(rows)[0]
+  const identities = collectSafeIdentities(rows, group)
+  assert.equal(identities.length, 2, 'both safe identities retained')
+  assert.ok(identities.some((i) => i.kind === 'email' && i.value === 'jessica@bodysoulandbeauty.com'))
+  assert.ok(identities.some((i) => i.kind === 'phone' && i.value === '34689351739'))
+  const primaries = identities.filter((i) => i.isPrimary)
+  assert.equal(primaries.length, 1, 'exactly one primary identity')
+  assert.equal(primaries[0].kind, 'phone', 'phone is the deterministic primary')
+})
+
+test('B: replay keeps one Person and no duplicate identities', () => {
+  const rows: PromotionEvidence[] = [
+    {
+      id: 'e1',
+      source: 'apple_contacts',
+      displayName: 'Jessica Iverson',
+      emails: [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
+      phones: [{ value: '+34689351739', normalized: '34689351739' }],
+    },
+    {
+      id: 'e2',
+      source: 'apple_contacts',
+      displayName: 'Jessica Iverson',
+      emails: [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
+      phones: [{ value: '+34689351739', normalized: '34689351739' }],
+    },
+  ]
+  const group = groupEvidenceForPromotion(rows)[0]
+  assert.equal(group.evidenceIds.length, 2, 'two evidence rows -> one promotion group (one Person)')
+  const identities = collectSafeIdentities(rows, group)
+  assert.equal(identities.length, 2, 'duplicate rows dedupe to the same two identities')
+})
+
+test('C: exact-linked Person with one existing identity gains the missing safe identity', () => {
+  const identities = normalizeEvidenceIdentities(
+    [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
+    [{ value: '+34689351739', normalized: '34689351739' }],
+  )
+  // email already owned by the target Person; phone is unused.
+  const plan = planIdentityAttachments(identities, ['p-jessica', null], 'p-jessica')
+  assert.equal(plan.duplicate, 1, 'already-owned email is a replay/no-op')
+  assert.equal(plan.attach.length, 1, 'missing safe phone gets attached')
+  assert.equal(plan.attach[0].value, '34689351739')
+  assert.equal(plan.attach[0].isPrimary, false, 'enrichment attaches non-primary only')
+  assert.equal(plan.conflicts.length, 0)
+})
+
+test('D: conflicting ownership is ambiguous, no merge, no identity moved', () => {
+  const identities = normalizeEvidenceIdentities(
+    [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
+    [{ value: '+34689351739', normalized: '34689351739' }],
+  )
+  // email -> Person A, phone -> Person B (cross-identity).
+  const plan = planIdentityAttachments(identities, ['p-a', 'p-b'], 'p-a')
+  assert.equal(plan.conflicts.length, 1, 'cross-identity conflict surfaced')
+  assert.equal(plan.conflicts[0].personId, 'p-b')
+  assert.equal(plan.attach.length, 0, 'nothing attached / nothing moved on conflict')
+  assert.equal(plan.duplicate, 1, "the email already owned by target A is a replay/no-op, not a move")
+})
+
+test('D2: cross-identity email->A + phone->B reconciles ambiguous (no silent choice)', async () => {
+  const d = await reconcileEvidence(baseEvidence() as never, {
+    findExplicitSourceLink: async () => null,
+    findPeopleByEmail: async () => [{ personId: 'p-a' }],
+    findPeopleByPhone: async () => [{ personId: 'p-b' }],
+  })
+  assert.equal(d.reviewState, 'ambiguous')
+  assert.equal(d.canonicalPersonId, null, 'never resolve Person A just because email was checked first')
+})
+
+test('D3: email + phone owned by the SAME Person still resolve exact', async () => {
+  const d = await reconcileEvidence(baseEvidence() as never, {
+    findExplicitSourceLink: async () => null,
+    findPeopleByEmail: async () => [{ personId: 'p-jessica' }],
+    findPeopleByPhone: async () => [{ personId: 'p-jessica' }],
+  })
+  assert.equal(d.reviewState, 'exact_linked')
+  assert.equal(d.canonicalPersonId, 'p-jessica')
+})
+
+test('E: passive new Person is created unclassified (never fabricated buyer)', () => {
+  const src = readFileSync('db/promote-evidence.ts', 'utf8')
+  assert.ok(src.includes("role: 'unclassified'"), 'passive promotion uses unclassified')
+  assert.ok(!src.includes("role: 'buyer'"), 'passive promotion no longer fabricates buyer')
+})
+
+test('F: passive Apple linkage never overwrites an existing buyer/seller/both role', () => {
+  const src = readFileSync('db/promote-evidence.ts', 'utf8')
+  assert.ok(!src.includes('set role'), 'promotion never issues a role UPDATE on an existing Person')
+})
+
+test('G: role contracts + UI support unclassified', () => {
+  assert.ok(CLIENT_ROLES.includes('unclassified'), 'CLIENT_ROLES allows unclassified')
+  const role: PersonRole = 'unclassified'
+  assert.equal(role, 'unclassified')
+  assert.equal(roleLabel('unclassified'), 'Unclassified', 'display renders honestly as Unclassified')
+  const editor = readFileSync('components/portal/client-editor.tsx', 'utf8')
+  assert.ok(editor.includes('unclassified'), 'client editor offers unclassified')
+  assert.ok(editor.includes('"buyer"'), 'manual creation still defaults to buyer')
 })
 

@@ -42,7 +42,7 @@ export interface InboundEvent {
     personId?: string
     identityHints: IdentityHint[]
     displayNameHint?: string
-    roleHint?: 'buyer' | 'seller' | 'both'
+    roleHint?: 'buyer' | 'seller' | 'both' | 'unclassified'
   }
   content?: {
     subject?: string

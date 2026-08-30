@@ -59,32 +59,47 @@ export async function reconcileEvidence(
     return decision('exact_linked', 'source_link', 'exact', 'explicit_source_link', link.personId)
   }
 
-  // 3. Exact normalized email match.
+  // 3. Inspect ALL exact normalized email/phone ownership. Never resolve on the
+  //    first match: evidence carrying multiple identities (e.g. email -> Person A
+  //    and phone -> Person B) is a cross-identity conflict, never a silent choice
+  //    based on lookup order.
   const emails = evidence.emails
     .map((e) => e.normalized)
     .filter((e): e is string => Boolean(e))
-  for (const email of emails) {
-    const people = await lookup.findPeopleByEmail(email)
-    if (people.length === 1) {
-      return decision('exact_linked', 'exact_email', 'exact', 'exact_normalized_email', people[0].personId)
-    }
-    if (people.length > 1) {
-      return decision('ambiguous', 'exact_email', 'ambiguous', 'email_matches_multiple_people', null)
-    }
-  }
-
-  // 4. Exact normalized phone match.
   const phones = evidence.phones
     .map((p) => p.normalized)
     .filter((p): p is string => Boolean(p))
+
+  const distinctOwners = new Set<string>()
+  let multiMatch = false
+  let matchedMethod: 'exact_email' | 'exact_phone' | null = null
+
+  for (const email of emails) {
+    const people = await lookup.findPeopleByEmail(email)
+    if (people.length > 1) multiMatch = true
+    else if (people.length === 1) {
+      distinctOwners.add(people[0].personId)
+      matchedMethod = matchedMethod ?? 'exact_email'
+    }
+  }
   for (const phone of phones) {
     const people = await lookup.findPeopleByPhone(phone)
-    if (people.length === 1) {
-      return decision('exact_linked', 'exact_phone', 'exact', 'exact_normalized_phone', people[0].personId)
+    if (people.length > 1) multiMatch = true
+    else if (people.length === 1) {
+      distinctOwners.add(people[0].personId)
+      matchedMethod = matchedMethod ?? 'exact_phone'
     }
-    if (people.length > 1) {
-      return decision('ambiguous', 'exact_phone', 'ambiguous', 'phone_matches_multiple_people', null)
-    }
+  }
+
+  if (multiMatch) {
+    return decision('ambiguous', matchedMethod ?? 'exact_email', 'ambiguous', 'identity_matches_multiple_people', null)
+  }
+  if (distinctOwners.size === 1 && matchedMethod) {
+    const personId = [...distinctOwners][0]
+    return decision('exact_linked', matchedMethod, 'exact', 'exact_normalized_identity', personId)
+  }
+  if (distinctOwners.size > 1) {
+    return decision('ambiguous', matchedMethod ?? 'exact_email', 'ambiguous', 'cross_identity_conflict', null)
   }
 
   // 5. No exact match — classify conservatively.

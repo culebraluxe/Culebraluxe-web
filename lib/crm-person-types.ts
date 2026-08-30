@@ -5,7 +5,7 @@ import type {
   NormalizedInboundEvent,
 } from './crm-intake-types'
 
-export type PersonRole = 'buyer' | 'seller' | 'both'
+export type PersonRole = 'buyer' | 'seller' | 'both' | 'unclassified'
 
 export interface PersonCreationPolicy {
   allowCreation: boolean

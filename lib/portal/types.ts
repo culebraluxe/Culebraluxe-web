@@ -9,7 +9,7 @@ export type {
   InteractionDirection,
 } from '@/lib/crm-types'
 
-export type ClientRole = "buyer" | "seller" | "both"
+export type ClientRole = "buyer" | "seller" | "both" | "unclassified"
 
 export type ClientStatus =
   | "new"

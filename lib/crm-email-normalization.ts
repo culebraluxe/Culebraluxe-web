@@ -30,7 +30,7 @@ const AUTHENTICATION = new Set<EmailSenderAuthentication>([
   'unverified',
   'authenticated_pass',
 ])
-const CREATION_ROLES = new Set(['buyer', 'seller', 'both'])
+const CREATION_ROLES = new Set(['buyer', 'seller', 'both', 'unclassified'])
 
 function normalizeSourceToken(value: string, field: string) {
   if (typeof value !== 'string') {

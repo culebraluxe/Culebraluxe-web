@@ -139,6 +139,7 @@ async function runMain(): Promise<void> {
 
   console.log(
     `[contacts-sync] promotion complete: created=${result.created} linked=${result.linkedExisting} ` +
+      `enriched=${result.enriched} identitiesAdded=${result.identitiesAdded} conflicts=${result.conflicts} ` +
       `review=${reviewRemaining} skipped=${skipped} (person rows ${peopleBefore} -> ${peopleAfter})`,
   )
   console.log('[contacts-sync] client read model refreshed (mv_client_directory + mv_client_contact_history)')
@@ -177,6 +178,9 @@ async function runMain(): Promise<void> {
       exactLinked,
       created: result.created,
       linkedExisting: result.linkedExisting,
+      enriched: result.enriched,
+      identitiesAdded: result.identitiesAdded,
+      conflicts: result.conflicts,
       evidenceLinked: result.evidenceLinked,
       peopleBefore,
       peopleAfter,

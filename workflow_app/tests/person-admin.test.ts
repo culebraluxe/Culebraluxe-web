@@ -336,7 +336,7 @@ test('normalizeClientContact normalizes email and phone, clears empty', () => {
 })
 
 test('closed role and status vocabularies match the person schema', () => {
-  assert.deepEqual([...CLIENT_ROLES], ['buyer', 'seller', 'both'])
+  assert.deepEqual([...CLIENT_ROLES], ['buyer', 'seller', 'both', 'unclassified'])
   assert.deepEqual([...CLIENT_STATUSES], ['new', 'warm', 'active', 'referral'])
 })
 

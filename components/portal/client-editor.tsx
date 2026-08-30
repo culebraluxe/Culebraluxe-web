@@ -35,6 +35,7 @@ const ROLES = [
   { value: "buyer", label: "Buyer" },
   { value: "seller", label: "Seller" },
   { value: "both", label: "Buyer & Seller" },
+  { value: "unclassified", label: "Unclassified" },
 ]
 
 const STATUSES = [
