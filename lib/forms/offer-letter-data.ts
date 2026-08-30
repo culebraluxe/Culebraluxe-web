@@ -86,6 +86,7 @@ const TEMPLATE_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, s
     brokerName: 'Lisa Penfield',
     // Current CulebraLuxe operating defaults. These remain editable on the form
     // but should not burden the operator on every new Listing Agreement.
+    sellerCivilStatus: 'Single',
     commission: '5%',
     listingType: 'Exclusive Right to Sell',
   },
