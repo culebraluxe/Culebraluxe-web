@@ -24,17 +24,8 @@ async function snapshot() {
   return rows
 }
 
-export async function GET(request: Request) {
-  const url = new URL(request.url)
-  if (url.searchParams.get('token') !== TOKEN) return new NextResponse('Not found', { status: 404 })
-  return NextResponse.json({ ok: true, forms: await snapshot() })
-}
-
-export async function POST(request: Request) {
-  const url = new URL(request.url)
-  if (url.searchParams.get('token') !== TOKEN) return new NextResponse('Not found', { status: 404 })
-
-  const result = await neonTx(async (tx) => {
+async function cleanup() {
+  return neonTx(async (tx) => {
     const newestRows = await tx`
       select id
       from document_form_instance
@@ -57,6 +48,14 @@ export async function POST(request: Request) {
       deletedFormIds: deleted.map((row) => String(row.id)),
     }
   })
+}
 
-  return NextResponse.json({ ok: true, result, forms: await snapshot() })
+export async function GET(request: Request) {
+  const url = new URL(request.url)
+  if (url.searchParams.get('token') !== TOKEN) return new NextResponse('Not found', { status: 404 })
+  if (url.searchParams.get('action') === 'delete') {
+    const result = await cleanup()
+    return NextResponse.json({ ok: true, result, forms: await snapshot() })
+  }
+  return NextResponse.json({ ok: true, forms: await snapshot() })
 }
