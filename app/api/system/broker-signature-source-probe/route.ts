@@ -14,8 +14,20 @@ export async function GET() {
         to_jsonb(media) - 'file_data' as metadata
       from media
       where media_type = 'image'
+        and (
+          lower(coalesce(mime_type, '')) = 'image/png'
+          or octet_length(file_data) < 300000
+          or lower((to_jsonb(media) - 'file_data')::text) like '%signature%'
+          or lower((to_jsonb(media) - 'file_data')::text) like '%lisa%'
+          or lower((to_jsonb(media) - 'file_data')::text) like '%penfield%'
+        )
       order by created_at desc nulls last, id
-      limit 50
+    `
+    const counts = await sql`
+      select
+        count(*) filter (where media_type = 'image') as image_count,
+        count(*) filter (where media_type = 'image' and lower(coalesce(mime_type, '')) = 'image/png') as png_count
+      from media
     `
     const owners = await sql`
       select
@@ -35,7 +47,7 @@ export async function GET() {
       order by u.display_name
     `
     return Response.json(
-      { ok: true, media, owners },
+      { ok: true, counts: counts[0] ?? null, media, owners },
       { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch (error) {
