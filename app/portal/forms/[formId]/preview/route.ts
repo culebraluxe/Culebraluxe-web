@@ -39,7 +39,31 @@ async function previewRenderContext(
     listFormSignerPeople(formId),
     getNextIssuedVersionForTemplate({ dealId, templateId: template.id }),
   ])
-  const participants = canonicalizeExecutionParticipants(people)
+  const canonicalParticipants = canonicalizeExecutionParticipants(people)
+
+  // LISTING-01 uses Lisa's standing local pre-signature before the external
+  // BoldSign path. Draft forms may not yet have a persisted SELLER_BROKER
+  // signer row, but preview still needs to render the exact pre-signed document
+  // the operator will issue. Materialize only that deterministic local broker
+  // slot here; issuance remains responsible for snapshotting immutable slots.
+  const participants =
+    template.id === 'LISTING-01' &&
+    !canonicalParticipants.some((participant) => participant.role === 'SELLER_BROKER') &&
+    (fieldValues.brokerName ?? '').trim()
+      ? [
+          ...canonicalParticipants,
+          {
+            slotId: 'SELLER_BROKER:1',
+            role: 'SELLER_BROKER',
+            personId: null,
+            name: (fieldValues.brokerName ?? '').trim(),
+            email: null,
+            required: true,
+            order: canonicalParticipants.length + 1,
+          },
+        ]
+      : canonicalParticipants
+
   const brokerSignature = await resolveBrokerSignatureForIssuance(
     {
       template,
