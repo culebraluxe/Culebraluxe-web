@@ -58,7 +58,6 @@ export async function getAppliedBrokerCompletionEmail(
 // logical identities, not environment-specific UUIDs. PROD/DEV may have
 // different app_user/media UUIDs; the resolver finds the correct local rows.
 const DEFAULT_BROKER_SIGNER_NAME = 'Lisa Penfield'
-const DEFAULT_BROKER_EMAIL = 'lisa@culebraluxe.com'
 const DEFAULT_BROKER_LICENSE_NUMBER = 'C-9931'
 const DEFAULT_BROKER_SIGNATURE_PURPOSE = 'broker_signature:lisa_penfield'
 
@@ -166,7 +165,8 @@ async function resolveBrokerRows(
     : await execute`
         select id, display_name, email, person_id, active
         from app_user
-        where lower(email) = lower(${DEFAULT_BROKER_EMAIL})
+        where active = true
+          and lower(display_name) = lower(${config.signerName})
         order by id
         limit 2
       `
@@ -176,8 +176,7 @@ async function resolveBrokerRows(
   const user = userRows[0] as Record<string, unknown>
   if (
     user.active !== true ||
-    normalized(String(user.display_name ?? '')) !== normalized(config.signerName) ||
-    normalized(String(user.email ?? '')) !== normalized(DEFAULT_BROKER_EMAIL)
+    normalized(String(user.display_name ?? '')) !== normalized(config.signerName)
   ) {
     return 'resolved broker identity does not match the active Lisa Penfield principal.'
   }
@@ -208,7 +207,7 @@ async function resolveBrokerRows(
     appUserId: String(user.id),
     mediaId: String(mediaRows[0]?.id ?? ''),
     displayName: String(user.display_name),
-    email: String(user.email),
+    email: String(user.email ?? ''),
     personId: user.person_id ? String(user.person_id) : null,
   }
 }
@@ -267,12 +266,9 @@ async function loadProtectedSignatureAsset(
 }
 
 /**
- * Resolve Lisa's standing local pre-signature at the authenticated issuance
- * boundary. The caller has already passed the Portal capability guard; the
- * signature itself belongs to Lisa and is resolved from her canonical active
- * app-user plus protected DB asset. This intentionally does not require the
- * issuing operator to be logged in as Lisa: an authorized operator may issue a
- * document that Lisa has pre-authorized the system to compose locally.
+ * Resolve Lisa's standing local pre-signature. Draft preview may render without
+ * an immutable execution slot; issuance must still require the slot so Lisa is
+ * locally satisfied before the external BoldSign envelope is constructed.
  */
 export async function resolveBrokerSignatureForIssuance(
   input: {
@@ -281,6 +277,7 @@ export async function resolveBrokerSignatureForIssuance(
     participants: readonly IssuedExecutionSlot[]
     actorAppUserId: string | null
     issuedAt: string | null
+    requireExecutionSlot?: boolean
   },
   execute: QueryExecutor,
   config: BrokerSignatureConfig = getBrokerSignatureConfig(),
@@ -344,7 +341,12 @@ export async function resolveBrokerSignatureForIssuance(
         'document.issue failed: the broker participant does not match the canonical signature owner.',
     }
   }
-  if ((input.template.id === 'PR-PNS' || input.template.id === 'LISTING-01') && !slot) {
+  const requireExecutionSlot = input.requireExecutionSlot !== false
+  if (
+    requireExecutionSlot &&
+    (input.template.id === 'PR-PNS' || input.template.id === 'LISTING-01') &&
+    !slot
+  ) {
     return invalidConfiguration(
       `could not resolve Lisa to the required ${policy.role} execution slot for ${input.template.id}.`,
     )
