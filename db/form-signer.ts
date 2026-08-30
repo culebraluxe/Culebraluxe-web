@@ -18,7 +18,7 @@ function roleForForm(templateId: string, role: string): string {
     if (role === "owner" || role === "seller") return "SELLER"
     if (role === "SELLER_BROKER") return "SELLER"
   }
-  return ROLE_MAP[role] ?? role || "OTHER"
+  return ROLE_MAP[role] ?? (role || "OTHER")
 }
 
 async function executor(): Promise<QueryExecutor> {
