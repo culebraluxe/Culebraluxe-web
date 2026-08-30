@@ -247,7 +247,7 @@ export async function getDealFormFacts(
 const ROLE_MAP: Record<string, string> = {
   client: 'BUYER',
   seller: 'SELLER',
-  owner: 'SELLER_BROKER',
+  owner: 'SELLER',
 }
 
 export async function seedFormParticipantsFromDeal(
