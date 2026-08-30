@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 const TOKEN_SHA256 = '6974fc494777bd69e35c2e64c6042a18fc93dc0ebdf357430500a70887300227'
 const MEDIA_ID = '2647926b-8ed5-401d-a8d6-81c9fd166ea1'
 const PURPOSE = 'broker_signature:lisa_penfield'
+const EXPECTED_SHA256 = 'db2d027da0b8c71192b02da22034e60773691a2a11c9280719fd6598a597e375'
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -17,9 +18,18 @@ export async function GET(request: Request) {
   }
   const rows = await sql`
     update media
-    set file_data = ${Buffer.alloc(0)}, updated_at = now()
+    set file_data = ${Buffer.alloc(0)},
+        filename = 'protected-broker-signature-lisa-penfield.png',
+        mime_type = 'image/png',
+        media_type = 'image',
+        file_size = 10676,
+        width = 1000,
+        height = 313,
+        alt_text = ${PURPOSE},
+        caption = ${`sha256:${EXPECTED_SHA256}`},
+        updated_at = now()
     where id = ${MEDIA_ID} and alt_text = ${PURPOSE}
-    returning id, octet_length(file_data) as stored_bytes
+    returning id, octet_length(file_data) as stored_bytes, file_size, width, height, caption
   `
-  return Response.json({ ok: rows.length === 1, mediaId: rows[0]?.id ?? null, storedBytes: rows[0]?.stored_bytes ?? null }, { headers: { 'Cache-Control': 'no-store' } })
+  return Response.json({ ok: rows.length === 1, row: rows[0] ?? null }, { headers: { 'Cache-Control': 'no-store' } })
 }
