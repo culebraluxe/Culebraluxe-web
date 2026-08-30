@@ -4,7 +4,21 @@ import type { FormSignerPerson } from "@/lib/forms/signer-resolution"
 const ROLE_MAP: Record<string, string> = {
   client: "BUYER",
   seller: "SELLER",
-  owner: "SELLER_BROKER",
+  owner: "SELLER",
+}
+
+const LISTING_TEMPLATE_ID = "LISTING-01"
+const LISTING_BROKER_NAME = "Lisa Penfield"
+
+function roleForForm(templateId: string, role: string): string {
+  // Historical Listing drafts were seeded while `owner` incorrectly mapped to
+  // SELLER_BROKER. On a Listing Agreement every deal/property owner is a
+  // SELLER; Lisa Penfield is the one and only SELLER_BROKER.
+  if (templateId === LISTING_TEMPLATE_ID) {
+    if (role === "owner" || role === "seller") return "SELLER"
+    if (role === "SELLER_BROKER") return "SELLER"
+  }
+  return ROLE_MAP[role] ?? role || "OTHER"
 }
 
 async function executor(): Promise<QueryExecutor> {
@@ -20,7 +34,8 @@ export async function listFormSignerPeople(
   const people: FormSignerPerson[] = []
 
   const formRows = await q`
-    select f.person_id, f.deal_id, person.display_name as person_name,
+    select f.person_id, f.deal_id, f.template_id,
+      person.display_name as person_name,
       person.id as resolved_person_id
     from document_form_instance f
     left join person on person.id = f.person_id
@@ -31,11 +46,13 @@ export async function listFormSignerPeople(
     | {
         person_id?: string | null
         deal_id?: string | null
+        template_id?: string | null
         person_name?: string | null
         resolved_person_id?: string | null
       }
     | undefined
   if (!formRow) return []
+  const templateId = String(formRow.template_id ?? "")
 
   if (formRow.resolved_person_id) {
     const emailRows = await q`
@@ -103,7 +120,7 @@ export async function listFormSignerPeople(
         personId: row.person_id ? String(row.person_id) : null,
         name: String(row.display_name ?? ""),
         email: row.email ? String(row.email) : null,
-        role: String(row.role ?? "OTHER"),
+        role: roleForForm(templateId, String(row.role ?? "OTHER")),
       })
     }
 
@@ -128,9 +145,39 @@ export async function listFormSignerPeople(
         personId: row.person_id ? String(row.person_id) : null,
         name: String(row.display_name ?? ""),
         email: row.email ? String(row.email) : null,
-        role: ROLE_MAP[String(row.role)] ?? String(row.role ?? "OTHER"),
+        role: roleForForm(templateId, String(row.role ?? "OTHER")),
       })
     }
+  }
+
+  if (templateId === LISTING_TEMPLATE_ID) {
+    // Lisa is a business invariant for CulebraLuxe Listing Agreements. Resolve
+    // her durable application identity from PROD/DEV data instead of deriving
+    // a broker from deal participants or relying on an environment-specific ID.
+    const brokerRows = await q`
+      select au.person_id, au.display_name, au.email
+      from app_user au
+      where au.active = true
+        and lower(au.display_name) = lower(${LISTING_BROKER_NAME})
+      order by au.id
+      limit 2
+    `
+    if (brokerRows.length !== 1) {
+      throw new Error(
+        "Listing signer resolution requires exactly one active Lisa Penfield app user.",
+      )
+    }
+    const broker = brokerRows[0] as {
+      person_id?: unknown
+      display_name?: unknown
+      email?: unknown
+    }
+    people.push({
+      personId: broker.person_id ? String(broker.person_id) : null,
+      name: LISTING_BROKER_NAME,
+      email: broker.email ? String(broker.email) : null,
+      role: "SELLER_BROKER",
+    })
   }
 
   return people
