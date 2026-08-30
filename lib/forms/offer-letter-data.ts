@@ -84,6 +84,10 @@ const TEMPLATE_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, s
     // be present before the protected local signature resolver is allowed to
     // compose Lisa's transparent signature image, initials and issuance date.
     brokerName: 'Lisa Penfield',
+    // Current CulebraLuxe operating defaults. These remain editable on the form
+    // but should not burden the operator on every new Listing Agreement.
+    commission: '5%',
+    listingType: 'Exclusive Right to Sell',
   },
 }
 
