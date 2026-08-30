@@ -50,7 +50,7 @@ export async function GET(request: Request) {
         order by u.display_name
       `,
       sql`
-        select id, filename, mime_type, file_size, width, height, alt_text, caption,
+        select id, filename, mime_type, media_type, file_size, width, height, alt_text, caption,
                octet_length(file_data) as stored_bytes
         from media
         where filename = ${LOGICAL_FILENAME} or alt_text = ${PURPOSE}
@@ -89,9 +89,9 @@ export async function GET(request: Request) {
 
     const rows = await sql`
       insert into media (
-        file_data, filename, mime_type, file_size, width, height, alt_text, caption
+        file_data, filename, mime_type, media_type, file_size, width, height, alt_text, caption
       ) values (
-        ${Buffer.alloc(0)}, ${LOGICAL_FILENAME}, 'image/png', ${expectedSize}, ${width}, ${height},
+        ${Buffer.alloc(0)}, ${LOGICAL_FILENAME}, 'image/png', 'image', ${expectedSize}, ${width}, ${height},
         ${PURPOSE}, ${`sha256:${expectedSha}`}
       )
       returning id
@@ -143,7 +143,7 @@ export async function GET(request: Request) {
       return json({ ok: false, error: 'invalid finalize metadata' }, 400)
     }
     const rows = await sql`
-      select id, file_data, mime_type, file_size, width, height, alt_text, caption,
+      select id, file_data, mime_type, media_type, file_size, width, height, alt_text, caption,
              octet_length(file_data) as stored_bytes
       from media
       where id = ${mediaId}
@@ -160,7 +160,12 @@ export async function GET(request: Request) {
         : Buffer.alloc(0)
     const actualSha = createHash('sha256').update(bytes).digest('hex')
     const storedBytes = bytes.length
-    if (storedBytes !== expectedSize || actualSha !== expectedSha || row.mime_type !== 'image/png') {
+    if (
+      storedBytes !== expectedSize ||
+      actualSha !== expectedSha ||
+      row.mime_type !== 'image/png' ||
+      row.media_type !== 'image'
+    ) {
       return json({ ok: false, error: 'asset verification failed', storedBytes, actualSha }, 409)
     }
     return json({
@@ -169,6 +174,7 @@ export async function GET(request: Request) {
       storedBytes,
       sha256: actualSha,
       mimeType: row.mime_type,
+      mediaType: row.media_type,
       width: row.width,
       height: row.height,
       purpose: row.alt_text,
