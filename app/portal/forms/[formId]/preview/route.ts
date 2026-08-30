@@ -17,6 +17,8 @@ import type {
 
 export const dynamic = 'force-dynamic'
 
+const LISTING_BROKER_NAME = 'Lisa Penfield'
+
 function pdfResponse(bytes: Buffer) {
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
@@ -28,6 +30,19 @@ function pdfResponse(bytes: Buffer) {
   })
 }
 
+function previewValues(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+): TemplateFieldValues {
+  if (template.id !== 'LISTING-01') return values
+  return {
+    ...values,
+    // CulebraLuxe is currently a single-broker model. Preview must never depend
+    // on an old/blank draft retaining this invariant manually.
+    brokerName: LISTING_BROKER_NAME,
+  }
+}
+
 async function previewRenderContext(
   formId: string,
   dealId: string | null,
@@ -35,28 +50,26 @@ async function previewRenderContext(
   actorAppUserId: string,
   fieldValues: TemplateFieldValues,
 ) {
+  const values = previewValues(template, fieldValues)
   const [people, issuedVersion] = await Promise.all([
     listFormSignerPeople(formId),
     getNextIssuedVersionForTemplate({ dealId, templateId: template.id }),
   ])
   const canonicalParticipants = canonicalizeExecutionParticipants(people)
 
-  // LISTING-01 uses Lisa's standing local pre-signature before the external
-  // BoldSign path. Draft forms may not yet have a persisted SELLER_BROKER
-  // signer row, but preview still needs to render the exact pre-signed document
-  // the operator will issue. Materialize only that deterministic local broker
-  // slot here; issuance remains responsible for snapshotting immutable slots.
+  // Draft preview is not issuance. It may display Lisa's standing local
+  // pre-signature before immutable participant slots have been snapshotted.
+  // Issuance still requires the real SELLER_BROKER slot before BoldSign starts.
   const participants =
     template.id === 'LISTING-01' &&
-    !canonicalParticipants.some((participant) => participant.role === 'SELLER_BROKER') &&
-    (fieldValues.brokerName ?? '').trim()
+    !canonicalParticipants.some((participant) => participant.role === 'SELLER_BROKER')
       ? [
           ...canonicalParticipants,
           {
             slotId: 'SELLER_BROKER:1',
             role: 'SELLER_BROKER',
             personId: null,
-            name: (fieldValues.brokerName ?? '').trim(),
+            name: LISTING_BROKER_NAME,
             email: null,
             required: true,
             order: canonicalParticipants.length + 1,
@@ -67,20 +80,22 @@ async function previewRenderContext(
   const brokerSignature = await resolveBrokerSignatureForIssuance(
     {
       template,
-      values: fieldValues,
+      values,
       participants,
       actorAppUserId,
       issuedAt: new Date().toISOString(),
+      requireExecutionSlot: false,
     },
     sql,
   )
-  if (!brokerSignature.ok && brokerSignature.outcome !== 'unauthorized') {
+  if (!brokerSignature.ok) {
     return { error: brokerSignature.message } as const
   }
   return {
     issuedVersion,
     participants,
-    appliedSignatures: brokerSignature.ok ? brokerSignature.signatures : [],
+    values,
+    appliedSignatures: brokerSignature.signatures,
   }
 }
 
@@ -110,7 +125,7 @@ export async function GET(
   return pdfResponse(
     await renderFormPdf(
       template,
-      form.fieldValues,
+      renderContext.values,
       form.sections,
       renderContext.issuedVersion,
       {
@@ -163,7 +178,7 @@ export async function POST(
   return pdfResponse(
     await renderFormPdf(
       template,
-      fieldValues,
+      renderContext.values,
       sections,
       renderContext.issuedVersion,
       {
