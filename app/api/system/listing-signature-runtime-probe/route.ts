@@ -54,7 +54,15 @@ export async function GET() {
     )
     if (!local.ok || local.signatures.length !== 1) {
       return Response.json(
-        { ok: false, stage: 'local-signature', message: local.ok ? 'No local signature resolved' : local.message },
+        {
+          ok: false,
+          stage: 'local-signature',
+          configEnabled: config.enabled,
+          configConfigured: config.configured,
+          signerNameMatches: config.signerName === values.brokerName,
+          brokerName: values.brokerName,
+          message: local.ok ? 'No local signature resolved' : local.message,
+        },
         { status: 500, headers: { 'Cache-Control': 'no-store' } },
       )
     }
@@ -88,6 +96,8 @@ export async function GET() {
         ok: imageObjects > 1 && values.brokerName === 'Lisa Penfield' && cases.every((item) => item.ok && item.recipientCount === item.sellerCount),
         templateVersion: template.version,
         brokerName: values.brokerName,
+        configEnabled: config.enabled,
+        configConfigured: config.configured,
         localSignatureCount: local.signatures.length,
         localSignatureRole: local.signatures[0]?.role,
         localSignatureSlotId: local.signatures[0]?.slotId,
