@@ -105,10 +105,11 @@ let logoBytesCache: Uint8Array | null | undefined
 async function loadLogoBytes(): Promise<Uint8Array | null> {
   if (logoBytesCache !== undefined) return logoBytesCache
   try {
-    // A static URL lets the Next.js server trace and bundle the asset. Reading
-    // process.cwd()/public dynamically is unreliable in serverless functions.
+    // Vercel traces this canonical public asset into the function bundle.
+    // Resolve it from the deployed project root rather than import.meta.url,
+    // whose location changes after Next/Turbopack compiles this module.
     const raw = await readFile(
-      new URL('../../public/brand/CLLOGO.png', import.meta.url),
+      `${process.cwd()}/public/brand/CLLOGO.png`,
     )
     logoBytesCache = new Uint8Array(raw)
   } catch {
