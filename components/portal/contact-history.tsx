@@ -18,9 +18,9 @@ import type {
   AggregateEvidenceHistoryItem,
   ContactHistoryMoment,
   ContactHistoryResult,
-  ContactHistoryRow,
 } from "@/db/contact-history"
 import type {
+  ClientRelationshipChannel,
   RelationshipActivity,
   RelationshipChannelProjection,
 } from "@/lib/portal/types"
@@ -98,25 +98,6 @@ function lastDirection(projection: RelationshipChannelProjection): "Inbound" | "
   return null
 }
 
-/** Effective "last interaction" date for a timeline row (detail or evidence). */
-function rowLastDate(row: ContactHistoryRow): string | null {
-  if (row.kind === "aggregate_evidence") return row.lastObservedAt
-  return row.startedAt ?? null
-}
-
-/** Generic single-event direction for the header summary (detail or evidence). */
-function rowGenericDirection(row: ContactHistoryRow): "inbound" | "outbound" | null {
-  if (row.kind === "aggregate_evidence") {
-    const { inboundCount, outboundCount } = row
-    if (inboundCount > 0 && outboundCount > 0) return null // two-way is ambiguous
-    if (outboundCount > 0) return "outbound"
-    if (inboundCount > 0) return "inbound"
-    return null
-  }
-  const ld = row.latestDirection
-  return ld === "outbound" ? "outbound" : ld === "inbound" ? "inbound" : null
-}
-
 function relativeTime(iso: string | null): string | null {
   if (!iso) return null
   const date = new Date(iso)
@@ -129,30 +110,30 @@ function relativeTime(iso: string | null): string | null {
 }
 
 function LastInteractionSummary({
-  newestMoment,
+  sourceChannels,
   relationshipActivity,
   channels,
 }: {
-  newestMoment?: ContactHistoryRow | null
+  sourceChannels: ClientRelationshipChannel[]
   relationshipActivity?: RelationshipActivity
   channels: RelationshipChannelProjection[]
 }) {
-  // The top summary is driven by the newest canonical timeline row when one
-  // exists (a detailed moment or an aggregate evidence item); aggregate
-  // relationship evidence is only supplemental/fallback.
+  // The top summary is driven by the newest SOURCE-grain relationship row (one
+  // per communication source), never by fetching per-message rows. Aggregate
+  // relationship evidence is only a fallback.
+  const newest = sourceChannels[0]
   const lastAt =
-    newestMoment
-      ? rowLastDate(newestMoment)
-      : relationshipActivity?.lastMeaningfulContactAt ??
-        relationshipActivity?.lastObservedAt ??
-        null
+    newest?.lastContactAt ??
+    relationshipActivity?.lastMeaningfulContactAt ??
+    relationshipActivity?.lastObservedAt ??
+    null
   const rel = relativeTime(lastAt)
 
-  let channel: string | null = null
+  let channel: string | null = newest?.channel ?? null
   let genericDirection: "inbound" | "outbound" | null = null
-  if (newestMoment) {
-    channel = newestMoment.channel
-    genericDirection = rowGenericDirection(newestMoment)
+  if (newest) {
+    const d = newest.lastDirection
+    genericDirection = d === "outbound" ? "outbound" : d === "inbound" ? "inbound" : null
   }
   if (!channel) {
     const proj = channels[0]
@@ -309,12 +290,34 @@ export function ContactHistory({
   const [page, setPage] = useState(1)
   const [viewAll, setViewAll] = useState(false)
   const [data, setData] = useState<ContactHistoryResult | null>(null)
+  const [sourceChannels, setSourceChannels] = useState<ClientRelationshipChannel[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async (id: string, p: number, all: boolean) => {
+  // The PRIMARY panel grain is source-grain: one bounded row per communication
+  // source from mv_client_relationship_channels. It never fetches thousands of
+  // per-message rows and never runs conversation-burst grouping to build the
+  // primary relationship panel.
+  const loadChannels = useCallback(async (id: string) => {
     setLoading(true)
     try {
-      const url = `/api/portal/clients/${id}/history?page=${p}&pageSize=${PAGE_SIZE}${all ? "" : "&recent=true"}`
+      const res = await fetch(`/api/portal/clients/${id}/relationship-channels`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as { channels: ClientRelationshipChannel[] }
+      setSourceChannels(json.channels ?? [])
+    } catch (err) {
+      console.error("Failed to load relationship channels:", err)
+      setSourceChannels([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // The detailed archive (secondary, "View all") is server-side paginated over
+  // the canonical interaction read model with conversation-burst grouping.
+  const load = useCallback(async (id: string, p: number) => {
+    setLoading(true)
+    try {
+      const url = `/api/portal/clients/${id}/history?page=${p}&pageSize=${PAGE_SIZE}`
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as ContactHistoryResult
@@ -327,14 +330,19 @@ export function ContactHistory({
     }
   }, [])
 
-  // Selecting a different client resets to the bounded recent view.
+  // Selecting a different client resets to the source-grain primary view.
   useEffect(() => {
     setPage(1)
     setViewAll(false)
   }, [clientId])
 
   useEffect(() => {
-    void load(clientId, page, viewAll)
+    void loadChannels(clientId)
+  }, [clientId, loadChannels])
+
+  // The detailed archive is loaded only when the user opts into "View all".
+  useEffect(() => {
+    if (viewAll) void load(clientId, page)
   }, [clientId, page, viewAll, load])
 
   const total = data?.total ?? 0
@@ -373,33 +381,51 @@ export function ContactHistory({
       className="flex min-h-0 flex-col"
     >
       <LastInteractionSummary
-        newestMoment={rows[0]}
+        sourceChannels={sourceChannels}
         relationshipActivity={relationshipActivity}
         channels={channels}
       />
       <RelationshipSummary activity={relationshipActivity} />
       <div className="min-h-0 flex-1 overflow-auto">
-        {rows.length === 0 ? (
+        {viewAll ? (
+          rows.length === 0 ? (
+            <div className="px-7 py-6">
+              <p className="text-sm font-light text-white/60">
+                {loading ? "Loading…" : "No detailed history yet."}
+              </p>
+            </div>
+          ) : (
+            <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
+              {rows.map((row) =>
+                row.kind === "aggregate_evidence" ? (
+                  <AggregateTimelineItem key={row.id} item={row} clientName={clientName} />
+                ) : (
+                  <TimelineMoment key={row.id} moment={row} clientName={clientName} />
+                ),
+              )}
+            </ol>
+          )
+        ) : sourceChannels.length === 0 ? (
           <div className="px-7 py-6">
             <p className="text-sm font-light text-white/60">
-              {loading ? "Loading…" : "No contact history yet."}
+              {loading ? "Loading…" : "No relationship sources yet."}
             </p>
             {!loading && observedCommunicationCount > 0 ? (
               <p className="mt-1 text-xs leading-5 text-white/40">
                 {observedCommunicationCount.toLocaleString()} aggregate communications are
-                linked to this client. Detailed events will appear here once reconciled.
+                linked to this client. Detailed events appear in the archive.
               </p>
             ) : null}
           </div>
         ) : (
           <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
-            {rows.map((row) =>
-              row.kind === "aggregate_evidence" ? (
-                <AggregateTimelineItem key={row.id} item={row} clientName={clientName} />
-              ) : (
-                <TimelineMoment key={row.id} moment={row} clientName={clientName} />
-              ),
-            )}
+            {sourceChannels.map((c) => (
+              <SourceChannelNode
+                key={`${c.source}:${c.channel}`}
+                channel={c}
+                clientName={clientName}
+              />
+            ))}
           </ol>
         )}
       </div>
@@ -428,14 +454,18 @@ export function ContactHistory({
       ) : (
         <div className="flex items-center justify-center gap-1 border-t border-white/10 px-3 py-2">
           <span className="text-[10px] font-light uppercase tracking-[0.12em] text-white/45">
-            Showing {rows.length} most recent ·{" "}
-            <button
-              type="button"
-              onClick={() => setViewAll(true)}
-              className="text-white/70 underline decoration-white/30 underline-offset-2 transition hover:text-white"
-            >
-              View all
-            </button>
+            Showing {sourceChannels.length} relationship source
+            {sourceChannels.length === 1 ? "" : "s"}
+            {total > 0 ? " · " : ""}
+            {total > 0 ? (
+              <button
+                type="button"
+                onClick={() => setViewAll(true)}
+                className="text-white/70 underline decoration-white/30 underline-offset-2 transition hover:text-white"
+              >
+                View all
+              </button>
+            ) : null}
           </span>
         </div>
       )}
@@ -513,6 +543,61 @@ function channelNoun(channel: string): string {
     default:
       return "communications"
   }
+}
+
+// ONE gold node per communication SOURCE (the PRIMARY relationship-memory
+// grain, from mv_client_relationship_channels). Aggregates the entire source
+// (e.g. all of Ami's apple_messages handles) into a single truthful node —
+// never one node per message, per interaction, or per conversation burst.
+function SourceChannelNode({
+  channel,
+  clientName,
+}: {
+  channel: ClientRelationshipChannel
+  clientName: string
+}) {
+  const { label, Icon } = channelMeta(channel.channel)
+  const direction = channel.twoWay
+    ? humanDirection("two-way", clientName)
+    : channel.lastDirection === "outbound"
+      ? humanDirection("outbound", clientName)
+      : channel.lastDirection === "inbound"
+        ? humanDirection("inbound", clientName)
+        : null
+  const noun = channelNoun(channel.channel)
+  const preview = cleanPreview(channel.lastContext)
+  return (
+    <li className="relative pl-8 pb-4">
+      <span
+        aria-hidden
+        className="absolute left-[3px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--portal-gold)] ring-2 ring-[var(--portal-navy-deep)]"
+      />
+      <div className="text-[11px] font-light text-white/60">
+        {channel.lastContactAt ? formatAggDate(channel.lastContactAt) : "Observed history"}
+      </div>
+      {direction ? (
+        <div className="mt-0.5 text-[10px] font-medium text-white/85">{direction}</div>
+      ) : null}
+      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
+        {label}
+      </div>
+      {channel.totalCount > 0 ? (
+        <p className="mt-0.5 text-xs font-light text-white/85">
+          {channel.totalCount.toLocaleString()} observed {noun}
+          {channel.twoWay ? " · two-way" : ""}
+        </p>
+      ) : null}
+      {preview ? (
+        <p className="mt-0.5 truncate text-xs font-light text-white/85">{preview}</p>
+      ) : null}
+      {channel.firstObservedAt ? (
+        <p className="mt-0.5 text-[11px] font-light text-white/45">
+          First observed {formatAggDate(channel.firstObservedAt)}
+        </p>
+      ) : null}
+    </li>
+  )
 }
 
 // Aggregate evidence-only communication history (e.g. Gmail aggregate email that

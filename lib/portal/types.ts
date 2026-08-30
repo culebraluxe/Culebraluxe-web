@@ -71,6 +71,29 @@ export interface RelationshipChannelProjection {
   coverageLimited: boolean
 }
 
+/**
+ * ONE source-grain relationship state row for a canonical Person (materialized
+ * in mv_client_relationship_channels). One row per Person x communication
+ * source — never per message, never per conversation burst.
+ */
+export interface ClientRelationshipChannel {
+  personId: string
+  source: string
+  channel: string
+  firstObservedAt: string | null
+  lastContactAt: string | null
+  lastInboundAt: string | null
+  lastOutboundAt: string | null
+  inboundCount: number
+  outboundCount: number
+  totalCount: number
+  lastDirection: "inbound" | "outbound" | null
+  twoWay: boolean
+  lastContext: string | null
+  lastContextAt: string | null
+  lastContextType: string | null
+}
+
 export interface RelationshipActivity {
   hasEvidence: boolean
   sources: string[]

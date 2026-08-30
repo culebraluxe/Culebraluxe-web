@@ -132,11 +132,11 @@ test('timeline 12/13: recent timeline is bounded to 10 and newest-first', async 
   }
 })
 
-test('timeline 14/15: primary UI is a bounded recent view; full archive is secondary "View all"', () => {
+test('timeline 14/15: primary UI is source-grain (one node per source); full archive is secondary "View all"', () => {
   const src = readFileSync('components/portal/contact-history.tsx', 'utf8')
-  assert.ok(src.includes('&recent=true'), 'default load uses the bounded recent view')
-  assert.ok(src.includes('View all'), 'View all reveals the full archive')
-  assert.ok(src.includes('most recent'), 'recent hint shown')
+  assert.ok(src.includes('relationship-channels'), 'default load reads the source-grain channels route')
+  assert.ok(src.includes('SourceChannelNode'), 'one gold node per communication source')
+  assert.ok(src.includes('View all'), 'View all reveals the full detailed archive')
 })
 
 test('timeline 16: Client read model is source-neutral (no raw handle/staging table reads)', () => {

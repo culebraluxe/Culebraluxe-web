@@ -19,8 +19,12 @@ import { db, DbFailureError } from './database-gateway'
 // ---------------------------------------------------------------------------
 
 export async function refreshClientReadModels(): Promise<void> {
-  const r1 = await db.execute`refresh materialized view concurrently mv_client_directory`
+  // Dependency-safe order: the source-grain relationship MV feeds the Client
+  // directory freshness, so it must refresh FIRST.
+  const r1 = await db.execute`refresh materialized view concurrently mv_client_relationship_channels`
   if (!r1.ok) throw new DbFailureError(r1.error)
-  const r2 = await db.execute`refresh materialized view concurrently mv_client_contact_history`
+  const r2 = await db.execute`refresh materialized view concurrently mv_client_directory`
   if (!r2.ok) throw new DbFailureError(r2.error)
+  const r3 = await db.execute`refresh materialized view concurrently mv_client_contact_history`
+  if (!r3.ok) throw new DbFailureError(r3.error)
 }

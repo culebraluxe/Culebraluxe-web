@@ -7,6 +7,7 @@ import type {
 } from '../lib/relationship-intel/contracts'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup } from '../lib/relationship-intel/inmemory-lookup'
+import { mergeReconcileDecision } from '../lib/relationship-intel/link-safety'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — relationship-evidence repository (migration 074).
@@ -173,13 +174,26 @@ export async function recordReconcileDecision(
   decision: ReconcileDecision,
   execute: QueryExecutor = sql,
 ): Promise<void> {
+  // Read the current durable link first: an established source->Person link is
+  // owned for good. mergeReconcileDecision enforces match-once/enrich-forever so
+  // automated reconciliation can NEVER clear, redirect, or merge an established
+  // canonical relationship. It only surfaces a conflict truthfully.
+  const current = (await execute`
+    select canonical_person_id
+    from integration_relationship_evidence
+    where id = ${id}
+    limit 1
+  `) as { canonical_person_id: string | null }[]
+
+  const write = mergeReconcileDecision(current[0]?.canonical_person_id ?? null, decision)
+
   await execute`
     update integration_relationship_evidence
-      set canonical_person_id = ${decision.canonicalPersonId ?? null},
-          match_method = ${decision.matchMethod},
-          match_confidence = ${decision.matchConfidence},
-          review_state = ${decision.reviewState},
-          match_reason = ${decision.reason},
+      set canonical_person_id = ${write.canonicalPersonId},
+          match_method = ${write.matchMethod},
+          match_confidence = ${write.matchConfidence},
+          review_state = ${write.reviewState},
+          match_reason = ${write.reason},
           rule_version = ${decision.ruleVersion},
           updated_at = now()
     where id = ${id}
