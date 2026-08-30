@@ -36,7 +36,7 @@ export const SHOWING_REPORT_TEMPLATE_ID = 'SHOW-RPT'
  * A form type may span multiple files/versions; each file's <form version>
  * attribute declares its version. PR-PNS.xml is v1; PR-PNS.v2.xml is the
  * durable v2 placeholder (real legal content supplied separately by the human).
- * LISTING-01.v2.xml is the human-approved active Listing Agreement version.
+ * LISTING-01.v3.xml is the human-approved active Listing Agreement version.
  */
 const TEMPLATE_FILES = [
   'OFFER-01.xml',
@@ -45,6 +45,7 @@ const TEMPLATE_FILES = [
   'PR-PNS-AMD.xml',
   'LISTING-01.xml',
   'LISTING-01.v2.xml',
+  'LISTING-01.v3.xml',
   'SHOW-INFO.xml',
   'SHOW-RPT.xml',
 ]
@@ -106,7 +107,7 @@ export const ACTIVE_TEMPLATE_VERSIONS: Readonly<Record<string, number>> = {
   [OFFER_LETTER_TEMPLATE_ID]: 1,
   [PURCHASE_SALE_TEMPLATE_ID]: 1,
   [PURCHASE_SALE_AMENDMENT_TEMPLATE_ID]: 1,
-  [LISTING_AGREEMENT_TEMPLATE_ID]: 2,
+  [LISTING_AGREEMENT_TEMPLATE_ID]: 3,
   [SHOWING_INFO_TEMPLATE_ID]: 1,
   [SHOWING_REPORT_TEMPLATE_ID]: 1,
 }
