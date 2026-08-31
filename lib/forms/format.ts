@@ -2,6 +2,7 @@ import type {
   TemplateDefinition,
   TemplateFieldValues,
 } from './template-types'
+import { visibleTemplateSections } from './when'
 
 /** Deterministic USD formatting for money fields. */
 export function formatMoney(value: string): string {
@@ -71,7 +72,7 @@ export function documentBodyText(
   template: Pick<TemplateDefinition, 'sections' | 'fields'>,
   values: TemplateFieldValues,
 ): string {
-  return template.sections
+  return visibleTemplateSections(template.sections, values)
     .map((section) => {
       const text = interpolateSectionText(
         section,
