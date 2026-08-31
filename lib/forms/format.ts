@@ -15,7 +15,7 @@ export function formatMoney(value: string): string {
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'August', 'September', 'October', 'November', 'December',
 ]
 
 /** Deterministic ISO (YYYY-MM-DD) → 'Month D, YYYY' date formatting. */
@@ -58,7 +58,11 @@ export function interpolateSectionText(
     } else {
       const field = fields.find((f) => f.name === segment.field)
       const raw = (values[segment.field ?? ''] ?? '').trim()
-      out += field ? format(field, raw) : raw
+      if (field?.type === 'money' && !raw) {
+        out += '$0'
+      } else {
+        out += field ? format(field, raw) : raw
+      }
     }
   }
   return out.replace(/\s+/g, ' ').trim()
