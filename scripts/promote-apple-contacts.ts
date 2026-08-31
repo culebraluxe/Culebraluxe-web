@@ -121,11 +121,25 @@ async function runMain(): Promise<void> {
   const personBefore = Number(((await sql`select count(*)::int as n from person`) as { n: number }[])[0]?.n ?? 0)
   const identityBefore = Number(((await sql`select count(*)::int as n from person_identity`) as { n: number }[])[0]?.n ?? 0)
 
-  const mastered = await masterCurrentSourcePeople(APPLE_SOURCE)
+  const mastered = await masterCurrentSourcePeople(APPLE_SOURCE, {
+    progressEvery: 100,
+    onProgress: (progress) => {
+      const seconds = Math.max(0.1, progress.elapsedMs / 1000)
+      const rate = (progress.processed / seconds).toFixed(1)
+      console.log(
+        `[contacts-sync] mastering ${progress.processed}/${progress.current} processed ` +
+        `(${Math.round(seconds)}s, ${rate}/s) ` +
+        `linked=${progress.linkedExistingSource + progress.linkedExistingIdentity} ` +
+        `created=${progress.created} enriched=${progress.enriched} ` +
+        `ambiguous=${progress.ambiguous} deferred=${progress.deferred}`,
+      )
+    },
+  })
   if (mastered.current !== current) {
     throw new Error(`mastering input invariant failed: expected ${current}, got ${mastered.current}`)
   }
 
+  console.log('[contacts-sync] refreshing Clients read models')
   await refreshClientReadModels()
 
   const personAfter = Number(((await sql`select count(*)::int as n from person`) as { n: number }[])[0]?.n ?? 0)
