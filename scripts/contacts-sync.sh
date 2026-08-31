@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# CulebraLuxe — canonical Apple Contacts -> PROD ODS sync.
+# CulebraLuxe — canonical Apple Contacts -> PROD sync.
 #
-# One operator command for the complete Contacts intake cycle:
+# One operator command for the complete Contacts lifecycle:
 #   Apple Contacts (CNContactStore, local Mac)
-#     -> contact-export/contacts-export.json (private, gitignored)
-#     -> scripts/load-apple-contacts.ts --env prod
-#     -> PROD ODS integration_intake_batch / integration_inbox /
-#        integration_staged_contact_profile
+#     -> contact-export/contacts-export.json
+#     -> historical PROD ODS
+#     -> current l_person relational projection
+#     -> direct Person mastering
+#     -> Clients materialized read models
 #
-# This script deliberately stops at ODS staging. It does NOT run the SUPPORT-2
-# l_person projection and does NOT mutate canonical person/person_identity.
-#
-# Source-account identity is never guessed. By default the script resolves the
-# one existing PROD apple_contacts source_account. An explicit override may be
-# supplied with CULEBRALUXE_CONTACTS_SOURCE_ACCOUNT.
+# Historical ODS is append/replay-safe. l_person is current source state.
+# Identity mastering reads current l_person directly; relationship evidence is
+# provenance/context, not a promotion queue.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -26,7 +24,6 @@ EXPORT_DIR="$REPO_ROOT/contact-export"
 EXPORT_FILE="$EXPORT_DIR/contacts-export.json"
 TMP_EXPORT="$EXPORT_FILE.tmp.$$"
 
-# Single-flight lock (distinct from the Apple Messages sync lock).
 source "$SELF_DIR/contacts-sync-lock.sh"
 LOCK_OWNED=0
 
@@ -52,14 +49,12 @@ log() {
 command -v swift >/dev/null 2>&1 || fail "swift not found in PATH"
 command -v node >/dev/null 2>&1 || fail "node not found in PATH"
 
-# Fail fast if another Contacts sync already owns the lock (never run two at once).
 if contacts_acquire_lock; then
   LOCK_OWNED=1
 else
   fail "another Contacts sync is already running (lock=$CONTACTS_SYNC_LOCK pid=$(contacts_lock_pid))"
 fi
 
-# Fail closed unless PROD is explicitly configured.
 node --env-file=.env.local -e '
 if (!process.env.DATABASE_URL_PROD) process.exit(2)
 if (process.env.DATABASE_URL_DEV && process.env.DATABASE_URL_PROD === process.env.DATABASE_URL_DEV) process.exit(3)
@@ -128,7 +123,7 @@ NODE
 
 mv "$TMP_EXPORT" "$EXPORT_FILE"
 
-log "loading fresh export into PROD ODS"
+log "loading fresh export into historical PROD ODS"
 if ! node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
   --env prod \
   --file "$EXPORT_FILE" \
@@ -137,14 +132,14 @@ if ! node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
 fi
 log "ODS complete"
 
-log "projecting current contacts (l_person relational load)"
+log "rebuilding current Contacts projection (l_person)"
 if ! node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env prod; then
-  fail "Contacts relational projection failed; no SUCCESS reported"
+  fail "Contacts current projection failed; no SUCCESS reported"
 fi
 
-log "reconciling + promoting contacts into canonical Person"
+log "mastering current Contacts into canonical Person"
 if ! APP_ENV=production node --env-file=.env.local --import tsx scripts/promote-apple-contacts.ts --env prod; then
-  fail "Contacts canonical promotion / MV refresh failed; no SUCCESS reported"
+  fail "Contacts Person mastering / MV refresh failed; no SUCCESS reported"
 fi
 
-log "SUCCESS: Apple Contacts export -> PROD ODS -> canonical Person -> Clients read model complete"
+log "SUCCESS: Apple Contacts -> historical ODS -> current l_person -> canonical Person -> Clients read model complete"
