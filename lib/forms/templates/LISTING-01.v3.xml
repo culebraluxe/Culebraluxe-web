@@ -98,7 +98,7 @@
   </section>
 
   <section id="brokerCommission" title="Broker Commission" editable="false">
-    In the event that an offer is accepted and a sale is closed, Owner agrees to pay Broker a commission of <value field="commission"/>. In a co-booking situation, the commission will be shared equally with the other broker.
+    In the event that an offer is accepted and a sale is closed, Owner agrees to pay Broker a total commission of 5% of the sales price, to be shared equally with the other broker in a co-booking situation. If the Broker acts alone, the commission is <value field="commission"/>.
   </section>
 
   <section id="commissionLaw" title="Commission Not Set by Law" editable="false">
