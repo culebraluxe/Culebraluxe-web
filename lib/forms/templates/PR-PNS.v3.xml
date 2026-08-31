@@ -19,6 +19,8 @@
     TAG:OWNER  when financing = Owner or Blend
     TAG:BLEND  when financing = Blend
 
+  Section titles are unnumbered. The agreement PDF renderer prefixes 01, 02...
+
   CRM-26 operational field ids preserved:
     closingDate, inspectionDeadline, financingDeadline, financing, appraisalWaived
 -->
@@ -68,7 +70,7 @@
   <field id="surveyDeadline" label="Survey Deadline" type="date"/>
   <field id="inspectionDeadline" label="Inspection Deadline" type="date"/>
 
-  <section id="parties" title="01 Parties" editable="false">
+  <section id="parties" title="Parties" editable="false">
     This Purchase and Sale Agreement is made as of the Effective Date between
     <value field="buyerName"/> (the "Buyer") and
     <value field="sellerName"/> (the "Seller").
@@ -83,7 +85,7 @@
     shall be apostilled or consularized as the Notary requires.
   </section>
 
-  <section id="propertyDescription" title="02 Property" editable="false">
+  <section id="propertyDescription" title="Property" editable="false">
     Seller agrees to sell and Buyer agrees to buy the property known as
     <value field="property"/>, Municipality of
     <value field="municipality"/>, Catastro Number
@@ -102,7 +104,7 @@
     timely object to (collectively, "Permitted Exceptions").
   </section>
 
-  <section id="purchasePrice" title="03 Purchase Price and Consideration" editable="false">
+  <section id="purchasePrice" title="Purchase Price and Consideration" editable="false">
     The purchase price is <value field="purchasePrice"/> (the "Purchase Price").
     The elected Transaction Type is <value field="financing"/>.
     The Purchase Price is paid as follows: earnest money of
@@ -116,7 +118,7 @@
     U.S. dollars, subject to prorations and required tax withholding.
   </section>
 
-  <section id="earnestMoney" title="04 Earnest Money and Escrow" editable="false">
+  <section id="earnestMoney" title="Earnest Money and Escrow" editable="false">
     Within three Business Days after the Effective Date, Buyer shall deliver
     the Deposit of <value field="deposit"/> by wire to
     <value field="escrowHolder"/>. The Deposit is applied to the Purchase Price
@@ -130,7 +132,7 @@
     the sender.
   </section>
 
-  <section id="closing" title="05 Closing" editable="false">
+  <section id="closing" title="Closing" editable="false">
     Closing means authorization of the escritura de compraventa before a
     Puerto Rico notary public, delivery of the Purchase Price net of credits
     and required withholdings, delivery of possession as provided herein, and
@@ -144,7 +146,7 @@
     faith. A longer extension requires a written amendment.
   </section>
 
-  <section id="titleInsurance" title="06 Title and Title Insurance" editable="false">
+  <section id="titleInsurance" title="Title and Title Insurance" editable="false">
     At Closing Seller shall convey good and marketable title, insurable at
     regular rates, free of liens other than Permitted Exceptions, by escritura
     publica acceptable for inscription. Seller shall cause a Puerto Rico title
@@ -158,7 +160,7 @@
     Registry.
   </section>
 
-  <section id="taxes" title="07 Taxes and CRIM" editable="false">
+  <section id="taxes" title="Taxes and CRIM" editable="false">
     Real-property taxes, CRIM charges, and municipal assessments shall be
     prorated as of the Closing Date. Seller shall pay items through the day
     of Closing and shall deliver a current CRIM certification of debt or
@@ -167,7 +169,7 @@
     are Seller's expense unless Additional Terms state otherwise.
   </section>
 
-  <section id="closingCosts" title="08 Closing Costs" editable="false">
+  <section id="closingCosts" title="Closing Costs" editable="false">
     Unless Additional Terms amend this allocation: Seller pays internal-revenue
     stamps on the original deed and the cost of cancelling Seller liens;
     Buyer pays stamps on the certified copy and Registro presentation fees;
@@ -180,7 +182,7 @@
     agreements, not as a condition of the validity of this sale.
   </section>
 
-  <section id="risk" title="09 Risk of Loss, Casualty and Condemnation" editable="false">
+  <section id="risk" title="Risk of Loss, Casualty and Condemnation" editable="false">
     Risk of loss remains with Seller until Closing and passes to Buyer upon
     authorization of the escritura and delivery of possession. Seller shall
     maintain existing hazard coverage, and flood coverage if the Property is
@@ -194,7 +196,7 @@
     or proceed and take the award.
   </section>
 
-  <section id="default" title="10 Default" editable="false">
+  <section id="default" title="Default" editable="false">
     Except for a failure to close on the Closing Date when time is of the
     essence and the other Party is ready, willing, and able, a Party is not
     in default until written notice and a five-day cure period have expired.
@@ -210,7 +212,7 @@
     the Deposit clause.
   </section>
 
-  <section id="cashModule" title="12A Cash Sale" editable="false" when="financing:Cash">
+  <section id="cashModule" title="Cash Sale" editable="false" when="financing:Cash">
     If Financing is Cash, Buyer's obligation to close is not conditioned on
     obtaining a loan. Failure to have immediately available funds on the
     Closing Date is a Buyer default. Within five Business Days after the
@@ -223,7 +225,7 @@
     will cooperate with any notary, bank, or counsel inquiry.
   </section>
 
-  <section id="bankModule" title="12B Institutional / Bank Financing" editable="false" when="financing:Bank,Blend">
+  <section id="bankModule" title="Institutional / Bank Financing" editable="false" when="financing:Bank,Blend">
     If Financing is Bank or Blend, Buyer shall pursue a purchase-money first
     hipoteca from <value field="lenderName"/> in the amount of
     <value field="bankLoanAmount"/>. Buyer shall apply promptly, pursue the
@@ -238,7 +240,7 @@
     Deposit. Seller has not promised that Buyer will qualify.
   </section>
 
-  <section id="ownerModule" title="12C Owner Financing" editable="false" when="financing:Owner,Blend">
+  <section id="ownerModule" title="Owner Financing" editable="false" when="financing:Owner,Blend">
     If Financing is Owner or Blend, at Closing title will pass to Buyer by
     escritura, and Seller will be secured by a civil-law hipoteca recorded
     in the Registry, not by retention of title. Seller-carried principal is
@@ -253,7 +255,7 @@
     expressly elect it and counsel drafts it.
   </section>
 
-  <section id="blendModule" title="12D Blended Consideration" editable="false" when="financing:Blend">
+  <section id="blendModule" title="Blended Consideration" editable="false" when="financing:Blend">
     If Financing is Blend, the Purchase Price is paid in the combination
     shown in Purchase Price and Consideration. Default lien stack: the
     institutional lender holds the first hipoteca in the amount of
@@ -272,7 +274,7 @@
     as well as cash at Closing.
   </section>
 
-  <section id="appraisal" title="13 Appraisal" editable="false">
+  <section id="appraisal" title="Appraisal" editable="false">
     Appraisal Waived is <value field="appraisalWaived"/>. If Yes, value is
     not a Buyer termination right except as the Bank module provides when a
     lender requires an appraisal. If No, Buyer may terminate and recover the
@@ -282,7 +284,7 @@
     within three Business Days.
   </section>
 
-  <section id="survey" title="14 Survey" editable="false">
+  <section id="survey" title="Survey" editable="false">
     Buyer may obtain a new survey at Buyer's cost, with objections due by
     <value field="surveyDeadline"/>. A survey objection is a title objection
     if it shows an encroachment, lack of record access, a material cabida
@@ -291,7 +293,7 @@
     occupation discrepancy, which is not rare in Culebra.
   </section>
 
-  <section id="inspection" title="15 Inspection" editable="false">
+  <section id="inspection" title="Inspection" editable="false">
     Buyer may inspect the Property, at Buyer's cost, through
     <value field="inspectionDeadline"/> (the "Inspection Period"). Buyer may
     inspect structure, roof, electrical, plumbing, cistern or well, septic,
@@ -314,16 +316,16 @@
     points cap, balloon, prepayment, or lender name if not captured above).
   </section>
 
-  <section id="additionalTerms" title="16 Additional Terms" editable="true">
+  <section id="additionalTerms" title="Additional Terms" editable="true">
     Additional negotiated terms of the transaction. Handwritten or typed
     terms here control printed sections if initialed by Buyer and Seller.
   </section>
 
-  <section id="specialConditions" title="17 Special Conditions" editable="true">
+  <section id="specialConditions" title="Special Conditions" editable="true">
     Special conditions negotiated by the parties.
   </section>
 
-  <section id="possession" title="18 Possession and Occupancy" editable="false">
+  <section id="possession" title="Possession and Occupancy" editable="false">
     Unless a signed post-closing occupancy addendum states otherwise, Seller
     shall deliver exclusive possession at Closing, broom-clean, free of
     occupants and of personal property not included in Additional Terms.
@@ -332,7 +334,7 @@
     Date require Buyer's written consent.
   </section>
 
-  <section id="fixtures" title="19 Fixtures and Personal Property" editable="false">
+  <section id="fixtures" title="Fixtures and Personal Property" editable="false">
     All fixtures permanently attached to the Property are included, including
     solar arrays, inverters, batteries hard-wired to the house, antennas, and
     built-in audiovisual racks. Appliances, furnishings, vehicles, vessels,
@@ -341,7 +343,7 @@
     and shall maintain them in present condition, ordinary wear excepted.
   </section>
 
-  <section id="asIs" title="20 Condition of Property and Seller Representations" editable="false">
+  <section id="asIs" title="Condition of Property and Seller Representations" editable="false">
     Except as required by law and except for the representations in this
     section and any written Seller disclosure, the Property is sold in its
     present as-is condition. Seller represents, as of the Effective Date and
@@ -359,7 +361,7 @@
     means the present conscious awareness of the individual signatory.
   </section>
 
-  <section id="walkthrough" title="21 Pre-Closing Walkthrough" editable="false">
+  <section id="walkthrough" title="Pre-Closing Walkthrough" editable="false">
     Buyer may inspect the Property within forty-eight hours before Closing
     to confirm that it is in substantially the same condition as on the
     Effective Date, ordinary wear excepted, that included items remain, and
@@ -367,7 +369,7 @@
     inspection contingency.
   </section>
 
-  <section id="prorations" title="22 Prorations and Adjustments" editable="false">
+  <section id="prorations" title="Prorations and Adjustments" editable="false">
     Taxes, rents if any, HOA dues, utilities, and similar recurring charges
     shall be prorated as of the Closing Date. Prepaid items and transferable
     deposits shall be credited accordingly. The Parties shall reprorate
@@ -375,7 +377,7 @@
     issued. This clause survives Closing.
   </section>
 
-  <section id="hoa" title="23 Homeowners Association" editable="false">
+  <section id="hoa" title="Homeowners Association" editable="false">
     If the Property is subject to a homeowners, horizontal-property, or
     similar regime, Seller shall deliver current governing documents, budget,
     and a statement of account or estoppel. Buyer shall apply for membership
@@ -385,7 +387,7 @@
     consent to transfer.
   </section>
 
-  <section id="utilities" title="24 Utilities and Services" editable="false">
+  <section id="utilities" title="Utilities and Services" editable="false">
     Seller shall maintain utility service through Closing. Buyer shall
     arrange transfer effective the Closing Date. Outstanding charges through
     Closing remain Seller's responsibility. The Parties shall cooperate on
@@ -394,7 +396,7 @@
     mooring permit.
   </section>
 
-  <section id="attorneyNotary" title="25 Attorney and Notary" editable="false">
+  <section id="attorneyNotary" title="Attorney and Notary" editable="false">
     Each Party may retain independent counsel. Closing shall be conducted
     before a Puerto Rico notary public. The Notary is not counsel for either
     Party. Notarial and Registry fees are allocated under Closing Costs.
@@ -404,7 +406,7 @@
     hipoteca.
   </section>
 
-  <section id="firpta" title="26 Tax Withholding — Hacienda and FIRPTA" editable="false">
+  <section id="firpta" title="Tax Withholding — Hacienda and FIRPTA" editable="false">
     A transfer of Puerto Rico real property can trigger withholding under
     the Puerto Rico Internal Revenue Code on certain sales by nonresidents
     of Puerto Rico, and federal FIRPTA withholding if the transferor is a
@@ -417,7 +419,7 @@
     payment to the extent the statute requires. This clause survives Closing.
   </section>
 
-  <section id="assignment" title="27 Assignment" editable="false">
+  <section id="assignment" title="Assignment" editable="false">
     Buyer may not assign this Agreement without Seller's prior written
     consent, except to an entity that Buyer controls. Buyer shall give
     notice of a permitted assignment and deliver the entity's authority
@@ -426,7 +428,7 @@
     all Seller obligations in writing.
   </section>
 
-  <section id="coastal" title="28 Coastal Zone, Flood and Permits" editable="false">
+  <section id="coastal" title="Coastal Zone, Flood and Permits" editable="false">
     Buyer acknowledges that Culebra property can be affected by coastal-zone
     regulation, public-beach access, mangrove and wildlife rules, FEMA flood
     mapping, and storm risk. Seller makes no representation about future
@@ -436,14 +438,14 @@
     Period. Seller shall disclose known unregistered or unpermitted work.
   </section>
 
-  <section id="exchange" title="29 Like-Kind Exchange" editable="false">
+  <section id="exchange" title="Like-Kind Exchange" editable="false">
     Either Party may structure its side as an exchange under Internal
     Revenue Code section 1031 or any Puerto Rico analog. The other Party
     shall cooperate at no material cost or delay and shall not be required
     to take title to other property.
   </section>
 
-  <section id="brokers" title="30 Brokers" editable="false">
+  <section id="brokers" title="Brokers" editable="false">
     The brokers named in this Agreement are
     <value field="buyerBrokerName"/> (Buyer's broker) and
     <value field="sellerBrokerName"/> (Seller's broker). Commission is earned
@@ -452,7 +454,7 @@
     would be a lien on the Deposit or the Property.
   </section>
 
-  <section id="forceMajeure" title="31 Death, Incapacity and Force Majeure" editable="false">
+  <section id="forceMajeure" title="Death, Incapacity and Force Majeure" editable="false">
     If a natural-person Party dies or becomes legally incapacitated before
     Closing, this Agreement binds the estate or representative. If a named
     storm warning, earthquake, epidemic restriction, or government closure
@@ -463,7 +465,7 @@
     the Deposit shall be refunded. Financial inability is not force majeure.
   </section>
 
-  <section id="notices" title="32 Notices" editable="false">
+  <section id="notices" title="Notices" editable="false">
     All notices under this Agreement shall be in writing and delivered by
     hand, recognized overnight courier, or email with a PDF attached, to the
     addresses the Parties provide in Additional Terms or on the signature
@@ -473,7 +475,7 @@
     Terms say they are.
   </section>
 
-  <section id="governingLaw" title="33 Governing Law, Venue and Fees" editable="false">
+  <section id="governingLaw" title="Governing Law, Venue and Fees" editable="false">
     This Agreement is governed by the laws of the Commonwealth of Puerto
     Rico. Exclusive venue lies in the Court of First Instance of Puerto
     Rico. Before filing a damages action, the Parties shall attend a
@@ -483,27 +485,27 @@
     reasonable attorneys' fees and costs.
   </section>
 
-  <section id="entireAgreement" title="34 Entire Agreement" editable="false">
+  <section id="entireAgreement" title="Entire Agreement" editable="false">
     This Agreement, including any addenda signed by Buyer and Seller,
     constitutes the entire agreement and supersedes all prior negotiations.
     Amendments must be in writing and signed by Buyer and Seller.
   </section>
 
-  <section id="counterparts" title="35 Counterparts and Electronic Delivery" editable="false">
+  <section id="counterparts" title="Counterparts and Electronic Delivery" editable="false">
     This Agreement may be signed in counterparts. Electronic delivery of a
     signed counterpart is effective for this private contract. The escritura
     de compraventa, mortgage deed, and other notarial instruments must be
     authorized with the formalities of the Notarial Law.
   </section>
 
-  <section id="severability" title="36 Severability" editable="false">
+  <section id="severability" title="Severability" editable="false">
     If any provision is held unenforceable, the remainder continues in
     effect. The unenforceable provision shall be modified to the minimum
     extent necessary to make it enforceable. A liquidated-damages clause
     held to be a penalty is severed without voiding the sale covenants.
   </section>
 
-  <section id="timeOfEssence" title="37 Time of Essence" editable="false">
+  <section id="timeOfEssence" title="Time of Essence" editable="false">
     Time is of the essence. Business Day means a day that is not a Saturday,
     Sunday, or legal holiday in the Commonwealth of Puerto Rico. Deadlines
     that fall on a weekend or legal holiday run to the next Business Day.
