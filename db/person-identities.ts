@@ -37,10 +37,20 @@ export async function personExists(
   return rows.length > 0
 }
 
-export async function findIdentityMatch(
+/**
+ * Return ALL active canonical owners for one semantic identity.
+ *
+ * This is the authoritative ownership lookup used by mastering. It never uses
+ * LIMIT 1, because a normalized identity that maps to multiple Persons is an
+ * ambiguity that must be surfaced rather than silently resolved by row order.
+ *
+ * Email comparison is trim/lower. Phone comparison is digits-only; country
+ * codes are never guessed or stripped.
+ */
+export async function findIdentityMatches(
   hint: NormalizedIdentityHint,
   execute: QueryExecutor = sql,
-): Promise<IdentityMatch | null> {
+): Promise<IdentityMatch[]> {
   const identityType = hint.kind === 'external' ? 'external' : hint.kind
   const sourceSystem = hint.kind === 'external' ? hint.sourceSystem : null
 
@@ -56,35 +66,51 @@ export async function findIdentityMatch(
         (${identityType} = 'phone'
           and regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
             = regexp_replace(${hint.normalizedValue}, '[^0-9]', '', 'g'))
-        or (${identityType} <> 'phone' and pi.identity_value = ${hint.normalizedValue})
+        or (${identityType} = 'email'
+          and lower(trim(pi.identity_value)) = lower(trim(${hint.normalizedValue})))
+        or (${identityType} <> 'phone' and ${identityType} <> 'email'
+          and pi.identity_value = ${hint.normalizedValue})
       )
       and (${sourceSystem}::text is null or pi.source_system = ${sourceSystem})
       and p.archived_at is null
-    limit 1
+    order by pi.person_id, pi.id
   `
 
-  const row = rows[0] as
-    | {
-        identity_id: string
-        person_id: string
-        identity_value: string
-      }
-    | undefined
-
-  return row
-    ? {
-        identityId: row.identity_id,
-        personId: row.person_id,
-        kind: hint.kind,
-        normalizedValue: row.identity_value,
-      }
-    : null
+  return (rows as {
+    identity_id: string
+    person_id: string
+    identity_value: string
+  }[]).map((row) => ({
+    identityId: row.identity_id,
+    personId: row.person_id,
+    kind: hint.kind,
+    normalizedValue: row.identity_value,
+  }))
 }
 
-export async function findIdentityOwnership(
+/**
+ * Backward-compatible singular lookup.
+ *
+ * A singular match exists only when the semantic identity has exactly one
+ * active owner. Zero or multiple owners intentionally return null so callers
+ * cannot accidentally turn an ambiguity into an arbitrary Person selection.
+ */
+export async function findIdentityMatch(
   hint: NormalizedIdentityHint,
   execute: QueryExecutor = sql,
-): Promise<IdentityOwnership | null> {
+): Promise<IdentityMatch | null> {
+  const matches = await findIdentityMatches(hint, execute)
+  return matches.length === 1 ? matches[0] : null
+}
+
+/**
+ * Return ALL ownership rows, including archived owners, for collision/stewardship
+ * checks. This deliberately preserves multiplicity rather than LIMIT 1.
+ */
+export async function findIdentityOwnerships(
+  hint: NormalizedIdentityHint,
+  execute: QueryExecutor = sql,
+): Promise<IdentityOwnership[]> {
   const identityType = hint.kind === 'external' ? 'external' : hint.kind
   const sourceSystem = hint.kind === 'external' ? hint.sourceSystem : null
 
@@ -101,30 +127,35 @@ export async function findIdentityOwnership(
         (${identityType} = 'phone'
           and regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
             = regexp_replace(${hint.normalizedValue}, '[^0-9]', '', 'g'))
-        or (${identityType} <> 'phone' and pi.identity_value = ${hint.normalizedValue})
+        or (${identityType} = 'email'
+          and lower(trim(pi.identity_value)) = lower(trim(${hint.normalizedValue})))
+        or (${identityType} <> 'phone' and ${identityType} <> 'email'
+          and pi.identity_value = ${hint.normalizedValue})
       )
       and (${sourceSystem}::text is null or pi.source_system = ${sourceSystem})
-    limit 1
+    order by pi.person_id, pi.id
   `
 
-  const row = rows[0] as
-    | {
-        identity_id: string
-        person_id: string
-        identity_value: string
-        archived_at: string | null
-      }
-    | undefined
+  return (rows as {
+    identity_id: string
+    person_id: string
+    identity_value: string
+    archived_at: string | null
+  }[]).map((row) => ({
+    identityId: row.identity_id,
+    personId: row.person_id,
+    kind: hint.kind,
+    normalizedValue: row.identity_value,
+    archived: row.archived_at !== null,
+  }))
+}
 
-  return row
-    ? {
-        identityId: row.identity_id,
-        personId: row.person_id,
-        kind: hint.kind,
-        normalizedValue: row.identity_value,
-        archived: row.archived_at !== null,
-      }
-    : null
+export async function findIdentityOwnership(
+  hint: NormalizedIdentityHint,
+  execute: QueryExecutor = sql,
+): Promise<IdentityOwnership | null> {
+  const ownerships = await findIdentityOwnerships(hint, execute)
+  return ownerships.length === 1 ? ownerships[0] : null
 }
 
 export async function createPersonWithIdentities(
