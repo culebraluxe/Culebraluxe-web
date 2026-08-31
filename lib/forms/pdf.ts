@@ -101,6 +101,18 @@ export type RenderedFormPdfArtifact = {
 
 type EmbeddedAppliedSignature = FormAppliedSignature & { image: PDFImage }
 
+export function signatureBlockDisplayName(
+  participantName: string,
+  boundFieldValue: string,
+  participantIndex: number,
+): string {
+  const name = participantName.trim()
+  const boundName = boundFieldValue.trim()
+  return participantIndex === 0 && boundName && /^(owner|seller|buyer)$/i.test(name)
+    ? boundName
+    : name
+}
+
 let logoBytesCache: Uint8Array | null | undefined
 
 async function loadLogoBytes(): Promise<Uint8Array | null> {
@@ -786,16 +798,24 @@ class DocumentComposer {
       const matching = participants.filter(
         (participant) => participant.role === group.role,
       )
+      const boundFieldValue = group.field
+        ? (values[group.field] ?? '').trim()
+        : ''
       const signers =
         matching.length > 0
-          ? matching
+          ? matching.map((participant, index) => ({
+              ...participant,
+              name: signatureBlockDisplayName(
+                participant.name,
+                boundFieldValue,
+                index,
+              ),
+            }))
           : [
               {
                 role: group.role,
                 slotId: null,
-                name: group.field
-                  ? (values[group.field] ?? '').trim()
-                  : '',
+                name: boundFieldValue,
               },
             ]
       for (const signer of signers) {
