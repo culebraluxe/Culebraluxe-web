@@ -17,7 +17,16 @@ import type {
 
 export const dynamic = 'force-dynamic'
 
-const LISTING_BROKER_NAME = 'Lisa Penfield'
+const LOCAL_BROKER_NAME = 'Lisa Penfield'
+
+/** Template field that must identify Lisa before her local signature can compose. */
+const LOCAL_BROKER_FIELD: Record<string, string> = {
+  'LISTING-01': 'brokerName',
+  'PR-PNS': 'sellerBrokerName',
+  'PR-PNS-AMD': 'sellerBrokerName',
+}
+
+const LOCAL_BROKER_TEMPLATES = new Set(Object.keys(LOCAL_BROKER_FIELD))
 
 function pdfResponse(bytes: Buffer) {
   return new NextResponse(new Uint8Array(bytes), {
@@ -34,12 +43,11 @@ function previewValues(
   template: TemplateDefinition,
   values: TemplateFieldValues,
 ): TemplateFieldValues {
-  if (template.id !== 'LISTING-01') return values
+  const field = LOCAL_BROKER_FIELD[template.id]
+  if (!field) return values
   return {
     ...values,
-    // CulebraLuxe is currently a single-broker model. Preview must never depend
-    // on an old/blank draft retaining this invariant manually.
-    brokerName: LISTING_BROKER_NAME,
+    [field]: LOCAL_BROKER_NAME,
   }
 }
 
@@ -57,11 +65,8 @@ async function previewRenderContext(
   ])
   const canonicalParticipants = canonicalizeExecutionParticipants(people)
 
-  // Draft preview is not issuance. It may display Lisa's standing local
-  // pre-signature before immutable participant slots have been snapshotted.
-  // Issuance still requires the real SELLER_BROKER slot before BoldSign starts.
   const participants =
-    template.id === 'LISTING-01' &&
+    LOCAL_BROKER_TEMPLATES.has(template.id) &&
     !canonicalParticipants.some((participant) => participant.role === 'SELLER_BROKER')
       ? [
           ...canonicalParticipants,
@@ -69,7 +74,7 @@ async function previewRenderContext(
             slotId: 'SELLER_BROKER:1',
             role: 'SELLER_BROKER',
             personId: null,
-            name: LISTING_BROKER_NAME,
+            name: LOCAL_BROKER_NAME,
             email: null,
             required: true,
             order: canonicalParticipants.length + 1,
@@ -99,7 +104,6 @@ async function previewRenderContext(
   }
 }
 
-// Saved-draft preview (iframe fallback). Live typing uses POST below.
 export async function GET(
   _request: Request,
   context: { params: Promise<{ formId: string }> },
@@ -109,7 +113,6 @@ export async function GET(
   const { formId } = await context.params
   const form = await getFormInstance(formId)
   if (!form) return new NextResponse('Not found', { status: 404 })
-  // A saved form previews against its exact stored template version.
   const template = getTemplate(form.templateId, form.templateVersion)
   if (!template) return new NextResponse('Not found', { status: 404 })
   const renderContext = await previewRenderContext(
@@ -136,7 +139,6 @@ export async function GET(
   )
 }
 
-// Live preview of the values currently in the editor — does not persist.
 export async function POST(
   request: Request,
   context: { params: Promise<{ formId: string }> },
@@ -146,7 +148,6 @@ export async function POST(
   const { formId } = await context.params
   const form = await getFormInstance(formId)
   if (!form) return new NextResponse('Not found', { status: 404 })
-  // A saved form previews against its exact stored template version.
   const template = getTemplate(form.templateId, form.templateVersion)
   if (!template) return new NextResponse('Not found', { status: 404 })
   let fieldValues: TemplateFieldValues = form.fieldValues
