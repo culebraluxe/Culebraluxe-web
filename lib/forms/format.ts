@@ -83,3 +83,20 @@ export function documentBodyText(
     })
     .join('\n\n')
 }
+
+
+/**
+ * Use freeform document prose only after the operator explicitly edits it.
+ * Legacy saved bodies had no marker and may contain stale interpolated fields,
+ * so XML plus the current field values remains authoritative by default.
+ */
+export function resolveDocumentBody(
+  template: Pick<TemplateDefinition, 'sections' | 'fields'>,
+  values: TemplateFieldValues,
+  sections: Readonly<Record<string, string>>,
+): string {
+  const editedBody = (sections.body ?? '').trim()
+  return sections.bodyEdited === 'true' && editedBody
+    ? editedBody
+    : documentBodyText(template, values)
+}
