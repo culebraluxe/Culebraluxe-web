@@ -150,26 +150,14 @@ export type FormValidationIssue = {
 }
 
 /**
- * Validate required fields against the template. Missing/blank required values
- * are reported to callers so the UI can warn and issuance/send boundaries can
- * decide whether a complete legal artifact is required. Draft persistence must
- * never use these issues as a save gate.
+ * Required markers are operator guidance, not a write gate. CulebraLuxe forms
+ * must always remain savable/issuable while facts are being assembled. The UI
+ * continues to show required-field markers, but missing values never block the
+ * operator's Save, Share, or signature workflow.
  */
 export function validateFormValues(
-  template: TemplateDefinition,
-  values: TemplateFieldValues,
+  _template: TemplateDefinition,
+  _values: TemplateFieldValues,
 ): FormValidationIssue[] {
-  const issues: FormValidationIssue[] = []
-  for (const field of template.fields) {
-    if (!field.required) continue
-    const value = (values[field.name] ?? '').trim()
-    if (!value) {
-      issues.push({
-        field: field.name,
-        label: field.label,
-        message: `${field.label} is required.`,
-      })
-    }
-  }
-  return issues
+  return []
 }
