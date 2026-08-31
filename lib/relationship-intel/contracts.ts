@@ -1,16 +1,17 @@
 // ---------------------------------------------------------------------------
 // REL-INTEL — source-neutral relationship evidence contracts.
 //
-// One shared vocabulary for Apple Contacts and Gmail relationship evidence so
-// the CORE surfaces (Catch-Up, Clients) can read neutral facts without knowing
-// which source produced them. Provenance keeps every fact traceable to a
-// source system, batch, and immutable staged profile.
+// One shared vocabulary for source-neutral relationship evidence so CORE
+// surfaces (Catch-Up, Clients) can read neutral facts without knowing which
+// source produced them. Provenance keeps every fact traceable to a source
+// system, batch/event boundary, and immutable source identity.
 // ---------------------------------------------------------------------------
 
 export type RelationshipEvidenceSource =
   | 'apple_contacts'
   | 'gmail_contacts'
   | 'apple_messages'
+  | 'whatsapp'
 
 export type ReviewState =
   | 'unresolved'
@@ -44,7 +45,7 @@ export interface IdentityEvidence {
 export interface RelationshipEvidence {
   source: RelationshipEvidenceSource
   sourceAccount: string
-  /** apple source_contact_id, or gmail normalized email */
+  /** stable source relationship identity (contact id, address, or event-source Person key) */
   sourceIdentityKey: string
   sourceLabel?: string | null
   displayName?: string | null
