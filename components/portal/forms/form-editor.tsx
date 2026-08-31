@@ -13,6 +13,7 @@ import {
 import {
   documentBodyText,
   formatMoney,
+  resolveDocumentBody,
 } from "@/lib/forms/format"
 import {
   applyDateDefaults,
@@ -97,8 +98,7 @@ function initialDetailsText(
   sections: Record<string, string>,
   values: Record<string, string>,
 ) {
-  if (sections.body?.trim()) return sections.body
-  return documentBodyText(template, values)
+  return resolveDocumentBody(template, values, sections)
 }
 
 function fileFromPdfBytes(buffer: ArrayBuffer, filename: string): File {
@@ -178,7 +178,7 @@ export function FormEditor({
   const [detailsText, setDetailsText] = useState(() =>
     initialDetailsText(template, form.sections, form.fieldValues),
   )
-  const bodyTouched = useRef(Boolean(form.sections.body?.trim()))
+  const bodyTouched = useRef(form.sections.bodyEdited === "true")
   const [saved, setSaved] = useState({
     values: form.fieldValues,
     sections: form.sections,
@@ -293,7 +293,11 @@ export function FormEditor({
   function composedSections(
     nextDetails = detailsText,
   ): Record<string, string> {
-    return { ...sections, body: nextDetails }
+    return {
+      ...sections,
+      body: nextDetails,
+      bodyEdited: bodyTouched.current ? "true" : "false",
+    }
   }
 
   function updateField(name: string, value: string) {
@@ -348,6 +352,7 @@ export function FormEditor({
     setValues(saved.values)
     setSections(saved.sections)
     setDetailsText(saved.detailsText)
+    bodyTouched.current = saved.sections.bodyEdited === "true"
     setMessage("Changes discarded")
     setError(null)
   }
