@@ -8,7 +8,8 @@ const ROLE_MAP: Record<string, string> = {
 }
 
 const LISTING_TEMPLATE_ID = "LISTING-01"
-const LISTING_BROKER_NAME = "Lisa Penfield"
+const SELLER_BROKER_LISA_TEMPLATES = new Set(["LISTING-01", "PR-PNS"])
+const SELLER_BROKER_NAME = "Lisa Penfield"
 
 function roleForForm(templateId: string, role: string): string {
   // Historical Listing drafts were seeded while `owner` incorrectly mapped to
@@ -150,21 +151,21 @@ export async function listFormSignerPeople(
     }
   }
 
-  if (templateId === LISTING_TEMPLATE_ID) {
-    // Lisa is a business invariant for CulebraLuxe Listing Agreements. Resolve
-    // her durable application identity from PROD/DEV data instead of deriving
-    // a broker from deal participants or relying on an environment-specific ID.
+  if (SELLER_BROKER_LISA_TEMPLATES.has(templateId)) {
+    // Use the same durable broker identity for Listing and Purchase & Sale.
+    // Lisa is not inferred from deal participants: she is the configured local
+    // CulebraLuxe SELLER_BROKER whose signature is applied before BoldSign.
     const brokerRows = await q`
       select au.person_id, au.display_name, au.email
       from app_user au
       where au.active = true
-        and lower(au.display_name) = lower(${LISTING_BROKER_NAME})
+        and lower(au.display_name) = lower(${SELLER_BROKER_NAME})
       order by au.id
       limit 2
     `
     if (brokerRows.length !== 1) {
       throw new Error(
-        "Listing signer resolution requires exactly one active Lisa Penfield app user.",
+        `${templateId} signer resolution requires exactly one active Lisa Penfield app user.`,
       )
     }
     const broker = brokerRows[0] as {
@@ -174,7 +175,7 @@ export async function listFormSignerPeople(
     }
     people.push({
       personId: broker.person_id ? String(broker.person_id) : null,
-      name: LISTING_BROKER_NAME,
+      name: SELLER_BROKER_NAME,
       email: broker.email ? String(broker.email) : null,
       role: "SELLER_BROKER",
     })
