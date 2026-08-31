@@ -23,3 +23,26 @@ create index if not exists integration_source_person_link_person
 
 create index if not exists integration_source_person_link_source
     on integration_source_person_link (source, source_account);
+
+-- Preserve every established source->Person decision from the legacy evidence
+-- implementation before the dedicated link table becomes authoritative.
+-- This is source-neutral: Apple Contacts, Messages, Gmail, Calendar, phone,
+-- FaceTime, WhatsApp, and future sources retain their existing ownership links.
+insert into integration_source_person_link (
+    source,
+    source_account,
+    source_identity_key,
+    canonical_person_id,
+    link_method,
+    link_reason
+)
+select
+    source,
+    source_account,
+    source_identity_key,
+    canonical_person_id,
+    'legacy_evidence_link',
+    'backfilled_from_relationship_evidence'
+from integration_relationship_evidence
+where canonical_person_id is not null
+on conflict (source, source_account, source_identity_key) do nothing;
