@@ -21,7 +21,7 @@ import { loadAppleEvidence } from '../lib/relationship-intel/apple-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
 import {
-  getRelationshipEvidenceRows,
+  getCurrentAppleEvidenceRows,
   recordReconcileDecision,
   type RelationshipEvidenceRow,
 } from '../db/relationship-evidence'
@@ -93,8 +93,10 @@ async function runMain(): Promise<void> {
   const projected = await loadAppleEvidence(sql)
   console.log(`[contacts-sync] apple evidence projected: ${projected} contacts`)
 
-  // 2. Reconcile all apple evidence (exact match / ambiguous / unmatched / …).
-  const rows = await getRelationshipEvidenceRows(APPLE_SOURCE, sql)
+  // 2. Reconcile CURRENT-snapshot apple evidence only (never the historical
+  //    union). l_person is the current Apple snapshot; evidence whose source
+  //    identity is no longer in it stays in ODS but is excluded here.
+  const rows = await getCurrentAppleEvidenceRows(sql)
   const { lookup } = await createInMemoryPersonLookup(sql)
   const tally: Record<ReviewState, number> = Object.fromEntries(
     OUTCOMES.map((o) => [o, 0]),
@@ -121,6 +123,7 @@ async function runMain(): Promise<void> {
   const result = await promoteEvidence({
     source: APPLE_SOURCE,
     reviewStates: ['review_required', 'unmatched'],
+    currentOnly: true,
   })
   const peopleAfter = Number(((await sql`select count(*)::int as n from person`) as { n: number }[])[0]?.n ?? 0)
 

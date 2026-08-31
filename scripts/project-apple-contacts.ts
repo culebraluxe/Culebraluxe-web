@@ -1,20 +1,26 @@
 #!/usr/bin/env node
 // ---------------------------------------------------------------------------
-// Apple Contacts — l_person relational-load projection (SUPPORT-2).
+// Apple Contacts — l_person CURRENT-STATE relational-load projection (SUPPORT-2).
 //
 //   pnpm contacts:project:dev    # --env dev   (DATABASE_URL_DEV)
 //   pnpm contacts:project:prod   # --env prod  (DATABASE_URL_PROD)
 //
-// SET-BASED projection: ~7 SQL statements (INSERT ... SELECT from the immutable
-// staged revisions) upsert the current-state l_person load rows and
-// deterministically rebuild their l_person_identity + l_person_address
-// children. No per-contact round-trips, so the 2,573-row load completes
-// quickly. It is IDEMPOTENT and re-runnable:
-//   - l_person is upserted by unique(source, source_account, source_contact_id)
-//   - children are deterministically rebuilt (delete-then-insert for the source)
-//   - replay produces zero duplicate load people / identities
-// A later staged revision (changed) updates the existing l_person row.
-// NEVER mutates canonical person / person_identity.
+// l_person is the CURRENT relational/load projection — NOT the immutable ODS
+// history. It represents ONLY the current successful Apple snapshot:
+//
+//   CURRENT SNAPSHOT (integration_source_snapshot_member)
+//       -> latest staged revision per current member (even if that revision was
+//          created by an older batch, e.g. an exact replay)
+//       -> l_person current rows
+//       -> prune l_person rows that are NOT members of the current snapshot
+//
+// ODS history (integration_staged_contact_profile / integration_inbox) is NEVER
+// truncated or rewritten. This projection only rebuilds the current-state
+// l_person / l_person_identity / l_person_address and NEVER mutates canonical
+// person / person_identity.
+//
+// The rebuild is atomic in a single DB transaction so a failed projection cannot
+// leave a half-current population.
 // ---------------------------------------------------------------------------
 import { Pool } from '@neondatabase/serverless'
 import { fileURLToPath } from 'node:url'
@@ -31,15 +37,31 @@ function flag(name: string): string | undefined {
 
 const SOURCE = 'apple_contacts'
 
-/** Latest immutable staged revision per (source, source_account, source_contact_id). */
+/**
+ * Latest immutable staged revision per CURRENT-SNAPSHOT member.
+ * `current_snapshot` = membership of the resolved latest LOADED batch. A current
+ * member uses its LATEST staged revision even when that revision belongs to an
+ * older batch (an exact replay produces no new staged row).
+ * $1 = batch id, $2 = source, $3 = source_account.
+ */
 const LATEST_CTE = `
-  with latest as (
+  with current_snapshot as (
+    select m.source, m.source_account, m.source_identity_key
+    from integration_source_snapshot_member m
+    where m.integration_intake_batch_id = $1
+  ),
+  latest as (
     select distinct on (scp.source, scp.source_account, scp.source_contact_id)
       scp.id as staged_profile_id, scp.integration_intake_batch_id,
       scp.source, scp.source_account, scp.source_contact_id,
       scp.revision, scp.payload_fingerprint, scp.reconciliation_status,
       scp.candidate_person_id, scp.profile
     from integration_staged_contact_profile scp
+    join current_snapshot cs
+      on cs.source = scp.source
+     and cs.source_account = scp.source_account
+     and cs.source_identity_key = scp.source_contact_id
+    where scp.source = $2
     order by scp.source, scp.source_account, scp.source_contact_id, scp.revision desc
   )
 `
@@ -74,16 +96,9 @@ const L_PERSON_UPSERT_SQL = `
     nullif(trim(profile->>'department'), ''),
     nullif(trim(profile->>'jobTitle'), ''),
     (
-      select nullif(trim(concat_ws(', ',
-        p ->> 'street',
-        nullif(trim(concat_ws(', ', p ->> 'city', nullif(trim(concat_ws(' ', p ->> 'state', p ->> 'postalCode')), ''))), ''),
-        nullif(trim(p ->> 'country'), '')
-      )), '')
-      from jsonb_array_elements(profile->'postalAddresses') as p
-      limit 1
+      select nullif(trim(profile->'postalAddresses'->0->>'street'), '')
     ),
-    coalesce(reconciliation_status, 'unreviewed'),
-    candidate_person_id
+    reconciliation_status, candidate_person_id
   from latest
   on conflict (source, source_account, source_contact_id) do update set
     integration_staged_contact_profile_id = excluded.integration_staged_contact_profile_id,
@@ -102,66 +117,72 @@ const L_PERSON_UPSERT_SQL = `
     job_title = excluded.job_title,
     display_address = excluded.display_address,
     reconciliation_status = excluded.reconciliation_status,
-    candidate_person_id = excluded.candidate_person_id,
-    updated_at = now()
+    candidate_person_id = excluded.candidate_person_id
+`
+
+/** Prune l_person rows that are NOT members of the current snapshot. */
+const PRUNE_SQL = `
+  ${LATEST_CTE}
+  delete from l_person lp
+  where lp.source = $2
+    and lp.source_account = $3
+    and not exists (
+      select 1 from current_snapshot cs
+      where cs.source = lp.source
+        and cs.source_account = lp.source_account
+        and cs.source_identity_key = lp.source_contact_id
+    )
 `
 
 const EMAILS_SQL = `
   ${LATEST_CTE}
-  insert into l_person_identity (
-    l_person_id, identity_type, identity_value, original_value, normalized_value,
-    source_label, source_system, is_primary, ordinal
-  )
+  insert into l_person_identity (l_person_id, identity_type, identity_value, normalized_value, source_label, ordinal)
   select
     lp.id, 'email',
-    lower(trim(e.value->>'value')),
     trim(e.value->>'value'),
-    lower(trim(e.value->>'value')),
+    trim(e.value->>'value'),
     nullif(trim(e.value->>'label'), ''),
-    '${SOURCE}', false,
     e.ordinal - 1
   from latest l
   join l_person lp
     on lp.source = l.source and lp.source_account = l.source_account
    and lp.source_contact_id = l.source_contact_id
   cross join lateral jsonb_array_elements(l.profile->'emails') with ordinality as e(value, ordinal)
-  where trim(e.value->>'value') <> ''
+  where trim(coalesce(e.value->>'value', '')) <> ''
   on conflict (l_person_id, identity_type, identity_value) do nothing
 `
 
 const PHONES_SQL = `
   ${LATEST_CTE}
-  insert into l_person_identity (
-    l_person_id, identity_type, identity_value, original_value, normalized_value,
-    source_label, source_system, is_primary, ordinal
-  )
+  insert into l_person_identity (l_person_id, identity_type, identity_value, normalized_value, source_label, ordinal)
   select
     lp.id, 'phone',
-    '+' || regexp_replace(trim(e.value->>'value'), '\\D', '', 'g'),
     trim(e.value->>'value'),
-    '+' || regexp_replace(trim(e.value->>'value'), '\\D', '', 'g'),
+    ('+' || regexp_replace(trim(e.value->>'value'), '[^0-9]', '', 'g')),
     nullif(trim(e.value->>'label'), ''),
-    '${SOURCE}', false,
     e.ordinal - 1
   from latest l
   join l_person lp
     on lp.source = l.source and lp.source_account = l.source_account
    and lp.source_contact_id = l.source_contact_id
   cross join lateral jsonb_array_elements(l.profile->'phones') with ordinality as e(value, ordinal)
-  where trim(e.value->>'value') <> ''
+  where trim(coalesce(e.value->>'value', '')) <> ''
   on conflict (l_person_id, identity_type, identity_value) do nothing
 `
 
 const APPLE_ID_SQL = `
-  insert into l_person_identity (
-    l_person_id, identity_type, identity_value, original_value, normalized_value,
-    source_label, source_system, is_primary, ordinal
-  )
+  ${LATEST_CTE}
+  insert into l_person_identity (l_person_id, identity_type, identity_value, normalized_value, source_label, ordinal)
   select
-    id, 'apple_contact', source_contact_id, source_contact_id, source_contact_id,
-    null, '${SOURCE}', false, 0
-  from l_person
-  where source = '${SOURCE}' and source_contact_id <> ''
+    lp.id, 'apple_contact',
+    l.source_contact_id,
+    l.source_contact_id,
+    'Apple contact identifier',
+    0
+  from latest l
+  join l_person lp
+    on lp.source = l.source and lp.source_account = l.source_account
+   and lp.source_contact_id = l.source_contact_id
   on conflict (l_person_id, identity_type, identity_value) do nothing
 `
 
@@ -189,6 +210,7 @@ const ADDRESSES_SQL = `
   where trim(coalesce(a.value->>'street', a.value->>'city', '')) <> ''
 `
 
+
 async function runMain() {
   const env = (flag('--env') ?? 'dev').toLowerCase()
   const url = env === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
@@ -204,46 +226,103 @@ async function runMain() {
     console.error('PROD projection selected but the configured connection is the DEV URL (fail closed)')
     process.exit(2)
   }
+
   const pool = new Pool({ connectionString: url, ssl: true })
   try {
-    const before = await pool.query(
-      `select count(distinct source_contact_id)::int as n from l_person where source = $1`,
+    const accountRows = await pool.query(
+      `select distinct source_account from integration_intake_batch where source = $1 and source_account <> '' order by source_account`,
       [SOURCE],
+    )
+    const sourceAccounts = accountRows.rows.map((r) => String(r.source_account))
+    if (sourceAccounts.length !== 1) {
+      console.error(
+        `Expected exactly one existing ${SOURCE} source_account for projection; found ${sourceAccounts.length}. Set the source account explicitly.`,
+      )
+      process.exit(2)
+    }
+    const sourceAccount = sourceAccounts[0]
+
+    // Latest SUCCESSFUL/LOADED Apple batch for this source+account.
+    const batchRows = await pool.query(
+      `select id from integration_intake_batch
+        where source = $1 and source_account = $2 and load_status = 'loaded'
+        order by received_at desc, created_at desc
+        limit 1`,
+      [SOURCE, sourceAccount],
+    )
+    const batchRow = batchRows.rows[0] as { id: string } | undefined
+    if (!batchRow) {
+      console.error(`No LOADED ${SOURCE} batch found for source_account ${sourceAccount}; cannot project current snapshot.`)
+      process.exit(2)
+    }
+    const batchId = batchRow.id
+
+    const before = await pool.query(
+      `select count(distinct source_contact_id)::int as n from l_person where source = $1 and source_account = $2`,
+      [SOURCE, sourceAccount],
     )
     const existingBefore = Number(before.rows[0]?.n ?? 0)
 
-    await pool.query(L_PERSON_UPSERT_SQL)
-    await pool.query('delete from l_person_identity where l_person_id in (select id from l_person where source = $1)', [SOURCE])
-    await pool.query('delete from l_person_address where l_person_id in (select id from l_person where source = $1)', [SOURCE])
-    await pool.query(EMAILS_SQL)
-    await pool.query(PHONES_SQL)
-    await pool.query(APPLE_ID_SQL)
-    await pool.query(ADDRESSES_SQL)
+    const client = await pool.connect()
+    try {
+      await client.query('begin')
+      await client.query(L_PERSON_UPSERT_SQL, [batchId, SOURCE])
+      await client.query(
+        `delete from l_person_identity where l_person_id in (select id from l_person where source = $1 and source_account = $2)`,
+        [SOURCE, sourceAccount],
+      )
+      await client.query(
+        `delete from l_person_address where l_person_id in (select id from l_person where source = $1 and source_account = $2)`,
+        [SOURCE, sourceAccount],
+      )
+      await client.query(PRUNE_SQL, [batchId, SOURCE, sourceAccount])
+      await client.query(EMAILS_SQL, [batchId, SOURCE])
+      await client.query(PHONES_SQL, [batchId, SOURCE])
+      await client.query(APPLE_ID_SQL, [batchId, SOURCE])
+      await client.query(ADDRESSES_SQL, [batchId, SOURCE])
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    } finally {
+      client.release()
+    }
 
-    const inputRows = await pool.query(
-      `select count(distinct (source, source_account, source_contact_id))::int as n
-         from integration_staged_contact_profile where source = $1`,
-      [SOURCE],
+    const after = await pool.query(
+      `select count(distinct source_contact_id)::int as n from l_person where source = $1 and source_account = $2`,
+      [SOURCE, sourceAccount],
     )
-    const input = Number(inputRows.rows[0]?.n ?? 0)
-    const created = Math.max(0, input - existingBefore)
-    const updated = existingBefore
+    const currentCount = Number(after.rows[0]?.n ?? 0)
+
+    const membershipRows = await pool.query(
+      `select count(*)::int as n from integration_source_snapshot_member
+        where integration_intake_batch_id = $1`,
+      [batchId],
+    )
+    const membershipCount = Number(membershipRows.rows[0]?.n ?? 0)
 
     const idCounts = await pool.query(
-      `select identity_type, count(*)::int as n from l_person_identity group by identity_type order by identity_type`,
+      `select identity_type, count(*)::int as n from l_person_identity
+        where l_person_id in (select id from l_person where source = $1 and source_account = $2)
+        group by identity_type order by identity_type`,
+      [SOURCE, sourceAccount],
     )
-    const addressCount = await pool.query(`select count(*)::int as n from l_person_address`)
+    const addressCount = await pool.query(
+      `select count(*)::int as n from l_person_address
+        where l_person_id in (select id from l_person where source = $1 and source_account = $2)`,
+      [SOURCE, sourceAccount],
+    )
 
-    const balanced = input === created + updated
     console.log(
       JSON.stringify(
         {
           env,
           source: SOURCE,
-          totals: { input, projected_new: created, updated, error: 0 },
+          batchId,
+          snapshotMembership: membershipCount,
+          totals: { before: existingBefore, after: currentCount, pruned: Math.max(0, existingBefore - currentCount), error: 0 },
           identities: Object.fromEntries(idCounts.rows.map((r) => [String(r.identity_type), Number(r.n)])),
           addresses: Number(addressCount.rows[0]?.n ?? 0),
-          balanced,
         },
         null,
         2,

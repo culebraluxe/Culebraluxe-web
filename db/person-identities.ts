@@ -52,7 +52,12 @@ export async function findIdentityMatch(
     from person_identity pi
     join person p on p.id = pi.person_id
     where pi.identity_type = ${identityType}
-      and pi.identity_value = ${hint.normalizedValue}
+      and (
+        (${identityType} = 'phone'
+          and regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
+            = regexp_replace(${hint.normalizedValue}, '[^0-9]', '', 'g'))
+        or (${identityType} <> 'phone' and pi.identity_value = ${hint.normalizedValue})
+      )
       and (${sourceSystem}::text is null or pi.source_system = ${sourceSystem})
       and p.archived_at is null
     limit 1
@@ -92,7 +97,12 @@ export async function findIdentityOwnership(
     from person_identity pi
     join person p on p.id = pi.person_id
     where pi.identity_type = ${identityType}
-      and pi.identity_value = ${hint.normalizedValue}
+      and (
+        (${identityType} = 'phone'
+          and regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
+            = regexp_replace(${hint.normalizedValue}, '[^0-9]', '', 'g'))
+        or (${identityType} <> 'phone' and pi.identity_value = ${hint.normalizedValue})
+      )
       and (${sourceSystem}::text is null or pi.source_system = ${sourceSystem})
     limit 1
   `

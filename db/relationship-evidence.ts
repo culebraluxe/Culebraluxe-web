@@ -316,6 +316,38 @@ export async function getRelationshipEvidenceReview(
   return { rows: filtered.slice(offset, offset + limit), total: filtered.length }
 }
 
+/**
+ * Apple Contacts CURRENT-SNAPSHOT evidence: rows whose source identity is present
+ * in the current l_person projection. Historical Apple evidence (present in ODS
+ * but no longer in the current snapshot) is EXCLUDED so an operator run never
+ * reconciles/promotes over the historical union. Never deletes historical rows.
+ */
+export async function getCurrentAppleEvidenceRows(
+  execute: QueryExecutor = sql,
+): Promise<RelationshipEvidenceRow[]> {
+  const rows = (await execute`
+    select
+      ev.id, ev.source, ev.source_account, ev.source_identity_key, ev.source_label,
+      ev.display_name, ev.organization, ev.emails, ev.phones,
+      ev.first_observed_at, ev.last_observed_at, ev.last_inbound_at, ev.last_outbound_at,
+      ev.inbound_count, ev.outbound_count, ev.is_two_way, ev.is_owner_initiated,
+      ev.is_automated_or_bulk, ev.is_organization_or_service, ev.known_apple_contact,
+      ev.has_email, ev.has_phone, ev.coverage_note,
+      ev.canonical_person_id, ev.match_method, ev.match_confidence, ev.review_state,
+      ev.match_reason, ev.rule_version, ev.evidence_fingerprint, ev.updated_at
+    from integration_relationship_evidence ev
+    where ev.source = 'apple_contacts'
+      and exists (
+        select 1 from l_person lp
+        where lp.source = ev.source
+          and lp.source_account = ev.source_account
+          and lp.source_contact_id = ev.source_identity_key
+      )
+    order by coalesce(ev.last_observed_at, ev.created_at) desc nulls last
+  `) as EvidenceRow[]
+  return rows.map(mapRow)
+}
+
 /** Build a plain RelationshipEvidence from a persisted row (for re-reconciliation). */
 function toReconcileEvidence(row: RelationshipEvidenceRow): RelationshipEvidence {
   return {

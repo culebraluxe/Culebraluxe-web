@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------------
 import { randomUUID } from 'node:crypto'
 
-import { sql } from './client'
+import { raw, sql } from './client'
 import { findIdentityMatch, createPersonWithIdentities } from './person-identities'
 import { recordReconcileDecision } from './relationship-evidence'
 import { refreshClientReadModels } from './client-read-models'
@@ -202,10 +202,31 @@ export type PromoteResult = {
  * The same evidence rows are preserved (never deleted). The client read models
  * are refreshed once per promotion cycle.
  */
+/** Empty SQL fragment (used to keep template arity stable for optional filters). */
+const EMPTY_FRAGMENT = raw``
+
+/**
+ * Restrict evidence to the CURRENT Apple snapshot members (present in current
+ * l_person). Used only by the Apple Contacts current-snapshot pipeline so stale
+ * historical Apple evidence never participates in promotion/enrichment.
+ * The outer table must be `integration_relationship_evidence` (unaliased).
+ */
+const CURRENT_APPLE_MEMBERSHIP = raw`
+  and exists (
+    select 1 from l_person lp
+    where lp.source = integration_relationship_evidence.source
+      and lp.source_account = integration_relationship_evidence.source_account
+      and lp.source_contact_id = integration_relationship_evidence.source_identity_key
+  )
+`
+
 export async function promoteEvidence(opts: {
   source?: string
   reviewStates: ReviewState[]
+  /** Apple Contacts current-snapshot only: restrict to current l_person members. */
+  currentOnly?: boolean
 }): Promise<PromoteResult> {
+  const membership = opts.currentOnly === true ? CURRENT_APPLE_MEMBERSHIP : EMPTY_FRAGMENT
   const raw = (opts.source
     ? await sql`
         select id, source, display_name, emails, phones
@@ -216,6 +237,7 @@ export async function promoteEvidence(opts: {
           and (is_automated_or_bulk is not true)
           and (is_organization_or_service is not true)
           and (has_email = true or has_phone = true)
+          ${membership}
       `
     : await sql`
         select id, source, display_name, emails, phones
@@ -225,6 +247,7 @@ export async function promoteEvidence(opts: {
           and (is_automated_or_bulk is not true)
           and (is_organization_or_service is not true)
           and (has_email = true or has_phone = true)
+          ${membership}
       `) as unknown[]
 
   const rows: PromotionEvidence[] = raw.map((r) => {
@@ -370,7 +393,7 @@ export async function promoteEvidence(opts: {
 
   // Enrich people that are ALREADY exact-linked (e.g. earlier PROD runs) but may
   // be missing secondary Apple identities. Replay-safe and conflict-aware.
-  const enrichment = await enrichExactLinkedEvidence(opts.source)
+  const enrichment = await enrichExactLinkedEvidence(opts.source, opts.currentOnly)
   result.enriched += enrichment.enriched
   result.identitiesAdded += enrichment.identitiesAdded
   result.conflicts += enrichment.conflicts
@@ -413,7 +436,9 @@ async function attachMissingIdentities(
  */
 async function enrichExactLinkedEvidence(
   source?: string,
+  currentOnly?: boolean,
 ): Promise<{ enriched: number; identitiesAdded: number; conflicts: number }> {
+  const membership = currentOnly === true ? CURRENT_APPLE_MEMBERSHIP : EMPTY_FRAGMENT
   const raw = (source
     ? await sql`
         select id, source, canonical_person_id, emails, phones
@@ -423,6 +448,7 @@ async function enrichExactLinkedEvidence(
           and canonical_person_id is not null
           and (is_automated_or_bulk is not true)
           and (is_organization_or_service is not true)
+          ${membership}
       `
     : await sql`
         select id, source, canonical_person_id, emails, phones
@@ -431,6 +457,7 @@ async function enrichExactLinkedEvidence(
           and canonical_person_id is not null
           and (is_automated_or_bulk is not true)
           and (is_organization_or_service is not true)
+          ${membership}
       `) as unknown[]
 
   let enriched = 0

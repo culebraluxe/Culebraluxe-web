@@ -371,6 +371,20 @@ async function main(q: QueryExecutor) {
     }
   }
 
+  // ---- Snapshot membership (durably recorded BEFORE the batch is marked
+  // loaded). Every contact present in THIS successful export is a member of the
+  // current snapshot — INCLUDING exact replays, whose latest staged profile
+  // revision may belong to an older batch. Membership is never derived from old
+  // staged rows; it records the actual current export. Set-based + idempotent.
+  const memberIds = prepared.map((p) => p.sourceId)
+  await q`
+    insert into integration_source_snapshot_member (
+      integration_intake_batch_id, source, source_account, source_identity_key
+    )
+    select ${batchId}, ${APPLE_CONTACTS_SOURCE_SYSTEM}, ${sourceAccount}, unnest(${memberIds}::text[])
+    on conflict (integration_intake_batch_id, source, source_account, source_identity_key) do nothing
+  `
+
   const validCount = counts.new + counts.replay + counts.changed
   const loadStatus = decideBatchLoadStatus(counts.error)
   await q`

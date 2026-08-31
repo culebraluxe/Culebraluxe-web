@@ -30,13 +30,23 @@ export async function mapLimit<T, R>(
   return results
 }
 
+/**
+ * Deterministic digits-only phone key for comparison. Strips `+`, spaces and
+ * punctuation so `+8609895020` and `8609895020` compare equal. It does NOT strip
+ * a leading country code: `+18609895020` -> `18609895020` (11 digits) never
+ * matches `8609895020` (10 digits). We never guess country codes.
+ */
+export function phoneDigitsKey(value: string): string {
+  return value.replace(/[^0-9]/g, '')
+}
+
 /** Preload canonical person_identity (email/phone) + prior explicit source links. */
 export async function createInMemoryPersonLookup(
   execute: QueryExecutor,
 ): Promise<{
   lookup: PersonLookup
   emailToPerson: Map<string, string>
-  phoneToPerson: Map<string, string>
+  phoneToPerson: Map<string, string[]>
 }> {
   const identityRows = (await execute`
     select pi.identity_type, pi.identity_value, pi.person_id
@@ -45,11 +55,21 @@ export async function createInMemoryPersonLookup(
     where p.archived_at is null
   `) as { identity_type: string; identity_value: string; person_id: string }[]
 
+  // Email is unique by exact value (person_identity_unique), so one owner each.
+  // Phone is keyed by digits-only; the SAME digits can legitimately be stored
+  // with and without `+` on different persons, so we keep ALL owners and never
+  // silently drop a multi-owner conflict (ambiguous is surfaced by the caller).
   const emailToPerson = new Map<string, string>()
-  const phoneToPerson = new Map<string, string>()
+  const phoneToPerson = new Map<string, string[]>()
   for (const r of identityRows) {
-    const target = r.identity_type === 'email' ? emailToPerson : phoneToPerson
-    if (!target.has(r.identity_value)) target.set(r.identity_value, r.person_id)
+    if (r.identity_type === 'email') {
+      if (!emailToPerson.has(r.identity_value)) emailToPerson.set(r.identity_value, r.person_id)
+    } else if (r.identity_type === 'phone') {
+      const key = phoneDigitsKey(r.identity_value)
+      const owners = phoneToPerson.get(key) ?? []
+      if (!owners.includes(r.person_id)) owners.push(r.person_id)
+      phoneToPerson.set(key, owners)
+    }
   }
 
   const links = (await execute`
@@ -75,7 +95,7 @@ export async function createInMemoryPersonLookup(
     findPeopleByEmail: async (normalizedEmail) =>
       emailToPerson.has(normalizedEmail) ? [{ personId: emailToPerson.get(normalizedEmail)! }] : [],
     findPeopleByPhone: async (normalizedPhone) =>
-      phoneToPerson.has(normalizedPhone) ? [{ personId: phoneToPerson.get(normalizedPhone)! }] : [],
+      (phoneToPerson.get(phoneDigitsKey(normalizedPhone)) ?? []).map((personId) => ({ personId })),
   }
 
   return { lookup, emailToPerson, phoneToPerson }
