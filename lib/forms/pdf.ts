@@ -42,6 +42,7 @@ import {
   formatFieldValue,
   formatMoney,
   interpolateSectionText,
+  resolveDocumentBody,
 } from './format'
 
 export {
@@ -857,9 +858,7 @@ export async function renderFormPdfArtifact(
   )
   composer.drawDocumentMetadata()
   composer.drawOverview(overviewFields(template, values))
-  const body =
-    (sections.body ?? '').trim() || documentBodyText(template, values)
-  composer.drawBody(body)
+  composer.drawBody(resolveDocumentBody(template, values, sections))
   composer.drawSignatures(template, values, options.participants ?? [])
   return composer.finish()
 }
