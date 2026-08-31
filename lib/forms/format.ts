@@ -14,8 +14,18 @@ export function formatMoney(value: string): string {
 }
 
 const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ]
 
 /** Deterministic ISO (YYYY-MM-DD) → 'Month D, YYYY' date formatting. */
