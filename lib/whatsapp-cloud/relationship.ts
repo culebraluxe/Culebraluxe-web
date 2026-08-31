@@ -5,6 +5,7 @@ import {
 } from '../../db/relationship-evidence'
 import { fingerprint } from '../relationship-intel/normalize'
 import { REL_INTEL_RULE_VERSION } from '../relationship-intel/reconcile'
+import type { RelationshipEvidence } from '../relationship-intel/contracts'
 import type { ExternalActivityEvent } from '../mac-observer/contracts'
 
 const WHATSAPP_SOURCE = 'whatsapp' as const
@@ -120,7 +121,7 @@ export async function projectWhatsAppRelationship(input: {
   // Event sources reduce to one relationship row per Person×provider account.
   // Source identity ownership remains separately durable per external phone.
   const sourceIdentityKey = `person:${personId}`
-  const evidence = {
+  const evidence: RelationshipEvidence = {
     source: WHATSAPP_SOURCE,
     sourceAccount: event.sourceAccount,
     sourceIdentityKey,
@@ -143,7 +144,7 @@ export async function projectWhatsAppRelationship(input: {
     hasEmail: false,
     hasPhone: phones.length > 0,
     coverageNote: 'Meta WhatsApp Cloud API realtime webhook coverage.',
-  } as const
+  }
 
   const evidenceFingerprint = fingerprint(JSON.stringify({
     source: evidence.source,
