@@ -27,6 +27,7 @@ import { createCommandSeamInteractionPersistence } from '../integration-inbox/wi
 
 import type { MetaWhatsAppConfiguration, MetaWhatsAppWebhookPayload } from './types'
 import { parseMetaWhatsAppWebhook } from './parse'
+import { projectWhatsAppRelationship } from './relationship'
 
 const META_WHATSAPP_CAPABILITY: SourceCapability = {
   status: 'available',
@@ -67,12 +68,17 @@ function channels(config: MetaWhatsAppConfiguration): MacChannelConfigurations {
 export type ProcessMetaWhatsAppWebhookResult = {
   eventCount: number
   outcomes: IntegrationInboxProcessingOutcome[]
+  relationshipProjected: number
   retryableFailure: boolean
 }
 
 /**
  * Provider edge -> canonical realtime envelope -> durable integration inbox ->
- * existing WhatsApp intake -> canonical interaction.record command.
+ * existing WhatsApp intake -> canonical interaction -> relationship evidence.
+ *
+ * The relationship projection is deliberately replay-safe: completed receipts
+ * recompute an absolute Person×WhatsApp aggregate from the durable inbox, so a
+ * retry repairs a crash after canonical persistence without double-counting.
  */
 export async function processMetaWhatsAppWebhook(input: {
   payload: MetaWhatsAppWebhookPayload
@@ -86,11 +92,13 @@ export async function processMetaWhatsAppWebhook(input: {
     observedAt: input.observedAt,
   })
   const outcomes: IntegrationInboxProcessingOutcome[] = []
+  let relationshipProjected = 0
 
   for (const event of events) {
-    // Sequential processing preserves webhook order. Replay is safe at both
-    // the inbox source key and canonical interaction source key.
-    outcomes.push(await processExternalActivityEvent({
+    // Sequential processing preserves webhook order. Replay is safe at the
+    // inbox source key, canonical interaction source key, and relationship
+    // reduction (which is rebuilt from completed durable receipts).
+    const outcome = await processExternalActivityEvent({
       event,
       configuration: {
         ...DEFAULT_INTEGRATION_INBOX_CONFIGURATION,
@@ -99,12 +107,22 @@ export async function processMetaWhatsAppWebhook(input: {
       repositories,
       durability,
       channels: channels(input.config),
-    }))
+    })
+    outcomes.push(outcome)
+
+    if (outcome.outcome === 'completed' && outcome.resolvedPersonId) {
+      await projectWhatsAppRelationship({
+        event,
+        personId: outcome.resolvedPersonId,
+      })
+      relationshipProjected += 1
+    }
   }
 
   return {
     eventCount: events.length,
     outcomes,
+    relationshipProjected,
     retryableFailure: outcomes.some(
       (outcome) => outcome.outcome === 'failed_retryable',
     ),
