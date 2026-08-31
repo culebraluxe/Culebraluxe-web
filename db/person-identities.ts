@@ -39,11 +39,6 @@ export async function personExists(
 
 /**
  * Return ALL active canonical owners for one semantic identity.
- *
- * This is the authoritative ownership lookup used by mastering. It never uses
- * LIMIT 1, because a normalized identity that maps to multiple Persons is an
- * ambiguity that must be surfaced rather than silently resolved by row order.
- *
  * Email comparison is trim/lower. Phone comparison is digits-only; country
  * codes are never guessed or stripped.
  */
@@ -89,24 +84,20 @@ export async function findIdentityMatches(
 }
 
 /**
- * Backward-compatible singular lookup.
- *
- * A singular match exists only when the semantic identity has exactly one
- * active owner. Zero or multiple owners intentionally return null so callers
- * cannot accidentally turn an ambiguity into an arbitrary Person selection.
+ * Compatibility wrapper for callers that require exactly one owner. Multiple
+ * semantic owners are a data conflict, never equivalent to "no match".
  */
 export async function findIdentityMatch(
   hint: NormalizedIdentityHint,
   execute: QueryExecutor = sql,
 ): Promise<IdentityMatch | null> {
   const matches = await findIdentityMatches(hint, execute)
-  return matches.length === 1 ? matches[0] : null
+  if (matches.length > 1) {
+    throw new Error(`ambiguous canonical identity ownership: ${hint.kind}:${hint.normalizedValue}`)
+  }
+  return matches[0] ?? null
 }
 
-/**
- * Return ALL ownership rows, including archived owners, for collision/stewardship
- * checks. This deliberately preserves multiplicity rather than LIMIT 1.
- */
 export async function findIdentityOwnerships(
   hint: NormalizedIdentityHint,
   execute: QueryExecutor = sql,
@@ -155,7 +146,10 @@ export async function findIdentityOwnership(
   execute: QueryExecutor = sql,
 ): Promise<IdentityOwnership | null> {
   const ownerships = await findIdentityOwnerships(hint, execute)
-  return ownerships.length === 1 ? ownerships[0] : null
+  if (ownerships.length > 1) {
+    throw new Error(`ambiguous canonical identity ownership: ${hint.kind}:${hint.normalizedValue}`)
+  }
+  return ownerships[0] ?? null
 }
 
 export async function createPersonWithIdentities(
