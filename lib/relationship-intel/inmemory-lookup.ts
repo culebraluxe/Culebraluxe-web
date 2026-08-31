@@ -1,16 +1,13 @@
 // ---------------------------------------------------------------------------
 // REL-INTEL — in-memory reconciliation lookup + bounded concurrency helper.
 //
-// Equivalent to createDbPersonLookup but preloads the canonical identity seam
-// (person_identity) and prior explicit source links once into memory, so
-// reconciliation passes avoid thousands of per-row round-trips. Reads are still
-// read-only over the canonical tables; it never writes them. Used by DEV load
-// tooling and the OPPS "rerun reconciliation" stewardship path.
+// Canonical identity ownership comes from person_identity. Durable source
+// ownership comes from integration_source_person_link; relationship evidence is
+// evidence/provenance, not the authoritative ownership table.
 // ---------------------------------------------------------------------------
 import type { QueryExecutor } from '../../db/query-executor'
 import type { PersonLookup } from './reconcile'
 
-/** Run async work with a concurrency limit (bounded parallel round-trips). */
 export async function mapLimit<T, R>(
   items: T[],
   limit: number,
@@ -30,22 +27,20 @@ export async function mapLimit<T, R>(
   return results
 }
 
-/**
- * Deterministic digits-only phone key for comparison. Strips `+`, spaces and
- * punctuation so `+8609895020` and `8609895020` compare equal. It does NOT strip
- * a leading country code: `+18609895020` -> `18609895020` (11 digits) never
- * matches `8609895020` (10 digits). We never guess country codes.
- */
 export function phoneDigitsKey(value: string): string {
   return value.replace(/[^0-9]/g, '')
 }
 
-/** Preload canonical person_identity (email/phone) + prior explicit source links. */
+export function emailKey(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+/** Preload canonical identity ownership + durable source ownership once. */
 export async function createInMemoryPersonLookup(
   execute: QueryExecutor,
 ): Promise<{
   lookup: PersonLookup
-  emailToPerson: Map<string, string>
+  emailToPerson: Map<string, string[]>
   phoneToPerson: Map<string, string[]>
 }> {
   const identityRows = (await execute`
@@ -55,15 +50,14 @@ export async function createInMemoryPersonLookup(
     where p.archived_at is null
   `) as { identity_type: string; identity_value: string; person_id: string }[]
 
-  // Email is unique by exact value (person_identity_unique), so one owner each.
-  // Phone is keyed by digits-only; the SAME digits can legitimately be stored
-  // with and without `+` on different persons, so we keep ALL owners and never
-  // silently drop a multi-owner conflict (ambiguous is surfaced by the caller).
-  const emailToPerson = new Map<string, string>()
+  const emailToPerson = new Map<string, string[]>()
   const phoneToPerson = new Map<string, string[]>()
   for (const r of identityRows) {
     if (r.identity_type === 'email') {
-      if (!emailToPerson.has(r.identity_value)) emailToPerson.set(r.identity_value, r.person_id)
+      const key = emailKey(r.identity_value)
+      const owners = emailToPerson.get(key) ?? []
+      if (!owners.includes(r.person_id)) owners.push(r.person_id)
+      emailToPerson.set(key, owners)
     } else if (r.identity_type === 'phone') {
       const key = phoneDigitsKey(r.identity_value)
       const owners = phoneToPerson.get(key) ?? []
@@ -74,8 +68,7 @@ export async function createInMemoryPersonLookup(
 
   const links = (await execute`
     select source, source_account, source_identity_key, canonical_person_id
-    from integration_relationship_evidence
-    where canonical_person_id is not null
+    from integration_source_person_link
   `) as {
     source: string
     source_account: string
@@ -93,7 +86,7 @@ export async function createInMemoryPersonLookup(
       return pid ? { personId: pid } : null
     },
     findPeopleByEmail: async (normalizedEmail) =>
-      emailToPerson.has(normalizedEmail) ? [{ personId: emailToPerson.get(normalizedEmail)! }] : [],
+      (emailToPerson.get(emailKey(normalizedEmail)) ?? []).map((personId) => ({ personId })),
     findPeopleByPhone: async (normalizedPhone) =>
       (phoneToPerson.get(phoneDigitsKey(normalizedPhone)) ?? []).map((personId) => ({ personId })),
   }
