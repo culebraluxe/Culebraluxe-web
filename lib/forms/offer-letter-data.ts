@@ -90,6 +90,12 @@ const TEMPLATE_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, s
     commission: '4%',
     listingType: 'Exclusive Right to Sell',
   },
+  'PR-PNS': {
+    // Match the proven Listing Agreement broker mapping. CulebraLuxe is the
+    // Seller's Broker on the standard P&S and Lisa occupies that execution
+    // role locally before the external BoldSign envelope is constructed.
+    sellerBrokerName: 'Lisa Penfield',
+  },
 }
 
 /** Fill empty date fields so the native date input is a real value, not a grey placeholder. */
@@ -145,7 +151,9 @@ export type FormValidationIssue = {
 
 /**
  * Validate required fields against the template. Missing/blank required values
- * fail issuance — never produce a malformed canonical artifact.
+ * are reported to callers so the UI can warn and issuance/send boundaries can
+ * decide whether a complete legal artifact is required. Draft persistence must
+ * never use these issues as a save gate.
  */
 export function validateFormValues(
   template: TemplateDefinition,
