@@ -2,8 +2,9 @@
 // REL-INTEL — in-memory reconciliation lookup + bounded concurrency helper.
 //
 // Canonical identity ownership comes from person_identity. Durable source
-// ownership comes from integration_source_person_link; relationship evidence is
-// evidence/provenance, not the authoritative ownership table.
+// ownership comes from integration_source_person_link once migration 097 is
+// present. Before that migration is applied, the read path falls back to legacy
+// evidence links so deployment ordering cannot break reconciliation reads.
 // ---------------------------------------------------------------------------
 import type { QueryExecutor } from '../../db/query-executor'
 import type { PersonLookup } from './reconcile'
@@ -66,15 +67,27 @@ export async function createInMemoryPersonLookup(
     }
   }
 
-  const links = (await execute`
-    select source, source_account, source_identity_key, canonical_person_id
-    from integration_source_person_link
-  `) as {
+  const linkTable = (await execute`
+    select to_regclass('public.integration_source_person_link')::text as name
+  `) as { name: string | null }[]
+  const hasDedicatedLinks = Boolean(linkTable[0]?.name)
+
+  const links = (hasDedicatedLinks
+    ? await execute`
+        select source, source_account, source_identity_key, canonical_person_id
+        from integration_source_person_link
+      `
+    : await execute`
+        select source, source_account, source_identity_key, canonical_person_id
+        from integration_relationship_evidence
+        where canonical_person_id is not null
+      `) as {
     source: string
     source_account: string
     source_identity_key: string
     canonical_person_id: string
   }[]
+
   const linkMap = new Map<string, string>()
   for (const l of links) {
     linkMap.set(`${l.source}\u0000${l.source_account}\u0000${l.source_identity_key}`, l.canonical_person_id)
