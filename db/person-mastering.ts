@@ -311,7 +311,7 @@ function evidenceDecisionFor(
   reason: string,
 ): {
   reviewState: 'ambiguous' | 'deferred' | 'exact_linked'
-  matchMethod: string
+  matchMethod: 'exact_email' | 'source_link' | 'unmatched'
   matchConfidence: 'ambiguous' | 'none' | 'exact'
   canonicalPersonId: string | null
   reason: string
