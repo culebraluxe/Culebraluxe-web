@@ -41,7 +41,8 @@ export async function createInMemoryPersonLookup(
   execute: QueryExecutor,
 ): Promise<{
   lookup: PersonLookup
-  emailToPerson: Map<string, string[]>
+  /** Backward-compatible first-owner maps for diagnostics/tests only. */
+  emailToPerson: Map<string, string>
   phoneToPerson: Map<string, string[]>
 }> {
   const identityRows = (await execute`
@@ -51,20 +52,24 @@ export async function createInMemoryPersonLookup(
     where p.archived_at is null
   `) as { identity_type: string; identity_value: string; person_id: string }[]
 
-  const emailToPerson = new Map<string, string[]>()
+  const emailOwners = new Map<string, string[]>()
   const phoneToPerson = new Map<string, string[]>()
   for (const r of identityRows) {
     if (r.identity_type === 'email') {
       const key = emailKey(r.identity_value)
-      const owners = emailToPerson.get(key) ?? []
+      const owners = emailOwners.get(key) ?? []
       if (!owners.includes(r.person_id)) owners.push(r.person_id)
-      emailToPerson.set(key, owners)
+      emailOwners.set(key, owners)
     } else if (r.identity_type === 'phone') {
       const key = phoneDigitsKey(r.identity_value)
       const owners = phoneToPerson.get(key) ?? []
       if (!owners.includes(r.person_id)) owners.push(r.person_id)
       phoneToPerson.set(key, owners)
     }
+  }
+  const emailToPerson = new Map<string, string>()
+  for (const [key, owners] of emailOwners) {
+    if (owners[0]) emailToPerson.set(key, owners[0])
   }
 
   const linkTable = (await execute`
@@ -99,7 +104,7 @@ export async function createInMemoryPersonLookup(
       return pid ? { personId: pid } : null
     },
     findPeopleByEmail: async (normalizedEmail) =>
-      (emailToPerson.get(emailKey(normalizedEmail)) ?? []).map((personId) => ({ personId })),
+      (emailOwners.get(emailKey(normalizedEmail)) ?? []).map((personId) => ({ personId })),
     findPeopleByPhone: async (normalizedPhone) =>
       (phoneToPerson.get(phoneDigitsKey(normalizedPhone)) ?? []).map((personId) => ({ personId })),
   }
