@@ -1,11 +1,10 @@
 // ---------------------------------------------------------------------------
 // REL-INTEL — Apple Contacts -> neutral evidence projection.
 //
-// The existing Apple staging path (integration_staged_contact_profile -> l_person
-// relational-load projection) already holds 2,573 staged contacts. This module
-// projects those relational load rows into the SAME neutral evidence seam so
-// Apple and Gmail evidence share one read model. It NEVER converts Apple
-// contacts into canonical Clients; classification is left to reconciliation.
+// l_person is the CURRENT normalized Apple projection. This module copies that
+// current source state into the neutral relationship-evidence store for
+// provenance/context only. Identity mastering is performed separately from
+// current l_person; evidence is not a promotion queue.
 // ---------------------------------------------------------------------------
 
 import type { QueryExecutor } from '../../db/query-executor'
@@ -19,6 +18,7 @@ import {
 
 type AppleLoadRow = {
   id: string
+  integration_intake_batch_id: string | null
   source_account: string
   source_contact_id: string
   display_name: string | null
@@ -32,16 +32,14 @@ type AppleLoadRow = {
 }
 
 /**
- * Read the existing l_person relational-load rows and project them into the
- * neutral evidence seam (server-side, replay-safe upsert per contact). A
- * contact with no person name but an organization is an organization/service
- * contact (isOrganizationOrService=true) so it is never promoted to Person.
+ * Project CURRENT l_person rows into relationship evidence. The l_person row's
+ * intake batch is preserved so reprojection never clears source provenance.
  */
 export async function loadAppleEvidence(execute: QueryExecutor = sql): Promise<number> {
   const rows = (await execute`
     select
-      lp.id, lp.source_account, lp.source_contact_id, lp.display_name, lp.organization,
-      lp.given_name, lp.family_name,
+      lp.id, lp.integration_intake_batch_id, lp.source_account, lp.source_contact_id,
+      lp.display_name, lp.organization, lp.given_name, lp.family_name,
       li.identity_type, li.identity_value, li.normalized_value, li.source_label
     from l_person lp
     left join l_person_identity li on li.l_person_id = lp.id
@@ -49,33 +47,35 @@ export async function loadAppleEvidence(execute: QueryExecutor = sql): Promise<n
     order by lp.id, li.ordinal asc, li.id asc
   `) as AppleLoadRow[]
 
-  const byPerson = new Map<string, ApplePersonInput>()
+  const byPerson = new Map<string, { person: ApplePersonInput; batchId: string | null }>()
   for (const r of rows) {
-    let person = byPerson.get(r.id)
-    if (!person) {
-      const hasPersonName =
-        Boolean(r.given_name?.trim()) || Boolean(r.family_name?.trim())
+    let entry = byPerson.get(r.id)
+    if (!entry) {
+      const hasPersonName = Boolean(r.given_name?.trim()) || Boolean(r.family_name?.trim())
       const orgOnly = !hasPersonName && Boolean(r.organization?.trim())
-      person = {
-        id: r.id,
-        sourceAccount: r.source_account,
-        sourceContactId: r.source_contact_id,
-        displayName: r.display_name,
-        organization: r.organization,
-        emails: [],
-        phones: [],
-        isOrganizationOrService: orgOnly,
+      entry = {
+        batchId: r.integration_intake_batch_id,
+        person: {
+          id: r.id,
+          sourceAccount: r.source_account,
+          sourceContactId: r.source_contact_id,
+          displayName: r.display_name,
+          organization: r.organization,
+          emails: [],
+          phones: [],
+          isOrganizationOrService: orgOnly,
+        },
       }
-      byPerson.set(r.id, person)
+      byPerson.set(r.id, entry)
     }
     if (r.identity_type === 'email') {
-      person.emails.push({
+      entry.person.emails.push({
         value: r.identity_value,
         normalized: r.normalized_value ?? r.identity_value,
         label: r.source_label,
       })
     } else if (r.identity_type === 'phone') {
-      person.phones.push({
+      entry.person.phones.push({
         value: r.identity_value,
         normalized: r.normalized_value ?? r.identity_value,
         label: r.source_label,
@@ -84,9 +84,9 @@ export async function loadAppleEvidence(execute: QueryExecutor = sql): Promise<n
   }
 
   let count = 0
-  for (const person of byPerson.values()) {
+  for (const { person, batchId } of byPerson.values()) {
     const { evidence, fingerprint: fp } = projectApplePersonToEvidence(person)
-    await upsertRelationshipEvidence(evidence, fp, undefined, execute)
+    await upsertRelationshipEvidence(evidence, fp, batchId ?? undefined, execute)
     count += 1
   }
   return count
