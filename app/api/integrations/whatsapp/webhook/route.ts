@@ -1,5 +1,6 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import { after, NextResponse, type NextRequest } from 'next/server'
 
+import { refreshClientReadModels } from '@/db/client-read-models'
 import {
   loadMetaWhatsAppConfiguration,
   loadWhatsAppVerifyToken,
@@ -88,8 +89,33 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       )
     }
+
+    // Meta should receive its acknowledgement promptly. The durable inbox,
+    // canonical interaction and relationship evidence are committed before the
+    // response; materialized Client read models refresh after the response.
+    if (result.relationshipProjected > 0) {
+      after(async () => {
+        try {
+          await refreshClientReadModels()
+          console.info('[whatsapp-webhook] Client read models refreshed', {
+            relationshipProjected: result.relationshipProjected,
+          })
+        } catch (error) {
+          // Do not ask Meta to replay a webhook whose durable business writes
+          // already succeeded. A later event/sync can safely refresh again.
+          console.error('[whatsapp-webhook] Client read model refresh failed', {
+            error: errorMessage(error),
+          })
+        }
+      })
+    }
+
     return NextResponse.json(
-      { ok: true, accepted: result.eventCount },
+      {
+        ok: true,
+        accepted: result.eventCount,
+        relationshipProjected: result.relationshipProjected,
+      },
       { status: 200 },
     )
   } catch (error) {
