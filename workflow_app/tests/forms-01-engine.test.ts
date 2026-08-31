@@ -17,6 +17,7 @@ import {
   renderFormPdf,
   renderFormPdfArtifact,
   buildOfferLetterPdf,
+  signatureBlockDisplayName,
 } from '../../lib/forms/pdf'
 import { resolveDocumentBody } from '../../lib/forms/format'
 import { prefillFieldValues, emptySectionValues } from '../../lib/forms/offer-letter-data'
@@ -322,6 +323,24 @@ test('FORMS-BR: draft identity ignores record insertion order', () => {
   )
 })
 
+
+
+test('LISTING-01: first generic Seller signature row uses the full owner name', () => {
+  assert.equal(
+    signatureBlockDisplayName('owner', 'Jessica Iverson', 0),
+    'Jessica Iverson',
+  )
+  assert.equal(
+    signatureBlockDisplayName('owner', 'Jessica Iverson', 1),
+    'owner',
+    'only the first Seller row adopts the primary owner field',
+  )
+  assert.equal(
+    signatureBlockDisplayName('Named Co-owner', 'Jessica Iverson', 0),
+    'Named Co-owner',
+    'an explicit participant name is never overwritten',
+  )
+})
 
 test('LISTING-01: current fields replace unmarked legacy body text', () => {
   const template = getTemplate(LISTING_AGREEMENT_TEMPLATE_ID, 3)!
