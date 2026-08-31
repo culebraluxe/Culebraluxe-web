@@ -18,6 +18,7 @@ import {
   renderFormPdfArtifact,
   buildOfferLetterPdf,
 } from '../../lib/forms/pdf'
+import { resolveDocumentBody } from '../../lib/forms/format'
 import { prefillFieldValues, emptySectionValues } from '../../lib/forms/offer-letter-data'
 import { formContentFingerprint } from '../../lib/forms/artifact-identity'
 import {
@@ -319,6 +320,60 @@ test('FORMS-BR: draft identity ignores record insertion order', () => {
     formContentFingerprint({ b: '2', a: '1' }, { z: 'last', m: 'middle' }),
     formContentFingerprint({ a: '1', b: '2' }, { m: 'middle', z: 'last' }),
   )
+})
+
+
+test('LISTING-01: current fields replace unmarked legacy body text', () => {
+  const template = getTemplate(LISTING_AGREEMENT_TEMPLATE_ID, 3)!
+  const values: Record<string, string> = {
+    sellerName: 'Jessica Iverson',
+    sellerCivilStatus: 'Single',
+    sellerResidenceAddress: '26 Calle Pedro Marquez, PO Box 786',
+    brokerName: 'Lisa Penfield',
+    property: 'Sea to Soul',
+    propertyLocation: 'Playa Sardinas II',
+    catastroNumber: '476-054-192-33-000',
+    listPrice: '650000',
+    commission: '4%',
+    startDate: '2026-08-31',
+    endDate: '2027-07-27',
+    listingType: 'Exclusive Right to Sell',
+  }
+  const body = resolveDocumentBody(template, values, {
+    body: 'Parties\nStale generated copy for Sunset Point at Punta Aloe.',
+  })
+  assert.match(body, /26 Calle Pedro Marquez, PO Box 786/)
+  assert.match(body, /Sea to Soul/)
+  assert.match(body, /Playa Sardinas II/)
+  assert.match(body, /476-054-192-33-000/)
+  assert.match(body, /August 31, 2026/)
+  assert.match(body, /July 27, 2027/)
+  assert.match(body, /total commission of 5%/)
+  assert.match(body, /Broker acts alone, the commission is 4%/)
+  assert.doesNotMatch(body, /Sunset Point|Punta Aloe/)
+})
+
+test('FORMS-01: explicitly edited document prose remains authoritative', () => {
+  const template = getTemplate(LISTING_AGREEMENT_TEMPLATE_ID, 3)!
+  assert.equal(
+    resolveDocumentBody(template, {}, {
+      body: 'Operator-approved custom document text.',
+      bodyEdited: 'true',
+    }),
+    'Operator-approved custom document text.',
+  )
+})
+
+test('LISTING-01: new forms default the broker-alone commission to 4%', () => {
+  const template = getTemplate(LISTING_AGREEMENT_TEMPLATE_ID, 3)!
+  const values = prefillFieldValues(template, {
+    clientName: null,
+    propertyLabel: null,
+    offerAmount: null,
+    financingType: null,
+    closingDate: null,
+  })
+  assert.equal(values.commission, '4%')
 })
 
 test('FORMS-01: remaining production templates render PDFs', async () => {
