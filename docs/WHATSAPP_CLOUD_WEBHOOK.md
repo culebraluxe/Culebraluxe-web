@@ -42,24 +42,24 @@ Never commit any of these values.
 
 The repository includes a Mac-compatible script that creates the Meta-shaped
 JSON, signs its exact raw bytes, and posts it to the production webhook. It
-defaults to the fictional sender `+1 617-555-0169`:
+automatically reads the gitignored `.env.local` file and defaults to sender
+`+1 617-251-6169`:
 
 ```sh
 pnpm whatsapp:webhook:test
 ```
 
-The script prompts for any missing configuration. To load a gitignored local
-copy of the Vercel Production environment instead:
+The script prompts for any missing configuration. A different gitignored env
+file can be selected explicitly:
 
 ```sh
-pnpm exec vercel env pull .env.production.local --environment=production --yes
 pnpm whatsapp:webhook:test --env-file .env.production.local
 ```
 
-To test canonical identity matching with a real sender number:
+To test with the fictional `617-555-0169` sender instead:
 
 ```sh
-pnpm whatsapp:webhook:test --env-file .env.production.local --from 6172516169
+pnpm whatsapp:webhook:test --from 6175550169
 ```
 
 The fixture is a real write to the selected webhook environment. A fictional
