@@ -178,7 +178,7 @@ export async function claimIntegrationInbox(
   const rows = await execute`
     update integration_inbox
     set status = 'processing',
-        processing_started_at = now(),
+        processing_started_at = date_trunc('milliseconds', now()),
         updated_at = now()
     where id = ${receiptId}
       and (
