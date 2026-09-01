@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-DEFAULT_FROM_PHONE="16175550169"
+DEFAULT_FROM_PHONE="16172516169"
 DEFAULT_WEBHOOK_URL="https://culebraluxe.com/api/integrations/whatsapp/webhook"
 
 FROM_PHONE="$DEFAULT_FROM_PHONE"
@@ -18,9 +18,9 @@ Usage:
   pnpm whatsapp:webhook:test [options]
 
 Options:
-  --from PHONE       Sender phone. Defaults to fictional 617-555-0169.
+  --from PHONE       Sender phone. Defaults to +1 617-251-6169.
                      A 10-digit US number is automatically prefixed with 1.
-  --env-file FILE    Load credentials from a gitignored env file.
+  --env-file FILE    Override the env file. Defaults to .env.local when present.
   --url URL          Override the production webhook URL.
   --handshake        Test only the Meta verification handshake.
   -h, --help         Show this help.
@@ -73,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "$ENV_FILE" && -f ".env.local" ]]; then
+  ENV_FILE=".env.local"
+fi
 
 if [[ -n "$ENV_FILE" ]]; then
   [[ -f "$ENV_FILE" ]] || { echo "Env file not found: $ENV_FILE" >&2; exit 2; }
