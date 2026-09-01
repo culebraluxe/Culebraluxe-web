@@ -11,6 +11,7 @@ import type {
 } from './types'
 
 const MESSAGE_TYPE = /^[a-z0-9_]{1,64}$/
+const MAX_SUMMARY_CODE_POINTS = 4000
 
 function metaPhone(value: string | undefined, field: string): string {
   const digits = value?.replace(/[^\d]/g, '')
@@ -32,6 +33,23 @@ function occurredAt(value: string | undefined): string {
 function messageType(value: string | undefined): string {
   const normalized = value?.trim().toLowerCase() || 'unknown'
   return MESSAGE_TYPE.test(normalized) ? normalized : 'unknown'
+}
+
+function messageSummary(message: MetaWhatsAppMessage): string | undefined {
+  const raw =
+    message.text?.body ??
+    message.image?.caption ??
+    message.video?.caption ??
+    message.document?.caption
+  if (typeof raw !== 'string') return undefined
+
+  const normalized = raw
+    .normalize('NFKC')
+    .replace(/\r\n?/g, '\n')
+    .trim()
+  if (!normalized) return undefined
+
+  return [...normalized].slice(0, MAX_SUMMARY_CODE_POINTS).join('')
 }
 
 function attachments(message: MetaWhatsAppMessage): ExternalAttachment[] {
@@ -81,6 +99,7 @@ function normalizedEvent(input: {
       : metaPhone(message.to, 'WhatsApp recipient')
   const name = displayName(value, externalPhone)
   const type = messageType(message.type)
+  const summary = messageSummary(message)
   const external = {
     kind: 'phone' as const,
     value: externalPhone,
@@ -108,8 +127,9 @@ function normalizedEvent(input: {
     thread: message.context?.id
       ? { id: message.context.id, inReplyTo: message.context.id }
       : undefined,
-    // Metadata-only retention: never copy text/captions or the raw webhook.
-    content: undefined,
+    // Preserve the human-readable CRM context (message text or media caption)
+    // while continuing to exclude the raw Meta webhook payload and credentials.
+    content: summary ? { summary } : undefined,
     attachments: media.length ? media : undefined,
     correlationId: undefined,
     context: undefined,
