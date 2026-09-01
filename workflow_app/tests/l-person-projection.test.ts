@@ -140,7 +140,7 @@ test('SUPPORT-2 test 3: multiple labeled phones are preserved, never collapsed',
   assert.equal(phones.length, 2, 'both labeled phones preserved')
   assert.deepEqual(
     phones.map((p) => p.identityValue).sort(),
-    ['+17875550100', '+7875550101'],
+    ['+17875550100', '+17875550101'],
   )
 })
 
