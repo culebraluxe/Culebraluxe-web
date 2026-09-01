@@ -106,10 +106,11 @@ function nameParts(profile: Record<string, unknown>): string[] {
 }
 
 function normalizePhone(value: string): string {
-  // E.164-style canonical key for the load projection: always `+<digits>` so
-  // a number with and without a leading '+' dedup to the same identity.
-  const trimmed = value.trim()
-  const digits = trimmed.replace(/\D/g, '')
+  // Canonical E.164 storage for reliable US/Puerto Rico numbers. Apple often
+  // exports NANP phones without country code; ten digits therefore acquire +1.
+  // Existing 11-digit NANP and non-NANP international digits retain their code.
+  const digits = value.trim().replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
   return `+${digits}`
 }
 
