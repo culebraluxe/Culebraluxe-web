@@ -38,12 +38,10 @@ async function loadGroups(execute: QueryExecutor): Promise<Group[]> {
       where pi.identity_type = 'phone'
     ),
     keyed as (
-      select
-        *,
+      select *,
         case
           when length(digits) = 10 then digits
-          when length(digits) = 11 and left(digits, 1) = '1'
-            then substring(digits from 2)
+          when length(digits) = 11 and left(digits, 1) = '1' then substring(digits from 2)
           else null
         end as nanp_key
       from phone
@@ -103,152 +101,186 @@ function report(groups: Group[]) {
   }
 }
 
+function chooseSurvivor(group: Group): string {
+  const perPerson = new Map<string, Owner[]>()
+  for (const owner of group.owners) {
+    const current = perPerson.get(owner.personId) ?? []
+    current.push(owner)
+    perPerson.set(owner.personId, current)
+  }
+
+  return [...perPerson.entries()]
+    .sort(([leftId, left], [rightId, right]) => {
+      const leftActive = left.some((owner) => !owner.archived) ? 1 : 0
+      const rightActive = right.some((owner) => !owner.archived) ? 1 : 0
+      if (leftActive !== rightActive) return rightActive - leftActive
+
+      const leftPrimary = left.some((owner) => owner.isPrimary) ? 1 : 0
+      const rightPrimary = right.some((owner) => owner.isPrimary) ? 1 : 0
+      if (leftPrimary !== rightPrimary) return rightPrimary - leftPrimary
+
+      const leftCanonical = left.some((owner) => owner.identityValue === owner.canonicalE164) ? 1 : 0
+      const rightCanonical = right.some((owner) => owner.identityValue === owner.canonicalE164) ? 1 : 0
+      if (leftCanonical !== rightCanonical) return rightCanonical - leftCanonical
+
+      return leftId.localeCompare(rightId)
+    })[0][0]
+}
+
 async function main() {
   const environment = flag('--env') ?? 'prod'
   const apply = process.argv.includes('--apply')
-  if (environment !== 'prod') {
-    throw new Error('Phone identity cleanup is PROD-only.')
-  }
-  if (!process.env.DATABASE_URL_PROD) {
-    throw new Error('DATABASE_URL_PROD is not configured in .env.local.')
-  }
-  if (
-    process.env.DATABASE_URL_DEV &&
-    process.env.DATABASE_URL_DEV === process.env.DATABASE_URL_PROD
-  ) {
+  if (environment !== 'prod') throw new Error('Phone identity cleanup is PROD-only.')
+  if (!process.env.DATABASE_URL_PROD) throw new Error('DATABASE_URL_PROD is not configured in .env.local.')
+  if (process.env.DATABASE_URL_DEV && process.env.DATABASE_URL_DEV === process.env.DATABASE_URL_PROD) {
     throw new Error('DATABASE_URL_PROD must not equal DATABASE_URL_DEV.')
   }
   if (apply && flag('--confirm') !== 'NORMALIZE_NANP_PHONES') {
-    throw new Error(
-      'Apply requires --confirm NORMALIZE_NANP_PHONES. Dry-run made no changes.',
-    )
+    throw new Error('Apply requires --confirm NORMALIZE_NANP_PHONES.')
   }
 
   process.env.APP_ENV = 'production'
 
-  // Import the database only after APP_ENV is set. db/client constructs its
-  // underlying Neon executor at module initialization, so a static import here
-  // could silently bind this PROD-only command to DATABASE_URL_DEV.
-  const [{ db, sql, dbTargetInfo }, { refreshClientReadModels }] =
-    await Promise.all([
-      import('../db/client'),
-      import('../db/client-read-models'),
-    ])
+  const [{ db, sql, dbTargetInfo }, { refreshClientReadModels }] = await Promise.all([
+    import('../db/client'),
+    import('../db/client-read-models'),
+  ])
   const databaseTarget = dbTargetInfo()
   if (databaseTarget.target !== 'prod') {
-    throw new Error(
-      `Refusing cleanup: resolved database target is "${databaseTarget.target}", not "prod".`,
-    )
+    throw new Error(`Refusing cleanup: resolved database target is "${databaseTarget.target}", not "prod".`)
   }
 
   const beforeGroups = await loadGroups(sql)
   const before = report(beforeGroups)
 
   if (!apply) {
-    console.log(JSON.stringify({
-      env: 'prod',
-      mode: 'dry-run',
-      databaseTarget,
-      ...before,
-    }, null, 2))
-    console.log(
-      '[identity-phone-cleanup] DRY RUN: no rows changed. Cross-Person conflicts are never auto-merged.',
-    )
+    console.log(JSON.stringify({ env: 'prod', mode: 'dry-run', databaseTarget, ...before }, null, 2))
     return
   }
 
-  const foreignKeys = await sql`
+  const identityForeignKeys = await sql`
     select conrelid::regclass::text as referencing_table
     from pg_constraint
-    where contype = 'f'
-      and confrelid = 'person_identity'::regclass
+    where contype = 'f' and confrelid = 'person_identity'::regclass
     order by conrelid::regclass::text
   `
-  if (foreignKeys.length > 0) {
-    throw new Error(
-      `person_identity has dependent foreign keys; cleanup aborted: ${foreignKeys
-        .map((row) => String(row.referencing_table))
-        .join(', ')}`,
-    )
+  if (identityForeignKeys.length > 0) {
+    throw new Error(`person_identity has dependent foreign keys; cleanup aborted: ${identityForeignKeys.map((row) => String(row.referencing_table)).join(', ')}`)
   }
 
-  const result = await db.transaction(
-    'identity-phone-cleanup',
-    async (tx) => {
+  const result = await db.transaction('identity-phone-cleanup', async (tx) => {
+    await tx`select pi.id from person_identity pi where pi.identity_type = 'phone' for update`
+
+    const groups = await loadGroups(tx)
+    const conflicts = groups.filter((group) => group.personCount > 1)
+    let mergedPersons = 0
+
+    await tx`create temporary table if not exists person_phone_merge_map (loser uuid primary key, winner uuid not null) on commit drop`
+    await tx`truncate person_phone_merge_map`
+
+    for (const group of conflicts) {
+      const winner = chooseSurvivor(group)
+      const losers = [...new Set(group.owners.map((owner) => owner.personId))].filter((personId) => personId !== winner)
+      const loserPhoneIds = group.owners.filter((owner) => owner.personId !== winner).map((owner) => owner.identityId)
+
+      if (loserPhoneIds.length > 0) {
+        await tx`delete from person_identity where id = any(${loserPhoneIds}::uuid[])`
+      }
+
+      for (const loser of losers) {
+        await tx`insert into person_phone_merge_map (loser, winner) values (${loser}, ${winner}) on conflict (loser) do update set winner = excluded.winner`
+
+        await tx`
+          update person_identity
+          set person_id = ${winner}, updated_at = now()
+          where person_id = ${loser}
+        `
+        mergedPersons += 1
+      }
+    }
+
+    if (mergedPersons > 0) {
       await tx`
-        select pi.id
-        from person_identity pi
-        where pi.identity_type = 'phone'
-        for update
+        do $merge$
+        declare
+          fk record;
+          m record;
+        begin
+          for fk in
+            select
+              c.conrelid::regclass::text as table_name,
+              a.attname as column_name
+            from pg_constraint c
+            join lateral unnest(c.conkey) with ordinality as k(attnum, ord) on true
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+            where c.contype = 'f'
+              and c.confrelid = 'person'::regclass
+              and c.conrelid <> 'person_identity'::regclass
+          loop
+            for m in select loser, winner from person_phone_merge_map loop
+              begin
+                execute format('update %s set %I = $1 where %I = $2', fk.table_name, fk.column_name, fk.column_name)
+                  using m.winner, m.loser;
+              exception when unique_violation then
+                null;
+              end;
+            end loop;
+          end loop;
+        end
+        $merge$
       `
 
-      const groups = await loadGroups(tx)
-      const safeGroups = groups.filter((group) => group.personCount === 1)
-      let normalized = 0
-      let collapsed = 0
+      await tx`
+        update person p
+        set archived_at = coalesce(p.archived_at, now()), updated_at = now()
+        from person_phone_merge_map m
+        where p.id = m.loser
+      `
+    }
 
-      for (const group of safeGroups) {
-        const canonical = `+1${group.nanpKey}`
-        const ordered = [...group.owners].sort((left, right) => {
-          const leftCanonical = left.identityValue === canonical ? 1 : 0
-          const rightCanonical = right.identityValue === canonical ? 1 : 0
-          if (leftCanonical !== rightCanonical) return rightCanonical - leftCanonical
-          if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1
-          return left.identityId.localeCompare(right.identityId)
-        })
-        const keeper = ordered[0]
-        const duplicateIds = ordered.slice(1).map((owner) => owner.identityId)
-        const preservePrimary = ordered.some((owner) => owner.isPrimary)
+    const postMergeGroups = await loadGroups(tx)
+    let normalized = 0
+    let collapsed = 0
 
-        if (duplicateIds.length > 0) {
-          const deleted = await tx`
-            delete from person_identity
-            where id = any(${duplicateIds}::uuid[])
-            returning id
-          `
-          collapsed += deleted.length
-        }
+    for (const group of postMergeGroups.filter((candidate) => candidate.personCount === 1)) {
+      const canonical = `+1${group.nanpKey}`
+      const ordered = [...group.owners].sort((left, right) => {
+        const leftCanonical = left.identityValue === canonical ? 1 : 0
+        const rightCanonical = right.identityValue === canonical ? 1 : 0
+        if (leftCanonical !== rightCanonical) return rightCanonical - leftCanonical
+        if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1
+        return left.identityId.localeCompare(right.identityId)
+      })
+      const keeper = ordered[0]
+      const duplicateIds = ordered.slice(1).map((owner) => owner.identityId)
+      const preservePrimary = ordered.some((owner) => owner.isPrimary)
 
-        if (
-          keeper.identityValue !== canonical ||
-          (preservePrimary && !keeper.isPrimary)
-        ) {
-          const updated = await tx`
-            update person_identity
-            set identity_value = ${canonical},
-                is_primary = ${preservePrimary},
-                updated_at = now()
-            where id = ${keeper.identityId}
-            returning id
-          `
-          normalized += updated.length
-        }
+      if (duplicateIds.length > 0) {
+        const deleted = await tx`delete from person_identity where id = any(${duplicateIds}::uuid[]) returning id`
+        collapsed += deleted.length
       }
 
-      const remaining = report(await loadGroups(tx))
-      if (
-        remaining.rowsToNormalize !== 0 ||
-        remaining.duplicateRowsToCollapse !== 0
-      ) {
-        throw new Error(
-          `post-cleanup invariant failed: normalize=${remaining.rowsToNormalize} duplicate=${remaining.duplicateRowsToCollapse}`,
-        )
+      if (keeper.identityValue !== canonical || (preservePrimary && !keeper.isPrimary)) {
+        const updated = await tx`
+          update person_identity
+          set identity_value = ${canonical}, is_primary = ${preservePrimary}, updated_at = now()
+          where id = ${keeper.identityId}
+          returning id
+        `
+        normalized += updated.length
       }
+    }
 
-      return {
-        normalized,
-        collapsed,
-        crossPersonConflictGroups: remaining.crossPersonConflictGroups,
-        crossPersonConflicts: remaining.crossPersonConflicts,
-      }
-    },
-  )
+    const remaining = report(await loadGroups(tx))
+    if (remaining.rowsToNormalize !== 0 || remaining.duplicateRowsToCollapse !== 0 || remaining.crossPersonConflictGroups !== 0) {
+      throw new Error(`post-cleanup invariant failed: normalize=${remaining.rowsToNormalize} duplicate=${remaining.duplicateRowsToCollapse} crossPerson=${remaining.crossPersonConflictGroups}`)
+    }
+
+    return { normalized, collapsed, mergedPersons, crossPersonConflictGroups: 0 }
+  })
 
   if (!result.ok) {
-    throw new Error(
-      `${result.error.kind}: ${result.error.detail ?? 'database transaction failed'} ` +
-        `(incident ${result.error.incidentId})`,
-    )
+    throw new Error(`${result.error.kind}: ${result.error.detail ?? 'database transaction failed'} (incident ${result.error.incidentId})`)
   }
 
   await refreshClientReadModels()
@@ -265,9 +297,7 @@ async function main() {
     result: result.data,
     readModelsRefreshed: true,
   }, null, 2))
-  console.log(
-    '[identity-phone-cleanup] SUCCESS: safe same-Person NANP identities canonicalized; cross-Person conflicts unchanged.',
-  )
+  console.log('[identity-phone-cleanup] SUCCESS: NANP identities canonicalized and cross-Person phone collisions resolved.')
 }
 
 main().catch((error: unknown) => {
