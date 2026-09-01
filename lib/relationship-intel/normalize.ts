@@ -27,7 +27,7 @@ export function normalizeEmail(input: string): NormalizeResult<string> {
 }
 
 /**
- * Normalize a phone number for matching (US/Puerto Rico, 10-digit reliable).
+ * Normalize a phone number for matching (US/Puerto Rico, canonical E.164).
  * Returns `ok:false` with a clear reason when normalization is not reliable so
  * the value is quarantined instead of producing a false match.
  */
@@ -36,11 +36,10 @@ export function normalizePhone(input: string): NormalizeResult<string> {
   const digits = input.replace(/\D+/g, '')
   if (!digits) return { ok: false, reason: 'empty', original }
   if (digits.length === 11 && digits.startsWith('1')) {
-    // 11 digits with leading country code "1" -> drop it (US/PR).
-    return { ok: true, value: digits.slice(1) }
+    return { ok: true, value: `+${digits}` }
   }
   if (digits.length === 10) {
-    return { ok: true, value: digits }
+    return { ok: true, value: `+1${digits}` }
   }
   return { ok: false, reason: 'ambiguous_international', original }
 }
