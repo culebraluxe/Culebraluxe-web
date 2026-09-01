@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Phone,
   StickyNote,
+  Video,
   type LucideIcon,
 } from "lucide-react"
 
@@ -34,15 +35,13 @@ import {
 // ---------------------------------------------------------------------------
 // CLIENTS — Contact History pane (navy right column of the Client working pane).
 //
-// A Cloze-style relationship-memory sidebar: a compact "Last interaction"
-// summary on top, a vertical-spine chronological relationship timeline (newest
-// first), and a persistent Call / Email / Message / More action dock. Rows are
-// server-side paginated over the canonical `interaction` table (~20/page, SQL
-// ORDER BY occurred_at DESC + LIMIT/OFFSET); the list fills the shared Client
-// Card row and scrolls INSIDE the navy pane (overflow-auto) so a long history
-// never grows taller than the Client Card. The page resets to 1 when another
-// client is selected. Aggregate relationship evidence powers the top summary;
-// canonical interaction rows power the timeline. No raw L/ODS tables are read.
+// A Cloze-style relationship-memory sidebar: a compact aggregate header, six
+// dense latest-activity source rows, and a persistent Call / Email / Message /
+// More action dock. "View all" opens the server-paginated canonical interaction
+// archive (~20/page, newest first). The panel scrolls internally and never grows
+// taller than the Client Card. Aggregate relationship evidence powers the header
+// and source rows; canonical interactions power latest context and the archive.
+// No raw L/ODS tables are read.
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 20
@@ -109,7 +108,7 @@ function relativeTime(iso: string | null): string | null {
   return formatLastObserved(iso)
 }
 
-function LastInteractionSummary({
+function CompactRelationshipHeader({
   sourceChannels,
   relationshipActivity,
   channels,
@@ -118,9 +117,6 @@ function LastInteractionSummary({
   relationshipActivity?: RelationshipActivity
   channels: RelationshipChannelProjection[]
 }) {
-  // The top summary is driven by the newest SOURCE-grain relationship row (one
-  // per communication source), never by fetching per-message rows. Aggregate
-  // relationship evidence is only a fallback.
   const newest = sourceChannels[0]
   const lastAt =
     newest?.lastContactAt ??
@@ -132,8 +128,7 @@ function LastInteractionSummary({
   let channel: string | null = newest?.channel ?? null
   let genericDirection: "inbound" | "outbound" | null = null
   if (newest) {
-    const d = newest.lastDirection
-    genericDirection = d === "outbound" ? "outbound" : d === "inbound" ? "inbound" : null
+    genericDirection = newest.lastDirection
   }
   if (!channel) {
     const proj = channels[0]
@@ -145,19 +140,29 @@ function LastInteractionSummary({
   }
   const label = channel ? channelMeta(channel).label : null
   const dirLabel = headerDirectionLabel(genericDirection)
+  const observed = relationshipActivity?.observedCommunicationCount ?? 0
+  const since = relationshipActivity?.firstObservedAt
 
-  if (!rel) return null
   return (
-    <div className="border-b border-white/10 px-4 py-3">
-      <p className="font-serif text-base font-light text-white">
-        {rel ? `Last interaction ${rel}` : "No interaction recorded yet"}
-      </p>
-      {label && lastAt ? (
-        <p className="mt-1 text-[11px] font-light text-white/55">
-          Most recent · {label}
-          {dirLabel ? ` · ${dirLabel}` : ""}
+    <div className="border-b border-white/10 px-4 py-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <p className="font-serif text-sm font-light text-white">
+          {rel ? `Last contact ${rel}` : "No contact recorded yet"}
         </p>
-      ) : null}
+        {label && lastAt ? (
+          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/55">
+            {label}{dirLabel ? ` · ${dirLabel}` : ""}
+          </p>
+        ) : null}
+      </div>
+      <p className="mt-0.5 truncate text-[10px] font-light text-white/45">
+        {observed.toLocaleString()} observed
+        {relationshipActivity?.twoWay ? " · two-way" : ""}
+        {sourceChannels.length > 0
+          ? ` · ${sourceChannels.length} active source${sourceChannels.length === 1 ? "" : "s"}`
+          : ""}
+        {since ? ` · since ${formatAggDate(since)}` : ""}
+      </p>
     </div>
   )
 }
@@ -221,59 +226,6 @@ function QuickActionDock({
   )
 }
 
-/** Cloze-style relationship state block: first/last/total/two-way + per-channel activity. */
-function RelationshipSummary({
-  activity,
-}: {
-  activity?: RelationshipActivity
-}) {
-  if (!activity || !activity.hasEvidence) return null
-  const channels = activity.channels ?? []
-  return (
-    <div className="border-b border-white/10 px-4 py-3">
-      <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/45">
-        Relationship
-      </p>
-      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-        <span className="text-white/45">First observed</span>
-        <span className="text-right text-white/85">
-          {activity.firstObservedAt ? formatAggDate(activity.firstObservedAt) : "—"}
-        </span>
-        <span className="text-white/45">Last inbound</span>
-        <span className="text-right text-white/85">
-          {activity.lastInboundAt ? formatAggDate(activity.lastInboundAt) : "—"}
-        </span>
-        <span className="text-white/45">Last outbound</span>
-        <span className="text-right text-white/85">
-          {activity.lastOutboundAt ? formatAggDate(activity.lastOutboundAt) : "—"}
-        </span>
-        <span className="text-white/45">Observed</span>
-        <span className="text-right text-white/85">
-          {activity.observedCommunicationCount.toLocaleString()}
-          {activity.twoWay ? " · two-way" : ""}
-        </span>
-      </div>
-      {channels.length > 0 ? (
-        <div className="mt-2 border-t border-white/10 pt-2">
-          <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-white/45">
-            Channel activity
-          </p>
-          <div className="space-y-0.5">
-            {channels.map((c) => (
-              <div key={c.source} className="flex items-center justify-between text-[11px]">
-                <span className="text-white/70">{channelMeta(c.channel).label}</span>
-                <span className="text-white/85">
-                  {c.lastObservedAt ? formatAggDate(c.lastObservedAt) : "—"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 export function ContactHistory({
   clientId,
   clientName,
@@ -291,14 +243,11 @@ export function ContactHistory({
   const [viewAll, setViewAll] = useState(false)
   const [data, setData] = useState<ContactHistoryResult | null>(null)
   const [sourceChannels, setSourceChannels] = useState<ClientRelationshipChannel[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loadingHistory, setLoadingHistory] = useState(true)
+  const [loadingSources, setLoadingSources] = useState(true)
 
-  // The PRIMARY panel grain is source-grain: one bounded row per communication
-  // source from mv_client_relationship_channels. It never fetches thousands of
-  // per-message rows and never runs conversation-burst grouping to build the
-  // primary relationship panel.
   const loadChannels = useCallback(async (id: string) => {
-    setLoading(true)
+    setLoadingSources(true)
     try {
       const res = await fetch(`/api/portal/clients/${id}/relationship-channels`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -308,16 +257,14 @@ export function ContactHistory({
       console.error("Failed to load relationship channels:", err)
       setSourceChannels([])
     } finally {
-      setLoading(false)
+      setLoadingSources(false)
     }
   }, [])
 
-  // The detailed archive (secondary, "View all") is server-side paginated over
-  // the canonical interaction read model with conversation-burst grouping.
-  const load = useCallback(async (id: string, p: number) => {
-    setLoading(true)
+  const load = useCallback(async (id: string, p: number, recent: boolean) => {
+    setLoadingHistory(true)
     try {
-      const url = `/api/portal/clients/${id}/history?page=${p}&pageSize=${PAGE_SIZE}`
+      const url = `/api/portal/clients/${id}/history?page=${p}&pageSize=${PAGE_SIZE}${recent ? "&recent=true" : ""}`
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as ContactHistoryResult
@@ -326,23 +273,23 @@ export function ContactHistory({
       console.error("Failed to load contact history:", err)
       setData(null)
     } finally {
-      setLoading(false)
+      setLoadingHistory(false)
     }
   }, [])
 
-  // Selecting a different client resets to the source-grain primary view.
   useEffect(() => {
     setPage(1)
     setViewAll(false)
+    setData(null)
+    setSourceChannels([])
   }, [clientId])
 
   useEffect(() => {
     void loadChannels(clientId)
   }, [clientId, loadChannels])
 
-  // The detailed archive is loaded only when the user opts into "View all".
   useEffect(() => {
-    if (viewAll) void load(clientId, page)
+    void load(clientId, page, !viewAll)
   }, [clientId, page, viewAll, load])
 
   const total = data?.total ?? 0
@@ -351,6 +298,9 @@ export function ContactHistory({
   const observedCommunicationCount =
     relationshipActivity?.observedCommunicationCount ?? 0
   const channels = relationshipActivity?.channels ?? []
+  const connectedSourceCount = SOURCE_SLOTS.filter((slot) =>
+    sourceChannels.some(slot.matches),
+  ).length
 
   return (
     <Panel
@@ -358,40 +308,34 @@ export function ContactHistory({
       heading="Contact History"
       action={
         <span className="flex items-center gap-2 text-xs font-light text-white/50">
-          <span>
-            {total.toLocaleString()} detailed
-            {observedCommunicationCount > 0
-              ? ` · ${observedCommunicationCount.toLocaleString()} observed`
-              : ""}
-          </span>
+          <span>{observedCommunicationCount.toLocaleString()} observed</span>
           {total > 0 ? (
             <button
               type="button"
               onClick={() => {
                 setPage(1)
-                setViewAll((v) => !v)
+                setViewAll((value) => !value)
               }}
               className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] border border-white/20 px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/75 transition hover:border-[var(--portal-gold)] hover:text-white"
             >
-              {viewAll ? "Recent" : "View all"}
+              {viewAll ? "Sources" : "View all"}
             </button>
           ) : null}
         </span>
       }
       className="flex min-h-0 flex-col"
     >
-      <LastInteractionSummary
+      <CompactRelationshipHeader
         sourceChannels={sourceChannels}
         relationshipActivity={relationshipActivity}
         channels={channels}
       />
-      <RelationshipSummary activity={relationshipActivity} />
       <div className="min-h-0 flex-1 overflow-auto">
         {viewAll ? (
           rows.length === 0 ? (
             <div className="px-7 py-6">
               <p className="text-sm font-light text-white/60">
-                {loading ? "Loading…" : "No detailed history yet."}
+                {loadingHistory ? "Loading…" : "No detailed history yet."}
               </p>
             </div>
           ) : (
@@ -405,25 +349,15 @@ export function ContactHistory({
               )}
             </ol>
           )
-        ) : sourceChannels.length === 0 ? (
-          <div className="px-7 py-6">
-            <p className="text-sm font-light text-white/60">
-              {loading ? "Loading…" : "No relationship sources yet."}
-            </p>
-            {!loading && observedCommunicationCount > 0 ? (
-              <p className="mt-1 text-xs leading-5 text-white/40">
-                {observedCommunicationCount.toLocaleString()} aggregate communications are
-                linked to this client. Detailed events appear in the archive.
-              </p>
-            ) : null}
-          </div>
         ) : (
-          <ol className="relative pb-1 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-px before:bg-white/10 before:content-['']">
-            {sourceChannels.map((c) => (
-              <SourceChannelNode
-                key={`${c.source}:${c.channel}`}
-                channel={c}
+          <ol className="relative divide-y divide-white/10 before:absolute before:bottom-6 before:left-[18px] before:top-6 before:w-px before:bg-white/10 before:content-['']">
+            {SOURCE_SLOTS.map((slot) => (
+              <SourceActivityRow
+                key={slot.id}
+                slot={slot}
+                channel={sourceChannels.find(slot.matches)}
                 clientName={clientName}
+                loading={loadingSources}
               />
             ))}
           </ol>
@@ -452,21 +386,8 @@ export function ContactHistory({
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-center gap-1 border-t border-white/10 px-3 py-2">
-          <span className="text-[10px] font-light uppercase tracking-[0.12em] text-white/45">
-            Showing {sourceChannels.length} relationship source
-            {sourceChannels.length === 1 ? "" : "s"}
-            {total > 0 ? " · " : ""}
-            {total > 0 ? (
-              <button
-                type="button"
-                onClick={() => setViewAll(true)}
-                className="text-white/70 underline decoration-white/30 underline-offset-2 transition hover:text-white"
-              >
-                View all
-              </button>
-            ) : null}
-          </span>
+        <div className="border-t border-white/10 px-3 py-1.5 text-center text-[10px] font-light uppercase tracking-[0.12em] text-white/45">
+          {connectedSourceCount} of {SOURCE_SLOTS.length} sources connected
         </div>
       )}
       <QuickActionDock email={email} phone={phone} clientId={clientId} />
@@ -545,57 +466,138 @@ function channelNoun(channel: string): string {
   }
 }
 
-// ONE gold node per communication SOURCE (the PRIMARY relationship-memory
-// grain, from mv_client_relationship_channels). Aggregates the entire source
-// (e.g. all of Ami's apple_messages handles) into a single truthful node —
-// never one node per message, per interaction, or per conversation burst.
-function SourceChannelNode({
+type SourceSlot = {
+  id: "phone" | "imessage" | "whatsapp" | "gmail" | "facetime" | "calendar"
+  label: string
+  Icon: LucideIcon
+  matches: (channel: ClientRelationshipChannel) => boolean
+}
+
+function sourceIncludes(channel: ClientRelationshipChannel, token: string): boolean {
+  return channel.source.toLowerCase().includes(token)
+}
+
+const SOURCE_SLOTS: SourceSlot[] = [
+  {
+    id: "phone",
+    label: "Phone",
+    Icon: Phone,
+    matches: (channel) =>
+      (channel.channel === "call" || sourceIncludes(channel, "phone") || sourceIncludes(channel, "call")) &&
+      !sourceIncludes(channel, "facetime"),
+  },
+  {
+    id: "imessage",
+    label: "iMessage",
+    Icon: MessageSquare,
+    matches: (channel) =>
+      channel.channel === "imessage" || sourceIncludes(channel, "apple_messages"),
+  },
+  {
+    id: "whatsapp",
+    label: "WhatsApp",
+    Icon: MessageSquare,
+    matches: (channel) =>
+      channel.channel === "whatsapp" || sourceIncludes(channel, "whatsapp"),
+  },
+  {
+    id: "gmail",
+    label: "Gmail",
+    Icon: Mail,
+    matches: (channel) =>
+      sourceIncludes(channel, "gmail") ||
+      (channel.channel === "email" && !sourceIncludes(channel, "calendar")),
+  },
+  {
+    id: "facetime",
+    label: "FaceTime",
+    Icon: Video,
+    matches: (channel) =>
+      channel.channel === "facetime" || sourceIncludes(channel, "facetime"),
+  },
+  {
+    id: "calendar",
+    label: "Apple Calendar",
+    Icon: Calendar,
+    matches: (channel) =>
+      channel.channel === "calendar" ||
+      sourceIncludes(channel, "calendar") ||
+      sourceIncludes(channel, "eventkit"),
+  },
+]
+
+function formatSourceTimestamp(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+function latestDirectionLabel(
+  channel: ClientRelationshipChannel,
+  clientName: string,
+): string | null {
+  if (channel.lastDirection === "outbound") {
+    return humanDirection("outbound", clientName)
+  }
+  if (channel.lastDirection === "inbound") {
+    return humanDirection("inbound", clientName)
+  }
+  return null
+}
+
+function SourceActivityRow({
+  slot,
   channel,
   clientName,
+  loading,
 }: {
-  channel: ClientRelationshipChannel
+  slot: SourceSlot
+  channel?: ClientRelationshipChannel
   clientName: string
+  loading: boolean
 }) {
-  const { label, Icon } = channelMeta(channel.channel)
-  const direction = channel.twoWay
-    ? humanDirection("two-way", clientName)
-    : channel.lastDirection === "outbound"
-      ? humanDirection("outbound", clientName)
-      : channel.lastDirection === "inbound"
-        ? humanDirection("inbound", clientName)
-        : null
-  const noun = channelNoun(channel.channel)
-  const preview = cleanPreview(channel.lastContext)
+  const preview = channel ? cleanPreview(channel.lastContext) : null
+  const timestamp = channel?.lastContextAt ?? channel?.lastContactAt ?? null
+  const direction = channel ? latestDirectionLabel(channel, clientName) : null
+  const fallback = channel?.totalCount
+    ? `${channel.totalCount.toLocaleString()} observed ${channelNoun(channel.channel)}`
+    : null
+
   return (
-    <li className="relative pl-8 pb-4">
+    <li className="relative flex min-h-[3.35rem] items-center gap-3 py-2 pl-10 pr-4">
       <span
         aria-hidden
-        className="absolute left-[3px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--portal-gold)] ring-2 ring-[var(--portal-navy-deep)]"
+        className={`absolute left-[14px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full ring-2 ring-[var(--portal-navy-deep)] ${
+          channel ? "bg-[var(--portal-gold)]" : "bg-white/20"
+        }`}
       />
-      <div className="text-[11px] font-light text-white/60">
-        {channel.lastContactAt ? formatAggDate(channel.lastContactAt) : "Observed history"}
+      <div className="flex w-[7.25rem] shrink-0 items-center gap-2 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
+        <slot.Icon className="h-3.5 w-3.5 shrink-0 text-white/55" aria-hidden />
+        <span className="truncate">{slot.label}</span>
       </div>
-      {direction ? (
-        <div className="mt-0.5 text-[10px] font-medium text-white/85">{direction}</div>
-      ) : null}
-      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-white/60" aria-hidden />
-        {label}
+      <div className="min-w-0 flex-1">
+        <p className={`truncate text-xs font-light ${channel ? "text-white/90" : "text-white/35"}`}>
+          {loading && !channel
+            ? "Loading…"
+            : preview ?? fallback ?? "No activity connected"}
+        </p>
+        {channel ? (
+          <p className="mt-0.5 truncate text-[10px] font-light text-white/45">
+            {direction ?? (channel.twoWay ? "Two-way relationship" : "Activity observed")}
+            {preview && channel.totalCount > 0
+              ? ` · ${channel.totalCount.toLocaleString()} total`
+              : ""}
+          </p>
+        ) : null}
       </div>
-      {channel.totalCount > 0 ? (
-        <p className="mt-0.5 text-xs font-light text-white/85">
-          {channel.totalCount.toLocaleString()} observed {noun}
-          {channel.twoWay ? " · two-way" : ""}
-        </p>
-      ) : null}
-      {preview ? (
-        <p className="mt-0.5 truncate text-xs font-light text-white/85">{preview}</p>
-      ) : null}
-      {channel.firstObservedAt ? (
-        <p className="mt-0.5 text-[11px] font-light text-white/45">
-          First observed {formatAggDate(channel.firstObservedAt)}
-        </p>
-      ) : null}
+      <time className="w-[6.75rem] shrink-0 text-right text-[10px] font-light text-white/50">
+        {timestamp ? formatSourceTimestamp(timestamp) : "—"}
+      </time>
     </li>
   )
 }
