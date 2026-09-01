@@ -94,12 +94,17 @@ test('F: Client directory freshness uses relationship/source state as authoritat
   assert.ok(order[0] >= 0 && order[1] > order[0] && order[2] > order[1], 'dependency-safe refresh order')
 })
 
-test('G: primary Client History panel renders ONE node per source from the source-grain MV', () => {
+test('G: primary Client History panel renders six compact latest-activity source rows', () => {
   const panel = readFileSync('components/portal/contact-history.tsx', 'utf8')
-  assert.ok(panel.includes('SourceChannelNode'), 'one gold node per source')
-  assert.ok(panel.includes('relationship-channels'), 'primary panel reads the source-grain route')
-  assert.ok(panel.includes('View all'), 'detailed archive remains available (View all)')
-  assert.ok(!panel.includes('&recent=true'), 'primary panel no longer fetches per-message/burst rows')
+  assert.ok(panel.includes('CompactRelationshipHeader'), 'aggregate intelligence stays in a compact header')
+  assert.ok(panel.includes('SourceActivityRow'), 'source activity uses dense rows rather than oversized nodes')
+  assert.ok(panel.includes('No activity connected'), 'missing intake coverage remains visible')
+  for (const label of ['Phone', 'iMessage', 'WhatsApp', 'Gmail', 'FaceTime', 'Apple Calendar']) {
+    assert.ok(panel.includes(`label: "${label}"`), `${label} has a fixed source row`)
+  }
+  assert.ok(panel.includes('relationship-channels'), 'primary panel keeps the source-grain route')
+  assert.ok(panel.includes('View all'), 'detailed archive remains available')
+  assert.ok(panel.includes('&recent=true'), 'bounded history read supplies detail count without becoming primary')
 
   const repo = readFileSync('db/relationship-channels.ts', 'utf8')
   assert.ok(repo.includes('mv_client_relationship_channels'), 'repo reads the source-grain MV')
