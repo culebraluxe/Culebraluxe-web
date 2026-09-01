@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 
 declare global {
   interface Window {
@@ -25,7 +25,7 @@ declare global {
 
 const META_APP_ID = "1573618894304413"
 const GRAPH_VERSION = "v26.0"
-const CONFIG_STORAGE_KEY = "culebraluxe.whatsapp.embeddedSignupConfigId"
+const META_CONFIGURATION_ID = "1416075310402629"
 
 type SessionEvent = {
   type?: string
@@ -41,15 +41,12 @@ type SessionEvent = {
 
 export default function WhatsAppCoexistencePage() {
   const [sdkReady, setSdkReady] = useState(false)
-  const [configId, setConfigId] = useState("")
+  const [safetyConfirmed, setSafetyConfirmed] = useState(false)
   const [status, setStatus] = useState("Loading Meta SDK…")
   const [sessionEvent, setSessionEvent] = useState<SessionEvent | null>(null)
   const [authorizationCodeReceived, setAuthorizationCodeReceived] = useState(false)
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(CONFIG_STORAGE_KEY)
-    if (stored) setConfigId(stored)
-
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") {
         return
@@ -86,7 +83,7 @@ export default function WhatsAppCoexistencePage() {
         version: GRAPH_VERSION,
       })
       setSdkReady(true)
-      setStatus("Meta SDK ready. Enter the Embedded Signup Configuration ID.")
+      setStatus("Meta SDK ready. Confirm the coexistence safety check to continue.")
     }
 
     if (document.getElementById("facebook-jssdk")) {
@@ -106,13 +103,11 @@ export default function WhatsAppCoexistencePage() {
     }
   }, [])
 
-  const canLaunch = useMemo(() => sdkReady && configId.trim().length > 0, [sdkReady, configId])
+  const canLaunch = sdkReady && safetyConfirmed
 
   function launchCoexistence() {
-    const normalizedConfigId = configId.trim()
-    if (!window.FB || !sdkReady || !normalizedConfigId) return
+    if (!window.FB || !sdkReady || !safetyConfirmed) return
 
-    window.localStorage.setItem(CONFIG_STORAGE_KEY, normalizedConfigId)
     setStatus("Opening Meta Coexistence Embedded Signup…")
     setSessionEvent(null)
     setAuthorizationCodeReceived(false)
@@ -133,7 +128,7 @@ export default function WhatsAppCoexistencePage() {
         setStatus(response.status ? `Meta login status: ${response.status}` : "Meta signup was closed or cancelled.")
       },
       {
-        config_id: normalizedConfigId,
+        config_id: META_CONFIGURATION_ID,
         response_type: "code",
         override_default_response_type: true,
         extras: {
@@ -169,17 +164,24 @@ export default function WhatsAppCoexistencePage() {
             </div>
           </div>
 
-          <label className="block">
-            <span className="text-xs uppercase tracking-wider text-brand-ivory/50">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-brand-ivory/50">
               Embedded Signup Configuration ID
-            </span>
+            </p>
+            <p className="mt-1 font-mono text-sm">{META_CONFIGURATION_ID}</p>
+          </div>
+
+          <label className="flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4">
             <input
-              value={configId}
-              onChange={(event) => setConfigId(event.target.value)}
-              placeholder="Paste Meta configuration ID"
-              className="mt-2 w-full rounded-xl border border-brand-gold/25 bg-black/20 px-4 py-3 font-mono text-sm text-brand-ivory outline-none focus:border-brand-gold/60"
-              autoComplete="off"
+              type="checkbox"
+              checked={safetyConfirmed}
+              onChange={(event) => setSafetyConfirmed(event.target.checked)}
+              className="mt-1 size-4 accent-[var(--color-brand-gold)]"
             />
+            <span className="text-sm leading-6 text-brand-ivory/80">
+              I am connecting an existing WhatsApp Business App number through Coexistence. I will stop
+              if Meta shows migration, unregister, disconnect, replace, or delete language.
+            </span>
           </label>
 
           <button
