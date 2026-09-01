@@ -43,10 +43,17 @@ export async function GET(request: Request) {
       order by id
     `
     const properties = await sql`
-      select id, name, location
+      select id, name, location, list_price
       from property
-      where lower(trim(name)) = lower('Sea to Soul')
-      order by id
+      where archived_at is null
+        and (
+          lower(trim(name)) = lower('Sea to Soul')
+          or lower(coalesce(location, '')) like '%playa sardinas ii%'
+          or lower(coalesce(location, '')) like '%sardinas ii%'
+        )
+      order by
+        case when lower(trim(name)) = lower('Sea to Soul') then 0 else 1 end,
+        id
     `
     const brokers = await sql`
       select id, person_id, display_name
@@ -56,16 +63,22 @@ export async function GET(request: Request) {
       order by id
     `
 
-    if (people.length !== 1 || properties.length !== 1 || brokers.length !== 1) {
+    if (people.length !== 1 || properties.length > 1 || brokers.length !== 1) {
       return NextResponse.json(
         {
           ok: false,
           error: 'resolution-mismatch',
           counts: {
             jessicaPeople: people.length,
-            seaToSoulProperties: properties.length,
+            propertyCandidates: properties.length,
             activeLisaUsers: brokers.length,
           },
+          propertyCandidates: properties.map((row) => ({
+            id: row.id,
+            name: row.name,
+            location: row.location,
+            listPrice: row.list_price,
+          })),
           databaseTarget: target,
         },
         { status: 409 },
@@ -73,22 +86,35 @@ export async function GET(request: Request) {
     }
 
     const personId = String(people[0].id)
-    const propertyId = String(properties[0].id)
+    const propertyId = properties.length === 1 ? String(properties[0].id) : null
     const brokerUserId = String(brokers[0].id)
 
-    const existing = await sql`
-      select id, template_id, template_version, status, person_id, property_id,
-        field_values, created_at, updated_at
-      from document_form_instance
-      where template_id = 'LISTING-01'
-        and template_version = 4
-        and person_id = ${personId}
-        and property_id = ${propertyId}
-        and field_values ->> 'sellerName' = 'Jessica Iverson'
-        and field_values ->> 'catastroNumber' = '476-054-192-33-000'
-      order by created_at desc
-      limit 2
-    `
+    const existing = propertyId
+      ? await sql`
+          select id, template_id, template_version, status, person_id, property_id,
+            field_values, created_at, updated_at
+          from document_form_instance
+          where template_id = 'LISTING-01'
+            and template_version = 4
+            and person_id = ${personId}
+            and property_id = ${propertyId}
+            and field_values ->> 'sellerName' = 'Jessica Iverson'
+            and field_values ->> 'catastroNumber' = '476-054-192-33-000'
+          order by created_at desc
+          limit 2
+        `
+      : await sql`
+          select id, template_id, template_version, status, person_id, property_id,
+            field_values, created_at, updated_at
+          from document_form_instance
+          where template_id = 'LISTING-01'
+            and template_version = 4
+            and person_id = ${personId}
+            and field_values ->> 'sellerName' = 'Jessica Iverson'
+            and field_values ->> 'catastroNumber' = '476-054-192-33-000'
+          order by created_at desc
+          limit 2
+        `
 
     if (existing.length > 1) {
       return NextResponse.json(
@@ -115,7 +141,8 @@ export async function GET(request: Request) {
           personId,
           propertyId,
           brokerUserId,
-          propertyLocation: properties[0].location ?? null,
+          propertyName: properties[0]?.name ?? null,
+          propertyLocation: properties[0]?.location ?? null,
         },
       })
     }
@@ -214,7 +241,8 @@ export async function GET(request: Request) {
         personId,
         propertyId,
         brokerUserId,
-        propertyLocation: properties[0].location ?? null,
+        propertyName: properties[0]?.name ?? null,
+        propertyLocation: properties[0]?.location ?? null,
       },
     })
   } catch (error) {
