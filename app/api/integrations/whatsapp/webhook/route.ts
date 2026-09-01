@@ -19,6 +19,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown WhatsApp webhook error.'
 }
 
+function isFixturePayload(payload: MetaWhatsAppWebhookPayload): boolean {
+  return payload.entry?.some((entry) =>
+    entry.changes?.some((change) =>
+      change.value?.messages?.some((message) =>
+        message.id?.startsWith('wamid.CULEBRALUXE_FIXTURE.'),
+      ),
+    ),
+  ) ?? false
+}
+
 export async function GET(request: NextRequest) {
   let expectedToken: string
   try {
@@ -110,11 +120,26 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    const fixture = isFixturePayload(payload)
     return NextResponse.json(
       {
         ok: true,
         accepted: result.eventCount,
         relationshipProjected: result.relationshipProjected,
+        ...(fixture
+          ? {
+              fixtureOutcomes: result.outcomes.map((outcome) => ({
+                outcome: outcome.outcome,
+                ...('reason' in outcome ? { reason: outcome.reason } : {}),
+                ...('resolvedPersonId' in outcome && outcome.resolvedPersonId
+                  ? { resolvedPersonId: outcome.resolvedPersonId }
+                  : {}),
+                ...('interactionId' in outcome && outcome.interactionId
+                  ? { interactionId: outcome.interactionId }
+                  : {}),
+              })),
+            }
+          : {}),
       },
       { status: 200 },
     )
