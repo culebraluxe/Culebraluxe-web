@@ -152,7 +152,6 @@ export const OPERATING_SURFACES: Record<
         authority: 'tech.access',
       },
       { label: 'UI Lab', href: '/portal/design-lab', authority: 'tech.access' },
-      { label: 'DB Test', href: '/portal/db-test', authority: 'tech.access' },
       { label: 'Media Test', href: '/portal/media-test', authority: 'tech.access' },
       {
         label: 'Flight Recorder',
@@ -170,12 +169,22 @@ export const OPERATING_SURFACES: Record<
     surface: 'SUPPORT',
     label: 'SUPPORT',
     description:
-      'Technology operations — health, incidents, recovery, releases and runtime/environment.',
+      'Technology operations — health, diagnostics, incidents, recovery, releases and runtime/environment.',
     home: '/portal/system-health',
     items: [
       {
         label: 'System Health',
         href: '/portal/system-health',
+        authority: 'portal.read',
+      },
+      {
+        label: 'DB Test',
+        href: '/portal/db-test',
+        authority: 'portal.read',
+      },
+      {
+        label: 'WhatsApp Diagnostic',
+        href: '/portal/admin/whatsapp-meta',
         authority: 'portal.read',
       },
       {
