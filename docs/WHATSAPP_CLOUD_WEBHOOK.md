@@ -38,6 +38,40 @@ closed on missing or contradictory environment routing.
 
 Never commit any of these values.
 
+## Signed production fixture
+
+The repository includes a Mac-compatible script that creates the Meta-shaped
+JSON, signs its exact raw bytes, and posts it to the production webhook. It
+defaults to the fictional sender `+1 617-555-0169`:
+
+```sh
+pnpm whatsapp:webhook:test
+```
+
+The script prompts for any missing configuration. To load a gitignored local
+copy of the Vercel Production environment instead:
+
+```sh
+pnpm exec vercel env pull .env.production.local --environment=production --yes
+pnpm whatsapp:webhook:test --env-file .env.production.local
+```
+
+To test canonical identity matching with a real sender number:
+
+```sh
+pnpm whatsapp:webhook:test --env-file .env.production.local --from 6172516169
+```
+
+The fixture is a real write to the selected webhook environment. A fictional
+sender normally produces an unresolved intake item; a real sender resolves only
+when its normalized phone identity already belongs to a canonical person.
+
+The verification handshake can be checked separately:
+
+```sh
+pnpm whatsapp:webhook:test --env-file .env.production.local --handshake
+```
+
 ## Meta configuration
 
 1. Set the callback URL to the endpoint above.
