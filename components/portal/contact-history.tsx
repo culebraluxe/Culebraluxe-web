@@ -111,58 +111,39 @@ function relativeTime(iso: string | null): string | null {
 function CompactRelationshipHeader({
   sourceChannels,
   relationshipActivity,
-  channels,
 }: {
   sourceChannels: ClientRelationshipChannel[]
   relationshipActivity?: RelationshipActivity
   channels: RelationshipChannelProjection[]
 }) {
-  const newest = sourceChannels[0]
-  const lastAt =
-    newest?.lastContactAt ??
-    relationshipActivity?.lastMeaningfulContactAt ??
-    relationshipActivity?.lastObservedAt ??
-    null
-  const rel = relativeTime(lastAt)
-
-  let channel: string | null = newest?.channel ?? null
-  let genericDirection: "inbound" | "outbound" | null = null
-  if (newest) {
-    genericDirection = newest.lastDirection
-  }
-  if (!channel) {
-    const proj = channels[0]
-    if (proj) {
-      channel = proj.channel
-      const ld = lastDirection(proj)
-      genericDirection = ld === "Outbound" ? "outbound" : ld === "Inbound" ? "inbound" : null
-    }
-  }
-  const label = channel ? channelMeta(channel).label : null
-  const dirLabel = headerDirectionLabel(genericDirection)
   const observed = relationshipActivity?.observedCommunicationCount ?? 0
-  const since = relationshipActivity?.firstObservedAt
+  const inbound = relationshipActivity?.inboundCount ?? 0
+  const outbound = relationshipActivity?.outboundCount ?? 0
+  const firstObserved = relationshipActivity?.firstObservedAt ?? null
+  const lastInbound = relationshipActivity?.lastInboundAt ?? null
+  const lastOutbound = relationshipActivity?.lastOutboundAt ?? null
+  const activeSourceCount = SOURCE_SLOTS.filter((slot) =>
+    sourceChannels.some(slot.matches),
+  ).length
 
   return (
     <div className="border-b border-white/10 px-4 py-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <p className="font-serif text-sm font-light text-white">
-          {rel ? `Last contact ${rel}` : "No contact recorded yet"}
-        </p>
-        {label && lastAt ? (
-          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/55">
-            {label}{dirLabel ? ` · ${dirLabel}` : ""}
-          </p>
-        ) : null}
-      </div>
-      <p className="mt-0.5 truncate text-[10px] font-light text-white/45">
-        {observed.toLocaleString()} observed
+      <p className="truncate text-[11px] font-light text-white/70">
+        {observed.toLocaleString()} observed · {inbound.toLocaleString()} inbound ·{" "}
+        {outbound.toLocaleString()} outbound
         {relationshipActivity?.twoWay ? " · two-way" : ""}
-        {sourceChannels.length > 0
-          ? ` · ${sourceChannels.length} active source${sourceChannels.length === 1 ? "" : "s"}`
-          : ""}
-        {since ? ` · since ${formatAggDate(since)}` : ""}
+        {firstObserved ? ` · since ${formatAggDate(firstObserved)}` : ""}
       </p>
+      <div className="mt-1 flex flex-wrap gap-x-5 gap-y-0.5 text-[10px] font-light text-white/50">
+        <span>Last outbound: {lastOutbound ? formatAggDate(lastOutbound) : "—"}</span>
+        <span>Last inbound: {lastInbound ? formatAggDate(lastInbound) : "—"}</span>
+      </div>
+      <div className="mt-0.5 flex flex-wrap gap-x-5 gap-y-0.5 text-[10px] font-light text-white/50">
+        <span>First observed: {firstObserved ? formatAggDate(firstObserved) : "—"}</span>
+        <span>
+          Active sources: {activeSourceCount} of {SOURCE_SLOTS.length}
+        </span>
+      </div>
     </div>
   )
 }
@@ -350,7 +331,7 @@ export function ContactHistory({
             </ol>
           )
         ) : (
-          <ol className="relative divide-y divide-white/10 before:absolute before:bottom-6 before:left-[18px] before:top-6 before:w-px before:bg-white/10 before:content-['']">
+          <ol className="divide-y divide-white/10">
             {SOURCE_SLOTS.map((slot) => (
               <SourceActivityRow
                 key={slot.id}
@@ -562,7 +543,7 @@ function SourceActivityRow({
   loading: boolean
 }) {
   const preview = channel ? cleanPreview(channel.lastContext) : null
-  const timestamp = channel?.lastContextAt ?? channel?.lastContactAt ?? null
+  const timestamp = channel?.lastContactAt ?? channel?.lastContextAt ?? null
   const direction = channel ? latestDirectionLabel(channel, clientName) : null
   const fallback = channel?.totalCount
     ? `${channel.totalCount.toLocaleString()} observed ${channelNoun(channel.channel)}`
