@@ -3,7 +3,7 @@
 set -euo pipefail
 
 DEFAULT_FROM_PHONE="16172516169"
-DEFAULT_WEBHOOK_URL="https://culebraluxe.com/api/integrations/whatsapp/webhook"
+DEFAULT_WEBHOOK_URL="https://www.culebraluxe.com/api/integrations/whatsapp/webhook"
 
 FROM_PHONE="$DEFAULT_FROM_PHONE"
 WEBHOOK_URL="${WHATSAPP_WEBHOOK_URL:-$DEFAULT_WEBHOOK_URL}"
