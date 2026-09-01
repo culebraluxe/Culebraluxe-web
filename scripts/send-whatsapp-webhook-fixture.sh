@@ -76,10 +76,29 @@ done
 
 if [[ -n "$ENV_FILE" ]]; then
   [[ -f "$ENV_FILE" ]] || { echo "Env file not found: $ENV_FILE" >&2; exit 2; }
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
+  command -v node >/dev/null 2>&1 || {
+    echo "Node.js is required to read $ENV_FILE safely." >&2
+    exit 2
+  }
+
+  load_env_file_value() {
+    local variable_name="$1"
+    local current_value="${!variable_name:-}"
+    local file_value
+
+    # Explicit shell values win. Otherwise use Node's dotenv parser so values
+    # containing $, spaces, or shell metacharacters are never evaluated.
+    [[ -n "$current_value" ]] && return
+    file_value="$(node --env-file="$ENV_FILE" \
+      -e 'process.stdout.write(process.env[process.argv[1]] || "")' \
+      "$variable_name")"
+    printf -v "$variable_name" '%s' "$file_value"
+  }
+
+  load_env_file_value WHATSAPP_APP_SECRET
+  load_env_file_value WHATSAPP_PHONE_NUMBER_ID
+  load_env_file_value WHATSAPP_OWNED_PHONE_E164
+  load_env_file_value WHATSAPP_VERIFY_TOKEN
 fi
 
 prompt_value() {
