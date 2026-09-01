@@ -230,7 +230,10 @@ async function main() {
   )
 
   if (!result.ok) {
-    throw new Error(result.error.message)
+    throw new Error(
+      `${result.error.kind}: ${result.error.detail ?? 'database transaction failed'} ` +
+        `(incident ${result.error.incidentId})`,
+    )
   }
 
   await refreshClientReadModels()
