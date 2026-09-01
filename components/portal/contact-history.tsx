@@ -23,12 +23,10 @@ import type {
 import type {
   ClientRelationshipChannel,
   RelationshipActivity,
-  RelationshipChannelProjection,
 } from "@/lib/portal/types"
 import {
   channelLine,
   cleanPreview,
-  headerDirectionLabel,
   humanDirection,
 } from "@/lib/relationship-intel/moment-presentation"
 
@@ -75,46 +73,12 @@ function channelMeta(channel: string): { label: string; Icon: LucideIcon } {
 const navBtn =
   "inline-flex min-h-8 items-center rounded-[var(--portal-tab-radius)] border border-white/20 px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/70 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
 
-function formatLastObserved(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  })
-}
-
-// A source-level aggregate tells us last-observed, last-inbound and last-outbound.
-// The exact direction of last_observed_at is only truthful when it equals one of
-// the direction timestamps; otherwise show no direction rather than guessing.
-function lastDirection(projection: RelationshipChannelProjection): "Inbound" | "Outbound" | null {
-  const last = projection.lastObservedAt
-  if (last && last === projection.lastInboundAt) return "Inbound"
-  if (last && last === projection.lastOutboundAt) return "Outbound"
-  return null
-}
-
-function relativeTime(iso: string | null): string | null {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return null
-  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000)
-  if (days <= 0) return "today"
-  if (days === 1) return "yesterday"
-  if (days < 30) return `${days} days ago`
-  return formatLastObserved(iso)
-}
-
 function CompactRelationshipHeader({
   sourceChannels,
   relationshipActivity,
 }: {
   sourceChannels: ClientRelationshipChannel[]
   relationshipActivity?: RelationshipActivity
-  channels: RelationshipChannelProjection[]
 }) {
   const observed = relationshipActivity?.observedCommunicationCount ?? 0
   const inbound = relationshipActivity?.inboundCount ?? 0
@@ -278,7 +242,6 @@ export function ContactHistory({
   const rows = data?.rows ?? []
   const observedCommunicationCount =
     relationshipActivity?.observedCommunicationCount ?? 0
-  const channels = relationshipActivity?.channels ?? []
   const connectedSourceCount = SOURCE_SLOTS.filter((slot) =>
     sourceChannels.some(slot.matches),
   ).length
@@ -309,7 +272,6 @@ export function ContactHistory({
       <CompactRelationshipHeader
         sourceChannels={sourceChannels}
         relationshipActivity={relationshipActivity}
-        channels={channels}
       />
       <div className="min-h-0 flex-1 overflow-auto">
         {viewAll ? (
