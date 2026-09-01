@@ -42,13 +42,13 @@ test('REL-INTEL: empty email is quarantined', () => {
 test('REL-INTEL: US/Puerto Rico phone with leading country code normalizes', () => {
   const r = normalizePhone('+1 (787) 555-0134')
   assert.ok(r.ok)
-  assert.equal(r.value, '7875550134')
+  assert.equal(r.value, '+17875550134')
 })
 
-test('REL-INTEL: 10-digit phone normalizes as-is', () => {
+test('REL-INTEL: 10-digit phone gains NANP country code', () => {
   const r = normalizePhone('7875550134')
   assert.ok(r.ok)
-  assert.equal(r.value, '7875550134')
+  assert.equal(r.value, '+17875550134')
 })
 
 test('REL-INTEL: ambiguous international phone is quarantined, not guessed', () => {
