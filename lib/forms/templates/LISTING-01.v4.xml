@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LISTING-01 v4 — approved production template.
+
+  Carries forward LISTING-01 v3 unchanged except for the reviewed legal
+  language in Forfeited Escrow Deposit and Full-Price Offer and Owner
+  Circumvention. Renderer, signature geometry, Lisa local pre-signing, and
+  external BoldSign execution remain unchanged.
+-->
+<form
+  id="LISTING-01"
+  version="4"
+  title="REAL ESTATE LISTING AGREEMENT"
+  presentation="agreement"
+  documentType="Listing Agreement"
+  issuer="Culebraluxe LLC">
+
+  <participants>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="SELLER_BROKER" label="Broker"/>
+  </participants>
+
+  <field id="sellerName" label="Seller" type="text" required="true" source="person.displayName"/>
+  <field id="sellerCivilStatus" label="Seller Civil Status" type="select" required="true" options="Single, Married, Divorced, Widowed"/>
+  <field id="sellerResidenceAddress" label="Seller Residence Address" type="text" required="true"/>
+  <field id="brokerName" label="Broker" type="text" required="true"/>
+  <field id="property" label="Property" type="text" required="true" source="property.name"/>
+  <field id="propertyLocation" label="Property Address" type="text" required="true" source="property.location"/>
+  <field id="catastroNumber" label="Catastro Number" type="text" required="true"/>
+  <field id="listPrice" label="Asking Price" type="money" required="true"/>
+  <field id="commission" label="Commission Arrangement" type="text" required="true"/>
+  <field id="startDate" label="Effective Date" type="date" required="true"/>
+  <field id="endDate" label="Expiration Date" type="date" required="true"/>
+  <field id="listingType" label="Listing Type" type="select" required="true" options="Exclusive Right to Sell, Exclusive Agency"/>
+
+  <section id="partnership" title="Parties, Appointment and Partnership" editable="false">
+    This contract is between the property Owner and Culebraluxe LLC, represented by Lisa Penfield, Puerto Rico Real Estate Broker #9931. The term "Owner" refers to <value field="sellerName"/>, of legal age, <value field="sellerCivilStatus"/>, with residence at <value field="sellerResidenceAddress"/>. The Owner holds title to the property known as <value field="property"/>, located at <value field="propertyLocation"/>, Catastro Number <value field="catastroNumber"/>, hereinafter referred to as the "Property." The party of the second part, Culebraluxe LLC, represented by Broker <value field="brokerName"/>, is hereinafter referred to as the "Broker," Puerto Rico Real Estate Broker License #9931, with mailing address P.O. Box 737, Culebra, PR 00775. In consideration of the services to be provided by the Broker, the Owner grants the Broker the <value field="listingType"/> listing authority to market, show, and sell the Property. This Agreement is a simple partnership to sell your property with confidence. The Broker handles the marketing, showings, offers, and closing, keeping you informed throughout the process to create a successful sale of your property.
+  </section>
+
+  <section id="propertyPrequalification" title="Property Pre-Qualification" editable="false">
+    The Property will be pre-qualified as ready to sell by Broker. Owner will furnish all documentation pertaining to the Property to the Broker, including the current deed. Broker will pre-qualify the Property as legally able to be sold according to the public records. If the Property has obstacles to sale, the Broker will advise the Owner of the steps that need to be taken to pre-qualify the Property.
+  </section>
+
+  <section id="propertyEvaluation" title="Property Evaluation" editable="false">
+    The Property will be evaluated by the Broker for needed attention, such as updates to curb appeal, addressing neglected maintenance, etc.
+  </section>
+
+  <section id="brokerOpinionOfValue" title="Broker Opinion of Value" editable="false">
+    The Broker will provide a Broker Opinion of Value report (BOV).
+  </section>
+
+  <section id="presentation" title="Presentation and Property Story" editable="false">
+    Minimal staging and a full portfolio of quality still photography, accurate descriptions, and accurate details and parameters of the Property will be produced by the Broker. Qualitative property-enhancement details will be presented to buyers by the Broker, such as distance to beaches, swimming, restaurants and bars, sunrise views, dock access, shops, tranquility of the neighborhood, nice neighbors, good prevailing winds, etc. A property "story" will be created by the Broker with input from the Owner.
+  </section>
+
+  <section id="technology" title="Technology and Digital Marketing" editable="false">
+    We are tech-savvy and have a custom, code-based bespoke website. We are not using a template. We leverage AI to push your property across every platform at once. That strategic edge is what turns into real-world results - showings, offers, and a closed sale.
+  </section>
+
+  <section id="targetedMarketing" title="Targeted Marketing" editable="false">
+    In the case of unique properties, we micro-target buyers and investors who are well suited for the product - your property and its features and benefits.
+  </section>
+
+  <section id="negotiation" title="Negotiation" editable="false">
+    We negotiate with buyers regarding offers, counteroffers, and acceptable concessions for the sale in order to arrive at an acceptable sales price.
+  </section>
+
+  <section id="marketingExpense" title="Broker Marketing Expense" editable="false">
+    Broker will prepare, at the Broker's cost, photos, property descriptions, web pages, website placement across major websites, and other steps and activities agreed to by Broker and Owner to actively market the Property.
+  </section>
+
+  <section id="internetMarketing" title="Internet Marketing" editable="false">
+    Broker will market on multiple Internet sites wholly owned by the Broker; public advertising sites such as Zillow.com, ClasificadosOnline.com, Trulia.com, Facebook.com, Puerto Rico MLS; Internet sites of other Realtors; and any other sites deemed advantageous for advertising by either the Broker or Owner.
+  </section>
+
+  <section id="supplierCoordination" title="Supplier Coordination" editable="false">
+    Broker will coordinate appointments for surveyors, appraisers, and inspectors on an as-needed basis to best position the Property in the highest light possible.
+  </section>
+
+  <section id="governmentAgencyRepresentation" title="Government Agency Representation" editable="false">
+    Local Broker will coordinate a POA from Owner in order to provide representation at CRIM, the Department of Hacienda, and the IRS to coordinate paperwork required for the closing statements.
+  </section>
+
+  <section id="legalRecommendations" title="Legal Recommendations" editable="false">
+    Broker can recommend closing attorneys and any other professionals that may be needed in order to facilitate a swift closing.
+  </section>
+
+  <section id="absenteeClosings" title="Absentee Closings" editable="false">
+    Broker can represent Owner at the closing with a legal POA paid for by the Owner.
+  </section>
+
+  <section id="taxProfessionalReferrals" title="Tax Professional Referrals" editable="false">
+    Broker can recommend tax experts to address capital gains taxes and other liabilities.
+  </section>
+
+  <section id="askingPrice" title="Asking Price" editable="false">
+    The asking price for the Property will be <value field="listPrice"/>. The asking price will be approved by the Owner with the educated advice and comparison data provided by the Broker. It may be advisable to obtain a private appraisal.
+  </section>
+
+  <section id="brokerCommission" title="Broker Commission" editable="false">
+    In the event that an offer is accepted and a sale is closed, Owner agrees to pay Broker a total commission of 5% of the sales price, to be shared equally with the other broker in a co-booking situation. If the Broker acts alone, the commission is <value field="commission"/>.
+  </section>
+
+  <section id="commissionLaw" title="Commission Not Set by Law" editable="false">
+    Owner and Broker understand that any commission paid is not set by law or regulation.
+  </section>
+
+  <section id="protectionPeriod" title="Protection Period" editable="false">
+    Commission shall be paid at the time of closing, even if the closing occurs after the term of this Agreement has expired, for up to one year after expiration, provided that Broker showed the Property to the Buyer, or a party related to the Buyer, before this Agreement expired, including the Buyer's company, partner, or spouse.
+  </section>
+
+  <section id="ownerCooperation" title="Owner Cooperation" editable="false">
+    It is the Owner's responsibility to cooperate with the Broker and provide any information needed to facilitate the sale of the Property.
+  </section>
+
+  <section id="brokerInformation" title="Broker Information Requirements" editable="false">
+    It is the Broker's responsibility to obtain from the Owner all information needed to properly market and sell the Property.
+  </section>
+
+  <section id="cleaningStaging" title="Cleaning and Staging" editable="false">
+    Cleaning and staging fees may apply and must be approved by the Owner.
+  </section>
+
+  <section id="showingCondition" title="Showing Condition" editable="false">
+    The Property will be maintained in a presentable condition for proper showings.
+  </section>
+
+  <section id="buyerQualification" title="Buyer Pre-Qualification and Showings" editable="false">
+    Broker will pre-qualify the Buyer and coordinate showings with the Owner or property representative.
+  </section>
+
+  <section id="escrowFunds" title="Escrow Funds" editable="false">
+    Any funds delivered by a potential Buyer to the Broker will be deposited in escrow by the Broker in an escrow account registered with the Commonwealth of Puerto Rico and will be available at the time of closing.
+  </section>
+
+  <section id="forfeitedDeposit" title="Forfeited Escrow Deposit" editable="false">
+    In the event that, pursuant to an executed Purchase and Sale Agreement, all or any portion of a Buyer's escrow deposit is forfeited and becomes payable to the Owner as a result of the Buyer's default or breach of that agreement, the amount actually received by the Owner from the forfeited deposit shall be shared equally between the Broker and the Owner, 50/50. The Broker's share shall not exceed the commission otherwise payable to Broker pursuant to Section 17 had the transaction closed. If 50% of the forfeited deposit exceeds that amount, the Broker's share shall be limited to the applicable contracted commission.
+  </section>
+
+  <section id="agreementTerm" title="Agreement Term" editable="false">
+    Properties on Culebra are often sold as second homes, which can take a year to sell if priced at the top of the market. This Agreement shall be effective beginning <value field="startDate"/> and shall expire on <value field="endDate"/>. One month before expiration of this Agreement, if the Owner is satisfied with the marketing, showings, and communication, the Agreement may be extended for a mutually agreed-upon period.
+  </section>
+
+  <section id="mediaPackage" title="Upgraded Media Package" editable="false">
+    An upgraded media package featuring drone photography and video embedded in the listing is available for a fee of $500. This media fee will be subtracted at closing.
+  </section>
+
+  <section id="signage" title="Signage" editable="false">
+    Signage will be placed on the Property with the Owner's approval.
+  </section>
+
+  <section id="ownerWithdrawal" title="Owner Withdrawal" editable="false">
+    If the Owner takes the Property off the market during the contract term, the Broker will be paid $600 for out-of-pocket expenses.
+  </section>
+
+  <section id="ownerCircumvention" title="Full-Price Offer and Owner Circumvention" editable="false">
+    If the Owner receives and refuses, in writing, a bona fide offer for the agreed-upon asking price of <value field="listPrice"/> on commercially reasonable terms, and thereafter terminates or circumvents this Agreement in order to sell the Property independently, or to take the property off the market because they decided not to sell it or sell it at a later date, broker shall be entitled to 60% of the commission that would otherwise have been payable to Broker pursuant to Section 17 upon the sale of the Property.
+
+    For purposes of this Section, a bona fide full-price offer shall mean an offer from a ready, willing, and able Buyer at the agreed-upon asking price that does not impose material additional obligations, extraordinary seller concessions, substantial repair requirements, or other conditions that materially reduce the economic value of the offer to the Owner. Customary closing requirements and commercially reasonable purchase contingencies shall not, by themselves, prevent an offer from being considered bona fide.
+  </section>
+
+  <section id="additional" title="Additional Terms" editable="true"></section>
+
+  <signatures>
+    <signature-group role="SELLER" label="Seller" field="sellerName" initials="true"/>
+    <signature-group role="SELLER_BROKER" label="Broker" field="brokerName" initials="true"/>
+  </signatures>
+</form>
