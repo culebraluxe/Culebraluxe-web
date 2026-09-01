@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { db, dbTargetInfo } from '@/db/client'
+import { dbTargetInfo, sql } from '@/db/client'
 
 const ONE_TIME_TOKEN = 'A-B9hqcUvvDF5cErRL_p5abMXx8J2VeJ'
 
@@ -35,43 +35,48 @@ export async function GET(request: Request) {
     )
   }
 
-  const result = await db.transaction('ops-jessica-listing-v4-rebuild', async (tx) => {
-    const people = await tx`
+  try {
+    const people = await sql`
       select id, display_name
       from person
       where lower(trim(display_name)) = lower('Jessica Iverson')
       order by id
     `
-    if (people.length !== 1) {
-      throw new Error(`Expected exactly one Jessica Iverson person; found ${people.length}.`)
-    }
-
-    const properties = await tx`
+    const properties = await sql`
       select id, name, location
       from property
       where lower(trim(name)) = lower('Sea to Soul')
       order by id
     `
-    if (properties.length !== 1) {
-      throw new Error(`Expected exactly one Sea to Soul property; found ${properties.length}.`)
-    }
-
-    const brokers = await tx`
+    const brokers = await sql`
       select id, person_id, display_name
       from app_user
       where active = true
         and lower(trim(display_name)) = lower('Lisa Penfield')
       order by id
     `
-    if (brokers.length !== 1) {
-      throw new Error(`Expected exactly one active Lisa Penfield app user; found ${brokers.length}.`)
+
+    if (people.length !== 1 || properties.length !== 1 || brokers.length !== 1) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'resolution-mismatch',
+          counts: {
+            jessicaPeople: people.length,
+            seaToSoulProperties: properties.length,
+            activeLisaUsers: brokers.length,
+          },
+          databaseTarget: target,
+        },
+        { status: 409 },
+      )
     }
 
     const personId = String(people[0].id)
     const propertyId = String(properties[0].id)
     const brokerUserId = String(brokers[0].id)
 
-    const existing = await tx`
+    const existing = await sql`
       select id, template_id, template_version, status, person_id, property_id,
         field_values, created_at, updated_at
       from document_form_instance
@@ -86,19 +91,24 @@ export async function GET(request: Request) {
     `
 
     if (existing.length > 1) {
-      throw new Error(`Refusing to proceed: found ${existing.length} matching LISTING-01 v4 forms.`)
+      return NextResponse.json(
+        { ok: false, error: 'duplicate-v4', count: existing.length, databaseTarget: target },
+        { status: 409 },
+      )
     }
 
     if (existing.length === 1) {
       const formId = String(existing[0].id)
-      const participants = await tx`
+      const participants = await sql`
         select id, role, person_id, display_name, sort_order
         from document_form_participant
         where form_instance_id = ${formId}
         order by sort_order asc, id
       `
-      return {
+      return NextResponse.json({
+        ok: true,
         created: false,
+        databaseTarget: target,
         form: existing[0],
         participants,
         resolved: {
@@ -107,66 +117,114 @@ export async function GET(request: Request) {
           brokerUserId,
           propertyLocation: properties[0].location ?? null,
         },
-      }
+      })
     }
 
-    const forms = await tx`
-      insert into document_form_instance (
-        template_id,
-        template_version,
-        deal_id,
-        person_id,
-        property_id,
-        status,
-        field_values,
-        sections,
-        created_by_user_id
-      ) values (
-        'LISTING-01',
-        4,
-        null,
-        ${personId},
-        ${propertyId},
-        'draft',
-        ${JSON.stringify(FIELD_VALUES)}::jsonb,
-        '{}'::jsonb,
-        ${brokerUserId}
+    const rows = await sql`
+      with created_form as (
+        insert into document_form_instance (
+          template_id,
+          template_version,
+          deal_id,
+          person_id,
+          property_id,
+          status,
+          field_values,
+          sections,
+          created_by_user_id
+        ) values (
+          'LISTING-01',
+          4,
+          null,
+          ${personId},
+          ${propertyId},
+          'draft',
+          ${JSON.stringify(FIELD_VALUES)}::jsonb,
+          '{}'::jsonb,
+          ${brokerUserId}
+        )
+        returning id, template_id, template_version, status, deal_id, person_id, property_id,
+          field_values, sections, created_by_user_id, created_at, updated_at
+      ), created_participant as (
+        insert into document_form_participant (
+          form_instance_id, role, person_id, display_name, sort_order
+        )
+        select id, 'SELLER', ${personId}, 'Jessica Iverson', 0
+        from created_form
+        returning id, form_instance_id, role, person_id, display_name, sort_order
       )
-      returning id, template_id, template_version, status, deal_id, person_id, property_id,
-        field_values, sections, created_by_user_id, created_at, updated_at
+      select
+        f.id,
+        f.template_id,
+        f.template_version,
+        f.status,
+        f.deal_id,
+        f.person_id,
+        f.property_id,
+        f.field_values,
+        f.sections,
+        f.created_by_user_id,
+        f.created_at,
+        f.updated_at,
+        p.id as participant_id,
+        p.role as participant_role,
+        p.person_id as participant_person_id,
+        p.display_name as participant_display_name,
+        p.sort_order as participant_sort_order
+      from created_form f
+      join created_participant p on p.form_instance_id = f.id
     `
 
-    if (forms.length !== 1) throw new Error('Form insert did not return exactly one row.')
-    const formId = String(forms[0].id)
-
-    const participants = await tx`
-      insert into document_form_participant (
-        form_instance_id, role, person_id, display_name, sort_order
-      ) values (
-        ${formId}, 'SELLER', ${personId}, 'Jessica Iverson', 0
+    if (rows.length !== 1) {
+      return NextResponse.json(
+        { ok: false, error: 'unexpected-insert-result', count: rows.length, databaseTarget: target },
+        { status: 500 },
       )
-      returning id, form_instance_id, role, person_id, display_name, sort_order
-    `
+    }
 
-    return {
+    const row = rows[0]
+    return NextResponse.json({
+      ok: true,
       created: true,
-      form: forms[0],
-      participants,
+      databaseTarget: target,
+      form: {
+        id: row.id,
+        template_id: row.template_id,
+        template_version: row.template_version,
+        status: row.status,
+        deal_id: row.deal_id,
+        person_id: row.person_id,
+        property_id: row.property_id,
+        field_values: row.field_values,
+        sections: row.sections,
+        created_by_user_id: row.created_by_user_id,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      },
+      participants: [
+        {
+          id: row.participant_id,
+          role: row.participant_role,
+          person_id: row.participant_person_id,
+          display_name: row.participant_display_name,
+          sort_order: row.participant_sort_order,
+        },
+      ],
       resolved: {
         personId,
         propertyId,
         brokerUserId,
         propertyLocation: properties[0].location ?? null,
       },
-    }
-  })
-
-  if (!result.ok) {
+    })
+  } catch (error) {
     return NextResponse.json(
-      { ok: false, error: result.error, databaseTarget: target },
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : 'unknown',
+        databaseTarget: target,
+      },
       { status: 500 },
     )
   }
-
-  return NextResponse.json({ ok: true, databaseTarget: target, ...result.data })
 }
