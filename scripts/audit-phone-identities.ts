@@ -1,5 +1,6 @@
 import { neon } from '@neondatabase/serverless'
 
+async function main() {
 const envArgIndex = process.argv.indexOf('--env')
 const environment = envArgIndex >= 0 ? process.argv[envArgIndex + 1] : 'prod'
 if (environment !== 'prod') {
@@ -107,3 +108,11 @@ console.log(JSON.stringify({
   crossPersonConflicts,
   samePersonDuplicates,
 }, null, 2))
+}
+
+main().catch((error: unknown) => {
+  console.error('[identity-phone-audit] failed', {
+    error: error instanceof Error ? error.message : String(error),
+  })
+  process.exit(1)
+})
