@@ -6,6 +6,7 @@
     "dev": "node scripts/dev-start.mjs",
     "dev:raw": "next dev",
     "contacts:sync:prod": "bash scripts/contacts-sync.sh",
+    "identity:phone:audit:prod": "node --env-file=.env.local --import tsx scripts/audit-phone-identities.ts --env prod",
     "contacts:load:dev": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env dev",
     "contacts:load:prod": "node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts --env prod",
     "contacts:project:dev": "node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts --env dev",
