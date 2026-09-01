@@ -14,6 +14,21 @@ import type {
   TransactionExecutor,
 } from './query-executor'
 
+/**
+ * Semantic phone key used by exact identity ownership lookups.
+ *
+ * Apple relationship evidence stores reliable NANP numbers as ten digits,
+ * while realtime providers correctly supply E.164 (+1 plus ten digits).
+ * Treat those two representations as the same exact identity; leave every
+ * other digit sequence unchanged so international numbers remain exact-only.
+ */
+export function semanticPhoneKey(value: string): string {
+  const digits = value.replace(/\D/g, '')
+  return digits.length === 11 && digits.startsWith('1')
+    ? digits.slice(1)
+    : digits
+}
+
 const runNeonTransaction: TransactionExecutor = async (buildQueries) => {
   const result = await db.transaction('person-identities.tx', async (tx) =>
     Promise.all(buildQueries(tx as QueryExecutor)),
@@ -47,6 +62,10 @@ export async function findIdentityMatches(
   execute: QueryExecutor = sql,
 ): Promise<IdentityMatch[]> {
   const identityType = hint.kind === 'external' ? 'external' : hint.kind
+  const normalizedIdentityValue =
+    hint.kind === 'phone'
+      ? semanticPhoneKey(hint.normalizedValue)
+      : hint.normalizedValue
   const sourceSystem = hint.kind === 'external' ? hint.sourceSystem : null
 
   const rows = await execute`
@@ -59,12 +78,16 @@ export async function findIdentityMatches(
     where pi.identity_type = ${identityType}
       and (
         (${identityType} = 'phone'
-          and regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
-            = regexp_replace(${hint.normalizedValue}, '[^0-9]', '', 'g'))
+          and (case
+            when length(regexp_replace(pi.identity_value, '[^0-9]', '', 'g')) = 11
+              and left(regexp_replace(pi.identity_value, '[^0-9]', '', 'g'), 1) = '1'
+            then substring(regexp_replace(pi.identity_value, '[^0-9]', '', 'g') from 2)
+            else regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
+          end) = ${normalizedIdentityValue})
         or (${identityType} = 'email'
-          and lower(trim(pi.identity_value)) = lower(trim(${hint.normalizedValue})))
+          and lower(trim(pi.identity_value)) = lower(trim(${normalizedIdentityValue})))
         or (${identityType} <> 'phone' and ${identityType} <> 'email'
-          and pi.identity_value = ${hint.normalizedValue})
+          and pi.identity_value = ${normalizedIdentityValue})
       )
       and (${sourceSystem}::text is null or pi.source_system = ${sourceSystem})
       and p.archived_at is null
@@ -103,6 +126,10 @@ export async function findIdentityOwnerships(
   execute: QueryExecutor = sql,
 ): Promise<IdentityOwnership[]> {
   const identityType = hint.kind === 'external' ? 'external' : hint.kind
+  const normalizedIdentityValue =
+    hint.kind === 'phone'
+      ? semanticPhoneKey(hint.normalizedValue)
+      : hint.normalizedValue
   const sourceSystem = hint.kind === 'external' ? hint.sourceSystem : null
 
   const rows = await execute`
@@ -116,12 +143,16 @@ export async function findIdentityOwnerships(
     where pi.identity_type = ${identityType}
       and (
         (${identityType} = 'phone'
-          and regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
-            = regexp_replace(${hint.normalizedValue}, '[^0-9]', '', 'g'))
+          and (case
+            when length(regexp_replace(pi.identity_value, '[^0-9]', '', 'g')) = 11
+              and left(regexp_replace(pi.identity_value, '[^0-9]', '', 'g'), 1) = '1'
+            then substring(regexp_replace(pi.identity_value, '[^0-9]', '', 'g') from 2)
+            else regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
+          end) = ${normalizedIdentityValue})
         or (${identityType} = 'email'
-          and lower(trim(pi.identity_value)) = lower(trim(${hint.normalizedValue})))
+          and lower(trim(pi.identity_value)) = lower(trim(${normalizedIdentityValue})))
         or (${identityType} <> 'phone' and ${identityType} <> 'email'
-          and pi.identity_value = ${hint.normalizedValue})
+          and pi.identity_value = ${normalizedIdentityValue})
       )
       and (${sourceSystem}::text is null or pi.source_system = ${sourceSystem})
     order by pi.person_id, pi.id
