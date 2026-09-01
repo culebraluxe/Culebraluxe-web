@@ -1,5 +1,3 @@
-import { db, sql } from '../db/client'
-import { refreshClientReadModels } from '../db/client-read-models'
 import type { QueryExecutor } from '../db/query-executor'
 
 type Owner = {
@@ -127,6 +125,22 @@ async function main() {
   }
 
   process.env.APP_ENV = 'production'
+
+  // Import the database only after APP_ENV is set. db/client constructs its
+  // underlying Neon executor at module initialization, so a static import here
+  // could silently bind this PROD-only command to DATABASE_URL_DEV.
+  const [{ db, sql, dbTargetInfo }, { refreshClientReadModels }] =
+    await Promise.all([
+      import('../db/client'),
+      import('../db/client-read-models'),
+    ])
+  const databaseTarget = dbTargetInfo()
+  if (databaseTarget.target !== 'prod') {
+    throw new Error(
+      `Refusing cleanup: resolved database target is "${databaseTarget.target}", not "prod".`,
+    )
+  }
+
   const beforeGroups = await loadGroups(sql)
   const before = report(beforeGroups)
 
@@ -134,6 +148,7 @@ async function main() {
     console.log(JSON.stringify({
       env: 'prod',
       mode: 'dry-run',
+      databaseTarget,
       ...before,
     }, null, 2))
     console.log(
@@ -240,6 +255,7 @@ async function main() {
   console.log(JSON.stringify({
     env: 'prod',
     mode: 'applied',
+    databaseTarget,
     before: {
       safeGroups: before.safeGroups,
       rowsToNormalize: before.rowsToNormalize,
