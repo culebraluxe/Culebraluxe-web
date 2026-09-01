@@ -21,6 +21,11 @@ export const metadata: Metadata = {
   description:
     'CulebraLuxe presents an editorial collection of architectural estates and beachfront residences on the island of Culebra, Puerto Rico.',
   generator: 'v0.app',
+  verification: {
+    other: {
+      'facebook-domain-verification': '1nsqctxrasun6x2w1eo9gy8y577dyp',
+    },
+  },
   icons: {
     icon: [
       {
