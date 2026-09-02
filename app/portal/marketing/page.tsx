@@ -1,10 +1,10 @@
 import { MarketingDashboard } from '@/components/portal/marketing/marketing-dashboard'
 import {
-  expireStalePlacements,
   getMarketingDashboard,
   listPlacements,
   listRecentSyndicationEvents,
 } from '@/db/syndication'
+import { expireStalePlacements } from '@/db/syndication-expire'
 import { facebookReadiness } from '@/lib/syndication/env'
 
 export const dynamic = 'force-dynamic'
