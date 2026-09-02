@@ -190,6 +190,35 @@ async function main() {
       for (const loser of losers) {
         await tx`insert into person_phone_merge_map (loser, winner) values (${loser}, ${winner}) on conflict (loser) do update set winner = excluded.winner`
 
+        // Preserve canonical Person business state before archiving the loser.
+        // Phone formatting is never allowed to erase a real buyer/seller role or
+        // the richer profile fields accumulated on an older Person.
+        await tx`
+          update person survivor
+          set
+            role = case
+              when survivor.role = loser.role then survivor.role
+              when survivor.role = 'unclassified' then loser.role
+              when loser.role = 'unclassified' then survivor.role
+              when survivor.role = 'both' or loser.role = 'both' then 'both'
+              when survivor.role in ('buyer', 'seller') and loser.role in ('buyer', 'seller') then 'both'
+              else survivor.role
+            end,
+            location = coalesce(survivor.location, loser.location),
+            budget_min = coalesce(survivor.budget_min, loser.budget_min),
+            budget_max = coalesce(survivor.budget_max, loser.budget_max),
+            preferred_areas = coalesce(survivor.preferred_areas, loser.preferred_areas),
+            property_types = coalesce(survivor.property_types, loser.property_types),
+            priorities = coalesce(survivor.priorities, loser.priorities),
+            timeline = coalesce(survivor.timeline, loser.timeline),
+            notes = coalesce(survivor.notes, loser.notes),
+            assigned_user_id = coalesce(survivor.assigned_user_id, loser.assigned_user_id),
+            updated_at = now()
+          from person loser
+          where survivor.id = ${winner}
+            and loser.id = ${loser}
+        `
+
         await tx`
           update person_identity
           set person_id = ${winner}, updated_at = now()
@@ -216,13 +245,19 @@ async function main() {
             where c.contype = 'f'
               and c.confrelid = 'person'::regclass
               and c.conrelid <> 'person_identity'::regclass
+              and cardinality(c.conkey) = 1
           loop
             for m in select loser, winner from person_phone_merge_map loop
               begin
                 execute format('update %s set %I = $1 where %I = $2', fk.table_name, fk.column_name, fk.column_name)
                   using m.winner, m.loser;
               exception when unique_violation then
-                null;
+                raise exception using
+                  errcode = '23505',
+                  message = format(
+                    'Phone Person consolidation blocked by uniqueness constraint at %s.%s (loser=%s winner=%s)',
+                    fk.table_name, fk.column_name, m.loser, m.winner
+                  );
               end;
             end loop;
           end loop;
