@@ -104,6 +104,10 @@ test('F: Client directory freshness uses relationship/source state as authoritat
     'Apple Messages intake refreshes all client read models in dependency-safe order',
   )
   assert.ok(intake.includes("argv.includes('--evidence-only')"), 'targeted evidence repair mode exists')
+  assert.ok(
+    intake.includes('having sum(coalesce(inbound_count, 0) + coalesce(outbound_count, 0)) > 0'),
+    'repair verification intentionally omits zero-activity evidence just like the relationship MV',
+  )
 })
 
 test('G: primary Client History panel renders six compact latest-activity source rows', () => {
