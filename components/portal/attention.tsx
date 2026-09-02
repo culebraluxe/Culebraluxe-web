@@ -10,7 +10,9 @@ import { ContactActions } from "@/components/portal/contact-actions"
 import { FollowUpActions } from "@/components/portal/follow-up-actions"
 
 function sourceLabel(source: string): string {
-  return source === "apple_contacts" ? "Apple" : source === "gmail_contacts" ? "Gmail" : source
+  if (source === "apple_contacts") return "Apple"
+  if (["gmail_contacts", "gmail", "icloud_mail", "email"].includes(source)) return "Email"
+  return source
 }
 
 // REL-INTEL — deterministic, human-readable relationship context line.
