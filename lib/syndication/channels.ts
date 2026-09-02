@@ -1,7 +1,8 @@
 export const SYNDICATION_CHANNELS = [
   'culebraluxe',
-  'clasificados',
   'facebook_marketplace',
+  'stellar_mls',
+  'clasificados',
   'pr_mls',
   'amplia_mls',
   'zillow_fsbo',
@@ -42,6 +43,26 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
     defaultTtlDays: null,
     notes: 'Canonical public listing. Driven by property.is_published.',
   },
+  facebook_marketplace: {
+    id: 'facebook_marketplace',
+    label: 'Facebook Marketplace + catalog',
+    shortLabel: 'Facebook',
+    mode: 'api',
+    readiness: 'stub',
+    defaultTtlDays: 30,
+    notes:
+      'Builds Graph home_listing + Page feed payloads. Live POST only when META_* tokens and SYNDICATION_LIVE=true. Marketplace consumer post is still a pack.',
+  },
+  stellar_mls: {
+    id: 'stellar_mls',
+    label: 'PRAR + Stellar MLS',
+    shortLabel: 'Stellar',
+    mode: 'mls',
+    readiness: 'pack',
+    defaultTtlDays: null,
+    notes:
+      'No public write API. Adapter emits a RESO Property payload + Matrix distribution checklist. Zillow/Realtor.com ride this feed.',
+  },
   clasificados: {
     id: 'clasificados',
     label: 'ClasificadosOnline',
@@ -51,23 +72,14 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
     defaultTtlDays: 40,
     notes: 'No publisher API. Generate pack, paste once, confirm the live URL.',
   },
-  facebook_marketplace: {
-    id: 'facebook_marketplace',
-    label: 'Facebook Marketplace',
-    shortLabel: 'Marketplace',
-    mode: 'copy_pack',
-    readiness: 'pack',
-    defaultTtlDays: 30,
-    notes: 'Page listing for now. Graph publish later — Business certified + Tech Partner.',
-  },
   pr_mls: {
     id: 'pr_mls',
-    label: 'PR Realtors MLS',
+    label: 'PR Realtors MLS (legacy id)',
     shortLabel: 'PR MLS',
-    mode: 'mls',
+    mode: 'blocked',
     readiness: 'blocked',
     defaultTtlDays: null,
-    notes: 'Requires PRAR / board membership. License alone is not enough.',
+    notes: 'Use Stellar. This id stays so old ledger rows still validate.',
   },
   amplia_mls: {
     id: 'amplia_mls',
@@ -76,16 +88,16 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
     mode: 'mls',
     readiness: 'stub',
     defaultTtlDays: null,
-    notes: 'Possible PR-license path to portals. Confirm syndication in writing.',
+    notes: 'Optional extra. Not the flagship path. Confirm portal feed in writing.',
   },
   zillow_fsbo: {
     id: 'zillow_fsbo',
     label: 'Zillow FSBO',
-    shortLabel: 'Zillow',
+    shortLabel: 'Zillow FSBO',
     mode: 'copy_pack',
     readiness: 'pack',
     defaultTtlDays: null,
-    notes: 'Manual owner card only. Full Zillow search needs an MLS feed.',
+    notes: 'Fallback owner card only. Prefer Stellar syndication onto Zillow.',
   },
   realtor_com: {
     id: 'realtor_com',
@@ -94,7 +106,7 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
     mode: 'blocked',
     readiness: 'blocked',
     defaultTtlDays: null,
-    notes: 'MLS-only. No direct broker upload.',
+    notes: 'MLS-only. Comes from Stellar distribution, not a broker upload.',
   },
   hubspot: {
     id: 'hubspot',
@@ -103,7 +115,7 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
     mode: 'api',
     readiness: 'stub',
     defaultTtlDays: null,
-    notes: 'Sibling CRM. Account exists; this ledger does not write into HubSpot yet.',
+    notes: 'Builds a listing object payload. Live write only with HUBSPOT_ACCESS_TOKEN + SYNDICATION_LIVE.',
   },
 }
 

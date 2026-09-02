@@ -24,6 +24,17 @@ export type ListingSource = {
   imageCount: number
 }
 
+export type TransportAttempt = {
+  kind: string
+  dryRun: boolean
+  liveEnabled: boolean
+  method: string
+  endpoint: string
+  payload: Record<string, unknown>
+  missingEnv: string[]
+  response?: Record<string, unknown>
+}
+
 export type ListingPack = {
   channel: SyndicationChannel
   titleEs: string
@@ -38,6 +49,7 @@ export type ListingPack = {
   photoHint: string
   instructions: string
   pasteTargetUrl: string | null
+  transport?: TransportAttempt | null
 }
 
 export type AdapterResult = {
@@ -47,6 +59,8 @@ export type AdapterResult = {
   pack: ListingPack
   message: string
   ttlDays: number | null
+  externalId?: string | null
+  transport?: TransportAttempt | null
 }
 
 export type PlacementRow = {
