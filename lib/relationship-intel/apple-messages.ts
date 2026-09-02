@@ -113,9 +113,23 @@ export function buildMessagesRelationshipEvidence(exportData: AppleMessagesExpor
     ;(byHandle.get(m.handleId) ?? byHandle.set(m.handleId, []).get(m.handleId)!).push(m)
   }
 
-  const out: Array<{ evidence: RelationshipEvidence; fingerprint: string }> = []
+  // chat.db can contain multiple numeric handle rows for the same textual
+  // identity. Relationship evidence is uniquely keyed by that textual value,
+  // so aggregate all matching rowids before upsert; otherwise the last rowid
+  // silently overwrites the counts produced by the earlier rowids.
+  const handlesByIdentity = new Map<string, AppleMessagesHandle[]>()
   for (const handle of exportData.handles) {
-    const messages = byHandle.get(handle.rowid) ?? []
+    const group = handlesByIdentity.get(handle.id) ?? []
+    group.push(handle)
+    handlesByIdentity.set(handle.id, group)
+  }
+
+  const out: Array<{ evidence: RelationshipEvidence; fingerprint: string }> = []
+  for (const groupedHandles of handlesByIdentity.values()) {
+    const handle = groupedHandles[0]
+    const messages = groupedHandles
+      .flatMap((h) => byHandle.get(h.rowid) ?? [])
+      .filter((m) => !isGroupChatGuid(m.chatGuid))
     const { emails, phones } = handleToIdentities(handle.id)
 
     let firstObservedAt: string | null = null
@@ -146,7 +160,7 @@ export function buildMessagesRelationshipEvidence(exportData: AppleMessagesExpor
       source: APPLE_MESSAGES_SOURCE,
       sourceAccount: exportData.sourceAccount,
       sourceIdentityKey: handle.id,
-      sourceLabel: handle.service ?? null,
+      sourceLabel: groupedHandles.find((h) => h.service)?.service ?? null,
       displayName: null,
       organization: null,
       emails,
@@ -185,4 +199,3 @@ export function buildMessagesRelationshipEvidence(exportData: AppleMessagesExpor
   }
   return out
 }
-
