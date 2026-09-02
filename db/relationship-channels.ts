@@ -27,6 +27,7 @@ type RelationshipChannelDbRow = {
   last_context: string | null
   last_context_at: string | null
   last_context_type: string | null
+  last_context_direction: 'inbound' | 'outbound' | null
 }
 
 /** Normalize a Postgres timestamptz (Date), ISO string, or null to ISO or null. */
@@ -52,7 +53,7 @@ export async function getClientRelationshipChannels(
       first_observed_at, last_contact_at, last_inbound_at, last_outbound_at,
       inbound_count, outbound_count, total_count,
       last_direction, two_way,
-      last_context, last_context_at, last_context_type
+      last_context, last_context_at, last_context_type, last_context_direction
     from mv_client_relationship_channels
     where person_id = ${personId}
     order by last_contact_at desc nulls last, source asc
@@ -74,5 +75,6 @@ export async function getClientRelationshipChannels(
     lastContext: r.last_context,
     lastContextAt: toIso(r.last_context_at),
     lastContextType: r.last_context_type,
+    lastContextDirection: r.last_context_direction,
   }))
 }
