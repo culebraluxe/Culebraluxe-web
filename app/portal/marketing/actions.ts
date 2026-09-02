@@ -6,11 +6,13 @@ import { redirect } from 'next/navigation'
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import {
+  addSighting,
   confirmPlacement,
   requestPublishMany,
   withdrawPlacement,
 } from '@/db/syndication'
-import { isSyndicationChannel } from '@/lib/syndication/channels'
+import type { SightingNetwork } from '@/lib/syndication/types'
+import { isPrepareChannel } from '@/lib/syndication/channels'
 
 export type MarketingWriteState = {
   ok: boolean
@@ -42,7 +44,7 @@ export async function publishListingsAction(
   const channels = formData
     .getAll('channel')
     .map((value) => String(value))
-    .filter(isSyndicationChannel)
+    .filter(isPrepareChannel)
 
   const result = await requestPublishMany({ propertyId, channels })
   revalidateMarketing()
@@ -90,4 +92,26 @@ export async function withdrawPlacementAction(
   revalidateMarketing()
   if (!result.ok) return { ok: false, error: result.error }
   return { ok: true, message: 'Placement withdrawn.' }
+}
+
+const SIGHTING_NETWORKS: readonly SightingNetwork[] = ['zillow', 'realtor_com', 'homes_com', 'other']
+
+/** Record where a listing was observed (V3 §2.3). Never creates a placement. */
+export async function addSightingAction(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const propertyId = String(formData.get('propertyId') ?? '').trim()
+  const network = String(formData.get('network') ?? '')
+  const url = String(formData.get('url') ?? '').trim()
+  const notes = String(formData.get('notes') ?? '').trim() || null
+  if (!propertyId || !url) return { ok: false, error: 'Choose a listing and paste a URL.' }
+  if (!(SIGHTING_NETWORKS as readonly string[]).includes(network)) {
+    return { ok: false, error: 'Unknown network.' }
+  }
+  const result = await addSighting({ propertyId, network: network as SightingNetwork, url, notes })
+  revalidateMarketing()
+  if (!result.ok) return { ok: false, error: result.error }
+  return { ok: true, message: 'Sighting noted — pinned to the constellation.' }
 }

@@ -2,11 +2,14 @@ import { sql } from './client'
 import { CHANNEL_CATALOG, type SyndicationChannel } from '@/lib/syndication/channels'
 import { runAdapter } from '@/lib/syndication/adapters'
 import { buildPhotoManifest, type PhotoDbRow } from '@/lib/syndication/photos'
+import { computeListingSourceHash } from '@/lib/syndication/hash'
 import type {
   ListingPack,
   ListingSource,
   PhotoManifestItem,
   PlacementRow,
+  SightingNetwork,
+  SightingRow,
   SyndicationEventRow,
 } from '@/lib/syndication/types'
 
@@ -144,6 +147,7 @@ function mapPlacement(row: {
   status: PlacementRow['status']; publish_mode: PlacementRow['publishMode']
   external_url: string | null; external_id: string | null
   pack: ListingPack | Record<string, never> | null; last_error: string | null
+  source_hash: string | null
   published_at: string | null; expires_at: string | null; confirmed_at: string | null
   last_attempt_at: string | null; updated_at: string | null
 }): PlacementRow {
@@ -151,7 +155,8 @@ function mapPlacement(row: {
     id: row.id, propertyId: row.property_id, propertyName: row.property_name,
     channel: row.channel, status: row.status, publishMode: row.publish_mode,
     externalUrl: row.external_url, externalId: row.external_id, pack: row.pack ?? {},
-    lastError: row.last_error, publishedAt: row.published_at, expiresAt: row.expires_at,
+    lastError: row.last_error, sourceHash: row.source_hash,
+    publishedAt: row.published_at, expiresAt: row.expires_at,
     confirmedAt: row.confirmed_at, lastAttemptAt: row.last_attempt_at, updatedAt: row.updated_at,
   }
 }
@@ -160,7 +165,7 @@ export async function listPlacements(): Promise<PlacementRow[]> {
   try {
     const rows = (await sql`
       select s.id, s.property_id, p.name as property_name, s.channel, s.status,
-        s.publish_mode, s.external_url, s.external_id, s.pack, s.last_error,
+        s.publish_mode, s.external_url, s.external_id, s.pack, s.last_error, s.source_hash,
         to_char(s.published_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as published_at,
         to_char(s.expires_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY') as expires_at,
         to_char(s.confirmed_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as confirmed_at,
@@ -215,6 +220,7 @@ export async function requestPublish(input: {
   if (!source) return { ok: false, error: 'Property not found.' }
   const result = await runAdapter(source, input.channel)
   const def = CHANNEL_CATALOG[input.channel]
+  const sourceHash = computeListingSourceHash(source)
   const expiresAt = result.ttlDays != null
     ? new Date(Date.now() + result.ttlDays * 24 * 60 * 60 * 1000).toISOString() : null
   const publishedAt = result.status === 'live' ? new Date().toISOString() : null
@@ -224,11 +230,13 @@ export async function requestPublish(input: {
     const rows = (await sql`
       insert into listing_syndication_placement (
         property_id, channel, status, publish_mode, pack, last_error,
-        last_attempt_at, published_at, expires_at, external_url, external_id, updated_at
+        last_attempt_at, published_at, expires_at, external_url, external_id,
+        source_hash, updated_at
       ) values (
         ${input.propertyId}, ${input.channel}, ${result.status}, ${result.mode},
         ${JSON.stringify(result.pack)}, ${result.ok ? null : result.message}, now(),
-        ${publishedAt}, ${expiresAt}, ${input.externalUrl ?? null}, ${result.externalId ?? null}, now()
+        ${publishedAt}, ${expiresAt}, ${input.externalUrl ?? null}, ${result.externalId ?? null},
+        ${sourceHash}, now()
       )
       on conflict (property_id, channel) do update set
         status = excluded.status, publish_mode = excluded.publish_mode,
@@ -238,6 +246,7 @@ export async function requestPublish(input: {
         expires_at = excluded.expires_at,
         external_url = coalesce(excluded.external_url, listing_syndication_placement.external_url),
         external_id = coalesce(excluded.external_id, listing_syndication_placement.external_id),
+        source_hash = excluded.source_hash,
         updated_at = now()
       returning id
     `) as Array<{ id: string }>
@@ -331,6 +340,72 @@ export async function listRecentSyndicationEvents(limit = 16): Promise<
       id: row.id, placementId: row.placement_id, eventType: row.event_type,
       detail: row.detail ?? {}, createdAt: row.created_at, channel: row.channel,
       propertyName: row.property_name,
+    }))
+  } catch {
+    return []
+  }
+}
+
+const SIGHTING_NETWORKS: readonly SightingNetwork[] = ['zillow', 'realtor_com', 'homes_com', 'other']
+
+/**
+ * Record an observed destination (V3 §2.3). A pasted public URL — this is NOT a
+ * Publish action and never creates a placement.
+ */
+export async function addSighting(input: {
+  propertyId: string
+  network: SightingNetwork
+  url: string
+  notes?: string | null
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!SIGHTING_NETWORKS.includes(input.network)) {
+    return { ok: false, error: `Unknown network: ${input.network}` }
+  }
+  try {
+    await sql`
+      insert into listing_syndication_sighting (property_id, network, url, notes)
+      values (${input.propertyId}, ${input.network}, ${input.url}, ${input.notes ?? null})
+    `
+    return { ok: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sighting write failed.'
+    return {
+      ok: false,
+      error: message.includes('does not exist') ? 'Migration 101 is not applied yet.' : message,
+    }
+  }
+}
+
+export async function listSightings(propertyId?: string): Promise<SightingRow[]> {
+  try {
+    const rows = (propertyId
+      ? await sql`
+          select id, property_id, network, url, notes,
+            to_char(noted_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as noted_at
+          from listing_syndication_sighting
+          where property_id = ${propertyId}
+          order by noted_at desc
+        `
+      : await sql`
+          select id, property_id, network, url, notes,
+            to_char(noted_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as noted_at
+          from listing_syndication_sighting
+          order by noted_at desc
+        `) as Array<{
+      id: string
+      property_id: string
+      network: SightingNetwork
+      url: string
+      notes: string | null
+      noted_at: string | null
+    }>
+    return rows.map((row) => ({
+      id: row.id,
+      propertyId: row.property_id,
+      network: row.network,
+      url: row.url,
+      notedAt: row.noted_at,
+      notes: row.notes,
     }))
   } catch {
     return []

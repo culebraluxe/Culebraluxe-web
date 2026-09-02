@@ -122,3 +122,39 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
 export function isSyndicationChannel(value: string): value is SyndicationChannel {
   return (SYNDICATION_CHANNELS as readonly string[]).includes(value)
 }
+
+// ---------------------------------------------------------------------------
+// Channel honesty (V3 §1). Only channels CulebraLuxe can actually reach are
+// Prepare targets. Zillow/Realtor.com are NOT upload targets — they ingest an
+// MLS feed (Stellar). They stay in the enum/ledger so old rows validate, but
+// must never appear as a Prepare checkbox. Single source shared by the UI and
+// the server action.
+// ---------------------------------------------------------------------------
+
+/** The only channels that may appear as a Prepare checkbox / target. */
+export const PREPARE_CHANNELS: readonly SyndicationChannel[] = [
+  'culebraluxe',
+  'stellar_mls',
+  'facebook_marketplace',
+  'clasificados',
+]
+
+const PREPARE_ALLOWED = new Set<string>(PREPARE_CHANNELS)
+
+export function isPrepareChannel(value: string): value is SyndicationChannel {
+  return PREPARE_ALLOWED.has(value)
+}
+
+/**
+ * Copy shown in the workbench strip. Zillow / Realtor.com / Homes.com are never
+ * upload targets here.
+ */
+export const REACHES_VIA_STELLAR_NOTE =
+  'Zillow, Realtor.com, and Homes.com are not upload targets. They update when this listing is live in Stellar and distribution is on. Paste a public URL later to pin it on the constellation.'
+
+/** Blocked / not-this-quarter channels hidden behind a collapsed group. */
+export const MORE_CHANNELS: readonly SyndicationChannel[] = [
+  'amplia_mls',
+  'hubspot',
+  'pr_mls',
+]

@@ -97,6 +97,19 @@ export type PlacementRow = {
   confirmedAt: string | null
   lastAttemptAt: string | null
   updatedAt: string | null
+  /** Root-fact fingerprint captured at last prepare (V3 §2.1). */
+  sourceHash: string | null
+}
+
+export type SightingNetwork = 'zillow' | 'realtor_com' | 'homes_com' | 'other'
+
+export type SightingRow = {
+  id: string
+  propertyId: string
+  network: SightingNetwork
+  url: string
+  notedAt: string | null
+  notes: string | null
 }
 
 export type SyndicationEventRow = {

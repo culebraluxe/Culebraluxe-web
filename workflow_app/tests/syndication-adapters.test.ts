@@ -2,7 +2,8 @@ import { describe, it, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { runAdapter } from '../../lib/syndication/adapters'
-import { CHANNEL_CATALOG } from '../../lib/syndication/channels'
+import { CHANNEL_CATALOG, PREPARE_CHANNELS, isPrepareChannel } from '../../lib/syndication/channels'
+import { computeListingSourceHash, isSourceStale } from '../../lib/syndication/hash'
 import {
   buildFacebookHomeListingPayload,
   buildFacebookMarketplaceItemBatch,
@@ -237,5 +238,33 @@ describe('stellar + clasificados', () => {
     assert.match(result.pack.bodyEs, /Detalle/)
     assert.match(result.pack.bodyEs, /Flamenco/)
     assert.equal(result.pack.transport, null)
+  })
+})
+
+describe('honesty + root fingerprint (V3 §1 / §2.1)', () => {
+  it('Prepare channels exclude zillow_fsbo and realtor_com', () => {
+    for (const id of ['culebraluxe', 'stellar_mls', 'facebook_marketplace', 'clasificados']) {
+      assert.equal(isPrepareChannel(id), true, `${id} should be Prepare-able`)
+    }
+    assert.ok(!PREPARE_CHANNELS.includes('zillow_fsbo'), 'Zillow must not be a Prepare target')
+    assert.ok(!PREPARE_CHANNELS.includes('realtor_com'), 'Realtor.com must not be a Prepare target')
+    assert.equal(isPrepareChannel('zillow_fsbo'), false)
+    assert.equal(isPrepareChannel('realtor_com'), false)
+    assert.equal(isPrepareChannel('hubspot'), false)
+  })
+
+  it('source hash changes with price/facts and flags a stale pack', () => {
+    const base = makeSource()
+    const hash = computeListingSourceHash(base)
+    assert.match(hash, /^sh_[0-9a-f]+$/)
+    assert.equal(isSourceStale(base, hash), false)
+    // price change invalidates the saved pack
+    assert.equal(isSourceStale(makeSource({ listPrice: 1900000 }), hash), true)
+    // bedroom change invalidates
+    assert.equal(isSourceStale(makeSource({ bedrooms: 5 }), hash), true)
+    // publish toggle invalidates
+    assert.equal(isSourceStale(makeSource({ isPublished: false }), hash), true)
+    // null stored hash is never stale
+    assert.equal(isSourceStale(makeSource({ listPrice: 1900000 }), null), false)
   })
 })
