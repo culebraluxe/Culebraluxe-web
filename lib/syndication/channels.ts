@@ -48,10 +48,10 @@ export const CHANNEL_CATALOG: Record<SyndicationChannel, ChannelDefinition> = {
     label: 'Facebook Marketplace + catalog',
     shortLabel: 'Facebook',
     mode: 'api',
-    readiness: 'stub',
+    readiness: 'pack',
     defaultTtlDays: 30,
     notes:
-      'Builds Graph home_listing + Page feed payloads. Live POST only when META_* tokens and SYNDICATION_LIVE=true. Marketplace consumer post is still a pack.',
+      'Builds Graph home_listing + Page feed payloads for dry-run. Live POST only when META_* tokens and SYNDICATION_LIVE=true. Page /feed works first; catalog id optional until granted.',
   },
   stellar_mls: {
     id: 'stellar_mls',

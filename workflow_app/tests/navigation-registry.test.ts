@@ -121,22 +121,25 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'P&L Statement',
       'Receipt Scanner',
     ],
+    MARKETING: [
+      'Dashboard',
+      'Syndication',
+    ],
     TECH: [
       'Tech Overview',
       'Command Center',
       'Story Board',
       'Command Console',
       'UI Lab',
-      'DB Test',
       'Media Test',
       'Flight Recorder',
       'GROK',
     ],
-    SUPPORT: ['System Health', 'Security'],
+    SUPPORT: ['System Health', 'DB Test', 'WhatsApp Diagnostic', 'Security'],
   }
   assert.deepEqual(
     OPERATING_SURFACE_ORDER.map((s) => OPERATING_SURFACES[s].label),
-    ['CORE', 'ACCOUNTING', 'OPPS', 'SUPPORT', 'TECH'],
+    ['CORE', 'ACCOUNTING', 'MARKETING', 'OPPS', 'SUPPORT', 'TECH'],
   )
   for (const surface of OPERATING_SURFACE_ORDER) {
     const labels = navigationForSurface(surface).map((item) => item.label)
@@ -153,6 +156,7 @@ test('UI-01: surface homes are stable and belong to their surface', () => {
     [
       '/portal/dashboard',
       '/portal/accounting',
+      '/portal/marketing',
       '/portal/needs-review',
       '/portal/system-health',
       '/portal/tech',

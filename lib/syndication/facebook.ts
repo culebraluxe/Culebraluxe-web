@@ -136,7 +136,10 @@ export function facebookTransportPlan(source: ListingSource): TransportAttempt {
     ? `https://graph.facebook.com/${GRAPH_VERSION()}/${pageId}/feed`
     : `https://graph.facebook.com/${GRAPH_VERSION()}/{META_PAGE_ID}/feed`
 
-  const liveAttempt = live && !!(token && catalogId) && source.photos.length > 0
+  // Live = SYNDICATION_LIVE + a Page token + at least one real write target
+  // (Page /feed OR catalog) + photos. Page /feed is the write that works first;
+  // the catalog home_listings POST stays optional until Chris creates it.
+  const liveAttempt = live && !!token && (!!catalogId || !!pageId) && source.photos.length > 0
 
   return {
     kind: 'meta.home_listings+page_feed',
@@ -149,9 +152,9 @@ export function facebookTransportPlan(source: ListingSource): TransportAttempt {
       page_feed: { endpoint: feedEndpoint, body: buildFacebookPageFeedPayload(source) },
       marketplace_items_batch: buildFacebookMarketplaceItemBatch(source),
       notes: [
-        'home_listings writes a Real Estate catalog item used by Advantage+ catalog ads and Commerce.',
-        'Page /feed is the reliable Graph write you can turn on today with a Page token from the Tech Provider app.',
-        'Marketplace items_batch is NOT posted unless META_MARKETPLACE_PARTNER=true (partner listing type real_estate grant).',
+        'Page /feed is the primary write and works first — POST it as soon as a Page token exists.',
+        'Catalog home_listings is optional: skipped until META_PRODUCT_CATALOG_ID is set (Chris creates the catalog).',
+        'Marketplace items_batch is never POSTed by default.',
       ],
     },
     missingEnv: missing,
@@ -184,13 +187,15 @@ function is2xx(outcome: PostOutcome | undefined | null): boolean {
 
 export type FacebookLiveResult =
   | { status: 'dry_run'; reason: string }
-  | { status: 'live'; homeListings: PostOutcome; pageFeed: PostOutcome }
+  | { status: 'live'; homeListings: PostOutcome | null; pageFeed: PostOutcome }
   | { status: 'partial'; homeListings: PostOutcome; pageFeed: PostOutcome | null }
-  | { status: 'failed'; homeListings: PostOutcome; pageFeed: PostOutcome | null }
+  | { status: 'failed'; homeListings: PostOutcome | null; pageFeed: PostOutcome | null }
 
 /**
- * Live order: (1) catalog home_listings, (2) Page /feed. Never items_batch.
- * With no photos we refuse to POST (zero network calls) even when live.
+ * Live order: (1) catalog home_listings (only when META_PRODUCT_CATALOG_ID is
+ * set), (2) Page /feed (only when META_PAGE_ID is set). items_batch is never
+ * POSTed. With no photos we refuse to POST (zero network calls) even when live.
+ * A successful Page /feed alone is enough to mark the placement live.
  */
 export async function maybePostFacebook(transport: TransportAttempt): Promise<TransportAttempt> {
   const payload = transport.payload as Record<string, unknown>
@@ -229,19 +234,26 @@ export async function maybePostFacebook(transport: TransportAttempt): Promise<Tr
     }
   }
 
-  const homeListings = await graphPost(transport.endpoint, homeListing, token)
-  const pageFeed =
-    feedEndpoint && !feedEndpoint.includes('{') && feed.body
-      ? await graphPost(feedEndpoint, feed.body, token)
-      : null
+  // Only POST to a real endpoint — placeholder URLs (missing env) are skipped.
+  const catalogReady = !transport.endpoint.includes('{')
+  const feedReady = !!(feedEndpoint && !feedEndpoint.includes('{') && feed.body)
+
+  let homeListings: PostOutcome | null = null
+  let pageFeed: PostOutcome | null = null
+  if (catalogReady) homeListings = await graphPost(transport.endpoint, homeListing, token)
+  if (feedReady && feedEndpoint && feed.body) {
+    pageFeed = await graphPost(feedEndpoint, feed.body, token)
+  }
 
   let result: FacebookLiveResult
   if (is2xx(pageFeed)) {
     result = { status: 'live', homeListings, pageFeed: pageFeed as PostOutcome }
   } else if (is2xx(homeListings)) {
-    result = { status: 'partial', homeListings, pageFeed }
-  } else {
+    result = { status: 'partial', homeListings: homeListings as PostOutcome, pageFeed }
+  } else if (catalogReady || feedReady) {
     result = { status: 'failed', homeListings, pageFeed }
+  } else {
+    result = { status: 'dry_run', reason: 'no_write_target' }
   }
 
   return { ...transport, dryRun: false, response: result as unknown as Record<string, unknown> }

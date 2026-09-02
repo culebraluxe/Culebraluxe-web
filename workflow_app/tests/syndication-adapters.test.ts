@@ -95,6 +95,8 @@ describe('syndication adapters', () => {
     assert.equal(CHANNEL_CATALOG.stellar_mls.readiness, 'pack')
     assert.equal(CHANNEL_CATALOG.pr_mls.readiness, 'blocked')
     assert.equal(CHANNEL_CATALOG.realtor_com.readiness, 'blocked')
+    // Facebook dry-runs without env, so it is pack-ready, not a stub.
+    assert.equal(CHANNEL_CATALOG.facebook_marketplace.readiness, 'pack')
   })
 
   it('facebook home_listing payload: Culebra city, PR country, real photos not the listing URL', () => {
@@ -177,6 +179,21 @@ describe('facebook network behavior', () => {
     assert.equal(calls[0]?.headers.Authorization, 'Bearer tok-test')
     assert.match(calls[0]?.url ?? '', /\/home_listings$/)
     assert.match(calls[1]?.url ?? '', /\/feed$/)
+    // Page /feed body id is surfaced for persistence onto external_id.
+    assert.equal(result.externalId, 'ok')
+  })
+
+  it('feed-only live: Page /feed works without META_PRODUCT_CATALOG_ID (catalog optional)', async () => {
+    setMetaEnv(true)
+    delete process.env.META_PRODUCT_CATALOG_ID
+    const calls: Array<{ url: string; headers: Record<string, unknown> }> = []
+    stubFetch(calls)
+    const result = await runAdapter(makeSource(), 'facebook_marketplace')
+    assert.equal(result.status, 'live')
+    assert.equal(calls.length, 1, 'only Page feed POSTed when catalog id is absent')
+    assert.match(calls[0]?.url ?? '', /\/feed$/)
+    assert.ok(!(calls[0]?.url ?? '').includes('home_listings'), 'catalog must not be POSTed')
+    assert.equal(result.externalId, 'ok')
   })
 
   it('live POST failure (non-2xx) records failed placement status', async () => {

@@ -74,15 +74,20 @@ export async function runAdapter(
     case 'facebook_marketplace': {
       const planned = facebookTransportPlan(source)
       const transport = await maybePostFacebook(planned)
-      const response = transport.response as { status?: string } | undefined
+      const response = transport.response as {
+        status?: string
+        pageFeed?: { body?: { id?: string; permalink_url?: string } }
+      } | undefined
       const fbStatus = response?.status ?? 'dry_run'
       const noPhotos = source.photos.length === 0
+      // Persist the Graph post id when the Page /feed write succeeded.
+      const graphPostId = response?.pageFeed?.body?.id ?? null
       let status: AdapterResult['status'] = 'pending_manual'
       let message: string
       if (fbStatus === 'live') {
         status = 'live'
         message =
-          'Graph home_listing + Page feed returned 2xx. Confirm the catalog item and paste a Marketplace URL if you also posted manually.'
+          'Page /feed (and catalog when configured) returned 2xx. The Graph post id was saved as the external id.'
       } else if (fbStatus === 'partial') {
         message =
           'Catalog home_listing returned 2xx but the Page feed did not. Confirm the catalog item.'
@@ -93,21 +98,23 @@ export async function runAdapter(
         message = noPhotos
           ? 'No real photos on this listing — Meta cannot ingest it. Add media in Property Admin, then prepare again.'
           : transport.missingEnv.length
-            ? 'Dry-run Graph payloads stored. Set META_ACCESS_TOKEN, META_PRODUCT_CATALOG_ID, META_PAGE_ID and SYNDICATION_LIVE=true to POST. Marketplace consumer create stays a paste pack.'
-            : 'Dry-run stored (SYNDICATION_LIVE not true). Set SYNDICATION_LIVE=true to POST the catalog + Page feed.'
+            ? 'Dry-run Graph payloads stored. Set META_ACCESS_TOKEN and META_PAGE_ID (catalog id optional) and SYNDICATION_LIVE=true to POST. Marketplace consumer create stays a paste pack.'
+            : 'Dry-run stored (SYNDICATION_LIVE not true). Set SYNDICATION_LIVE=true to POST the Page feed.'
       }
-      return packResult(
+      const result = packResult(
         source,
         channel,
         message,
         status,
         [
-          'Preferred automated path: POST /{catalog-id}/home_listings then /{page-id}/feed (Bearer token, never items_batch by default).',
+          'Primary write: POST /{page-id}/feed (Bearer token). Page /feed alone is enough to go live.',
+          'Catalog POST /{catalog-id}/home_listings is optional until META_PRODUCT_CATALOG_ID is set.',
           'Marketplace consumer card: still paste from the Page, then confirm the live URL.',
           'Do not post from a personal profile.',
         ].join(' '),
         transport,
       )
+      return { ...result, externalId: graphPostId }
     }
     case 'stellar_mls': {
       const transport = stellarTransportPlan(source)

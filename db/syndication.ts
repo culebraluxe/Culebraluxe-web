@@ -224,11 +224,11 @@ export async function requestPublish(input: {
     const rows = (await sql`
       insert into listing_syndication_placement (
         property_id, channel, status, publish_mode, pack, last_error,
-        last_attempt_at, published_at, expires_at, external_url, updated_at
+        last_attempt_at, published_at, expires_at, external_url, external_id, updated_at
       ) values (
         ${input.propertyId}, ${input.channel}, ${result.status}, ${result.mode},
         ${JSON.stringify(result.pack)}, ${result.ok ? null : result.message}, now(),
-        ${publishedAt}, ${expiresAt}, ${input.externalUrl ?? null}, now()
+        ${publishedAt}, ${expiresAt}, ${input.externalUrl ?? null}, ${result.externalId ?? null}, now()
       )
       on conflict (property_id, channel) do update set
         status = excluded.status, publish_mode = excluded.publish_mode,
@@ -237,6 +237,7 @@ export async function requestPublish(input: {
         published_at = coalesce(excluded.published_at, listing_syndication_placement.published_at),
         expires_at = excluded.expires_at,
         external_url = coalesce(excluded.external_url, listing_syndication_placement.external_url),
+        external_id = coalesce(excluded.external_id, listing_syndication_placement.external_id),
         updated_at = now()
       returning id
     `) as Array<{ id: string }>
