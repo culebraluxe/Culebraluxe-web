@@ -28,7 +28,7 @@ function sample(): AppleMessagesExport {
 test('apple-messages: phone handle maps to a normalized phone identity', () => {
   const { phones, emails } = handleToIdentities('+1 (787) 555-0134')
   assert.equal(phones.length, 1)
-  assert.equal(phones[0].normalized, '7875550134')
+  assert.equal(phones[0].normalized, '+17875550134')
   assert.equal(emails.length, 0)
 })
 

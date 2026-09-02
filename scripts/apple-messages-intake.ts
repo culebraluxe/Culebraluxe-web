@@ -188,11 +188,16 @@ export async function runAppleMessagesIntake(
 
   const { lookup } = await createInMemoryPersonLookup(execute)
   const reconcileTally: Record<string, number> = {}
+  let reconciledHandles = 0
   await mapLimit(evidenceBuilds, 16, async ({ evidence, fingerprint }) => {
     const id = await upsertRelationshipEvidence(evidence, fingerprint, undefined, execute)
     const decision = await reconcileEvidence(evidence, lookup)
     await recordReconcileDecision(id, decision, execute)
     reconcileTally[decision.reviewState] = (reconcileTally[decision.reviewState] ?? 0) + 1
+    reconciledHandles += 1
+    if (reconciledHandles % 100 === 0 || reconciledHandles === evidenceBuilds.length) {
+      out(`reconcile progress: ${reconciledHandles}/${evidenceBuilds.length} handles`)
+    }
   })
   out('reconcile tally:', JSON.stringify(reconcileTally))
 
@@ -208,7 +213,19 @@ export async function runAppleMessagesIntake(
     await execute`refresh materialized view concurrently mv_client_directory`
     await execute`refresh materialized view concurrently mv_client_contact_history`
   })
-  const materialized = await materializeAppleMessages(exportData, execute, { refresh })
+  const materialized = await materializeAppleMessages(exportData, execute, {
+    refresh,
+    progressEvery: 100,
+    onProgress: (progress) => {
+      out(
+        `message progress: ${progress.processed}/${progress.eventsSeen}`,
+        `inserted=${progress.inserted}`,
+        `replayed=${progress.replayed}`,
+        `skipped=${progress.skippedNoTimestamp + progress.skippedGroupChat}`,
+        `errors=${progress.errors}`,
+      )
+    },
+  })
   out('materialization:', JSON.stringify(materialized))
 
   return {

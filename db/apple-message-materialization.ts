@@ -49,12 +49,23 @@ export type AppleMessageMaterializeResult = {
   errors: number
 }
 
+export type AppleMessageMaterializeProgress = Pick<
+  AppleMessageMaterializeResult,
+  'eventsSeen' | 'inserted' | 'replayed' | 'skippedNoTimestamp' | 'skippedGroupChat' | 'errors'
+> & { processed: number }
+
 export async function materializeAppleMessages(
   exportData: AppleMessagesExport,
   execute: QueryExecutor = sql,
-  options: { refresh?: () => Promise<void> } = {},
+  options: {
+    refresh?: () => Promise<void>
+    progressEvery?: number
+    onProgress?: (progress: AppleMessageMaterializeProgress) => void
+  } = {},
 ): Promise<AppleMessageMaterializeResult> {
   const refresh = options.refresh ?? refreshClientReadModels
+  const progressEvery = Math.max(0, Math.trunc(options.progressEvery ?? 0))
+  let processed = 0
   const result: AppleMessageMaterializeResult = {
     handles: exportData.handles.length,
     exactLinkedHandles: 0,
@@ -65,6 +76,18 @@ export async function materializeAppleMessages(
     skippedNoTimestamp: 0,
     skippedGroupChat: 0,
     errors: 0,
+  }
+  const reportProgress = () => {
+    if (progressEvery === 0 || processed % progressEvery !== 0) return
+    options.onProgress?.({
+      processed,
+      eventsSeen: result.eventsSeen,
+      inserted: result.inserted,
+      replayed: result.replayed,
+      skippedNoTimestamp: result.skippedNoTimestamp,
+      skippedGroupChat: result.skippedGroupChat,
+      errors: result.errors,
+    })
   }
 
   // Current reconcile state per Apple handle. Only authoritative exact links
@@ -101,13 +124,16 @@ export async function materializeAppleMessages(
 
     const messages = byHandle.get(handle.rowid) ?? []
     for (const m of messages) {
+      processed += 1
       // Group chats are never silently attributed to an individual person.
       if (isGroupChatGuid(m.chatGuid)) {
         result.skippedGroupChat += 1
+        reportProgress()
         continue
       }
       if (!m.dateISO) {
         result.skippedNoTimestamp += 1
+        reportProgress()
         continue
       }
       try {
@@ -122,7 +148,20 @@ export async function materializeAppleMessages(
       } catch {
         result.errors += 1
       }
+      reportProgress()
     }
+  }
+
+  if (progressEvery > 0 && processed % progressEvery !== 0) {
+    options.onProgress?.({
+      processed,
+      eventsSeen: result.eventsSeen,
+      inserted: result.inserted,
+      replayed: result.replayed,
+      skippedNoTimestamp: result.skippedNoTimestamp,
+      skippedGroupChat: result.skippedGroupChat,
+      errors: result.errors,
+    })
   }
 
   if (result.inserted > 0) {
