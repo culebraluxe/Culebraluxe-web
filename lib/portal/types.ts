@@ -92,6 +92,7 @@ export interface ClientRelationshipChannel {
   lastContext: string | null
   lastContextAt: string | null
   lastContextType: string | null
+  lastContextDirection: "inbound" | "outbound" | null
 }
 
 export interface RelationshipActivity {
