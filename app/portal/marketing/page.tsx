@@ -1,13 +1,16 @@
 import { MarketingDashboard } from '@/components/portal/marketing/marketing-dashboard'
 import {
+  expireStalePlacements,
   getMarketingDashboard,
   listPlacements,
   listRecentSyndicationEvents,
 } from '@/db/syndication'
+import { facebookReadiness } from '@/lib/syndication/env'
 
 export const dynamic = 'force-dynamic'
 
 export default async function MarketingDashboardPage() {
+  await expireStalePlacements()
   const [snapshot, placements, events] = await Promise.all([
     getMarketingDashboard(),
     listPlacements(),
@@ -19,6 +22,7 @@ export default async function MarketingDashboardPage() {
       snapshot={snapshot}
       placements={placements}
       events={events}
+      facebook={facebookReadiness()}
     />
   )
 }
