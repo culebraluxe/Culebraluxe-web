@@ -446,7 +446,7 @@ const SOURCE_SLOTS: SourceSlot[] = [
   },
   {
     id: "gmail",
-    label: "Gmail",
+    label: "Email",
     Icon: Mail,
     matches: (channel) =>
       sourceIncludes(channel, "gmail") ||
