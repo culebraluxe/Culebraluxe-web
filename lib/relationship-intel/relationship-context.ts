@@ -41,7 +41,7 @@ export type RelationshipContextSummary = {
   reason: string | null
   /**
    * Source-specific communication projection (per evidence SOURCE, e.g.
-   * apple_messages -> imessage, gmail_contacts -> email). Lets the UI show
+   * apple_messages -> imessage, Gmail/iCloud Mail -> email). Lets the UI show
    * truthful per-channel "last observed / inbound / outbound" relationship
    * memory. Only sources that carry communication evidence appear here.
    */
@@ -67,6 +67,13 @@ export type RelationshipChannelProjection = {
 const CHANNEL_BY_SOURCE: Record<string, string> = {
   apple_messages: 'imessage',
   gmail_contacts: 'email',
+  gmail: 'email',
+  icloud_mail: 'email',
+  email: 'email',
+}
+
+function presentationSource(source: string): string {
+  return CHANNEL_BY_SOURCE[source] === 'email' ? 'email' : source
 }
 
 function latest(values: Array<string | null | undefined>): string | null {
@@ -108,9 +115,10 @@ export function summarizeRelationshipEvidence(
   const bySource = new Map<string, RelationshipEvidenceForContext[]>()
   for (const e of evidence) {
     if (!CHANNEL_BY_SOURCE[e.source]) continue
-    const arr = bySource.get(e.source) ?? []
+    const source = presentationSource(e.source)
+    const arr = bySource.get(source) ?? []
     arr.push(e)
-    bySource.set(e.source, arr)
+    bySource.set(source, arr)
   }
   const channels: RelationshipChannelProjection[] = []
   for (const [source, rows] of bySource) {
