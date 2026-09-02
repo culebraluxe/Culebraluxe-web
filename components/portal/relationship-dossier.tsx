@@ -125,7 +125,11 @@ function RelationshipMemory({ evidence }: { evidence: RelationshipEvidenceRow[] 
         <Detail
           label="Sources"
           value={
-            sources.map((s) => (s === "apple_contacts" ? "Apple" : "Gmail")).join(" · ") || "—"
+            sources.map((s) => {
+              if (s === "apple_contacts") return "Apple"
+              if (["gmail_contacts", "gmail", "icloud_mail", "email"].includes(s)) return "Email"
+              return s
+            }).join(" · ") || "—"
           }
         />
         <Detail label="Verified emails" value={emails.length > 0 ? emails.join(", ") : "—"} />
