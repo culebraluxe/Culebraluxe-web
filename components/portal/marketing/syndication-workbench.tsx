@@ -1,14 +1,14 @@
 'use client'
 
-import { useActionState, useMemo, useState } from 'react'
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader } from '@/components/portal/page-header'
 import { Panel } from '@/components/portal/panel'
 import { CopyButton } from '@/components/portal/tech/copy-button'
 import { STATUS_TONE } from '@/components/portal/marketing/status'
 import {
-  addSightingAction, confirmPlacementAction, publishListingsAction,
-  renewPlacementAction, withdrawPlacementAction,
+  addSightingAction, confirmPlacementAction, logInquiryAction, publishListingsAction,
+  renewPlacementAction, searchInquiryPeopleAction, withdrawPlacementAction,
   type MarketingWriteState,
 } from '@/app/portal/marketing/actions'
 import {
@@ -183,6 +183,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
                 <LaunchRow done={launch.office} label="Office name = CulebraLuxe" />
                 <LaunchRow done={launch.portalSeen} label="Zillow / Realtor sighting pasted" hint="stays empty until you paste a public URL" />
               </ul>
+              <InquiryLog propertyId={source.id} />
             </Panel>
           ) : null}
           <Panel eyebrow="Targets" heading="Channels" subtitle="Prepare only channels CulebraLuxe can reach. Zillow and Realtor.com are never upload targets here.">
@@ -474,6 +475,83 @@ function SharePanel({ source }: { source: ListingSource }) {
       </div>
       <p className="mt-3 text-[11px] font-light text-black/40">Every blurb and the QR point to the public listing URL only.</p>
     </Panel>
+  )
+}
+
+type PersonOption = { id: string; displayName: string; email: string | null; phone: string | null }
+const INQUIRY_SOURCE_OPTIONS: Array<[string, string]> = [
+  ['phone', 'Phone'],
+  ['whatsapp', 'WhatsApp'],
+  ['email', 'Email'],
+  ['walkin', 'Walk-in'],
+]
+
+function InquiryLog({ propertyId }: { propertyId: string }) {
+  const [query, setQuery] = useState('')
+  const [options, setOptions] = useState<PersonOption[]>([])
+  const [chosen, setChosen] = useState<PersonOption | null>(null)
+  const [state, formAction] = useActionState(logInquiryAction, null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  async function onType(value: string) {
+    setQuery(value)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      if (!value.trim()) { setOptions([]); return }
+      void searchInquiryPeopleAction(value.trim())
+        .then((res) => setOptions(res as PersonOption[]))
+        .catch(() => setOptions([]))
+    }, 300)
+  }
+  return (
+    <div className="mt-4 border-t border-[var(--portal-panel-border)] pt-3">
+      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-black/35">Log an inquiry</p>
+      {!chosen ? (
+        <>
+          <input
+            value={query}
+            onChange={(event) => onType(event.target.value)}
+            placeholder="Search an existing person…"
+            className="mt-2 min-h-9 w-full rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light"
+          />
+          {options.length > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {options.map((person) => (
+                <li key={person.id}>
+                  <button
+                    type="button"
+                    onClick={() => { setChosen(person); setOptions([]) }}
+                    className="w-full rounded-md border border-[var(--portal-panel-border)] bg-white/60 px-3 py-1.5 text-left text-[13px] font-light text-black/70 hover:bg-white"
+                  >
+                    {person.displayName}{person.phone ? ` · ${person.phone}` : ''}{person.email ? ` · ${person.email}` : ''}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--portal-panel-border)] bg-white/60 px-3 py-2">
+          <span className="text-[13px] font-light text-black/80">{chosen.displayName}</span>
+          <span className="flex items-center gap-2">
+            <Link href={`/portal/clients/${chosen.id}`} className="text-[11px] uppercase tracking-[0.12em] text-[var(--portal-navy)] underline">Open client</Link>
+            <button type="button" onClick={() => setChosen(null)} className="text-[11px] font-light uppercase tracking-[0.12em] text-black/40 hover:text-rose-700">Change</button>
+          </span>
+        </div>
+      )}
+      <form action={formAction} className="mt-2 space-y-2">
+        <input type="hidden" name="propertyId" value={propertyId} />
+        <input type="hidden" name="personId" value={chosen?.id ?? ''} />
+        <div className="flex flex-wrap items-center gap-2">
+          <select name="source" className="min-h-9 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-2 text-sm font-light">
+            {INQUIRY_SOURCE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <input name="notes" placeholder="Inquiry note" className="min-h-9 min-w-[12rem] flex-1 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light" />
+          <button type="submit" disabled={!chosen} className="inline-flex min-h-9 items-center rounded-md bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white disabled:opacity-40">Log inquiry</button>
+        </div>
+        <Banner state={state} />
+      </form>
+    </div>
   )
 }
 

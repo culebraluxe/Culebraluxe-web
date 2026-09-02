@@ -442,3 +442,32 @@ export async function listSightings(propertyId?: string): Promise<SightingRow[]>
     return []
   }
 }
+
+export type InquirySource = 'phone' | 'whatsapp' | 'email' | 'walkin'
+
+/** Log a listing inquiry against an existing person (reuses property_interest). */
+export async function logListingInquiry(input: {
+  personId: string
+  propertyId: string
+  source: InquirySource
+  notes?: string | null
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await sql`
+      insert into property_interest (person_id, property_id, status, notes, source)
+      values (${input.personId}, ${input.propertyId}, 'interested', ${input.notes ?? null}, ${input.source})
+      on conflict (person_id, property_id) do update set
+        status = 'interested',
+        notes = coalesce(excluded.notes, property_interest.notes),
+        source = coalesce(excluded.source, property_interest.source),
+        updated_at = now()
+    `
+    return { ok: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Inquiry write failed.'
+    return {
+      ok: false,
+      error: message.includes('does not exist') ? 'Migration 102 is not applied yet.' : message,
+    }
+  }
+}

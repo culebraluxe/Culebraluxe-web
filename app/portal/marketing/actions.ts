@@ -8,10 +8,12 @@ import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import {
   addSighting,
   confirmPlacement,
+  logListingInquiry,
   renewPlacement,
   requestPublishMany,
   withdrawPlacement,
 } from '@/db/syndication'
+import { searchPeople } from '@/db/people'
 import type { SightingNetwork } from '@/lib/syndication/types'
 import { isPrepareChannel } from '@/lib/syndication/channels'
 
@@ -128,4 +130,30 @@ export async function addSightingAction(
   revalidateMarketing()
   if (!result.ok) return { ok: false, error: result.error }
   return { ok: true, message: 'Sighting noted — pinned to the constellation.' }
+}
+
+const INQUIRY_SOURCES = ['phone', 'whatsapp', 'email', 'walkin'] as const
+
+/** Log a listing inquiry against an existing person (reuses property_interest). */
+export async function logInquiryAction(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const personId = String(formData.get('personId') ?? '').trim()
+  const propertyId = String(formData.get('propertyId') ?? '').trim()
+  const source = String(formData.get('source') ?? '')
+  const notes = String(formData.get('notes') ?? '').trim() || null
+  if (!personId || !propertyId) return { ok: false, error: 'Choose a person and a listing.' }
+  if (!(INQUIRY_SOURCES as readonly string[]).includes(source)) return { ok: false, error: 'Unknown source.' }
+  const result = await logListingInquiry({ personId, propertyId, source: source as (typeof INQUIRY_SOURCES)[number], notes })
+  revalidateMarketing()
+  if (!result.ok) return { ok: false, error: result.error }
+  return { ok: true, message: 'Inquiry logged against the person.' }
+}
+
+/** Read-only person picker for the Launch panel (requires a query). */
+export async function searchInquiryPeopleAction(query: string) {
+  await requireRead()
+  return searchPeople(query ?? '', 8)
 }
