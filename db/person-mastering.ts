@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 
 import { sql } from './client'
-import { createPersonWithIdentities, findIdentityMatches } from './person-identities'
+import {
+  createPersonWithIdentities,
+  findIdentityMatches,
+  semanticPhoneKey,
+} from './person-identities'
 import { recordReconcileDecision } from './relationship-evidence'
 import { isHumanName } from '../lib/relationship-intel/names'
 import { REL_INTEL_RULE_VERSION } from '../lib/relationship-intel/reconcile'
@@ -74,7 +78,7 @@ function normalizeIdentity(kind: 'email' | 'phone', value: string): string {
 }
 
 function identityKey(identity: MasteringIdentity): string {
-  return `${identity.kind}:${identity.kind === 'email' ? identity.value.trim().toLowerCase() : identity.value.replace(/[^0-9]/g, '')}`
+  return `${identity.kind}:${identity.kind === 'email' ? identity.value.trim().toLowerCase() : semanticPhoneKey(identity.value)}`
 }
 
 function sourceKey(record: Pick<CurrentSourcePerson, 'source' | 'sourceAccount' | 'sourceIdentityKey'>): string {
