@@ -22,6 +22,7 @@ import { isSourceStale } from '@/lib/syndication/hash'
 import { isOffMarket, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
 import { buildPresenceReport, presenceReportText, type PresenceReport } from '@/lib/syndication/presence-report'
 import { smsBlurb, waMeUrl, whatsappBlurb } from '@/lib/syndication/share'
+import { takedownTextEn, takedownTextEs } from '@/lib/syndication/takedown'
 import type { FacebookReadiness } from '@/lib/syndication/env'
 import type {
   ListingPack, ListingSource, PlacementRow, SightingNetwork, SightingRow,
@@ -94,9 +95,24 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
     office: true,
     portalSeen: sourceSightings.some((s) => s.network === 'zillow' || s.network === 'realtor_com'),
   }
+  const takeDownRows = sourcePlacements.filter(
+    (r) => (r.channel === 'facebook_marketplace' || r.channel === 'clasificados')
+      && (r.status === 'live' || r.status === 'pending_manual'),
+  )
+  const fbOpen = takeDownRows.some((r) => r.channel === 'facebook_marketplace')
+  const clasOpen = takeDownRows.some((r) => r.channel === 'clasificados')
 
   return (
     <div className="space-y-5">
+      <style>{`
+        #print-report { display: none; }
+        @media print {
+          #print-report { display: block; }
+          body * { visibility: hidden; }
+          #print-report, #print-report * { visibility: visible; }
+          #print-report { position: absolute; left: 0; top: 0; width: 100%; padding: 0 1rem; }
+        }
+      `}</style>
       <PageHeader eyebrow="Marketing" title="Syndication" subtitle="Pick the root listing, choose channels, generate a pack per adapter. Manual sites wait for the live URL.">
         <Link href="/portal/marketing" className="text-[11px] font-light uppercase tracking-[0.16em] text-black/40">Dashboard</Link>
       </PageHeader>
@@ -127,6 +143,27 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
             <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-700">Off the market</p>
               <p className="mt-1 text-sm font-light leading-5 text-rose-800">Take Facebook/Clasificados down and update Matrix — this listing is no longer being marketed.</p>
+            </div>
+          ) : null}
+          {source && isOffMarket(source) && takeDownRows.length > 0 ? (
+            <div className="rounded-md border border-rose-200 bg-rose-50/60 px-4 py-3">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-700">Off-market takedown kit</p>
+              <p className="mt-1 text-sm font-light leading-5 text-rose-800">Take the live paths down and update Matrix. This app does not delete third-party ads.</p>
+              <ul className="mt-2 space-y-1 text-[13px] font-light text-black/70">
+                <li>{fbOpen ? '☑' : '☐'} Facebook page / ad — take down</li>
+                <li>{clasOpen ? '☑' : '☐'} Clasificados ad — take down</li>
+                <li>☐ Stellar Matrix — mark withdrawn so feed portals update</li>
+              </ul>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <CopyButton label="Copy takedown EN" text={takedownTextEn(source)} />
+                <CopyButton label="Copy takedown ES" text={takedownTextEs(source)} />
+                {takeDownRows.map((row) => (
+                  <form key={row.id} action={withdrawAction}>
+                    <input type="hidden" name="placementId" value={row.id} />
+                    <button type="submit" className="text-[11px] font-light uppercase tracking-[0.14em] text-rose-600 hover:text-rose-800">Mark {CHANNEL_CATALOG[row.channel].shortLabel} withdrawn here</button>
+                  </form>
+                ))}
+              </div>
             </div>
           ) : null}
           {facebook?.readyToPost ? (
@@ -322,7 +359,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
       </div>
       {source && presence ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          <SellerReportPanel report={presence} />
+          <SellerReportPanel report={presence} source={source} />
           <SharePanel source={source} />
         </div>
       ) : null}
@@ -330,45 +367,85 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
   )
 }
 
-function SellerReportPanel({ report }: { report: PresenceReport }) {
+function SellerReportPanel({ report, source }: { report: PresenceReport; source: ListingSource }) {
   const copyText = presenceReportText(report)
+  const url = source.publicUrl ?? ''
+  const qrSrc = url ? `/portal/marketing/qr?url=${encodeURIComponent(url)}` : ''
   const rows: Array<[string, string]> = [
     ['Listing', `${report.propertyName} — ${report.priceLabel}`],
     ['Location', report.city],
     ['Facts', report.factsLine],
+  ]
+  if (report.daysOnMarket != null) rows.push(['Days on market', `${report.daysOnMarket}`])
+  rows.push(
     ['On culebraluxe.com', report.sitePublished ? 'Live' : 'Not published'],
     ['Stellar / MLS', report.stellarMls ? `${report.stellarStatus} · #${report.stellarMls}` : report.stellarStatus],
     ['Facebook', report.facebookUrl ?? report.facebookStatus],
     ['Clasificados', report.clasificadosUrl ?? report.clasificadosStatus],
-  ]
+  )
   return (
-    <Panel eyebrow="Seller report" heading="Presence one-pager" subtitle="Print or copy this to email the seller. It lists confirmed or observed URLs, never a Zillow upload.">
-      <dl className="space-y-1.5 text-[13px] font-light">
-        {rows.map(([key, value]) => (
-          <div key={key} className="flex flex-wrap justify-between gap-3">
-            <dt className="text-black/45">{key}</dt>
-            <dd className="max-w-[16rem] text-right text-black/80">{value}</dd>
+    <>
+      <Panel eyebrow="Seller report" heading="Presence one-pager" subtitle="Print or copy this to email the seller. It lists confirmed or observed URLs, never a Zillow upload.">
+        <dl className="space-y-1.5 text-[13px] font-light">
+          {rows.map(([key, value]) => (
+            <div key={key} className="flex flex-wrap justify-between gap-3">
+              <dt className="text-black/45">{key}</dt>
+              <dd className="max-w-[16rem] text-right text-black/80">{value}</dd>
+            </div>
+          ))}
+          {report.sightings.length === 0 ? (
+            <div className="flex flex-wrap justify-between gap-3">
+              <dt className="text-black/45">Zillow / Realtor.com</dt>
+              <dd className="text-black/80">Not observed yet</dd>
+            </div>
+          ) : report.sightings.map((sighting) => (
+            <div key={sighting.network} className="flex flex-wrap justify-between gap-3">
+              <dt className="text-black/45">Seen on {sighting.network}</dt>
+              <dd className="max-w-[16rem] text-right text-black/80">{sighting.url ?? sighting.notes ?? 'Observed'}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-[11px] font-light leading-4 text-black/40">{report.disclaimer}</p>
+        <p className="mt-1 text-[11px] font-light text-black/35">Generated {report.generatedAt} (PR time)</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <CopyButton label="Copy report" text={copyText} />
+          <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Print report</button>
+        </div>
+      </Panel>
+      <div id="print-report">
+        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{report.propertyName}</h1>
+        <p style={{ margin: '0 0 0.25rem' }}>{report.priceLabel} · {report.city}</p>
+        <p style={{ margin: '0 0 0.5rem' }}>{report.factsLine}</p>
+        {report.daysOnMarket != null ? <p style={{ margin: '0 0 0.5rem' }}>Days on market: {report.daysOnMarket}</p> : null}
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '13px' }}>
+          <tbody>
+            {rows.map(([key, value]) => (
+              <tr key={key}>
+                <td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{key}</td>
+                <td style={{ padding: '2px 0', color: '#000' }}>{value}</td>
+              </tr>
+            ))}
+            {report.sightings.length === 0 ? (
+              <tr><td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>Zillow / Realtor.com</td><td>Not observed yet</td></tr>
+            ) : report.sightings.map((sighting) => (
+              <tr key={sighting.network}>
+                <td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>Seen on {sighting.network}</td>
+                <td>{sighting.url ?? sighting.notes ?? 'Observed'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ marginTop: '0.75rem', fontSize: '11px', color: '#666' }}>{report.disclaimer}</p>
+        {qrSrc ? (
+          <div style={{ marginTop: '1rem' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrSrc} alt={`QR to ${url}`} width={160} height={160} style={{ width: '160px', height: '160px' }} />
+            <p style={{ fontSize: '11px', color: '#333', maxWidth: '160px' }}>{url}</p>
           </div>
-        ))}
-        {report.sightings.length === 0 ? (
-          <div className="flex flex-wrap justify-between gap-3">
-            <dt className="text-black/45">Zillow / Realtor.com</dt>
-            <dd className="text-black/80">Not observed yet</dd>
-          </div>
-        ) : report.sightings.map((sighting) => (
-          <div key={sighting.network} className="flex flex-wrap justify-between gap-3">
-            <dt className="text-black/45">Seen on {sighting.network}</dt>
-            <dd className="max-w-[16rem] text-right text-black/80">{sighting.url ?? sighting.notes ?? 'Observed'}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="mt-3 text-[11px] font-light leading-4 text-black/40">{report.disclaimer}</p>
-      <p className="mt-1 text-[11px] font-light text-black/35">Generated {report.generatedAt} (PR time)</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <CopyButton label="Copy report" text={copyText} />
-        <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Print report</button>
+        ) : null}
+        <p style={{ marginTop: '0.5rem', fontSize: '10px', color: '#888' }}>Generated {report.generatedAt} (Puerto Rico time)</p>
       </div>
-    </Panel>
+    </>
   )
 }
 

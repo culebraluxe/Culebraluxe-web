@@ -148,6 +148,7 @@ function mapPlacement(row: {
   external_url: string | null; external_id: string | null
   pack: ListingPack | Record<string, never> | null; last_error: string | null
   source_hash: string | null
+  published_at_iso: string | null
   published_at: string | null; expires_at: string | null; confirmed_at: string | null
   last_attempt_at: string | null; updated_at: string | null
 }): PlacementRow {
@@ -156,6 +157,7 @@ function mapPlacement(row: {
     channel: row.channel, status: row.status, publishMode: row.publish_mode,
     externalUrl: row.external_url, externalId: row.external_id, pack: row.pack ?? {},
     lastError: row.last_error, sourceHash: row.source_hash,
+    publishedAtIso: row.published_at_iso ?? null,
     publishedAt: row.published_at, expiresAt: row.expires_at,
     confirmedAt: row.confirmed_at, lastAttemptAt: row.last_attempt_at, updatedAt: row.updated_at,
   }
@@ -166,6 +168,7 @@ export async function listPlacements(): Promise<PlacementRow[]> {
     const rows = (await sql`
       select s.id, s.property_id, p.name as property_name, s.channel, s.status,
         s.publish_mode, s.external_url, s.external_id, s.pack, s.last_error, s.source_hash,
+        s.published_at as published_at_iso,
         to_char(s.published_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as published_at,
         to_char(s.expires_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY') as expires_at,
         to_char(s.confirmed_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as confirmed_at,

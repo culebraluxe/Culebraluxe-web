@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   if (!access.ok) return new Response('Unauthorized', { status: 401 })
 
   const url = request.nextUrl.searchParams.get('url')
-  if (!url || !/^https:\/\/culebraluxe\.com\/listings\/[A-Za-z0-9_-]+$/.test(url)) {
+  if (!url || !/^https:\/\/(www\.)?culebraluxe\.com\/listings\/[A-Za-z0-9_-]+\/?$/.test(url)) {
     return new Response('Bad url', { status: 400 })
   }
 
