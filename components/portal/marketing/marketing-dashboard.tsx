@@ -5,6 +5,7 @@ import { EVENT_LABEL, STATUS_TONE } from '@/components/portal/marketing/status'
 import type { MarketingDashboardSnapshot } from '@/db/syndication'
 import { CHANNEL_CATALOG, SYNDICATION_CHANNELS } from '@/lib/syndication/channels'
 import type { PlacementRow, SyndicationEventRow } from '@/lib/syndication/types'
+import type { FacebookReadiness } from '@/lib/syndication/env'
 
 type EventRow = SyndicationEventRow & { channel: PlacementRow['channel']; propertyName: string }
 
@@ -21,8 +22,9 @@ function Metric({ label, value, hint, tone = 'neutral' }: {
   )
 }
 
-export function MarketingDashboard({ snapshot, placements, events }: {
+export function MarketingDashboard({ snapshot, placements, events, facebook }: {
   snapshot: MarketingDashboardSnapshot; placements: PlacementRow[]; events: EventRow[]
+  facebook?: FacebookReadiness
 }) {
   const byProperty = new Map<string, PlacementRow[]>()
   for (const row of placements) {
@@ -41,6 +43,15 @@ export function MarketingDashboard({ snapshot, placements, events }: {
       <PageHeader eyebrow="Marketing" title="Presence" subtitle="One canonical listing, many outbound paths — same 1→N shape as a person and their identities. HubSpot stays a sibling system.">
         <Link href="/portal/marketing/syndication" className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-gold)]/50 bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white">Open syndication</Link>
       </PageHeader>
+      {facebook ? (
+        <p className="text-[11px] font-light uppercase tracking-[0.14em] text-black/40">
+          Meta {facebook.readyToPost ? 'live-ready' : 'dry-run'}
+          {' · '}token {facebook.hasToken ? 'on' : 'off'}
+          {' · '}page {facebook.hasPageId ? 'on' : 'off'}
+          {' · '}catalog {facebook.hasCatalogId ? 'on' : 'off'}
+          {' · '}SYNDICATION_LIVE {facebook.liveEnabled ? 'true' : 'false'}
+        </p>
+      ) : null}
       <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-gold)]/25 bg-[var(--portal-navy-deep)] p-4 text-white sm:p-5">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           <Metric label="Inventory" value={snapshot.inventory} hint="Active properties" />
