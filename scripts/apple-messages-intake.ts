@@ -254,6 +254,8 @@ export async function runAppleMessagesIntake(
           and is_automated_or_bulk is not true
           and is_organization_or_service is not true
         group by canonical_person_id
+        having sum(coalesce(inbound_count, 0) + coalesce(outbound_count, 0)) > 0
+            or max(coalesce(last_observed_at, last_outbound_at, last_inbound_at)) is not null
       ), actual as (
         select person_id, inbound_count, outbound_count
         from mv_client_relationship_channels
