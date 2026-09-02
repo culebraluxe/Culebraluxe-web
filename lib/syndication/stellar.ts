@@ -1,7 +1,18 @@
 import type { ListingSource, TransportAttempt } from './types'
 
+const CULEBRA_LAT = 18.303
+const CULEBRA_LNG = -65.304
+
+function resolveLat(source: ListingSource): number {
+  return typeof source.latitude === 'number' ? source.latitude : CULEBRA_LAT
+}
+
+function resolveLng(source: ListingSource): number {
+  return typeof source.longitude === 'number' ? source.longitude : CULEBRA_LNG
+}
+
 export function buildResoPropertyPayload(source: ListingSource) {
-  return {
+  const payload: Record<string, unknown> = {
     ListingKey: source.id,
     ListingId: source.slug ?? source.id,
     StandardStatus: source.isPublished ? 'Active' : 'ComingSoon',
@@ -14,14 +25,14 @@ export function buildResoPropertyPayload(source: ListingSource) {
     LivingAreaUnits: 'SquareFeet',
     BedroomsTotal: source.bedrooms,
     BathroomsTotalInteger: source.bathrooms,
-    UnparsedAddress: source.location ?? source.name,
+    UnparsedAddress: source.streetAddress ?? source.location ?? source.name,
     City: source.city ?? 'Culebra',
     Township: source.neighborhood,
     StateOrProvince: 'PR',
     Country: 'PR',
-    PostalCode: null,
-    Latitude: 18.303,
-    Longitude: -65.304,
+    PostalCode: source.postalCode ?? null,
+    Latitude: resolveLat(source),
+    Longitude: resolveLng(source),
     PublicRemarks: source.publicRemarks ?? source.shortDescription,
     PrivateRemarks: null,
     ListAgentFullName: source.listingAgentName,
@@ -31,9 +42,11 @@ export function buildResoPropertyPayload(source: ListingSource) {
     ModificationTimestamp: new Date().toISOString(),
     OriginatingSystemName: 'MFR',
     SourceSystemName: 'CulebraLuxe',
-    PhotosCount: source.imageCount,
+    PhotosCount: source.photos.length || source.imageCount,
     ListingURL: source.publicUrl,
   }
+  if (source.yearBuilt && source.yearBuilt > 0) payload.YearBuilt = source.yearBuilt
+  return payload
 }
 
 function mapResoPropertyType(value: string | null): string {
@@ -58,7 +71,9 @@ export function stellarTransportPlan(source: ListingSource): TransportAttempt {
         office: 'CulebraLuxe',
         municipality: source.city ?? 'Culebra',
         listingType: 'For Sale',
-        photos: 'Upload the same set used on culebraluxe.com. Do not hotlink.',
+        photos: source.photos.length
+          ? `${source.photos.length} images ready to upload (Property Media). Do not hotlink culebraluxe.com.`
+          : 'No photos attached yet — add media before entering Matrix.',
       },
       distribution: {
         realtorCom: true,

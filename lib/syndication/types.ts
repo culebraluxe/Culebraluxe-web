@@ -1,5 +1,15 @@
 import type { PlacementStatus, PublishMode, SyndicationChannel } from './channels'
 
+export type PhotoManifestItem = {
+  mediaId: string
+  url: string // absolute https URL Meta/Clasificados can fetch (never the listing HTML page)
+  role: 'hero' | 'gallery'
+  sortOrder: number
+  width?: number
+  height?: number
+  contentType?: string
+}
+
 export type ListingSource = {
   id: string
   name: string
@@ -22,6 +32,14 @@ export type ListingSource = {
   publicUrl: string | null
   heroMediaId: string | null
   imageCount: number
+  /** Optional richer listing facts (null when the column is absent). */
+  latitude?: number | null
+  longitude?: number | null
+  yearBuilt?: number | null
+  postalCode?: string | null
+  streetAddress?: string | null
+  /** Real image URLs resolved from property_media ⋈ media (hero first, cap 25). */
+  photos: PhotoManifestItem[]
 }
 
 export type TransportAttempt = {

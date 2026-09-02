@@ -74,22 +74,35 @@ export async function runAdapter(
     case 'facebook_marketplace': {
       const planned = facebookTransportPlan(source)
       const transport = await maybePostFacebook(planned)
-      const posted =
-        transport.response &&
-        typeof transport.response.httpStatus === 'number' &&
-        transport.response.httpStatus < 300
+      const response = transport.response as { status?: string } | undefined
+      const fbStatus = response?.status ?? 'dry_run'
+      const noPhotos = source.photos.length === 0
+      let status: AdapterResult['status'] = 'pending_manual'
+      let message: string
+      if (fbStatus === 'live') {
+        status = 'live'
+        message =
+          'Graph home_listing + Page feed returned 2xx. Confirm the catalog item and paste a Marketplace URL if you also posted manually.'
+      } else if (fbStatus === 'partial') {
+        message =
+          'Catalog home_listing returned 2xx but the Page feed did not. Confirm the catalog item.'
+      } else if (fbStatus === 'failed') {
+        status = 'failed'
+        message = 'Graph POST attempted and did not return 2xx. Inspect pack.transport.response.'
+      } else {
+        message = noPhotos
+          ? 'No real photos on this listing — Meta cannot ingest it. Add media in Property Admin, then prepare again.'
+          : transport.missingEnv.length
+            ? 'Dry-run Graph payloads stored. Set META_ACCESS_TOKEN, META_PRODUCT_CATALOG_ID, META_PAGE_ID and SYNDICATION_LIVE=true to POST. Marketplace consumer create stays a paste pack.'
+            : 'Dry-run stored (SYNDICATION_LIVE not true). Set SYNDICATION_LIVE=true to POST the catalog + Page feed.'
+      }
       return packResult(
         source,
         channel,
-        posted
-          ? 'Graph home_listing POST returned 2xx. Confirm the catalog item and paste a Marketplace URL if you also posted manually.'
-          : transport.dryRun
-            ? 'Dry-run Graph payloads stored. Set META_ACCESS_TOKEN, META_PRODUCT_CATALOG_ID, META_PAGE_ID and SYNDICATION_LIVE=true to POST. Marketplace consumer create stays a paste pack.'
-            : 'Graph POST attempted. Inspect pack.transport.response.',
-        posted ? 'live' : 'pending_manual',
+        message,
+        status,
         [
-          'Preferred automated path: POST /{catalog-id}/home_listings (catalog ads + Commerce).',
-          'Reliable Page path: POST /{page-id}/feed with the listing URL.',
+          'Preferred automated path: POST /{catalog-id}/home_listings then /{page-id}/feed (Bearer token, never items_batch by default).',
           'Marketplace consumer card: still paste from the Page, then confirm the live URL.',
           'Do not post from a personal profile.',
         ].join(' '),

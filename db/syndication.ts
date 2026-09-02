@@ -1,9 +1,11 @@
 import { sql } from './client'
 import { CHANNEL_CATALOG, type SyndicationChannel } from '@/lib/syndication/channels'
 import { runAdapter } from '@/lib/syndication/adapters'
+import { buildPhotoManifest, type PhotoDbRow } from '@/lib/syndication/photos'
 import type {
   ListingPack,
   ListingSource,
+  PhotoManifestItem,
   PlacementRow,
   SyndicationEventRow,
 } from '@/lib/syndication/types'
@@ -31,6 +33,11 @@ type SourceRaw = {
   listing_agent_email: string | null
   hero_media_id: string | null
   image_count: number
+  latitude: string | number | null
+  longitude: string | number | null
+  year_built: string | number | null
+  postal_code: string | null
+  street_address: string | null
 }
 
 function toNumber(value: string | null): number | null {
@@ -39,7 +46,13 @@ function toNumber(value: string | null): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function mapSource(row: SourceRaw): ListingSource {
+function toNumberOrNull(value: string | number | null): number | null {
+  if (value === null || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function mapSource(row: SourceRaw, photos: PhotoManifestItem[] = []): ListingSource {
   return {
     id: row.id,
     name: row.name,
@@ -62,10 +75,25 @@ function mapSource(row: SourceRaw): ListingSource {
     publicUrl: row.slug ? `${PUBLIC_ORIGIN}/listings/${row.slug}` : null,
     heroMediaId: row.hero_media_id,
     imageCount: Number(row.image_count ?? 0),
+    latitude: toNumberOrNull(row.latitude),
+    longitude: toNumberOrNull(row.longitude),
+    yearBuilt: toNumberOrNull(row.year_built),
+    postalCode: row.postal_code,
+    streetAddress: row.street_address || null,
+    photos,
   }
 }
 
-const SOURCE_SQL_TAIL = true
+/** Resolve the ordered image manifest for one property (hero first, cap 25). */
+async function loadPropertyPhotos(propertyId: string): Promise<PhotoManifestItem[]> {
+  const rows = (await sql`
+    select m.id as media_id, pm.role, pm.sort_order, m.width, m.height, m.mime_type
+    from property_media pm
+    join media m on m.id = pm.media_id
+    where pm.property_id = ${propertyId} and m.media_type = 'image'
+  `) as PhotoDbRow[]
+  return buildPhotoManifest(rows)
+}
 
 export async function listListingSources(): Promise<ListingSource[]> {
   const rows = (await sql`
@@ -73,6 +101,8 @@ export async function listListingSources(): Promise<ListingSource[]> {
       p.location, p.city, p.neighborhood, p.bedrooms, p.bathrooms, p.square_feet,
       p.property_type, p.short_description, p.public_remarks,
       p.listing_agent_name, p.listing_agent_phone, p.listing_agent_email,
+      p.latitude, p.longitude, p.year_built, p.postal_code,
+      trim(concat_ws(' ', p.street_number, p.street_name, p.unit_number)) as street_address,
       (select pm.media_id from property_media pm
         where pm.property_id = p.id and pm.role = 'hero'
         order by pm.sort_order asc, pm.created_at asc limit 1) as hero_media_id,
@@ -83,7 +113,7 @@ export async function listListingSources(): Promise<ListingSource[]> {
     where p.archived_at is null
     order by p.is_published desc, p.updated_at desc, p.name asc
   `) as SourceRaw[]
-  return rows.map(mapSource)
+  return rows.map((row) => mapSource(row))
 }
 
 export async function getListingSource(id: string): Promise<ListingSource | null> {
@@ -92,6 +122,8 @@ export async function getListingSource(id: string): Promise<ListingSource | null
       p.location, p.city, p.neighborhood, p.bedrooms, p.bathrooms, p.square_feet,
       p.property_type, p.short_description, p.public_remarks,
       p.listing_agent_name, p.listing_agent_phone, p.listing_agent_email,
+      p.latitude, p.longitude, p.year_built, p.postal_code,
+      trim(concat_ws(' ', p.street_number, p.street_name, p.unit_number)) as street_address,
       (select pm.media_id from property_media pm
         where pm.property_id = p.id and pm.role = 'hero'
         order by pm.sort_order asc, pm.created_at asc limit 1) as hero_media_id,
@@ -102,7 +134,9 @@ export async function getListingSource(id: string): Promise<ListingSource | null
     where p.archived_at is null and p.id = ${id}
     limit 1
   `) as SourceRaw[]
-  return rows[0] ? mapSource(rows[0]) : null
+  if (!rows[0]) return null
+  const photos = await loadPropertyPhotos(rows[0].id)
+  return mapSource(rows[0], photos)
 }
 
 function mapPlacement(row: {
@@ -301,5 +335,3 @@ export async function listRecentSyndicationEvents(limit = 16): Promise<
     return []
   }
 }
-
-void SOURCE_SQL_TAIL

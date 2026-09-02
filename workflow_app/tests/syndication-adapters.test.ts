@@ -1,71 +1,224 @@
-import { describe, expect, it } from 'vitest'
-import { runAdapter } from '@/lib/syndication/adapters'
-import { CHANNEL_CATALOG } from '@/lib/syndication/channels'
-import { buildFacebookHomeListingPayload } from '@/lib/syndication/facebook'
-import { buildResoPropertyPayload } from '@/lib/syndication/stellar'
-import type { ListingSource } from '@/lib/syndication/types'
+import { describe, it, beforeEach, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
 
-const source: ListingSource = {
-  id: '11111111-1111-1111-1111-111111111111',
-  name: 'Playa Flamenco Villa',
-  slug: 'playa-flamenco-villa',
-  status: 'active',
-  isPublished: true,
-  listPrice: 1850000,
-  location: 'Flamenco, Culebra',
-  city: 'Culebra',
-  neighborhood: 'Flamenco',
-  bedrooms: 4,
-  bathrooms: 4,
-  squareFeet: 3200,
-  propertyType: 'Villa',
-  shortDescription: 'Ocean-view villa above Flamenco.',
-  publicRemarks: 'Four-bedroom villa with full ocean view.',
-  listingAgentName: 'CulebraLuxe',
-  listingAgentPhone: '+1-787-000-0000',
-  listingAgentEmail: 'hello@culebraluxe.com',
-  publicUrl: 'https://culebraluxe.com/listings/playa-flamenco-villa',
-  heroMediaId: null,
-  imageCount: 12,
+import { runAdapter } from '../../lib/syndication/adapters'
+import { CHANNEL_CATALOG } from '../../lib/syndication/channels'
+import {
+  buildFacebookHomeListingPayload,
+  buildFacebookMarketplaceItemBatch,
+} from '../../lib/syndication/facebook'
+import { buildResoPropertyPayload, stellarTransportPlan } from '../../lib/syndication/stellar'
+import type { ListingSource } from '../../lib/syndication/types'
+
+// ---------------------------------------------------------------------------
+// Syndication adapter contracts (spec docs/syndication-adapters-requirements.md
+// section 9). Dry-runs must never hit graph.facebook.com — we mock fetch and
+// assert call counts. Tokens are supplied via env only at call time.
+// ---------------------------------------------------------------------------
+
+const ENV_KEYS = [
+  'SYNDICATION_LIVE',
+  'META_ACCESS_TOKEN',
+  'META_PRODUCT_CATALOG_ID',
+  'META_PAGE_ID',
+  'META_GRAPH_VERSION',
+  'META_MARKETPLACE_PARTNER',
+]
+
+function makeSource(overrides: Partial<ListingSource> = {}): ListingSource {
+  return {
+    id: '11111111-1111-1111-1111-111111111111',
+    name: 'Playa Flamenco Villa',
+    slug: 'playa-flamenco-villa',
+    status: 'active',
+    isPublished: true,
+    listPrice: 1850000,
+    location: 'Flamenco, Culebra',
+    city: 'Culebra',
+    neighborhood: 'Flamenco',
+    bedrooms: 4,
+    bathrooms: 4,
+    squareFeet: 3200,
+    propertyType: 'Villa',
+    shortDescription: 'Ocean-view villa above Flamenco.',
+    publicRemarks: 'Four-bedroom villa with full ocean view.',
+    listingAgentName: 'CulebraLuxe',
+    listingAgentPhone: '+1-787-000-0000',
+    listingAgentEmail: 'hello@culebraluxe.com',
+    publicUrl: 'https://culebraluxe.com/listings/playa-flamenco-villa',
+    heroMediaId: null,
+    imageCount: 12,
+    latitude: 18.33,
+    longitude: -65.3,
+    yearBuilt: 2018,
+    postalCode: '00775',
+    streetAddress: '1 Flamenco Rd',
+    photos: [
+      { mediaId: 'm1', url: 'https://culebraluxe.com/api/media/m1', role: 'hero', sortOrder: 1 },
+      { mediaId: 'm2', url: 'https://culebraluxe.com/api/media/m2', role: 'gallery', sortOrder: 2 },
+    ],
+    ...overrides,
+  }
 }
 
+function setMetaEnv(live = false) {
+  process.env.SYNDICATION_LIVE = live ? 'true' : 'false'
+  process.env.META_ACCESS_TOKEN = 'tok-test'
+  process.env.META_PRODUCT_CATALOG_ID = 'cat-1'
+  process.env.META_PAGE_ID = 'page-1'
+  process.env.META_GRAPH_VERSION = 'v21.0'
+  process.env.META_MARKETPLACE_PARTNER = ''
+}
+
+function stubFetch(calls: Array<{ url: string; headers: Record<string, unknown> }>) {
+  ;(globalThis as { fetch: unknown }).fetch = async (input: unknown, init: unknown) => {
+    calls.push({
+      url: String(input),
+      headers: (init as { headers?: Record<string, unknown> })?.headers ?? {},
+    })
+    return { status: 200, json: async () => ({ id: 'ok' }) }
+  }
+}
+
+beforeEach(() => {
+  for (const key of ENV_KEYS) delete process.env[key]
+})
+
+afterEach(() => {
+  for (const key of ENV_KEYS) delete process.env[key]
+  delete (globalThis as { fetch?: unknown }).fetch
+})
+
 describe('syndication adapters', () => {
-  it('builds a Meta home listing payload with Culebra coordinates', () => {
-    const payload = buildFacebookHomeListingPayload(source)
-    expect(payload.home_listing_id).toBe(source.id)
-    expect(payload.availability).toBe('for_sale')
-    expect(payload.address.city).toBe('Culebra')
-    expect(payload.address.country).toBe('PR')
-    expect(payload.price).toBe(1850000)
+  it('channel catalog includes stellar_mls as first-class, realtor_com blocked', () => {
+    assert.equal(CHANNEL_CATALOG.stellar_mls.mode, 'mls')
+    assert.equal(CHANNEL_CATALOG.stellar_mls.readiness, 'pack')
+    assert.equal(CHANNEL_CATALOG.pr_mls.readiness, 'blocked')
+    assert.equal(CHANNEL_CATALOG.realtor_com.readiness, 'blocked')
   })
 
-  it('builds a RESO Property payload for Matrix', () => {
-    const payload = buildResoPropertyPayload(source)
-    expect(payload.ListPrice).toBe(1850000)
-    expect(payload.City).toBe('Culebra')
-    expect(payload.StateOrProvince).toBe('PR')
-    expect(payload.BedroomsTotal).toBe(4)
-    expect(payload.OriginatingSystemName).toBe('MFR')
+  it('facebook home_listing payload: Culebra city, PR country, real photos not the listing URL', () => {
+    const payload = buildFacebookHomeListingPayload(makeSource()) as {
+      home_listing_id: string
+      address: Record<string, unknown>
+      images: Array<{ image_url: string }>
+      year_built: number
+    }
+    assert.equal(payload.home_listing_id, '11111111-1111-1111-1111-111111111111')
+    assert.equal(payload.address.city, 'Culebra')
+    assert.equal(payload.address.country, 'PR')
+    assert.equal(payload.address.region, 'PR')
+    assert.equal(payload.images[0]?.image_url, 'https://culebraluxe.com/api/media/m1')
+    assert.equal(payload.images[1]?.image_url, 'https://culebraluxe.com/api/media/m2')
+    assert.ok(!payload.images.some((i) => i.image_url.includes('/listings/')))
+    assert.equal(payload.year_built, 2018)
   })
 
-  it('facebook adapter stores a dry-run transport without posting', async () => {
-    const result = await runAdapter(source, 'facebook_marketplace')
-    expect(result.ok).toBe(true)
-    expect(result.status).toBe('pending_manual')
-    expect(result.pack.transport?.dryRun).toBe(true)
-    expect(result.pack.transport?.payload.home_listing).toBeTruthy()
+  it('facebook omits year_built when unknown (no zero sent)', () => {
+    const payload = buildFacebookHomeListingPayload(makeSource({ yearBuilt: null })) as Record<
+      string,
+      unknown
+    >
+    assert.equal(payload.year_built, undefined)
   })
 
-  it('stellar adapter never claims a live write', async () => {
+  it('facebook items_batch image_link uses the first real photo', () => {
+    const batch = buildFacebookMarketplaceItemBatch(makeSource()) as {
+      requests: Array<{ data: { image_link: string } }>
+    }
+    assert.equal(batch.requests[0]?.data.image_link, 'https://culebraluxe.com/api/media/m1')
+  })
+})
+
+
+describe('facebook network behavior', () => {
+  it('dry-run: no fetch when env is missing (no SYNDICATION_LIVE)', async () => {
+    const calls: Array<{ url: string; headers: Record<string, unknown> }> = []
+    stubFetch(calls)
+    const result = await runAdapter(makeSource(), 'facebook_marketplace')
+    assert.equal(result.ok, true)
+    assert.equal(result.status, 'pending_manual')
+    assert.equal(result.pack.transport?.dryRun, true)
+    assert.ok(result.pack.transport?.payload.home_listing)
+    assert.equal(calls.length, 0, 'dry-run must not call Meta')
+  })
+
+  it('tokens set but SYNDICATION_LIVE=false: still no Graph HTTP, missingEnv empty', async () => {
+    setMetaEnv(false) // tokens present, live off
+    const calls: Array<{ url: string; headers: Record<string, unknown> }> = []
+    stubFetch(calls)
+    const result = await runAdapter(makeSource(), 'facebook_marketplace')
+    assert.equal(result.pack.transport?.dryRun, true)
+    assert.deepEqual(result.pack.transport?.missingEnv, [])
+    assert.equal(calls.length, 0)
+  })
+
+  it('live guard: SYNDICATION_LIVE=true but no photos => zero fetch calls', async () => {
+    setMetaEnv(true)
+    const calls: Array<{ url: string; headers: Record<string, unknown> }> = []
+    stubFetch(calls)
+    const result = await runAdapter(makeSource({ photos: [] }), 'facebook_marketplace')
+    assert.equal(result.pack.transport?.dryRun, true)
+    assert.equal(
+      (result.pack.transport?.response as { reason?: string })?.reason,
+      'no_photos',
+    )
+    assert.equal(calls.length, 0, 'no-photos live must not POST')
+  })
+
+  it('live POST attempted: catalog + page feed 2xx => live, two calls, Bearer auth', async () => {
+    setMetaEnv(true)
+    const calls: Array<{ url: string; headers: Record<string, unknown> }> = []
+    stubFetch(calls)
+    const result = await runAdapter(makeSource(), 'facebook_marketplace')
+    assert.equal(result.status, 'live')
+    assert.equal(calls.length, 2, 'expect home_listings + page_feed POSTs')
+    assert.ok(!calls[0]?.url.includes('access_token='), 'token must not be in the URL')
+    assert.equal(calls[0]?.headers.Authorization, 'Bearer tok-test')
+    assert.match(calls[0]?.url ?? '', /\/home_listings$/)
+    assert.match(calls[1]?.url ?? '', /\/feed$/)
+  })
+
+  it('live POST failure (non-2xx) records failed placement status', async () => {
+    setMetaEnv(true)
+    ;(globalThis as { fetch: unknown }).fetch = async () => {
+      return { status: 400, json: async () => ({ error: { message: 'bad' } }) }
+    }
+    const result = await runAdapter(makeSource(), 'facebook_marketplace')
+    assert.equal(result.status, 'failed')
+    assert.equal(result.pack.transport?.dryRun, false)
+  })
+})
+
+describe('stellar + clasificados', () => {
+  it('stellar: never a live write, MFR, realtor distribution on, rich source fields', async () => {
+    const source = makeSource()
+    const plan = stellarTransportPlan(source)
+    const reso = buildResoPropertyPayload(source) as Record<string, unknown>
+    assert.equal(plan.liveEnabled, false)
+    assert.equal(plan.dryRun, true)
+    assert.equal(reso.OriginatingSystemName, 'MFR')
+    assert.equal(reso.PostalCode, '00775')
+    assert.equal(reso.Latitude, 18.33)
+    assert.equal(reso.Longitude, -65.3)
+    assert.equal(reso.YearBuilt, 2018)
+    assert.equal(reso.PhotosCount, 2)
+    const distribution = (plan.payload as { distribution: Record<string, unknown> }).distribution
+    assert.equal(distribution.realtorCom, true)
+    assert.equal(distribution.zillowRentals, false)
     const result = await runAdapter(source, 'stellar_mls')
-    expect(result.ok).toBe(true)
-    expect(result.mode).toBe('mls')
-    expect(result.pack.transport?.liveEnabled).toBe(false)
-    expect(result.pack.transport?.payload.distribution).toBeTruthy()
+    assert.equal(result.status, 'pending_manual')
   })
 
-  it('catalog includes stellar as a selectable channel', () => {
-    expect(CHANNEL_CATALOG.stellar_mls.mode).toBe('mls')
-    expect(CHANNEL_CATALOG.realtor_com.readiness).toBe('blocked')
+  it('clasificados: pack only, Spanish body, ttl 40 days', async () => {
+    const result = await runAdapter(makeSource(), 'clasificados')
+    assert.equal(result.status, 'pending_manual')
+    assert.equal(result.mode, 'copy_pack')
+    assert.equal(result.ttlDays, 40)
+    assert.ok(result.pack.titleEs)
+    assert.ok(result.pack.bodyEs)
+    assert.match(result.pack.bodyEs, /Detalle/)
+    assert.match(result.pack.bodyEs, /Flamenco/)
+    assert.equal(result.pack.transport, null)
   })
 })
