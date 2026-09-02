@@ -20,7 +20,7 @@
 //
 //   DEV:  node --env-file=.env.local --import tsx scripts/apple-messages-intake.ts dev [--dir <path>]
 //   PROD: DATABASE_URL_PROD=postgres://... node --env-file=.env.local \
-//           --import tsx scripts/apple-messages-intake.ts prod [--dir <path>]
+//           --import tsx scripts/apple-messages-intake.ts prod [--dir <path>] [--evidence-only]
 //
 // Replay-safe: every canonical interaction reuses the createInteraction seam,
 // backed by the unique partial index on (source_system, source_external_id).
@@ -61,13 +61,14 @@ function parseArgs(argv: string[]) {
     targetArg === 'dev' || targetArg === 'prod' ? targetArg : null
   if (!target) {
     throw new Error(
-      'Usage: node --env-file=.env.local --import tsx scripts/apple-messages-intake.ts <dev|prod> [--dir <path>]',
+      'Usage: node --env-file=.env.local --import tsx scripts/apple-messages-intake.ts <dev|prod> [--dir <path>] [--evidence-only]',
     )
   }
   let dir = DEFAULT_DIR
   const dirIdx = argv.indexOf('--dir')
   if (dirIdx !== -1 && argv[dirIdx + 1]) dir = argv[dirIdx + 1]
-  return { target, dir }
+  const evidenceOnly = argv.includes('--evidence-only')
+  return { target, dir, evidenceOnly }
 }
 
 function resolveDatabaseUrl(target: EnvTarget): string {
@@ -160,7 +161,7 @@ export async function runAppleMessagesIntake(
   env: EnvTarget,
   exportDir: string,
   execute: QueryExecutor,
-  options: { refresh?: () => Promise<void> } = {},
+  options: { refresh?: () => Promise<void>; evidenceOnly?: boolean } = {},
 ): Promise<AppleMessagesIntakeResult> {
   const { manifest, handles, messages, conversations, conversationParticipants } =
     loadExportPackage(exportDir)
@@ -210,22 +211,66 @@ export async function runAppleMessagesIntake(
 
   // --- 2. Canonical interaction materialization (exact_linked only) ---
   const refresh = options.refresh ?? (async () => {
+    await execute`refresh materialized view concurrently mv_client_relationship_channels`
     await execute`refresh materialized view concurrently mv_client_directory`
     await execute`refresh materialized view concurrently mv_client_contact_history`
   })
-  const materialized = await materializeAppleMessages(exportData, execute, {
-    refresh,
-    progressEvery: 100,
-    onProgress: (progress) => {
-      out(
-        `message progress: ${progress.processed}/${progress.eventsSeen}`,
-        `inserted=${progress.inserted}`,
-        `replayed=${progress.replayed}`,
-        `skipped=${progress.skippedNoTimestamp + progress.skippedGroupChat}`,
-        `errors=${progress.errors}`,
+  const materialized = options.evidenceOnly
+    ? {
+        eventsSeen: 0,
+        inserted: 0,
+        replayed: 0,
+        skippedNoTimestamp: 0,
+        skippedGroupChat: 0,
+        errors: 0,
+      }
+    : await materializeAppleMessages(exportData, execute, {
+        refresh,
+        progressEvery: 100,
+        onProgress: (progress) => {
+          out(
+            `message progress: ${progress.processed}/${progress.eventsSeen}`,
+            `inserted=${progress.inserted}`,
+            `replayed=${progress.replayed}`,
+            `skipped=${progress.skippedNoTimestamp + progress.skippedGroupChat}`,
+            `errors=${progress.errors}`,
+          )
+        },
+      })
+  if (options.evidenceOnly) {
+    out('evidence-only repair: interaction replay skipped')
+    out('refreshing relationship channels, directory, and contact history')
+    await refresh()
+    const verification = await execute`
+      with expected as (
+        select
+          canonical_person_id as person_id,
+          sum(coalesce(inbound_count, 0))::bigint as inbound_count,
+          sum(coalesce(outbound_count, 0))::bigint as outbound_count
+        from integration_relationship_evidence
+        where source = 'apple_messages'
+          and canonical_person_id is not null
+          and review_state = 'exact_linked'
+          and is_automated_or_bulk is not true
+          and is_organization_or_service is not true
+        group by canonical_person_id
+      ), actual as (
+        select person_id, inbound_count, outbound_count
+        from mv_client_relationship_channels
+        where source = 'apple_messages'
       )
-    },
-  })
+      select count(*)::int as mismatch_count
+      from expected e
+      full join actual a using (person_id)
+      where coalesce(e.inbound_count, -1) <> coalesce(a.inbound_count, -1)
+         or coalesce(e.outbound_count, -1) <> coalesce(a.outbound_count, -1)
+    `
+    const mismatchCount = Number(verification[0]?.mismatch_count ?? -1)
+    if (mismatchCount !== 0) {
+      throw new Error(`Client relationship-channel verification failed: ${mismatchCount} mismatched Apple summaries`)
+    }
+    out('verification OK: Apple evidence matches Client relationship summaries')
+  }
   out('materialization:', JSON.stringify(materialized))
 
   return {
@@ -277,14 +322,14 @@ function printTally(r: AppleMessagesIntakeResult) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { target, dir } = parseArgs(process.argv.slice(2))
+  const { target, dir, evidenceOnly } = parseArgs(process.argv.slice(2))
   const url = resolveDatabaseUrl(target)
   const { execute, end } = createPoolExecutor(url)
   try {
     // A single operator run performs ONE intake pass. Replay/idempotency is
     // proven in the regression harness (not by re-running tens of thousands of
     // historical messages a second time on every PROD run).
-    const result = await runAppleMessagesIntake(target, dir, execute)
+    const result = await runAppleMessagesIntake(target, dir, execute, { evidenceOnly })
     printTally(result)
   } finally {
     await end()
