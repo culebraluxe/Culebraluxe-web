@@ -114,7 +114,7 @@ export async function runAdapter(
         ].join(' '),
         transport,
       )
-      return { ...result, externalId: graphPostId }
+      return { ...result, externalId: graphPostId, ok: status !== 'failed' }
     }
     case 'stellar_mls': {
       const transport = stellarTransportPlan(source)

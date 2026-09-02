@@ -5,7 +5,9 @@ import { runAdapter } from '../../lib/syndication/adapters'
 import { CHANNEL_CATALOG, PREPARE_CHANNELS, isPrepareChannel } from '../../lib/syndication/channels'
 import { computeListingSourceHash, isSourceStale } from '../../lib/syndication/hash'
 import { isOffMarket, matchesNeedsFilter, placementNeedsMe } from '../../lib/syndication/lifecycle'
-import type { ListingSource, PlacementRow, PlacementStatus, PublishMode, SyndicationChannel } from '../../lib/syndication/types'
+import { buildPresenceReport, presenceReportText } from '../../lib/syndication/presence-report'
+import { smsBlurb, whatsappBlurb } from '../../lib/syndication/share'
+import type { ListingSource, PlacementRow, PlacementStatus, PublishMode, SightingRow, SightingNetwork, SyndicationChannel } from '../../lib/syndication/types'
 import {
   buildFacebookHomeListingPayload,
   buildFacebookMarketplaceItemBatch,
@@ -321,5 +323,72 @@ describe('listing lifecycle (V3 §2.2 / §2.7)', () => {
     assert.equal(matchesNeedsFilter('needs_me', src, expired), true)
     assert.equal(matchesNeedsFilter('needs_me', src, row('pending_manual')), true)
     assert.equal(matchesNeedsFilter('needs_me', src, row('live', { sourceHash: 'sh_old' })), true)
+  })
+})
+
+describe('presence report + share blurbs (C / D)', () => {
+  const PID = '11111111-1111-1111-1111-111111111111'
+  function mkPlacement(channel: SyndicationChannel, status: PlacementStatus, over: Partial<PlacementRow> = {}): PlacementRow {
+    return {
+      id: over.id ?? 'pl-x',
+      propertyId: PID,
+      propertyName: 'Playa Flamenco Villa',
+      channel,
+      status,
+      publishMode: (over.publishMode ?? 'copy_pack') as PublishMode,
+      externalUrl: over.externalUrl ?? null,
+      externalId: over.externalId ?? null,
+      pack: over.pack ?? {},
+      lastError: over.lastError ?? null,
+      publishedAt: null,
+      expiresAt: null,
+      confirmedAt: null,
+      lastAttemptAt: null,
+      updatedAt: null,
+      sourceHash: over.sourceHash ?? null,
+    }
+  }
+
+  it('presence report reflects site + Stellar MLS + unobserved Zillow', () => {
+    const source = makeSource()
+    const stellar = mkPlacement('stellar_mls', 'live', { externalId: 'PR-1234', externalUrl: 'https://stellarmls.example/PR-1234' })
+    const report = buildPresenceReport(source, [stellar], [])
+    assert.equal(report.propertyName, 'Playa Flamenco Villa')
+    assert.equal(report.sitePublished, true)
+    assert.equal(report.stellarMls, 'PR-1234')
+    assert.match(report.stellarStatus, /In Stellar/)
+    assert.equal(report.sightings.length, 0)
+    const text = presenceReportText(report)
+    assert.match(text, /PR-1234/)
+    assert.ok(!text.includes('Published to Zillow'), 'never claims a Zillow publish')
+    assert.ok(report.generatedAt.length > 0)
+  })
+
+  it('presence report lists a pasted Zillow sighting as observed', () => {
+    const source = makeSource()
+    const sighting: SightingRow = {
+      id: 's1',
+      propertyId: PID,
+      network: 'zillow' as SightingNetwork,
+      url: 'https://www.zillow.com/homes/123',
+      notedAt: null,
+      notes: null,
+    }
+    const report = buildPresenceReport(source, [], [sighting])
+    assert.equal(report.sightings.length, 1)
+    assert.equal(report.sightings[0]?.network, 'zillow')
+    assert.match(presenceReportText(report), /www.zillow.com/)
+  })
+
+  it('whatsapp and sms blurbs carry name, price, city and the public URL', () => {
+    const source = makeSource()
+    const url = 'https://culebraluxe.com/listings/playa-flamenco-villa'
+    for (const text of [whatsappBlurb(source, 'en'), smsBlurb(source, 'en')]) {
+      assert.match(text, /Playa Flamenco Villa/)
+      assert.match(text, /Culebra/)
+      assert.ok(text.includes(url), 'blurb includes the public URL')
+    }
+    assert.match(whatsappBlurb(source, 'es'), /baños/)
+    assert.match(whatsappBlurb(source, 'es'), /Detalle/)
   })
 })

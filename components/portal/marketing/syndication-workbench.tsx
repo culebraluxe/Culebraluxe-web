@@ -20,6 +20,9 @@ import {
 } from '@/lib/syndication/channels'
 import { isSourceStale } from '@/lib/syndication/hash'
 import { isOffMarket, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
+import { buildPresenceReport, presenceReportText, type PresenceReport } from '@/lib/syndication/presence-report'
+import { smsBlurb, waMeUrl, whatsappBlurb } from '@/lib/syndication/share'
+import type { FacebookReadiness } from '@/lib/syndication/env'
 import type {
   ListingPack, ListingSource, PlacementRow, SightingNetwork, SightingRow,
 } from '@/lib/syndication/types'
@@ -49,8 +52,8 @@ function Banner({ state }: { state: MarketingWriteState }) {
   )
 }
 
-export function SyndicationWorkbench({ sources, placements, sightings }: {
-  sources: ListingSource[]; placements: PlacementRow[]; sightings: SightingRow[]
+export function SyndicationWorkbench({ sources, placements, sightings, facebook }: {
+  sources: ListingSource[]; placements: PlacementRow[]; sightings: SightingRow[]; facebook?: FacebookReadiness
 }) {
   const initial = sources.find((s) => s.isPublished)?.id ?? sources[0]?.id ?? ''
   const [sourceId, setSourceId] = useState(initial)
@@ -58,6 +61,10 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
   const source = sources.find((s) => s.id === sourceId) ?? null
   const sourcePlacements = useMemo(() => placements.filter((p) => p.propertyId === sourceId), [placements, sourceId])
   const sourceSightings = useMemo(() => sightings.filter((s) => s.propertyId === sourceId), [sightings, sourceId])
+  const presence = useMemo(
+    () => (source ? buildPresenceReport(source, sourcePlacements, sourceSightings) : null),
+    [source, sourcePlacements, sourceSightings],
+  )
   const placementByChannel = useMemo(() => {
     const map = new Map<SyndicationChannel, PlacementRow>()
     for (const row of sourcePlacements) map.set(row.channel, row)
@@ -120,6 +127,12 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
             <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-700">Off the market</p>
               <p className="mt-1 text-sm font-light leading-5 text-rose-800">Take Facebook/Clasificados down and update Matrix — this listing is no longer being marketed.</p>
+            </div>
+          ) : null}
+          {facebook?.readyToPost ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-amber-700">Live Graph POST is armed</p>
+              <p className="mt-1 text-sm font-light leading-5 text-amber-800">SYNDICATION_LIVE=true and a Page token are set — preparing Facebook will POST to the Page feed. Set SYNDICATION_LIVE=false in Vercel to return to dry-run.</p>
             </div>
           ) : null}
           {source ? (
@@ -307,7 +320,83 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
           ) : null}
         </div>
       </div>
+      {source && presence ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <SellerReportPanel report={presence} />
+          <SharePanel source={source} />
+        </div>
+      ) : null}
     </div>
+  )
+}
+
+function SellerReportPanel({ report }: { report: PresenceReport }) {
+  const copyText = presenceReportText(report)
+  const rows: Array<[string, string]> = [
+    ['Listing', `${report.propertyName} — ${report.priceLabel}`],
+    ['Location', report.city],
+    ['Facts', report.factsLine],
+    ['On culebraluxe.com', report.sitePublished ? 'Live' : 'Not published'],
+    ['Stellar / MLS', report.stellarMls ? `${report.stellarStatus} · #${report.stellarMls}` : report.stellarStatus],
+    ['Facebook', report.facebookUrl ?? report.facebookStatus],
+    ['Clasificados', report.clasificadosUrl ?? report.clasificadosStatus],
+  ]
+  return (
+    <Panel eyebrow="Seller report" heading="Presence one-pager" subtitle="Print or copy this to email the seller. It lists confirmed or observed URLs, never a Zillow upload.">
+      <dl className="space-y-1.5 text-[13px] font-light">
+        {rows.map(([key, value]) => (
+          <div key={key} className="flex flex-wrap justify-between gap-3">
+            <dt className="text-black/45">{key}</dt>
+            <dd className="max-w-[16rem] text-right text-black/80">{value}</dd>
+          </div>
+        ))}
+        {report.sightings.length === 0 ? (
+          <div className="flex flex-wrap justify-between gap-3">
+            <dt className="text-black/45">Zillow / Realtor.com</dt>
+            <dd className="text-black/80">Not observed yet</dd>
+          </div>
+        ) : report.sightings.map((sighting) => (
+          <div key={sighting.network} className="flex flex-wrap justify-between gap-3">
+            <dt className="text-black/45">Seen on {sighting.network}</dt>
+            <dd className="max-w-[16rem] text-right text-black/80">{sighting.url ?? sighting.notes ?? 'Observed'}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-[11px] font-light leading-4 text-black/40">{report.disclaimer}</p>
+      <p className="mt-1 text-[11px] font-light text-black/35">Generated {report.generatedAt} (PR time)</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <CopyButton label="Copy report" text={copyText} />
+        <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Print report</button>
+      </div>
+    </Panel>
+  )
+}
+
+function SharePanel({ source }: { source: ListingSource }) {
+  const url = source.publicUrl ?? ''
+  const qrSrc = url ? `/portal/marketing/qr?url=${encodeURIComponent(url)}` : ''
+  return (
+    <Panel eyebrow="Share" heading="Send to a buyer or seller" subtitle="One-tap WhatsApp/SMS blurbs and a QR to the public listing.">
+      <div className="flex items-start gap-4">
+        <div className="flex flex-1 flex-col gap-2">
+          <CopyButton label="WhatsApp EN" text={whatsappBlurb(source, 'en')} />
+          <CopyButton label="WhatsApp ES" text={whatsappBlurb(source, 'es')} />
+          <CopyButton label="SMS EN" text={smsBlurb(source, 'en')} />
+          <CopyButton label="SMS ES" text={smsBlurb(source, 'es')} />
+          {url ? (
+            <a href={waMeUrl(source, 'en')} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Open in WhatsApp</a>
+          ) : null}
+        </div>
+        {qrSrc ? (
+          <div className="shrink-0 rounded-md border border-[var(--portal-panel-border)] bg-white p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrSrc} alt={`QR to ${url}`} width={160} height={160} className="h-40 w-40" />
+            <p className="mt-1 max-w-[10rem] text-center text-[10px] font-light text-black/40">Scan to open the listing</p>
+          </div>
+        ) : null}
+      </div>
+      <p className="mt-3 text-[11px] font-light text-black/40">Every blurb and the QR point to the public listing URL only.</p>
+    </Panel>
   )
 }
 
