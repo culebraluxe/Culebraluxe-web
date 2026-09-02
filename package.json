@@ -27,6 +27,7 @@
     "calendar:sync:stop": "node scripts/calendar-sync-agent.mjs stop",
     "calendar:sync:uninstall": "node scripts/calendar-sync-agent.mjs uninstall",
     "apple:sync": "bash scripts/apple-sync.sh",
+    "apple:repair:prod": "bash scripts/apple-message-repair.sh",
     "apple:sync:install": "node scripts/apple-sync-agent.mjs install",
     "apple:sync:status": "node scripts/apple-sync-agent.mjs status",
     "apple:sync:run": "node scripts/apple-sync-agent.mjs run",
