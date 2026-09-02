@@ -11,6 +11,8 @@ export type RelationshipEvidenceSource =
   | 'apple_contacts'
   | 'gmail_contacts'
   | 'apple_messages'
+  | 'apple_calls'
+  | 'apple_facetime'
   | 'whatsapp'
 
 export type ReviewState =
