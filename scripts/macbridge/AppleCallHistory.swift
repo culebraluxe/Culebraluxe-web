@@ -96,7 +96,7 @@ let dateCol = pick(available, ["ZDATE", "ZSTARTDATE"])
 let durationCol = pick(available, ["ZDURATION"])
 let originatedCol = pick(available, ["ZORIGINATED", "ZOUTGOING"])
 let answeredCol = pick(available, ["ZANSWERED"])
-let typeCol = pick(available, ["ZCALLTYPE", "ZCALLTYPE"])
+let typeCol = pick(available, ["ZCALLTYPE"])
 let providerCol = pick(available, ["ZSERVICE_PROVIDER", "ZSERVICEPROVIDER", "ZPROVIDER"])
 let countryCol = pick(available, ["ZISO_COUNTRY_CODE", "ZISOCOUNTRYCODE"])
 
@@ -135,18 +135,25 @@ while sqlite3_step(stmt) == SQLITE_ROW {
     out.write(data); out.write(Data("\n".utf8)); count += 1
 }
 
-let schema: [String: Any] = [
-    "databasePath": dbURL.path,
-    "databaseReadOnly": true,
-    "table": table,
-    "availableColumns": available.sorted(),
-    "mappedColumns": [
-        "uniqueId": idCol ?? NSNull(), "address": addressCol ?? NSNull(), "date": dateCol ?? NSNull(),
-        "duration": durationCol ?? NSNull(), "originated": originatedCol ?? NSNull(), "answered": answeredCol ?? NSNull(),
-        "callType": typeCol ?? NSNull(), "serviceProvider": providerCol ?? NSNull(), "countryCode": countryCol ?? NSNull(),
-    ],
-    "rows": count,
-]
+var mappedColumns: [String: Any] = [:]
+mappedColumns["uniqueId"] = idCol ?? NSNull()
+mappedColumns["address"] = addressCol ?? NSNull()
+mappedColumns["date"] = dateCol ?? NSNull()
+mappedColumns["duration"] = durationCol ?? NSNull()
+mappedColumns["originated"] = originatedCol ?? NSNull()
+mappedColumns["answered"] = answeredCol ?? NSNull()
+mappedColumns["callType"] = typeCol ?? NSNull()
+mappedColumns["serviceProvider"] = providerCol ?? NSNull()
+mappedColumns["countryCode"] = countryCol ?? NSNull()
+
+var schema: [String: Any] = [:]
+schema["databasePath"] = dbURL.path
+schema["databaseReadOnly"] = true
+schema["table"] = table
+schema["availableColumns"] = available.sorted()
+schema["mappedColumns"] = mappedColumns
+schema["rows"] = count
+
 let schemaData = try JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys])
 try schemaData.write(to: schemaURL)
 
