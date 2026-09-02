@@ -4,7 +4,8 @@ import { Panel } from '@/components/portal/panel'
 import { EVENT_LABEL, STATUS_TONE } from '@/components/portal/marketing/status'
 import type { MarketingDashboardSnapshot } from '@/db/syndication'
 import { CHANNEL_CATALOG, SYNDICATION_CHANNELS } from '@/lib/syndication/channels'
-import type { PlacementRow, SyndicationEventRow } from '@/lib/syndication/types'
+import type { PlacementRow, SightingNetwork, SightingRow, SyndicationEventRow } from '@/lib/syndication/types'
+import type { FacebookReadiness } from '@/lib/syndication/env'
 
 type EventRow = SyndicationEventRow & { channel: PlacementRow['channel']; propertyName: string }
 
@@ -21,8 +22,11 @@ function Metric({ label, value, hint, tone = 'neutral' }: {
   )
 }
 
-export function MarketingDashboard({ snapshot, placements, events }: {
+const EVENT_CHANNEL = { zillow: 'Zillow', realtor_com: 'Realtor.com', homes_com: 'Homes.com', other: 'Other' }
+
+export function MarketingDashboard({ snapshot, placements, events, sightings, facebook }: {
   snapshot: MarketingDashboardSnapshot; placements: PlacementRow[]; events: EventRow[]
+  sightings: SightingRow[]; facebook?: FacebookReadiness
 }) {
   const byProperty = new Map<string, PlacementRow[]>()
   for (const row of placements) {
@@ -30,8 +34,15 @@ export function MarketingDashboard({ snapshot, placements, events }: {
     list.push(row)
     byProperty.set(row.propertyId, list)
   }
+  const sightingsByProperty = new Map<string, SightingRow[]>()
+  for (const s of sightings) {
+    const list = sightingsByProperty.get(s.propertyId) ?? []
+    list.push(s)
+    sightingsByProperty.set(s.propertyId, list)
+  }
   const constellations = [...byProperty.entries()].map(([propertyId, rows]) => ({
     propertyId, name: rows[0]?.propertyName ?? 'Listing', rows,
+    sightings: sightingsByProperty.get(propertyId) ?? [],
     live: rows.filter((r) => r.status === 'live').length,
     pending: rows.filter((r) => r.status === 'pending_manual').length,
   })).slice(0, 8)
@@ -41,6 +52,13 @@ export function MarketingDashboard({ snapshot, placements, events }: {
       <PageHeader eyebrow="Marketing" title="Presence" subtitle="One canonical listing, many outbound paths — same 1→N shape as a person and their identities. HubSpot stays a sibling system.">
         <Link href="/portal/marketing/syndication" className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-gold)]/50 bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white">Open syndication</Link>
       </PageHeader>
+      {facebook ? (
+        <p className="text-[11px] font-light uppercase tracking-[0.14em] text-black/40">
+          Meta {facebook.readyToPost ? 'live-ready' : 'dry-run'}
+          {facebook.requiredMissing.length > 0 ? ` · missing ${facebook.requiredMissing.join(', ')}` : ''}
+          {' · '}SYNDICATION_LIVE {facebook.liveEnabled ? 'true' : 'false'}
+        </p>
+      ) : null}
       <div className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-gold)]/25 bg-[var(--portal-navy-deep)] p-4 text-white sm:p-5">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           <Metric label="Inventory" value={snapshot.inventory} hint="Active properties" />
@@ -101,6 +119,18 @@ export function MarketingDashboard({ snapshot, placements, events }: {
                       )
                     })}
                   </div>
+                  {item.sightings.length > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {item.sightings.map((s) => {
+                        const label = `Seen on ${EVENT_CHANNEL[s.network as SightingNetwork] ?? s.network}`
+                        return s.url ? (
+                          <a key={s.id} href={s.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border border-[var(--portal-gold)]/45 bg-white/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[var(--portal-navy)] hover:bg-[var(--portal-gold)]/15">{label}</a>
+                        ) : (
+                          <span key={s.id} className="inline-flex items-center gap-1 rounded-full border border-[var(--portal-gold)]/35 bg-white/50 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black/45">{label}</span>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>

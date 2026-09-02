@@ -21,6 +21,21 @@ function facts(source: ListingSource): string {
   return parts.join(' · ')
 }
 
+export function photoHintFor(source: ListingSource): string {
+  const photos = source.photos ?? []
+  if (photos.length === 0) {
+    return source.imageCount > 0
+      ? `${source.imageCount} photos on the listing. Download from Property Media, do not hotlink.`
+      : 'No photos attached yet — add media before posting.'
+  }
+  const listed = photos
+    .slice(0, 5)
+    .map((photo, index) => `${index + 1}. ${photo.url}`)
+    .join('\n')
+  const more = photos.length > 5 ? `\n+${photos.length - 5} more in Property Media.` : ''
+  return `${photos.length} photos. Download these files — do not hotlink.\n${listed}${more}`
+}
+
 export function buildListingPack(
   source: ListingSource,
   channel: ChannelDefinition,
@@ -71,11 +86,9 @@ export function buildListingPack(
     factsLine,
     publicUrl: source.publicUrl,
     contactLine,
-    photoHint:
-      source.imageCount > 0
-        ? `${source.imageCount} photos on the listing. Download from Property Media, do not hotlink.`
-        : 'No photos attached yet — add media before posting.',
+    photoHint: photoHintFor(source),
     instructions: channel.notes,
     pasteTargetUrl: null,
+    transport: null,
   }
 }

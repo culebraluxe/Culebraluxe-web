@@ -6,11 +6,16 @@ import { redirect } from 'next/navigation'
 import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import {
+  addSighting,
   confirmPlacement,
+  logListingInquiry,
+  renewPlacement,
   requestPublishMany,
   withdrawPlacement,
 } from '@/db/syndication'
-import { isSyndicationChannel } from '@/lib/syndication/channels'
+import { searchPeople } from '@/db/people'
+import type { SightingNetwork } from '@/lib/syndication/types'
+import { isPrepareChannel } from '@/lib/syndication/channels'
 
 export type MarketingWriteState = {
   ok: boolean
@@ -42,7 +47,7 @@ export async function publishListingsAction(
   const channels = formData
     .getAll('channel')
     .map((value) => String(value))
-    .filter(isSyndicationChannel)
+    .filter(isPrepareChannel)
 
   const result = await requestPublishMany({ propertyId, channels })
   revalidateMarketing()
@@ -90,4 +95,65 @@ export async function withdrawPlacementAction(
   revalidateMarketing()
   if (!result.ok) return { ok: false, error: result.error }
   return { ok: true, message: 'Placement withdrawn.' }
+}
+
+export async function renewPlacementAction(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const placementId = String(formData.get('placementId') ?? '').trim()
+  if (!placementId) return { ok: false, error: 'Missing placement.' }
+  const result = await renewPlacement(placementId)
+  revalidateMarketing()
+  if (!result.ok) return { ok: false, error: result.error }
+  return { ok: true, message: 'Placement renewed — pack window reopened.' }
+}
+
+const SIGHTING_NETWORKS: readonly SightingNetwork[] = ['zillow', 'realtor_com', 'homes_com', 'other']
+
+/** Record where a listing was observed (V3 §2.3). Never creates a placement. */
+export async function addSightingAction(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const propertyId = String(formData.get('propertyId') ?? '').trim()
+  const network = String(formData.get('network') ?? '')
+  const url = String(formData.get('url') ?? '').trim()
+  const notes = String(formData.get('notes') ?? '').trim() || null
+  if (!propertyId || !url) return { ok: false, error: 'Choose a listing and paste a URL.' }
+  if (!(SIGHTING_NETWORKS as readonly string[]).includes(network)) {
+    return { ok: false, error: 'Unknown network.' }
+  }
+  const result = await addSighting({ propertyId, network: network as SightingNetwork, url, notes })
+  revalidateMarketing()
+  if (!result.ok) return { ok: false, error: result.error }
+  return { ok: true, message: 'Sighting noted — pinned to the constellation.' }
+}
+
+const INQUIRY_SOURCES = ['phone', 'whatsapp', 'email', 'walkin'] as const
+
+/** Log a listing inquiry against an existing person (reuses property_interest). */
+export async function logInquiryAction(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const personId = String(formData.get('personId') ?? '').trim()
+  const propertyId = String(formData.get('propertyId') ?? '').trim()
+  const source = String(formData.get('source') ?? '')
+  const notes = String(formData.get('notes') ?? '').trim() || null
+  if (!personId || !propertyId) return { ok: false, error: 'Choose a person and a listing.' }
+  if (!(INQUIRY_SOURCES as readonly string[]).includes(source)) return { ok: false, error: 'Unknown source.' }
+  const result = await logListingInquiry({ personId, propertyId, source: source as (typeof INQUIRY_SOURCES)[number], notes })
+  revalidateMarketing()
+  if (!result.ok) return { ok: false, error: result.error }
+  return { ok: true, message: 'Inquiry logged against the person.' }
+}
+
+/** Read-only person picker for the Launch panel (requires a query). */
+export async function searchInquiryPeopleAction(query: string) {
+  await requireRead()
+  return searchPeople(query ?? '', 8)
 }

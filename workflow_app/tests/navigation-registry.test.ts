@@ -123,7 +123,10 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'P&L Statement',
       'Receipt Scanner',
     ],
-    MARKETING: ['Dashboard', 'Syndication'],
+    MARKETING: [
+      'Dashboard',
+      'Syndication',
+    ],
     TECH: [
       'Tech Overview',
       'Command Center',
