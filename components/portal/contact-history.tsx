@@ -28,6 +28,7 @@ import {
   channelLine,
   cleanPreview,
   humanDirection,
+  sourceContextMoment,
 } from "@/lib/relationship-intel/moment-presentation"
 
 // ---------------------------------------------------------------------------
@@ -480,14 +481,14 @@ function formatSourceTimestamp(iso: string): string {
   })
 }
 
-function latestDirectionLabel(
-  channel: ClientRelationshipChannel,
+function directionLabel(
+  direction: "inbound" | "outbound" | null,
   clientName: string,
 ): string | null {
-  if (channel.lastDirection === "outbound") {
+  if (direction === "outbound") {
     return humanDirection("outbound", clientName)
   }
-  if (channel.lastDirection === "inbound") {
+  if (direction === "inbound") {
     return humanDirection("inbound", clientName)
   }
   return null
@@ -504,9 +505,10 @@ function SourceActivityRow({
   clientName: string
   loading: boolean
 }) {
-  const preview = channel ? cleanPreview(channel.lastContext) : null
-  const timestamp = channel?.lastContactAt ?? channel?.lastContextAt ?? null
-  const direction = channel ? latestDirectionLabel(channel, clientName) : null
+  const context = channel ? sourceContextMoment(channel) : null
+  const preview = context?.preview ?? null
+  const timestamp = context?.timestamp ?? null
+  const direction = context ? directionLabel(context.direction, clientName) : null
   const fallback = channel?.totalCount
     ? `${channel.totalCount.toLocaleString()} observed ${channelNoun(channel.channel)}`
     : null
