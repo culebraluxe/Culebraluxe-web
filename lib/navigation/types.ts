@@ -8,13 +8,14 @@
 
 import type { AuthorityCode } from '../auth/types'
 
-/** The five stable operating surfaces. */
+/** The stable operating surfaces. */
 export type OperatingSurface =
   | 'NEXUS'
+  | 'ACCOUNTING'
+  | 'MARKETING'
   | 'OPS'
   | 'TECH'
   | 'SUPPORT'
-  | 'ACCOUNTING'
 
 /** One Tier-2 navigation item (an EXISTING route — never invented). */
 export type SurfaceNavItem = {
