@@ -179,7 +179,7 @@ export async function requestPublish(input: {
 }): Promise<{ ok: boolean; error?: string; placementId?: string; message?: string }> {
   const source = await getListingSource(input.propertyId)
   if (!source) return { ok: false, error: 'Property not found.' }
-  const result = runAdapter(source, input.channel)
+  const result = await runAdapter(source, input.channel)
   const def = CHANNEL_CATALOG[input.channel]
   const expiresAt = result.ttlDays != null
     ? new Date(Date.now() + result.ttlDays * 24 * 60 * 60 * 1000).toISOString() : null
@@ -212,6 +212,8 @@ export async function requestPublish(input: {
       insert into listing_syndication_event (placement_id, event_type, detail)
       values (${placementId}, ${eventType}, ${JSON.stringify({
         message: result.message, mode: result.mode, readiness: def.readiness,
+        dryRun: result.transport?.dryRun ?? null,
+        transportKind: result.transport?.kind ?? null,
       })})
     `
     return {
@@ -224,7 +226,7 @@ export async function requestPublish(input: {
     return {
       ok: false,
       error: message.includes('does not exist')
-        ? 'Migration 098 is not applied yet.'
+        ? 'Migration 098/099 is not applied yet.'
         : message,
     }
   }
