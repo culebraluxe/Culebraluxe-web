@@ -1,14 +1,14 @@
 'use client'
 
-import { useActionState, useMemo, useState } from 'react'
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader } from '@/components/portal/page-header'
 import { Panel } from '@/components/portal/panel'
 import { CopyButton } from '@/components/portal/tech/copy-button'
 import { STATUS_TONE } from '@/components/portal/marketing/status'
 import {
-  addSightingAction, confirmPlacementAction, publishListingsAction,
-  renewPlacementAction, withdrawPlacementAction,
+  addSightingAction, confirmPlacementAction, logInquiryAction, publishListingsAction,
+  renewPlacementAction, searchInquiryPeopleAction, withdrawPlacementAction,
   type MarketingWriteState,
 } from '@/app/portal/marketing/actions'
 import {
@@ -22,6 +22,7 @@ import { isSourceStale } from '@/lib/syndication/hash'
 import { isOffMarket, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
 import { buildPresenceReport, presenceReportText, type PresenceReport } from '@/lib/syndication/presence-report'
 import { smsBlurb, waMeUrl, whatsappBlurb } from '@/lib/syndication/share'
+import { takedownTextEn, takedownTextEs } from '@/lib/syndication/takedown'
 import type { FacebookReadiness } from '@/lib/syndication/env'
 import type {
   ListingPack, ListingSource, PlacementRow, SightingNetwork, SightingRow,
@@ -94,9 +95,24 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
     office: true,
     portalSeen: sourceSightings.some((s) => s.network === 'zillow' || s.network === 'realtor_com'),
   }
+  const takeDownRows = sourcePlacements.filter(
+    (r) => (r.channel === 'facebook_marketplace' || r.channel === 'clasificados')
+      && (r.status === 'live' || r.status === 'pending_manual'),
+  )
+  const fbOpen = takeDownRows.some((r) => r.channel === 'facebook_marketplace')
+  const clasOpen = takeDownRows.some((r) => r.channel === 'clasificados')
 
   return (
     <div className="space-y-5">
+      <style>{`
+        #print-report { display: none; }
+        @media print {
+          #print-report { display: block; }
+          body * { visibility: hidden; }
+          #print-report, #print-report * { visibility: visible; }
+          #print-report { position: absolute; left: 0; top: 0; width: 100%; padding: 0 1rem; }
+        }
+      `}</style>
       <PageHeader eyebrow="Marketing" title="Syndication" subtitle="Pick the root listing, choose channels, generate a pack per adapter. Manual sites wait for the live URL.">
         <Link href="/portal/marketing" className="text-[11px] font-light uppercase tracking-[0.16em] text-black/40">Dashboard</Link>
       </PageHeader>
@@ -129,6 +145,27 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
               <p className="mt-1 text-sm font-light leading-5 text-rose-800">Take Facebook/Clasificados down and update Matrix — this listing is no longer being marketed.</p>
             </div>
           ) : null}
+          {source && isOffMarket(source) && takeDownRows.length > 0 ? (
+            <div className="rounded-md border border-rose-200 bg-rose-50/60 px-4 py-3">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-700">Off-market takedown kit</p>
+              <p className="mt-1 text-sm font-light leading-5 text-rose-800">Take the live paths down and update Matrix. This app does not delete third-party ads.</p>
+              <ul className="mt-2 space-y-1 text-[13px] font-light text-black/70">
+                <li>{fbOpen ? '☑' : '☐'} Facebook page / ad — take down</li>
+                <li>{clasOpen ? '☑' : '☐'} Clasificados ad — take down</li>
+                <li>☐ Stellar Matrix — mark withdrawn so feed portals update</li>
+              </ul>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <CopyButton label="Copy takedown EN" text={takedownTextEn(source)} />
+                <CopyButton label="Copy takedown ES" text={takedownTextEs(source)} />
+                {takeDownRows.map((row) => (
+                  <form key={row.id} action={withdrawAction}>
+                    <input type="hidden" name="placementId" value={row.id} />
+                    <button type="submit" className="text-[11px] font-light uppercase tracking-[0.14em] text-rose-600 hover:text-rose-800">Mark {CHANNEL_CATALOG[row.channel].shortLabel} withdrawn here</button>
+                  </form>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {facebook?.readyToPost ? (
             <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-amber-700">Live Graph POST is armed</p>
@@ -146,6 +183,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
                 <LaunchRow done={launch.office} label="Office name = CulebraLuxe" />
                 <LaunchRow done={launch.portalSeen} label="Zillow / Realtor sighting pasted" hint="stays empty until you paste a public URL" />
               </ul>
+              <InquiryLog propertyId={source.id} />
             </Panel>
           ) : null}
           <Panel eyebrow="Targets" heading="Channels" subtitle="Prepare only channels CulebraLuxe can reach. Zillow and Realtor.com are never upload targets here.">
@@ -322,7 +360,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
       </div>
       {source && presence ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          <SellerReportPanel report={presence} />
+          <SellerReportPanel report={presence} source={source} />
           <SharePanel source={source} />
         </div>
       ) : null}
@@ -330,45 +368,85 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
   )
 }
 
-function SellerReportPanel({ report }: { report: PresenceReport }) {
+function SellerReportPanel({ report, source }: { report: PresenceReport; source: ListingSource }) {
   const copyText = presenceReportText(report)
+  const url = source.publicUrl ?? ''
+  const qrSrc = url ? `/portal/marketing/qr?url=${encodeURIComponent(url)}` : ''
   const rows: Array<[string, string]> = [
     ['Listing', `${report.propertyName} — ${report.priceLabel}`],
     ['Location', report.city],
     ['Facts', report.factsLine],
+  ]
+  if (report.daysOnMarket != null) rows.push(['Days on market', `${report.daysOnMarket}`])
+  rows.push(
     ['On culebraluxe.com', report.sitePublished ? 'Live' : 'Not published'],
     ['Stellar / MLS', report.stellarMls ? `${report.stellarStatus} · #${report.stellarMls}` : report.stellarStatus],
     ['Facebook', report.facebookUrl ?? report.facebookStatus],
     ['Clasificados', report.clasificadosUrl ?? report.clasificadosStatus],
-  ]
+  )
   return (
-    <Panel eyebrow="Seller report" heading="Presence one-pager" subtitle="Print or copy this to email the seller. It lists confirmed or observed URLs, never a Zillow upload.">
-      <dl className="space-y-1.5 text-[13px] font-light">
-        {rows.map(([key, value]) => (
-          <div key={key} className="flex flex-wrap justify-between gap-3">
-            <dt className="text-black/45">{key}</dt>
-            <dd className="max-w-[16rem] text-right text-black/80">{value}</dd>
+    <>
+      <Panel eyebrow="Seller report" heading="Presence one-pager" subtitle="Print or copy this to email the seller. It lists confirmed or observed URLs, never a Zillow upload.">
+        <dl className="space-y-1.5 text-[13px] font-light">
+          {rows.map(([key, value]) => (
+            <div key={key} className="flex flex-wrap justify-between gap-3">
+              <dt className="text-black/45">{key}</dt>
+              <dd className="max-w-[16rem] text-right text-black/80">{value}</dd>
+            </div>
+          ))}
+          {report.sightings.length === 0 ? (
+            <div className="flex flex-wrap justify-between gap-3">
+              <dt className="text-black/45">Zillow / Realtor.com</dt>
+              <dd className="text-black/80">Not observed yet</dd>
+            </div>
+          ) : report.sightings.map((sighting) => (
+            <div key={sighting.network} className="flex flex-wrap justify-between gap-3">
+              <dt className="text-black/45">Seen on {sighting.network}</dt>
+              <dd className="max-w-[16rem] text-right text-black/80">{sighting.url ?? sighting.notes ?? 'Observed'}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-[11px] font-light leading-4 text-black/40">{report.disclaimer}</p>
+        <p className="mt-1 text-[11px] font-light text-black/35">Generated {report.generatedAt} (PR time)</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <CopyButton label="Copy report" text={copyText} />
+          <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Print report</button>
+        </div>
+      </Panel>
+      <div id="print-report">
+        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{report.propertyName}</h1>
+        <p style={{ margin: '0 0 0.25rem' }}>{report.priceLabel} · {report.city}</p>
+        <p style={{ margin: '0 0 0.5rem' }}>{report.factsLine}</p>
+        {report.daysOnMarket != null ? <p style={{ margin: '0 0 0.5rem' }}>Days on market: {report.daysOnMarket}</p> : null}
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '13px' }}>
+          <tbody>
+            {rows.map(([key, value]) => (
+              <tr key={key}>
+                <td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{key}</td>
+                <td style={{ padding: '2px 0', color: '#000' }}>{value}</td>
+              </tr>
+            ))}
+            {report.sightings.length === 0 ? (
+              <tr><td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>Zillow / Realtor.com</td><td>Not observed yet</td></tr>
+            ) : report.sightings.map((sighting) => (
+              <tr key={sighting.network}>
+                <td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>Seen on {sighting.network}</td>
+                <td>{sighting.url ?? sighting.notes ?? 'Observed'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ marginTop: '0.75rem', fontSize: '11px', color: '#666' }}>{report.disclaimer}</p>
+        {qrSrc ? (
+          <div style={{ marginTop: '1rem' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrSrc} alt={`QR to ${url}`} width={160} height={160} style={{ width: '160px', height: '160px' }} />
+            <p style={{ fontSize: '11px', color: '#333', maxWidth: '160px' }}>{url}</p>
           </div>
-        ))}
-        {report.sightings.length === 0 ? (
-          <div className="flex flex-wrap justify-between gap-3">
-            <dt className="text-black/45">Zillow / Realtor.com</dt>
-            <dd className="text-black/80">Not observed yet</dd>
-          </div>
-        ) : report.sightings.map((sighting) => (
-          <div key={sighting.network} className="flex flex-wrap justify-between gap-3">
-            <dt className="text-black/45">Seen on {sighting.network}</dt>
-            <dd className="max-w-[16rem] text-right text-black/80">{sighting.url ?? sighting.notes ?? 'Observed'}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="mt-3 text-[11px] font-light leading-4 text-black/40">{report.disclaimer}</p>
-      <p className="mt-1 text-[11px] font-light text-black/35">Generated {report.generatedAt} (PR time)</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <CopyButton label="Copy report" text={copyText} />
-        <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Print report</button>
+        ) : null}
+        <p style={{ marginTop: '0.5rem', fontSize: '10px', color: '#888' }}>Generated {report.generatedAt} (Puerto Rico time)</p>
       </div>
-    </Panel>
+    </>
   )
 }
 
@@ -397,6 +475,83 @@ function SharePanel({ source }: { source: ListingSource }) {
       </div>
       <p className="mt-3 text-[11px] font-light text-black/40">Every blurb and the QR point to the public listing URL only.</p>
     </Panel>
+  )
+}
+
+type PersonOption = { id: string; displayName: string; email: string | null; phone: string | null }
+const INQUIRY_SOURCE_OPTIONS: Array<[string, string]> = [
+  ['phone', 'Phone'],
+  ['whatsapp', 'WhatsApp'],
+  ['email', 'Email'],
+  ['walkin', 'Walk-in'],
+]
+
+function InquiryLog({ propertyId }: { propertyId: string }) {
+  const [query, setQuery] = useState('')
+  const [options, setOptions] = useState<PersonOption[]>([])
+  const [chosen, setChosen] = useState<PersonOption | null>(null)
+  const [state, formAction] = useActionState(logInquiryAction, null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  async function onType(value: string) {
+    setQuery(value)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      if (!value.trim()) { setOptions([]); return }
+      void searchInquiryPeopleAction(value.trim())
+        .then((res) => setOptions(res as PersonOption[]))
+        .catch(() => setOptions([]))
+    }, 300)
+  }
+  return (
+    <div className="mt-4 border-t border-[var(--portal-panel-border)] pt-3">
+      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-black/35">Log an inquiry</p>
+      {!chosen ? (
+        <>
+          <input
+            value={query}
+            onChange={(event) => onType(event.target.value)}
+            placeholder="Search an existing person…"
+            className="mt-2 min-h-9 w-full rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light"
+          />
+          {options.length > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {options.map((person) => (
+                <li key={person.id}>
+                  <button
+                    type="button"
+                    onClick={() => { setChosen(person); setOptions([]) }}
+                    className="w-full rounded-md border border-[var(--portal-panel-border)] bg-white/60 px-3 py-1.5 text-left text-[13px] font-light text-black/70 hover:bg-white"
+                  >
+                    {person.displayName}{person.phone ? ` · ${person.phone}` : ''}{person.email ? ` · ${person.email}` : ''}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--portal-panel-border)] bg-white/60 px-3 py-2">
+          <span className="text-[13px] font-light text-black/80">{chosen.displayName}</span>
+          <span className="flex items-center gap-2">
+            <Link href={`/portal/clients/${chosen.id}`} className="text-[11px] uppercase tracking-[0.12em] text-[var(--portal-navy)] underline">Open client</Link>
+            <button type="button" onClick={() => setChosen(null)} className="text-[11px] font-light uppercase tracking-[0.12em] text-black/40 hover:text-rose-700">Change</button>
+          </span>
+        </div>
+      )}
+      <form action={formAction} className="mt-2 space-y-2">
+        <input type="hidden" name="propertyId" value={propertyId} />
+        <input type="hidden" name="personId" value={chosen?.id ?? ''} />
+        <div className="flex flex-wrap items-center gap-2">
+          <select name="source" className="min-h-9 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-2 text-sm font-light">
+            {INQUIRY_SOURCE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <input name="notes" placeholder="Inquiry note" className="min-h-9 min-w-[12rem] flex-1 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light" />
+          <button type="submit" disabled={!chosen} className="inline-flex min-h-9 items-center rounded-md bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white disabled:opacity-40">Log inquiry</button>
+        </div>
+        <Banner state={state} />
+      </form>
+    </div>
   )
 }
 

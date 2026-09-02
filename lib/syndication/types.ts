@@ -98,6 +98,8 @@ export type PlacementRow = {
   updatedAt: string | null
   /** Root-fact fingerprint captured at last prepare (V3 §2.1). */
   sourceHash: string | null
+  /** Raw (ISO) first-publication timestamp for days-on-market; null if never live. */
+  publishedAtIso?: string | null
 }
 
 export type SightingNetwork = 'zillow' | 'realtor_com' | 'homes_com' | 'other'

@@ -23,6 +23,7 @@ export type PresenceReport = {
   clasificadosStatus: string
   clasificadosUrl: string | null
   sightings: PresenceNetworkLine[]
+  daysOnMarket: number | null
   disclaimer: string
   generatedAt: string
 }
@@ -69,6 +70,18 @@ export function buildPresenceReport(
   const clasificados = statusByChannel('clasificados', rows)
   const clasificadosConfirmed = !!clasificados && (clasificados.status === 'live' || !!clasificados.externalUrl)
 
+  // Days on market from the earliest placement that ever went live (ISO).
+  let daysOnMarket: number | null = null
+  const isoDates = rows
+    .map((r) => r.publishedAtIso)
+    .filter((d): d is string => Boolean(d))
+  if (isoDates.length > 0) {
+    const earliest = Math.min(...isoDates.map((d) => new Date(d).getTime()))
+    if (Number.isFinite(earliest)) {
+      daysOnMarket = Math.max(0, Math.floor((Date.now() - earliest) / 86_400_000))
+    }
+  }
+
   return {
     propertyName: source.name,
     priceLabel: priceLabel(source.listPrice),
@@ -99,6 +112,7 @@ export function buildPresenceReport(
     sightings: sightings
       .filter((s) => s.propertyId === source.id)
       .map((s) => ({ network: s.network, url: s.url, notes: s.notes })),
+    daysOnMarket,
     disclaimer: DISCLAIMER,
     generatedAt: new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Puerto_Rico',
@@ -110,18 +124,18 @@ export function buildPresenceReport(
 
 /** Plain-text rendering for Copy and for window.print() bodies. */
 export function presenceReportText(report: PresenceReport): string {
-  const lines = [
-    `${report.propertyName} — ${report.priceLabel}`,
-    report.city,
-    report.factsLine,
-    '',
-    `Site: ${report.sitePublished && report.siteUrl ? 'Live on culebraluxe.com' : 'Not published on site'}`,
-    report.siteUrl ? `  ${report.siteUrl}` : '',
-    `Stellar: ${report.stellarStatus}`,
-    report.stellarMls ? `  MLS# ${report.stellarMls}` : '',
-    report.facebookUrl ? `Facebook: ${report.facebookUrl}` : `Facebook: ${report.facebookStatus}`,
-    report.clasificadosUrl ? `Clasificados: ${report.clasificadosUrl}` : `Clasificados: ${report.clasificadosStatus}`,
-  ]
+  const lines: string[] = []
+  lines.push(`${report.propertyName} — ${report.priceLabel}`)
+  lines.push(report.city)
+  lines.push(report.factsLine)
+  if (report.daysOnMarket != null) lines.push(`Days on market: ${report.daysOnMarket}`)
+  lines.push('')
+  lines.push(report.sitePublished && report.siteUrl ? 'On culebraluxe.com: Live' : 'On culebraluxe.com: Not published')
+  if (report.siteUrl) lines.push(`  ${report.siteUrl}`)
+  lines.push(report.stellarStatus)
+  if (report.stellarMls) lines.push(`  MLS# ${report.stellarMls}`)
+  lines.push(report.facebookUrl ? `Facebook: ${report.facebookUrl}` : `Facebook: ${report.facebookStatus}`)
+  lines.push(report.clasificadosUrl ? `Clasificados: ${report.clasificadosUrl}` : `Clasificados: ${report.clasificadosStatus}`)
   if (report.sightings.length === 0) {
     lines.push('Zillow / Realtor.com: Not observed yet.')
   } else {
@@ -131,5 +145,5 @@ export function presenceReportText(report: PresenceReport): string {
     }
   }
   lines.push('', report.disclaimer, `Generated ${report.generatedAt}`)
-  return lines.filter((l) => l !== '' || true).join('\n')
+  return lines.join('\n')
 }

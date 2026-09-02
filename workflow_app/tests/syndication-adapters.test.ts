@@ -346,6 +346,7 @@ describe('presence report + share blurbs (C / D)', () => {
       lastAttemptAt: null,
       updatedAt: null,
       sourceHash: over.sourceHash ?? null,
+      publishedAtIso: over.publishedAtIso ?? null,
     }
   }
 
@@ -362,6 +363,15 @@ describe('presence report + share blurbs (C / D)', () => {
     assert.match(text, /PR-1234/)
     assert.ok(!text.includes('Published to Zillow'), 'never claims a Zillow publish')
     assert.ok(report.generatedAt.length > 0)
+  })
+
+  it('presence report computes days-on-market from an ISO published_at', () => {
+    const source = makeSource()
+    const iso = new Date(Date.now() - 10 * 86_400_000).toISOString()
+    const stellar = mkPlacement('stellar_mls', 'live', { publishedAtIso: iso })
+    const report = buildPresenceReport(source, [stellar], [])
+    assert.equal(report.daysOnMarket, 10)
+    assert.match(presenceReportText(report), /Days on market: 10/)
   })
 
   it('presence report lists a pasted Zillow sighting as observed', () => {
