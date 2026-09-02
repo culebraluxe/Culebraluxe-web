@@ -16,7 +16,7 @@ import {
 import type { ListingPack, ListingSource, PlacementRow } from '@/lib/syndication/types'
 
 const SELECTABLE: SyndicationChannel[] = [
-  'clasificados', 'facebook_marketplace', 'zillow_fsbo', 'amplia_mls', 'hubspot',
+  'facebook_marketplace', 'stellar_mls', 'clasificados', 'zillow_fsbo', 'amplia_mls', 'hubspot',
 ]
 
 function formatPrice(value: number | null) {
@@ -42,7 +42,7 @@ export function SyndicationWorkbench({ sources, placements }: {
 }) {
   const initial = sources.find((s) => s.isPublished)?.id ?? sources[0]?.id ?? ''
   const [sourceId, setSourceId] = useState(initial)
-  const [selected, setSelected] = useState<SyndicationChannel[]>(['clasificados', 'facebook_marketplace'])
+  const [selected, setSelected] = useState<SyndicationChannel[]>(['facebook_marketplace', 'stellar_mls'])
   const source = sources.find((s) => s.id === sourceId) ?? null
   const sourcePlacements = useMemo(() => placements.filter((p) => p.propertyId === sourceId), [placements, sourceId])
   const placementByChannel = useMemo(() => {
@@ -117,8 +117,8 @@ export function SyndicationWorkbench({ sources, placements }: {
                   })}
                 </ul>
                 <div className="flex flex-wrap items-center gap-3">
-                  <button type="submit" disabled={!source || selected.length === 0} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-gold)]/50 bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white disabled:opacity-40">Prepare selected packs</button>
-                  <p className="text-[11px] font-light text-black/40">Does not auto-post. Clasificados and Marketplace wait for your confirm.</p>
+                  <button type="submit" disabled={!source || selected.length === 0} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-gold)]/50 bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white disabled:opacity-40">Prepare / push selected</button>
+                  <p className="text-[11px] font-light text-black/40">Live Graph/HubSpot POST only when SYNDICATION_LIVE=true. Stellar never auto-posts.</p>
                 </div>
               </form>
             ) : <p className="text-sm font-light text-black/45">Select a listing first.</p>}
@@ -130,6 +130,7 @@ export function SyndicationWorkbench({ sources, placements }: {
                   const pack = isPack(row.pack) ? row.pack : null
                   const tone = STATUS_TONE[row.status]
                   const def = CHANNEL_CATALOG[row.channel]
+                  const transportJson = pack?.transport ? JSON.stringify(pack.transport, null, 2) : null
                   return (
                     <article key={row.id} className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white/50 p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -148,9 +149,11 @@ export function SyndicationWorkbench({ sources, placements }: {
                             <PackField label="Body ES" value={pack.bodyEs} />
                             <PackField label="Body EN" value={pack.bodyEn} />
                           </div>
+                          {transportJson ? <PackField label="API transport" value={transportJson} /> : null}
                           <div className="flex flex-wrap gap-2">
                             <CopyButton label="Copy ES" text={`${pack.titleEs}\n\n${pack.bodyEs}`} />
                             <CopyButton label="Copy EN" text={`${pack.titleEn}\n\n${pack.bodyEn}`} />
+                            {transportJson ? <CopyButton label="Copy payload" text={transportJson} /> : null}
                             {pack.pasteTargetUrl ? <a href={pack.pasteTargetUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Open target</a> : null}
                           </div>
                         </div>
