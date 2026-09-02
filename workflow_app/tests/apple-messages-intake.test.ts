@@ -67,6 +67,29 @@ test('apple-messages: changed message set changes the fingerprint (replay distin
   assert.notEqual(a[0].fingerprint, b[0].fingerprint)
 })
 
+test('apple-messages: duplicate numeric handles for one identity aggregate before evidence upsert', () => {
+  const duplicated = sample()
+  duplicated.handles.push({
+    rowid: 2,
+    id: '+17875550134',
+    country: 'us',
+    service: 'SMS',
+    uncanonicalizedId: '7875550134',
+    personCentricId: null,
+  })
+  duplicated.messages.push(
+    { rowid: 4, guid: 'm4', chatGuid: 'c2', handleId: 2, handleValue: '+17875550134', service: 'SMS', date: null, dateISO: '2023-01-04T09:00:00.000Z', isFromMe: 0, text: 'later', hasAttachments: 0 },
+    { rowid: 5, guid: 'm5', chatGuid: 'c2', handleId: 2, handleValue: '+17875550134', service: 'SMS', date: null, dateISO: '2023-01-04T09:05:00.000Z', isFromMe: 1, text: 'reply', hasAttachments: 0 },
+    { rowid: 6, guid: 'm6', chatGuid: 'chat123;+;group', handleId: 2, handleValue: '+17875550134', service: 'SMS', date: null, dateISO: '2023-01-04T10:00:00.000Z', isFromMe: 0, text: 'group', hasAttachments: 0 },
+  )
+
+  const rows = buildMessagesRelationshipEvidence(duplicated)
+  assert.equal(rows.length, 1, 'one textual identity produces one evidence upsert')
+  assert.equal(rows[0].evidence.inboundCount, 3)
+  assert.equal(rows[0].evidence.outboundCount, 2)
+  assert.equal(rows[0].evidence.lastObservedAt, '2023-01-04T09:05:00.000Z')
+})
+
 // --- Real-data-driven fixes ---
 
 test('apple-messages: unclassifiable handle produces NO fabricated identity (real urn/name handles)', () => {
