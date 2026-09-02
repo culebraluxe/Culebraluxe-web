@@ -57,7 +57,7 @@ test('E: source-grain read model returns one normalized row per Person+source', 
       last_context_direction: 'inbound',
     },
     {
-      person_id: 'p-ami', source: 'gmail_contacts', channel: 'email',
+      person_id: 'p-ami', source: 'email', channel: 'email',
       first_observed_at: null, last_contact_at: '2026-08-15T00:00:00.000Z',
       last_inbound_at: null, last_outbound_at: '2026-08-15T00:00:00.000Z',
       inbound_count: '2', outbound_count: '2', total_count: '4',
@@ -125,7 +125,7 @@ test('G: primary Client History panel renders six compact latest-activity source
   assert.ok(panel.includes('CompactRelationshipHeader'), 'aggregate intelligence stays in a compact header')
   assert.ok(panel.includes('SourceActivityRow'), 'source activity uses dense rows rather than oversized nodes')
   assert.ok(panel.includes('No activity connected'), 'missing intake coverage remains visible')
-  for (const label of ['Phone', 'iMessage', 'WhatsApp', 'Gmail', 'FaceTime', 'Apple Calendar']) {
+  for (const label of ['Phone', 'iMessage', 'WhatsApp', 'Email', 'FaceTime', 'Apple Calendar']) {
     assert.ok(panel.includes(`label: "${label}"`), `${label} has a fixed source row`)
   }
   assert.ok(panel.includes('relationship-channels'), 'primary panel keeps the source-grain route')
@@ -136,6 +136,10 @@ test('G: primary Client History panel renders six compact latest-activity source
   const correction = readFileSync('db/migrations/099_relationship_latest_context.sql', 'utf8')
   assert.ok(correction.includes('last_context_direction'), 'production correction carries context direction')
   assert.ok(correction.includes("not in ('message', 'attachment')"), 'production correction skips neutral message labels')
+
+  const unifiedEmail = readFileSync('db/migrations/100_unified_email_relationship_channel.sql', 'utf8')
+  assert.ok(unifiedEmail.includes("('gmail_contacts', 'gmail', 'icloud_mail')"), 'Gmail and iCloud Mail share one Email source row')
+  assert.ok(unifiedEmail.includes("when i.channel = 'email' then 'email'"), 'all canonical email subjects compete by actual event time')
 
   const repo = readFileSync('db/relationship-channels.ts', 'utf8')
   assert.ok(repo.includes('mv_client_relationship_channels'), 'repo reads the source-grain MV')
