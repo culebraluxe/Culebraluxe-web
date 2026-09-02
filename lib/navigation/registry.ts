@@ -17,6 +17,7 @@ import type {
 export const OPERATING_SURFACE_ORDER: readonly OperatingSurface[] = [
   'NEXUS',
   'ACCOUNTING',
+  'MARKETING',
   'OPS',
   'SUPPORT',
   'TECH',
@@ -33,12 +34,6 @@ export const OPERATING_SURFACES: Record<
       'Real-estate operating environment — people, properties, deals, showings, offers, documents and activity.',
     home: '/portal/dashboard',
     items: [
-      // CORE — the visible primary operating menu. Per the 2026-08-25 CTO/Product
-      // Owner decision, Workflows and Forms are visible CORE destinations. This
-      // supersedes the earlier ARCH-HANDOFF continuity note ("Workflows and Forms
-      // remain functional but hidden from visible CORE navigation"). Both entries
-      // reuse the existing /portal/workflows and /portal/forms screens — nothing
-      // was rebuilt or re-routed.
       { label: 'Cockpit', href: '/portal/dashboard', authority: 'portal.read' },
       { label: 'Clients', href: '/portal/clients', authority: 'portal.read' },
       { label: 'Catch-Up', href: '/portal/catch-up', authority: 'portal.read' },
@@ -79,6 +74,21 @@ export const OPERATING_SURFACES: Record<
       },
     ],
   },
+  MARKETING: {
+    surface: 'MARKETING',
+    label: 'MARKETING',
+    description:
+      'Outbound listing presence — one canonical property, many channels. HubSpot stays a sibling system, not this ledger.',
+    home: '/portal/marketing',
+    items: [
+      { label: 'Dashboard', href: '/portal/marketing', authority: 'portal.read' },
+      {
+        label: 'Syndication',
+        href: '/portal/marketing/syndication',
+        authority: 'portal.read',
+      },
+    ],
+  },
   OPS: {
     surface: 'OPS',
     label: 'OPPS',
@@ -107,7 +117,6 @@ export const OPERATING_SURFACES: Record<
         authority: 'portal.read',
       },
       {
-        // Operations function: matching pictures to properties (media uploader).
         label: 'Property Media',
         href: '/portal/property-media',
         authority: 'portal.read',
@@ -130,8 +139,6 @@ export const OPERATING_SURFACES: Record<
     label: 'TECH',
     description:
       'Engineering and platform capability — Forge, Story Board, workflow engineering, MQ/replay, integration checkpoints and engineering evidence.',
-    // Accessing TECH requires tech.access (ROOT only). Non-tech actors (e.g.
-    // BUSINESS_POWER) must not see it in nav and must not open TECH routes.
     accessAuthority: 'tech.access',
     home: '/portal/tech',
     items: [
@@ -196,12 +203,6 @@ export const OPERATING_SURFACES: Record<
   },
 }
 
-/**
- * Which operating surface owns this route? Longest-prefix match over every
- * surface's items (sub-routes inherit their parent surface, e.g.
- * /portal/command-console/<storyId> → TECH). Unmapped portal routes default
- * to NEXUS — the primary real-estate operating environment.
- */
 export function surfaceForPathname(pathname: string): OperatingSurface {
   let best: { surface: OperatingSurface; href: string } | null = null
   for (const surface of OPERATING_SURFACE_ORDER) {
@@ -216,26 +217,22 @@ export function surfaceForPathname(pathname: string): OperatingSurface {
   return best?.surface ?? 'NEXUS'
 }
 
-/** Tier-2 contextual navigation for one operating surface. */
 export function navigationForSurface(
   surface: OperatingSurface,
 ): SurfaceNavItem[] {
   return OPERATING_SURFACES[surface].items
 }
 
-/** Landing destination for a selected operating surface. */
 export function surfaceHome(surface: OperatingSurface): string {
   return OPERATING_SURFACES[surface].home
 }
 
-/** Full definition for one operating surface. */
 export function surfaceDefinition(
   surface: OperatingSurface,
 ): OperatingSurfaceDefinition {
   return OPERATING_SURFACES[surface]
 }
 
-/** Strict membership guard for the four canonical surface tokens. */
 export function isOperatingSurface(
   value: string | null | undefined,
 ): value is OperatingSurface {
