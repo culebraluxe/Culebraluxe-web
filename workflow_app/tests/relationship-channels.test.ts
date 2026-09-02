@@ -54,6 +54,7 @@ test('E: source-grain read model returns one normalized row per Person+source', 
       inbound_count: '2434', outbound_count: '2424', total_count: '4858',
       last_direction: 'inbound', two_way: true,
       last_context: 'Did you watch video', last_context_at: '2026-08-28T14:52:25.245Z', last_context_type: 'title',
+      last_context_direction: 'inbound',
     },
     {
       person_id: 'p-ami', source: 'gmail_contacts', channel: 'email',
@@ -61,7 +62,8 @@ test('E: source-grain read model returns one normalized row per Person+source', 
       last_inbound_at: null, last_outbound_at: '2026-08-15T00:00:00.000Z',
       inbound_count: '2', outbound_count: '2', total_count: '4',
       last_direction: 'outbound', two_way: true,
-      last_context: null, last_context_at: null, last_context_type: null,
+      last_context: 'Re: Sea to Soul listing', last_context_at: '2026-08-15T00:00:00.000Z', last_context_type: 'title',
+      last_context_direction: 'outbound',
     },
   ]
   const execute = ((_strings: TemplateStringsArray) => Promise.resolve(mvRows)) as unknown as QueryExecutor
@@ -76,7 +78,10 @@ test('E: source-grain read model returns one normalized row per Person+source', 
   assert.equal(channels[0].twoWay, true)
   assert.equal(channels[0].lastContext, 'Did you watch video')
   assert.equal(channels[0].lastContactAt, '2026-08-28T14:52:25.245Z')
-  assert.equal(channels[1].lastContext, null)
+  assert.equal(channels[0].lastContextDirection, 'inbound')
+  assert.equal(channels[1].lastContext, 'Re: Sea to Soul listing', 'Gmail subject survives as bounded context')
+  assert.equal(channels[1].lastContextType, 'title')
+  assert.equal(channels[1].lastContextDirection, 'outbound')
 })
 
 test('F: Client directory freshness uses relationship/source state as authoritative', () => {
@@ -84,6 +89,11 @@ test('F: Client directory freshness uses relationship/source state as authoritat
   assert.ok(mig.includes('create materialized view mv_client_relationship_channels'), 'channels MV exists')
   assert.ok(mig.includes('from mv_client_relationship_channels rc'), 'directory last_contact reads source-grain state')
   assert.ok(mig.includes('(select max(i.occurred_at)'), 'detailed interaction is only a fallback')
+  assert.ok(mig.includes("c.source in ('apple_messages', 'whatsapp')"), 'message sources prefer bounded summary text')
+  assert.ok(mig.includes('else coalesce(c.clean_title, c.clean_summary)'), 'Gmail/email sources prefer subject/title')
+  assert.ok(mig.includes('chr(65532)'), 'Apple object-replacement placeholders are rejected as context')
+  assert.ok(mig.includes("not in ('message', 'attachment')"), 'neutral message labels cannot displace real text')
+  assert.ok(mig.includes('last_context_direction'), 'context carries its own direction')
 
   const refresh = readFileSync('db/client-read-models.ts', 'utf8')
   const order = [
@@ -121,6 +131,11 @@ test('G: primary Client History panel renders six compact latest-activity source
   assert.ok(panel.includes('relationship-channels'), 'primary panel keeps the source-grain route')
   assert.ok(panel.includes('View all'), 'detailed archive remains available')
   assert.ok(panel.includes('&recent=true'), 'bounded history read supplies detail count without becoming primary')
+  assert.ok(panel.includes('sourceContextMoment(channel)'), 'source row keeps preview, timestamp, and direction together')
+
+  const correction = readFileSync('db/migrations/099_relationship_latest_context.sql', 'utf8')
+  assert.ok(correction.includes('last_context_direction'), 'production correction carries context direction')
+  assert.ok(correction.includes("not in ('message', 'attachment')"), 'production correction skips neutral message labels')
 
   const repo = readFileSync('db/relationship-channels.ts', 'utf8')
   assert.ok(repo.includes('mv_client_relationship_channels'), 'repo reads the source-grain MV')
