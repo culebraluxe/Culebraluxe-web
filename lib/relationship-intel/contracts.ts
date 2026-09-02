@@ -10,6 +10,7 @@
 export type RelationshipEvidenceSource =
   | 'apple_contacts'
   | 'gmail_contacts'
+  | 'icloud_mail'
   | 'apple_messages'
   | 'apple_calls'
   | 'apple_facetime'
