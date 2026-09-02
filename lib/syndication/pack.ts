@@ -77,5 +77,6 @@ export function buildListingPack(
         : 'No photos attached yet — add media before posting.',
     instructions: channel.notes,
     pasteTargetUrl: null,
+    transport: null,
   }
 }
