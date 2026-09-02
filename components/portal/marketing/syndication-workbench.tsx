@@ -7,7 +7,8 @@ import { Panel } from '@/components/portal/panel'
 import { CopyButton } from '@/components/portal/tech/copy-button'
 import { STATUS_TONE } from '@/components/portal/marketing/status'
 import {
-  addSightingAction, confirmPlacementAction, publishListingsAction, withdrawPlacementAction,
+  addSightingAction, confirmPlacementAction, publishListingsAction,
+  renewPlacementAction, withdrawPlacementAction,
   type MarketingWriteState,
 } from '@/app/portal/marketing/actions'
 import {
@@ -18,6 +19,7 @@ import {
   type SyndicationChannel,
 } from '@/lib/syndication/channels'
 import { isSourceStale } from '@/lib/syndication/hash'
+import { isOffMarket, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
 import type {
   ListingPack, ListingSource, PlacementRow, SightingNetwork, SightingRow,
 } from '@/lib/syndication/types'
@@ -64,8 +66,27 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
   const [publishState, publishAction] = useActionState(publishListingsAction, null)
   const [confirmState, confirmAction] = useActionState(confirmPlacementAction, null)
   const [withdrawState, withdrawAction] = useActionState(withdrawPlacementAction, null)
+  const [renewState, renewAction] = useActionState(renewPlacementAction, null)
   const [sightingState, sightingAction] = useActionState(addSightingAction, null)
   const [showMore, setShowMore] = useState(false)
+  const [needsFilter, setNeedsFilter] = useState<NeedsFilter>('all')
+  const needsCount = sourcePlacements.filter((row) => placementNeedsMe(source, row)).length
+  const visiblePlacements = useMemo(
+    () => sourcePlacements.filter((row) => matchesNeedsFilter(needsFilter, source, row)),
+    [sourcePlacements, needsFilter, source],
+  )
+  const stellarRow = placementByChannel.get('stellar_mls') ?? null
+  const facebookRow = placementByChannel.get('facebook_marketplace') ?? null
+  const clasificadosRow = placementByChannel.get('clasificados') ?? null
+  const launch = {
+    site: !!source?.isPublished,
+    stellar: !!stellarRow && (stellarRow.status === 'live' || !!stellarRow.externalId || !!stellarRow.externalUrl),
+    facebook: !!facebookRow,
+    clasificados: !!clasificadosRow,
+    photos: (source?.imageCount ?? 0) >= 5 && !!source?.heroMediaId,
+    office: true,
+    portalSeen: sourceSightings.some((s) => s.network === 'zillow' || s.network === 'realtor_com'),
+  }
 
   return (
     <div className="space-y-5">
@@ -75,6 +96,7 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
       <Banner state={publishState} />
       <Banner state={confirmState} />
       <Banner state={withdrawState} />
+      <Banner state={renewState} />
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.2fr]">
         <Panel eyebrow="Source" heading="Root listing" subtitle="Canonical property. Off-site ads point back here." flush>
           <div className="max-h-[34rem] overflow-y-auto">
@@ -94,6 +116,25 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
           </div>
         </Panel>
         <div className="space-y-4">
+          {source && isOffMarket(source) && sourcePlacements.length > 0 ? (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-700">Off the market</p>
+              <p className="mt-1 text-sm font-light leading-5 text-rose-800">Take Facebook/Clasificados down and update Matrix — this listing is no longer being marketed.</p>
+            </div>
+          ) : null}
+          {source ? (
+            <Panel eyebrow="Launch" heading={`Launch ${source.name}`} subtitle="Is this listing actually launched? A checklist, not another CRM.">
+              <ul className="space-y-1.5">
+                <LaunchRow done={launch.site} label="Published on culebraluxe.com" />
+                <LaunchRow done={launch.stellar} label="Stellar pack prepared · MLS# confirmed" />
+                <LaunchRow done={launch.facebook} label="Facebook pack / Page post" />
+                <LaunchRow done={launch.clasificados} label="Clasificados (optional)" />
+                <LaunchRow done={launch.photos} label="Photos ready with a hero" />
+                <LaunchRow done={launch.office} label="Office name = CulebraLuxe" />
+                <LaunchRow done={launch.portalSeen} label="Zillow / Realtor sighting pasted" hint="stays empty until you paste a public URL" />
+              </ul>
+            </Panel>
+          ) : null}
           <Panel eyebrow="Targets" heading="Channels" subtitle="Prepare only channels CulebraLuxe can reach. Zillow and Realtor.com are never upload targets here.">
             {source ? (
               <form action={publishAction} className="space-y-4">
@@ -195,8 +236,15 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
           ) : null}
           {sourcePlacements.length > 0 ? (
             <Panel eyebrow="Round trip" heading="Packs & confirmation">
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {(([['all', 'All'], ['needs_me', needsCount ? `Needs me (${needsCount})` : 'Needs me'], ['live', 'Live'], ['expired', 'Expired']]) as Array<[NeedsFilter, string]>).map(([key, label]) => (
+                  <button key={key} type="button" onClick={() => setNeedsFilter(key)} className={`min-h-8 rounded-md border px-2.5 text-[11px] font-light uppercase tracking-[0.12em] ${needsFilter === key ? 'border-[var(--portal-navy)] bg-[var(--portal-navy)] text-white' : 'border-[var(--portal-panel-border)] bg-white/40 text-black/45'}`}>{label}</button>
+                ))}
+              </div>
               <div className="space-y-4">
-                {sourcePlacements.map((row) => {
+                {visiblePlacements.length === 0 ? (
+                  <p className="text-sm font-light text-black/45">Nothing needs you under this filter.</p>
+                ) : visiblePlacements.map((row) => {
                   const pack = isPack(row.pack) ? row.pack : null
                   const tone = STATUS_TONE[row.status]
                   const def = CHANNEL_CATALOG[row.channel]
@@ -245,6 +293,12 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
                           <button type="submit" className="text-[11px] font-light uppercase tracking-[0.14em] text-black/35 hover:text-rose-700">Withdraw path</button>
                         </form>
                       ) : null}
+                      {row.status === 'expired' && (row.channel === 'facebook_marketplace' || row.channel === 'clasificados') ? (
+                        <form action={renewAction} className="mt-2">
+                          <input type="hidden" name="placementId" value={row.id} />
+                          <button type="submit" className="text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-gold)] hover:text-amber-600">Renew expired pack</button>
+                        </form>
+                      ) : null}
                     </article>
                   )
                 })}
@@ -254,6 +308,15 @@ export function SyndicationWorkbench({ sources, placements, sightings }: {
         </div>
       </div>
     </div>
+  )
+}
+
+function LaunchRow({ done, label, hint }: { done: boolean; label: string; hint?: string }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] leading-none ${done ? 'bg-emerald-500 text-white' : 'border border-black/25 text-transparent'}`}>✓</span>
+      <span className="text-[13px] font-light leading-5 text-black/60">{label}{hint ? <span className="text-black/35"> — {hint}</span> : null}</span>
+    </li>
   )
 }
 

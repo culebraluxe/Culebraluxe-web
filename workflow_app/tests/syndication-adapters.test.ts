@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { runAdapter } from '../../lib/syndication/adapters'
 import { CHANNEL_CATALOG, PREPARE_CHANNELS, isPrepareChannel } from '../../lib/syndication/channels'
 import { computeListingSourceHash, isSourceStale } from '../../lib/syndication/hash'
+import { isOffMarket, matchesNeedsFilter, placementNeedsMe } from '../../lib/syndication/lifecycle'
+import type { ListingSource, PlacementRow, PlacementStatus, PublishMode, SyndicationChannel } from '../../lib/syndication/types'
 import {
   buildFacebookHomeListingPayload,
   buildFacebookMarketplaceItemBatch,
@@ -266,5 +268,58 @@ describe('honesty + root fingerprint (V3 §1 / §2.1)', () => {
     assert.equal(isSourceStale(makeSource({ isPublished: false }), hash), true)
     // null stored hash is never stale
     assert.equal(isSourceStale(makeSource({ listPrice: 1900000 }), null), false)
+  })
+})
+
+describe('listing lifecycle (V3 §2.2 / §2.7)', () => {
+  function row(status: PlacementStatus, over: Partial<PlacementRow> = {}): PlacementRow {
+    return {
+      id: over.id ?? 'pl-1',
+      propertyId: over.propertyId ?? '11111111-1111-1111-1111-111111111111',
+      propertyName: 'Playa Flamenco Villa',
+      channel: (over.channel ?? 'facebook_marketplace') as SyndicationChannel,
+      status,
+      publishMode: (over.publishMode ?? 'copy_pack') as PublishMode,
+      externalUrl: over.externalUrl ?? null,
+      externalId: over.externalId ?? null,
+      pack: over.pack ?? {},
+      lastError: over.lastError ?? null,
+      publishedAt: null,
+      expiresAt: null,
+      confirmedAt: null,
+      lastAttemptAt: null,
+      updatedAt: null,
+      sourceHash: over.sourceHash ?? null,
+    }
+  }
+
+  it('isOffMarket flips on unpublished or sold/withdrawn', () => {
+    assert.equal(isOffMarket(makeSource()), false)
+    assert.equal(isOffMarket(makeSource({ isPublished: false })), true)
+    assert.equal(isOffMarket(makeSource({ status: 'sold' })), true)
+    assert.equal(isOffMarket(makeSource({ status: 'withdrawn' })), true)
+  })
+
+  it('placementNeedsMe: pending/expired/stale need attention; fresh live does not', () => {
+    const src = makeSource()
+    const current = computeListingSourceHash(src)
+    assert.equal(placementNeedsMe(src, row('pending_manual')), true)
+    assert.equal(placementNeedsMe(src, row('expired')), true)
+    assert.equal(placementNeedsMe(src, row('live', { sourceHash: 'sh_deadbeef' })), true, 'stale live needs attention')
+    assert.equal(placementNeedsMe(src, row('live', { sourceHash: current })), false, 'fresh live is fine')
+    assert.equal(placementNeedsMe(src, row('live')), false, 'live with no stored hash is fine')
+  })
+
+  it('matchesNeedsFilter reflects all/live/expired/needs_me', () => {
+    const src = makeSource()
+    const fresh = row('live')
+    const expired = row('expired')
+    assert.equal(matchesNeedsFilter('all', src, fresh), true)
+    assert.equal(matchesNeedsFilter('live', src, fresh), true)
+    assert.equal(matchesNeedsFilter('live', src, expired), false)
+    assert.equal(matchesNeedsFilter('expired', src, expired), true)
+    assert.equal(matchesNeedsFilter('needs_me', src, expired), true)
+    assert.equal(matchesNeedsFilter('needs_me', src, row('pending_manual')), true)
+    assert.equal(matchesNeedsFilter('needs_me', src, row('live', { sourceHash: 'sh_old' })), true)
   })
 })

@@ -320,6 +320,34 @@ export async function withdrawPlacement(placementId: string) {
   return { ok: true }
 }
 
+/** Renew an expired Clasificados/Facebook placement (re-opens the pack window). */
+export async function renewPlacement(placementId: string) {
+  const found = (await sql`
+    select channel from listing_syndication_placement where id = ${placementId}
+  `) as Array<{ channel: SyndicationChannel }>
+  const channel = found[0]?.channel
+  if (!channel) return { ok: false, error: 'Placement not found.' }
+  if (channel !== 'clasificados' && channel !== 'facebook_marketplace') {
+    return { ok: false, error: 'Only Clasificados/Facebook placements expire and renew.' }
+  }
+  const def = CHANNEL_CATALOG[channel]
+  const ttlDays = def.defaultTtlDays ?? 30
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString()
+  const rows = (await sql`
+    update listing_syndication_placement
+    set status = 'pending_manual', last_error = null, last_attempt_at = now(),
+      expires_at = ${expiresAt}, updated_at = now()
+    where id = ${placementId} and status = 'expired'
+    returning id
+  `) as Array<{ id: string }>
+  if (!rows[0]) return { ok: false, error: 'Only an expired placement can be renewed.' }
+  await sql`
+    insert into listing_syndication_event (placement_id, event_type, detail)
+    values (${placementId}, 'renewed', ${JSON.stringify({ ttlDays })})
+  `
+  return { ok: true }
+}
+
 export async function listRecentSyndicationEvents(limit = 16): Promise<
   Array<SyndicationEventRow & { channel: SyndicationChannel; propertyName: string }>
 > {

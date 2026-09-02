@@ -8,6 +8,7 @@ import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import {
   addSighting,
   confirmPlacement,
+  renewPlacement,
   requestPublishMany,
   withdrawPlacement,
 } from '@/db/syndication'
@@ -92,6 +93,19 @@ export async function withdrawPlacementAction(
   revalidateMarketing()
   if (!result.ok) return { ok: false, error: result.error }
   return { ok: true, message: 'Placement withdrawn.' }
+}
+
+export async function renewPlacementAction(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const placementId = String(formData.get('placementId') ?? '').trim()
+  if (!placementId) return { ok: false, error: 'Missing placement.' }
+  const result = await renewPlacement(placementId)
+  revalidateMarketing()
+  if (!result.ok) return { ok: false, error: result.error }
+  return { ok: true, message: 'Placement renewed — pack window reopened.' }
 }
 
 const SIGHTING_NETWORKS: readonly SightingNetwork[] = ['zillow', 'realtor_com', 'homes_com', 'other']
