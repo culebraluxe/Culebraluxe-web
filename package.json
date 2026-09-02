@@ -55,7 +55,8 @@
     "agent:workspace": "node node_modules/tsx/dist/cli.mjs scripts/workspace-cli.ts",
     "mq:worker": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "mq:worker:prod": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
-    "workflow": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/workflow-cli.ts"
+    "workflow": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/workflow-cli.ts",
+    "gmail:sync": "bash scripts/gmail-sync.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
