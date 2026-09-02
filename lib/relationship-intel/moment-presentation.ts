@@ -63,3 +63,34 @@ export function cleanPreview(preview: string | null): string | null {
     .trim()
   return cleaned.length > 0 ? cleaned : null
 }
+
+/**
+ * Keep the content, timestamp, and direction from the same relationship
+ * moment. Overall source activity can be newer than the latest useful preview
+ * (for example, an Apple attachment placeholder after the last text message).
+ */
+export function sourceContextMoment(input: {
+  lastContext: string | null
+  lastContextAt: string | null
+  lastContextDirection: 'inbound' | 'outbound' | null
+  lastContactAt: string | null
+  lastDirection: 'inbound' | 'outbound' | null
+}): {
+  preview: string | null
+  timestamp: string | null
+  direction: 'inbound' | 'outbound' | null
+} {
+  const preview = cleanPreview(input.lastContext)
+  if (!preview) {
+    return {
+      preview: null,
+      timestamp: input.lastContactAt,
+      direction: input.lastDirection,
+    }
+  }
+  return {
+    preview,
+    timestamp: input.lastContextAt ?? input.lastContactAt,
+    direction: input.lastContextDirection ?? input.lastDirection,
+  }
+}
