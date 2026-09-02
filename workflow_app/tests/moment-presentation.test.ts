@@ -6,6 +6,7 @@ import {
   cleanPreview,
   headerDirectionLabel,
   humanDirection,
+  sourceContextMoment,
 } from '../../lib/relationship-intel/moment-presentation'
 
 // ---------------------------------------------------------------------------
@@ -46,4 +47,18 @@ test('cleanPreview: real text is preserved; pure replacement chars collapse to n
   assert.equal(cleanPreview('Ready\ufffcto go'), 'Ready to go')
   assert.equal(cleanPreview(null), null)
   assert.equal(cleanPreview(''), null)
+})
+
+test('sourceContextMoment: preview keeps its own timestamp and direction', () => {
+  assert.deepEqual(sourceContextMoment({
+    lastContext: 'New all 4 offerings',
+    lastContextAt: '2026-09-01T22:28:01.953Z',
+    lastContextDirection: 'inbound',
+    lastContactAt: '2026-09-02T15:42:04.659Z',
+    lastDirection: 'outbound',
+  }), {
+    preview: 'New all 4 offerings',
+    timestamp: '2026-09-01T22:28:01.953Z',
+    direction: 'inbound',
+  })
 })
