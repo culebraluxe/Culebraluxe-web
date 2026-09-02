@@ -28,8 +28,22 @@ export async function mapLimit<T, R>(
   return results
 }
 
+/**
+ * Semantic phone key shared by the high-volume in-memory reconciliation path.
+ *
+ * Apple Messages normalizes reliable NANP handles to ten digits, while
+ * canonical person_identity rows may still be stored as E.164 (+1 plus ten
+ * digits). Treat those representations as one identity. Do not strip any
+ * other country code: non-NANP/international identities remain exact-only.
+ *
+ * Keep this behavior aligned with db/person-identities.semanticPhoneKey(),
+ * which is the DB-backed reconciliation path.
+ */
 export function phoneDigitsKey(value: string): string {
-  return value.replace(/[^0-9]/g, '')
+  const digits = value.replace(/[^0-9]/g, '')
+  return digits.length === 11 && digits.startsWith('1')
+    ? digits.slice(1)
+    : digits
 }
 
 export function emailKey(value: string): string {
