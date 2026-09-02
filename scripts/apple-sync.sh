@@ -164,7 +164,12 @@ step_log "validation OK: messages=$msg_count dated=yes"
 # --- PROD intake + replay idempotency proof -----------------------------------
 step_log "intake start (PROD)"
 intake_out="$(mktemp)"; intake_err="$(mktemp)"
-if node --env-file=.env.local --import tsx "$INTAKE" prod --dir "$EXPORT_DIR" >"$intake_out" 2>"$intake_err"; then
+# Stream intake progress to the operator while retaining copies for the final
+# tally and failure diagnostics. Process substitution preserves the node exit
+# status as the condition for this if statement.
+if node --env-file=.env.local --import tsx "$INTAKE" prod --dir "$EXPORT_DIR" \
+  > >(tee "$intake_out") \
+  2> >(tee "$intake_err" >&2); then
   step_log "intake success"
   grep -E '^(interactions inserted:|interactions replayed:|skipped group chat:|evidence rows:|exact-linked handles:)' "$intake_out" >>"$LOG_FILE" || true
   inserted="$(grep -E '^interactions inserted:' "$intake_out" | tail -1 | tr -dc '0-9')"
@@ -183,4 +188,3 @@ rm -f "$intake_out" "$intake_err"
 
 step_log "sync complete"
 finish SUCCESS 0
-
