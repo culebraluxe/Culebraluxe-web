@@ -92,6 +92,18 @@ test('F: Client directory freshness uses relationship/source state as authoritat
     refresh.indexOf('refresh materialized view concurrently mv_client_contact_history'),
   ]
   assert.ok(order[0] >= 0 && order[1] > order[0] && order[2] > order[1], 'dependency-safe refresh order')
+
+  const intake = readFileSync('scripts/apple-messages-intake.ts', 'utf8')
+  const intakeOrder = [
+    intake.indexOf('refresh materialized view concurrently mv_client_relationship_channels'),
+    intake.indexOf('refresh materialized view concurrently mv_client_directory'),
+    intake.indexOf('refresh materialized view concurrently mv_client_contact_history'),
+  ]
+  assert.ok(
+    intakeOrder[0] >= 0 && intakeOrder[1] > intakeOrder[0] && intakeOrder[2] > intakeOrder[1],
+    'Apple Messages intake refreshes all client read models in dependency-safe order',
+  )
+  assert.ok(intake.includes("argv.includes('--evidence-only')"), 'targeted evidence repair mode exists')
 })
 
 test('G: primary Client History panel renders six compact latest-activity source rows', () => {
