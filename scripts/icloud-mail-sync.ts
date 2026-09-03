@@ -40,7 +40,9 @@ function describeImapError(error: unknown): string {
     imapError.message,
     imapError.code ? `code=${imapError.code}` : null,
     imapError.serverResponseCode ? `server=${imapError.serverResponseCode}` : null,
-    imapError.executedCommand ? `command=${imapError.executedCommand}` : null,
+    imapError.executedCommand
+      ? `command=${imapError.executedCommand.trim().split(/\\s+/).slice(0, 2).join(' ')}`
+      : null,
     imapError.responseText ? `response=${imapError.responseText}` : null,
     imapError.response ? `raw=${imapError.response}` : null,
   ].filter((value): value is string => Boolean(value))
