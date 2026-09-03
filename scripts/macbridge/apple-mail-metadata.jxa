@@ -1,0 +1,109 @@
+ObjC.import('Foundation')
+
+function safe(read, fallback = null) {
+  try {
+    const value = read()
+    return value === undefined || value === null ? fallback : value
+  } catch (_) {
+    return fallback
+  }
+}
+
+function normalized(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function recipientsOf(message, property) {
+  const recipients = safe(() => message[property](), [])
+  return recipients.map((recipient) => ({
+    address: safe(() => recipient.address(), null),
+    name: safe(() => recipient.name(), null),
+  }))
+}
+
+function write(handle, value) {
+  const data = $(value).dataUsingEncoding($.NSUTF8StringEncoding)
+  handle.writeData(data)
+}
+
+function out(value) {
+  write($.NSFileHandle.fileHandleWithStandardOutput, value)
+}
+
+function progress(value) {
+  write($.NSFileHandle.fileHandleWithStandardError, value + '\n')
+}
+
+function run(argv) {
+  const targetAddress = normalized(argv[0])
+  if (!targetAddress) throw new Error('Usage: osascript -l JavaScript apple-mail-metadata.jxa <email>')
+
+  const Mail = Application('Mail')
+  const accounts = Mail.accounts()
+  const account = accounts.find((candidate) =>
+    safe(() => candidate.emailAddresses(), []).map(normalized).includes(targetAddress),
+  )
+  if (!account) {
+    const available = accounts.flatMap((candidate) => safe(() => candidate.emailAddresses(), []))
+    throw new Error(
+      'Mail.app has no enabled account for ' + targetAddress +
+      '. Available account addresses: ' + available.join(', '),
+    )
+  }
+
+  const selected = []
+  for (const mailbox of account.mailboxes()) {
+    const name = normalized(safe(() => mailbox.name(), ''))
+    if (name === 'inbox') selected.push({ kind: 'inbox', mailbox })
+    if (['sent', 'sent messages', 'sent mail'].includes(name)) {
+      selected.push({ kind: 'sent', mailbox })
+    }
+  }
+
+  if (!selected.some((entry) => entry.kind === 'inbox')) {
+    throw new Error('Mail.app account did not expose an Inbox mailbox')
+  }
+  if (!selected.some((entry) => entry.kind === 'sent')) {
+    throw new Error('Mail.app account did not expose a Sent mailbox')
+  }
+
+  let exported = 0
+  for (const { kind, mailbox } of selected) {
+    const name = safe(() => mailbox.name(), kind)
+    const messages = mailbox.messages()
+    const total = messages.length
+    progress('mailbox ' + name + ': ' + total + ' messages')
+
+    for (let index = 0; index < total; index += 1) {
+      const message = messages[index]
+      try {
+        const occurred = kind === 'sent'
+          ? safe(() => message.dateSent(), null)
+          : safe(() => message.dateReceived(), null)
+        const record = {
+          mailbox: kind,
+          mailboxName: name,
+          localId: Number(safe(() => message.id(), index + 1)),
+          messageId: safe(() => message.messageId(), null),
+          occurredAt: occurred instanceof Date ? occurred.toISOString() : null,
+          sender: safe(() => message.sender(), null),
+          to: recipientsOf(message, 'toRecipients'),
+          cc: recipientsOf(message, 'ccRecipients'),
+          bcc: recipientsOf(message, 'bccRecipients'),
+          subject: safe(() => message.subject(), null),
+        }
+        out(JSON.stringify(record) + '\n')
+        exported += 1
+      } catch (error) {
+        progress('skipped unreadable Mail.app message ' + (index + 1) + ': ' + String(error))
+      }
+
+      const processed = index + 1
+      if (processed % 100 === 0 || processed === total) {
+        progress('export progress ' + name + ': ' + processed + '/' + total + ' messages')
+      }
+    }
+  }
+
+  progress('Mail.app metadata export complete: ' + exported + ' messages')
+}
