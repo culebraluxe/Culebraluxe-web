@@ -114,6 +114,11 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
   const fbOpen = takeDownRows.some((r) => r.channel === 'facebook_marketplace')
   const clasOpen = takeDownRows.some((r) => r.channel === 'clasificados')
   const score = source ? launchScore(source, sourcePlacements) : null
+  const sourceOffMarket = source ? isOffMarket(source) : false
+  const noPhotos = (source?.imageCount ?? 0) === 0
+  const priceTrail = source && source.listPrice != null
+    ? (sourcePlacements.find((p) => p.sourceSnapshot && typeof p.sourceSnapshot.price === 'number' && p.sourceSnapshot.price !== source.listPrice)?.sourceSnapshot?.price ?? null)
+    : null
 
   return (
     <div className="space-y-5">
@@ -204,6 +209,9 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
                   )}
                 </div>
               ) : null}
+              {priceTrail != null && source ? (
+                <p className="mb-2 text-[12px] font-light leading-5 text-black/50">Price trail: {formatPrice(source.listPrice)} <span className="text-black/30">(was {formatPrice(priceTrail)} at the last prepare)</span></p>
+              ) : null}
               <ul className="space-y-1.5">
                 <LaunchRow done={launch.site} label="Published on culebraluxe.com" />
                 <LaunchRow done={launch.stellar} label="Stellar pack prepared · MLS# confirmed" />
@@ -225,16 +233,18 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
                     const def = CHANNEL_CATALOG[id]
                     const placement = placementByChannel.get(id)
                     const tone = placement ? STATUS_TONE[placement.status] : null
-                    const checked = selected.includes(id)
+                    const blockedOff = sourceOffMarket && (id === 'facebook_marketplace' || id === 'clasificados')
+                    const checked = selected.includes(id) && !blockedOff
                     return (
-                      <li key={id} className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white/40 p-3">
+                      <li key={id} className={`rounded-[var(--portal-panel-radius)] border ${blockedOff ? 'border-rose-200 bg-rose-50/40 opacity-60' : 'border-[var(--portal-panel-border)] bg-white/40'} p-3`}>
                         <label className="flex items-start gap-2">
-                          <input type="checkbox" name="channel" value={id} checked={checked} onChange={(event) => {
+                          <input type="checkbox" name="channel" value={id} disabled={blockedOff} checked={checked} onChange={(event) => {
                             setSelected((current) => event.target.checked ? [...current, id] : current.filter((item) => item !== id))
                           }} className="mt-1" />
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center justify-between gap-2">
                               <span className="text-sm text-[var(--portal-navy)]">{def.label}</span>
+                              {blockedOff ? <span className="text-[9px] uppercase tracking-[0.1em] text-rose-600">off the market</span> : null}
                               {tone ? (
                                 <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] ${tone.className}`}>
                                   <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />{tone.label}
@@ -277,6 +287,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
                 <div className="flex flex-wrap items-center gap-3">
                   <button type="submit" disabled={!source || selected.length === 0} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-gold)]/50 bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white disabled:opacity-40">Prepare selected</button>
                   <p className="text-[11px] font-light text-black/40">Does not upload to Zillow or Realtor.com.</p>
+                  {noPhotos && selected.includes('facebook_marketplace') ? <p className="text-[11px] font-light text-amber-700">Add photos first — Facebook will not live-post a listing with no images.</p> : null}
                 </div>
               </form>
             ) : <p className="text-sm font-light text-black/45">Select a listing first.</p>}
@@ -378,7 +389,14 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
                       {row.status !== 'withdrawn' ? (
                         <form action={confirmAction} className="mt-4 flex flex-wrap gap-2">
                           <input type="hidden" name="placementId" value={row.id} />
-                          <input name="externalUrl" defaultValue={row.externalUrl ?? ''} placeholder="https:// live ad URL" className="min-h-9 min-w-[16rem] flex-1 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light" />
+                          {row.channel === 'stellar_mls' ? (
+                            <>
+                              <input name="externalId" defaultValue={row.externalId ?? ''} placeholder="MLS # (e.g. PR-1234)" className="min-h-9 w-40 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light" />
+                              <input name="externalUrl" defaultValue={row.externalUrl ?? ''} placeholder="https:// Matrix / portal URL (optional)" className="min-h-9 min-w-[12rem] flex-1 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light" />
+                            </>
+                          ) : (
+                            <input name="externalUrl" defaultValue={row.externalUrl ?? ''} placeholder="https:// live ad URL" className="min-h-9 min-w-[16rem] flex-1 rounded-md border border-[var(--portal-panel-border)] bg-white/80 px-3 text-sm font-light" />
+                          )}
                           <button type="submit" className="inline-flex min-h-9 items-center rounded-md bg-emerald-700 px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white">{row.status === 'live' ? 'Refresh URL' : 'Confirm live'}</button>
                         </form>
                       ) : null}
@@ -452,7 +470,12 @@ function SellerReportPanel({ report, source }: { report: PresenceReport; source:
         </div>
       </Panel>
       <div id="print-report">
-        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>{report.propertyName}</h1>
+        {source.heroMediaId ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={`/api/media/${source.heroMediaId}`} alt={report.propertyName} style={{ width: '100%', maxWidth: 420, marginBottom: '0.5rem' }} />
+        ) : null}
+        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{report.propertyName}</h1>
+        <p style={{ fontSize: '11px', margin: '0 0 0.5rem' }}>CulebraLuxe{source.listingAgentName ? ` · ${source.listingAgentName}` : ''}</p>
         <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', fontFamily: 'inherit', margin: 0 }}>{text}</pre>
         {qrSrc ? (
           <div style={{ marginTop: '1rem' }}>
