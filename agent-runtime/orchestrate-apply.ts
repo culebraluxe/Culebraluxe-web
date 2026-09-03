@@ -30,6 +30,32 @@ export type HydrateDeps = {
   repoRoot?: string
 }
 
+const ASSAY_FAILURE_EVIDENCE = /\b(fail(?:ed|ure|ures|ing)?|violation|policy)\b/i
+
+/**
+ * ENG-FORGE-V3-01: Assay is clean only when the run reports Complete and its
+ * test evidence contains no failure/violation/policy marker. Missing test
+ * evidence is not invented; resultStatus remains the primary completion fact.
+ */
+export function isCleanAssayResult(input: {
+  resultStatus?: string | null
+  testsSummary?: string | null
+}): boolean {
+  if (!/^complete$/i.test((input.resultStatus ?? '').trim())) return false
+  return !ASSAY_FAILURE_EVIDENCE.test(input.testsSummary ?? '')
+}
+
+export function assayFailureEvidence(input: {
+  testsSummary?: string | null
+  failedCommands?: string[] | null
+}): string | null {
+  const summary = (input.testsSummary ?? '').trim()
+  const commands = (input.failedCommands ?? []).map((command) => command.trim()).filter(Boolean)
+  if (commands.length === 0) return summary || null
+  const commandEvidence = `failed commands: ${commands.join(', ')}`
+  return summary ? `${summary} | ${commandEvidence}` : commandEvidence
+}
+
 export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]> {
   const items = (await deps.listItems()) ?? []
   const bare = items.filter(
@@ -74,10 +100,19 @@ export async function followFinishedLane(input: {
   storyId: string
   finishedRole: string
   resultStatus?: string | null
+  testsSummary?: string | null
   getStory: (id: string) => Promise<StoryPacketFields | null>
   enqueue: HydrateDeps['enqueue']
   repoRoot?: string
 }): Promise<string | null> {
+  // Assay/reviewer is a terminal verification lane for this V3 slice. A failed
+  // verification never grows and, importantly, cannot be treated as a shipped
+  // success merely because the worker itself reached Done.
+  if (input.finishedRole === 'reviewer') {
+    if (!isCleanAssayResult(input)) return null
+    return null
+  }
+
   const ok =
     !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
   if (!ok) return null
