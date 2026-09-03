@@ -1,5 +1,35 @@
 # CulebraLuxe Agent Operating Context
 
+This file is the repo-owned handbook. Vendor filenames (`CLAUDE.md`, Warp, Cursor) only point here. See `docs/agent/VENDOR-ADAPTERS.md`.
+
+Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs/agent/skills/`. Decisions that must outlive a tool live in `docs/agent/MEMORY.md`. `docs/agent/CURRENT.md` is not the memory file.
+
+## Always / Ask / Never
+
+Always
+
+- Load this file, the story packet, and any listed skills before editing.
+- Work in the isolated worktree when Forge provisioned one.
+- Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL.
+- Report exact files changed and the tests that ran.
+- Commit on the worker branch only when the role is Builder.
+
+Ask first
+
+- FULL regression.
+- Destructive PROD data changes.
+- A second coding queue, a vendor-shaped rules file as source of truth, or two writers on one story.
+- Relaxing the system-wide single-active lock.
+
+Never
+
+- Commit secrets or `.env.local`.
+- Push, merge, or rebase from a worker.
+- Reset PROD, copy DEV over PROD, or truncate canonical history.
+- Keep a git commit as Scout, Assay, or Inspector.
+- Special-case Casa Luar or any one listing in application code.
+- Treat WhatsApp as a new identity type.
+
 ## Project
 
 - CulebraLuxe is a Next.js application.
@@ -153,6 +183,8 @@ Known issues:
 - Works primarily read-only.
 - Checks regressions, hardcoding, architecture drift, responsiveness, and build results.
 - Does not silently fix findings unless explicitly instructed.
+
+Forge maps Lead → Architect/Inspector (git), Builder → Smith, Reviewer/QA → Assay. See `docs/FORGE-V2.md`.
 
 ## Production Release State
 
