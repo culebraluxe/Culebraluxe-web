@@ -1,18 +1,5 @@
 // ---------------------------------------------------------------------------
 // Poller / Invoker (ENG-18) — the boring parent wrapper.
-//
-// Responsibilities (ALL vendor-neutral):
-//   1. find next ELIGIBLE work and atomically claim it
-//   2. load canonical Story Board context by story_id
-//   3. construct the AgentWorkCommand / AgentExecutionContext
-//   4. resolve the runtime adapter from the logical model profile
-//   5. call adapter execution
-//   6. maintain heartbeat/lease while active
-//   7. normalize result
-//   8. persist Story Board run evidence
-//   9. terminalize the work item
-//
-// It knows NOTHING about how DeepSeek reasons or how a local model works.
 // ---------------------------------------------------------------------------
 
 import { AgentRuntimeRegistry } from './registry'
@@ -47,22 +34,10 @@ export type InvokerResult = {
   evidence: AgentRunEvidence
 }
 
-/**
- * ENG-21 — isolated worker workspace provisioning config. Absent = the legacy
- * shared-checkout execution path (byte-for-byte unchanged). Present = the
- * worker executes in its OWN branch + worktree from an EXPLICIT approved base
- * ref; the primary checkout is never a worker scratch directory.
- */
 export interface AgentInvokerWorkspaces {
-  /** The worker identity that owns the workspace branch. */
   workerId: string
-  /** EXPLICIT approved integration base ref (branch/tag/commit) — never
-   * HEAD-derived; pinned to a fixed commit at provision time. */
   baseRef: string
-  /** Optional directory where worker worktrees live (must be OUTSIDE the
-   *  primary checkout). Defaults to `../Culebraluxe-worktrees` next to it. */
   worktreesRoot?: string
-  /** Provision branch + worktree; returns the isolated workspace. */
   provision: (spec: WorkerWorkspaceSpec) => Promise<WorkerWorkspace>
 }
 
@@ -70,22 +45,10 @@ export interface AgentInvokerDeps {
   work: AgentWorkRepository
   runs: AgentRunRepository
   registry: AgentRuntimeRegistry
-  /** Capability gate: if the profile's adapter lacks a required capability, the
-   * command is NOT eligible and is left Ready (deterministic eligibility). */
   requiredCapabilities?: AgentCapability[]
-  /** Optional isolated-worker workspace provisioning (ENG-21). */
   workspaces?: AgentInvokerWorkspaces
 }
 
-/**
- * Build the optional isolated-worker workspace dep from the operator
- * environment (ENG-21). Default: workspace execution is ENABLED with the
- * explicit approved base ref (`AGENT_WORKSPACE_BASE_REF`, else the repo's
- * canonical `main` branch) — the primary checkout is never a worker scratch
- * directory. `AGENT_WORKSPACE_DISABLED=1` restores the legacy shared-checkout
- * path explicitly (documented escape hatch). `AGENT_WORKSPACE_WORKTREES_ROOT`
- * relocates the worktree directory outside the repo.
- */
 export function buildAgentInvokerWorkspaces(
   workerId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -101,12 +64,6 @@ export function buildAgentInvokerWorkspaces(
   }
 }
 
-/**
- * Phase 1 — atomically claim the next eligible work item (single-worker rule).
- * Returns null when there is no Ready work or another item is already active.
- * Used directly by the scheduler/poller so it can invoke the runtime on an
- * already-claimed command without a story-specific launch command.
- */
 export async function claimNextAgentCommand(
   workerId: string,
   deps: AgentInvokerDeps,
@@ -114,17 +71,6 @@ export async function claimNextAgentCommand(
   return deps.work.claimNext(workerId)
 }
 
-/**
- * Phase 2 — drive an ALREADY-CLAIMED command through the runtime:
- *   - hard launch guard (missing/invalid envelope terminalized, slot released)
- *   - resolve adapter from the persisted model profile (no silent default)
- *   - capability gate
- *   - persist runtime_adapter before the Running transition
- *   - execution-target fail-fast guard
- *   - adapter.execute (heartbeat / session / evidence / finalization unchanged)
- * This is the SAME code path `invokeNextAgentCommand` uses — no duplicate
- * execution mechanism.
- */
 export async function executeClaimedAgentCommand(
   workerId: string,
   claim: AgentWorkClaim,
@@ -133,24 +79,15 @@ export async function executeClaimedAgentCommand(
   const workItem = claim.workItem
   const story = claim.story
 
-  // HARD LAUNCH GUARD (ENG-20A): the durable command must carry the execution
-  // configuration required to launch a runtime. A work item cannot become
-  // Running merely because it was claimed — missing/invalid configuration is
-  // terminalized (work Error + story Hold + global slot released) and the
-  // invoker aborts BEFORE any runtime work begins. No silent default
-  // substitutes operator intent.
   const launchError = validateAgentWorkLaunchConfig(workItem)
   if (launchError) {
     await rejectAgentWorkConfiguration(workItem.id, launchError)
     throw new Error(`launch guard: ${launchError}`)
   }
 
-  // The guard guarantees the durable command carries a logical model profile;
-  // the invoker consumes ONLY persisted configuration (no in-memory default).
   const modelProfile = workItem.modelProfile as string
   const profileConfig = deps.registry.resolveProfile(modelProfile)
 
-  // Deterministic eligibility: capability gate.
   if (deps.requiredCapabilities?.length) {
     const missing = deps.requiredCapabilities.filter(
       (c) => !profileConfig.capabilities.includes(c),
@@ -167,9 +104,6 @@ export async function executeClaimedAgentCommand(
     runs: deps.runs,
   })
 
-  // Persist the resolved runtime adapter BEFORE the Running transition
-  // (no later than the pre-Running launch boundary) so the durable command
-  // always answers "which adapter will execute this".
   await deps.work.setRuntime(workItem.id, {
     runtimeAdapter: adapter.runtimeAdapterId,
   })
@@ -197,12 +131,13 @@ export async function executeClaimedAgentCommand(
     updatedAt: workItem.updatedAt,
   }
 
+  const writable = workItem.role === 'builder'
   const context: AgentExecutionContext = {
     command,
     story,
     policy: {
-      allowCommit: true,
-      allowDevDbWrite: true,
+      allowCommit: writable,
+      allowDevDbWrite: writable,
       allowControlPlaneWrite: true,
     },
     capabilities: profileConfig.capabilities,
@@ -210,23 +145,11 @@ export async function executeClaimedAgentCommand(
     storyRunId: '',
   }
 
-  // FAIL-FAST (ENG-20): before any database-affecting SDLC work begins,
-  // verify the application/domain DB configuration matches the command's
-  // intended execution target. A DEV command that would resolve to the
-  // production application DB (including through a generic DATABASE_URL
-  // fallback) is refused here — BEFORE the external runtime is started.
   if (workItem.executionEnvironment) {
     const { assertExecutionTargetSafe } = await import('../lib/execution-target')
     assertExecutionTargetSafe(workItem.executionEnvironment as never)
   }
 
-  // ENG-21 — isolated worker workspace (branch + worktree). Absent config keeps
-  // the legacy shared-checkout path byte-for-byte. When configured, the worker
-  // executes in its OWN worktree from an EXPLICIT approved base ref; the
-  // primary checkout is never a worker scratch directory. The environment
-  // boundary guard then runs against the isolated workspace's .env.local so a
-  // DEV-intended command can never resolve to the PROD application DB through
-  // the worker's shared local configuration.
   let executionWorkspace: AgentExecutionWorkspace | null = null
   if (deps.workspaces) {
     const ws = await deps.workspaces.provision({
@@ -267,9 +190,6 @@ export async function executeClaimedAgentCommand(
   }
 }
 
-/** Full poll cycle: atomically claim the next item, then execute it through the
- * runtime. Used by the manual/debug driver; the scheduler uses the two phases
- * directly on its already-claimed command. */
 export async function invokeNextAgentCommand(
   workerId: string,
   deps: AgentInvokerDeps,
