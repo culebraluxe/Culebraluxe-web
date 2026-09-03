@@ -19,6 +19,8 @@ export {
   DEFAULT_WORKTREES_DIRNAME,
   DEFAULT_SHARED_LINKS,
 } from './provisioner'
+export { commitWorkerWorkspaceChanges } from './commit'
+export type { WorkerCommitResult } from './commit'
 export type { RemoveWorkerWorkspaceOptions } from './provisioner'
 export type {
   WorkerWorkspace,
