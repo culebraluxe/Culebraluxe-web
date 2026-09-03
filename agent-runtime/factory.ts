@@ -22,6 +22,7 @@ import {
   type ForgeExecutionProvider,
 } from './gateway/provider'
 import { warpProvider } from './gateway/warp-provider'
+import { DEFAULT_FORGE_TEAM, type ForgePosition } from './team'
 
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   return {
@@ -60,6 +61,13 @@ function adapterIdForProvider(provider: ForgeExecutionProvider): string {
   return provider === 'deepseek' ? 'deepseek-harness' : `gateway-${provider}`
 }
 
+const POSITION_CAPABILITIES: Record<ForgePosition, typeof READ_CAPABILITIES> = {
+  scout: READ_CAPABILITIES,
+  architect: READ_CAPABILITIES,
+  smith: WRITE_CAPABILITIES,
+  assay: ASSAY_CAPABILITIES,
+}
+
 export function createAgentRuntimeRegistry(
   config: DeepSeekHarnessConfig = defaultDeepSeekConfig(),
 ): AgentRuntimeRegistry {
@@ -89,18 +97,17 @@ export function createAgentRuntimeRegistry(
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
   })
 
-  const profiles = [
-    { profile: 'builder-flash', capabilities: WRITE_CAPABILITIES },
-    { profile: 'scout-volume', capabilities: READ_CAPABILITIES },
-    { profile: 'verifier-mini', capabilities: ASSAY_CAPABILITIES },
-  ] as const
-
-  for (const profile of profiles) {
-    const provider = resolveForgeExecutionProviderForProfile(profile.profile)
+  // V4-05: the active team owns which logical profile fills each core position.
+  // Provider routing remains below that boundary, so V3 lane semantics do not
+  // learn vendor/model names. Architect is registered now even though A1 still
+  // does not auto-queue the Architect lane.
+  for (const position of ['scout', 'architect', 'smith', 'assay'] as ForgePosition[]) {
+    const assignment = DEFAULT_FORGE_TEAM.assignments[position]
+    const provider = resolveForgeExecutionProviderForProfile(assignment.profile)
     registry.registerProfile({
-      profile: profile.profile,
+      profile: assignment.profile,
       adapterId: adapterIdForProvider(provider),
-      capabilities: profile.capabilities,
+      capabilities: POSITION_CAPABILITIES[position],
     })
   }
   return registry
