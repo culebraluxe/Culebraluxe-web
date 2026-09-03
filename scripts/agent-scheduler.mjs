@@ -1,23 +1,17 @@
 #!/usr/bin/env node
 // ---------------------------------------------------------------------------
 // scripts/agent-scheduler.mjs — manage the local launchd LaunchAgent that
-// periodically invokes `pnpm agent:work` (scripts/agent-worker-once.sh).
+// wakes the unattended Forge worker every 3 minutes.
 //
 //   pnpm agent:scheduler:install     render + install + bootstrap (idempotent)
 //   pnpm agent:scheduler:status      loaded/enabled state + last invocation
-//   pnpm agent:scheduler:run         run the exact same wrapper once
+//   pnpm agent:scheduler:run         run the exact same wrapper now
 //   pnpm agent:scheduler:stop        kill switch: boot out + persist disabled
 //   pnpm agent:scheduler:uninstall   stop + delete the plist
 //
-// The scheduler owns NO queue logic. The database (migration 025) and
-// `pnpm agent:work` own Ready discovery, single-worker enforcement, claiming,
-// ordering, the run lifecycle, and story execution state. This tool only
-// maintains the periodic wake-up.
-//
-// No secrets live in tracked files or in the generated plist. Environment
-// overrides (documented in docs/agent/AGENT_WORKER_SCHEDULER.md):
-//   CULEBRALUXE_LAUNCHAGENTS_DIR  - where the plist is installed
-//   AGENT_WORKER_LOG_DIR          - where logs and the lock live
+// The scheduler owns NO queue logic. Neon + `pnpm agent:work` own Ready
+// discovery, hydration, claiming, Smith, Assay, publication and story state.
+// The wrapper simply repeats clean Forge passes until Forge reports no work.
 // ---------------------------------------------------------------------------
 
 import { spawnSync } from 'node:child_process'
@@ -27,7 +21,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const LABEL = 'com.culebraluxe.agent-worker'
-export const CADENCE_SECONDS = 300
+export const CADENCE_SECONDS = 180
 
 export function repoRoot() {
   return join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -63,18 +57,12 @@ export function machinePaths(env = process.env) {
 export function escapeXml(value) {
   return String(value).replace(/[<>&'"]/g, (ch) => {
     switch (ch) {
-      case '<':
-        return '&lt;'
-      case '>':
-        return '&gt;'
-      case '&':
-        return '&amp;'
-      case "'":
-        return '&apos;'
-      case '"':
-        return '&quot;'
-      default:
-        return ch
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '&': return '&amp;'
+      case "'": return '&apos;'
+      case '"': return '&quot;'
+      default: return ch
     }
   })
 }
@@ -145,19 +133,15 @@ export function printStatus() {
   const plistPresent = existsSync(p.plistPath)
 
   let summary
-  if (!plistPresent) {
-    summary = 'not installed (plist missing)'
-  } else if (isLoaded(p)) {
-    summary = 'installed + loaded'
-  } else {
-    summary = 'installed (plist present, not loaded)'
-  }
+  if (!plistPresent) summary = 'not installed (plist missing)'
+  else if (isLoaded(p)) summary = 'installed + loaded'
+  else summary = 'installed (plist present, not loaded)'
 
   const worker = currentWorker(p)
-  console.log('CulebraLuxe agent worker scheduler')
+  console.log('CulebraLuxe Forge worker scheduler')
   console.log(`  status:     ${summary}`)
   console.log(`  label:      ${LABEL}`)
-  console.log(`  cadence:    every ${CADENCE_SECONDS}s (5 minutes)`)
+  console.log(`  cadence:    every ${CADENCE_SECONDS}s (3 minutes)`)
   console.log(`  plist:      ${p.plistPath}${plistPresent ? '' : ' (missing)'}`)
   console.log(`  disabled:   ${plistPresent ? (isDisabled(p) ? 'yes' : 'no') : 'n/a'}`)
   console.log(`  deployed:   ${p.deployedWrapper}${existsSync(p.deployedWrapper) ? '' : ' (missing)'}`)
@@ -165,9 +149,7 @@ export function printStatus() {
   console.log(`  running:    ${worker ? `yes (pid ${worker.pid})` : 'no'}`)
   console.log(`  logs:       ${p.logDir}/agent-worker.{out,err,invocations}.log`)
   console.log('  last invocations:')
-  for (const line of lastInvocations(p).split('\n')) {
-    console.log(`    ${line}`)
-  }
+  for (const line of lastInvocations(p).split('\n')) console.log(`    ${line}`)
 }
 
 export function install() {
@@ -176,10 +158,6 @@ export function install() {
   mkdirSync(p.supportDir, { recursive: true })
   mkdirSync(p.logDir, { recursive: true })
 
-  // Deploy a copy of the wrapper OUTSIDE the TCC-protected ~/Documents folder.
-  // macOS does not allow launchd-spawned processes to execute files under
-  // Documents; the deployed copy receives AGENT_WORKER_REPO and enters the
-  // repository itself. Manual `scheduler:run` keeps using the repo wrapper.
   const wrapperSource = readFileSync(p.wrapper, 'utf8')
   writeFileSync(p.deployedWrapper, wrapperSource, { mode: 0o755 })
 
@@ -194,23 +172,17 @@ export function install() {
   })
   writeFileSync(p.plistPath, plist, { mode: 0o644 })
 
-  const lint = spawnSync('/usr/bin/plutil', ['-lint', p.plistPath], {
-    encoding: 'utf8',
-  })
+  const lint = spawnSync('/usr/bin/plutil', ['-lint', p.plistPath], { encoding: 'utf8' })
   if (lint.status !== 0) {
     console.error(`plutil rejected generated plist:\n${lint.stdout}${lint.stderr}`)
     process.exit(1)
   }
 
-  // Idempotent (re)enable: unload any existing instance, clear any persisted
-  // disabled flag, then bootstrap.
-  launchctl(['bootout', p.job]) // "No such process" is expected on fresh install
-  launchctl(['enable', p.job]) // cancel any previously persisted `disable`
+  launchctl(['bootout', p.job])
+  launchctl(['enable', p.job])
   const boot = launchctl(['bootstrap', p.target, p.plistPath])
   if (boot.status !== 0) {
-    console.error(
-      `launchctl bootstrap failed:\n${boot.stderr.trim() || boot.stdout.trim()}`,
-    )
+    console.error(`launchctl bootstrap failed:\n${boot.stderr.trim() || boot.stdout.trim()}`)
     process.exit(1)
   }
 
@@ -224,18 +196,15 @@ export function runOnce() {
     console.error(`agent-worker wrapper missing: ${p.wrapper}`)
     process.exit(1)
   }
-  // Exactly the same wrapper the launchd schedule invokes.
   const r = spawnSync('/bin/bash', [p.wrapper], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
 }
 
 export function stop() {
   const p = machinePaths()
-  launchctl(['bootout', p.job]) // stop now (ignore "No such process")
-  launchctl(['disable', p.job]) // persist across login/reboot
-  console.log(
-    `stopped: no future scheduled invocations (plist kept at ${p.plistPath}).`,
-  )
+  launchctl(['bootout', p.job])
+  launchctl(['disable', p.job])
+  console.log(`stopped: no future scheduled invocations (plist kept at ${p.plistPath}).`)
   console.log('Story Board data untouched. Re-enable with `pnpm agent:scheduler:install`.')
 }
 
@@ -249,34 +218,23 @@ export function uninstall() {
   console.log('Story Board data untouched. Logs kept at ' + p.logDir)
 }
 
-
 function main() {
   const command = process.argv[2]
   switch (command) {
-    case 'install':
-      install()
-      break
-    case 'status':
-      printStatus()
-      break
-    case 'run':
-      runOnce()
-      break
-    case 'stop':
-      stop()
-      break
-    case 'uninstall':
-      uninstall()
-      break
+    case 'install': install(); break
+    case 'status': printStatus(); break
+    case 'run': runOnce(); break
+    case 'stop': stop(); break
+    case 'uninstall': uninstall(); break
     case 'help':
     case '--help':
     case '-h':
       console.log(`usage: node scripts/agent-scheduler.mjs <command>
 commands:
-  install     render + install + bootstrap the LaunchAgent (idempotent)
+  install     render + install + bootstrap the 3-minute LaunchAgent (idempotent)
   status      show loaded/enabled state, running worker, last invocations
-  run         run the exact same wrapper once (manual single-story claim)
-  stop        kill switch: boot out + persist disabled (no future runs)
+  run         run the same unattended Forge wrapper now
+  stop        kill switch: boot out + persist disabled
   uninstall   stop + delete the plist`)
       break
     default:
@@ -286,6 +244,4 @@ commands:
   }
 }
 
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  main()
-}
+if (fileURLToPath(import.meta.url) === process.argv[1]) main()
