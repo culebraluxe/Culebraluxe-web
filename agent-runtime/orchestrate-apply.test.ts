@@ -116,3 +116,38 @@ test('Ready with no Neon brief and no git packet hydrates Scout, never Smith', a
   assert.equal(enqueued[0]?.role, 'scout')
   assert.equal(enqueued[0]?.modelProfile, 'scout-volume')
 })
+
+test('Scout done with no brief stops: no second Scout and no Smith', async () => {
+  const enqueued: unknown[] = []
+  const followed = await followFinishedLane({
+    storyId: 'ENG-FORGE-V3-03-NO-BRIEF',
+    finishedRole: 'scout',
+    resultStatus: 'Complete',
+    getStory: async () => ({ goal: 'still needs architecture' }),
+    enqueue: async (input) => {
+      enqueued.push(input)
+    },
+    repoRoot: '/definitely/missing',
+  })
+
+  assert.equal(followed, null)
+  assert.deepEqual(enqueued, [])
+})
+
+test('Scout done with brief present follows to Smith', async () => {
+  const enqueued: Array<{ role: string; modelProfile: string }> = []
+  const followed = await followFinishedLane({
+    storyId: 'ENG-FORGE-V3-03-WITH-BRIEF',
+    finishedRole: 'scout',
+    resultStatus: 'Complete',
+    getStory: async () => ({ architectBrief: 'Build only the approved slice.' }),
+    enqueue: async (input) => {
+      enqueued.push({ role: input.role, modelProfile: input.modelProfile })
+    },
+    repoRoot: '/definitely/missing',
+  })
+
+  assert.equal(followed, 'smith')
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'builder')
+})
