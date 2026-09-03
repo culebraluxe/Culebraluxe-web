@@ -6,6 +6,8 @@ export type StoryPacketFields = {
   acceptanceCriteria?: string | null
   goal?: string | null
   scope?: string | null
+  testMode?: string | null
+  assayCommands?: string | null
 }
 
 function present(value: string | null | undefined): boolean {
@@ -22,6 +24,8 @@ export function mergeStoryPackets(
     'acceptanceCriteria',
     'goal',
     'scope',
+    'testMode',
+    'assayCommands',
   ]
   const out: StoryPacketFields = { ...primary }
   for (const key of keys) {
@@ -37,6 +41,7 @@ export function sessionFromStory(
   return {
     hasScoutPacket: present(story.contextRefs),
     hasArchitectBrief: present(story.architectBrief),
+    hasAssayPlan: present(story.assayCommands),
     ...extras,
   }
 }

@@ -6,6 +6,8 @@ const HEADINGS: Record<string, keyof StoryPacketFields> = {
   'architect brief': 'architectBrief',
   'context refs': 'contextRefs',
   'acceptance criteria': 'acceptanceCriteria',
+  'test mode': 'testMode',
+  'assay commands': 'assayCommands',
 }
 
 export function sessionFieldsFromGitPacket(markdown: string): StoryPacketFields {
@@ -18,7 +20,7 @@ export function sessionFieldsFromGitPacket(markdown: string): StoryPacketFields 
   return fields
 }
 
-function splitSections(markdown: string): Map<string, string> {
+export function splitSections(markdown: string): Map<string, string> {
   const out = new Map<string, string>()
   let current: string | null = null
   const buf: string[] = []
