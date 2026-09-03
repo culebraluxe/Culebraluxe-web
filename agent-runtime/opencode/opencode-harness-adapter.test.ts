@@ -15,6 +15,12 @@
 //     model, worktree, exit, elapsed) and the worker commit when present
 //   - failed result mapping returns null (the shared base owns terminalization)
 //
+// ENG-FORGE-V5-02 adds the exported execution-identity surface
+// (openCodeExecutionIdentity / OPENCODE_HARNESS_ADAPTER_ID): the identity
+// record reports the pinned adapter `opencode-harness` + model
+// `deepseek/deepseek-v4-flash`, the adapter class field reads the same
+// constant, and persisted evidence runtime_adapter agrees with the identity.
+//
 // The fake startRun substitutes the OpenCode process mechanics; the adapter
 // vendor hooks under test are the real production code.
 // ---------------------------------------------------------------------------
@@ -27,8 +33,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  OPENCODE_HARNESS_ADAPTER_ID,
   OpenCodeHarnessAdapter,
   OPENCODE_PINNED_MODEL,
+  openCodeExecutionIdentity,
   openCodeModelBlocker,
   resolveOpenCodeModel,
 } from './opencode-harness-adapter'
@@ -181,6 +189,33 @@ test('openCodeModelBlocker names the missing-model blocker without throwing', ()
   assert.match(openCodeModelBlocker('other/model')!, /pinned model/)
   assert.equal(openCodeModelBlocker(OPENCODE_PINNED_MODEL), null)
   assert.equal(openCodeModelBlocker(undefined), null)
+})
+
+// ---------------------------------------------------------------------------
+// OpenCode execution identity (ENG-FORGE-V5-02)
+// ---------------------------------------------------------------------------
+
+test('openCodeExecutionIdentity reports the pinned harness and model (ENG-FORGE-V5-02)', () => {
+  const identity = openCodeExecutionIdentity()
+  // Exact literals: adapter `opencode-harness`, model `deepseek/deepseek-v4-flash`.
+  assert.deepEqual(identity, {
+    runtimeAdapter: 'opencode-harness',
+    model: 'deepseek/deepseek-v4-flash',
+  })
+  assert.equal(identity.runtimeAdapter, OPENCODE_HARNESS_ADAPTER_ID)
+  assert.equal(identity.model, OPENCODE_PINNED_MODEL)
+})
+
+test('the adapter runtimeAdapterId equals the identity record (single source of truth)', () => {
+  const adapter = new OpenCodeHarnessAdapter(DEPS, {
+    cliBin: 'opencode',
+    workspace: process.cwd(),
+    model: OPENCODE_PINNED_MODEL,
+    startRun: () =>
+      handleFor({ status: 'success', exitCode: 0, stdout: '', stderr: '' }),
+  })
+  assert.equal(adapter.runtimeAdapterId, openCodeExecutionIdentity().runtimeAdapter)
+  assert.equal(adapter.runtimeAdapterId, 'opencode-harness')
 })
 
 // ---------------------------------------------------------------------------
@@ -350,7 +385,9 @@ test('successful run maps to Complete evidence with factual metadata', async () 
 
     assert.equal(evidence.resultStatus, 'Complete')
     assert.equal(evidence.completion, 100)
-    assert.equal(evidence.runtimeAdapter, 'opencode-harness')
+    // AC1 (ENG-FORGE-V5-02): the persisted runtime_adapter equals the exported
+    // execution identity — one source of truth for operator/test visibility.
+    assert.equal(evidence.runtimeAdapter, openCodeExecutionIdentity().runtimeAdapter)
     assert.equal(evidence.modelProfile, 'builder-flash')
     assert.equal(evidence.executionEnvironment, 'DEV')
     assert.equal(evidence.commitHash, null, 'still at base -> no fabricated commit')

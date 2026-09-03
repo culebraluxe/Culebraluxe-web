@@ -78,6 +78,37 @@ import { resolve } from 'node:path'
  */
 export const OPENCODE_PINNED_MODEL = 'deepseek/deepseek-v4-flash'
 
+/**
+ * The runtime adapter id this harness persists on every run's durable
+ * evidence (runtime_adapter). Exported as a constant so operator/test code
+ * can assert the exact harness identity without reaching into an adapter
+ * instance — and so the adapter class field can never drift from the
+ * identity record below.
+ */
+export const OPENCODE_HARNESS_ADAPTER_ID = 'opencode-harness'
+
+/**
+ * ENG-FORGE-V5-02 — the pinned OpenCode execution identity. An OpenCode run
+ * executes ONLY through this adapter (`opencode-harness`) and ONLY with the
+ * explicitly pinned `deepseek/deepseek-v4-flash` model (never OpenCode's
+ * default/automatic model selection). This compact record is the single
+ * exported place operator and test surfaces read that fact for visibility.
+ */
+export type OpenCodeExecutionIdentity = {
+  /** Runtime adapter id persisted on evidence (runtime_adapter). */
+  runtimeAdapter: typeof OPENCODE_HARNESS_ADAPTER_ID
+  /** Explicitly pinned provider/model passed as `opencode run --model`. */
+  model: typeof OPENCODE_PINNED_MODEL
+}
+
+/** Reports the pinned OpenCode execution identity (ENG-FORGE-V5-02). */
+export function openCodeExecutionIdentity(): OpenCodeExecutionIdentity {
+  return {
+    runtimeAdapter: OPENCODE_HARNESS_ADAPTER_ID,
+    model: OPENCODE_PINNED_MODEL,
+  }
+}
+
 const OPENCODE_CAPABILITIES: AgentCapability[] = [
   'workspace.fs.read',
   'workspace.fs.write',
@@ -168,7 +199,10 @@ export function openCodeModelBlocker(
 }
 
 export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
-  readonly runtimeAdapterId = 'opencode-harness'
+  // Single source of truth: the class field and the exported execution
+  // identity record both read OPENCODE_HARNESS_ADAPTER_ID, so persisted
+  // evidence (runtime_adapter) can never drift from the identity helper.
+  readonly runtimeAdapterId = OPENCODE_HARNESS_ADAPTER_ID
   readonly capabilities: AgentCapability[] = OPENCODE_CAPABILITIES
 
   private handle: OpenCodeHandle | null = null
