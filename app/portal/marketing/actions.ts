@@ -76,9 +76,17 @@ export async function confirmPlacementAction(
   await requireRead()
   const placementId = String(formData.get('placementId') ?? '').trim()
   const externalUrl = String(formData.get('externalUrl') ?? '').trim() || null
+  const externalId = String(formData.get('externalId') ?? '').trim() || null
   if (!placementId) return { ok: false, error: 'Missing placement.' }
+  // MLS# is an identifier, never a URL.
+  if (externalId && /(https?:|\/\/|zillow|realtor)/i.test(externalId)) {
+    return {
+      ok: false,
+      error: 'MLS# cannot be a URL. Enter the MLS number (paste a Zillow URL as a sighting, or a portal URL in the Matrix URL field).',
+    }
+  }
 
-  const result = await confirmPlacement({ placementId, externalUrl })
+  const result = await confirmPlacement({ placementId, externalUrl, externalId })
   revalidateMarketing()
   if (!result.ok) return { ok: false, error: result.error }
   return { ok: true, message: 'Round trip closed — placement is live.' }
@@ -129,7 +137,7 @@ export async function addSightingAction(
   const result = await addSighting({ propertyId, network: network as SightingNetwork, url, notes })
   revalidateMarketing()
   if (!result.ok) return { ok: false, error: result.error }
-  return { ok: true, message: 'Sighting noted — pinned to the constellation.' }
+  return { ok: true, message: result.message ?? 'Sighting noted — pinned to the constellation.' }
 }
 
 const INQUIRY_SOURCES = ['phone', 'whatsapp', 'email', 'walkin'] as const
