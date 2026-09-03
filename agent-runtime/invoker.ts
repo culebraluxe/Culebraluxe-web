@@ -23,6 +23,11 @@ import {
 import { storyFieldsFromBoardAndGit } from './orchestrate'
 import { smithFieldFacts } from './team'
 import {
+  isAssayTerminalRole,
+  resolveAssayWorkspaceBase,
+  smithCandidateSha,
+} from './candidate-assay-handoff'
+import {
   provisionWorkerWorkspace,
   resolveApprovedBaseRef,
 } from '../lib/worker-workspace'
@@ -189,10 +194,27 @@ export async function executeClaimedAgentCommand(
 
   let executionWorkspace: AgentExecutionWorkspace | null = null
   if (deps.workspaces) {
+    // ENG-FORGE-V4-10C: an Assay/verification lane must execute against the
+    // EXACT Smith candidate commit — never the current `main` (the V4-11
+    // false-positive path provisioned the Assay from main@<head> and "passed"
+    // against a checkout that did not contain the candidate). Resolve the
+    // candidate from existing run evidence; a missing/unresolvable candidate
+    // fails closed with a factual error instead of silently falling back.
+    const candidateSha = isAssayTerminalRole(workItem.role)
+      ? smithCandidateSha(await deps.runs.listForStory(workItem.storyId))
+      : null
+    const base = resolveAssayWorkspaceBase({
+      role: workItem.role,
+      candidateSha,
+      fallbackBaseRef: deps.workspaces.baseRef,
+    })
+    if ('error' in base) {
+      throw new Error(base.error)
+    }
     const ws = await deps.workspaces.provision({
       storyId: workItem.storyId,
       workerId: deps.workspaces.workerId,
-      baseRef: deps.workspaces.baseRef,
+      baseRef: base.baseRef,
       runId: workItem.id,
       ...(deps.workspaces.worktreesRoot
         ? { worktreesRoot: deps.workspaces.worktreesRoot }

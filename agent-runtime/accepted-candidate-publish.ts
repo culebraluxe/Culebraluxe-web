@@ -66,6 +66,14 @@ export type AcceptedCandidatePublishInput = {
   testsSummary?: string | null
   /** Smith candidate commit hash recorded in the story's run evidence. */
   candidateCommit?: string | null
+  /**
+   * ENG-FORGE-V4-10C: the candidate SHA the clean Assay actually verified
+   * (the workspace base its run evidence records). When supplied, accepted-
+   * candidate publication requires EXACT equality with `candidateCommit` —
+   * an Assay that verified `main` (or any other base) may never publish the
+   * candidate. Omitted keeps the legacy V4-10B decision for direct callers.
+   */
+  assayedCandidate?: string | null
   /** Primary checkout root owning `origin` (outer Forge host). */
   repoRoot?: string
   /** Injectable git publish (tests substitute a spy / fake repo). */
@@ -105,6 +113,19 @@ export async function publishAcceptedCandidateAfterAssay(
       action: 'no-candidate',
       reason:
         'no Smith candidate commit was recorded for this story; an empty/no-change candidate is never published',
+    }
+  }
+
+  // ENG-FORGE-V4-10C: accepted-candidate publication requires a clean Assay
+  // that verified EXACTLY the candidate being published. A mismatched (or
+  // unprovable) verified base never reaches the git publish.
+  if (input.assayedCandidate !== undefined) {
+    const assayed = (input.assayedCandidate ?? '').trim().toLowerCase()
+    if (!assayed || assayed !== candidate.toLowerCase()) {
+      return {
+        action: 'not-eligible',
+        reason: `Assay verified candidate ${assayed ? assayed.slice(0, 12) : '(none)'}${assayed ? '' : ' (no workspace base evidence)'}, which does not equal the publish candidate ${candidate.slice(0, 12)}; accepted-candidate publication requires the clean Assay to have verified the exact candidate commit being published`,
+      }
     }
   }
 

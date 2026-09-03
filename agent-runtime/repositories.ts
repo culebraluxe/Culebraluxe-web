@@ -31,8 +31,21 @@ import {
 } from '../db/storyboard'
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
+import {
+  assayHoldEvidenceLine,
+  candidateVerifiedEvidenceLine,
+  isAssayTerminalRole,
+  isCleanAssayEvidence,
+  smithCandidateSha,
+  verifiedShaFromWorkspaceEvidence,
+} from './candidate-assay-handoff'
 
-const ASSAY_FAILURE_EVIDENCE = /\b(fail(?:ed|ure|ures|ing)?|violation|policy)\b/i
+/** Resolved Assay verification context (ENG-FORGE-V4-10C). When present, a
+ *  clean Assay must additionally prove it executed against the exact Smith
+ *  candidate commit — never a fallback base such as `main`. */
+export type AssayFinishContext = {
+  candidateSha: string | null
+}
 
 export function normalizeAgentFinishForRole(
   role: string | null,
@@ -43,6 +56,7 @@ export function normalizeAgentFinishForRole(
     commitHash: string | null
     testsSummary: string | null
   },
+  context?: AssayFinishContext | null,
 ): {
   resultStatus: string
   completion: number
@@ -50,17 +64,53 @@ export function normalizeAgentFinishForRole(
   commitHash: string | null
   testsSummary: string | null
 } {
-  if (role !== 'reviewer') return input
-  const clean =
-    /^complete$/i.test(input.resultStatus.trim()) &&
-    !ASSAY_FAILURE_EVIDENCE.test(input.testsSummary ?? '')
-  if (clean) {
+  if (!isAssayTerminalRole(role)) return input
+  const cleanEvidence = isCleanAssayEvidence({
+    resultStatus: input.resultStatus,
+    testsSummary: input.testsSummary,
+  })
+
+  // No resolved candidate context (legacy/direct callers): keep the original
+  // status + failure-evidence semantics — clean Complete may survive (with no
+  // commit) only when the evidence contains no failure marker.
+  if (!context) {
+    if (!cleanEvidence) {
+      return { ...input, resultStatus: 'Hold', commitHash: null }
+    }
     // Smith/builder remains the only writable lane. Assay never keeps a commit.
     return { ...input, commitHash: null }
   }
+
+  // ENG-FORGE-V4-10C strict invariant: the Assay workspace base recorded in
+  // the run evidence must be EXACTLY the Smith candidate this Assay was meant
+  // to verify. Missing/unresolvable candidate, missing workspace evidence, or
+  // a base that differs from the candidate fails closed to Hold — Assay never
+  // silently falls back to `main` and a wrong-base verification is never
+  // normalized to Complete.
+  const candidateSha = smithCandidateSha([{ commitHash: context.candidateSha }])
+  const verifiedSha = verifiedShaFromWorkspaceEvidence(input.notes)
+  const verifiedExactCandidate = Boolean(
+    cleanEvidence && candidateSha && verifiedSha === candidateSha,
+  )
+  if (verifiedExactCandidate) {
+    return {
+      ...input,
+      notes: [input.notes.trim(), candidateVerifiedEvidenceLine(candidateSha!)]
+        .filter(Boolean)
+        .join('\n\n'),
+      commitHash: null,
+    }
+  }
+
+  const evidence = assayHoldEvidenceLine({
+    candidateSha,
+    verifiedSha,
+    cleanEvidence,
+  })
   return {
     ...input,
     resultStatus: 'Hold',
+    notes: [input.notes.trim(), evidence].filter(Boolean).join('\n\n'),
     commitHash: null,
   }
 }
@@ -181,7 +231,16 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
   ) {
     const q = await this.executor()
     const item = await getAgentWorkItem(workItemId, q)
-    const normalized = normalizeAgentFinishForRole(item?.role ?? null, input)
+    // ENG-FORGE-V4-10C: resolve the exact Smith candidate this Assay lane was
+    // meant to verify from existing run evidence so Assay terminal
+    // normalization can require a verified workspace base == candidate (and
+    // never normalize a wrong-base/failed verification to Complete).
+    let context: AssayFinishContext | undefined
+    if (item && isAssayTerminalRole(item.role)) {
+      const runs = await listStoryRuns(item.storyId, q)
+      context = { candidateSha: smithCandidateSha(runs) }
+    }
+    const normalized = normalizeAgentFinishForRole(item?.role ?? null, input, context)
     return finishAgentWork(workItemId, normalized, q)
   }
 

@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
+import { isAssayTerminalRole } from '../agent-runtime/candidate-assay-handoff'
 
 async function main(): Promise<void> {
   if ((process.env.APP_ENV ?? 'development') !== 'production') {
@@ -73,7 +74,10 @@ async function normalizeAssayFinish(input: {
   resultStatus: string
   testsSummary: string | null
 }> {
-  if (input.role !== 'reviewer') {
+  // ENG-FORGE-V4-10C: every terminal Assay role (reviewer + verifier) gets
+  // the same fail-closed repair semantics — a verifier result must never be
+  // normalized to Complete when its verification evidence failed.
+  if (!isAssayTerminalRole(input.role)) {
     return {
       failed: false,
       resultStatus: input.resultStatus,
@@ -263,7 +267,7 @@ async function runClaimCommand(): Promise<void> {
       resultStatus: result.evidence.resultStatus,
     })
     if (followed) console.log('followed with lane', followed)
-    if (result.role === 'reviewer' && testsSummary !== result.evidence.testsSummary) {
+    if (isAssayTerminalRole(result.role) && testsSummary !== result.evidence.testsSummary) {
       console.log('assay evidence:', testsSummary)
     }
 

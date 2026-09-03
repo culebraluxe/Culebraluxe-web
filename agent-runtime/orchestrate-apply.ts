@@ -10,6 +10,10 @@ import type { AgentRuntimeRegistry } from './registry'
 import type { LaneId } from './lanes'
 import type { StoryPacketFields } from './story-session'
 import { smithFieldFacts } from './team'
+import {
+  isAssayTerminalRole,
+  isCleanAssayEvidence,
+} from './candidate-assay-handoff'
 
 export type BareWorkItem = {
   id: string
@@ -40,8 +44,6 @@ export type HydrateDeps = {
   registry?: AgentRuntimeRegistry
 }
 
-const ASSAY_FAILURE_EVIDENCE = /\b(fail(?:ed|ure|ures|ing)?|violation|policy)\b/i
-
 /**
  * ENG-FORGE-V4-08: run the execution-contract gate for a Smith envelope at the
  * hydration/enqueue boundary. Returns `null` when the gate does not apply
@@ -68,15 +70,16 @@ function gateSmithEnvelope(input: {
 
 /**
  * ENG-FORGE-V3-01: Assay is clean only when the run reports Complete and its
- * test evidence contains no failure/violation/policy marker. Missing test
+ * test evidence contains no failure marker (failed/missing command evidence,
+ * violation/policy, non-zero exit, unresolvable candidate — shared with the
+ * ENG-FORGE-V4-10C seams so the clean semantics cannot drift). Missing test
  * evidence is not invented; resultStatus remains the primary completion fact.
  */
 export function isCleanAssayResult(input: {
   resultStatus?: string | null
   testsSummary?: string | null
 }): boolean {
-  if (!/^complete$/i.test((input.resultStatus ?? '').trim())) return false
-  return !ASSAY_FAILURE_EVIDENCE.test(input.testsSummary ?? '')
+  return isCleanAssayEvidence(input)
 }
 
 export function assayFailureEvidence(input: {
@@ -163,11 +166,18 @@ export async function followFinishedLane(input: {
   repoRoot?: string
   /** Optional runtime registry for the gate; defaults to the live factory registry. */
   registry?: AgentRuntimeRegistry
+  /**
+   * ENG-FORGE-V4-10C: the exact Smith candidate commit the just-finished
+   * code-changing run produced (null/absent when the run produced none). A
+   * builder finish may only hand off to Assay with a real candidate — Assay
+   * must verify the candidate, never a fallback base such as `main`.
+   */
+  candidateSha?: string | null
 }): Promise<string | null> {
-  // Assay/reviewer is a terminal verification lane for this V3 slice. A failed
-  // verification never grows and, importantly, cannot be treated as a shipped
-  // success merely because the worker itself reached Done.
-  if (input.finishedRole === 'reviewer') {
+  // Assay/reviewer+verifier is a terminal verification lane for this slice. A
+  // failed verification never grows and, importantly, cannot be treated as a
+  // shipped success merely because the worker itself reached Done.
+  if (isAssayTerminalRole(input.finishedRole)) {
     if (!isCleanAssayResult(input)) return null
     return null
   }
@@ -191,7 +201,32 @@ export async function followFinishedLane(input: {
   }
 
   const lane = pickLane({ story: merged, lastFinishedRole: input.finishedRole })
-  const decision = buildLaneEnqueue({ lane, story: merged })
+
+  // ENG-FORGE-V4-10C handoff gate: a code-changing Smith run with NO candidate
+  // commit must never launch Assay as though verification were possible —
+  // Assay would execute against `main`, not the candidate (the V4-11 false
+  // positive). The caller holds the story with factual evidence instead.
+  const candidateSha = (input.candidateSha ?? '').trim() || null
+  if (lane === 'assay' && !candidateSha) {
+    console.log(
+      'follow skip',
+      input.storyId,
+      'assay',
+      'no-candidate',
+      'Smith produced no candidate commit; Assay must not verify a fallback base such as main',
+    )
+    return null
+  }
+
+  const extraInstructions =
+    lane === 'assay' && candidateSha
+      ? `ENG-FORGE-V4-10C exact-candidate Assay: verify Smith candidate ${candidateSha} and nothing else. The Assay workspace base MUST be ${candidateSha} (never main). Record the candidate SHA you verified in your tests evidence; a failed/missing command or a base other than ${candidateSha} is a failed verification, never Complete.`
+      : null
+  const decision = buildLaneEnqueue({
+    lane,
+    story: merged,
+    ...(extraInstructions ? { extraInstructions } : {}),
+  })
   if (!decision.ok || !decision.envelope) {
     console.log(
       'follow skip',

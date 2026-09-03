@@ -24,6 +24,7 @@ import type {
   AgentWorkRepository,
 } from './repositories'
 import type { AgentCapability } from './capabilities'
+import { withWorkspaceEvidence } from './candidate-assay-handoff'
 
 /** Minimum wall-clock interval between heartbeat progress writes (ms).
  * Bounds the DB write cadence of the status-poll loop while keeping liveness
@@ -186,10 +187,16 @@ export abstract class AgentRuntimeAdapter {
 
     // Success path.
     const result = await this.resultExternal(command, ctxWithRun)
+    // ENG-FORGE-V4-10C: every run that executed inside an isolated workspace
+    // records its base commit as machine-scannable evidence (branch/worktree/
+    // base line). Adapters may already write it; this shared enrichment keeps
+    // the evidence uniform so Assay verification can prove WHICH candidate
+    // commit the run actually executed against — never a silent fallback.
+    const notes = withWorkspaceEvidence(context.executionWorkspace, result!.notes)
     const finished = await this.deps.work.finish(command.workItemId, {
       resultStatus: result!.resultStatus,
       completion: result!.completion,
-      notes: result!.notes,
+      notes,
       commitHash: result!.commitHash,
       testsSummary: result!.testsSummary,
     })

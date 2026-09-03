@@ -158,19 +158,11 @@ export function extractTestsSummary(
 // ENG-21 — workspace evidence line (identifies branch / worktree / base commit).
 // ---------------------------------------------------------------------------
 
-/**
- * One machine-scannable line recording WHERE a run executed, appended to the
- * durable run narrative. The local commit (persisted separately as commit_hash)
- * plus this line identify branch / worktree / approved base commit for the run.
- */
-export function workspaceEvidenceLine(w: {
-  branchName: string
-  worktreePath: string
-  baseRef: string
-  baseCommit: string
-}): string {
-  return `Execution workspace: branch=${w.branchName} worktree=${w.worktreePath} base=${w.baseRef}@${w.baseCommit}`
-}
+// Re-exported from the shared ENG-FORGE-V4-10C module so the evidence format
+// stays single-sourced (the base AgentRuntimeAdapter enrichment and the Assay
+// verification seams parse this exact line).
+export { workspaceEvidenceLine } from '../candidate-assay-handoff'
+import { workspaceEvidenceLine } from '../candidate-assay-handoff'
 
 export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId = 'deepseek-harness'

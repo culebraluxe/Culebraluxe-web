@@ -1,12 +1,17 @@
 import {
   followFinishedLane,
   hydrateBareReadyItems,
+  isCleanAssayResult,
 } from '../agent-runtime/orchestrate-apply'
 import {
   isTerminalAssayRole,
   publishAcceptedCandidateAfterAssay,
   type AcceptedCandidatePublishReport,
 } from '../agent-runtime/accepted-candidate-publish'
+import {
+  finishedRunCandidateSha,
+  verifiedShaFromWorkspaceEvidence,
+} from '../agent-runtime/candidate-assay-handoff'
 import {
   enqueueAgentWorkCommand,
   listAgentWorkItems,
@@ -30,15 +35,43 @@ export async function runForgeFollow(input: {
   storyId: string
   finishedRole: string | null
   resultStatus?: string | null
+  testsSummary?: string | null
 }): Promise<string | null> {
   if (!input.finishedRole) return null
-  return followFinishedLane({
+  // ENG-FORGE-V4-10C: resolve the exact Smith candidate this cycle produced
+  // from existing run evidence. For a JUST-finished code run the candidate is
+  // that run's OWN commit (never an older cycle's candidate); follow may only
+  // hand a builder finish to Assay when a candidate exists.
+  const runs = await listStoryRuns(input.storyId)
+  const candidateSha = finishedRunCandidateSha(runs)
+  const followed = await followFinishedLane({
     storyId: input.storyId,
     finishedRole: input.finishedRole,
     resultStatus: input.resultStatus,
+    testsSummary: input.testsSummary ?? null,
+    candidateSha,
     getStory: getStoryboardStory,
     enqueue: enqueueAgentWorkCommand,
   })
+
+  // ENG-FORGE-V4-10C: a code-changing Smith run that finished without a
+  // candidate commit must NOT stand Complete or launch Assay-as-though-
+  // verification-were-possible. Hold the story with factual evidence; the
+  // candidate branch/worktree (when one exists) is always preserved.
+  const okResult =
+    !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
+  if (!followed && input.finishedRole === 'builder' && okResult && !candidateSha) {
+    const newestRun = runs[0] ?? null
+    const detail =
+      'Smith produced no candidate commit for this code-changing run; Assay was not launched because verification requires the exact candidate commit (never a fallback base such as main). Story held for repair/retry.'
+    await setStoryboardStatus(input.storyId, 'Hold')
+    if (newestRun) {
+      await updateStoryRunProgress(newestRun.id, { note: detail })
+    }
+    console.log('follow hold', input.storyId, 'builder', 'no-candidate', detail)
+    return null
+  }
+  return followed
 }
 
 export type ForgePublishAfterAssayInput = {
@@ -87,13 +120,42 @@ export async function runForgePublishAfterAssay(
   const runs = await listStoryRuns(input.storyId)
   const newestRun = runs[0] ?? null
   const candidateRun = runs.find((run) => Boolean(run.commitHash)) ?? null
+  const candidateCommit = candidateRun?.commitHash ?? null
+  // ENG-FORGE-V4-10C: the clean-Assay facts are read from the PERSISTED Assay
+  // run (result status, summary, and the workspace base its evidence records)
+  // — never from raw model output that already bypassed terminal
+  // normalization. verifiedSha == candidate is the acceptance proof.
+  const assayedCandidate = newestRun
+    ? verifiedShaFromWorkspaceEvidence(newestRun.notes)
+    : null
+  const persistedClean = isCleanAssayResult({
+    resultStatus: newestRun?.resultStatus ?? input.resultStatus ?? null,
+    testsSummary: newestRun?.testsSummary ?? input.testsSummary ?? null,
+  })
+
+  // Fail-closed belt: a persisted clean Assay whose workspace base is not the
+  // publish candidate means the Assay verified the wrong commit (e.g. main).
+  // It must never publish, and the story must not stand Complete.
+  if (persistedClean && candidateCommit && assayedCandidate !== candidateCommit) {
+    const detail =
+      `Clean Assay verified candidate ${assayedCandidate ? assayedCandidate.slice(0, 12) : '(none)'} (workspace base), ` +
+      `but the publish candidate is ${candidateCommit.slice(0, 12)}. ` +
+      `Publication requires the clean Assay to have verified the exact candidate being published (ENG-FORGE-V4-10C). ` +
+      `Candidate commit preserved; story held for repair.`
+    await setStoryboardStatus(input.storyId, 'Hold')
+    if (newestRun) {
+      await updateStoryRunProgress(newestRun.id, { note: detail })
+    }
+    return { kind: 'publish-conflict', detail }
+  }
 
   const publish = input.publish ?? publishAcceptedCandidateAfterAssay
   const report: AcceptedCandidatePublishReport = await publish({
     role: input.finishedRole,
-    resultStatus: input.resultStatus ?? null,
-    testsSummary: input.testsSummary ?? null,
-    candidateCommit: candidateRun?.commitHash ?? null,
+    resultStatus: newestRun?.resultStatus ?? input.resultStatus ?? null,
+    testsSummary: newestRun?.testsSummary ?? input.testsSummary ?? null,
+    candidateCommit,
+    assayedCandidate,
     repoRoot: input.repoRoot,
   })
 
