@@ -49,7 +49,7 @@ test('Warp swarm exists as a reserved field but fails closed until qualified', (
     },
   }
 
-  assert.throws(() => resolveForgeAssignment('smith', team), /Warp field 'warp-swarm' is not ready/)
+  assert.throws(() => resolveForgeAssignment('smith', team), /Forge field 'warp-swarm' is not ready/)
 })
 
 test('OpenCode Pi and Warp Agent are explicit connection points, not fake ready runtimes', () => {
