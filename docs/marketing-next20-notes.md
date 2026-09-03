@@ -8,13 +8,10 @@ stories remain and are listed as follow-ups below rather than silently claimed.
 No DB migration was needed this pass.
 
 ## Zip behavior (Block A / story 1)
-Photos live in `property_media ⋈ media.file_data`; the workbench never ships bytes to the browser. A gated
-route `app/api/marketing/photos?propertyId=` now queries that join itself (cap 25, hero first) and returns a
-download. **Decision this pass: it ships the `.txt` of `/api/media/{id}` URLs** (the documented fallback when
-bytes are unavailable). A true ZIP of `file_data` bytes needs an archive library whose typings expose a callable
-factory — `archiver@8`'s `@types` do not, so the zip branch was not wired rather than shipping a broken build.
-**Follow-up:** vendor a zip factory (or a compatible types version) and add the zip branch to this route; the
-filename/url-list helpers in `lib/syndication/media.ts` are already in place and tested.
+Photos live in `property_media ⋈ media.file_data`; the workbench never ships bytes to the browser. The gated
+route `app/api/marketing/photos?propertyId=` queries that join itself (hero-first, cap 25) and now **zips
+`media.file_data` bytes with `fflate`** (Neon has the bytes). Rows that have no bytes go into a sidecar
+`photos-urls.txt` inside the zip; if no row has bytes the route returns a `.txt` of `/api/media/{id}` URLs.
 
 ## Expire once
 Expiry is already triggered on the marketing GETs (`expireStalePlacements` in the page). PR #12 adds a
@@ -38,10 +35,10 @@ header. Vercel cron sends no custom header, so an authenticated external schedul
 document this before enabling.
 
 ## Per-item status
-- **1 Photo zip/txt** — gated route ships `.txt` URL list (hero-first, cap 25); zip branch is a documented follow-up.
-- **2 Dashboard Needs Lisa (global)** — not added this pass (follow-up; needs sources joined for stale/score per listing).
-- **3 ES chrome (Launch/Needs-me/off-market/Prepare "No publica en Zillow")** — partial; EN/ES exists on report/share/takedown; Prepare helper stays English this pass.
-- **4 `?propertyId=` deep-link** — not added (follow-up).
+- **1 Photo zip/txt** — DONE: `fflate` zip of `media.file_data` (bytes) with a `photos-urls.txt` sidecar; no-bytes → `.txt`. Route + helpers tested.
+- **2 Dashboard Needs Lisa (global)** — not added yet (follow-up).
+- **3 ES chrome (Launch/Needs-me/off-market/Prepare "No publica en Zillow")** — Prepare helper now bilingual EN + **ES "No publica en Zillow ni Realtor.com."**; report/share/takedown already EN/ES; full Launch/Needs-me/off-market ES still partial.
+- **4 `?propertyId=` deep-link** — DONE on the workbench (page reads `?propertyId=`; workbench preselects that listing).
 - **5 Stellar not live without MLS#** — DONE (server guard in `confirmPlacement`).
 - **6 One-click Matrix checklist** — not added (follow-up).
 - **7 Flyer prints separately from report** — partial (print view already renders flyer hero/agent/QR; not a separate target this pass).
@@ -55,7 +52,7 @@ document this before enabling.
 - **15 Office/agent lock CulebraLuxe** — already CulebraLuxe in adapters/pack; no env fallback wired (follow-up).
 - **16 Expires-in-7-days count** — not added (follow-up).
 - **17 Price from→to on activity line** — not added (follow-up; snapshot has the data).
-- **18 Missing slug warning** — not added (follow-up).
+- **18 Missing slug warning** — DONE on the Launch panel ("No public slug yet…").
 - **19 Notes file** — THIS file.
 - **20 Tests** — added media-download helper tests; existing suite covers no-photo liveAttempt, off-market, dedupe, launchScore.
 

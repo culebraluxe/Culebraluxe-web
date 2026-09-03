@@ -55,11 +55,12 @@ function Banner({ state }: { state: MarketingWriteState }) {
   )
 }
 
-export function SyndicationWorkbench({ sources, placements, sightings, activity, facebook }: {
+export function SyndicationWorkbench({ sources, placements, sightings, activity, facebook, initialPropertyId }: {
   sources: ListingSource[]; placements: PlacementRow[]; sightings: SightingRow[]
-  activity: ActivityRow[]; facebook?: FacebookReadiness
+  activity: ActivityRow[]; facebook?: FacebookReadiness; initialPropertyId?: string | null
 }) {
-  const initial = sources.find((s) => s.isPublished)?.id ?? sources[0]?.id ?? ''
+  const initial = (initialPropertyId && sources.find((s) => s.id === initialPropertyId)?.id)
+    ?? sources.find((s) => s.isPublished)?.id ?? sources[0]?.id ?? ''
   const [sourceId, setSourceId] = useState(initial)
   const [selected, setSelected] = useState<SyndicationChannel[]>(['facebook_marketplace', 'stellar_mls'])
   const source = sources.find((s) => s.id === sourceId) ?? null
@@ -194,6 +195,9 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
           ) : null}
           {source ? (
             <Panel eyebrow="Launch" heading={`Launch ${source.name}`} subtitle="Is this listing actually launched? A checklist, not another CRM.">
+              {source.slug ? null : (
+                <p className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] font-light text-amber-800">No public slug yet — this listing has no shareable /listings URL until one is set.</p>
+              )}
               {score ? (
                 <div className="mb-3">
                   <div className="flex items-center gap-3">
@@ -287,6 +291,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
                 <div className="flex flex-wrap items-center gap-3">
                   <button type="submit" disabled={!source || selected.length === 0} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-gold)]/50 bg-[var(--portal-navy)] px-3 text-[11px] font-light uppercase tracking-[0.16em] text-white disabled:opacity-40">Prepare selected</button>
                   <p className="text-[11px] font-light text-black/40">Does not upload to Zillow or Realtor.com.</p>
+                  <p className="text-[11px] font-light text-black/40">No publica en Zillow ni Realtor.com.</p>
                   {noPhotos && selected.includes('facebook_marketplace') ? <p className="text-[11px] font-light text-amber-700">Add photos first — Facebook will not live-post a listing with no images.</p> : null}
                 </div>
               </form>
@@ -503,7 +508,7 @@ function SharePanel({ source }: { source: ListingSource }) {
           {url ? (
             <a href={waMeUrl(source, 'en')} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Open in WhatsApp</a>
           ) : null}
-          <a href={`/api/marketing/photos?propertyId=${source.id}`} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Download photo URLs</a>
+          <a href={`/api/marketing/photos?propertyId=${source.id}`} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Download photos</a>
         </div>
         {qrSrc ? (
           <div className="shrink-0 rounded-md border border-[var(--portal-panel-border)] bg-white p-2">
