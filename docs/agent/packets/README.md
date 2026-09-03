@@ -2,14 +2,12 @@
 
 One markdown file per story under `docs/agent/packets/`.
 
-Grok reads these. DeepSeek may write `Context refs`. Neon remains
-authoritative for Ready / In Progress / Complete.
+Grok and the V3 planner read these. DeepSeek may write `Context refs`.
+Neon remains authoritative for Ready / In Progress / Complete.
 
 ## File name
 
 `docs/agent/packets/<STORY-ID>.md`
-
-Use the Story Board id (`ENG-18`, `CRM-07`, `S-008`). No spaces.
 
 ## Required headings
 
@@ -24,13 +22,15 @@ Use the Story Board id (`ENG-18`, `CRM-07`, `S-008`). No spaces.
 ## Preconditions
 ## Postconditions
 ## Skills
+## Loop
 ## Test mode
 ## Assay commands
 ```
 
-`Skills` is a list of packs from `docs/agent/skills/` (`neon`, `forms`,
-`workflow`, `ui`). Empty is fine.
+`Skills` lists packs from `docs/agent/skills/` (`neon`, `forms`, `workflow`, `ui`, `planner`).
+
+`Loop` is V3. Use `intent: repair` or `intent: grow` (never both), `parent_run`,
+`failed_commands`, and `loop: N/3`. Empty on the first pass is fine.
 
 `Test mode` is `SCOPED` (default), `FULL`, or `NONE`.
-`Assay commands` is the allow-list Assay will run. Empty means Assay will not
-launch. Do not write `pnpm test` unless Test mode is FULL.
+`Assay commands` is the allow-list. Empty means Assay will not launch.
