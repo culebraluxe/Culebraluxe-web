@@ -30,6 +30,7 @@ type ImapError = Error & {
   response?: string
   responseText?: string
   serverResponseCode?: string
+  executedCommand?: string
 }
 
 function describeImapError(error: unknown): string {
@@ -39,6 +40,7 @@ function describeImapError(error: unknown): string {
     imapError.message,
     imapError.code ? `code=${imapError.code}` : null,
     imapError.serverResponseCode ? `server=${imapError.serverResponseCode}` : null,
+    imapError.executedCommand ? `command=${imapError.executedCommand}` : null,
     imapError.responseText ? `response=${imapError.responseText}` : null,
     imapError.response ? `raw=${imapError.response}` : null,
   ].filter((value): value is string => Boolean(value))
@@ -133,13 +135,14 @@ async function acquireMetadata(): Promise<ICloudMailObservation[]> {
     auth: {
       user: requiredEnv('ICLOUD_MAIL_USERNAME'),
       pass: requiredEnv('ICLOUD_MAIL_APP_PASSWORD'),
+      loginMethod: 'LOGIN',
     },
     logger: false,
   })
   client.on('error', (error) => console.error(`iCloud IMAP error: ${describeImapError(error)}`))
 
   try {
-    console.log(`connecting to Apple iCloud Mail as ${account}`)
+    console.log(`connecting to Apple iCloud Mail address=${account} username=${requiredEnv('ICLOUD_MAIL_USERNAME')} method=LOGIN`)
     await client.connect()
     const mailboxes = await client.list()
     const selected = mailboxes.filter(
