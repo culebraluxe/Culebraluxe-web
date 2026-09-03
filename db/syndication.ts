@@ -3,6 +3,7 @@ import { CHANNEL_CATALOG, type SyndicationChannel } from '@/lib/syndication/chan
 import { runAdapter } from '@/lib/syndication/adapters'
 import { buildPhotoManifest, type PhotoDbRow } from '@/lib/syndication/photos'
 import { computeListingSourceHash } from '@/lib/syndication/hash'
+import { makeSnapshot, type SourceSnapshot } from '@/lib/syndication/lifecycle'
 import type {
   ListingPack,
   ListingSource,
@@ -142,12 +143,20 @@ export async function getListingSource(id: string): Promise<ListingSource | null
   return mapSource(rows[0], photos)
 }
 
+function parseSnapshot(value: unknown): SourceSnapshot | null {
+  if (value == null) return null
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) as SourceSnapshot } catch { return null }
+  }
+  return value as SourceSnapshot
+}
+
 function mapPlacement(row: {
   id: string; property_id: string; property_name: string; channel: SyndicationChannel
   status: PlacementRow['status']; publish_mode: PlacementRow['publishMode']
   external_url: string | null; external_id: string | null
   pack: ListingPack | Record<string, never> | null; last_error: string | null
-  source_hash: string | null
+  source_hash: string | null; source_snapshot: unknown
   published_at_iso: string | null
   published_at: string | null; expires_at: string | null; confirmed_at: string | null
   last_attempt_at: string | null; updated_at: string | null
@@ -157,6 +166,7 @@ function mapPlacement(row: {
     channel: row.channel, status: row.status, publishMode: row.publish_mode,
     externalUrl: row.external_url, externalId: row.external_id, pack: row.pack ?? {},
     lastError: row.last_error, sourceHash: row.source_hash,
+    sourceSnapshot: parseSnapshot(row.source_snapshot),
     publishedAtIso: row.published_at_iso ?? null,
     publishedAt: row.published_at, expiresAt: row.expires_at,
     confirmedAt: row.confirmed_at, lastAttemptAt: row.last_attempt_at, updatedAt: row.updated_at,
@@ -167,7 +177,7 @@ export async function listPlacements(): Promise<PlacementRow[]> {
   try {
     const rows = (await sql`
       select s.id, s.property_id, p.name as property_name, s.channel, s.status,
-        s.publish_mode, s.external_url, s.external_id, s.pack, s.last_error, s.source_hash,
+        s.publish_mode, s.external_url, s.external_id, s.pack, s.last_error, s.source_hash, s.source_snapshot,
         s.published_at as published_at_iso,
         to_char(s.published_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY HH12:MI AM') as published_at,
         to_char(s.expires_at at time zone 'America/Puerto_Rico', 'Mon FMDD, YYYY') as expires_at,
@@ -224,6 +234,7 @@ export async function requestPublish(input: {
   const result = await runAdapter(source, input.channel)
   const def = CHANNEL_CATALOG[input.channel]
   const sourceHash = computeListingSourceHash(source)
+  const snapshot = JSON.stringify(makeSnapshot(source))
   const expiresAt = result.ttlDays != null
     ? new Date(Date.now() + result.ttlDays * 24 * 60 * 60 * 1000).toISOString() : null
   const publishedAt = result.status === 'live' ? new Date().toISOString() : null
@@ -234,12 +245,12 @@ export async function requestPublish(input: {
       insert into listing_syndication_placement (
         property_id, channel, status, publish_mode, pack, last_error,
         last_attempt_at, published_at, expires_at, external_url, external_id,
-        source_hash, updated_at
+        source_hash, source_snapshot, updated_at
       ) values (
         ${input.propertyId}, ${input.channel}, ${result.status}, ${result.mode},
         ${JSON.stringify(result.pack)}, ${result.ok ? null : result.message}, now(),
         ${publishedAt}, ${expiresAt}, ${input.externalUrl ?? null}, ${result.externalId ?? null},
-        ${sourceHash}, now()
+        ${sourceHash}, ${snapshot}, now()
       )
       on conflict (property_id, channel) do update set
         status = excluded.status, publish_mode = excluded.publish_mode,
@@ -250,6 +261,7 @@ export async function requestPublish(input: {
         external_url = coalesce(excluded.external_url, listing_syndication_placement.external_url),
         external_id = coalesce(excluded.external_id, listing_syndication_placement.external_id),
         source_hash = excluded.source_hash,
+        source_snapshot = excluded.source_snapshot,
         updated_at = now()
       returning id
     `) as Array<{ id: string }>

@@ -23,3 +23,16 @@ export function takedownTextEs(source: ListingSource): string {
     'Mantén los registros de CulebraLuxe tal cual — no borres el historial de la propiedad.',
   ].join('\n')
 }
+
+/** Shareable off-market / just-sold blurb. Unpublished listings point at inventory, not a dead page. */
+function browseUrl(source: ListingSource): string {
+  return source.isPublished && source.publicUrl ? source.publicUrl : 'https://culebraluxe.com'
+}
+
+export function offMarketShareEn(source: ListingSource): string {
+  return `${source.name} is now off the market. Thank you for your interest — explore current CulebraLuxe listings: ${browseUrl(source)}`
+}
+
+export function offMarketShareEs(source: ListingSource): string {
+  return `${source.name} ya no está en el mercado. Gracias por tu interés — mira las propiedades actuales de CulebraLuxe: ${browseUrl(source)}`
+}

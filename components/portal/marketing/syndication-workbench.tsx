@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { PageHeader } from '@/components/portal/page-header'
 import { Panel } from '@/components/portal/panel'
 import { CopyButton } from '@/components/portal/tech/copy-button'
-import { STATUS_TONE } from '@/components/portal/marketing/status'
+import { EVENT_LABEL, STATUS_TONE } from '@/components/portal/marketing/status'
 import {
   addSightingAction, confirmPlacementAction, logInquiryAction, publishListingsAction,
   renewPlacementAction, searchInquiryPeopleAction, withdrawPlacementAction,
@@ -19,14 +19,16 @@ import {
   type SyndicationChannel,
 } from '@/lib/syndication/channels'
 import { isSourceStale } from '@/lib/syndication/hash'
-import { isOffMarket, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
-import { buildPresenceReport, presenceReportText, type PresenceReport } from '@/lib/syndication/presence-report'
+import { diffSnapshot, isOffMarket, launchScore, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
+import { buildPresenceReport, presenceReportText, type PresenceReport, type ReportLang } from '@/lib/syndication/presence-report'
 import { smsBlurb, waMeUrl, whatsappBlurb } from '@/lib/syndication/share'
-import { takedownTextEn, takedownTextEs } from '@/lib/syndication/takedown'
+import { offMarketShareEn, offMarketShareEs, takedownTextEn, takedownTextEs } from '@/lib/syndication/takedown'
 import type { FacebookReadiness } from '@/lib/syndication/env'
 import type {
-  ListingPack, ListingSource, PlacementRow, SightingNetwork, SightingRow,
+  ListingPack, ListingSource, PlacementRow, SightingNetwork, SightingRow, SyndicationEventRow,
 } from '@/lib/syndication/types'
+
+type ActivityRow = SyndicationEventRow & { channel: SyndicationChannel; propertyName: string }
 
 const NETWORK_LABEL: Record<SightingNetwork, string> = {
   zillow: 'Zillow',
@@ -53,8 +55,9 @@ function Banner({ state }: { state: MarketingWriteState }) {
   )
 }
 
-export function SyndicationWorkbench({ sources, placements, sightings, facebook }: {
-  sources: ListingSource[]; placements: PlacementRow[]; sightings: SightingRow[]; facebook?: FacebookReadiness
+export function SyndicationWorkbench({ sources, placements, sightings, activity, facebook }: {
+  sources: ListingSource[]; placements: PlacementRow[]; sightings: SightingRow[]
+  activity: ActivityRow[]; facebook?: FacebookReadiness
 }) {
   const initial = sources.find((s) => s.isPublished)?.id ?? sources[0]?.id ?? ''
   const [sourceId, setSourceId] = useState(initial)
@@ -62,6 +65,15 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
   const source = sources.find((s) => s.id === sourceId) ?? null
   const sourcePlacements = useMemo(() => placements.filter((p) => p.propertyId === sourceId), [placements, sourceId])
   const sourceSightings = useMemo(() => sightings.filter((s) => s.propertyId === sourceId), [sightings, sourceId])
+  const activityByPlacement = useMemo(() => {
+    const map = new Map<string, ActivityRow[]>()
+    for (const ev of activity) {
+      const list = map.get(ev.placementId) ?? []
+      list.push(ev)
+      map.set(ev.placementId, list)
+    }
+    return map
+  }, [activity])
   const presence = useMemo(
     () => (source ? buildPresenceReport(source, sourcePlacements, sourceSightings) : null),
     [source, sourcePlacements, sourceSightings],
@@ -101,6 +113,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
   )
   const fbOpen = takeDownRows.some((r) => r.channel === 'facebook_marketplace')
   const clasOpen = takeDownRows.some((r) => r.channel === 'clasificados')
+  const score = source ? launchScore(source, sourcePlacements) : null
 
   return (
     <div className="space-y-5">
@@ -157,6 +170,8 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <CopyButton label="Copy takedown EN" text={takedownTextEn(source)} />
                 <CopyButton label="Copy takedown ES" text={takedownTextEs(source)} />
+                <CopyButton label="Share just-sold EN" text={offMarketShareEn(source)} />
+                <CopyButton label="Share just-sold ES" text={offMarketShareEs(source)} />
                 {takeDownRows.map((row) => (
                   <form key={row.id} action={withdrawAction}>
                     <input type="hidden" name="placementId" value={row.id} />
@@ -174,6 +189,21 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
           ) : null}
           {source ? (
             <Panel eyebrow="Launch" heading={`Launch ${source.name}`} subtitle="Is this listing actually launched? A checklist, not another CRM.">
+              {score ? (
+                <div className="mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="font-serif text-3xl font-light text-[var(--portal-navy)]">{score.score}/100</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-black/10">
+                      <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${score.score}%` }} />
+                    </div>
+                  </div>
+                  {score.missing.length > 0 ? (
+                    <p className="mt-1.5 text-[11px] font-light leading-4 text-black/45">Needs: {score.missing.join(' · ')}</p>
+                  ) : (
+                    <p className="mt-1.5 text-[11px] font-light leading-4 text-emerald-700">Ready to launch.</p>
+                  )}
+                </div>
+              ) : null}
               <ul className="space-y-1.5">
                 <LaunchRow done={launch.site} label="Published on culebraluxe.com" />
                 <LaunchRow done={launch.stellar} label="Stellar pack prepared · MLS# confirmed" />
@@ -300,6 +330,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
                   const tone = STATUS_TONE[row.status]
                   const def = CHANNEL_CATALOG[row.channel]
                   const transportJson = pack?.transport ? JSON.stringify(pack.transport, null, 2) : null
+                  const cardActivity = activityByPlacement.get(row.id) ?? []
                   return (
                     <article key={row.id} className="rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white/50 p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -310,7 +341,20 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
                         {row.externalUrl ? <a href={row.externalUrl} target="_blank" rel="noreferrer" className="text-[11px] uppercase tracking-[0.14em] text-[var(--portal-navy)] underline">Open live ad</a> : null}
                       </div>
                       {row.channel !== 'culebraluxe' && source && row.sourceHash && isSourceStale(source, row.sourceHash) ? (
-                        <p className="mt-3 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12px] font-light text-amber-800">Price/facts changed — regenerate this pack.</p>
+                        <div className="mt-3 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-amber-800">Stale — price/facts changed</p>
+                          {(() => {
+                            const diffs = row.sourceSnapshot ? diffSnapshot(source, row.sourceSnapshot) : []
+                            if (diffs.length > 0) {
+                              return (
+                                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] font-light text-amber-800">
+                                  {diffs.map((diff, i) => <li key={i}>{diff}</li>)}
+                                </ul>
+                              )
+                            }
+                            return <p className="mt-0.5 text-[12px] font-light text-amber-800">Regenerate this pack to refresh the saved details.</p>
+                          })()}
+                        </div>
                       ) : null}
                       {pack ? (
                         <div className="mt-3 space-y-3">
@@ -350,6 +394,19 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
                           <button type="submit" className="text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-gold)] hover:text-amber-600">Renew expired pack</button>
                         </form>
                       ) : null}
+                      {cardActivity.length > 0 ? (
+                        <div className="mt-3 border-t border-[var(--portal-panel-border)] pt-2">
+                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-black/35">Activity</p>
+                          <ul className="mt-1 space-y-0.5">
+                            {cardActivity.slice(-10).reverse().map((ev) => (
+                              <li key={ev.id} className="flex items-baseline justify-between gap-3 text-[11px] font-light text-black/45">
+                                <span>{EVENT_LABEL[ev.eventType] ?? ev.eventType}</span>
+                                <span className="shrink-0 text-black/30">{ev.createdAt}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </article>
                   )
                 })}
@@ -369,74 +426,34 @@ export function SyndicationWorkbench({ sources, placements, sightings, facebook 
 }
 
 function SellerReportPanel({ report, source }: { report: PresenceReport; source: ListingSource }) {
-  const copyText = presenceReportText(report)
+  const [lang, setLang] = useState<ReportLang>('en')
   const url = source.publicUrl ?? ''
   const qrSrc = url ? `/portal/marketing/qr?url=${encodeURIComponent(url)}` : ''
-  const rows: Array<[string, string]> = [
-    ['Listing', `${report.propertyName} — ${report.priceLabel}`],
-    ['Location', report.city],
-    ['Facts', report.factsLine],
-  ]
-  if (report.daysOnMarket != null) rows.push(['Days on market', `${report.daysOnMarket}`])
-  rows.push(
-    ['On culebraluxe.com', report.sitePublished ? 'Live' : 'Not published'],
-    ['Stellar / MLS', report.stellarMls ? `${report.stellarStatus} · #${report.stellarMls}` : report.stellarStatus],
-    ['Facebook', report.facebookUrl ?? report.facebookStatus],
-    ['Clasificados', report.clasificadosUrl ?? report.clasificadosStatus],
-  )
+  const text = presenceReportText(report, lang)
   return (
     <>
       <Panel eyebrow="Seller report" heading="Presence one-pager" subtitle="Print or copy this to email the seller. It lists confirmed or observed URLs, never a Zillow upload.">
-        <dl className="space-y-1.5 text-[13px] font-light">
-          {rows.map(([key, value]) => (
-            <div key={key} className="flex flex-wrap justify-between gap-3">
-              <dt className="text-black/45">{key}</dt>
-              <dd className="max-w-[16rem] text-right text-black/80">{value}</dd>
-            </div>
+        <div className="mb-2 flex items-center gap-1.5">
+          {(['en', 'es'] as ReportLang[]).map((langKey) => (
+            <button
+              key={langKey}
+              type="button"
+              onClick={() => setLang(langKey)}
+              className={`min-h-8 rounded-md border px-3 text-[11px] font-light uppercase tracking-[0.12em] ${lang === langKey ? 'border-[var(--portal-navy)] bg-[var(--portal-navy)] text-white' : 'border-[var(--portal-panel-border)] bg-white/40 text-black/45'}`}
+            >
+              {langKey.toUpperCase()}
+            </button>
           ))}
-          {report.sightings.length === 0 ? (
-            <div className="flex flex-wrap justify-between gap-3">
-              <dt className="text-black/45">Zillow / Realtor.com</dt>
-              <dd className="text-black/80">Not observed yet</dd>
-            </div>
-          ) : report.sightings.map((sighting) => (
-            <div key={sighting.network} className="flex flex-wrap justify-between gap-3">
-              <dt className="text-black/45">Seen on {sighting.network}</dt>
-              <dd className="max-w-[16rem] text-right text-black/80">{sighting.url ?? sighting.notes ?? 'Observed'}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="mt-3 text-[11px] font-light leading-4 text-black/40">{report.disclaimer}</p>
-        <p className="mt-1 text-[11px] font-light text-black/35">Generated {report.generatedAt} (PR time)</p>
+        </div>
+        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--portal-navy)]/5 p-3 text-[12px] font-light leading-5 text-black/70">{text}</pre>
         <div className="mt-3 flex flex-wrap gap-2">
-          <CopyButton label="Copy report" text={copyText} />
+          <CopyButton label={`Copy report (${lang.toUpperCase()})`} text={text} />
           <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Print report</button>
         </div>
       </Panel>
       <div id="print-report">
-        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{report.propertyName}</h1>
-        <p style={{ margin: '0 0 0.25rem' }}>{report.priceLabel} · {report.city}</p>
-        <p style={{ margin: '0 0 0.5rem' }}>{report.factsLine}</p>
-        {report.daysOnMarket != null ? <p style={{ margin: '0 0 0.5rem' }}>Days on market: {report.daysOnMarket}</p> : null}
-        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '13px' }}>
-          <tbody>
-            {rows.map(([key, value]) => (
-              <tr key={key}>
-                <td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{key}</td>
-                <td style={{ padding: '2px 0', color: '#000' }}>{value}</td>
-              </tr>
-            ))}
-            {report.sightings.length === 0 ? (
-              <tr><td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>Zillow / Realtor.com</td><td>Not observed yet</td></tr>
-            ) : report.sightings.map((sighting) => (
-              <tr key={sighting.network}>
-                <td style={{ padding: '2px 8px 2px 0', color: '#333', whiteSpace: 'nowrap', verticalAlign: 'top' }}>Seen on {sighting.network}</td>
-                <td>{sighting.url ?? sighting.notes ?? 'Observed'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p style={{ marginTop: '0.75rem', fontSize: '11px', color: '#666' }}>{report.disclaimer}</p>
+        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>{report.propertyName}</h1>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', fontFamily: 'inherit', margin: 0 }}>{text}</pre>
         {qrSrc ? (
           <div style={{ marginTop: '1rem' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -444,7 +461,6 @@ function SellerReportPanel({ report, source }: { report: PresenceReport; source:
             <p style={{ fontSize: '11px', color: '#333', maxWidth: '160px' }}>{url}</p>
           </div>
         ) : null}
-        <p style={{ marginTop: '0.5rem', fontSize: '10px', color: '#888' }}>Generated {report.generatedAt} (Puerto Rico time)</p>
       </div>
     </>
   )

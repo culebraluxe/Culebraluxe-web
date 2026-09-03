@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import { runAdapter } from '../../lib/syndication/adapters'
 import { CHANNEL_CATALOG, PREPARE_CHANNELS, isPrepareChannel } from '../../lib/syndication/channels'
 import { computeListingSourceHash, isSourceStale } from '../../lib/syndication/hash'
-import { isOffMarket, matchesNeedsFilter, placementNeedsMe } from '../../lib/syndication/lifecycle'
+import { diffSnapshot, isOffMarket, launchScore, makeSnapshot, matchesNeedsFilter, placementNeedsMe } from '../../lib/syndication/lifecycle'
+import { offMarketShareEn } from '../../lib/syndication/takedown'
 import { buildPresenceReport, presenceReportText } from '../../lib/syndication/presence-report'
 import { smsBlurb, whatsappBlurb } from '../../lib/syndication/share'
 import type { ListingSource, PlacementRow, PlacementStatus, PublishMode, SightingRow, SightingNetwork, SyndicationChannel } from '../../lib/syndication/types'
@@ -401,4 +402,61 @@ describe('presence report + share blurbs (C / D)', () => {
     assert.match(whatsappBlurb(source, 'es'), /baños/)
     assert.match(whatsappBlurb(source, 'es'), /Detalle/)
   })
+
+describe('next5b polish (tasks 2–5)', () => {
+  const PID = '11111111-1111-1111-1111-111111111111'
+  function place(channel: SyndicationChannel, status: PlacementStatus, over: Partial<PlacementRow> = {}): PlacementRow {
+    return {
+      id: over.id ?? 'p',
+      propertyId: PID,
+      propertyName: 'Playa Flamenco Villa',
+      channel,
+      status,
+      publishMode: 'copy_pack' as PublishMode,
+      externalUrl: over.externalUrl ?? null,
+      externalId: over.externalId ?? null,
+      pack: over.pack ?? {},
+      lastError: null,
+      publishedAt: null,
+      expiresAt: null,
+      confirmedAt: null,
+      lastAttemptAt: null,
+      updatedAt: null,
+      sourceHash: over.sourceHash ?? null,
+    }
+  }
+
+  it('diffSnapshot lists a price change', () => {
+    const old = makeSnapshot(makeSource())
+    const diffs = diffSnapshot(makeSource({ listPrice: 2350000 }), old)
+    assert.ok(diffs.some((d) => d.startsWith('Price:')), diffs.join('|'))
+  })
+
+  it('launchScore weighs published/photos/price/city/stellar/facebook', () => {
+    const base = makeSource({ heroMediaId: 'h1' })
+    const rows = [
+      place('stellar_mls', 'live', { externalId: 'PR-1', externalUrl: 'x' }),
+      place('facebook_marketplace', 'live', { externalUrl: 'fb-url' }),
+    ]
+    const full = launchScore(base, rows)
+    assert.equal(full.score, 100)
+    assert.equal(full.missing.length, 0)
+    const partial = launchScore(base, rows.filter((r) => r.channel !== 'facebook_marketplace'))
+    assert.equal(partial.score, 90)
+  })
+
+  it('Spanish seller report is Spanish; never "Published to Zillow"', () => {
+    const report = buildPresenceReport(makeSource(), [], [])
+    const es = presenceReportText(report, 'es')
+    assert.match(es, /No observada aún/)
+    assert.ok(!es.includes('Published to Zillow'))
+    assert.ok(presenceReportText(report, 'en').includes('Not observed yet'))
+  })
+
+  it('off-market share points at the inventory root when unpublished', () => {
+    const text = offMarketShareEn(makeSource({ isPublished: false }))
+    assert.ok(text.includes('https://culebraluxe.com'), text)
+  })
+})
+
 })

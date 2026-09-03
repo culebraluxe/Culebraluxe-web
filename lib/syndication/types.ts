@@ -1,4 +1,5 @@
 import type { PlacementStatus, PublishMode, SyndicationChannel } from './channels'
+import type { SourceSnapshot } from './lifecycle'
 
 export type PhotoManifestItem = {
   mediaId: string
@@ -100,6 +101,8 @@ export type PlacementRow = {
   sourceHash: string | null
   /** Raw (ISO) first-publication timestamp for days-on-market; null if never live. */
   publishedAtIso?: string | null
+  /** Root-fact snapshot captured at last prepare (Task 2); null/absent if 103 not applied. */
+  sourceSnapshot?: SourceSnapshot | null
 }
 
 export type SightingNetwork = 'zillow' | 'realtor_com' | 'homes_com' | 'other'

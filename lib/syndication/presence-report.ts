@@ -18,10 +18,16 @@ export type PresenceReport = {
   sitePublished: boolean
   stellarStatus: string
   stellarMls: string | null
+  stellarPrepared: boolean
+  stellarConfirmed: boolean
   facebookStatus: string
   facebookUrl: string | null
+  facebookPrepared: boolean
+  facebookConfirmed: boolean
   clasificadosStatus: string
   clasificadosUrl: string | null
+  clasificadosPrepared: boolean
+  clasificadosConfirmed: boolean
   sightings: PresenceNetworkLine[]
   daysOnMarket: number | null
   disclaimer: string
@@ -95,6 +101,8 @@ export function buildPresenceReport(
         ? 'Pack prepared — enter in Matrix, then paste the MLS# to confirm'
         : 'Not in Matrix yet',
     stellarMls: stellar?.externalId ?? null,
+    stellarPrepared: !!stellar,
+    stellarConfirmed,
     facebookStatus: facebookConfirmed
       ? facebook?.status === 'live' && facebook?.externalUrl
         ? 'Page / Marketplace URL confirmed'
@@ -103,12 +111,16 @@ export function buildPresenceReport(
         ? 'Pack ready (not yet confirmed)'
         : 'Not prepared yet',
     facebookUrl: facebook?.externalUrl ?? null,
+    facebookPrepared: !!facebook,
+    facebookConfirmed,
     clasificadosStatus: clasificadosConfirmed
       ? 'Clasificados live URL confirmed'
       : clasificados
         ? 'Clasificados pack ready — paste the live ad URL'
         : 'Not prepared (optional)',
     clasificadosUrl: clasificados?.externalUrl ?? null,
+    clasificadosPrepared: !!clasificados,
+    clasificadosConfirmed,
     sightings: sightings
       .filter((s) => s.propertyId === source.id)
       .map((s) => ({ network: s.network, url: s.url, notes: s.notes })),
@@ -122,28 +134,75 @@ export function buildPresenceReport(
   }
 }
 
-/** Plain-text rendering for Copy and for window.print() bodies. */
-export function presenceReportText(report: PresenceReport): string {
+const DISCLAIMER_ES =
+  'Los portales (Zillow, Realtor.com, Homes.com) se actualizan desde el feed de Stellar MLS. ' +
+  'Esto lista URLs confirmadas u observadas — no es un registro de publicación. Nada de esto fue "publicado en Zillow" por esta app.'
+
+export type ReportLang = 'en' | 'es'
+
+function stellarLine(report: PresenceReport, es: boolean): string {
+  if (report.stellarConfirmed) {
+    return es ? 'En Stellar — los portales siguen el feed' : 'In Stellar — portals follow the feed'
+  }
+  if (report.stellarPrepared) {
+    return es
+      ? 'Pack preparado — ingrésalo en Matrix y confirma el # MLS'
+      : 'Pack prepared — enter in Matrix, then paste the MLS#'
+  }
+  return es ? 'Aún no en Matrix' : 'Not in Matrix yet'
+}
+
+function facebookLine(report: PresenceReport, es: boolean): string {
+  if (report.facebookUrl) return report.facebookUrl
+  if (report.facebookConfirmed) {
+    return es ? 'Página / Marketplace URL confirmada' : 'Page / Marketplace URL confirmed'
+  }
+  if (report.facebookPrepared) {
+    return es
+      ? 'Pack listo — pega la URL de la publicación para confirmar'
+      : 'Pack ready — paste the live post URL to confirm'
+  }
+  return es ? 'No preparado aún' : 'Not prepared yet'
+}
+
+function clasificadosLine(report: PresenceReport, es: boolean): string {
+  if (report.clasificadosUrl) return report.clasificadosUrl
+  if (report.clasificadosConfirmed) {
+    return es ? 'Clasificados URL activa confirmada' : 'Clasificados live URL confirmed'
+  }
+  if (report.clasificadosPrepared) {
+    return es
+      ? 'Pack de Clasificados listo — pega la URL del anuncio'
+      : 'Clasificados pack ready — paste the live ad URL'
+  }
+  return es ? 'No preparado (opcional)' : 'Not prepared (optional)'
+}
+
+/** Plain-text rendering for Copy and print, in English or Spanish. */
+export function presenceReportText(report: PresenceReport, lang: ReportLang = 'en'): string {
+  const es = lang === 'es'
   const lines: string[] = []
   lines.push(`${report.propertyName} — ${report.priceLabel}`)
   lines.push(report.city)
   lines.push(report.factsLine)
-  if (report.daysOnMarket != null) lines.push(`Days on market: ${report.daysOnMarket}`)
+  if (report.daysOnMarket != null) lines.push(`${es ? 'Días en el mercado' : 'Days on market'}: ${report.daysOnMarket}`)
   lines.push('')
-  lines.push(report.sitePublished && report.siteUrl ? 'On culebraluxe.com: Live' : 'On culebraluxe.com: Not published')
+  lines.push(report.sitePublished && report.siteUrl
+    ? `${es ? 'En culebraluxe.com' : 'On culebraluxe.com'}: ${es ? 'Publicada' : 'Live'}`
+    : `${es ? 'En culebraluxe.com' : 'On culebraluxe.com'}: ${es ? 'No publicada' : 'Not published'}`)
   if (report.siteUrl) lines.push(`  ${report.siteUrl}`)
-  lines.push(report.stellarStatus)
+  lines.push(stellarLine(report, es))
   if (report.stellarMls) lines.push(`  MLS# ${report.stellarMls}`)
-  lines.push(report.facebookUrl ? `Facebook: ${report.facebookUrl}` : `Facebook: ${report.facebookStatus}`)
-  lines.push(report.clasificadosUrl ? `Clasificados: ${report.clasificadosUrl}` : `Clasificados: ${report.clasificadosStatus}`)
+  lines.push(`${es ? 'Facebook' : 'Facebook'}: ${facebookLine(report, es)}`)
+  lines.push(`${es ? 'Clasificados' : 'Clasificados'}: ${clasificadosLine(report, es)}`)
   if (report.sightings.length === 0) {
-    lines.push('Zillow / Realtor.com: Not observed yet.')
+    lines.push(es ? 'Zillow / Realtor.com: No observada aún.' : 'Zillow / Realtor.com: Not observed yet.')
   } else {
-    lines.push('Observed on portals:')
+    lines.push(es ? 'Vistas en portales:' : 'Observed on portals:')
     for (const s of report.sightings) {
-      lines.push(`  ${s.network}${s.url ? ` · ${s.url}` : ''}${s.notes ? ` · ${s.notes}` : ''}`)
+      lines.push(`  ${es ? 'En' : ''} ${s.network}${s.url ? ` · ${s.url}` : ''}${s.notes ? ` · ${s.notes}` : ''}`)
     }
   }
-  lines.push('', report.disclaimer, `Generated ${report.generatedAt}`)
+  lines.push('', es ? DISCLAIMER_ES : report.disclaimer, `${es ? 'Generado' : 'Generated'} ${report.generatedAt}`)
   return lines.join('\n')
 }
