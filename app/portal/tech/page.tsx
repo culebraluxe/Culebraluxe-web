@@ -5,7 +5,7 @@ import { GatewayControl } from "@/components/portal/tech/gateway-control"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { resolveForgeExecutionProvider } from "@/agent-runtime/gateway/provider"
+import { resolveForgeExecutionProviderForProfile } from "@/agent-runtime/gateway/provider"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -19,10 +19,6 @@ import {
 
 export const dynamic = "force-dynamic"
 
-// PORTAL-13 — TECH / Engineering Cockpit landing page. Requires tech.access
-// (ROOT only); non-tech actors are redirected to /login/unauthorized even on a
-// direct URL. Loads one bounded projection (stories + execution summary + the
-// selected story's runs) — never N+1 run queries for the whole board.
 export default async function TechPage({
   searchParams,
 }: {
@@ -41,9 +37,7 @@ export default async function TechPage({
     listStoryboardStories(),
     listStoryExecutionSummaries(),
   ])
-  if (!stories) {
-    return <StoryBoardNotReady />
-  }
+  if (!stories) return <StoryBoardNotReady />
 
   const execMap = new Map(executions.map((e) => [e.storyId, e]))
   const withExecution = stories.map((s) => ({
@@ -67,11 +61,19 @@ export default async function TechPage({
   const freshness =
     withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
     new Date().toISOString()
-  const gatewayProvider = resolveForgeExecutionProvider()
+
+  const routes = [
+    { lane: 'Scout' as const, profile: 'scout-volume' as const },
+    { lane: 'Smith' as const, profile: 'builder-flash' as const },
+    { lane: 'Assay' as const, profile: 'verifier-mini' as const },
+  ].map((route) => ({
+    ...route,
+    provider: resolveForgeExecutionProviderForProfile(route.profile),
+  }))
 
   return (
     <>
-      <GatewayControl provider={gatewayProvider} />
+      <GatewayControl routes={routes} />
       <EngineeringCockpit
         cockpit={cockpit}
         activeQueue={activeQueue}
