@@ -1,13 +1,13 @@
 # Skill packs
 
-Short markdown the A1 worker loads when the packet lists them.
+Short markdown the A1 worker or V3 planner loads when the packet lists them.
 
 ```md
 ## Skills
-neon, forms
+neon, planner
 ```
 
-Known ids: `neon`, `forms`, `workflow`, `ui`.
+Known ids: `neon`, `forms`, `workflow`, `ui`, `planner`.
 
-These are not queued agents. Neon’s own `npx skills add neondatabase/agent-skills`
-can sit beside `neon.md` as extra reading; it still does not become a worker.
+`planner` is for the outer loop only. Do not list it on a Smith packet unless
+the story is itself about planning docs.

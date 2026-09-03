@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const KNOWN = ['neon', 'forms', 'workflow', 'ui'] as const
+const KNOWN = ['neon', 'forms', 'workflow', 'ui', 'planner'] as const
 export type SkillId = (typeof KNOWN)[number]
 
 export function parseSkillIds(raw: string | null | undefined): SkillId[] {

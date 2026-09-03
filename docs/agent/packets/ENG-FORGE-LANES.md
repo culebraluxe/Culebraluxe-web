@@ -38,6 +38,7 @@ commit or write DEV. The invoker policy follows the persisted role.
 - `agent-runtime/lane-policy.ts`
 - `agent-runtime/story-session.ts`
 - `agent-runtime/git-packet.ts`
+- `agent-runtime/loop.ts`
 - `agent-runtime/assay-plan.ts`
 - `agent-runtime/test-mode.ts`
 - `agent-runtime/enqueue-lane.ts`
@@ -54,6 +55,15 @@ commit or write DEV. The invoker policy follows the persisted role.
 - Assay refuses empty command lists and SCOPED full-regression aliases
 - No second work queue
 - No schema change required for this story
+
+## Skills
+
+workflow, planner
+
+## Loop
+
+intent: grow
+loop: 1/3
 
 ## Preconditions
 
@@ -75,3 +85,4 @@ SCOPED
 - node --test agent-runtime/assay-plan.test.ts
 - node --test agent-runtime/lane-policy.test.ts
 - node --test agent-runtime/git-packet.test.ts
+- node --test agent-runtime/loop.test.ts

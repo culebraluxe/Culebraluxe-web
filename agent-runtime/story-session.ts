@@ -1,5 +1,6 @@
 import type { LaneSession } from './lane-policy'
 import { skillInstructions } from './skills'
+import { parsePacketLoop } from './loop'
 
 export type StoryPacketFields = {
   architectBrief?: string | null
@@ -10,6 +11,7 @@ export type StoryPacketFields = {
   testMode?: string | null
   assayCommands?: string | null
   skills?: string | null
+  loop?: string | null
 }
 
 function present(value: string | null | undefined): boolean {
@@ -29,6 +31,7 @@ export function mergeStoryPackets(
     'testMode',
     'assayCommands',
     'skills',
+    'loop',
   ]
   const out: StoryPacketFields = { ...primary }
   for (const key of keys) {
@@ -64,5 +67,17 @@ export function storyPacketInstructions(story: StoryPacketFields): string {
   }
   const skills = skillInstructions(story.skills ?? null)
   if (skills) parts.push(skills)
+  if (present(story.loop)) {
+    const parsed = parsePacketLoop(story.loop)
+    parts.push(
+      `Loop (V3): intent=${parsed.intent}` +
+        (parsed.parentRun ? ` parent_run=${parsed.parentRun}` : '') +
+        (parsed.loopLabel ? ` ${parsed.loopLabel}` : '') +
+        (parsed.failedCommands.length
+          ? `\nFailed commands:\n${parsed.failedCommands.map((c) => `- ${c}`).join('\n')}`
+          : '') +
+        `\n${story.loop!.trim()}`,
+    )
+  }
   return parts.join('\n\n')
 }
