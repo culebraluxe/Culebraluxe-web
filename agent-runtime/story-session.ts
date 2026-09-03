@@ -1,4 +1,5 @@
 import type { LaneSession } from './lane-policy'
+import { skillInstructions } from './skills'
 
 export type StoryPacketFields = {
   architectBrief?: string | null
@@ -8,6 +9,7 @@ export type StoryPacketFields = {
   scope?: string | null
   testMode?: string | null
   assayCommands?: string | null
+  skills?: string | null
 }
 
 function present(value: string | null | undefined): boolean {
@@ -26,6 +28,7 @@ export function mergeStoryPackets(
     'scope',
     'testMode',
     'assayCommands',
+    'skills',
   ]
   const out: StoryPacketFields = { ...primary }
   for (const key of keys) {
@@ -59,5 +62,7 @@ export function storyPacketInstructions(story: StoryPacketFields): string {
   if (present(story.contextRefs)) {
     parts.push(`Context refs (Scout packet):\n${story.contextRefs!.trim()}`)
   }
+  const skills = skillInstructions(story.skills ?? null)
+  if (skills) parts.push(skills)
   return parts.join('\n\n')
 }

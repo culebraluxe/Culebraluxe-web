@@ -8,6 +8,7 @@ const HEADINGS: Record<string, keyof StoryPacketFields> = {
   'acceptance criteria': 'acceptanceCriteria',
   'test mode': 'testMode',
   'assay commands': 'assayCommands',
+  skills: 'skills',
 }
 
 export function sessionFieldsFromGitPacket(markdown: string): StoryPacketFields {
