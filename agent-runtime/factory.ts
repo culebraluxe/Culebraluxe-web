@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -23,6 +24,12 @@ import {
 } from './gateway/provider'
 import { warpProvider } from './gateway/warp-provider'
 import { DEFAULT_FORGE_TEAM, type ForgePosition } from './team'
+import {
+  blockedAdapterReadiness,
+  commandIsInstalled,
+  explicitAuthenticationReady,
+  readyAdapterReadiness,
+} from './readiness'
 
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   return {
@@ -77,6 +84,20 @@ export function createAgentRuntimeRegistry(
     adapterId: 'deepseek-harness',
     description: 'DeepSeek Harness headless CLI adapter',
     capabilities: CORE_CAPABILITIES,
+    readiness: () => {
+      const installed = Boolean(config.startRun) || existsSync(config.cliBin)
+      if (!installed) {
+        return blockedAdapterReadiness({
+          installed: false,
+          authentication: 'delegated',
+          reason: `DeepSeek harness entrypoint not found: ${config.cliBin}`,
+        })
+      }
+      // DSH owns its own authenticated session/config. Forge deliberately does
+      // not inspect or copy provider credentials; successful authentication is
+      // delegated to that qualified harness boundary.
+      return readyAdapterReadiness('delegated', 'DeepSeek harness is installed; authentication is delegated to DSH')
+    },
     factory: (deps) =>
       new PolicyDeepSeekHarnessAdapter(deps, config, (command, context) => {
         const base = buildTaskText(command, context)
@@ -88,12 +109,52 @@ export function createAgentRuntimeRegistry(
     adapterId: 'gateway-warp',
     description: warpProvider.description,
     capabilities: warpProvider.capabilities,
+    readiness: () => {
+      const bin = process.env.WARP_HEADLESS_BIN
+      const installed = commandIsInstalled(bin)
+      const authentication = explicitAuthenticationReady(process.env.FORGE_WARP_AUTHENTICATED)
+      if (!installed) {
+        return blockedAdapterReadiness({
+          installed: false,
+          authentication,
+          reason: 'Warp is registered but no executable WARP_HEADLESS_BIN is configured',
+        })
+      }
+      if (authentication !== 'authenticated') {
+        return blockedAdapterReadiness({
+          installed: true,
+          authentication,
+          reason: 'Warp headless executor is installed but authentication has not been explicitly qualified',
+        })
+      }
+      return readyAdapterReadiness('authenticated', 'Warp headless executor is installed and authentication is qualified')
+    },
     factory: (deps) => new CliAgentGatewayAdapter(deps, warpProvider),
   })
   registry.registerAdapter({
     adapterId: 'gateway-openclaw',
     description: openClawProvider.description,
     capabilities: openClawProvider.capabilities,
+    readiness: () => {
+      const bin = process.env.OPENCLAW_BIN ?? 'openclaw'
+      const installed = commandIsInstalled(bin)
+      const authentication = explicitAuthenticationReady(process.env.FORGE_OPENCLAW_AUTHENTICATED)
+      if (!installed) {
+        return blockedAdapterReadiness({
+          installed: false,
+          authentication,
+          reason: `OpenClaw executor is registered but '${bin}' is not installed on PATH`,
+        })
+      }
+      if (authentication !== 'authenticated') {
+        return blockedAdapterReadiness({
+          installed: true,
+          authentication,
+          reason: 'OpenClaw is installed but authentication has not been explicitly qualified',
+        })
+      }
+      return readyAdapterReadiness('authenticated', 'OpenClaw is installed and authentication is qualified')
+    },
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
   })
 
