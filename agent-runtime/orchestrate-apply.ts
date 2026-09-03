@@ -125,6 +125,15 @@ export async function followFinishedLane(input: {
   const story = await input.getStory(input.storyId)
   if (!story) return null
   const merged = storyFieldsFromBoardAndGit(story, input.storyId, input.repoRoot)
+
+  // ENG-FORGE-V3-03: the first no-brief Ready hydration may Scout, but Scout
+  // cannot wake itself forever. After Scout completes, a real architect brief
+  // from Neon or the git packet must exist before the loop can advance to Smith.
+  if (input.finishedRole === 'scout' && !merged.architectBrief?.trim()) {
+    console.log('follow skip', input.storyId, 'scout', 'missing-architect-brief')
+    return null
+  }
+
   const lane = pickLane({ story: merged, lastFinishedRole: input.finishedRole })
   const decision = buildLaneEnqueue({ lane, story: merged })
   if (!decision.ok || !decision.envelope) {
