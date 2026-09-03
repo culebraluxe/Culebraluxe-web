@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation"
 
 import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
+import { GatewayControl } from "@/components/portal/tech/gateway-control"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
+import { resolveForgeExecutionProvider } from "@/agent-runtime/gateway/provider"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -51,8 +53,6 @@ export default async function TechPage({
 
   const model = buildStoryBoardModel(withExecution)
   const cockpit = buildStoryBoardCockpit(model)
-  // Active Queue membership comes from storyboard_active_work (joined to the
-  // canonical story). KPI active count = row count of that relation.
   const activeQueue = await listActiveWork()
 
   const validId =
@@ -63,20 +63,23 @@ export default async function TechPage({
   const selectedIsActive = validId
     ? activeQueue.some((s) => s.id === validId)
     : false
-  // Bounded: only the selected story's run rows (not all runs for all stories).
   const runs = validId ? await listStoryRuns(validId) : []
   const freshness =
     withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
     new Date().toISOString()
+  const gatewayProvider = resolveForgeExecutionProvider()
 
   return (
-    <EngineeringCockpit
-      cockpit={cockpit}
-      activeQueue={activeQueue}
-      selectedStory={selectedStory}
-      selectedIsActive={selectedIsActive}
-      runs={runs}
-      freshness={freshness}
-    />
+    <>
+      <GatewayControl provider={gatewayProvider} />
+      <EngineeringCockpit
+        cockpit={cockpit}
+        activeQueue={activeQueue}
+        selectedStory={selectedStory}
+        selectedIsActive={selectedIsActive}
+        runs={runs}
+        freshness={freshness}
+      />
+    </>
   )
 }
