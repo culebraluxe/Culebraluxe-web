@@ -1,1 +1,0 @@
-Main advanced after this slice began by adding five unrelated story packet documents. No V4-07 runtime, registry, readiness, team, gateway, or test files overlap that mainline change. PR merge should use current main as the integration base.
