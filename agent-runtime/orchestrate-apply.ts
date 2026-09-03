@@ -67,7 +67,10 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
     const story = await deps.getStory(item.storyId)
     if (!story) continue
     const merged = storyFieldsFromBoardAndGit(story, item.storyId, deps.repoRoot)
-    const lane = pickLane({ story: merged })
+    let lane = pickLane({ story: merged })
+    // ENG-FORGE-V3-02 defense at the envelope boundary: even if lane-picking
+    // regresses later, hydration cannot create Smith without a real brief.
+    if (lane === 'smith' && !merged.architectBrief?.trim()) lane = 'scout'
     const decision = buildLaneEnqueue({
       lane,
       story: merged,
