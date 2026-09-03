@@ -1,4 +1,4 @@
-# Forge V2
+# Forge V2 / V2.1
 
 Default path is A1 series. Flip a story Ready. The poller does the rest.
 
@@ -12,9 +12,9 @@ Smith Done + packet Assay commands → enqueue verifier-mini
 next tick runs Assay
 ```
 
-Architect and Inspector are not auto-queued. Those are Grok on git packets.
+V2.1 adds:
+- `## Skills` on the packet loads `docs/agent/skills/*.md`
+- non-builder roles are told not to commit; a forbidden commit is rewinded
 
-Skills are markdown under `docs/agent/skills/` (optional). Neon skill packs
-are knowledge, not workers.
-
-TUNIT is the Assay instrument. The queue is still `agent_work_item`.
+Architect and Inspector are not auto-queued.
+V3 session hosts (Warp / OpenClaw) are described in `docs/FORGE-V3.md`.
