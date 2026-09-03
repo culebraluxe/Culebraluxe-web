@@ -10,12 +10,16 @@
 import { AgentRuntimeAdapter } from './agent-runtime-adapter'
 import type { AgentCapability } from './capabilities'
 import type { AgentRuntimeAdapterDeps } from './agent-runtime-adapter'
+import type { AdapterReadiness } from './readiness'
+import { readyAdapterReadiness } from './readiness'
 
 export interface AdapterDescriptor {
   adapterId: string
   description: string
   /** Capabilities this adapter can satisfy. */
   capabilities: AgentCapability[]
+  /** Runtime readiness is evaluated on the host that will execute the work. */
+  readiness?: () => AdapterReadiness
   factory: (deps: AgentRuntimeAdapterDeps) => AgentRuntimeAdapter
 }
 
@@ -54,18 +58,46 @@ export class AgentRuntimeRegistry {
     return config
   }
 
+  inspectProfileReadiness(profile: string): AdapterReadiness {
+    const config = this.resolveProfile(profile)
+    return this.inspectAdapterReadiness(config.adapterId)
+  }
+
+  inspectAdapterReadiness(adapterId: string): AdapterReadiness {
+    const descriptor = this.adapters.get(adapterId)
+    if (!descriptor) {
+      return {
+        registered: false,
+        installed: false,
+        authentication: 'unknown',
+        ready: false,
+        reason: `adapter '${adapterId}' is not registered`,
+      }
+    }
+    return descriptor.readiness?.() ?? readyAdapterReadiness('delegated', 'adapter readiness is delegated to the runtime')
+  }
+
+  private assertAdapterReady(adapterId: string): void {
+    const readiness = this.inspectAdapterReadiness(adapterId)
+    if (!readiness.ready) {
+      throw new Error(`adapter '${adapterId}' is not ready: ${readiness.reason}`)
+    }
+  }
+
   resolveAdapter(profile: string, deps: AgentRuntimeAdapterDeps): AgentRuntimeAdapter {
     const config = this.resolveProfile(profile)
     const descriptor = this.adapters.get(config.adapterId)
     if (!descriptor) {
       throw new Error(`unknown adapter: '${config.adapterId}'`)
     }
+    this.assertAdapterReady(config.adapterId)
     return descriptor.factory(deps)
   }
 
   adapterForId(adapterId: string, deps: AgentRuntimeAdapterDeps): AgentRuntimeAdapter {
     const descriptor = this.adapters.get(adapterId)
     if (!descriptor) throw new Error(`unknown adapter: '${adapterId}'`)
+    this.assertAdapterReady(adapterId)
     return descriptor.factory(deps)
   }
 
