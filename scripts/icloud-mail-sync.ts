@@ -1,8 +1,11 @@
 // Apple-hosted iCloud Mail metadata intake.
-// Reads only IMAP ENVELOPE metadata: participants, timestamp, subject, and
-// Message-ID/UID provenance. It never requests bodies, snippets, attachments,
+// Reads only authenticated Mail.app metadata: participants, timestamp, subject,
+// and Message-ID/local provenance. It never requests bodies, snippets, attachments,
 // or raw MIME and performs no mailbox mutations.
-import { ImapFlow, type FetchMessageObject, type ListResponse } from 'imapflow'
+import { spawn } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createPoolExecutor } from './lib/pool-executor'
 import type { QueryExecutor } from '../db/query-executor'
 import {
@@ -25,30 +28,6 @@ import {
 
 type EnvTarget = 'dev' | 'prod'
 
-type ImapError = Error & {
-  code?: string
-  response?: string
-  responseText?: string
-  serverResponseCode?: string
-  executedCommand?: string
-}
-
-function describeImapError(error: unknown): string {
-  if (!(error instanceof Error)) return String(error)
-  const imapError = error as ImapError
-  const details = [
-    imapError.message,
-    imapError.code ? `code=${imapError.code}` : null,
-    imapError.serverResponseCode ? `server=${imapError.serverResponseCode}` : null,
-    imapError.executedCommand
-      ? `command=${imapError.executedCommand.trim().split(/\\s+/).slice(0, 2).join(' ')}`
-      : null,
-    imapError.responseText ? `response=${imapError.responseText}` : null,
-    imapError.response ? `raw=${imapError.response}` : null,
-  ].filter((value): value is string => Boolean(value))
-  return [...new Set(details)].join(' | ')
-}
-
 function requiredEnv(key: string): string {
   const value = process.env[key]?.trim()
   if (!value) throw new Error(`Missing required environment variable: ${key}`)
@@ -68,60 +47,74 @@ function internalAddresses(): Set<string> {
   return new Set(normalized)
 }
 
-function sourceId(message: FetchMessageObject, mailbox: string, uidValidity: string): string {
-  const messageId = message.envelope?.messageId?.trim()
-  return messageId ? `message-id:${messageId}` : `imap-uid:${mailbox}:${uidValidity}:${message.uid}`
+type LocalMailAddress = {
+  address: string | null
+  name: string | null
 }
 
-async function scanMailbox(
-  client: ImapFlow,
-  mailbox: ListResponse,
-  account: string,
-  internal: ReadonlySet<string>,
-  seen: Set<string>,
-): Promise<ICloudMailObservation[]> {
-  const lock = await client.getMailboxLock(mailbox.path, { readOnly: true })
-  try {
-    const exists = client.mailbox && typeof client.mailbox === 'object' ? client.mailbox.exists : 0
-    const uidValidity = client.mailbox && typeof client.mailbox === 'object'
-      ? client.mailbox.uidValidity.toString()
-      : 'unknown'
-    console.log(`mailbox ${mailbox.path}: ${exists} messages`)
-    if (!exists) return []
+type LocalMailRecord = {
+  mailbox: 'inbox' | 'sent'
+  mailboxName: string
+  localId: number
+  messageId: string | null
+  occurredAt: string | null
+  sender: string | null
+  to: LocalMailAddress[]
+  cc: LocalMailAddress[]
+  bcc: LocalMailAddress[]
+  subject: string | null
+}
 
-    const observations: ICloudMailObservation[] = []
-    let scanned = 0
-    for await (const message of client.fetch('1:*', { envelope: true, internalDate: true })) {
-      scanned += 1
-      const envelope = message.envelope
-      const classified = envelope ? classifyEnvelope(envelope, internal) : { ok: false as const, reason: 'unrelated' as const }
-      if (classified.ok) {
-        const occurred = envelope?.date ?? message.internalDate
-        const occurredAt = occurred ? new Date(occurred).toISOString() : null
-        const id = sourceId(message, mailbox.path, uidValidity)
-        if (occurredAt && !seen.has(id)) {
-          seen.add(id)
-          observations.push({
-            sourceExternalId: id,
-            sourceAccount: account,
-            mailbox: mailbox.path,
-            uid: message.uid,
-            uidValidity,
-            occurredAt,
-            direction: classified.direction,
-            externalEmail: classified.externalEmail,
-            displayName: classified.displayName,
-            subject: boundedEmailSubject(envelope?.subject),
-          })
+function senderAddress(value: string | null): LocalMailAddress | null {
+  if (!value) return null
+  const bracketed = value.match(/^(.*?)<([^<>]+)>\\s*$/)
+  const address = normalizeMailbox(bracketed?.[2] ?? value.match(/[^\\s<>]+@[^\\s<>]+/)?.[0] ?? '')
+  if (!address) return null
+  const name = bracketed?.[1]?.replace(/^["']|["']$/g, '').trim() || null
+  return { address, name }
+}
+
+async function runMailExporter(account: string): Promise<LocalMailRecord[]> {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'culebraluxe-mail-'))
+  const outputPath = join(temporaryDirectory, 'messages.jsonl')
+  await writeFile(outputPath, '', 'utf8')
+  try {
+    let stderr = ''
+    await new Promise<void>((resolveProcess, reject) => {
+      const exporter = resolve(process.cwd(), 'scripts/macbridge/apple-mail-metadata.jxa')
+      const child = spawn(
+        '/usr/bin/osascript',
+        ['-l', 'JavaScript', exporter, account, outputPath],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
+      )
+      child.stderr?.setEncoding('utf8')
+      child.stderr?.on('data', (chunk: string) => {
+        stderr += chunk
+        process.stderr.write(chunk)
+      })
+      child.on('error', reject)
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Mail.app metadata exporter failed (exit ${code}): ${stderr.trim()}`))
+          return
         }
-      }
-      if (scanned % 100 === 0 || scanned === exists) {
-        console.log(`scan progress ${mailbox.path}: ${scanned}/${exists} messages | direct=${observations.length}`)
-      }
-    }
-    return observations
+        resolveProcess()
+      })
+    })
+
+    const jsonl = await readFile(outputPath, 'utf8')
+    return jsonl
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line, index) => {
+        try {
+          return JSON.parse(line) as LocalMailRecord
+        } catch {
+          throw new Error(`Invalid Mail.app metadata JSON file on line ${index + 1}`)
+        }
+      })
   } finally {
-    lock.release()
+    await rm(temporaryDirectory, { recursive: true, force: true })
   }
 }
 
@@ -130,46 +123,78 @@ async function acquireMetadata(verifyOnly = false): Promise<ICloudMailObservatio
   const internal = internalAddresses()
   if (!internal.has(account)) throw new Error('ICLOUD_MAIL_ADDRESS must be listed in EMAIL_INTERNAL_ADDRESSES.')
 
-  const client = new ImapFlow({
-    host: process.env.ICLOUD_MAIL_IMAP_HOST?.trim() || 'imap.mail.me.com',
-    port: 993,
-    secure: true,
-    auth: {
-      user: requiredEnv('ICLOUD_MAIL_USERNAME'),
-      pass: requiredEnv('ICLOUD_MAIL_APP_PASSWORD'),
-      loginMethod: 'LOGIN',
-    },
-    logger: false,
-  })
-  client.on('error', (error) => console.error(`iCloud IMAP error: ${describeImapError(error)}`))
-
-  try {
-    console.log(`connecting to Apple iCloud Mail address=${account} username=${requiredEnv('ICLOUD_MAIL_USERNAME')} method=LOGIN`)
-    await client.connect()
-    if (verifyOnly) {
-      console.log('Apple iCloud Mail authentication verified')
-      return []
-    }
-    const mailboxes = await client.list()
-    const selected = mailboxes.filter(
-      (mailbox) => mailbox.path.toUpperCase() === 'INBOX' || mailbox.specialUse === '\\Sent',
-    )
-    if (!selected.some((mailbox) => mailbox.path.toUpperCase() === 'INBOX')) {
-      throw new Error('Apple IMAP did not expose INBOX.')
-    }
-    if (!selected.some((mailbox) => mailbox.specialUse === '\\Sent')) {
-      throw new Error('Apple IMAP did not expose a Sent mailbox.')
-    }
-    const seen = new Set<string>()
-    const observations: ICloudMailObservation[] = []
-    for (const mailbox of selected) {
-      observations.push(...(await scanMailbox(client, mailbox, account, internal, seen)))
-    }
-    console.log(`metadata acquisition complete: ${observations.length} direct messages`)
-    return observations
-  } finally {
-    if (client.usable) await client.logout().catch(() => undefined)
+  console.log(`reading Apple Mail metadata through authenticated Mail.app account=${account}`)
+  const records = await runMailExporter(account)
+  if (verifyOnly) {
+    console.log('Apple Mail.app account access verified')
+    return []
   }
+
+  const seen = new Set<string>()
+  const observations: ICloudMailObservation[] = []
+  let ambiguous = 0
+  let invalid = 0
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]
+    const sender = senderAddress(record.sender)
+    let direction: 'inbound' | 'outbound'
+    let externalEmail: string
+    let displayName: string | null
+
+    if (record.mailbox === 'inbox') {
+      if (!sender?.address || internal.has(sender.address)) {
+        invalid += 1
+        continue
+      }
+      direction = 'inbound'
+      externalEmail = sender.address
+      displayName = sender.name
+    } else {
+      const recipients = [...record.to, ...record.cc, ...record.bcc]
+      const external = new Map<string, string | null>()
+      for (const recipient of recipients) {
+        const address = recipient.address ? normalizeMailbox(recipient.address) : null
+        if (address && !internal.has(address) && !external.has(address)) {
+          external.set(address, recipient.name?.trim() || null)
+        }
+      }
+      if (external.size !== 1) {
+        ambiguous += 1
+        continue
+      }
+      direction = 'outbound'
+      ;[externalEmail, displayName] = external.entries().next().value!
+    }
+
+    if (!record.occurredAt) {
+      invalid += 1
+      continue
+    }
+    const sourceExternalId = record.messageId?.trim()
+      ? `message-id:${record.messageId.trim()}`
+      : `mail-local:${record.mailbox}:${record.localId}`
+    if (seen.has(sourceExternalId)) continue
+    seen.add(sourceExternalId)
+    observations.push({
+      sourceExternalId,
+      sourceAccount: account,
+      mailbox: record.mailboxName,
+      uid: record.localId,
+      uidValidity: 'apple-mail-local',
+      occurredAt: new Date(record.occurredAt).toISOString(),
+      direction,
+      externalEmail,
+      displayName,
+      subject: boundedEmailSubject(record.subject ?? undefined),
+    })
+
+    const processed = index + 1
+    if (processed % 100 === 0 || processed === records.length) {
+      console.log(`normalize progress: ${processed}/${records.length} | direct=${observations.length} ambiguous=${ambiguous} invalid=${invalid}`)
+    }
+  }
+  console.log(`metadata acquisition complete: ${observations.length} direct messages | ambiguous=${ambiguous} invalid=${invalid}`)
+  return observations
 }
 
 async function refresh(execute: QueryExecutor) {
@@ -248,7 +273,7 @@ async function main() {
 
 if (process.argv[1]?.endsWith('icloud-mail-sync.ts')) {
   main().catch((error) => {
-    console.error(`iCloud Mail sync failed: ${describeImapError(error)}`)
+    console.error(`Apple Mail metadata sync failed: ${error instanceof Error ? error.message : String(error)}`)
     process.exitCode = 1
   })
 }
