@@ -6,6 +6,7 @@ import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { resolveForgeExecutionProviderForProfile } from "@/agent-runtime/gateway/provider"
+import { DEFAULT_FORGE_TEAM, listForgeTeamAssignments } from "@/agent-runtime/team"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -62,18 +63,18 @@ export default async function TechPage({
     withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
     new Date().toISOString()
 
-  const routes = [
-    { lane: 'Scout' as const, profile: 'scout-volume' as const },
-    { lane: 'Smith' as const, profile: 'builder-flash' as const },
-    { lane: 'Assay' as const, profile: 'verifier-mini' as const },
-  ].map((route) => ({
-    ...route,
-    provider: resolveForgeExecutionProviderForProfile(route.profile),
+  const routes = listForgeTeamAssignments().map((assignment) => ({
+    position: assignment.position,
+    profile: assignment.profile,
+    player: assignment.player.name,
+    harness: assignment.harness.name,
+    field: assignment.field.name,
+    provider: resolveForgeExecutionProviderForProfile(assignment.profile),
   }))
 
   return (
     <>
-      <GatewayControl routes={routes} />
+      <GatewayControl teamName={DEFAULT_FORGE_TEAM.name} routes={routes} />
       <EngineeringCockpit
         cockpit={cockpit}
         activeQueue={activeQueue}
