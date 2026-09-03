@@ -503,6 +503,7 @@ function SharePanel({ source }: { source: ListingSource }) {
           {url ? (
             <a href={waMeUrl(source, 'en')} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Open in WhatsApp</a>
           ) : null}
+          <a href={`/api/marketing/photos?propertyId=${source.id}`} className="inline-flex min-h-9 items-center rounded-md border border-[var(--portal-border)] px-3 text-[11px] font-light uppercase tracking-[0.14em] text-[var(--portal-navy)]">Download photo URLs</a>
         </div>
         {qrSrc ? (
           <div className="shrink-0 rounded-md border border-[var(--portal-panel-border)] bg-white p-2">

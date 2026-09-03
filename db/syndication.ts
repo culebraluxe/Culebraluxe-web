@@ -313,6 +313,15 @@ export async function requestPublishMany(input: {
 export async function confirmPlacement(input: {
   placementId: string; externalUrl?: string | null; externalId?: string | null
 }) {
+  const found = (await sql`
+    select channel from listing_syndication_placement where id = ${input.placementId}
+  `) as Array<{ channel: SyndicationChannel }>
+  const channel = found[0]?.channel
+  if (!channel) return { ok: false, error: 'Placement not found.' }
+  // Stellar cannot go live without an MLS# (external_id). Never accept a URL there.
+  if (channel === 'stellar_mls' && !(input.externalId ?? '').trim()) {
+    return { ok: false, error: 'Enter the Stellar MLS# before confirming live.' }
+  }
   const rows = (await sql`
     update listing_syndication_placement
     set status = 'live', confirmed_at = now(), published_at = coalesce(published_at, now()),
@@ -325,7 +334,7 @@ export async function confirmPlacement(input: {
   if (!rows[0]) return { ok: false, error: 'Placement not found.' }
   await sql`
     insert into listing_syndication_event (placement_id, event_type, detail)
-    values (${input.placementId}, 'confirmed', ${JSON.stringify({ externalUrl: input.externalUrl ?? null })})
+    values (${input.placementId}, 'confirmed', ${JSON.stringify({ externalUrl: input.externalUrl ?? null, externalId: input.externalId ?? null })})
   `
   return { ok: true }
 }
@@ -410,6 +419,10 @@ export async function addSighting(input: {
   if (!SIGHTING_NETWORKS.includes(input.network)) {
     return { ok: false, error: `Unknown network: ${input.network}` }
   }
+  const normalizedUrl = input.url.trim().replace(/\/+$/, '')
+  if (!/^https:\/\/.+/.test(normalizedUrl) || /culebraluxe\.com/i.test(normalizedUrl)) {
+    return { ok: false, error: 'Sighting must be an https:// URL on the observed portal — not a CulebraLuxe page.' }
+  }
   try {
     const dup = (await sql`
       select 1 from listing_syndication_sighting
@@ -419,7 +432,7 @@ export async function addSighting(input: {
     if (dup.length > 0) return { ok: true, message: 'Already noted — skipped duplicate.' }
     await sql`
       insert into listing_syndication_sighting (property_id, network, url, notes)
-      values (${input.propertyId}, ${input.network}, ${input.url}, ${input.notes ?? null})
+      values (${input.propertyId}, ${input.network}, ${normalizedUrl}, ${input.notes ?? null})
     `
     return { ok: true }
   } catch (error) {
