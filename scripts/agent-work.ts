@@ -159,7 +159,7 @@ async function runClaimCommand(): Promise<void> {
     verifyWorkspaceEnvFile,
   } = await import('../lib/execution-target')
   const { resolve } = await import('node:path')
-  const { runForgeHydrate, runForgeFollow } = await import('./forge-orchestrate-wake')
+  const { runForgeHydrate, runForgeFollow, runForgePublishAfterAssay } = await import('./forge-orchestrate-wake')
 
   const workerId = process.env.AGENT_WORKER_ID ?? 'coding-agent'
   const hydrated = await runForgeHydrate()
@@ -265,6 +265,27 @@ async function runClaimCommand(): Promise<void> {
     if (followed) console.log('followed with lane', followed)
     if (result.role === 'reviewer' && testsSummary !== result.evidence.testsSummary) {
       console.log('assay evidence:', testsSummary)
+    }
+
+    // ENG-FORGE-V4-10B: a clean terminal Assay publishes the accepted Smith
+    // candidate to origin/main from this OUTER Forge process (never from the
+    // model sandbox). A publish conflict fails the story closed into Hold
+    // inside runForgePublishAfterAssay; the candidate commit is preserved.
+    const publishOutcome = await runForgePublishAfterAssay({
+      storyId: result.storyId,
+      finishedRole: result.role,
+      resultStatus: result.evidence.resultStatus,
+      testsSummary: result.evidence.testsSummary,
+    })
+    if (publishOutcome?.kind === 'published') {
+      console.log(
+        'published accepted candidate',
+        publishOutcome.candidateCommit.slice(0, 12),
+        'to origin/main as',
+        publishOutcome.publishedMainHash.slice(0, 12),
+      )
+    } else if (publishOutcome?.kind === 'publish-conflict') {
+      console.log('publish conflict — story set to Hold:', publishOutcome.detail)
     }
   } catch (e) {
     console.error('dispatch escalation:', String((e as Error)?.message ?? e).slice(0, 2000))
@@ -440,13 +461,34 @@ async function runFinishCommand(
     console.log('assay evidence:', normalized.testsSummary)
   }
 
-  const { runForgeFollow } = await import('./forge-orchestrate-wake')
+  const { runForgeFollow, runForgePublishAfterAssay } = await import('./forge-orchestrate-wake')
   const followed = await runForgeFollow({
     storyId: finished.workItem.storyId,
     finishedRole: finished.workItem.role,
     resultStatus: normalized.resultStatus,
   })
   if (followed) console.log('followed with lane', followed)
+
+  // ENG-FORGE-V4-10B: publish an accepted candidate only after a CLEAN
+  // terminal Assay (normalized 'Assay Failed' / Hold results are never
+  // eligible). Runs in this outer Forge process; conflicts fail the story
+  // closed into Hold and preserve the candidate.
+  const publishOutcome = await runForgePublishAfterAssay({
+    storyId: finished.workItem.storyId,
+    finishedRole: finished.workItem.role,
+    resultStatus: normalized.resultStatus,
+    testsSummary: normalized.testsSummary,
+  })
+  if (publishOutcome?.kind === 'published') {
+    console.log(
+      'published accepted candidate',
+      publishOutcome.candidateCommit.slice(0, 12),
+      'to origin/main as',
+      publishOutcome.publishedMainHash.slice(0, 12),
+    )
+  } else if (publishOutcome?.kind === 'publish-conflict') {
+    console.log('publish conflict — story set to Hold:', publishOutcome.detail)
+  }
 }
 
 void main()

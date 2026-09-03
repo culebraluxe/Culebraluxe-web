@@ -21,6 +21,11 @@ export {
 } from './provisioner'
 export { commitWorkerWorkspaceChanges } from './commit'
 export type { WorkerCommitResult } from './commit'
+export { publishAcceptedCandidate } from './publish'
+export type {
+  PublishAcceptedCandidateInput,
+  PublishAcceptedCandidateOutcome,
+} from './publish'
 export type { RemoveWorkerWorkspaceOptions } from './provisioner'
 export type {
   WorkerWorkspace,
