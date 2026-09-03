@@ -1,6 +1,6 @@
 import type { AgentCapability } from '../capabilities'
 
-export type ForgeExecutionProvider = 'deepseek' | 'warp' | 'openclaw'
+export type ForgeExecutionProvider = 'deepseek' | 'warp' | 'openclaw' | 'opencode'
 
 export type ProviderCommand = {
   bin: string
@@ -23,7 +23,12 @@ export interface ForgeProviderDescriptor {
 
 function parseProvider(value: string | undefined, source: string): ForgeExecutionProvider {
   const normalized = (value ?? 'deepseek').trim().toLowerCase()
-  if (normalized === 'deepseek' || normalized === 'warp' || normalized === 'openclaw') {
+  if (
+    normalized === 'deepseek' ||
+    normalized === 'warp' ||
+    normalized === 'openclaw' ||
+    normalized === 'opencode'
+  ) {
     return normalized
   }
   throw new Error(`unknown ${source} '${value}'`)

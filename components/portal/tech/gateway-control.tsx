@@ -5,6 +5,7 @@ const labels: Record<ForgeExecutionProvider, string> = {
   deepseek: 'DeepSeek Harness',
   warp: 'Warp / Oz',
   openclaw: 'OpenClaw',
+  opencode: 'OpenCode',
 }
 
 type TeamRoute = {

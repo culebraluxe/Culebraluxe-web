@@ -8,6 +8,13 @@ import {
   buildTaskText,
   type DeepSeekHarnessConfig,
 } from './deepseek/deepseek-harness-adapter'
+import {
+  OPENCODE_PINNED_MODEL,
+  OpenCodeHarnessAdapter,
+  defaultOpenCodeConfig,
+  openCodeModelBlocker,
+  type OpenCodeHarnessConfig,
+} from './opencode/opencode-harness-adapter'
 import type {
   AgentExecutionContext,
   AgentRunEvidence,
@@ -85,8 +92,62 @@ class PolicyDeepSeekHarnessAdapter extends DeepSeekHarnessAdapter {
   }
 }
 
+/**
+ * ENG-FORGE-V5-01 — Forge-owned candidate commit policy for the OpenCode
+ * harness. OpenCode is an inner execution engine: it edits the worker
+ * worktree, but Forge (NOT OpenCode) creates the candidate commit through the
+ * existing harness-owned commit path (commitWorkerWorkspaceChanges), exactly
+ * as the forge-native DeepSeek harness does. A non-builder run never keeps a
+ * commit (revokeForbiddenCommit).
+ */
+class PolicyOpenCodeHarnessAdapter extends OpenCodeHarnessAdapter {
+  protected override async resultExternal(
+    command: AgentWorkCommand,
+    context: AgentExecutionContext,
+  ): Promise<AgentRunEvidence | null> {
+    const evidence = await super.resultExternal(command, context)
+    if (!evidence) return evidence
+    const workspace =
+      context.executionWorkspace?.worktreePath ?? defaultOpenCodeConfig().workspace
+
+    let committedEvidence = evidence
+    if (
+      context.policy.allowCommit &&
+      context.executionWorkspace &&
+      !evidence.commitHash
+    ) {
+      const committed = await commitWorkerWorkspaceChanges(
+        workspace,
+        `${context.story.id}: ${context.story.title}`,
+      )
+      if (committed.commitHash) {
+        committedEvidence = {
+          ...evidence,
+          commitHash: committed.commitHash,
+          notes: `${evidence.notes}\n\nForge harness created candidate commit ${committed.commitHash} from OpenCode's worker changes.`,
+        }
+      }
+    }
+
+    const revoked = revokeForbiddenCommit({
+      allowCommit: context.policy.allowCommit,
+      workspace,
+      commitHash: committedEvidence.commitHash ?? null,
+      baseCommit: context.executionWorkspace?.baseCommit ?? null,
+    })
+    if (!revoked.violation) return committedEvidence
+    return {
+      ...committedEvidence,
+      commitHash: null,
+      notes: `${committedEvidence.notes}\n\n${revoked.violation}`,
+    }
+  }
+}
+
 function adapterIdForProvider(provider: ForgeExecutionProvider): string {
-  return provider === 'deepseek' ? 'deepseek-harness' : `gateway-${provider}`
+  if (provider === 'deepseek') return 'deepseek-harness'
+  if (provider === 'opencode') return 'opencode-harness'
+  return `gateway-${provider}`
 }
 
 const POSITION_CAPABILITIES: Record<ForgePosition, typeof READ_CAPABILITIES> = {
@@ -98,6 +159,7 @@ const POSITION_CAPABILITIES: Record<ForgePosition, typeof READ_CAPABILITIES> = {
 
 export function createAgentRuntimeRegistry(
   config: DeepSeekHarnessConfig = defaultDeepSeekConfig(),
+  openCodeConfig: OpenCodeHarnessConfig = defaultOpenCodeConfig(),
 ): AgentRuntimeRegistry {
   const registry = new AgentRuntimeRegistry()
 
@@ -174,6 +236,46 @@ export function createAgentRuntimeRegistry(
       return readyAdapterReadiness('authenticated', 'OpenClaw is installed and authentication is qualified')
     },
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
+  })
+
+  // ENG-FORGE-V5-01 — OpenCode inner harness adapter. Registered like every
+  // other runtime adapter; it is selected ONLY when an explicit
+  // lane/profile routes to it (e.g. FORGE_PROVIDER_BUILDER_FLASH=opencode).
+  // Readiness fails closed when the `opencode` CLI is missing or the model
+  // is not explicitly pinned — never a silent fallback to forge-native.
+  registry.registerAdapter({
+    adapterId: 'opencode-harness',
+    description: 'OpenCode CLI inner harness adapter (opencode run)',
+    capabilities: CORE_CAPABILITIES,
+    readiness: () => {
+      const installed =
+        Boolean(openCodeConfig.startRun) || commandIsInstalled(openCodeConfig.cliBin)
+      if (!installed) {
+        return blockedAdapterReadiness({
+          installed: false,
+          authentication: 'delegated',
+          reason: `OpenCode CLI entrypoint not found: ${openCodeConfig.cliBin}. OpenCode routing is explicit; no silent fallback to another harness.`,
+        })
+      }
+      const modelBlocker = openCodeModelBlocker(openCodeConfig.model)
+      if (modelBlocker) {
+        return blockedAdapterReadiness({
+          installed: true,
+          authentication: 'delegated',
+          reason: modelBlocker,
+        })
+      }
+      return readyAdapterReadiness(
+        'delegated',
+        `OpenCode CLI is installed; model pinned explicitly to ${OPENCODE_PINNED_MODEL}`,
+      )
+    },
+    factory: (deps) =>
+      new PolicyOpenCodeHarnessAdapter(deps, openCodeConfig, (command, context) => {
+        const base = buildTaskText(command, context)
+        if (context.policy.allowCommit) return base
+        return `${base}\n${writeBoundaryLines(context.policy).join('\n')}`
+      }),
   })
 
   for (const position of ['scout', 'architect', 'smith', 'assay'] as ForgePosition[]) {
