@@ -19,6 +19,7 @@ import {
   verifyWorkspaceEnvFile,
   type ExecutionEnvironment,
 } from '../../lib/execution-target'
+import { commitWorkerWorkspaceChanges } from '../../lib/worker-workspace'
 
 const FORGE_OWNED_ENV_KEYS = new Set([
   'APP_ENV',
@@ -28,11 +29,6 @@ const FORGE_OWNED_ENV_KEYS = new Set([
   'DATABASE_URL_PROD',
 ])
 
-/**
- * Build the environment for a gateway child process. Provider-specific values
- * may add credentials/CLI config, but execution-target keys are Forge-owned
- * and are discarded before buildChildProcessEnv applies the canonical target.
- */
 export function buildGatewayChildEnv(
   target: ExecutionEnvironment,
   providerEnv: Record<string, string | undefined> = {},
@@ -64,10 +60,6 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
   protected async startExternal(context: AgentExecutionContext): Promise<ExternalStartResult> {
     const cwd = context.executionWorkspace?.worktreePath ?? process.cwd()
     const target = parseExecutionEnvironment(context.executionEnvironment, 'DEV')
-
-    // Safety parity with the native DeepSeek harness: inspect the exact worker
-    // checkout before spawning any external executor, then build a child env
-    // that cannot inherit/reintroduce a PROD database target for DEV/LOCAL/TEST.
     verifyWorkspaceEnvFile(cwd, target)
 
     const task = buildTaskText(context.command, context)
@@ -122,15 +114,30 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
   ): Promise<AgentRunEvidence | null> {
     const cwd = context.executionWorkspace?.worktreePath ?? process.cwd()
     let commitHash: string | null = null
-    if (context.policy.allowCommit) {
+
+    if (context.policy.allowCommit && context.executionWorkspace) {
       try {
         const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
-        const base = context.executionWorkspace?.baseCommit ?? null
+        const base = context.executionWorkspace.baseCommit
         commitHash = head && head !== base ? head : null
+        if (!commitHash) {
+          const committed = await commitWorkerWorkspaceChanges(
+            cwd,
+            `${context.story.id}: ${context.story.title}`,
+          )
+          commitHash = committed.commitHash
+        }
+      } catch {
+        commitHash = null
+      }
+    } else if (context.policy.allowCommit) {
+      try {
+        commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim() || null
       } catch {
         commitHash = null
       }
     }
+
     const output = this.stdout.trim()
     return {
       resultStatus: 'Complete',

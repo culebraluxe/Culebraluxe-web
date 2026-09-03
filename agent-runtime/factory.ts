@@ -30,6 +30,7 @@ import {
   explicitAuthenticationReady,
   readyAdapterReadiness,
 } from './readiness'
+import { commitWorkerWorkspaceChanges } from '../lib/worker-workspace'
 
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   return {
@@ -49,17 +50,37 @@ class PolicyDeepSeekHarnessAdapter extends DeepSeekHarnessAdapter {
     if (!evidence) return evidence
     const workspace =
       context.executionWorkspace?.worktreePath ?? defaultDeepSeekConfig().workspace
+
+    let committedEvidence = evidence
+    if (
+      context.policy.allowCommit &&
+      context.executionWorkspace &&
+      !evidence.commitHash
+    ) {
+      const committed = await commitWorkerWorkspaceChanges(
+        workspace,
+        `${context.story.id}: ${context.story.title}`,
+      )
+      if (committed.commitHash) {
+        committedEvidence = {
+          ...evidence,
+          commitHash: committed.commitHash,
+          notes: `${evidence.notes}\n\nForge harness created candidate commit ${committed.commitHash} from Smith's worker changes.`,
+        }
+      }
+    }
+
     const revoked = revokeForbiddenCommit({
       allowCommit: context.policy.allowCommit,
       workspace,
-      commitHash: evidence.commitHash ?? null,
+      commitHash: committedEvidence.commitHash ?? null,
       baseCommit: context.executionWorkspace?.baseCommit ?? null,
     })
-    if (!revoked.violation) return evidence
+    if (!revoked.violation) return committedEvidence
     return {
-      ...evidence,
+      ...committedEvidence,
       commitHash: null,
-      notes: `${evidence.notes}\n\n${revoked.violation}`,
+      notes: `${committedEvidence.notes}\n\n${revoked.violation}`,
     }
   }
 }
@@ -93,9 +114,6 @@ export function createAgentRuntimeRegistry(
           reason: `DeepSeek harness entrypoint not found: ${config.cliBin}`,
         })
       }
-      // DSH owns its own authenticated session/config. Forge deliberately does
-      // not inspect or copy provider credentials; successful authentication is
-      // delegated to that qualified harness boundary.
       return readyAdapterReadiness('delegated', 'DeepSeek harness is installed; authentication is delegated to DSH')
     },
     factory: (deps) =>
@@ -158,10 +176,6 @@ export function createAgentRuntimeRegistry(
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
   })
 
-  // V4-05: the active team owns which logical profile fills each core position.
-  // Provider routing remains below that boundary, so V3 lane semantics do not
-  // learn vendor/model names. Architect is registered now even though A1 still
-  // does not auto-queue the Architect lane.
   for (const position of ['scout', 'architect', 'smith', 'assay'] as ForgePosition[]) {
     const assignment = DEFAULT_FORGE_TEAM.assignments[position]
     const provider = resolveForgeExecutionProviderForProfile(assignment.profile)
