@@ -1,15 +1,3 @@
-// ---------------------------------------------------------------------------
-// Runtime registry factory (ENG-20B) — the ONE place the scheduler/poller and
-// the debug driver build the adapter registry. No duplicate execution
-// mechanism: both paths resolve the same deepseek-harness adapter for the
-// builder-flash profile.
-//
-// Forge lanes (scout-volume / verifier-mini) share that adapter under the
-// volume-lab lineage. judgment-lab profiles stay unregistered until a second
-// adapter exists — the lane policy fail-closes rather than reviewing Smith
-// with the same harness.
-// ---------------------------------------------------------------------------
-
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -19,9 +7,8 @@ import {
   type DeepSeekHarnessConfig,
 } from './deepseek/deepseek-harness-adapter'
 import { CORE_CAPABILITIES } from './capabilities'
-import { READ_CAPABILITIES, WRITE_CAPABILITIES } from './lanes'
+import { ASSAY_CAPABILITIES, READ_CAPABILITIES, WRITE_CAPABILITIES } from './lanes'
 
-/** Resolve the DeepSeek Harness CLI bin + workspace (repo root). */
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   return {
     cliBin:
@@ -31,7 +18,6 @@ export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   }
 }
 
-/** Build the default agent runtime registry (deepseek-harness / volume-lab). */
 export function createAgentRuntimeRegistry(
   config: DeepSeekHarnessConfig = defaultDeepSeekConfig(),
 ): AgentRuntimeRegistry {
@@ -55,7 +41,7 @@ export function createAgentRuntimeRegistry(
   registry.registerProfile({
     profile: 'verifier-mini',
     adapterId: 'deepseek-harness',
-    capabilities: READ_CAPABILITIES,
+    capabilities: ASSAY_CAPABILITIES,
   })
   return registry
 }

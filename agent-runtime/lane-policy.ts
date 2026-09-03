@@ -1,8 +1,3 @@
-// ---------------------------------------------------------------------------
-// Lane policy — the only new decision point before the existing invoker.
-// Fail-closed. No silent profile default — same rule as ENG-20A.
-// ---------------------------------------------------------------------------
-
 import type { AgentRuntimeRegistry } from './registry'
 import type { AgentRole, ModelProfile } from './types'
 import {
@@ -21,6 +16,7 @@ export interface LaneSession {
   hasInlineDiff?: boolean
   hasScoutPacket?: boolean
   hasArchitectBrief?: boolean
+  hasAssayPlan?: boolean
 }
 
 export interface LaneLaunch {
@@ -40,6 +36,8 @@ export type LaneRejectCode =
   | 'missing-diff'
   | 'missing-scout-packet'
   | 'missing-architect-brief'
+  | 'missing-assay-plan'
+  | 'full-not-authorized'
   | 'architect-must-not-tool'
   | 'emergency-not-authorized'
 
@@ -67,7 +65,7 @@ const LANE_PREAMBLE: Record<LaneId, string> = {
   inspector:
     'Lane=inspector. Second opinion on the inline diff. Different lineage from Smith. Read-only. Disagreement is the point. Do not silently patch.',
   assay:
-    'Lane=assay. Read-only evidence check. Instruction-following only. Inventiveness is a defect. Willing to return nothing.',
+    'Lane=assay. Read-only TUNIT/evidence check. Instruction-following only. Inventiveness is a defect. Willing to return nothing.',
   archive:
     'Lane=archive. One huge input, few calls. Extract invariants. Do not implement.',
   night:
@@ -141,6 +139,14 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       code: 'missing-architect-brief',
       reason:
         'Smith reads storyboard_story.architect_brief. Write the brief (human Architect) or run the Architect lane first.',
+    }
+  }
+
+  if (input.lane === 'assay' && input.session && input.session.hasAssayPlan === false) {
+    return {
+      ok: false,
+      code: 'missing-assay-plan',
+      reason: 'Assay needs ## Assay commands on the git packet.',
     }
   }
 

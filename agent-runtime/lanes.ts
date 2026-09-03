@@ -1,10 +1,3 @@
-// ---------------------------------------------------------------------------
-// Forge lanes — job-shape routing over the existing agent-runtime.
-//
-// Extends current SDLC roles (architect / builder / reviewer / verifier)
-// with Scout + Night. No vendor nouns. No second invoker.
-// ---------------------------------------------------------------------------
-
 import type { AgentCapability } from './capabilities'
 import type { AgentRole, ModelProfile } from './types'
 
@@ -17,7 +10,6 @@ export type LaneId =
   | 'archive'
   | 'night'
 
-/** Opaque model lineage. Inspector must differ from Smith on this field. */
 export type ModelLineage = string
 
 export type ToolPolicy = 'read-only' | 'plan-only' | 'write' | 'detach'
@@ -43,6 +35,12 @@ export const READ_CAPABILITIES: AgentCapability[] = [
   'storyboard.read',
   'config.read',
   'host.logs',
+]
+
+export const ASSAY_CAPABILITIES: AgentCapability[] = [
+  ...READ_CAPABILITIES,
+  'host.tests',
+  'host.typecheck',
 ]
 
 export const WRITE_CAPABILITIES: AgentCapability[] = [
@@ -113,7 +111,7 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
     lineage: 'volume-lab',
     maxSteps: 6,
     toolPolicy: 'read-only',
-    requiredCapabilities: [...READ_CAPABILITIES, 'host.tests', 'host.typecheck'],
+    requiredCapabilities: ASSAY_CAPABILITIES,
     openClaudeKey: 'verification',
   },
   archive: {
