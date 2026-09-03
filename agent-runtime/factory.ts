@@ -15,6 +15,10 @@ import type {
 import { CORE_CAPABILITIES } from './capabilities'
 import { ASSAY_CAPABILITIES, READ_CAPABILITIES, WRITE_CAPABILITIES } from './lanes'
 import { revokeForbiddenCommit, writeBoundaryLines } from './write-policy'
+import { CliAgentGatewayAdapter } from './gateway/cli-agent-adapter'
+import { openClawProvider } from './gateway/openclaw-provider'
+import { resolveForgeExecutionProvider } from './gateway/provider'
+import { warpProvider } from './gateway/warp-provider'
 
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   return {
@@ -53,30 +57,45 @@ export function createAgentRuntimeRegistry(
   config: DeepSeekHarnessConfig = defaultDeepSeekConfig(),
 ): AgentRuntimeRegistry {
   const registry = new AgentRuntimeRegistry()
-  registry.registerAdapter({
-    adapterId: 'deepseek-harness',
-    description: 'DeepSeek Harness headless CLI adapter',
-    capabilities: CORE_CAPABILITIES,
-    factory: (deps) =>
-      new PolicyDeepSeekHarnessAdapter(deps, config, (command, context) => {
-        const base = buildTaskText(command, context)
-        if (context.policy.allowCommit) return base
-        return `${base}\n${writeBoundaryLines(context.policy).join('\n')}`
-      }),
-  })
+  const provider = resolveForgeExecutionProvider()
+  let adapterId = 'deepseek-harness'
+
+  if (provider === 'deepseek') {
+    registry.registerAdapter({
+      adapterId,
+      description: 'DeepSeek Harness headless CLI adapter',
+      capabilities: CORE_CAPABILITIES,
+      factory: (deps) =>
+        new PolicyDeepSeekHarnessAdapter(deps, config, (command, context) => {
+          const base = buildTaskText(command, context)
+          if (context.policy.allowCommit) return base
+          return `${base}\n${writeBoundaryLines(context.policy).join('\n')}`
+        }),
+    })
+  } else {
+    const descriptor = provider === 'warp' ? warpProvider : openClawProvider
+    adapterId = `gateway-${descriptor.id}`
+    registry.registerAdapter({
+      adapterId,
+      description: descriptor.description,
+      capabilities: descriptor.capabilities,
+      factory: (deps) => new CliAgentGatewayAdapter(deps, descriptor),
+    })
+  }
+
   registry.registerProfile({
     profile: 'builder-flash',
-    adapterId: 'deepseek-harness',
+    adapterId,
     capabilities: WRITE_CAPABILITIES,
   })
   registry.registerProfile({
     profile: 'scout-volume',
-    adapterId: 'deepseek-harness',
+    adapterId,
     capabilities: READ_CAPABILITIES,
   })
   registry.registerProfile({
     profile: 'verifier-mini',
-    adapterId: 'deepseek-harness',
+    adapterId,
     capabilities: ASSAY_CAPABILITIES,
   })
   return registry
