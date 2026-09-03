@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
 import { isAssayTerminalRole } from '../agent-runtime/candidate-assay-handoff'
+import {
+  postSlackNotification,
+  type ForgeSlackContext,
+} from '../agent-runtime/slack-notifier'
 
 async function main(): Promise<void> {
   if ((process.env.APP_ENV ?? 'development') !== 'production') {
@@ -61,6 +65,50 @@ function packetFailedCommands(storyId: string): string[] {
       .filter((line) => Boolean(line) && !line.startsWith('#'))
   } catch {
     return []
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-V4-11 — Slack mirror plumbing for the local Forge worker.
+//
+// Slack is a human cockpit only; Forge/Neon own truth. Every notification
+// mirrors an outcome that is ALREADY durable in Neon and is strictly
+// fail-open (agent-runtime/slack-notifier.ts never rejects), so none of these
+// calls can gate or alter claim, execution, commit, Assay, or story
+// completion. Events observed while the worker still has durable Forge steps
+// ahead are buffered and flushed only after those steps have happened.
+// ---------------------------------------------------------------------------
+
+function slackIdentifiers(
+  story: { id: string; title: string | null },
+  item: { id: string; role: string | null; modelProfile: string | null },
+): Pick<
+  ForgeSlackContext,
+  'storyId' | 'storyTitle' | 'workItemId' | 'role' | 'modelProfile'
+> {
+  return {
+    storyId: story.id,
+    storyTitle: story.title ?? null,
+    workItemId: item.id,
+    role: item.role,
+    modelProfile: item.modelProfile,
+  }
+}
+
+function mirrorForgeSlack(
+  buffer: ForgeSlackContext[] | null,
+  context: ForgeSlackContext,
+): void {
+  if (buffer) buffer.push(context)
+  else void postSlackNotification(context)
+}
+
+async function flushForgeSlack(buffer: ForgeSlackContext[]): Promise<void> {
+  // Awaited only at points where no durable Forge transition remains, so a
+  // slow/unreachable Slack endpoint can never gate the run. postSlackNotification
+  // never rejects; failures are logged by the notifier and skipped.
+  for (const context of buffer) {
+    await postSlackNotification(context)
   }
 }
 
@@ -213,6 +261,14 @@ async function runClaimCommand(): Promise<void> {
         'Set role/profile via Forge hydrate (flip Ready with a brief) or enqueue-lane.',
     )
     await rejectAgentWorkConfiguration(workItem.id, launchError)
+    // ENG-FORGE-V4-11 — mirror the terminal outcome (already durable: work
+    // item Error + story Hold) before this process exits. Fail-open only.
+    await postSlackNotification({
+      event: 'lane-terminal',
+      ...slackIdentifiers(story, workItem),
+      resultStatus: 'Error',
+      detail: `launch guard rejected the command: ${launchError}`,
+    })
     process.exit(1)
   }
 
@@ -234,6 +290,16 @@ async function runClaimCommand(): Promise<void> {
   } else {
     console.log('workspace execution: DISABLED (legacy shared-checkout path)')
   }
+
+  // ENG-FORGE-V4-11 — mirror the claim to Slack (human cockpit). Fire-and-forget:
+  // the notifier is fail-open and never rejects, and execution must never wait
+  // on Slack. Events observed after dispatch are buffered and flushed once no
+  // durable Forge transition remains.
+  void postSlackNotification({
+    event: 'lane-started',
+    ...slackIdentifiers(story, workItem),
+  })
+  const slack: ForgeSlackContext[] = []
 
   try {
     const result = await executeClaimedAgentCommand(workerId, claim, {
@@ -261,14 +327,82 @@ async function runClaimCommand(): Promise<void> {
       testsSummary: result.evidence.testsSummary,
     })
 
+    // ENG-FORGE-V4-11 — classify the finished lane outcome and buffer its Slack
+    // mirror. Nothing is posted yet: delivery is deferred until after follow and
+    // publish so a slow/unreachable Slack endpoint can never gate them.
+    const assayFailed =
+      isAssayTerminalRole(result.role) &&
+      testsSummary !== result.evidence.testsSummary
+    const outcomeOk =
+      !result.evidence.resultStatus ||
+      /complete|success|pass/i.test(result.evidence.resultStatus)
+
+    if (assayFailed) {
+      mirrorForgeSlack(slack, {
+        event: 'lane-terminal',
+        ...slackIdentifiers(story, workItem),
+        runtimeAdapter: result.runtimeAdapter,
+        resultStatus: 'Assay Failed',
+        detail:
+          'terminal Assay failed its verification evidence; story set to Hold (repair, not Complete).',
+      })
+    } else if (outcomeOk) {
+      mirrorForgeSlack(slack, {
+        event: 'lane-completed',
+        ...slackIdentifiers(story, workItem),
+        runtimeAdapter: result.runtimeAdapter,
+        resultStatus: result.evidence.resultStatus ?? null,
+        completion: result.evidence.completion,
+        commitHash: result.evidence.commitHash,
+        externalRunId:
+          result.evidence.externalRunId ?? workItem.externalRunId ?? null,
+      })
+    } else {
+      mirrorForgeSlack(slack, {
+        event: 'lane-terminal',
+        ...slackIdentifiers(story, workItem),
+        runtimeAdapter: result.runtimeAdapter,
+        resultStatus: result.evidence.resultStatus ?? 'Failed',
+        detail:
+          'run ended without a clean result; failure text is in the Neon run evidence.',
+      })
+    }
+
     const followed = await runForgeFollow({
       storyId: result.storyId,
       finishedRole: result.role,
       resultStatus: result.evidence.resultStatus,
     })
-    if (followed) console.log('followed with lane', followed)
+    if (followed) {
+      console.log('followed with lane', followed)
+      mirrorForgeSlack(slack, {
+        event: 'lane-follow',
+        ...slackIdentifiers(story, workItem),
+        toLane: followed,
+      })
+    }
     if (isAssayTerminalRole(result.role) && testsSummary !== result.evidence.testsSummary) {
       console.log('assay evidence:', testsSummary)
+    }
+    // ENG-FORGE-V4-11 — mirror the V4-10C follow Hold: a code-changing Smith
+    // run that finished without a candidate commit holds the story so Assay
+    // never verifies a fallback base. The Hold itself happened inside
+    // runForgeFollow; this only observes the same inputs and outcome.
+    if (
+      !followed &&
+      !assayFailed &&
+      outcomeOk &&
+      result.role === 'builder' &&
+      !result.evidence.commitHash
+    ) {
+      mirrorForgeSlack(slack, {
+        event: 'lane-terminal',
+        ...slackIdentifiers(story, workItem),
+        runtimeAdapter: result.runtimeAdapter,
+        resultStatus: 'Hold',
+        detail:
+          'Smith produced no candidate commit for this code-changing run; story held so Assay never verifies a fallback base such as main.',
+      })
     }
 
     // ENG-FORGE-V4-10B: a clean terminal Assay publishes the accepted Smith
@@ -290,10 +424,30 @@ async function runClaimCommand(): Promise<void> {
       )
     } else if (publishOutcome?.kind === 'publish-conflict') {
       console.log('publish conflict — story set to Hold:', publishOutcome.detail)
+      mirrorForgeSlack(slack, {
+        event: 'lane-terminal',
+        ...slackIdentifiers(story, workItem),
+        runtimeAdapter: result.runtimeAdapter,
+        resultStatus: 'Hold',
+        detail: `publish conflict: ${publishOutcome.detail}`,
+      })
     }
+
+    // ENG-FORGE-V4-11 — every durable transition for this claim is complete;
+    // flush the buffered Slack mirrors in causal order. Fail-open and never
+    // throws, and there is no remaining Forge step it could delay.
+    await flushForgeSlack(slack)
   } catch (e) {
     console.error('dispatch escalation:', String((e as Error)?.message ?? e).slice(0, 2000))
     await escalateAgentWorkFailure(workItem.id, e)
+    // ENG-FORGE-V4-11 — mirror the escalation (already durable: work item
+    // Error) before this process exits. Fail-open only.
+    await postSlackNotification({
+      event: 'lane-terminal',
+      ...slackIdentifiers(story, workItem),
+      resultStatus: 'Error',
+      detail: String((e as Error)?.message ?? e),
+    })
     process.exit(1)
   }
 }
@@ -349,6 +503,18 @@ async function runCancelCommand(args: string[]): Promise<void> {
   })
   console.log('work item', item.id, '->', item.state, '(Cancelled)')
   console.log('run terminated; story set to Hold. Re-queue by setting the story back to Ready.')
+  // ENG-FORGE-V4-11 — mirror the cancellation (already durable: work item
+  // Cancelled + story Hold) before this process exits. Fail-open only.
+  await postSlackNotification({
+    event: 'lane-terminal',
+    storyId: item.storyId,
+    workItemId: item.id,
+    role: item.role ?? null,
+    modelProfile: item.modelProfile ?? null,
+    resultStatus: 'Cancelled',
+    detail:
+      'run cancelled by operator; story set to Hold. Re-queue by setting the story back to Ready.',
+  })
 }
 
 async function runRecoverCommand(args: string[]): Promise<void> {
@@ -414,6 +580,17 @@ async function runFinishCommand(
       testsSummary: value(args, '--tests') ?? null,
     })
     console.log('work item', item.id, '->', item.state, '(Error)')
+    // ENG-FORGE-V4-11 — mirror the Error (already durable) before this process
+    // exits. Fail-open only; detail is bounded and secret-redacted.
+    await postSlackNotification({
+      event: 'lane-terminal',
+      storyId: item.storyId,
+      workItemId: item.id,
+      role: item.role ?? null,
+      modelProfile: item.modelProfile ?? null,
+      resultStatus: 'Error',
+      detail: errorText,
+    })
     return
   }
 
@@ -465,13 +642,93 @@ async function runFinishCommand(
     console.log('assay evidence:', normalized.testsSummary)
   }
 
+  // ENG-FORGE-V4-11 — classify the finished lane outcome and buffer its Slack
+  // mirror. Delivery is deferred until after follow/publish so a slow or
+  // unreachable Slack endpoint can never gate them.
+  const slack: ForgeSlackContext[] = []
+  const outcomeOk = !normalized.resultStatus || /complete|success|pass/i.test(normalized.resultStatus)
+  const commitHash = (value(args, '--commit') ?? '').trim() || null
+  if (normalized.failed) {
+    mirrorForgeSlack(slack, {
+      event: 'lane-terminal',
+      storyId: finished.workItem.storyId,
+      storyTitle: finished.story.title,
+      workItemId: finished.workItem.id,
+      role: finished.workItem.role,
+      modelProfile: finished.workItem.modelProfile,
+      resultStatus: 'Assay Failed',
+      detail:
+        'terminal Assay failed its verification evidence; story set to Hold (repair, not Complete).',
+    })
+  } else if (outcomeOk) {
+    mirrorForgeSlack(slack, {
+      event: 'lane-completed',
+      storyId: finished.workItem.storyId,
+      storyTitle: finished.story.title,
+      workItemId: finished.workItem.id,
+      role: finished.workItem.role,
+      modelProfile: finished.workItem.modelProfile,
+      runtimeAdapter: finished.workItem.runtimeAdapter ?? undefined,
+      resultStatus: normalized.resultStatus ?? null,
+      completion,
+      commitHash,
+      externalRunId: finished.workItem.externalRunId,
+    })
+  } else {
+    mirrorForgeSlack(slack, {
+      event: 'lane-terminal',
+      storyId: finished.workItem.storyId,
+      storyTitle: finished.story.title,
+      workItemId: finished.workItem.id,
+      role: finished.workItem.role,
+      modelProfile: finished.workItem.modelProfile,
+      resultStatus: normalized.resultStatus,
+      detail:
+        'run ended without a clean result; failure text is in the Neon run evidence.',
+    })
+  }
+
   const { runForgeFollow, runForgePublishAfterAssay } = await import('./forge-orchestrate-wake')
   const followed = await runForgeFollow({
     storyId: finished.workItem.storyId,
     finishedRole: finished.workItem.role,
     resultStatus: normalized.resultStatus,
   })
-  if (followed) console.log('followed with lane', followed)
+  if (followed) {
+    console.log('followed with lane', followed)
+    mirrorForgeSlack(slack, {
+      event: 'lane-follow',
+      storyId: finished.workItem.storyId,
+      storyTitle: finished.story.title,
+      workItemId: finished.workItem.id,
+      role: finished.workItem.role,
+      modelProfile: finished.workItem.modelProfile,
+      toLane: followed,
+    })
+  }
+  // ENG-FORGE-V4-11 — mirror the V4-10C follow Hold (same inputs/outcome the
+  // Hold itself used inside runForgeFollow): a code-changing Smith run that
+  // finished without a candidate commit never launches Assay against a
+  // fallback base; the story is held instead.
+  if (
+    !followed &&
+    !normalized.failed &&
+    outcomeOk &&
+    finished.workItem.role === 'builder' &&
+    !commitHash
+  ) {
+    mirrorForgeSlack(slack, {
+      event: 'lane-terminal',
+      storyId: finished.workItem.storyId,
+      storyTitle: finished.story.title,
+      workItemId: finished.workItem.id,
+      role: finished.workItem.role,
+      modelProfile: finished.workItem.modelProfile,
+      resultStatus: 'Hold',
+      detail:
+        'Smith produced no candidate commit for this code-changing run; story held so Assay never verifies a fallback base such as main.',
+    })
+  }
 
   // ENG-FORGE-V4-10B: publish an accepted candidate only after a CLEAN
   // terminal Assay (normalized 'Assay Failed' / Hold results are never
@@ -492,7 +749,22 @@ async function runFinishCommand(
     )
   } else if (publishOutcome?.kind === 'publish-conflict') {
     console.log('publish conflict — story set to Hold:', publishOutcome.detail)
+    mirrorForgeSlack(slack, {
+      event: 'lane-terminal',
+      storyId: finished.workItem.storyId,
+      storyTitle: finished.story.title,
+      workItemId: finished.workItem.id,
+      role: finished.workItem.role,
+      modelProfile: finished.workItem.modelProfile,
+      resultStatus: 'Hold',
+      detail: `publish conflict: ${publishOutcome.detail}`,
+    })
   }
+
+  // ENG-FORGE-V4-11 — every durable transition for this finish is complete;
+  // flush the buffered Slack mirrors in causal order. Fail-open and never
+  // throws, and there is no remaining Forge step it could delay.
+  await flushForgeSlack(slack)
 }
 
 void main()
