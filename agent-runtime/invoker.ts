@@ -17,6 +17,12 @@ import type {
 import type { AgentRunRepository, AgentWorkRepository } from './repositories'
 import type { AgentCapability } from './capabilities'
 import {
+  executionContractFailureText,
+  validateExecutionContract,
+} from './execution-contract'
+import { storyFieldsFromBoardAndGit } from './orchestrate'
+import { smithFieldFacts } from './team'
+import {
   provisionWorkerWorkspace,
   resolveApprovedBaseRef,
 } from '../lib/worker-workspace'
@@ -47,6 +53,14 @@ export interface AgentInvokerDeps {
   registry: AgentRuntimeRegistry
   requiredCapabilities?: AgentCapability[]
   workspaces?: AgentInvokerWorkspaces
+  /**
+   * ENG-FORGE-V4-08: enforce the Smith execution-contract gate at this final
+   * pre-execution boundary (merged packet + resolved runtime assignment) for
+   * builder launches. The durable poller (scripts/agent-work.ts) enables it;
+   * direct dev-driver/dogfood callers that hand-build board-only fixtures keep
+   * the legacy V3 handoff path byte-for-byte.
+   */
+  enforceExecutionContract?: boolean
 }
 
 export function buildAgentInvokerWorkspaces(
@@ -83,6 +97,29 @@ export async function executeClaimedAgentCommand(
   if (launchError) {
     await rejectAgentWorkConfiguration(workItem.id, launchError)
     throw new Error(`launch guard: ${launchError}`)
+  }
+
+  // ENG-FORGE-V4-08 — the execution-contract gate at the LATEST safe point
+  // before external Smith execution begins. The merged story packet (Story
+  // Board + git packet) and the resolved runtime assignment must be complete
+  // and internally consistent; a failing verdict terminalizes the claimed
+  // command (Error + story Hold) exactly like the V3 launch guard, with
+  // concrete reasons naming every failing contract condition. No silent
+  // fallback to another profile/field/target is ever performed.
+  if (deps.enforceExecutionContract && workItem.role === 'builder') {
+    const merged = storyFieldsFromBoardAndGit(story, story.id)
+    const contract = validateExecutionContract({
+      story: merged,
+      executionTarget: workItem.executionEnvironment,
+      modelProfile: workItem.modelProfile,
+      registry: deps.registry,
+      field: smithFieldFacts(),
+    })
+    if (!contract.ok) {
+      const evidence = `execution contract gate: ${executionContractFailureText(contract) ?? contract.code}`
+      await rejectAgentWorkConfiguration(workItem.id, evidence)
+      throw new Error(evidence)
+    }
   }
 
   const modelProfile = workItem.modelProfile as string

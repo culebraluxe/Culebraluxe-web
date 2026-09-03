@@ -237,6 +237,9 @@ async function runClaimCommand(): Promise<void> {
       runs,
       registry,
       ...(workspaces ? { workspaces } : {}),
+      // ENG-FORGE-V4-08: this durable poller enforces the execution-contract
+      // gate at the final pre-execution boundary for Smith launches.
+      enforceExecutionContract: true,
     })
     console.log('=== autonomous dispatch result ===')
     console.log('story:', result.storyId)

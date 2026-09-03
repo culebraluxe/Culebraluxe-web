@@ -203,3 +203,14 @@ export function listForgeTeamAssignments(
   const positions: ForgePosition[] = ['scout', 'architect', 'smith', 'assay']
   return positions.map((position) => resolveForgeAssignment(position, team))
 }
+
+/**
+ * ENG-FORGE-V4-08 — non-throwing field fact for the position that owns the
+ * Smith/builder lane. The execution-contract gate uses this instead of
+ * `resolveForgeAssignment` so an unavailable field is REPORTED as a concrete
+ * rejection reason rather than thrown as an exception.
+ */
+export function smithFieldFacts(): { id: string; ready: boolean } {
+  const field = FORGE_FIELDS[DEFAULT_FORGE_TEAM.assignments.smith.fieldId]
+  return { id: field.id, ready: field.ready }
+}
