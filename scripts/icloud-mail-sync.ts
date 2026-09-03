@@ -25,6 +25,26 @@ import {
 
 type EnvTarget = 'dev' | 'prod'
 
+type ImapError = Error & {
+  code?: string
+  response?: string
+  responseText?: string
+  serverResponseCode?: string
+}
+
+function describeImapError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const imapError = error as ImapError
+  const details = [
+    imapError.message,
+    imapError.code ? `code=${imapError.code}` : null,
+    imapError.serverResponseCode ? `server=${imapError.serverResponseCode}` : null,
+    imapError.responseText ? `response=${imapError.responseText}` : null,
+    imapError.response ? `raw=${imapError.response}` : null,
+  ].filter((value): value is string => Boolean(value))
+  return [...new Set(details)].join(' | ')
+}
+
 function requiredEnv(key: string): string {
   const value = process.env[key]?.trim()
   if (!value) throw new Error(`Missing required environment variable: ${key}`)
@@ -116,7 +136,7 @@ async function acquireMetadata(): Promise<ICloudMailObservation[]> {
     },
     logger: false,
   })
-  client.on('error', (error) => console.error(`iCloud IMAP error: ${error.message}`))
+  client.on('error', (error) => console.error(`iCloud IMAP error: ${describeImapError(error)}`))
 
   try {
     console.log(`connecting to Apple iCloud Mail as ${account}`)
@@ -217,7 +237,7 @@ async function main() {
 
 if (process.argv[1]?.endsWith('icloud-mail-sync.ts')) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(`iCloud Mail sync failed: ${describeImapError(error)}`)
     process.exitCode = 1
   })
 }
