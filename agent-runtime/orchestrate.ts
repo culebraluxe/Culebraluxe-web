@@ -17,8 +17,11 @@ export type PickLaneInput = {
 /** A1 series picker. Never auto-queues Architect or Inspector. */
 export function pickLane(input: PickLaneInput): LaneId {
   if (input.lastFinishedRole === 'builder') return 'assay'
-  if (input.lastFinishedRole === 'scout') return 'smith'
+  // ENG-FORGE-V3-02: Smith is never selected without a real architect brief,
+  // including after Scout. The brief may come from Neon or the git packet,
+  // but this picker never invents one.
   if (!present(input.story.architectBrief)) return 'scout'
+  if (input.lastFinishedRole === 'scout') return 'smith'
   return 'smith'
 }
 
