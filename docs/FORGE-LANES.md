@@ -1,17 +1,17 @@
 # Forge lanes
 
-The Neon `storyboard_story` row is the packet. It is not a second board.
+Neon `storyboard_story` is the control-plane packet. Git `docs/agent/packets/`
+is the architect-readable projection so Grok can lead without Neon.
 
-| Story column | Lane |
+| Story column / packet heading | Lane |
 |---|---|
-| `context_refs` | Scout packet |
-| `architect_brief` | Architect output (often written by a human) |
-| `goal` / `scope` / `acceptance_criteria` / `preconditions` / `postconditions` | What Smith implements and Assay checks |
-| `agent_work_item.role` + `model_profile` | Lane launch envelope |
+| Context refs | Scout (DeepSeek) |
+| Architect brief | Architect (Grok or human) |
+| Goal / scope / acceptance | Smith (DeepSeek) implements, Assay checks |
+| `agent_work_item` | Launch envelope after the lane gate |
 | `storyboard_story_run` | Evidence |
 
-Human Architect notes already satisfy Smith. Do not run a model Architect just to copy a brief that is already on the row.
+Grok = judgment-lab (Architect, Inspector). DeepSeek = volume-lab
+(Scout, Smith, Assay). Do not register Inspector on `deepseek-harness`.
 
-Pipeline: `scout → architect (or human brief) → smith → inspector → assay`
-
-Inspector must be a different lineage from Smith and needs an inline diff. Do not register `reviewer-other` on `deepseek-harness`.
+See `docs/agent/ARCHITECT.md`.

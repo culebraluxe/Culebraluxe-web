@@ -12,6 +12,24 @@ function present(value: string | null | undefined): boolean {
   return Boolean(value && value.trim().length > 0)
 }
 
+export function mergeStoryPackets(
+  primary: StoryPacketFields,
+  fallback: StoryPacketFields,
+): StoryPacketFields {
+  const keys: (keyof StoryPacketFields)[] = [
+    'architectBrief',
+    'contextRefs',
+    'acceptanceCriteria',
+    'goal',
+    'scope',
+  ]
+  const out: StoryPacketFields = { ...primary }
+  for (const key of keys) {
+    if (!present(out[key]) && present(fallback[key])) out[key] = fallback[key]
+  }
+  return out
+}
+
 export function sessionFromStory(
   story: StoryPacketFields,
   extras: Partial<LaneSession> = {},
