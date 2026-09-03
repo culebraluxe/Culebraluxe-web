@@ -1,26 +1,29 @@
-# Forge V3 candidates (not built)
+# Forge V3
 
 V2/V2.1 stay the A1 factory: packet → hydrate → Smith → Assay.
 
-V3 is a *session host* for B2 debug fan-out and maybe A2 parallel cognition.
-It must consume packets, skills, and worktrees from this repo. It must not
-replace `agent_work_item`.
+V3.0 is the outer loop, not a second queue.
+
+```
+planner (you / Warp / this chat)
+  writes docs/agent/packets/<id>.md
+  ## Loop intent: repair | grow
+you flip Ready
+Forge A1 Smith → Assay
+planner reads evidence, writes the next packet
+stop at 3 loops
+```
+
+Planner skill: `docs/agent/skills/planner.md`.
+Parser: `agent-runtime/loop.ts`.
+
+The planner does not commit and does not flip Ready.
 
 ## Warp
 
-Pros: DeepSeek V4 already in Warp Agent; mixed models per task; cheap Devs +
-expensive Lead/QA; you already live in a terminal.
-Cons: Swarm lives in Warp, not in the Story Board. Easy to skip Ready.
-Use if: you want Dev/QA *windows* that still dump findings into `docs/agent/packets/`.
+Use as the planner glass. Point it at AGENTS.md + the packet + planner.md.
+Do not let Warp commit to main.
 
 ## OpenClaw
 
-Pros: explicit sub-agents, worktrees, swarm primitives closer to B2.
-Cons: second runtime next to DeepSeek harness; more moving parts.
-Use if: you want a manager process that fans out investigations and writes one packet.
-
-## Rule for either pick
-
-Lead/QA may be GPT/Claude in Warp or OpenClaw.
-Smith that is allowed to commit still goes through Forge A1 (DeepSeek + Assay)
-unless you later promote a second builder profile on purpose.
+Parked. Only if Warp is just copy-paste tax.
