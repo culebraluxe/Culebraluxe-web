@@ -23,13 +23,15 @@ Use the Story Board id (`ENG-18`, `CRM-07`, `S-008`). No spaces.
 ## Acceptance criteria
 ## Preconditions
 ## Postconditions
+## Test mode
+## Assay commands
 ```
 
+`Test mode` is `SCOPED` (default), `FULL`, or `NONE`.
+`Assay commands` is the allow-list Assay will run. Empty means Assay will not
+launch. Do not write `pnpm test` unless Test mode is FULL.
+
+TUNIT (`pnpm test`, `test:engine`, `test:app`) is the instrument. Assay is the
+job that runs a slice of it.
+
 Empty sections stay empty. Do not invent requirements to fill them.
-
-## Who writes what
-
-- Goal / scope / acceptance: human or Grok
-- Architect brief: human or Grok
-- Context refs: Scout (DeepSeek) or human
-- Preconditions / postconditions: human or Grok

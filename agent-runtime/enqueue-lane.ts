@@ -1,3 +1,4 @@
+import { planAssay } from './assay-plan'
 import { resolveLane, type LaneDecision, type LaneSession, type SmithGrade } from './lane-policy'
 import type { LaneId } from './lanes'
 import type { AgentRuntimeRegistry } from './registry'
@@ -25,7 +26,23 @@ export function buildLaneEnqueue(input: LaneEnqueueInput): LaneDecision & {
 } {
   const session = sessionFromStory(input.story, input.session ?? {})
   const packet = storyPacketInstructions(input.story)
-  const extra = [input.extraInstructions?.trim(), packet].filter(Boolean).join('\n\n') || null
+  const extras: string[] = []
+  if (input.extraInstructions?.trim()) extras.push(input.extraInstructions.trim())
+  if (packet) extras.push(packet)
+
+  if (input.lane === 'assay') {
+    const plan = planAssay({
+      testMode: input.story.testMode,
+      assayCommands: input.story.assayCommands,
+    })
+    if (!plan.ok) {
+      return { ok: false, code: plan.code, reason: plan.reason }
+    }
+    extras.unshift(plan.instructions)
+    session.hasAssayPlan = true
+  }
+
+  const extra = extras.join('\n\n') || null
   const decision = resolveLane({
     lane: input.lane,
     session,

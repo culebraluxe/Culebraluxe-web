@@ -11,6 +11,7 @@ without replacing the DeepSeek harness, the invoker, or the Neon Story Board.
 - Git-side architect packets so Grok can lead without Neon
 - DeepSeek remains volume-lab (Scout, Smith, Assay)
 - Grok remains judgment-lab (Architect, Inspector)
+- Assay planner uses TUNIT as the instrument, never a second harness
 
 Out of scope: a Grok CLI adapter, Neon exports, Command Console UI, Codex as
 a daily provider.
@@ -23,13 +24,13 @@ Therefore every active story also has a git packet at
 
 `sessionFromStory` maps Neon fields. `sessionFieldsFromGitPacket` maps the markdown.
 `buildLaneEnqueue` can take either. Smith requires an architect brief from
-one of those two sources.
+one of those two sources. Assay requires `## Assay commands`.
 
 Do not register `reviewer-other` or `architect-pro` on `deepseek-harness`.
 That would collapse Inspector and Architect onto Smith’s lab.
 
-Next bounded slice after this packet: Command Console calls `buildLaneEnqueue`
-with the story row plus, if present, the git packet.
+Non-builder roles (`scout`, `architect`, `reviewer`, `verifier`) must not
+commit or write DEV. The invoker policy follows the persisted role.
 
 ## Context refs
 
@@ -37,21 +38,20 @@ with the story row plus, if present, the git packet.
 - `agent-runtime/lane-policy.ts`
 - `agent-runtime/story-session.ts`
 - `agent-runtime/git-packet.ts`
+- `agent-runtime/assay-plan.ts`
+- `agent-runtime/test-mode.ts`
 - `agent-runtime/enqueue-lane.ts`
 - `agent-runtime/factory.ts`
 - `agent-runtime/invoker.ts`
-- `db/storyboard.ts`
-- `db/agent-work.ts`
-- `docs/agent/STORY_EXECUTION_CONTRACT.md`
-- `docs/agent/ARCHITECT.md`
-- `docs/FORGE-LANES.md`
-- `AGENTS.md`
+- `docs/tunit-harvest-register.md`
+- `docs/agent/TEST_ISOLATION.md`
 
 ## Acceptance criteria
 
 - Grok can architect a story from git alone
 - DeepSeek can implement from the same packet
 - Inspector lineage ≠ Smith lineage
+- Assay refuses empty command lists and SCOPED full-regression aliases
 - No second work queue
 - No schema change required for this story
 
@@ -63,5 +63,15 @@ with the story row plus, if present, the git packet.
 ## Postconditions
 
 - `docs/agent/ARCHITECT.md` names Grok as judgment-lab
-- Packets directory exists and this story is the first packet
-- `sessionFieldsFromGitPacket` parses the headings above
+- Packets directory exists
+- `planAssay` is the only way Assay commands enter special_instructions
+
+## Test mode
+
+SCOPED
+
+## Assay commands
+
+- node --test agent-runtime/assay-plan.test.ts
+- node --test agent-runtime/lane-policy.test.ts
+- node --test agent-runtime/git-packet.test.ts
