@@ -1,5 +1,5 @@
 import { SyndicationWorkbench } from '@/components/portal/marketing/syndication-workbench'
-import { listListingSources, listPlacements, listSightings } from '@/db/syndication'
+import { listListingSources, listPlacements, listRecentSyndicationEvents, listSightings } from '@/db/syndication'
 import { expireStalePlacements } from '@/db/syndication-expire'
 import { facebookReadiness } from '@/lib/syndication/env'
 
@@ -7,10 +7,11 @@ export const dynamic = 'force-dynamic'
 
 export default async function SyndicationPage() {
   await expireStalePlacements()
-  const [sources, placements, sightings] = await Promise.all([
+  const [sources, placements, sightings, activity] = await Promise.all([
     listListingSources(),
     listPlacements(),
     listSightings(),
+    listRecentSyndicationEvents(300),
   ])
 
   return (
@@ -18,8 +19,8 @@ export default async function SyndicationPage() {
       sources={sources}
       placements={placements}
       sightings={sightings}
+      activity={activity}
       facebook={facebookReadiness()}
     />
   )
 }
-
