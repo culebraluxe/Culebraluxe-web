@@ -90,14 +90,17 @@ export class AgentRuntimeRegistry {
     if (!descriptor) {
       throw new Error(`unknown adapter: '${config.adapterId}'`)
     }
+    // Profile resolution is the work-assignment boundary. A profile can be
+    // registered/configured yet still refuse execution until its adapter is
+    // installed and authenticated on this host.
     this.assertAdapterReady(config.adapterId)
     return descriptor.factory(deps)
   }
 
+  /** Low-level diagnostic/test access; intentionally does not imply readiness. */
   adapterForId(adapterId: string, deps: AgentRuntimeAdapterDeps): AgentRuntimeAdapter {
     const descriptor = this.adapters.get(adapterId)
     if (!descriptor) throw new Error(`unknown adapter: '${adapterId}'`)
-    this.assertAdapterReady(adapterId)
     return descriptor.factory(deps)
   }
 
