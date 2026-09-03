@@ -2,7 +2,8 @@
 // Reads only authenticated Mail.app metadata: participants, timestamp, subject,
 // and Message-ID/local provenance. It never requests bodies, snippets, attachments,
 // or raw MIME and performs no mailbox mutations.
-import { spawn } from 'node:child_process'\nimport { resolve } from 'node:path'
+import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
 import { createPoolExecutor } from './lib/pool-executor'
 import type { QueryExecutor } from '../db/query-executor'
 import {
