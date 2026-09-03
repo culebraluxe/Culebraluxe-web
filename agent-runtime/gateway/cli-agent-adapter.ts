@@ -20,18 +20,28 @@ import {
   type ExecutionEnvironment,
 } from '../../lib/execution-target'
 
+const FORGE_OWNED_ENV_KEYS = new Set([
+  'APP_ENV',
+  'EXECUTION_ENV',
+  'DATABASE_URL',
+  'DATABASE_URL_DEV',
+  'DATABASE_URL_PROD',
+])
+
 /**
  * Build the environment for a gateway child process. Provider-specific values
- * (API keys, CLI config, etc.) are accepted as input, then the canonical Forge
- * execution target is applied LAST by buildChildProcessEnv so a provider can
- * never override APP_ENV / EXECUTION_ENV / database targeting.
+ * may add credentials/CLI config, but execution-target keys are Forge-owned
+ * and are discarded before buildChildProcessEnv applies the canonical target.
  */
 export function buildGatewayChildEnv(
   target: ExecutionEnvironment,
   providerEnv: Record<string, string | undefined> = {},
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): Record<string, string | undefined> {
-  return buildChildProcessEnv(target, { ...baseEnv, ...providerEnv })
+  const allowedProviderEnv = Object.fromEntries(
+    Object.entries(providerEnv).filter(([key]) => !FORGE_OWNED_ENV_KEYS.has(key)),
+  )
+  return buildChildProcessEnv(target, { ...baseEnv, ...allowedProviderEnv })
 }
 
 export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
