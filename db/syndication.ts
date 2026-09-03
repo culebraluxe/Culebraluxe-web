@@ -4,6 +4,7 @@ import { runAdapter } from '@/lib/syndication/adapters'
 import { buildPhotoManifest, type PhotoDbRow } from '@/lib/syndication/photos'
 import { computeListingSourceHash } from '@/lib/syndication/hash'
 import { makeSnapshot, type SourceSnapshot } from '@/lib/syndication/lifecycle'
+import { isOffMarket } from '@/lib/syndication/lifecycle'
 import type {
   ListingPack,
   ListingSource,
@@ -231,6 +232,10 @@ export async function requestPublish(input: {
 }): Promise<{ ok: boolean; error?: string; placementId?: string; message?: string }> {
   const source = await getListingSource(input.propertyId)
   if (!source) return { ok: false, error: 'Property not found.' }
+  // Off-market guard: never prepare Facebook/Clasificados for an off-market listing.
+  if (isOffMarket(source) && (input.channel === 'facebook_marketplace' || input.channel === 'clasificados')) {
+    return { ok: false, error: 'This listing is off the market — take Facebook/Clasificados down instead of preparing a new ad.' }
+  }
   const result = await runAdapter(source, input.channel)
   const def = CHANNEL_CATALOG[input.channel]
   const sourceHash = computeListingSourceHash(source)
@@ -306,12 +311,22 @@ export async function requestPublishMany(input: {
 }
 
 export async function confirmPlacement(input: {
-  placementId: string; externalUrl?: string | null
+  placementId: string; externalUrl?: string | null; externalId?: string | null
 }) {
+  const found = (await sql`
+    select channel from listing_syndication_placement where id = ${input.placementId}
+  `) as Array<{ channel: SyndicationChannel }>
+  const channel = found[0]?.channel
+  if (!channel) return { ok: false, error: 'Placement not found.' }
+  // Stellar cannot go live without an MLS# (external_id). Never accept a URL there.
+  if (channel === 'stellar_mls' && !(input.externalId ?? '').trim()) {
+    return { ok: false, error: 'Enter the Stellar MLS# before confirming live.' }
+  }
   const rows = (await sql`
     update listing_syndication_placement
     set status = 'live', confirmed_at = now(), published_at = coalesce(published_at, now()),
       external_url = coalesce(${input.externalUrl ?? null}, external_url),
+      external_id = coalesce(${input.externalId ?? null}, external_id),
       last_error = null, updated_at = now()
     where id = ${input.placementId}
     returning id
@@ -319,7 +334,7 @@ export async function confirmPlacement(input: {
   if (!rows[0]) return { ok: false, error: 'Placement not found.' }
   await sql`
     insert into listing_syndication_event (placement_id, event_type, detail)
-    values (${input.placementId}, 'confirmed', ${JSON.stringify({ externalUrl: input.externalUrl ?? null })})
+    values (${input.placementId}, 'confirmed', ${JSON.stringify({ externalUrl: input.externalUrl ?? null, externalId: input.externalId ?? null })})
   `
   return { ok: true }
 }
@@ -400,14 +415,24 @@ export async function addSighting(input: {
   network: SightingNetwork
   url: string
   notes?: string | null
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; message?: string }> {
   if (!SIGHTING_NETWORKS.includes(input.network)) {
     return { ok: false, error: `Unknown network: ${input.network}` }
   }
+  const normalizedUrl = input.url.trim().replace(/\/+$/, '')
+  if (!/^https:\/\/.+/.test(normalizedUrl) || /culebraluxe\.com/i.test(normalizedUrl)) {
+    return { ok: false, error: 'Sighting must be an https:// URL on the observed portal — not a CulebraLuxe page.' }
+  }
   try {
+    const dup = (await sql`
+      select 1 from listing_syndication_sighting
+      where property_id = ${input.propertyId} and network = ${input.network} and url = ${input.url}
+      limit 1
+    `) as Array<{ 1: number }>
+    if (dup.length > 0) return { ok: true, message: 'Already noted — skipped duplicate.' }
     await sql`
       insert into listing_syndication_sighting (property_id, network, url, notes)
-      values (${input.propertyId}, ${input.network}, ${input.url}, ${input.notes ?? null})
+      values (${input.propertyId}, ${input.network}, ${normalizedUrl}, ${input.notes ?? null})
     `
     return { ok: true }
   } catch (error) {
