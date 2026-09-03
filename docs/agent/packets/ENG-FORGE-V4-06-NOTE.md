@@ -1,0 +1,1 @@
+V4-06 is intentionally limited to gateway child-process execution-target safety parity. It does not activate any new provider or field.
