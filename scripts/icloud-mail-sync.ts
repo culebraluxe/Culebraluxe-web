@@ -125,7 +125,7 @@ async function scanMailbox(
   }
 }
 
-async function acquireMetadata(): Promise<ICloudMailObservation[]> {
+async function acquireMetadata(verifyOnly = false): Promise<ICloudMailObservation[]> {
   const account = requiredEnv('ICLOUD_MAIL_ADDRESS').toLowerCase()
   const internal = internalAddresses()
   if (!internal.has(account)) throw new Error('ICLOUD_MAIL_ADDRESS must be listed in EMAIL_INTERNAL_ADDRESSES.')
@@ -146,6 +146,10 @@ async function acquireMetadata(): Promise<ICloudMailObservation[]> {
   try {
     console.log(`connecting to Apple iCloud Mail address=${account} username=${requiredEnv('ICLOUD_MAIL_USERNAME')} method=LOGIN`)
     await client.connect()
+    if (verifyOnly) {
+      console.log('Apple iCloud Mail authentication verified')
+      return []
+    }
     const mailboxes = await client.list()
     const selected = mailboxes.filter(
       (mailbox) => mailbox.path.toUpperCase() === 'INBOX' || mailbox.specialUse === '\\Sent',
@@ -231,7 +235,9 @@ async function main() {
   if (target !== 'dev' && target !== 'prod') {
     throw new Error('Usage: icloud-mail-sync.ts <dev|prod>')
   }
-  const observations = await acquireMetadata()
+  const verifyOnly = process.argv.includes('--verify-only')
+  const observations = await acquireMetadata(verifyOnly)
+  if (verifyOnly) return
   const pool = createPoolExecutor(targetDatabaseUrl(target))
   try {
     await intakeMetadata(target, observations, pool.execute)
