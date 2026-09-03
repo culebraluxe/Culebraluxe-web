@@ -7,11 +7,13 @@ is the architect-readable projection so Grok can lead without Neon.
 |---|---|
 | Context refs | Scout (DeepSeek) |
 | Architect brief | Architect (Grok or human) |
-| Goal / scope / acceptance | Smith (DeepSeek) implements, Assay checks |
+| Goal / scope / acceptance | Smith (DeepSeek) implements |
+| Test mode + Assay commands | Assay (DeepSeek + TUNIT) |
 | `agent_work_item` | Launch envelope after the lane gate |
-| `storyboard_story_run` | Evidence |
+| `storyboard_story_run.tests_summary` | Assay evidence |
 
 Grok = judgment-lab (Architect, Inspector). DeepSeek = volume-lab
-(Scout, Smith, Assay). Do not register Inspector on `deepseek-harness`.
+(Scout, Smith, Assay). TUNIT is the instrument Assay runs. Do not register
+Inspector on `deepseek-harness`.
 
 See `docs/agent/ARCHITECT.md`.
