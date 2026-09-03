@@ -1,5 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 
 import {
   AgentRuntimeAdapter,
@@ -19,7 +18,7 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId: string
   readonly capabilities: AgentCapability[]
 
-  private proc: ChildProcessWithoutNullStreams | null = null
+  private proc: ChildProcess | null = null
   private stdout = ''
   private stderr = ''
 
@@ -47,8 +46,8 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
       env: { ...process.env, ...(command.env ?? {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    this.proc.stdout.on('data', (chunk) => { this.stdout += String(chunk) })
-    this.proc.stderr.on('data', (chunk) => { this.stderr += String(chunk) })
+    this.proc.stdout?.on('data', (chunk) => { this.stdout += String(chunk) })
+    this.proc.stderr?.on('data', (chunk) => { this.stderr += String(chunk) })
     this.proc.on('error', (error) => { this.externalErrorText = error.message })
     const externalRunId = `${this.provider.id}-${context.command.workItemId}-${Date.now()}`
     return { externalRunId }
