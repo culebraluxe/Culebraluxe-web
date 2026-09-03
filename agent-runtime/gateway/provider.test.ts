@@ -51,14 +51,40 @@ test('profile routing falls back to the global provider', () => {
   )
 })
 
-test('Warp provider builds an Oz local agent command in the worker cwd', () => {
-  const command = warpProvider.buildCommand({
-    cwd: '/tmp/worktree',
-    task: 'Implement story',
-    modelProfile: 'builder-flash',
-  })
-  assert.equal(command.bin, process.env.WARP_AGENT_BIN ?? 'oz')
-  assert.deepEqual(command.args, ['agent', 'run', '--cwd', '/tmp/worktree', 'Implement story'])
+test('Warp provider fails closed without a headless wrapper', () => {
+  const previous = process.env.WARP_HEADLESS_BIN
+  delete process.env.WARP_HEADLESS_BIN
+  try {
+    assert.throws(
+      () =>
+        warpProvider.buildCommand({
+          cwd: '/tmp/worktree',
+          task: 'Implement story',
+          modelProfile: 'builder-flash',
+        }),
+      /WARP_HEADLESS_BIN/,
+    )
+  } finally {
+    if (previous === undefined) delete process.env.WARP_HEADLESS_BIN
+    else process.env.WARP_HEADLESS_BIN = previous
+  }
+})
+
+test('Warp provider uses the explicit Forge headless wrapper contract', () => {
+  const previous = process.env.WARP_HEADLESS_BIN
+  process.env.WARP_HEADLESS_BIN = '/usr/local/bin/forge-warp-headless'
+  try {
+    const command = warpProvider.buildCommand({
+      cwd: '/tmp/worktree',
+      task: 'Implement story',
+      modelProfile: 'builder-flash',
+    })
+    assert.equal(command.bin, '/usr/local/bin/forge-warp-headless')
+    assert.deepEqual(command.args, ['--cwd', '/tmp/worktree', '--task', 'Implement story'])
+  } finally {
+    if (previous === undefined) delete process.env.WARP_HEADLESS_BIN
+    else process.env.WARP_HEADLESS_BIN = previous
+  }
 })
 
 test('OpenClaw provider builds isolated headless agent exec command', () => {
