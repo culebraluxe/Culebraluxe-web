@@ -33,9 +33,9 @@ The purpose of this story is operational proof, not feature volume.
 ## Test mode
 SCOPED only. Full regression forbidden.
 
-## Suggested Assay
+## Assay commands
 - `pnpm exec tsx --test agent-runtime/opencode/opencode-client.test.ts agent-runtime/opencode/opencode-harness-adapter.test.ts`
-- Run only adjacent Forge provider/runtime tests needed by the actual diff.
+- `pnpm exec tsx --test agent-runtime/opencode/opencode-routing.test.ts agent-runtime/gateway/provider.test.ts`
 
 ## Cost / control rule
 This is a bounded R&D proof. If OpenCode cannot complete the narrow task cleanly in the single run, fail factually and stop. Do not retry by changing model, using Pro, adding subagents, or widening scope.
