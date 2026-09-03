@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   assayFailureEvidence,
   followFinishedLane,
+  hydrateBareReadyItems,
   isCleanAssayResult,
 } from './orchestrate-apply'
 
@@ -88,4 +89,30 @@ test('Assay clean pass preserves current terminal follow behavior', async () => 
 
   assert.equal(followed, null)
   assert.deepEqual(enqueued, [])
+})
+
+test('Ready with no Neon brief and no git packet hydrates Scout, never Smith', async () => {
+  const enqueued: Array<{ role: string; modelProfile: string }> = []
+  const stamped = await hydrateBareReadyItems({
+    listItems: async () => [{
+      id: 'work-1',
+      storyId: 'ENG-FORGE-V3-02-NO-BRIEF',
+      state: 'Ready',
+      role: null,
+      modelProfile: null,
+      executionEnvironment: 'DEV',
+      executionPolicy: 'Unattended OK',
+      priority: 1,
+    }],
+    getStory: async () => ({ goal: 'needs architecture first' }),
+    enqueue: async (input) => {
+      enqueued.push({ role: input.role, modelProfile: input.modelProfile })
+    },
+    repoRoot: '/definitely/missing',
+  })
+
+  assert.deepEqual(stamped, ['ENG-FORGE-V3-02-NO-BRIEF:scout'])
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'scout')
+  assert.equal(enqueued[0]?.modelProfile, 'scout-volume')
 })
