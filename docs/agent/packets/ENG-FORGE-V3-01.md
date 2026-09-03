@@ -25,9 +25,12 @@ SCOPED
 ## Scope
 
 - `agent-runtime/orchestrate-apply.ts` (`followFinishedLane`)
+- `agent-runtime/repositories.ts` — narrow shared finish seam required so autonomous Assay cannot persist a false `Complete` before `scripts/agent-work.ts` regains control
 - `scripts/agent-work.ts` finish/follow path
 - this packet
 - scoped tests next to changed files
+
+No schema change is authorized or required.
 
 ## Acceptance
 
@@ -35,10 +38,12 @@ SCOPED
 - Smith Done + Assay pass → current follow behavior stands
 - Assay fail evidence includes command names from `## Assay commands` / `parsePacketLoop().failedCommands` when Loop already named them
 - Assay fail → no grow enqueue
+- Assay/reviewer cannot retain a commit; Smith/builder behavior is unchanged
 - scoped `node --test` only
 
 ## Assay commands
 - node --test agent-runtime/orchestrate-apply.test.ts
+- node --test agent-runtime/repositories.assay.test.ts
 
 ## Out of scope
 
