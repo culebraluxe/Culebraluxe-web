@@ -1,0 +1,109 @@
+import { buildLaneEnqueue } from './enqueue-lane'
+import { createAgentRuntimeRegistry } from './factory'
+import { pickLane, storyFieldsFromBoardAndGit } from './orchestrate'
+import type { StoryPacketFields } from './story-session'
+
+export type BareWorkItem = {
+  id: string
+  storyId: string
+  state: string
+  role: string | null
+  modelProfile: string | null
+  executionEnvironment: string | null
+  executionPolicy: string
+  priority: number
+}
+
+export type HydrateDeps = {
+  listItems: () => Promise<BareWorkItem[] | null>
+  getStory: (id: string) => Promise<StoryPacketFields | null>
+  enqueue: (input: {
+    storyId: string
+    role: string
+    modelProfile: string
+    specialInstructions: string | null
+    priority?: number
+    maxAttempts?: number
+    executionPolicy?: string
+    executionEnvironment?: string | null
+  }) => Promise<unknown>
+  repoRoot?: string
+}
+
+export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]> {
+  const items = (await deps.listItems()) ?? []
+  const bare = items.filter(
+    (item) => item.state === 'Ready' && (!item.role || !item.modelProfile),
+  )
+  const stamped: string[] = []
+  const registry = createAgentRuntimeRegistry()
+  for (const item of bare) {
+    const story = await deps.getStory(item.storyId)
+    if (!story) continue
+    const merged = storyFieldsFromBoardAndGit(story, item.storyId, deps.repoRoot)
+    const lane = pickLane({ story: merged })
+    const decision = buildLaneEnqueue({
+      lane,
+      story: merged,
+      registry,
+    })
+    if (!decision.ok || !decision.envelope) {
+      console.log(
+        'hydrate skip',
+        item.storyId,
+        decision.ok ? 'no envelope' : decision.code,
+      )
+      continue
+    }
+    await deps.enqueue({
+      storyId: item.storyId,
+      role: decision.envelope.role,
+      modelProfile: decision.envelope.modelProfile,
+      specialInstructions: decision.envelope.specialInstructions,
+      priority: item.priority,
+      maxAttempts: decision.envelope.maxAttempts,
+      executionPolicy: item.executionPolicy || 'Unattended OK',
+      executionEnvironment: item.executionEnvironment ?? 'DEV',
+    })
+    stamped.push(`${item.storyId}:${lane}`)
+  }
+  return stamped
+}
+
+export async function followFinishedLane(input: {
+  storyId: string
+  finishedRole: string
+  resultStatus?: string | null
+  getStory: (id: string) => Promise<StoryPacketFields | null>
+  enqueue: HydrateDeps['enqueue']
+  repoRoot?: string
+}): Promise<string | null> {
+  const ok =
+    !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
+  if (!ok) return null
+  if (input.finishedRole !== 'builder' && input.finishedRole !== 'scout') {
+    return null
+  }
+  const story = await input.getStory(input.storyId)
+  if (!story) return null
+  const merged = storyFieldsFromBoardAndGit(story, input.storyId, input.repoRoot)
+  const lane = pickLane({ story: merged, lastFinishedRole: input.finishedRole })
+  const decision = buildLaneEnqueue({ lane, story: merged })
+  if (!decision.ok || !decision.envelope) {
+    console.log(
+      'follow skip',
+      input.storyId,
+      lane,
+      !decision.ok ? decision.code : 'no envelope',
+    )
+    return null
+  }
+  await input.enqueue({
+    storyId: input.storyId,
+    role: decision.envelope.role,
+    modelProfile: decision.envelope.modelProfile,
+    specialInstructions: decision.envelope.specialInstructions,
+    executionEnvironment: 'DEV',
+  })
+  return lane
+}

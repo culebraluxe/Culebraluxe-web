@@ -1,55 +1,5 @@
-// ---------------------------------------------------------------------------
-// Agent work command — single-worker autonomous dispatch between the
-// authoritative (PRODUCTION) Story Board and the coding agent.
-//
-//   pnpm agent:work                          claim the next configured Ready
-//                                            item, VALIDATE the runtime
-//                                            envelope, and dispatch it through
-//                                            the existing AgentRuntimeAdapter
-//                                            -> DeepSeekHarnessAdapter path
-//                                            (runs to completion in-process)
-//   pnpm agent:work --progress <workItemId> [--completion <n>]
-//        [--note <text>] [--tests <text>]
-//                                            persist live progress on the run
-//                                            (completion / appended milestone
-//                                            note / tests summary) + heartbeat
-//   pnpm agent:work --finish <workItemId> --result <outcome> --completion <n>
-//        [--notes <text>] [--commit <hash>] [--tests <text>]
-//                                            record the finished run + mark
-//                                            the work item Done
-//   pnpm agent:work --error <workItemId> --error-text <text>
-//        [--note <text>] [--completion <n>] [--tests <text>]
-//                                            infra failure: terminate run as
-//                                            Failed + mark the work item Error
-//   pnpm agent:work --cancel <workItemId> [--note <text>]
-//                                            cancel the run (result Cancelled,
-//                                            story -> Hold) + work item
-//                                            Cancelled
-//   pnpm agent:work --recover [--stale-after <minutes>]
-//                                            mark stale Claimed/Running items
-//                                            terminal (run Failed, work Error)
-//                                            and unblock the queue
-//
-// Contract (Story Board work-queue story):
-//   - always targets the PRODUCTION control-plane database (refuses otherwise)
-//   - claims AT MOST ONE Ready work item per invocation; exits cleanly with
-//     "no work" when the queue is empty or another item is already active
-//   - validates the runtime envelope (role / model profile / execution target /
-//     execution policy / test mode) BEFORE Running; missing config fails fast
-//     through the durable Error+Hold path and releases the global slot
-//   - dispatches the claimed command through the shared invoker runtime phase
-//     (the EXACT same path the debug driver uses) so the local DeepSeek Harness
-//     launches without any story-specific launch command
-//   - DEV remains the execution target; PROD remains control plane only
-//   - NEVER loops into a second story in one invocation
-//   - existing heartbeat/session/evidence/finalization behavior is unchanged
-//   - commits repository changes itself; never pushes
-//   - ENG-21: executes the claimed story in an ISOLATED worker worktree/branch
-//     rooted at an EXPLICIT approved integration base (AGENT_WORKSPACE_BASE_REF,
-//     else the repo's main branch); the primary checkout is never a worker
-//     scratch directory. AGENT_WORKSPACE_DISABLED=1 restores the legacy
-//     shared-checkout path explicitly. Never merges, rebases, or pushes.
-// ---------------------------------------------------------------------------
+// agent work command — see file history for the full ENG-18/20/21 contract.
+// Forge V2: hydrate bare Ready envelopes, then claim one, then follow Smith→Assay.
 
 import { buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
 
@@ -116,8 +66,12 @@ async function runClaimCommand(): Promise<void> {
     verifyWorkspaceEnvFile,
   } = await import('../lib/execution-target')
   const { resolve } = await import('node:path')
+  const { runForgeHydrate, runForgeFollow } = await import('./forge-orchestrate-wake')
 
   const workerId = process.env.AGENT_WORKER_ID ?? 'coding-agent'
+  const hydrated = await runForgeHydrate()
+  if (hydrated.length) console.log('hydrated', hydrated.join(', '))
+
   const claim = await claimNextAgentWork(workerId)
   if (!claim) {
     const active = await getActiveAgentWorkItem()
@@ -154,39 +108,24 @@ async function runClaimCommand(): Promise<void> {
     'policy', workItem.executionPolicy ?? '(no execution policy)',
   )
 
-  // HARD LAUNCH GUARD (ENG-20A): a claimed command with missing/invalid
-  // execution configuration must NOT transition to Running. Fail fast through
-  // the durable path (work Error + story Hold + global slot released) with a
-  // concise actionable error instead of creating a zombie Running item.
   const launchError = validateAgentWorkLaunchConfig(workItem)
   if (launchError) {
     console.error('launch guard:', launchError)
     console.error(
       `work item ${workItem.id} marked Error; story ${story.id} set to Hold. ` +
-        'Configure the command in the SDLC Command Console (role / model profile / execution target), then set the story back to Ready.',
+        'Set role/profile via Forge hydrate (flip Ready with a brief) or enqueue-lane.',
     )
     await rejectAgentWorkConfiguration(workItem.id, launchError)
     process.exit(1)
   }
 
-  // DEV remains the execution target; PROD remains control plane only. The
-  // workspace .env.local must not resolve a DEV execution to the PROD DB.
   const target = parseExecutionEnvironment(process.env.EXECUTION_ENV, 'DEV')
   assertExecutionTargetSafe(target)
   verifyWorkspaceEnvFile(resolve(process.cwd()), target)
 
-  // Dispatch the ALREADY-CLAIMED command through the EXISTING runtime path
-  // (AgentRuntimeAdapter -> DeepSeekHarnessAdapter). No duplicate mechanism:
-  // executeClaimedAgentCommand is the exact phase 2 of the debug driver.
   const work = new SqlAgentWorkRepository(() => interactiveSql as any)
   const runs = new SqlAgentRunRepository(() => interactiveSql as any)
   const registry = createAgentRuntimeRegistry()
-
-  // ENG-21 — isolated worker workspace execution (default-on). The claimed
-  // story executes in its OWN branch + worktree from the EXPLICIT approved
-  // integration base; the primary checkout is never a worker scratch
-  // directory. AGENT_WORKSPACE_DISABLED=1 restores the legacy shared-checkout
-  // path explicitly (documented escape hatch).
   const workspaces = buildAgentInvokerWorkspaces(workerId)
   if (workspaces) {
     console.log(
@@ -213,9 +152,13 @@ async function runClaimCommand(): Promise<void> {
     console.log('external_run_id:', result.evidence.externalRunId)
     console.log('execution_target:', result.evidence.executionEnvironment ?? 'unset')
     console.log('commit:', result.evidence.commitHash ?? '(no worker commit — still at base)')
+    const followed = await runForgeFollow({
+      storyId: result.storyId,
+      finishedRole: result.role,
+      resultStatus: result.evidence.resultStatus,
+    })
+    if (followed) console.log('followed with lane', followed)
   } catch (e) {
-    // Fail safely: terminalize the claimed item (Error, slot released) and
-    // exit; the next scheduler cycle continues with the next eligible item.
     console.error('dispatch escalation:', String((e as Error)?.message ?? e).slice(0, 2000))
     await escalateAgentWorkFailure(workItem.id, e)
     process.exit(1)
@@ -367,6 +310,13 @@ async function runFinishCommand(
   if (value(args, '--commit')) {
     console.log('commit:', value(args, '--commit'))
   }
+  const { runForgeFollow } = await import('./forge-orchestrate-wake')
+  const followed = await runForgeFollow({
+    storyId: finished.workItem.storyId,
+    finishedRole: finished.workItem.role,
+    resultStatus,
+  })
+  if (followed) console.log('followed with lane', followed)
 }
 
 void main()
