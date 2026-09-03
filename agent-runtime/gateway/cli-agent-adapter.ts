@@ -13,6 +13,36 @@ import type {
 } from '../types'
 import type { ForgeProviderDescriptor } from './provider'
 import { buildTaskText, extractTestsSummary } from '../deepseek/deepseek-harness-adapter'
+import {
+  buildChildProcessEnv,
+  parseExecutionEnvironment,
+  verifyWorkspaceEnvFile,
+  type ExecutionEnvironment,
+} from '../../lib/execution-target'
+
+const FORGE_OWNED_ENV_KEYS = new Set([
+  'APP_ENV',
+  'EXECUTION_ENV',
+  'DATABASE_URL',
+  'DATABASE_URL_DEV',
+  'DATABASE_URL_PROD',
+])
+
+/**
+ * Build the environment for a gateway child process. Provider-specific values
+ * may add credentials/CLI config, but execution-target keys are Forge-owned
+ * and are discarded before buildChildProcessEnv applies the canonical target.
+ */
+export function buildGatewayChildEnv(
+  target: ExecutionEnvironment,
+  providerEnv: Record<string, string | undefined> = {},
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string | undefined> {
+  const allowedProviderEnv = Object.fromEntries(
+    Object.entries(providerEnv).filter(([key]) => !FORGE_OWNED_ENV_KEYS.has(key)),
+  )
+  return buildChildProcessEnv(target, { ...baseEnv, ...allowedProviderEnv })
+}
 
 export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId: string
@@ -33,17 +63,26 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
 
   protected async startExternal(context: AgentExecutionContext): Promise<ExternalStartResult> {
     const cwd = context.executionWorkspace?.worktreePath ?? process.cwd()
+    const target = parseExecutionEnvironment(context.executionEnvironment, 'DEV')
+
+    // Safety parity with the native DeepSeek harness: inspect the exact worker
+    // checkout before spawning any external executor, then build a child env
+    // that cannot inherit/reintroduce a PROD database target for DEV/LOCAL/TEST.
+    verifyWorkspaceEnvFile(cwd, target)
+
     const task = buildTaskText(context.command, context)
     const command = this.provider.buildCommand({
       cwd,
       task,
       modelProfile: context.command.modelProfile,
     })
+    const childEnv = buildGatewayChildEnv(target, command.env ?? {})
+
     this.stdout = ''
     this.stderr = ''
     this.proc = spawn(command.bin, command.args, {
       cwd,
-      env: { ...process.env, ...(command.env ?? {}) },
+      env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     this.proc.stdout?.on('data', (chunk) => { this.stdout += String(chunk) })
