@@ -1,51 +1,38 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# scripts/agent-worker-once.sh — single-invocation agent worker wrapper.
+# scripts/agent-worker-once.sh — bounded Forge wake/run wrapper.
 #
-# ONE invocation => invokes `pnpm agent:work` exactly once => claims AT MOST
-# ONE story, then runs one bounded Postgres mini-MQ dispatch pass
-# (`pnpm mq:worker:prod`) so the CRM-26 agreement-execution consumer and the
-# proof consumer stay active in production. This script never loops and never
-# processes a second work item; the next scheduled invocation may claim the
-# next Ready item and/or poll the MQ again.
+# ONE scheduled wake => repeatedly invokes `pnpm agent:work` until Forge is
+# idle or a run fails. This mirrors the manual operator loop:
+#   1. run Forge
+#   2. if a clean lane queues the next lane, run Forge again immediately
+#   3. if Forge reports no work, exit cleanly
+#   4. if Forge exits non-zero, stop immediately and preserve the durable
+#      Neon/Slack evidence for human inspection
 #
-# The database (migration 025) owns all queue semantics — Ready discovery,
-# single-worker enforcement, claiming, ordering, run lifecycle, story execution
-# state. This wrapper ONLY:
-#   1. changes into the repository root safely
-#   2. establishes the runtime environment launchd does not provide
-#   3. invokes exactly `pnpm agent:work`
-#   4. invokes one bounded MQ dispatch pass (`pnpm mq:worker:prod`)
-#   5. propagates the agent:work exit code
-#   6. records timestamped start/end information + exit code in a local log
-#   7. guards against overlapping local invocations with a mkdir-based lock
+# The database and `pnpm agent:work` own ALL queue/orchestration semantics:
+# Ready discovery, hydration, single-worker enforcement, claiming, Smith,
+# exact-candidate Assay, publication, Hold/Error state, and Slack notifications.
+# This wrapper is only the unattended hand that presses the same button again.
 #
-# The MQ dispatch pass is NON-fatal to this wrapper (a transient MQ error must
-# never fail the story-claim tick); the broker owns bounded retry/dead-letter.
+# No secrets are embedded here. `pnpm agent:work` reads the gitignored
+# `.env.local`. An optional untracked `.env.scheduler` may override local
+# runtime settings.
 #
-# No secrets are embedded here. Production DB credentials are read by
-# `pnpm agent:work` and `pnpm mq:worker:prod` from the gitignored .env.local
-# (--env-file). An optional untracked .env.scheduler file may override local
-# runtime settings (see docs/agent/AGENT_WORKER_SCHEDULER.md).
-#
-# macOS TCC note: launchd-spawned processes cannot execute files under the
-# TCC-protected ~/Documents folder, so `pnpm agent:scheduler:install` deploys
-# a copy of this wrapper to ~/Library/Application Support/CulebraLuxe/ and the
-# LaunchAgent invokes THAT copy. The deployed copy receives AGENT_WORKER_REPO
-# (the repository path) through the plist environment, then cd's into the
-# repository exactly as the repo-resident copy does.
+# macOS TCC note: `pnpm agent:scheduler:install` deploys a copy of this wrapper
+# outside ~/Documents and passes AGENT_WORKER_REPO so launchd can enter the repo.
 #
 # Env controls (all optional):
-#   AGENT_WORKER_REPO   - repository root override (set by the deployed copy)
-#   AGENT_WORKER_PATH   - replace the default PATH entirely (ops override)
-#   AGENT_WORKER_LOG_DIR - log directory (default ~/Library/Logs/CulebraLuxe)
-#   AGENT_WORKER_ID     - worker identity stamped on DB claims (default scheduler)
-#   AGENT_WORKER_DRY_RUN - "1" logs/exits without invoking pnpm (plumbing test)
+#   AGENT_WORKER_REPO       - repository root override
+#   AGENT_WORKER_PATH       - replace default PATH
+#   AGENT_WORKER_LOG_DIR    - log directory
+#   AGENT_WORKER_ID         - worker identity (default scheduler)
+#   AGENT_WORKER_DRY_RUN    - "1" logs/exits without running Forge
+#   AGENT_WORKER_MAX_PASSES - runaway guard (default 20)
 # ---------------------------------------------------------------------------
 
 set -u
 
-# --- resolve repository root from this script's own location (portable) ----
 if [ -n "${AGENT_WORKER_REPO:-}" ]; then
   REPO_ROOT="$AGENT_WORKER_REPO"
 else
@@ -57,7 +44,6 @@ cd "$REPO_ROOT" || {
   exit 1
 }
 
-# --- optional local override file (untracked, documented) -------------------
 ENV_OVERRIDE="$REPO_ROOT/.env.scheduler"
 if [ -f "$ENV_OVERRIDE" ]; then
   set -a
@@ -66,7 +52,6 @@ if [ -f "$ENV_OVERRIDE" ]; then
   set +a
 fi
 
-# --- establish runtime PATH (launchd provides a minimal PATH) ----------------
 if [ -n "${AGENT_WORKER_PATH:-}" ]; then
   PATH="$AGENT_WORKER_PATH"
 else
@@ -74,35 +59,28 @@ else
 fi
 export PATH
 
-# --- HOME fallback ------------------------------------------------------------
 if [ -z "${HOME:-}" ]; then
   HOME="$(printf '%s' ~)"
   export HOME
 fi
 
 export AGENT_WORKER_ID="${AGENT_WORKER_ID:-scheduler}"
+MAX_PASSES="${AGENT_WORKER_MAX_PASSES:-20}"
 
-# --- logs ---------------------------------------------------------------------
 LOG_DIR="${AGENT_WORKER_LOG_DIR:-$HOME/Library/Logs/CulebraLuxe}"
 INVOCATION_LOG="$LOG_DIR/agent-worker.invocations.log"
 LOCK_DIR="$LOG_DIR/agent-worker.lock"
-
-mkdir -p "$LOG_DIR" || {
-  echo "agent-worker: cannot create log directory: $LOG_DIR" >&2
-  exit 1
-}
+mkdir -p "$LOG_DIR" || exit 1
 
 inv_log() {
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >> "$INVOCATION_LOG"
 }
 
-# --- local no-overlap lock (mkdir is atomic; stale-pid recovery) ---------------
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     printf '%s\n' "$$" > "$LOCK_DIR/pid"
     return 0
   fi
-  # Lock held: reclaim only when the recorded pid is no longer alive.
   pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     return 1
@@ -120,31 +98,56 @@ release_lock() {
 }
 
 if ! acquire_lock; then
-  inv_log "skipped: another agent-worker invocation is still running"
+  inv_log "skipped: another Forge worker invocation is still running"
   exit 0
 fi
 trap release_lock EXIT
 
-inv_log "start: cwd=$REPO_ROOT cmd=\"pnpm agent:work\""
-
 if [ "${AGENT_WORKER_DRY_RUN:-0}" = "1" ]; then
   echo "[agent-worker] dry-run: pnpm agent:work not invoked"
-  rc=0
-else
-  if ! command -v pnpm >/dev/null 2>&1; then
-    echo "agent-worker: pnpm not found on PATH=$PATH" >&2
-    rc=127
-  else
-    pnpm agent:work
-    rc=$?
-    # Bounded Postgres mini-MQ dispatch pass (CRM-26 agreement-execution +
-    # proof consumers). Non-fatal to the story tick; the broker owns retry.
-    inv_log "mq: start cmd=\"pnpm mq:worker:prod\""
-    pnpm mq:worker:prod || true
-    inv_log "mq: end"
-  fi
+  inv_log "dry-run"
+  exit 0
 fi
 
-inv_log "end: exit=$rc"
-exit "$rc"
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "agent-worker: pnpm not found on PATH=$PATH" >&2
+  inv_log "end: exit=127 pnpm-missing"
+  exit 127
+fi
 
+inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
+
+pass=1
+while [ "$pass" -le "$MAX_PASSES" ]; do
+  inv_log "pass=$pass start cmd=\"pnpm agent:work\""
+
+  output_file="$(mktemp -t culebraluxe-forge-worker.XXXXXX)"
+  pnpm agent:work 2>&1 | tee "$output_file"
+  rc=${PIPESTATUS[0]}
+
+  inv_log "pass=$pass end exit=$rc"
+
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$output_file"
+    inv_log "stop: Forge returned non-zero exit=$rc"
+    exit "$rc"
+  fi
+
+  # `agent:work` prints this only when there is nothing claimable/active.
+  # Stop the wake cycle here. The launchd scheduler will check again in 3 min.
+  if grep -Eq '^no work($| —)' "$output_file"; then
+    rm -f "$output_file"
+    inv_log "idle: no work"
+    exit 0
+  fi
+
+  rm -f "$output_file"
+  pass=$((pass + 1))
+
+done
+
+# Runaway protection only. Durable Forge state remains untouched; the next
+# scheduled wake can continue normally.
+inv_log "stop: max passes reached ($MAX_PASSES)"
+echo "agent-worker: max passes reached ($MAX_PASSES); stopping until next scheduled wake" >&2
+exit 0
