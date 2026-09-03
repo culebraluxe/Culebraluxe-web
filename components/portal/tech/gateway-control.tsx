@@ -6,10 +6,16 @@ const labels: Record<ForgeExecutionProvider, string> = {
   openclaw: 'OpenClaw',
 }
 
-export function GatewayControl({ provider }: { provider: ForgeExecutionProvider }) {
+type LaneRoute = {
+  lane: 'Scout' | 'Smith' | 'Assay'
+  profile: 'scout-volume' | 'builder-flash' | 'verifier-mini'
+  provider: ForgeExecutionProvider
+}
+
+export function GatewayControl({ routes }: { routes: LaneRoute[] }) {
   return (
     <section className="mx-2 mt-3 rounded-[var(--portal-panel-radius)] border border-[var(--portal-gold)]/25 bg-[var(--portal-navy-deep)]/95 px-4 py-3 sm:mx-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-[9px] font-light uppercase tracking-[0.22em] text-[var(--portal-feature-eyebrow)]">
             Forge V4 / Gateway Control
@@ -18,17 +24,20 @@ export function GatewayControl({ provider }: { provider: ForgeExecutionProvider 
             <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5">Forge</span>
             <span className="text-[var(--portal-gold-soft)]">→</span>
             <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5">Execution Gateway</span>
-            <span className="text-[var(--portal-gold-soft)]">→</span>
-            <span className="rounded-md border border-[var(--portal-gold)]/40 bg-[var(--portal-gold-pale)] px-3 py-1.5 font-medium text-[var(--portal-gold-soft)]">
-              {labels[provider]}
-            </span>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-white/40">Active provider</div>
-          <div className="mt-0.5 font-mono text-xs text-white/80">{provider}</div>
-          <div className="mt-1 text-[10px] text-white/45">Forge owns lanes · Smith commit · Assay acceptance</div>
+        <div className="grid min-w-[22rem] gap-1.5 sm:grid-cols-3">
+          {routes.map((route) => (
+            <div key={route.profile} className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-white/40">{route.lane}</div>
+              <div className="mt-0.5 text-xs font-medium text-[var(--portal-gold-soft)]">{labels[route.provider]}</div>
+              <div className="mt-0.5 font-mono text-[9px] text-white/45">{route.profile}</div>
+            </div>
+          ))}
         </div>
+      </div>
+      <div className="mt-2 text-[10px] text-white/45">
+        Forge owns lane order · Smith is the only commit keeper · Assay owns acceptance
       </div>
     </section>
   )

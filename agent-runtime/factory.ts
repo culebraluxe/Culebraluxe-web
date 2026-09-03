@@ -17,7 +17,10 @@ import { ASSAY_CAPABILITIES, READ_CAPABILITIES, WRITE_CAPABILITIES } from './lan
 import { revokeForbiddenCommit, writeBoundaryLines } from './write-policy'
 import { CliAgentGatewayAdapter } from './gateway/cli-agent-adapter'
 import { openClawProvider } from './gateway/openclaw-provider'
-import { resolveForgeExecutionProvider } from './gateway/provider'
+import {
+  resolveForgeExecutionProviderForProfile,
+  type ForgeExecutionProvider,
+} from './gateway/provider'
 import { warpProvider } from './gateway/warp-provider'
 
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
@@ -53,50 +56,52 @@ class PolicyDeepSeekHarnessAdapter extends DeepSeekHarnessAdapter {
   }
 }
 
+function adapterIdForProvider(provider: ForgeExecutionProvider): string {
+  return provider === 'deepseek' ? 'deepseek-harness' : `gateway-${provider}`
+}
+
 export function createAgentRuntimeRegistry(
   config: DeepSeekHarnessConfig = defaultDeepSeekConfig(),
 ): AgentRuntimeRegistry {
   const registry = new AgentRuntimeRegistry()
-  const provider = resolveForgeExecutionProvider()
-  let adapterId = 'deepseek-harness'
 
-  if (provider === 'deepseek') {
-    registry.registerAdapter({
-      adapterId,
-      description: 'DeepSeek Harness headless CLI adapter',
-      capabilities: CORE_CAPABILITIES,
-      factory: (deps) =>
-        new PolicyDeepSeekHarnessAdapter(deps, config, (command, context) => {
-          const base = buildTaskText(command, context)
-          if (context.policy.allowCommit) return base
-          return `${base}\n${writeBoundaryLines(context.policy).join('\n')}`
-        }),
-    })
-  } else {
-    const descriptor = provider === 'warp' ? warpProvider : openClawProvider
-    adapterId = `gateway-${descriptor.id}`
-    registry.registerAdapter({
-      adapterId,
-      description: descriptor.description,
-      capabilities: descriptor.capabilities,
-      factory: (deps) => new CliAgentGatewayAdapter(deps, descriptor),
+  registry.registerAdapter({
+    adapterId: 'deepseek-harness',
+    description: 'DeepSeek Harness headless CLI adapter',
+    capabilities: CORE_CAPABILITIES,
+    factory: (deps) =>
+      new PolicyDeepSeekHarnessAdapter(deps, config, (command, context) => {
+        const base = buildTaskText(command, context)
+        if (context.policy.allowCommit) return base
+        return `${base}\n${writeBoundaryLines(context.policy).join('\n')}`
+      }),
+  })
+  registry.registerAdapter({
+    adapterId: 'gateway-warp',
+    description: warpProvider.description,
+    capabilities: warpProvider.capabilities,
+    factory: (deps) => new CliAgentGatewayAdapter(deps, warpProvider),
+  })
+  registry.registerAdapter({
+    adapterId: 'gateway-openclaw',
+    description: openClawProvider.description,
+    capabilities: openClawProvider.capabilities,
+    factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
+  })
+
+  const profiles = [
+    { profile: 'builder-flash', capabilities: WRITE_CAPABILITIES },
+    { profile: 'scout-volume', capabilities: READ_CAPABILITIES },
+    { profile: 'verifier-mini', capabilities: ASSAY_CAPABILITIES },
+  ] as const
+
+  for (const profile of profiles) {
+    const provider = resolveForgeExecutionProviderForProfile(profile.profile)
+    registry.registerProfile({
+      profile: profile.profile,
+      adapterId: adapterIdForProvider(provider),
+      capabilities: profile.capabilities,
     })
   }
-
-  registry.registerProfile({
-    profile: 'builder-flash',
-    adapterId,
-    capabilities: WRITE_CAPABILITIES,
-  })
-  registry.registerProfile({
-    profile: 'scout-volume',
-    adapterId,
-    capabilities: READ_CAPABILITIES,
-  })
-  registry.registerProfile({
-    profile: 'verifier-mini',
-    adapterId,
-    capabilities: ASSAY_CAPABILITIES,
-  })
   return registry
 }
