@@ -1,6 +1,8 @@
 // agent work command — see file history for the full ENG-18/20/21 contract.
 // Forge V2: hydrate bare Ready envelopes, then claim one, then follow Smith→Assay.
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
 
 async function main(): Promise<void> {
@@ -41,6 +43,97 @@ async function main(): Promise<void> {
 function value(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag)
   return index >= 0 ? args[index + 1] : undefined
+}
+
+function packetFailedCommands(storyId: string): string[] {
+  try {
+    const markdown = readFileSync(
+      join(process.cwd(), 'docs', 'agent', 'packets', `${storyId}.md`),
+      'utf8',
+    )
+    // Keep Loop parsing out of the planner/runtime. This only reads the packet
+    // evidence already named by the architect.
+    const section = markdown.match(/^## Assay commands\s*$([\s\S]*?)(?=^##\s|\Z)/im)?.[1] ?? ''
+    return section
+      .split('\n')
+      .map((line) => line.replace(/^\s*-\s*/, '').trim())
+      .filter((line) => Boolean(line) && !line.startsWith('#'))
+  } catch {
+    return []
+  }
+}
+
+async function normalizeAssayFinish(input: {
+  storyId: string
+  role: string | null
+  resultStatus: string
+  testsSummary: string | null
+}): Promise<{
+  failed: boolean
+  resultStatus: string
+  testsSummary: string | null
+}> {
+  if (input.role !== 'reviewer') {
+    return {
+      failed: false,
+      resultStatus: input.resultStatus,
+      testsSummary: input.testsSummary,
+    }
+  }
+
+  const { assayFailureEvidence, isCleanAssayResult } = await import(
+    '../agent-runtime/orchestrate-apply'
+  )
+  if (
+    isCleanAssayResult({
+      resultStatus: input.resultStatus,
+      testsSummary: input.testsSummary,
+    })
+  ) {
+    return {
+      failed: false,
+      resultStatus: input.resultStatus,
+      testsSummary: input.testsSummary,
+    }
+  }
+
+  return {
+    failed: true,
+    // Never hand Complete/100 to finishStoryRun for a known failed Assay.
+    // The work attempt can still become Done; the story is repair, not shipped.
+    resultStatus: 'Assay Failed',
+    testsSummary: assayFailureEvidence({
+      testsSummary: input.testsSummary,
+      failedCommands: packetFailedCommands(input.storyId),
+    }),
+  }
+}
+
+async function applyAssayRepairState(input: {
+  workItemId: string
+  storyId: string
+  role: string | null
+  resultStatus: string
+  testsSummary: string | null
+}): Promise<string | null> {
+  const normalized = await normalizeAssayFinish(input)
+  if (!normalized.failed) return normalized.testsSummary
+
+  const { getAgentWorkItem } = await import('../db/agent-work')
+  const { setStoryboardStatus, updateStoryRunProgress } = await import('../db/storyboard')
+  const item = await getAgentWorkItem(input.workItemId)
+
+  // Autonomous adapters have already persisted their terminal run by the time
+  // control returns here. Enrich that existing run rather than creating a new
+  // one or inventing a planner run.
+  if (item?.storyRunId && normalized.testsSummary) {
+    await updateStoryRunProgress(item.storyRunId, {
+      testsSummary: normalized.testsSummary,
+      note: 'Assay failed: story retained for repair; grow not enqueued.',
+    })
+  }
+  await setStoryboardStatus(input.storyId, 'Hold')
+  return normalized.testsSummary
 }
 
 async function runClaimCommand(): Promise<void> {
@@ -152,12 +245,24 @@ async function runClaimCommand(): Promise<void> {
     console.log('external_run_id:', result.evidence.externalRunId)
     console.log('execution_target:', result.evidence.executionEnvironment ?? 'unset')
     console.log('commit:', result.evidence.commitHash ?? '(no worker commit — still at base)')
+
+    const testsSummary = await applyAssayRepairState({
+      workItemId: result.workItemId,
+      storyId: result.storyId,
+      role: result.role,
+      resultStatus: result.evidence.resultStatus,
+      testsSummary: result.evidence.testsSummary,
+    })
+
     const followed = await runForgeFollow({
       storyId: result.storyId,
       finishedRole: result.role,
       resultStatus: result.evidence.resultStatus,
     })
     if (followed) console.log('followed with lane', followed)
+    if (result.role === 'reviewer' && testsSummary !== result.evidence.testsSummary) {
+      console.log('assay evidence:', testsSummary)
+    }
   } catch (e) {
     console.error('dispatch escalation:', String((e as Error)?.message ?? e).slice(0, 2000))
     await escalateAgentWorkFailure(workItem.id, e)
@@ -251,7 +356,7 @@ async function runFinishCommand(
   command: string,
   args: string[],
 ): Promise<void> {
-  const { finishAgentWork, failAgentWork } = await import('../db/agent-work')
+  const { finishAgentWork, failAgentWork, getAgentWorkItem } = await import('../db/agent-work')
 
   const workItemId = args[0]
   if (!workItemId) {
@@ -296,25 +401,47 @@ async function runFinishCommand(
     process.exit(2)
   }
 
-  const finished = await finishAgentWork(workItemId, {
+  const before = await getAgentWorkItem(workItemId)
+  const normalized = await normalizeAssayFinish({
+    storyId: before?.storyId ?? '',
+    role: before?.role ?? null,
     resultStatus,
-    completion,
-    notes: value(args, '--notes') ?? '',
-    commitHash: value(args, '--commit') ?? null,
     testsSummary: value(args, '--tests') ?? null,
   })
 
+  const finished = await finishAgentWork(workItemId, {
+    resultStatus: normalized.resultStatus,
+    completion,
+    notes: value(args, '--notes') ?? '',
+    commitHash: value(args, '--commit') ?? null,
+    testsSummary: normalized.testsSummary,
+  })
+
+  if (normalized.failed) {
+    const { setStoryboardStatus } = await import('../db/storyboard')
+    await setStoryboardStatus(finished.workItem.storyId, 'Hold')
+  }
+
   console.log('work item', finished.workItem.id, '->', finished.workItem.state)
   console.log('run result:', finished.run && (finished.run as { resultStatus?: string }).resultStatus)
-  console.log('story status:', finished.story.status, '| completion:', finished.story.completion)
+  console.log(
+    'story status:',
+    normalized.failed ? 'Hold' : finished.story.status,
+    '| completion:',
+    finished.story.completion,
+  )
   if (value(args, '--commit')) {
     console.log('commit:', value(args, '--commit'))
   }
+  if (normalized.failed && normalized.testsSummary) {
+    console.log('assay evidence:', normalized.testsSummary)
+  }
+
   const { runForgeFollow } = await import('./forge-orchestrate-wake')
   const followed = await runForgeFollow({
     storyId: finished.workItem.storyId,
     finishedRole: finished.workItem.role,
-    resultStatus,
+    resultStatus: normalized.resultStatus,
   })
   if (followed) console.log('followed with lane', followed)
 }

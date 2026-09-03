@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import {
+  assayFailureEvidence,
+  followFinishedLane,
+  isCleanAssayResult,
+} from './orchestrate-apply'
+
+const story = {
+  architectBrief: 'Implement the existing Forge packet only.',
+  goal: 'Keep Assay failure in repair.',
+}
+
+test('Assay Complete with clean tests is a clean pass', () => {
+  assert.equal(
+    isCleanAssayResult({
+      resultStatus: 'Complete',
+      testsSummary: '12 passed, 0 errors',
+    }),
+    true,
+  )
+})
+
+test('Assay non-Complete result fails closed', () => {
+  assert.equal(
+    isCleanAssayResult({
+      resultStatus: 'Partial',
+      testsSummary: 'tests executed',
+    }),
+    false,
+  )
+})
+
+test('Assay nominal Complete with fail violation or policy evidence fails closed', () => {
+  for (const testsSummary of [
+    '1 failed, 11 passed',
+    'verification violation detected',
+    'policy gate rejected the change',
+  ]) {
+    assert.equal(
+      isCleanAssayResult({ resultStatus: 'Complete', testsSummary }),
+      false,
+      testsSummary,
+    )
+  }
+})
+
+test('Assay failure evidence retains packet-named failed commands', () => {
+  assert.equal(
+    assayFailureEvidence({
+      testsSummary: '1 failed',
+      failedCommands: ['node --test agent-runtime/orchestrate-apply.test.ts', 'pnpm typecheck'],
+    }),
+    '1 failed | failed commands: node --test agent-runtime/orchestrate-apply.test.ts, pnpm typecheck',
+  )
+})
+
+test('Assay fail never enqueues grow', async () => {
+  const enqueued: unknown[] = []
+  const followed = await followFinishedLane({
+    storyId: 'ENG-FORGE-V3-01',
+    finishedRole: 'reviewer',
+    resultStatus: 'Complete',
+    testsSummary: 'policy violation',
+    getStory: async () => story,
+    enqueue: async (input) => {
+      enqueued.push(input)
+    },
+  })
+
+  assert.equal(followed, null)
+  assert.deepEqual(enqueued, [])
+})
+
+test('Assay clean pass preserves current terminal follow behavior', async () => {
+  const enqueued: unknown[] = []
+  const followed = await followFinishedLane({
+    storyId: 'ENG-FORGE-V3-01',
+    finishedRole: 'reviewer',
+    resultStatus: 'Complete',
+    testsSummary: 'all checks passed',
+    getStory: async () => story,
+    enqueue: async (input) => {
+      enqueued.push(input)
+    },
+  })
+
+  assert.equal(followed, null)
+  assert.deepEqual(enqueued, [])
+})

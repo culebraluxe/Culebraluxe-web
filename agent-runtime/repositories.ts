@@ -32,6 +32,39 @@ import {
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
 
+const ASSAY_FAILURE_EVIDENCE = /\b(fail(?:ed|ure|ures|ing)?|violation|policy)\b/i
+
+export function normalizeAgentFinishForRole(
+  role: string | null,
+  input: {
+    resultStatus: string
+    completion: number
+    notes: string
+    commitHash: string | null
+    testsSummary: string | null
+  },
+): {
+  resultStatus: string
+  completion: number
+  notes: string
+  commitHash: string | null
+  testsSummary: string | null
+} {
+  if (role !== 'reviewer') return input
+  const clean =
+    /^complete$/i.test(input.resultStatus.trim()) &&
+    !ASSAY_FAILURE_EVIDENCE.test(input.testsSummary ?? '')
+  if (clean) {
+    // Smith/builder remains the only writable lane. Assay never keeps a commit.
+    return { ...input, commitHash: null }
+  }
+  return {
+    ...input,
+    resultStatus: 'Hold',
+    commitHash: null,
+  }
+}
+
 export interface AgentWorkRepository {
   claimNext(workerId: string): Promise<AgentWorkClaim | null>
   claimSpecific(workItemId: string, workerId: string): Promise<AgentWorkItem | null>
@@ -147,7 +180,9 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     },
   ) {
     const q = await this.executor()
-    return finishAgentWork(workItemId, input, q)
+    const item = await getAgentWorkItem(workItemId, q)
+    const normalized = normalizeAgentFinishForRole(item?.role ?? null, input)
+    return finishAgentWork(workItemId, normalized, q)
   }
 
   async fail(workItemId: string, errorText: string) {
