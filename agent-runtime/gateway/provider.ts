@@ -21,12 +21,26 @@ export interface ForgeProviderDescriptor {
   buildCommand: (context: ProviderCommandContext) => ProviderCommand
 }
 
-export function resolveForgeExecutionProvider(
-  value = process.env.FORGE_EXECUTION_PROVIDER,
-): ForgeExecutionProvider {
+function parseProvider(value: string | undefined, source: string): ForgeExecutionProvider {
   const normalized = (value ?? 'deepseek').trim().toLowerCase()
   if (normalized === 'deepseek' || normalized === 'warp' || normalized === 'openclaw') {
     return normalized
   }
-  throw new Error(`unknown FORGE_EXECUTION_PROVIDER '${value}'`)
+  throw new Error(`unknown ${source} '${value}'`)
+}
+
+export function resolveForgeExecutionProvider(
+  value = process.env.FORGE_EXECUTION_PROVIDER,
+): ForgeExecutionProvider {
+  return parseProvider(value, 'FORGE_EXECUTION_PROVIDER')
+}
+
+export function resolveForgeExecutionProviderForProfile(
+  profile: string,
+  env: NodeJS.ProcessEnv = process.env,
+): ForgeExecutionProvider {
+  const profileKey = `FORGE_PROVIDER_${profile.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()}`
+  const laneValue = env[profileKey]
+  if (laneValue?.trim()) return parseProvider(laneValue, profileKey)
+  return parseProvider(env.FORGE_EXECUTION_PROVIDER, 'FORGE_EXECUTION_PROVIDER')
 }
