@@ -269,7 +269,7 @@ async function main() {
 
 if (process.argv[1]?.endsWith('icloud-mail-sync.ts')) {
   main().catch((error) => {
-    console.error(`iCloud Mail sync failed: ${describeImapError(error)}`)
+    console.error(`Apple Mail metadata sync failed: ${error instanceof Error ? error.message : String(error)}`)
     process.exitCode = 1
   })
 }
