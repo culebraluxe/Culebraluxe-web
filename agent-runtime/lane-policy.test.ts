@@ -1,14 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { DEFAULT_LANES } from './lanes'
 import { resolveLane } from './lane-policy'
+import { DEFAULT_FORGE_TEAM, type ForgeTeam } from './team'
 
 const registered = {
   hasProfile(profile: string) {
     return [
       'scout-volume',
       'architect-pro',
+      'lead-pro',
       'builder-flash',
       'builder-plus',
       'builder-emergency',
@@ -18,7 +19,7 @@ const registered = {
   },
 }
 
-test('smith default stays on builder-flash', () => {
+test('smith default profile comes from the team map', () => {
   const d = resolveLane({ lane: 'smith', registry: registered })
   assert.equal(d.ok, true)
   if (d.ok) {
@@ -29,7 +30,26 @@ test('smith default stays on builder-flash', () => {
   }
 })
 
-test('smith upgrade flips profile only for that session', () => {
+test('same Smith lane can map to another logical profile without changing lane code', () => {
+  const team: ForgeTeam = {
+    ...DEFAULT_FORGE_TEAM,
+    assignments: {
+      ...DEFAULT_FORGE_TEAM.assignments,
+      smith: {
+        ...DEFAULT_FORGE_TEAM.assignments.smith,
+        profile: 'builder-plus',
+        playerId: 'deepseek-pro',
+        harnessId: 'forge-native',
+        lineage: 'deepseek-judgment',
+      },
+    },
+  }
+  const d = resolveLane({ lane: 'smith', registry: registered, team })
+  assert.equal(d.ok, true)
+  if (d.ok) assert.equal(d.launch.modelProfile, 'builder-plus')
+})
+
+test('smith upgrade is a mapped assignment variant', () => {
   const d = resolveLane({ lane: 'smith', smithGrade: 'upgrade', registry: registered })
   assert.equal(d.ok, true)
   if (d.ok) assert.equal(d.launch.modelProfile, 'builder-plus')
@@ -41,7 +61,7 @@ test('smith emergency is locked without authorization', () => {
   if (!d.ok) assert.equal(d.code, 'emergency-not-authorized')
 })
 
-test('smith emergency launches when authorized', () => {
+test('smith emergency launches mapped profile when authorized', () => {
   const d = resolveLane({
     lane: 'smith',
     smithGrade: 'emergency',
@@ -55,34 +75,34 @@ test('smith emergency launches when authorized', () => {
 test('inspector refuses without a diff', () => {
   const d = resolveLane({
     lane: 'inspector',
-    session: { smithLineage: 'volume-lab' },
+    session: { smithLineage: 'deepseek-volume' },
     registry: registered,
   })
   assert.equal(d.ok, false)
   if (!d.ok) assert.equal(d.code, 'missing-diff')
 })
 
-test('inspector refuses same lineage as smith', () => {
+test('inspector refuses same mapped lineage as smith', () => {
   const d = resolveLane({
     lane: 'inspector',
-    session: { smithLineage: 'judgment-lab', hasInlineDiff: true },
+    session: { smithLineage: 'deepseek-judgment', hasInlineDiff: true },
     registry: registered,
   })
   assert.equal(d.ok, false)
   if (!d.ok) assert.equal(d.code, 'same-lineage-review')
 })
 
-test('inspector launches when lineage differs and diff exists', () => {
+test('inspector launches when mapped lineage differs and diff exists', () => {
   const d = resolveLane({
     lane: 'inspector',
-    session: { smithLineage: 'volume-lab', hasInlineDiff: true },
+    session: { smithLineage: 'deepseek-volume', hasInlineDiff: true },
     registry: registered,
   })
   assert.equal(d.ok, true)
   if (d.ok) {
     assert.equal(d.launch.role, 'reviewer')
     assert.equal(d.launch.modelProfile, 'reviewer-other')
-    assert.equal(d.launch.lineage, 'judgment-lab')
+    assert.equal(d.launch.lineage, 'deepseek-judgment')
     assert.equal(d.launch.toolPolicy, 'read-only')
   }
 })
@@ -111,7 +131,7 @@ test('architect launches plan-only after scout packet', () => {
   }
 })
 
-test('unregistered profile fail-closes instead of inventing a default', () => {
+test('unregistered mapped profile fail-closes instead of inventing a default', () => {
   const d = resolveLane({
     lane: 'smith',
     registry: { hasProfile: () => false },
@@ -153,6 +173,8 @@ test('smith launches when the neon architect brief is present', () => {
   if (d.ok) assert.equal(d.launch.modelProfile, 'builder-flash')
 })
 
-test('default smith binding stays the live factory profile', () => {
-  assert.equal(DEFAULT_LANES.smith.profile, 'builder-flash')
+test('default Smith model choice is owned by team mapping, not lane definition', () => {
+  assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.profile, 'builder-flash')
+  assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.playerId, 'deepseek-flash')
+  assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.harnessId, 'opencode')
 })
