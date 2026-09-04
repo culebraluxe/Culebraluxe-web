@@ -2,24 +2,15 @@ import { CORE_CAPABILITIES } from '../capabilities'
 import type { ForgeProviderDescriptor } from './provider'
 
 /**
- * Warp provider boundary. The installed Warp Agent CLI (`warp`) is currently
- * an interactive conversation TUI; it does not expose a documented one-shot
- * prompt command suitable for Forge's headless process adapter.
- *
- * Forge therefore fails closed unless the operator supplies a compatible
- * headless wrapper through WARP_HEADLESS_BIN. The wrapper contract is:
- *
- *   <wrapper> --cwd <worker-worktree> --task <canonical-forge-task>
- *
- * This keeps the provider seam honest while leaving room for Warp Automation
- * Platform (or a future documented headless CLI contract) without changing
- * Forge story/lane semantics.
+ * Warp remains fail-closed until a headless wrapper is configured. V6.1 adds
+ * the frozen provider/model to that wrapper contract so role mappings cannot
+ * silently fall back to a wrapper default model.
  */
 export const warpProvider: ForgeProviderDescriptor = {
   id: 'warp',
-  description: 'Warp provider (headless wrapper required)',
+  description: 'Warp provider (headless wrapper required, explicit model)',
   capabilities: CORE_CAPABILITIES,
-  buildCommand: ({ cwd, task }) => {
+  buildCommand: ({ cwd, task, modelRef }) => {
     const headlessBin = process.env.WARP_HEADLESS_BIN?.trim()
     if (!headlessBin) {
       throw new Error(
@@ -29,7 +20,7 @@ export const warpProvider: ForgeProviderDescriptor = {
     }
     return {
       bin: headlessBin,
-      args: ['--cwd', cwd, '--task', task],
+      args: ['--cwd', cwd, '--task', task, '--model', modelRef],
     }
   },
 }
