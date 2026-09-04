@@ -4,7 +4,7 @@
 Formalize the first multi-position Forge topology as Lead → one or more Dev work packets → QA/Assay, while keeping execution serial until measured evidence justifies parallelism.
 
 ## Depends on
-ENG-FORGE-V5-10 accepted and published.
+ENG-FORGE-V5-03 accepted and published. This topology story is independent of V5-10 feeder completion.
 
 ## Scope
 Represent topology and handoff contracts only. Lead decomposes bounded work; Dev executes assigned packet; QA/Assay verifies the assembled candidate. Start with N=1 as the default operational case and support N>1 structurally without concurrent execution.
