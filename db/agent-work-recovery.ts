@@ -5,7 +5,6 @@ import {
   listStaleAgentWork,
   type AgentWorkItem,
 } from './agent-work'
-import { appendForgeRunEvent } from './forge-run-event'
 import type { QueryExecutor } from './query-executor'
 
 export type AgentWorkRecoveryDisposition = 'retry' | 'hold'
@@ -28,6 +27,15 @@ export function assayInterruptionRequiresHuman(
       reason: 'policy probe',
     }).action === 'hold-human'
   )
+}
+
+function interruptionFailureCode(role: string | null | undefined): string {
+  const normalized = (role ?? '').trim().toLowerCase()
+  if (normalized === 'reviewer' || normalized === 'verifier') {
+    return 'ASSAY_RUNTIME_INTERRUPTED'
+  }
+  if (normalized === 'builder') return 'SMITH_RUNTIME_INTERRUPTED'
+  return 'HUMAN_DECISION_REQUIRED'
 }
 
 /**
@@ -64,6 +72,10 @@ export async function recoverAgentWorkInterruption(
     reason: conciseReason,
   })
   const hold = recovery.action === 'hold-human'
+  const failureCode = interruptionFailureCode(item.role)
+  const recoveryDetail =
+    `recovery action=${recovery.action} human_required=${recovery.humanRequired} ` +
+    `attempts=${item.attempts}/${item.maxAttempts} reason=${recovery.reason}`
 
   if (hold) {
     await execute`
@@ -71,10 +83,16 @@ export async function recoverAgentWorkInterruption(
         update storyboard_story_run
         set ended_at = now(),
             result_status = 'Interrupted',
+            failure_code = ${failureCode},
             notes = case
               when notes is null or notes = ''
                 then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${recovery.reason}
               else notes || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${recovery.reason}
+            end,
+            evidence_detail = case
+              when evidence_detail is null or evidence_detail = ''
+                then to_char(now(), 'YYYY-MM-DD HH24:MI:SS') || ' — ' || ${recoveryDetail}
+              else evidence_detail || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI:SS') || ' — ' || ${recoveryDetail}
             end,
             updated_at = now()
         where id = ${interruptedRunId}
@@ -106,10 +124,16 @@ export async function recoverAgentWorkInterruption(
         update storyboard_story_run
         set ended_at = now(),
             result_status = 'Interrupted',
+            failure_code = ${failureCode},
             notes = case
               when notes is null or notes = ''
                 then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
               else notes || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+            end,
+            evidence_detail = case
+              when evidence_detail is null or evidence_detail = ''
+                then to_char(now(), 'YYYY-MM-DD HH24:MI:SS') || ' — ' || ${recoveryDetail}
+              else evidence_detail || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI:SS') || ' — ' || ${recoveryDetail}
             end,
             updated_at = now()
         where id = ${interruptedRunId}
@@ -138,25 +162,6 @@ export async function recoverAgentWorkInterruption(
       from released_work w
       where s.id = w.story_id
     `
-  }
-
-  if (interruptedRunId) {
-    await appendForgeRunEvent(
-      {
-        storyRunId: interruptedRunId,
-        storyId: item.storyId,
-        eventType: 'recovery.decision',
-        payload: {
-          role: item.role,
-          action: recovery.action,
-          humanRequired: recovery.humanRequired,
-          attempts: item.attempts,
-          maxAttempts: item.maxAttempts,
-          reason: recovery.reason,
-        },
-      },
-      execute,
-    )
   }
 
   const recovered = await getAgentWorkItem(workItemId, execute)
