@@ -44,6 +44,7 @@ export async function findIdentityMatches(
       select
         ${identityType}::text as identity_type,
         ${normalizedIdentityValue}::text as identity_value,
+        ${normalizedIdentityValue}::text as semantic_value,
         ${sourceSystem}::text as source_system
     )
     select pi.id as identity_id, pi.person_id, pi.identity_value
@@ -58,11 +59,11 @@ export async function findIdentityMatches(
               and left(regexp_replace(pi.identity_value, '[^0-9]', '', 'g'), 1) = '1'
             then substring(regexp_replace(pi.identity_value, '[^0-9]', '', 'g') from 2)
             else regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
-          end) = l.identity_value)
+          end) = l.semantic_value)
         or (l.identity_type = 'email'
-          and lower(trim(pi.identity_value)) = lower(trim(l.identity_value)))
+          and lower(trim(pi.identity_value)) = lower(trim(l.semantic_value)))
         or (l.identity_type <> 'phone' and l.identity_type <> 'email'
-          and pi.identity_value = l.identity_value)
+          and pi.identity_value = l.semantic_value)
       )
       and (l.source_system is null or pi.source_system = l.source_system)
       and p.archived_at is null
@@ -95,6 +96,7 @@ export async function findIdentityOwnerships(
       select
         ${identityType}::text as identity_type,
         ${normalizedIdentityValue}::text as identity_value,
+        ${normalizedIdentityValue}::text as semantic_value,
         ${sourceSystem}::text as source_system
     )
     select pi.id as identity_id, pi.person_id, pi.identity_value, p.archived_at
@@ -109,11 +111,11 @@ export async function findIdentityOwnerships(
               and left(regexp_replace(pi.identity_value, '[^0-9]', '', 'g'), 1) = '1'
             then substring(regexp_replace(pi.identity_value, '[^0-9]', '', 'g') from 2)
             else regexp_replace(pi.identity_value, '[^0-9]', '', 'g')
-          end) = l.identity_value)
+          end) = l.semantic_value)
         or (l.identity_type = 'email'
-          and lower(trim(pi.identity_value)) = lower(trim(l.identity_value)))
+          and lower(trim(pi.identity_value)) = lower(trim(l.semantic_value)))
         or (l.identity_type <> 'phone' and l.identity_type <> 'email'
-          and pi.identity_value = l.identity_value)
+          and pi.identity_value = l.semantic_value)
       )
       and (l.source_system is null or pi.source_system = l.source_system)
     order by pi.person_id, pi.id
