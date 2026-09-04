@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   readlinkSync,
+  realpathSync,
   symlinkSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -50,6 +51,21 @@ async function branchExists(repoRoot: string, branchName: string): Promise<boole
   }
 }
 
+/**
+ * macOS exposes /var through the /private/var filesystem path. Git worktree
+ * metadata may return the canonical /private/var form while Node path.resolve
+ * keeps the caller's /var spelling. Compare filesystem identity, not spelling.
+ */
+function canonicalPath(path: string): string {
+  const absolute = resolve(path)
+  if (!existsSync(absolute)) return absolute
+  try {
+    return realpathSync.native(absolute)
+  } catch {
+    return absolute
+  }
+}
+
 function assertExternalWorktreeRoot(repoRoot: string, worktreesRoot: string, worktreePath: string): void {
   if (worktreesRoot === repoRoot || worktreesRoot.startsWith(repoRoot + sep)) {
     throw new WorkerWorkspaceError(
@@ -82,7 +98,7 @@ async function ensureSharedLinks(
         )
       }
       const existingTarget = resolve(worktreePath, readlinkSync(link))
-      if (existingTarget !== resolve(target)) {
+      if (canonicalPath(existingTarget) !== canonicalPath(target)) {
         throw new WorkerWorkspaceError(
           `recovered workspace shared link ${link} points to ${existingTarget}, expected ${resolve(target)}.`,
         )
@@ -158,7 +174,7 @@ export async function provisionOrRecoverWorkerWorkspace(
   const branchWorktree = registered.find((item) => item.branchName === branchName) ?? null
 
   if (branchWorktree) {
-    if (resolve(branchWorktree.worktreePath) !== resolve(worktreePath)) {
+    if (canonicalPath(branchWorktree.worktreePath) !== canonicalPath(worktreePath)) {
       throw new WorkerWorkspaceError(
         `recovery branch ${branchName} is registered at ${branchWorktree.worktreePath}, expected ${worktreePath}. Refusing to move or steal another workspace.`,
       )
