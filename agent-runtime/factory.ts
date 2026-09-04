@@ -15,6 +15,7 @@ import {
   openCodeModelBlocker,
   type OpenCodeHarnessConfig,
 } from './opencode/opencode-harness-adapter'
+import { DeterministicAssayAdapter } from './deterministic-assay-adapter'
 import type {
   AgentExecutionContext,
   AgentRunEvidence,
@@ -92,14 +93,6 @@ class PolicyDeepSeekHarnessAdapter extends DeepSeekHarnessAdapter {
   }
 }
 
-/**
- * ENG-FORGE-V5-01 — Forge-owned candidate commit policy for the OpenCode
- * harness. OpenCode is an inner execution engine: it edits the worker
- * worktree, but Forge (NOT OpenCode) creates the candidate commit through the
- * existing harness-owned commit path (commitWorkerWorkspaceChanges), exactly
- * as the forge-native DeepSeek harness does. A non-builder run never keeps a
- * commit (revokeForbiddenCommit).
- */
 class PolicyOpenCodeHarnessAdapter extends OpenCodeHarnessAdapter {
   protected override async resultExternal(
     command: AgentWorkCommand,
@@ -185,6 +178,21 @@ export function createAgentRuntimeRegistry(
         return `${base}\n${writeBoundaryLines(context.policy).join('\n')}`
       }),
   })
+
+  // Forge V6 — Assay is a local deterministic executor, not an AI agent.
+  // Provider/model overrides cannot reroute verifier-mini away from this gate.
+  registry.registerAdapter({
+    adapterId: 'forge-assay',
+    description: 'Forge deterministic exact-candidate Assay executor (model-free)',
+    capabilities: ASSAY_CAPABILITIES,
+    readiness: () =>
+      readyAdapterReadiness(
+        'delegated',
+        'Forge deterministic Assay is local, model-free, and ready',
+      ),
+    factory: (deps) => new DeterministicAssayAdapter(deps),
+  })
+
   registry.registerAdapter({
     adapterId: 'gateway-warp',
     description: warpProvider.description,
@@ -238,14 +246,8 @@ export function createAgentRuntimeRegistry(
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
   })
 
-  // ENG-FORGE-V5-01/03 — OpenCode inner harness adapter. Since ENG-FORGE-V5-03
-  // it is the DEFAULT Smith `builder-flash` harness (provider opencode /
-  // adapter opencode-harness) with the model pinned to
-  // deepseek/deepseek-v4-flash. Scout/architect/verifier keep the forge-native
-  // DeepSeek harness. An explicit FORGE_PROVIDER_<PROFILE> or
-  // FORGE_EXECUTION_PROVIDER override still wins. Readiness fails closed when
-  // the `opencode` CLI is missing or the model is not explicitly pinned —
-  // never a silent fallback to forge-native.
+  // Smith remains on the V5 OpenCode path by default. V6 changes Assay only;
+  // it does not disturb successful builder provider routing.
   registry.registerAdapter({
     adapterId: 'opencode-harness',
     description: 'OpenCode CLI inner harness adapter (opencode run)',
@@ -281,17 +283,17 @@ export function createAgentRuntimeRegistry(
       }),
   })
 
-  // ENG-FORGE-V5-03 — profile registration resolves the provider at the
-  // routing/default-selection seam (gateway/provider.ts): builder-flash
-  // defaults to opencode, the other Forge profiles default to deepseek, and
-  // any explicit FORGE_PROVIDER_<PROFILE> / FORGE_EXECUTION_PROVIDER override
-  // wins over the default.
   for (const position of ['scout', 'architect', 'smith', 'assay'] as ForgePosition[]) {
     const assignment = DEFAULT_FORGE_TEAM.assignments[position]
-    const provider = resolveForgeExecutionProviderForProfile(assignment.profile)
+    const adapterId =
+      position === 'assay'
+        ? 'forge-assay'
+        : adapterIdForProvider(
+            resolveForgeExecutionProviderForProfile(assignment.profile),
+          )
     registry.registerProfile({
       profile: assignment.profile,
-      adapterId: adapterIdForProvider(provider),
+      adapterId,
       capabilities: POSITION_CAPABILITIES[position],
     })
   }
