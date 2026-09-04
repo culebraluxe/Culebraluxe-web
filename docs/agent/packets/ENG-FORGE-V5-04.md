@@ -4,7 +4,7 @@
 Prove one real Smith coding task executes through `opencode-harness` with `deepseek/deepseek-v4-flash`, while Forge preserves Neon truth, isolated worktree ownership, candidate creation, exact-candidate Assay, publish, and Slack evidence.
 
 ## Depends on
-ENG-FORGE-V5-03R accepted and published. Do not start this proof while the V5-03 control-plane incident remains open.
+ENG-FORGE-V5-03 accepted and published. ENG-FORGE-V5-03R is incident history, not a hard predecessor; run this proof against the repaired current `main`.
 
 ## Scope
 One tiny, useful code change in the OpenCode integration seam plus focused tests. No sessions, subagents, MCP, plugins, swarm, Pro, or schema work.
