@@ -69,26 +69,30 @@ function makeTemplate(overrides: Partial<TemplateDefinition> = {}): TemplateDefi
 
 // --- Registry: coexistence, exact lookup, latest ----------------------------
 
-test('FORMS-VER 1: registry holds PR-PNS v1 and v2 simultaneously', () => {
+test('FORMS-VER 1: registry holds PR-PNS v1, v2 and v3 simultaneously', () => {
   const versions = listTemplates()
     .filter((t) => t.id === PURCHASE_SALE_TEMPLATE_ID)
     .map((t) => t.version)
     .sort((a, b) => a - b)
-  assert.deepEqual(versions, [1, 2])
+  assert.deepEqual(versions, [1, 2, 3])
 })
 
-test('FORMS-VER 2: exact lookup PR-PNS+1 -> v1, PR-PNS+2 -> v2', () => {
+test('FORMS-VER 2: exact lookup resolves every persisted PR-PNS version', () => {
   const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)
   const v2 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)
+  const v3 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)
   assert.ok(v1)
   assert.ok(v2)
+  assert.ok(v3)
   assert.equal(v1.version, 1)
   assert.equal(v2.version, 2)
+  assert.equal(v3.version, 3)
   assert.notEqual(v1, v2, 'v1 and v2 are distinct definitions')
+  assert.notEqual(v2, v3, 'v2 and v3 are distinct definitions')
 })
 
-test('FORMS-VER 3: latest lookup returns v2', () => {
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
+test('FORMS-VER 3: latest lookup returns v3', () => {
+  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
 })
 
 test('FORMS-VER 4: when only v1 exists, latest resolves to v1 (new form stores v1)', () => {
@@ -97,20 +101,18 @@ test('FORMS-VER 4: when only v1 exists, latest resolves to v1 (new form stores v
   assert.equal(resolveLatestTemplateVersion(onlyV1, PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
 })
 
-test('FORMS-VER 5: NEW form creation uses the ACTIVE version (v1), not the highest registered (v2)', () => {
-  // createFormAction resolves getActiveTemplate(id), so a new P&S form stores
-  // the human-approved version even though a higher version is registered.
-  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
+test('FORMS-VER 5: NEW form creation uses the ACTIVE approved version (v3)', () => {
+  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
+  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
 })
 
-test('FORMS-VER 16: PR-PNS v2 remains registered but is NOT the active/approved version', () => {
-  assert.equal(ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID], 1)
-  // v2 is registered (exact lookup works) and is the highest registered, but the
-  // approved/current version for NEW forms stays v1.
+test('FORMS-VER 16: PR-PNS v1/v2 remain registered while v3 is active/approved', () => {
+  assert.equal(ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID], 3)
+  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)?.version, 1)
   assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)?.version, 2)
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
-  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
+  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)?.version, 3)
+  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
+  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
 })
 
 test('FORMS-VER 17: an existing persisted v2 form still resolves v2 exactly', () => {
@@ -128,12 +130,8 @@ test('FORMS-VER 17: an existing persisted v2 form still resolves v2 exactly', ()
   )
 })
 
-test('FORMS-VER 18: registering a higher unapproved version does NOT affect new form creation', () => {
-  // The active manifest is the sole source of truth for NEW forms; a higher
-  // registered (unapproved) version never changes what a new form uses.
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 2)
-  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
-  // Active is driven by the code-owned manifest, independent of registration.
+test('FORMS-VER 18: active manifest is the source of truth for NEW form creation', () => {
+  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
   assert.equal(
     getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version,
     ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID],
@@ -160,25 +158,23 @@ test('FORMS-VER 21: Grok Fill resolution seam — missing persisted template ver
   )
 })
 
-test('FORMS-VER 6: an existing v1 form still resolves v1 after v2 exists', () => {
-  // Even though v2 is now latest, the exact v1 lookup must still return v1.
+test('FORMS-VER 6: an existing v1 form still resolves v1 after newer versions exist', () => {
   assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)?.version, 1)
 })
 
-test('FORMS-VER 7: v1 preview after v2 exists still uses the v1 definition', () => {
+test('FORMS-VER 7: v1 preview after newer versions exist still uses the v1 definition', () => {
   const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
-  const v2 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)!
+  const v3 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)!
   assert.equal(v1.version, 1)
-  assert.notEqual(v1, v2)
+  assert.notEqual(v1, v3)
   assert.equal(v1.rendering.title, 'PURCHASE AND SALE AGREEMENT')
   assert.ok(v1.sections.length >= 15, 'v1 keeps its full section set')
 })
 
-test('FORMS-VER 8/9: issuance resolves the exact stored version (v1 -> 1, v2 -> 2)', () => {
-  // db/issued-document.ts resolves getTemplate(form.templateId, form.templateVersion),
-  // so the issued artifact's templateVersion equals the exact resolved template.
+test('FORMS-VER 8/9: issuance resolves the exact stored version', () => {
   assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)?.version, 1)
   assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)?.version, 2)
+  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)?.version, 3)
 })
 
 test('FORMS-VER 10: unknown persisted template version fails closed (null)', () => {
@@ -187,7 +183,7 @@ test('FORMS-VER 10: unknown persisted template version fails closed (null)', () 
 })
 
 test('FORMS-VER 11: previously issued v1 definition remains unchanged', () => {
-  // The v1 file/definition is preserved exactly (not overwritten by v2).
+  // The v1 file/definition is preserved exactly (not overwritten by newer versions).
   const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
   assert.equal(v1.version, 1)
   assert.equal(v1.fields.length, 16)
@@ -262,4 +258,3 @@ test('FORMS-VER 15: validator rejects a canonical field/binding change', () => {
   assert.ok(Array.isArray(reportType.canonicalFields))
   assert.equal(reportType.compatible, false)
 })
-
