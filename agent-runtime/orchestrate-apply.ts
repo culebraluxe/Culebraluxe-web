@@ -84,12 +84,21 @@ export function isCleanAssayResult(input: {
 
 export function assayFailureEvidence(input: {
   testsSummary?: string | null
+  /**
+   * Backward-compatible field name. Some callers pass the packet's configured
+   * Assay commands because structured per-command failure facts do not yet
+   * exist. They MUST therefore be rendered as configured commands, never
+   * falsely relabeled as commands that actually failed.
+   */
   failedCommands?: string[] | null
+  assayCommands?: string[] | null
 }): string | null {
   const summary = (input.testsSummary ?? '').trim()
-  const commands = (input.failedCommands ?? []).map((command) => command.trim()).filter(Boolean)
+  const commands = (input.assayCommands ?? input.failedCommands ?? [])
+    .map((command) => command.trim())
+    .filter(Boolean)
   if (commands.length === 0) return summary || null
-  const commandEvidence = `failed commands: ${commands.join(', ')}`
+  const commandEvidence = `assay commands: ${commands.join(', ')}`
   return summary ? `${summary} | ${commandEvidence}` : commandEvidence
 }
 
