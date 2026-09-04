@@ -1,17 +1,6 @@
 // ---------------------------------------------------------------------------
 // ENG-18 dogfood invoker CLI — deterministic local execution through the
 // TUnit/Fake adapter.
-//
-//   pnpm agent:runtime:dogfood
-//
-//  1. creates a durable work command for a temp DEV fixture story
-//  2. the invoker claims it, loads Story Board context, resolves the adapter
-//     from the registry, executes deterministic fake work, records
-//     heartbeat/progress, returns evidence, persists the run, terminalizes
-//  3. prints the three-layer result (story / run / work item)
-//
-// This exercises the SAME path a real DeepSeek Harness adapter will take later.
-// No vendor code exists yet. Nothing is pushed.
 // ---------------------------------------------------------------------------
 
 import { interactiveSql } from '../lib/neon-interactive'
@@ -51,23 +40,34 @@ async function main(): Promise<void> {
     await work.enqueue({
       storyId,
       role: 'builder',
+      lane: 'smith',
+      runPhase: null,
       modelProfile: 'builder-flash',
+      playerId: 'tunit-dogfood',
+      providerId: 'forge',
+      modelId: 'tunit',
+      harnessId: 'forge-native',
+      fieldId: 'local',
       specialInstructions: 'dogfood CLI: deterministic TUnit run',
+      candidateShas: [],
       priority: 100,
       maxAttempts: 3,
       executionEnvironment: 'DEV',
     })
 
     const registry = new AgentRuntimeRegistry()
+    // The frozen work item says forge-native; for this deterministic diagnostic
+    // we deliberately substitute TUnit behind that adapter id. Production team
+    // mappings are not involved.
     registry.registerAdapter({
-      adapterId: 'tunit',
-      description: 'deterministic reference adapter',
+      adapterId: 'deepseek-harness',
+      description: 'deterministic reference adapter for dogfood',
       capabilities: CORE_CAPABILITIES,
       factory: (deps) => new TUnitAgentRuntimeAdapter(deps, scenario()),
     })
     registry.registerProfile({
       profile: 'builder-flash',
-      adapterId: 'tunit',
+      adapterId: 'deepseek-harness',
       capabilities: CORE_CAPABILITIES,
     })
 
