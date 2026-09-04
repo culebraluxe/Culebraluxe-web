@@ -15,17 +15,37 @@ export type AgentWorkRecoveryResult = {
 }
 
 /**
+ * Assay is a human intervention boundary.
+ *
+ * A verifier/reviewer interruption must NEVER consume retry budget by
+ * automatically starting another Assay, and must never route back to Smith.
+ * The candidate + failed/interrupted evidence are preserved on Hold until a
+ * human deliberately chooses the next action.
+ */
+export function assayInterruptionRequiresHuman(
+  role: string | null | undefined,
+): boolean {
+  const normalized = (role ?? '').trim().toLowerCase()
+  return normalized === 'verifier' || normalized === 'reviewer'
+}
+
+/**
  * Runtime interruption is not story failure.
  *
  * This is the durable recovery seam for a worker process that died, exited
  * non-zero, or was orphaned by a host restart. The interrupted run is closed
- * truthfully as `Interrupted`; the SAME work item is then either re-queued for
- * another process attempt or held after its retry budget is exhausted.
+ * truthfully as `Interrupted`; ordinary execution work is then either re-queued
+ * for another process attempt or held after its retry budget is exhausted.
  *
- * Important: story_run_id is intentionally preserved on the re-queued row
- * until the next beginRun() replaces it. The caller that observed the process
- * failure can therefore still normalize and return evidence for the exact
- * interrupted run after this transition.
+ * ASSAY EXCEPTION: verifier/reviewer is an explicit human intervention point.
+ * Any Assay interruption goes directly to Hold on the first interruption,
+ * regardless of remaining retry budget. It is never automatically re-run and
+ * never causes Smith to restart.
+ *
+ * Important: story_run_id is intentionally preserved on an ordinary re-queued
+ * row until the next beginRun() replaces it. The caller that observed the
+ * process failure can therefore still normalize and return evidence for the
+ * exact interrupted run after this transition.
  */
 export async function recoverAgentWorkInterruption(
   workItemId: string,
@@ -47,12 +67,21 @@ export async function recoverAgentWorkInterruption(
 
   const conciseReason = String(reason || 'runtime interrupted').slice(0, 2000)
   const interruptedRunId = item.storyRunId
-  const exhausted = item.attempts >= item.maxAttempts
+  const humanGate = assayInterruptionRequiresHuman(item.role)
+  const exhausted = humanGate || item.attempts >= item.maxAttempts
 
   if (exhausted) {
+    const errorText = humanGate
+      ? `Assay interrupted; human intervention required: ${conciseReason}`
+      : `runtime retry budget exhausted (${item.attempts}/${item.maxAttempts}): ${conciseReason}`
+    const runNote = humanGate
+      ? `Assay interrupted: ${conciseReason}. Human intervention required; no automatic Assay retry and no Smith restart.`
+      : `runtime interrupted: ${conciseReason}`
+
     // One statement = one atomic recovery decision. The run closes as
-    // Interrupted, the work item consumes its final infrastructure attempt,
-    // and the story moves to Hold without ever claiming implementation failure.
+    // Interrupted, the work item becomes terminal, and the story moves to Hold
+    // without ever claiming implementation failure. For Assay this happens on
+    // the FIRST interruption even when retry budget remains.
     await execute`
       with interrupted_run as (
         update storyboard_story_run
@@ -60,8 +89,8 @@ export async function recoverAgentWorkInterruption(
             result_status = 'Interrupted',
             notes = case
               when notes is null or notes = ''
-                then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
-              else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+                then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${runNote}
+              else notes || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${runNote}
             end,
             updated_at = now()
         where id = ${interruptedRunId}
@@ -70,7 +99,7 @@ export async function recoverAgentWorkInterruption(
       ), exhausted_work as (
         update agent_work_item
         set state = 'Error',
-            error_text = ${`runtime retry budget exhausted (${item.attempts}/${item.maxAttempts}): ${conciseReason}`},
+            error_text = ${errorText},
             finished_at = now(),
             updated_at = now()
         where id = ${workItemId}
@@ -90,6 +119,7 @@ export async function recoverAgentWorkInterruption(
     // story-first Ready transition could let the dispatch trigger create a
     // duplicate queue row. By the time that trigger fires here, THIS work item
     // is already Ready and its insert conflicts safely with the existing row.
+    // This automatic retry path is deliberately unreachable for Assay roles.
     await execute`
       with interrupted_run as (
         update storyboard_story_run
@@ -98,7 +128,7 @@ export async function recoverAgentWorkInterruption(
             notes = case
               when notes is null or notes = ''
                 then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
-              else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+              else notes || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
             end,
             updated_at = now()
         where id = ${interruptedRunId}
@@ -143,7 +173,8 @@ export async function recoverAgentWorkInterruption(
 /**
  * Host/scheduler recovery uses the exact same primitive as an observed child
  * process failure. No special stale-work semantics, no conversion to story
- * Failed, and no destruction of the worker branch/worktree.
+ * Failed, and no destruction of the worker branch/worktree. Because the same
+ * primitive is used, a stale Assay also stops on Hold for human intervention.
  */
 export async function recoverStaleAgentWorkIndustrial(
   staleAfterMinutes: number,
