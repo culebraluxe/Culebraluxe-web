@@ -16,7 +16,11 @@ import {
   type AgentWorkItem,
 } from '../db/agent-work'
 import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
-import { appendForgeRunEvent } from '../db/forge-run-event'
+import {
+  initializeForgeStoryRun,
+  recordForgeRunMachineEvidence,
+  setForgeRunRuntime,
+} from '../db/forge-run'
 import { markForgeStoryInProgress } from '../db/forge-story-state'
 import {
   getStoryboardStory,
@@ -29,6 +33,8 @@ import {
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
 import type { AssayEvidence } from './assay-evidence'
+import { DEFAULT_LANES } from './lanes'
+import { runMachineEvidenceFromFinish } from './run-machine-evidence'
 import {
   assayHoldEvidenceLine,
   candidateVerifiedEvidenceLine,
@@ -40,6 +46,26 @@ import {
 
 export type AssayFinishContext = {
   candidateSha: string | null
+}
+
+function runTypeForWorkItem(
+  item: Pick<AgentWorkItem, 'role' | 'modelProfile'>,
+): string | null {
+  const role = (item.role ?? '').trim()
+  const profile = (item.modelProfile ?? '').trim()
+  const exact = Object.values(DEFAULT_LANES).find(
+    (binding) => binding.role === role && binding.profile === profile,
+  )
+  if (exact) return exact.lane
+
+  // Legacy rows predate explicit lane vocabulary. Preserve the nearest factual
+  // lane rather than inventing a new classification.
+  if (role === 'builder') return 'smith'
+  if (role === 'verifier') return 'assay'
+  if (role === 'reviewer') return 'inspector'
+  if (role === 'scout') return 'scout'
+  if (role === 'architect') return 'architect'
+  return role || null
 }
 
 export function normalizeAgentFinishForRole(
@@ -198,7 +224,18 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
 
   async beginRun(workItemId: string) {
     const q = await this.executor()
-    return beginAgentWorkRun(workItemId, q)
+    const begun = await beginAgentWorkRun(workItemId, q)
+    if (begun.workItem.storyRunId) {
+      await initializeForgeStoryRun(
+        begun.workItem.storyRunId,
+        {
+          runType: runTypeForWorkItem(begun.workItem),
+          agentRuntime: begun.workItem.runtimeAdapter ?? null,
+        },
+        q,
+      )
+    }
+    return begun
   }
 
   async progress(workItemId: string, input: AgentProgressUpdate) {
@@ -220,7 +257,11 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     input: { runtimeAdapter: string; externalRunId?: string | null },
   ) {
     const q = await this.executor()
-    return setAgentWorkRuntime(workItemId, input, q)
+    const item = await setAgentWorkRuntime(workItemId, input, q)
+    if (item.storyRunId) {
+      await setForgeRunRuntime(item.storyRunId, input.runtimeAdapter, q)
+    }
+    return item
   }
 
   async finish(
@@ -243,6 +284,14 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     }
 
     const normalized = normalizeAgentFinishForRole(item?.role ?? null, input, context)
+    const machineEvidence = runMachineEvidenceFromFinish({
+      role: item?.role ?? null,
+      resultStatus: normalized.resultStatus,
+      notes: normalized.notes,
+      testsSummary: normalized.testsSummary,
+      assayEvidence: normalized.assayEvidence ?? input.assayEvidence ?? null,
+    })
+
     const finished = await finishAgentWork(
       workItemId,
       {
@@ -255,16 +304,8 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       q,
     )
 
-    if (item?.storyRunId && item && input.assayEvidence) {
-      await appendForgeRunEvent(
-        {
-          storyRunId: item.storyRunId,
-          storyId: item.storyId,
-          eventType: 'assay.verdict',
-          payload: { ...input.assayEvidence },
-        },
-        q,
-      )
+    if (item?.storyRunId) {
+      await recordForgeRunMachineEvidence(item.storyRunId, machineEvidence, q)
     }
 
     const smithAwaitingAssay = Boolean(
@@ -308,7 +349,13 @@ export class SqlAgentRunRepository implements AgentRunRepository {
 
   async start(storyId: string) {
     const q = await this.executor()
-    return startStoryRun(storyId, q)
+    const started = await startStoryRun(storyId, q)
+    await initializeForgeStoryRun(
+      started.run.id,
+      { runType: null, agentRuntime: null },
+      q,
+    )
+    return started
   }
 
   async progress(runId: string, input: AgentProgressUpdate) {
