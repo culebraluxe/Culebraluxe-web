@@ -2,6 +2,7 @@
 
 This file defines planned order only. Git is the ordered architecture stack; Neon remains live execution truth. Only one next story should become Ready at a time, and only after its predecessor is accepted and published.
 
+0. `ENG-FORGE-V5-03R` — Durable Contract Snapshot and Scheduler Integrity
 1. `ENG-FORGE-V5-04` — True OpenCode Operational Proof
 2. `ENG-FORGE-V5-05` — Forge OpenCode Agent Profile
 3. `ENG-FORGE-V5-06` — Repository AGENTS Contract
@@ -15,6 +16,8 @@ This file defines planned order only. Git is the ordered architecture stack; Neo
 
 ## Sequence invariant
 A successor may be promoted only when the predecessor has durable Complete evidence, exact-candidate Assay success where applicable, and accepted publication on `origin/main`.
+
+`ENG-FORGE-V5-03R` is a mandatory incident-closure gate after V5-03. V5-04 must not start until V5-03R is accepted and published.
 
 ## Stop conditions
 Hold, Error, missing packet, missing execution contract, ambiguous evidence, failed Assay, publish conflict, or a human/product gate stops automatic advancement. Never skip forward to keep the queue moving.
