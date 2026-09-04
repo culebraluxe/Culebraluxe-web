@@ -77,7 +77,7 @@ export abstract class AgentRuntimeAdapter {
   /** Optional external error detail captured by the vendor hooks. */
   protected externalErrorText: string | null = null
 
-  /** Story Board spec of the most recent execute (used by pause/resume/cancel hooks). */
+  /** Frozen Story Run execution view of the most recent execute. */
   protected currentStory: AgentExecutionContext['story'] | null = null
 
   constructor(protected readonly deps: AgentRuntimeAdapterDeps) {}
@@ -90,10 +90,11 @@ export abstract class AgentRuntimeAdapter {
    * Execute one AgentWorkCommand as one logical run. SHARED orchestration:
    *   1. terminal/idempotency guard using the PERSISTED command state
    *   2. claim-if-Ready (atomic, single-worker-guarded)
-   *   3. begin the authoritative Story Board run (work -> Running, spec snapshot)
-   *   4. startExternal -> opaque externalRunId persisted on the work item
-   *   5. heartbeat/progress loop over statusExternal until terminal
-   *   6. normalize result: fail / cancel / finish according to terminal state
+   *   3. begin the authoritative Story Board run and freeze its contract
+   *   4. replace mutable parent Story context with that frozen Run context
+   *   5. startExternal -> opaque externalRunId persisted on the work item
+   *   6. heartbeat/progress loop over statusExternal until terminal
+   *   7. normalize result: fail / cancel / finish according to terminal state
    * Concrete adapters provide ONLY the vendor hooks.
    */
   async execute(
@@ -125,12 +126,20 @@ export abstract class AgentRuntimeAdapter {
       command = { ...command, state: 'Claimed', claimedBy: this.runtimeAdapterId }
     }
 
-    // Begin the authoritative Story Board run (story -> In Progress, run
-    // created with spec snapshot, work item -> Running with story_run_id).
-    this.currentStory = context.story
+    // This is the V6 authority boundary. beginRun snapshots the parent Story
+    // into storyboard_story_run and returns a Story-shaped view reconstructed
+    // from that frozen Run. From this line onward no lane executes from mutable
+    // parent contract fields.
     const begun = await this.deps.work.beginRun(command.workItemId)
     const runId = begun.workItem.storyRunId!
-    const ctxWithRun = { ...context, storyRunId: runId }
+    command = { ...command, storyRunId: runId, state: 'Running' }
+    this.currentStory = begun.story
+    const ctxWithRun: AgentExecutionContext = {
+      ...context,
+      command,
+      story: begun.story,
+      storyRunId: runId,
+    }
 
     const started = await this.startExternal(ctxWithRun)
     this.externalRunId = started.externalRunId
@@ -189,7 +198,7 @@ export abstract class AgentRuntimeAdapter {
     // ENG-FORGE-V4-10C: every run that executed inside an isolated workspace
     // records its base commit as machine-scannable evidence. V6 also carries
     // structured Assay evidence beside this human-readable compatibility line.
-    const notes = withWorkspaceEvidence(context.executionWorkspace, result!.notes)
+    const notes = withWorkspaceEvidence(ctxWithRun.executionWorkspace, result!.notes)
     const finished = await this.deps.work.finish(command.workItemId, {
       resultStatus: result!.resultStatus,
       completion: result!.completion,
@@ -320,7 +329,7 @@ export abstract class AgentRuntimeAdapter {
   }
 
   private contextWithRun(command: AgentWorkCommand): AgentExecutionContext {
-    // A minimal context for hooks that do not need the full Story Board spec.
+    // Pause/resume/cancel hooks retain the same frozen Run-bound Story view.
     return {
       command,
       story: this.currentStory as never,
