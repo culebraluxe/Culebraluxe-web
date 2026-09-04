@@ -16,12 +16,12 @@ import type { AgentCapability } from './capabilities'
 import {
   assayCandidateFromInstructions,
   assayEvidenceSummary,
-  assayPlanFromInstructions,
   finalizeAssayEvidence,
   parseAssayTestCounters,
   type AssayCommandResult,
   type AssayEvidence,
 } from './assay-evidence'
+import { planAssay } from './assay-plan'
 import { detectFullRegressionAttempt } from './test-mode'
 import {
   assertExecutionTargetSafe,
@@ -203,12 +203,15 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
           context.command.specialInstructions,
         )
         const workspace = context.executionWorkspace?.worktreePath ?? null
+        const frozenPlan = planAssay({
+          testMode: context.story.testMode,
+          assayCommands: context.story.assayCommands,
+        })
         this.evidence = finalizeAssayEvidence({
           version: 1,
           candidateSha,
           verifiedSha: workspace ? gitHead(workspace) : null,
-          requiredCommands:
-            assayPlanFromInstructions(context.command.specialInstructions)?.commands ?? [],
+          requiredCommands: frozenPlan.ok ? frozenPlan.commands : [],
           commandResults: [],
           policyViolations: [
             `Assay runtime exception: ${String((error as Error)?.message ?? error)}`,
@@ -227,7 +230,11 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
   private async executePlan(context: AgentExecutionContext): Promise<void> {
     const startedAt = new Date().toISOString()
     const instructions = context.command.specialInstructions
-    const plan = assayPlanFromInstructions(instructions)
+    const frozenPlan = planAssay({
+      testMode: context.story.testMode,
+      assayCommands: context.story.assayCommands,
+    })
+    const plan = frozenPlan.ok ? frozenPlan : null
     const candidateSha = assayCandidateFromInstructions(instructions)
     const workspace = context.executionWorkspace?.worktreePath ?? null
     const verifiedSha = workspace ? gitHead(workspace) : null
@@ -241,7 +248,11 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       )
     }
     if (!plan || requiredCommands.length === 0) {
-      policyViolations.push('Assay immutable command plan is missing or invalid.')
+      policyViolations.push(
+        frozenPlan.ok
+          ? 'Assay frozen Story Run command plan is empty.'
+          : `Assay frozen Story Run plan is invalid: ${frozenPlan.reason}`,
+      )
     }
     if (!candidateSha) {
       policyViolations.push('Assay immutable candidate SHA is missing or invalid.')
