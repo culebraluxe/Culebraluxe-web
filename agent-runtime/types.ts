@@ -121,15 +121,18 @@ export interface AgentExecutionPolicy {
   allowControlPlaneWrite: boolean
 }
 
-/** Normalized run evidence. Narrative fields remain human-readable; V6 Assay
- * carries structured machine evidence separately and persists it append-only. */
+/**
+ * Normalized adapter evidence. Narrative fields remain human-readable. Rich
+ * lane-specific evidence may travel in-process here; V6 projects durable truth
+ * into generic structured columns on the existing storyboard_story_run row.
+ */
 export interface AgentRunEvidence {
   resultStatus: string
   completion: number
   notes: string
   testsSummary: string | null
   commitHash: string | null
-  /** Forge V6 structured verifier evidence. Present only for deterministic Assay runs. */
+  /** Deterministic Assay's rich in-process evidence before generic Run projection. */
   assayEvidence?: AssayEvidence | null
   runtimeAdapter: string | null
   modelProfile: ModelProfile | null
