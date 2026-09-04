@@ -26,17 +26,70 @@ import type { PublishAcceptedCandidateInput, PublishAcceptedCandidateOutcome } f
 
 const CANDIDATE = '549866555152c6f4bb55ffa9d45f19910ffab9f5'
 const MAIN_BASE = '7b14c6b'.padEnd(40, '0')
-const cleanInput = { resultStatus: 'Complete', completion: 100, notes: 'verifier finished', commitHash: null, testsSummary: 'candidate-assay-handoff.test.ts 18/18 pass' }
-function notesWithBase(baseSha: string, ref = baseSha): string { return workspaceEvidenceLine({ branchName: 'agent/eng-forge-v4-11/626c756a-9bfd-46ad-9f6c-042de261f481', worktreePath: '/worktrees/eng-forge-v4-11-626c756a-9bfd-46ad-9f6c-042de261f481', baseRef: ref, baseCommit: baseSha }) }
+const cleanInput = {
+  resultStatus: 'Complete',
+  completion: 100,
+  notes: 'verifier finished',
+  commitHash: null,
+  testsSummary: 'candidate-assay-handoff.test.ts 18/18 pass',
+}
+function notesWithBase(baseSha: string, ref = baseSha): string {
+  return workspaceEvidenceLine({ branchName: 'agent/eng-forge-v4-11/626c756a-9bfd-46ad-9f6c-042de261f481', worktreePath: '/worktrees/eng-forge-v4-11-626c756a-9bfd-46ad-9f6c-042de261f481', baseRef: ref, baseCommit: baseSha })
+}
 function context(candidateSha: string | null): AssayFinishContext { return { candidateSha } }
 
-test('isAssayTerminalRole covers reviewer + verifier only', () => { assert.equal(isAssayTerminalRole('reviewer'), true); assert.equal(isAssayTerminalRole('verifier'), true); assert.equal(isAssayTerminalRole('REVIEWER'), true); assert.equal(isAssayTerminalRole('builder'), false); assert.equal(isAssayTerminalRole('scout'), false); assert.equal(isAssayTerminalRole('architect'), false); assert.equal(isAssayTerminalRole(null), false); assert.equal(isAssayTerminalRole(undefined), false) })
-test('smithCandidateSha resolves the newest commit-bearing run; never invents one', () => { assert.equal(smithCandidateSha([{ commitHash: null }, { commitHash: CANDIDATE }]), CANDIDATE); assert.equal(smithCandidateSha([{ commitHash: CANDIDATE }, { commitHash: MAIN_BASE }]), CANDIDATE); assert.equal(smithCandidateSha([{ commitHash: null }]), null); assert.equal(smithCandidateSha([]), null); assert.equal(smithCandidateSha([{ commitHash: 'not-a-hash' }]), null) })
-test('finishedRunCandidateSha is strict: the just-finished run owns the candidate', () => { assert.equal(finishedRunCandidateSha([{ commitHash: null }, { commitHash: CANDIDATE }]), null); assert.equal(finishedRunCandidateSha([{ commitHash: CANDIDATE }]), CANDIDATE) })
-test('commitSha normalizes only real 40-hex hashes', () => { assert.equal(commitSha(CANDIDATE), CANDIDATE); assert.equal(commitSha(`  ${CANDIDATE.toUpperCase()}  `), CANDIDATE); assert.equal(commitSha('main'), null); assert.equal(commitSha(null), null); assert.equal(commitSha(''), null) })
-test('missing-file and non-zero command evidence is failure evidence', () => { assert.equal(ASSAY_FAILURE_EVIDENCE.test('all checks passed'), false); for (const dirty of ['1 failed, 11 passed', 'agent-runtime/slack-notifier.test.ts does not exist in this checkout', 'No test files found for slack-notifier.test.ts', 'command not found: pnpm', 'exit code 1 from the Assay command', 'file is missing from the workspace', 'candidate could not resolve to a commit', 'verification policy gate rejected']) assert.equal(ASSAY_FAILURE_EVIDENCE.test(dirty), true, dirty) })
-test('isCleanAssayEvidence requires Complete and no failure marker', () => { assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '12 passed, 0 errors' }), true); assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: null }), true); assert.equal(isCleanAssayEvidence({ resultStatus: 'Hold', testsSummary: 'clean summary' }), false); assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '1 failed' }), false); assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: 'slack-notifier.test.ts was not found; Assay command could not run' }), false) })
-test('verifiedShaFromWorkspaceEvidence reads the base commit the Assay ran on', () => { assert.equal(verifiedShaFromWorkspaceEvidence(notesWithBase(CANDIDATE)), CANDIDATE); assert.equal(verifiedShaFromWorkspaceEvidence(`Assay output above.\n\n${notesWithBase(MAIN_BASE, 'main')}`), MAIN_BASE); assert.equal(verifiedShaFromWorkspaceEvidence('no workspace line'), null); assert.equal(verifiedShaFromWorkspaceEvidence(null), null) })
+test('isAssayTerminalRole covers reviewer + verifier only', () => {
+  assert.equal(isAssayTerminalRole('reviewer'), true)
+  assert.equal(isAssayTerminalRole('verifier'), true)
+  assert.equal(isAssayTerminalRole('REVIEWER'), true)
+  assert.equal(isAssayTerminalRole('builder'), false)
+  assert.equal(isAssayTerminalRole('scout'), false)
+  assert.equal(isAssayTerminalRole('architect'), false)
+  assert.equal(isAssayTerminalRole(null), false)
+  assert.equal(isAssayTerminalRole(undefined), false)
+})
+
+test('smithCandidateSha resolves the newest commit-bearing run; never invents one', () => {
+  assert.equal(smithCandidateSha([{ commitHash: null }, { commitHash: CANDIDATE }]), CANDIDATE)
+  assert.equal(smithCandidateSha([{ commitHash: CANDIDATE }, { commitHash: MAIN_BASE }]), CANDIDATE)
+  assert.equal(smithCandidateSha([{ commitHash: null }]), null)
+  assert.equal(smithCandidateSha([]), null)
+  assert.equal(smithCandidateSha([{ commitHash: 'not-a-hash' }]), null)
+})
+
+test('finishedRunCandidateSha is strict: the just-finished run owns the candidate', () => {
+  assert.equal(finishedRunCandidateSha([{ commitHash: null }, { commitHash: CANDIDATE }]), null)
+  assert.equal(finishedRunCandidateSha([{ commitHash: CANDIDATE }]), CANDIDATE)
+})
+
+test('commitSha normalizes only real 40-hex hashes', () => {
+  assert.equal(commitSha(CANDIDATE), CANDIDATE)
+  assert.equal(commitSha(`  ${CANDIDATE.toUpperCase()}  `), CANDIDATE)
+  assert.equal(commitSha('main'), null)
+  assert.equal(commitSha(null), null)
+  assert.equal(commitSha(''), null)
+})
+
+test('missing-file and non-zero command evidence is failure evidence', () => {
+  assert.equal(ASSAY_FAILURE_EVIDENCE.test('all checks passed'), false)
+  for (const dirty of ['1 failed, 11 passed', 'agent-runtime/slack-notifier.test.ts does not exist in this checkout', 'No test files found for slack-notifier.test.ts', 'command not found: pnpm', 'exit code 1 from the Assay command', 'file is missing from the workspace', 'candidate could not resolve to a commit', 'verification policy gate rejected']) assert.equal(ASSAY_FAILURE_EVIDENCE.test(dirty), true, dirty)
+})
+
+test('isCleanAssayEvidence requires Complete and no failure marker', () => {
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '12 passed, 0 errors' }), true)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: null }), true)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Hold', testsSummary: 'clean summary' }), false)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '1 failed' }), false)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: 'slack-notifier.test.ts was not found; Assay command could not run' }), false)
+})
+
+test('verifiedShaFromWorkspaceEvidence reads the base commit the Assay ran on', () => {
+  assert.equal(verifiedShaFromWorkspaceEvidence(notesWithBase(CANDIDATE)), CANDIDATE)
+  assert.equal(verifiedShaFromWorkspaceEvidence(`Assay output above.\n\n${notesWithBase(MAIN_BASE, 'main')}`), MAIN_BASE)
+  assert.equal(verifiedShaFromWorkspaceEvidence('no workspace line'), null)
+  assert.equal(verifiedShaFromWorkspaceEvidence(null), null)
+})
+
 test('candidateVerifiedEvidenceLine records the exact verified SHA', () => { assert.equal(candidateVerifiedEvidenceLine(CANDIDATE), `Assay verified candidate ${CANDIDATE} (workspace base == candidate).`) })
 test('Assay lanes resolve their workspace base to the exact candidate commit', () => { for (const role of ['reviewer', 'verifier']) assert.deepEqual(resolveAssayWorkspaceBase({ role, candidateSha: CANDIDATE, fallbackBaseRef: 'main' }), { baseRef: CANDIDATE }) })
 test('non-Assay lanes keep the existing approved integration base', () => { for (const role of ['builder', 'scout', 'architect', null]) assert.deepEqual(resolveAssayWorkspaceBase({ role, candidateSha: CANDIDATE, fallbackBaseRef: 'main' }), { baseRef: 'main' }) })
