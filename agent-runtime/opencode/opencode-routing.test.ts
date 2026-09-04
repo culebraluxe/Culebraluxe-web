@@ -1,14 +1,16 @@
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V5-01 — OpenCode routing + Forge-owned candidate commit tests.
+// ENG-FORGE-V5-01/03 — OpenCode routing + Forge-owned candidate commit tests.
 //
 // Proves the registry routing seam deterministically (no Neon):
-//   - default routing is UNCHANGED: no profile selects OpenCode unless an
-//     explicit lane/profile override (FORGE_PROVIDER_BUILDER_FLASH=opencode)
-//     routes it there
-//   - only the explicitly routed Smith profile goes through OpenCode; the
-//     other Forge profiles keep the forge-native DeepSeek adapter
-//   - OpenCode selected but CLI missing -> readiness blocked (fail closed,
-//     never a silent fallback to forge-native)
+//   - default Smith `builder-flash` routing resolves to OpenCode
+//     (opencode-harness) since ENG-FORGE-V5-03; the other Forge profiles keep
+//     the forge-native DeepSeek adapter, so Assay/verifier routing is
+//     unchanged
+//   - explicit lane/profile overrides still win: FORGE_PROVIDER_BUILDER_FLASH
+//     =opencode keeps Smith on OpenCode and =deepseek returns it to the
+//     forge-native DeepSeek harness
+//   - OpenCode selected (by default or by override) but CLI missing ->
+//     readiness blocked (fail closed, never a silent fallback to forge-native)
 //   - OpenCode selected but the explicit model config is missing/wrong ->
 //     readiness blocked naming the pinned model
 //   - a successful OpenCode run whose workspace is dirty but uncommitted
@@ -71,7 +73,7 @@ function withProfileEnv(value: string | undefined, fn: () => void): void {
   }
 }
 
-test('default routing is unchanged: no profile selects OpenCode without an explicit override', () => {
+test('default Smith builder-flash routing is opencode-harness; other Forge profiles keep the forge-native adapter', () => {
   withProfileEnv(undefined, () => {
     const registry: AgentRuntimeRegistry = createAgentRuntimeRegistry(
       deepSeekReadyConfig(),
@@ -81,7 +83,7 @@ test('default routing is unchanged: no profile selects OpenCode without an expli
     const expected: Record<string, string> = {
       'scout-volume': 'deepseek-harness',
       'architect-pro': 'deepseek-harness',
-      'builder-flash': 'deepseek-harness',
+      'builder-flash': 'opencode-harness',
       'verifier-mini': 'deepseek-harness',
     }
     for (const [profile, adapterId] of Object.entries(expected)) {
@@ -91,7 +93,7 @@ test('default routing is unchanged: no profile selects OpenCode without an expli
       work: {} as never,
       runs: {} as never,
     })
-    assert.equal(smith.runtimeAdapterId, 'deepseek-harness')
+    assert.equal(smith.runtimeAdapterId, 'opencode-harness')
   })
 })
 
@@ -120,16 +122,33 @@ test('an explicitly routed Smith profile selects the OpenCode adapter only', () 
   })
 })
 
-test('OpenCode selected but the CLI is missing fails closed (never forge-native fallback)', () => {
-  withProfileEnv('opencode', () => {
+test('an explicit deepseek override returns the Smith profile to the forge-native DeepSeek harness', () => {
+  withProfileEnv('deepseek', () => {
+    const registry: AgentRuntimeRegistry = createAgentRuntimeRegistry(
+      deepSeekReadyConfig(),
+      openCodeReadyConfig(),
+    )
+    assert.equal(registry.resolveProfile('builder-flash').adapterId, 'deepseek-harness')
+    assert.equal(registry.inspectProfileReadiness('builder-flash').ready, true)
+    const smith = registry.resolveAdapter('builder-flash', {
+      work: {} as never,
+      runs: {} as never,
+    })
+    assert.equal(smith.runtimeAdapterId, 'deepseek-harness')
+  })
+})
+
+test('default OpenCode routing but the CLI is missing fails closed (never forge-native fallback)', () => {
+  withProfileEnv(undefined, () => {
     const registry = createAgentRuntimeRegistry(deepSeekReadyConfig(), {
       cliBin: '/definitely/not/installed/opencode',
       workspace: process.cwd(),
       model: OPENCODE_PINNED_MODEL,
     })
     const readiness = registry.inspectProfileReadiness('builder-flash')
-    // The profile still resolves to the OpenCode adapter — routing is
-    // explicit and must NOT silently fall back to deepseek-harness.
+    // The profile still resolves to the OpenCode adapter — routing is the
+    // ENG-FORGE-V5-03 default and must NOT silently fall back to
+    // deepseek-harness when the CLI is missing.
     assert.equal(registry.resolveProfile('builder-flash').adapterId, 'opencode-harness')
     assert.equal(readiness.registered, true)
     assert.equal(readiness.installed, false)
@@ -262,7 +281,7 @@ function context(workspace: AgentExecutionWorkspace): AgentExecutionContext {
   }
 }
 
-test('Forge creates the candidate commit when OpenCode leaves the worktree dirty', async () => {
+test('Forge creates the candidate commit when OpenCode leaves the worktree dirty (default routing)', async () => {
   const { workspace, cleanup } = makeWorkspace()
   try {
     const handle: OpenCodeHandle = {
@@ -280,7 +299,10 @@ test('Forge creates the candidate commit when OpenCode leaves the worktree dirty
       cancel: () => undefined,
     }
     let adapter: any
-    withProfileEnv('opencode', () => {
+    // ENG-FORGE-V5-03: an ORDINARY builder-flash run (no env override)
+    // resolves to the OpenCode adapter, and Forge still owns the candidate
+    // commit.
+    withProfileEnv(undefined, () => {
       const registry = createAgentRuntimeRegistry(deepSeekReadyConfig(), {
         cliBin: 'opencode',
         workspace: process.cwd(),

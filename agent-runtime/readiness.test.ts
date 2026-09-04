@@ -22,17 +22,44 @@ test('authentication readiness requires an explicit qualification marker', () =>
   assert.equal(explicitAuthenticationReady('authenticated'), 'authenticated')
 })
 
-test('qualified DeepSeek harness reports registered installed and ready', () => {
+test('qualified DeepSeek harness reports registered installed and ready on a DeepSeek-default profile', () => {
   const registry = createAgentRuntimeRegistry({
     cliBin: '/not-used-in-test',
     workspace: process.cwd(),
     startRun: (() => { throw new Error('not invoked') }) as never,
   })
-  const readiness = registry.inspectProfileReadiness('builder-flash')
+  // ENG-FORGE-V5-03: scout-volume still defaults to the forge-native DeepSeek
+  // harness (only builder-flash defaults to OpenCode), so a qualified DeepSeek
+  // harness reports ready here.
+  const readiness = registry.inspectProfileReadiness('scout-volume')
   assert.equal(readiness.registered, true)
   assert.equal(readiness.installed, true)
   assert.equal(readiness.authentication, 'delegated')
   assert.equal(readiness.ready, true)
+})
+
+test('explicit deepseek override keeps builder-flash ready on the qualified forge-native harness', () => {
+  const previousProvider = process.env.FORGE_PROVIDER_BUILDER_FLASH
+  try {
+    process.env.FORGE_PROVIDER_BUILDER_FLASH = 'deepseek'
+    const registry = createAgentRuntimeRegistry({
+      cliBin: '/not-used-in-test',
+      workspace: process.cwd(),
+      startRun: (() => { throw new Error('not invoked') }) as never,
+    })
+    // ENG-FORGE-V5-03: builder-flash defaults to OpenCode, so this test
+    // explicitly returns it to forge-native DeepSeek (explicit overrides
+    // remain supported) and verifies the qualified harness is ready.
+    assert.equal(registry.resolveProfile('builder-flash').adapterId, 'deepseek-harness')
+    const readiness = registry.inspectProfileReadiness('builder-flash')
+    assert.equal(readiness.registered, true)
+    assert.equal(readiness.installed, true)
+    assert.equal(readiness.authentication, 'delegated')
+    assert.equal(readiness.ready, true)
+  } finally {
+    if (previousProvider === undefined) delete process.env.FORGE_PROVIDER_BUILDER_FLASH
+    else process.env.FORGE_PROVIDER_BUILDER_FLASH = previousProvider
+  }
 })
 
 test('OpenClaw can be registered for a profile while remaining not ready', () => {

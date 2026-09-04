@@ -94,6 +94,17 @@ async function main(): Promise<void> {
   })
   console.log('queued work item', item.id, 'state=' + item.state, 'policy=' + item.executionPolicy, 'target=' + item.executionEnvironment)
 
+  // ENG-FORGE-V5-03: `builder-flash` now DEFAULTS to provider opencode /
+  // adapter opencode-harness. This driver is the EXPLICIT DeepSeek-harness
+  // dogfood path, so it pins the Smith profile back to the forge-native
+  // DeepSeek harness unless the operator already selected a provider override.
+  if (
+    !process.env.FORGE_PROVIDER_BUILDER_FLASH &&
+    !process.env.FORGE_EXECUTION_PROVIDER
+  ) {
+    process.env.FORGE_PROVIDER_BUILDER_FLASH = 'deepseek'
+  }
+
   const registry = createAgentRuntimeRegistry(deepseekConfig())
 
   // ENG-21 — isolated worker workspace execution (same default-on rule as the

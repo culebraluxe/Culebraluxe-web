@@ -238,11 +238,14 @@ export function createAgentRuntimeRegistry(
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
   })
 
-  // ENG-FORGE-V5-01 — OpenCode inner harness adapter. Registered like every
-  // other runtime adapter; it is selected ONLY when an explicit
-  // lane/profile routes to it (e.g. FORGE_PROVIDER_BUILDER_FLASH=opencode).
-  // Readiness fails closed when the `opencode` CLI is missing or the model
-  // is not explicitly pinned — never a silent fallback to forge-native.
+  // ENG-FORGE-V5-01/03 — OpenCode inner harness adapter. Since ENG-FORGE-V5-03
+  // it is the DEFAULT Smith `builder-flash` harness (provider opencode /
+  // adapter opencode-harness) with the model pinned to
+  // deepseek/deepseek-v4-flash. Scout/architect/verifier keep the forge-native
+  // DeepSeek harness. An explicit FORGE_PROVIDER_<PROFILE> or
+  // FORGE_EXECUTION_PROVIDER override still wins. Readiness fails closed when
+  // the `opencode` CLI is missing or the model is not explicitly pinned —
+  // never a silent fallback to forge-native.
   registry.registerAdapter({
     adapterId: 'opencode-harness',
     description: 'OpenCode CLI inner harness adapter (opencode run)',
@@ -278,6 +281,11 @@ export function createAgentRuntimeRegistry(
       }),
   })
 
+  // ENG-FORGE-V5-03 — profile registration resolves the provider at the
+  // routing/default-selection seam (gateway/provider.ts): builder-flash
+  // defaults to opencode, the other Forge profiles default to deepseek, and
+  // any explicit FORGE_PROVIDER_<PROFILE> / FORGE_EXECUTION_PROVIDER override
+  // wins over the default.
   for (const position of ['scout', 'architect', 'smith', 'assay'] as ForgePosition[]) {
     const assignment = DEFAULT_FORGE_TEAM.assignments[position]
     const provider = resolveForgeExecutionProviderForProfile(assignment.profile)
