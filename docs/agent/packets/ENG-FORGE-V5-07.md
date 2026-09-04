@@ -4,7 +4,7 @@
 Make Forge record enough run telemetry to compare harness/model choices by working code per unit time/token without trusting model self-report.
 
 ## Depends on
-ENG-FORGE-V5-06 accepted and published.
+ENG-FORGE-V5-03 accepted and published. Telemetry is independent of V5-04/V5-05/V5-06 completion.
 
 ## Scope
 Capture bounded execution facts already available from Forge/OpenCode: adapter, model, elapsed time, exit/result, candidate SHA, Assay first-pass result, and provider usage/cost fields when emitted. Do not build billing infrastructure.
