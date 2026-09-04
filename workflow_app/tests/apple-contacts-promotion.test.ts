@@ -110,7 +110,6 @@ test('promotion 5: service/org-only Apple contact is never promoted', async () =
   )
   assert.equal(d.reviewState, 'non_person')
   assert.equal(d.canonicalPersonId, null)
-  // The Apple projector flags org-only contacts (no person name, has org).
   const projected = projectApplePersonToEvidence({
     id: 'lp-1',
     sourceAccount: 'a',
@@ -123,8 +122,6 @@ test('promotion 5: service/org-only Apple contact is never promoted', async () =
   })
   assert.equal(projected.evidence.isOrganizationOrService, true)
 })
-
-// --- Dedupe / survivorship (replay cannot duplicate) -----------------------
 
 test('promotion 6/7: replay dedupes by primary identity -> no duplicate Person/identity', () => {
   const rows: PromotionEvidence[] = [
@@ -149,8 +146,6 @@ test('promotion 8: changed contact preserves survivorship (same identity reused)
   assert.equal(g1[0].key, g2[0].key, 'same identity key -> same canonical Person reused')
 })
 
-// --- Orchestrator: stages in order, MV refresh once, SUCCESS gating ---------
-
 test('promotion 9: full orchestrator invokes projection then promotion after ODS staging', () => {
   const sh = readFileSync('scripts/contacts-sync.sh', 'utf8')
   const loadIdx = sh.indexOf('load-apple-contacts.ts')
@@ -162,20 +157,20 @@ test('promotion 9: full orchestrator invokes projection then promotion after ODS
 
 test('promotion 10: successful promotion refreshes the client read model once', () => {
   const src = readFileSync('db/promote-evidence.ts', 'utf8')
-  // promoteEvidence must call the shared refresh seam exactly once.
   assert.equal((src.match(/refreshClientReadModels\(\)/g) ?? []).length, 1)
 })
 
-test('promotion 11: failed downstream promotion prevents final SUCCESS', () => {
+test('promotion 11: failed downstream mastering prevents final SUCCESS', () => {
   const sh = readFileSync('scripts/contacts-sync.sh', 'utf8')
   const promoteIdx = sh.indexOf('promote-apple-contacts.ts')
   const successIdx = sh.indexOf('SUCCESS:')
   assert.ok(promoteIdx >= 0 && successIdx >= 0)
-  assert.ok(successIdx > promoteIdx, 'SUCCESS is printed only after the promotion stage')
-  assert.ok(sh.includes('fail "Contacts canonical promotion'), 'promotion failure fails the run')
+  assert.ok(successIdx > promoteIdx, 'SUCCESS is printed only after the mastering stage')
+  assert.ok(
+    sh.includes('fail "Contacts Person mastering / MV refresh failed'),
+    'Person mastering or read-model refresh failure fails the run',
+  )
 })
-
-// --- Clients UI: New Client entry removed, Edit preserved ------------------
 
 test('promotion 12: New Client / Add Client button no longer renders', () => {
   const src = readFileSync('components/portal/client-manager.tsx', 'utf8')
@@ -190,8 +185,6 @@ test('promotion 13: Edit Client / create backend remains available', () => {
   assert.ok(editor.includes('mode === "create"'), 'create editor mode preserved')
   assert.ok(editor.includes('createClientAction'), 'create server action preserved')
 })
-
-// --- Canonical Person seam correction --------------------------------------
 
 test('A: new Apple Person with phone + email claims BOTH identities (one primary)', () => {
   const rows: PromotionEvidence[] = [
@@ -216,16 +209,12 @@ test('A: new Apple Person with phone + email claims BOTH identities (one primary
 test('B: replay keeps one Person and no duplicate identities', () => {
   const rows: PromotionEvidence[] = [
     {
-      id: 'e1',
-      source: 'apple_contacts',
-      displayName: 'Jessica Iverson',
+      id: 'e1', source: 'apple_contacts', displayName: 'Jessica Iverson',
       emails: [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
       phones: [{ value: '+34689351739', normalized: '34689351739' }],
     },
     {
-      id: 'e2',
-      source: 'apple_contacts',
-      displayName: 'Jessica Iverson',
+      id: 'e2', source: 'apple_contacts', displayName: 'Jessica Iverson',
       emails: [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
       phones: [{ value: '+34689351739', normalized: '34689351739' }],
     },
@@ -241,7 +230,6 @@ test('C: exact-linked Person with one existing identity gains the missing safe i
     [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
     [{ value: '+34689351739', normalized: '34689351739' }],
   )
-  // email already owned by the target Person; phone is unused.
   const plan = planIdentityAttachments(identities, ['p-jessica', null], 'p-jessica')
   assert.equal(plan.duplicate, 1, 'already-owned email is a replay/no-op')
   assert.equal(plan.attach.length, 1, 'missing safe phone gets attached')
@@ -255,7 +243,6 @@ test('D: conflicting ownership is ambiguous, no merge, no identity moved', () =>
     [{ value: 'jessica@bodysoulandbeauty.com', normalized: 'jessica@bodysoulandbeauty.com' }],
     [{ value: '+34689351739', normalized: '34689351739' }],
   )
-  // email -> Person A, phone -> Person B (cross-identity).
   const plan = planIdentityAttachments(identities, ['p-a', 'p-b'], 'p-a')
   assert.equal(plan.conflicts.length, 1, 'cross-identity conflict surfaced')
   assert.equal(plan.conflicts[0].personId, 'p-b')
@@ -303,4 +290,3 @@ test('G: role contracts + UI support unclassified', () => {
   assert.ok(editor.includes('unclassified'), 'client editor offers unclassified')
   assert.ok(editor.includes('"buyer"'), 'manual creation still defaults to buyer')
 })
-
