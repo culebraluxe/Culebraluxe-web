@@ -4,6 +4,7 @@ import type { AgentRole, ModelProfile } from './types'
 export type LaneId =
   | 'scout'
   | 'architect'
+  | 'lead'
   | 'smith'
   | 'inspector'
   | 'assay'
@@ -82,6 +83,18 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
     requiredCapabilities: ['storyboard.read', 'config.read'],
     openClaudeKey: 'Plan',
   },
+  lead: {
+    lane: 'lead',
+    role: 'lead',
+    profile: 'lead-pro',
+    lineage: 'judgment-lab',
+    maxSteps: 20,
+    // PRE is made read-only by execution policy. The same Lead position needs
+    // write capability for SOLO implementation and POST integration.
+    toolPolicy: 'write',
+    requiredCapabilities: WRITE_CAPABILITIES,
+    openClaudeKey: 'general-purpose',
+  },
   smith: {
     lane: 'smith',
     role: 'builder',
@@ -138,6 +151,7 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
 export const LANE_ORDER: LaneId[] = [
   'scout',
   'architect',
+  'lead',
   'smith',
   'inspector',
   'assay',
