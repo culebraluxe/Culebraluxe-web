@@ -4,7 +4,7 @@
 Make Lead decomposition machine-checkable so Dev packets compose cleanly and Assay can verify expected outputs without reading intent from prose.
 
 ## Depends on
-ENG-FORGE-V5-11 accepted and published.
+HARD: ENG-FORGE-V5-11 accepted and published. This is a real dependency because the decomposition contract extends the Lead / Dev / QA topology introduced there.
 
 ## Scope
 Define a small contract for each work packet: declared inputs, expected outputs, touched paths/surfaces, dependency edges only where data actually flows, required tests, and completion evidence. Avoid a general workflow DSL.
