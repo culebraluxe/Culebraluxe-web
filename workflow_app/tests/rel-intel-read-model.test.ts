@@ -52,7 +52,6 @@ test('REL-INTEL: last observed differs from last meaningful when bulk is present
     ev({ source: 'gmail_contacts', lastObservedAt: '2013-12-31T00:00:00.000Z', isAutomatedOrBulk: true }),
     ev({ source: 'apple_contacts', lastObservedAt: '2012-06-01T00:00:00.000Z', isAutomatedOrBulk: false }),
   ])
-  // Last observed is dominated by the (ignored) bulk row; meaningful is the real one.
   assert.equal(s.lastObservedAt, '2013-12-31T00:00:00.000Z')
   assert.equal(s.lastMeaningfulContactAt, '2012-06-01T00:00:00.000Z')
 })
@@ -104,12 +103,6 @@ test('REL-INTEL: aggregate communication counts stay distinct from canonical int
   assert.equal(s.observedCommunicationCount, 4844)
   assert.equal(s.lastObservedAt, null)
 })
-
-// ---------------------------------------------------------------------------
-// REL-INTEL — repository boundary normalizes timestamptz to ISO strings.
-// The Neon driver returns timestamptz as JS Date objects; mapRow() must emit
-// ISO strings (or null) so channel sorting (`.localeCompare`) never throws.
-// ---------------------------------------------------------------------------
 
 function evidenceRow(overrides: Record<string, unknown> = {}) {
   const D = new Date('2026-02-25T17:36:43.709Z')
@@ -176,20 +169,12 @@ test('REL-INTEL: repository normalizes Date timestamptz into ISO strings (no Dat
   assert.equal(rows[0].lastObservedAt, '2026-02-25T17:36:43.709Z')
   assert.equal(rows[1].lastObservedAt, '2013-12-26T16:41:49.000Z')
 
-  // summarizeRelationshipEvidence now works over the normalized multi-channel rows
-  // (this is the exact regression that collapsed the Clients page at Alicia).
   const sum = summarizeRelationshipEvidence(rows)
   assert.equal(sum.hasEvidence, true)
   assert.ok(sum.sources.length >= 2)
   assert.equal(typeof sum.lastObservedAt, 'string')
   assert.ok(sum.channels.length >= 1)
 })
-
-// ---------------------------------------------------------------------------
-// REL-INTEL — Contact History aggregate-evidence timeline items.
-// A source with observed activity but no detailed canonical interactions gets
-// ONE bounded evidence-only item; identity-only and covered sources never do.
-// ---------------------------------------------------------------------------
 
 function channelsFor(evidence: RelationshipEvidenceForContext[]) {
   return summarizeRelationshipEvidence(evidence).channels
@@ -206,7 +191,7 @@ test('REL-INTEL: gmail evidence-only produces ONE aggregate Email item (no fabri
   const item = items[0]
   assert.equal(item.kind, 'aggregate_evidence')
   assert.equal(item.channel, 'email')
-  assert.equal(item.source, 'gmail_contacts')
+  assert.equal(item.source, 'email')
   assert.equal(item.totalCount, 10)
   assert.equal(item.inboundCount, 9)
   assert.equal(item.outboundCount, 1)
@@ -216,7 +201,6 @@ test('REL-INTEL: gmail evidence-only produces ONE aggregate Email item (no fabri
 })
 
 test('REL-INTEL: identity-only Apple Contacts never yields a communication item', () => {
-  // apple_contacts has no communication counts and no channel projection.
   const items = buildAggregateEvidenceItems(
     channelsFor([ev({ source: 'apple_contacts', inboundCount: 0, outboundCount: 0 })]),
     new Set(),
@@ -232,7 +216,7 @@ test('REL-INTEL: a source already represented by detailed events is NOT duplicat
   assert.deepEqual(items, [])
 })
 
-test('REL-INTEL: multi-source, only the uncovered source gets an aggregate item', () => {
+test('REL-INTEL: multi-source, only the uncovered presentation source gets an aggregate item', () => {
   const items = buildAggregateEvidenceItems(
     channelsFor([
       ev({ source: 'apple_messages', inboundCount: 2431, outboundCount: 2413 }),
@@ -241,7 +225,7 @@ test('REL-INTEL: multi-source, only the uncovered source gets an aggregate item'
     new Set(['apple_messages']),
   )
   assert.equal(items.length, 1)
-  assert.equal(items[0].source, 'gmail_contacts')
+  assert.equal(items[0].source, 'email')
 })
 
 test('REL-INTEL: zero channels produces no aggregate items', () => {
