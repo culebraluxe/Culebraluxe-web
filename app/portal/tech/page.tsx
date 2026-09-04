@@ -5,7 +5,6 @@ import { GatewayControl } from "@/components/portal/tech/gateway-control"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { resolveForgeExecutionProviderForProfile } from "@/agent-runtime/gateway/provider"
 import { DEFAULT_FORGE_TEAM, listForgeTeamAssignments } from "@/agent-runtime/team"
 import {
   buildStoryBoardCockpit,
@@ -69,7 +68,7 @@ export default async function TechPage({
     player: assignment.player.name,
     harness: assignment.harness.name,
     field: assignment.field.name,
-    provider: resolveForgeExecutionProviderForProfile(assignment.profile),
+    provider: assignment.player.provider,
   }))
 
   return (
