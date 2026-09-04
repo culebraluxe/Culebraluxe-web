@@ -65,6 +65,7 @@ export async function recordForgeRunMachineEvidence(
   execute?: QueryExecutor,
 ): Promise<void> {
   const q = execute ?? (await executor())
+  const detail = evidence.evidenceDetail?.trim() || null
   await q`
     update storyboard_story_run
     set base_commit_hash = coalesce(${evidence.baseCommitHash}, base_commit_hash),
@@ -76,7 +77,11 @@ export async function recordForgeRunMachineEvidence(
         tests_failed = coalesce(${evidence.testsFailed}, tests_failed),
         policy_violation_count = coalesce(${evidence.policyViolationCount}, policy_violation_count),
         failure_code = coalesce(${evidence.failureCode}, failure_code),
-        evidence_detail = coalesce(${evidence.evidenceDetail}, evidence_detail),
+        evidence_detail = case
+          when ${detail}::text is null then evidence_detail
+          when evidence_detail is null or evidence_detail = '' then ${detail}
+          else evidence_detail || E'\n' || ${detail}
+        end,
         updated_at = now()
     where id = ${runId}
   `
