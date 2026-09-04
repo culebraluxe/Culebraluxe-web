@@ -3,18 +3,30 @@ import { ASSAY_CAPABILITIES, READ_CAPABILITIES, WRITE_CAPABILITIES } from './lan
 
 /**
  * Forge vocabulary boundary:
- * - Position = SDLC responsibility.
- * - Player = model/provider identity available to fill a position.
+ * - Position = SDLC responsibility. It never names a model or provider.
+ * - Profile = logical execution grade selected for a position.
+ * - Player = provider/model identity that can fill a profile.
  * - Harness = software seam used to drive that player.
- * - Field = execution environment/topology where the player runs.
+ * - Field = execution environment/topology where the run executes.
  *
- * Swarm/parallelism belongs to Field. It is never a Player or Position.
+ * The team map below is the ONLY position -> profile/player/harness/field map.
+ * Lane policy owns behavior/capabilities, not model selection.
  */
-export type ForgePosition = 'scout' | 'architect' | 'lead' | 'smith' | 'assay'
+export type ForgePosition =
+  | 'scout'
+  | 'architect'
+  | 'lead'
+  | 'smith'
+  | 'inspector'
+  | 'assay'
+  | 'archive'
+  | 'night'
 
 export type ForgeHarnessId =
   | 'forge-native'
+  | 'forge-assay'
   | 'opencode'
+  | 'openclaw'
   | 'pi'
   | 'warp-agent'
 
@@ -43,17 +55,24 @@ export interface ForgePlayer {
   name: string
   provider: string
   model: string
-  harness: ForgeHarnessId
   capabilities: AgentCapability[]
   ready: boolean
 }
 
-export interface ForgePositionAssignment {
-  position: ForgePosition
-  playerId: string
-  fieldId: ForgeFieldId
-  /** Existing logical runtime profile. Keeps V3 lane contracts provider-neutral. */
+/** One concrete mapping choice. Same player may use different harnesses by role. */
+export interface ForgeAssignmentVariant {
   profile: string
+  playerId: string
+  harnessId: ForgeHarnessId
+  fieldId: ForgeFieldId
+  /** Model-family/lab identity used only for independent-review separation. */
+  lineage: string
+}
+
+export interface ForgePositionAssignment extends ForgeAssignmentVariant {
+  position: ForgePosition
+  upgrade?: ForgeAssignmentVariant
+  emergency?: ForgeAssignmentVariant
 }
 
 export interface ForgeTeam {
@@ -67,25 +86,37 @@ export const FORGE_HARNESSES: Record<ForgeHarnessId, ForgeHarness> = {
     id: 'forge-native',
     name: 'Forge Native',
     status: 'ready',
-    description: 'Current local Forge runtime/harness boundary.',
+    description: 'Forge-owned native model harness. Host readiness is checked by the runtime registry.',
+  },
+  'forge-assay': {
+    id: 'forge-assay',
+    name: 'Forge Assay',
+    status: 'ready',
+    description: 'Deterministic model-free exact-candidate verification harness.',
   },
   opencode: {
     id: 'opencode',
     name: 'OpenCode',
-    status: 'unconfigured',
-    description: 'Reserved harness connection point; no runtime is configured yet.',
+    status: 'ready',
+    description: 'Implemented OpenCode inner harness. Host installation/readiness is checked separately.',
+  },
+  openclaw: {
+    id: 'openclaw',
+    name: 'OpenClaw',
+    status: 'ready',
+    description: 'Implemented OpenClaw gateway mapping. Host installation/authentication is checked separately.',
   },
   pi: {
     id: 'pi',
     name: 'Pi',
     status: 'unconfigured',
-    description: 'Reserved harness connection point; no runtime is configured yet.',
+    description: 'Reserved harness connection point; no runtime adapter is configured yet.',
   },
   'warp-agent': {
     id: 'warp-agent',
     name: 'Warp Agent',
     status: 'interactive-only',
-    description: 'Warp CLI is installed but has no approved headless Forge contract yet.',
+    description: 'Warp gateway exists, but unattended/headless readiness must be qualified on the execution host.',
   },
 }
 
@@ -108,18 +139,13 @@ export const FORGE_FIELDS: Record<ForgeFieldId, ForgeField> = {
   },
 }
 
-/**
- * Current factual roster. Only players the operator has usable inference for
- * are marked ready. Additional vendors are added here only after credentials
- * and a harness path are actually qualified.
- */
+/** Model/provider roster. Harness is deliberately NOT a player property. */
 export const FORGE_PLAYERS: Record<string, ForgePlayer> = {
   'deepseek-flash': {
     id: 'deepseek-flash',
-    name: 'DeepSeek Flash',
+    name: 'DeepSeek V4 Flash',
     provider: 'deepseek',
-    model: 'Flash',
-    harness: 'forge-native',
+    model: 'deepseek-v4-flash',
     capabilities: WRITE_CAPABILITIES,
     ready: true,
   },
@@ -127,18 +153,24 @@ export const FORGE_PLAYERS: Record<string, ForgePlayer> = {
     id: 'deepseek-pro',
     name: 'DeepSeek Pro',
     provider: 'deepseek',
-    model: 'Pro',
-    harness: 'forge-native',
+    model: 'pro',
     capabilities: [...READ_CAPABILITIES, ...WRITE_CAPABILITIES, ...ASSAY_CAPABILITIES],
+    ready: true,
+  },
+  'forge-deterministic-assay': {
+    id: 'forge-deterministic-assay',
+    name: 'Forge Deterministic Assay',
+    provider: 'forge',
+    model: 'deterministic',
+    capabilities: ASSAY_CAPABILITIES,
     ready: true,
   },
 }
 
 /**
- * Default sequential team. Lead is a first-class position between Architect
- * and implementation, and returns after delegated Smith work for integration.
- * The logical lead-pro profile can later be routed to GPT/Claude without
- * changing the Story/Run contract.
+ * Default team is only a MAP. Roles remain model-agnostic.
+ * Change this map (or supply another ForgeTeam) to put GPT/Claude/DeepSeek/etc.
+ * into Architect, Lead, Smith, QA/Assay without changing lane/orchestration code.
  */
 export const DEFAULT_FORGE_TEAM: ForgeTeam = {
   id: 'default',
@@ -146,63 +178,147 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
   assignments: {
     scout: {
       position: 'scout',
-      playerId: 'deepseek-flash',
-      fieldId: 'local',
       profile: 'scout-volume',
+      playerId: 'deepseek-flash',
+      harnessId: 'forge-native',
+      fieldId: 'local',
+      lineage: 'deepseek-volume',
     },
     architect: {
       position: 'architect',
-      playerId: 'deepseek-pro',
-      fieldId: 'local',
       profile: 'architect-pro',
+      playerId: 'deepseek-pro',
+      harnessId: 'forge-native',
+      fieldId: 'local',
+      lineage: 'deepseek-judgment',
     },
     lead: {
       position: 'lead',
-      playerId: 'deepseek-pro',
-      fieldId: 'local',
       profile: 'lead-pro',
+      playerId: 'deepseek-pro',
+      harnessId: 'forge-native',
+      fieldId: 'local',
+      lineage: 'deepseek-judgment',
     },
     smith: {
       position: 'smith',
-      playerId: 'deepseek-flash',
-      fieldId: 'local',
       profile: 'builder-flash',
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
+      fieldId: 'local',
+      lineage: 'deepseek-volume',
+      upgrade: {
+        profile: 'builder-plus',
+        playerId: 'deepseek-pro',
+        harnessId: 'forge-native',
+        fieldId: 'local',
+        lineage: 'deepseek-judgment',
+      },
+      emergency: {
+        profile: 'builder-emergency',
+        playerId: 'deepseek-pro',
+        harnessId: 'forge-native',
+        fieldId: 'local',
+        lineage: 'deepseek-judgment',
+      },
+    },
+    inspector: {
+      position: 'inspector',
+      profile: 'reviewer-other',
+      playerId: 'deepseek-pro',
+      harnessId: 'forge-native',
+      fieldId: 'local',
+      lineage: 'deepseek-judgment',
     },
     assay: {
       position: 'assay',
-      playerId: 'deepseek-pro',
-      fieldId: 'local',
       profile: 'verifier-mini',
+      playerId: 'forge-deterministic-assay',
+      harnessId: 'forge-assay',
+      fieldId: 'local',
+      lineage: 'forge-deterministic',
+    },
+    archive: {
+      position: 'archive',
+      profile: 'architect-pro',
+      playerId: 'deepseek-pro',
+      harnessId: 'forge-native',
+      fieldId: 'local',
+      lineage: 'deepseek-judgment',
+    },
+    night: {
+      position: 'night',
+      profile: 'builder-flash',
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
+      fieldId: 'local',
+      lineage: 'deepseek-volume',
+      upgrade: {
+        profile: 'builder-plus',
+        playerId: 'deepseek-pro',
+        harnessId: 'forge-native',
+        fieldId: 'local',
+        lineage: 'deepseek-judgment',
+      },
+      emergency: {
+        profile: 'builder-emergency',
+        playerId: 'deepseek-pro',
+        harnessId: 'forge-native',
+        fieldId: 'local',
+        lineage: 'deepseek-judgment',
+      },
     },
   },
 }
 
-export type ResolvedForgeAssignment = ForgePositionAssignment & {
+export type ForgeAssignmentGrade = 'default' | 'upgrade' | 'emergency'
+
+export type ResolvedForgeAssignment = ForgeAssignmentVariant & {
+  position: ForgePosition
   player: ForgePlayer
   harness: ForgeHarness
   field: ForgeField
 }
 
+export function assignmentVariant(
+  position: ForgePosition,
+  team: ForgeTeam = DEFAULT_FORGE_TEAM,
+  grade: ForgeAssignmentGrade = 'default',
+): ForgeAssignmentVariant {
+  const base = team.assignments[position]
+  if (!base) throw new Error(`unknown Forge position '${position}'`)
+  if (grade === 'upgrade') {
+    if (!base.upgrade) throw new Error(`Forge position '${position}' has no upgrade mapping`)
+    return base.upgrade
+  }
+  if (grade === 'emergency') {
+    if (!base.emergency) throw new Error(`Forge position '${position}' has no emergency mapping`)
+    return base.emergency
+  }
+  return base
+}
+
 export function resolveForgeAssignment(
   position: ForgePosition,
   team: ForgeTeam = DEFAULT_FORGE_TEAM,
+  grade: ForgeAssignmentGrade = 'default',
 ): ResolvedForgeAssignment {
-  const assignment = team.assignments[position]
-  const player = FORGE_PLAYERS[assignment.playerId]
-  if (!player) throw new Error(`unknown Forge player '${assignment.playerId}'`)
+  const variant = assignmentVariant(position, team, grade)
+  const player = FORGE_PLAYERS[variant.playerId]
+  if (!player) throw new Error(`unknown Forge player '${variant.playerId}'`)
   if (!player.ready) throw new Error(`Forge player '${player.id}' is not ready`)
 
-  const harness = FORGE_HARNESSES[player.harness]
-  if (!harness) throw new Error(`unknown Forge harness '${player.harness}'`)
+  const harness = FORGE_HARNESSES[variant.harnessId]
+  if (!harness) throw new Error(`unknown Forge harness '${variant.harnessId}'`)
   if (harness.status !== 'ready') {
     throw new Error(`Forge harness '${harness.id}' is not ready (${harness.status})`)
   }
 
-  const field = FORGE_FIELDS[assignment.fieldId]
-  if (!field) throw new Error(`unknown Forge field '${assignment.fieldId}'`)
+  const field = FORGE_FIELDS[variant.fieldId]
+  if (!field) throw new Error(`unknown Forge field '${variant.fieldId}'`)
   if (!field.ready) throw new Error(`Forge field '${field.id}' is not ready`)
 
-  return { ...assignment, player, harness, field }
+  return { ...variant, position, player, harness, field }
 }
 
 export function listForgeTeamAssignments(
@@ -212,12 +328,19 @@ export function listForgeTeamAssignments(
   return positions.map((position) => resolveForgeAssignment(position, team))
 }
 
-/**
- * ENG-FORGE-V4-08 — non-throwing field fact for the position that owns the
- * Smith/builder lane. The execution-contract gate uses this instead of
- * `resolveForgeAssignment` so an unavailable field is REPORTED as a concrete
- * rejection reason rather than thrown as an exception.
- */
+export function allForgeAssignmentVariants(
+  team: ForgeTeam = DEFAULT_FORGE_TEAM,
+): Array<{ position: ForgePosition; variant: ForgeAssignmentVariant }> {
+  const out: Array<{ position: ForgePosition; variant: ForgeAssignmentVariant }> = []
+  for (const assignment of Object.values(team.assignments)) {
+    out.push({ position: assignment.position, variant: assignment })
+    if (assignment.upgrade) out.push({ position: assignment.position, variant: assignment.upgrade })
+    if (assignment.emergency) out.push({ position: assignment.position, variant: assignment.emergency })
+  }
+  return out
+}
+
+/** Smith field is resolved from the same team map as Smith's model/harness. */
 export function smithFieldFacts(): { id: string; ready: boolean } {
   const field = FORGE_FIELDS[DEFAULT_FORGE_TEAM.assignments.smith.fieldId]
   return { id: field.id, ready: field.ready }
