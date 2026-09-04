@@ -2,14 +2,16 @@
 # ---------------------------------------------------------------------------
 # scripts/agent-worker-once.sh — bounded Forge wake/run wrapper.
 #
-# ONE scheduled wake => repeatedly invokes `pnpm agent:work` until Forge is
-# idle or a run fails. Recovery, queue semantics, orchestration, Smith, Assay,
-# publication and durable state all belong to Forge behind `pnpm agent:work`.
+# ONE scheduled wake => fast-forward the local control-plane checkout, then
+# repeatedly invokes `pnpm agent:work` until Forge is idle or a run fails.
+# Recovery, queue semantics, orchestration, Smith, Assay, publication and
+# durable state all belong to Forge behind `pnpm agent:work`.
 #
 # This file is intentionally boring and stable because launchd executes a
-# deployed copy outside ~/Documents (macOS TCC). Recovery/business logic must
-# NOT accumulate here; normal repo code changes should not require scheduler
-# reinstall/redeployment.
+# deployed copy outside ~/Documents (macOS TCC). The only Git responsibility
+# here is a fail-closed `git pull --ff-only origin main` so unattended work
+# never executes stale Forge code or stale packet contracts. Never stash,
+# reset, rebase, force-update, or mutate worker branches here.
 # ---------------------------------------------------------------------------
 
 set -u
@@ -96,6 +98,12 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 127
 fi
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "agent-worker: git not found on PATH=$PATH" >&2
+  inv_log "end: exit=127 git-missing"
+  exit 127
+fi
+
 if [ ! -f "$REPO_ROOT/.env.local" ]; then
   echo "agent-worker: .env.local missing; cannot execute production control-plane work" >&2
   inv_log "end: exit=2 env-local-missing"
@@ -103,6 +111,23 @@ if [ ! -f "$REPO_ROOT/.env.local" ]; then
 fi
 
 inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
+
+# Git is planned/runtime code truth; Neon is durable execution truth. Sync only
+# the primary control-plane checkout and only by fast-forward. Any dirty or
+# divergent checkout fails closed before Forge claims another work item.
+branch="$(git branch --show-current 2>/dev/null || true)"
+if [ "$branch" != "main" ]; then
+  echo "agent-worker: expected control-plane checkout on main, found '$branch'" >&2
+  inv_log "stop: checkout-not-main branch=$branch"
+  exit 2
+fi
+inv_log "git-sync: start origin/main"
+if ! git pull --ff-only origin main; then
+  echo "agent-worker: git fast-forward failed; Forge not started" >&2
+  inv_log "stop: git-sync-failed"
+  exit 2
+fi
+inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
