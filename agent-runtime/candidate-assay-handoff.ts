@@ -20,6 +20,11 @@
 // evidence.
 // ---------------------------------------------------------------------------
 
+import {
+  isArithmeticAssayPass,
+  parseAssayArithmeticFacts,
+} from './assay-arithmetic'
+
 /** Every role that represents a terminal Assay/verification completion.
  *  The codebase has used `reviewer` (V3 Assay repair/terminal semantics) and
  *  `verifier` (the DEFAULT_LANES.assay binding role) for this lane; both are
@@ -35,21 +40,16 @@ export function isAssayTerminalRole(
 }
 
 /**
- * Failure/abort evidence markers for a verification result. A superset of the
- * earlier fail/violation/policy regex: a required Assay command that failed,
- * returned non-zero, was missing, or could not resolve must never look like a
- * clean pass. Matching is deliberately fail-closed (a summary naming a
- * missing test file, "not found", "no test files", a nonzero exit code, or an
- * unresolvable candidate is failure evidence).
+ * Legacy failure/abort vocabulary for old Assay rows that contain no numeric
+ * facts at all. New evidence with exit/test counters never uses this scanner;
+ * its verdict comes only from assay-arithmetic.ts.
  */
 export const ASSAY_FAILURE_EVIDENCE =
   /\b(fail(?:ed|ure|ures|ing)?|violation|policy|error|missing|not found|no such file|no test files|does not exist|doesn't exist|command not found|cannot find|unresolvable|could not resolve|exit code [1-9]|nonzero)\b/i
 
 /**
- * Test runners commonly emit successful counters such as `fail 0`, `0 fail`,
- * or `errors: 0`. Those are success evidence, not failure markers. Strip only
- * explicit ZERO counters before applying the fail-closed failure vocabulary;
- * positive/ambiguous counters remain untouched and therefore still fail.
+ * Legacy summaries sometimes contain zero counters but no other arithmetic
+ * evidence. Strip explicit zero-failure counters only for that legacy fallback.
  */
 const ASSAY_ZERO_FAILURE_COUNTER =
   /\b(?:0\s+(?:fail(?:ed|ure|ures|ing)?|errors?)|(?:fail(?:ed|ure|ures|ing)?|errors?)\s*[:=]?\s*0)\b/gi
@@ -61,12 +61,26 @@ function assayFailureScanText(testsSummary: string | null | undefined): string {
     .trim()
 }
 
-/** Clean Assay evidence = a Complete result with no real failure marker. */
+/**
+ * Clean Assay evidence is math, not prose:
+ *   Complete
+ *   AND every reported exit code == 0
+ *   AND reported failed/error count == 0
+ *   AND, when both exist, passed == total
+ *   AND policy violation count == 0.
+ *
+ * Human wording cannot override those facts. The vocabulary scanner remains
+ * only as a compatibility fallback for historical rows with no numeric facts.
+ */
 export function isCleanAssayEvidence(input: {
   resultStatus?: string | null
   testsSummary?: string | null
 }): boolean {
   if (!/^complete$/i.test((input.resultStatus ?? '').trim())) return false
+
+  const facts = parseAssayArithmeticFacts(input.testsSummary)
+  if (facts.hasNumericEvidence) return isArithmeticAssayPass(facts)
+
   return !ASSAY_FAILURE_EVIDENCE.test(assayFailureScanText(input.testsSummary))
 }
 
