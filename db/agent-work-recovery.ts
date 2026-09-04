@@ -1,9 +1,11 @@
 import { PortalWriteError } from '../lib/portal-write-error'
+import { decideRuntimeRecovery } from '../agent-runtime/recovery-policy'
 import {
   getAgentWorkItem,
   listStaleAgentWork,
   type AgentWorkItem,
 } from './agent-work'
+import { appendForgeRunEvent } from './forge-run-event'
 import type { QueryExecutor } from './query-executor'
 
 export type AgentWorkRecoveryDisposition = 'retry' | 'hold'
@@ -14,38 +16,26 @@ export type AgentWorkRecoveryResult = {
   interruptedRunId: string | null
 }
 
-/**
- * Assay is a human intervention boundary.
- *
- * A verifier/reviewer interruption must NEVER consume retry budget by
- * automatically starting another Assay, and must never route back to Smith.
- * The candidate + failed/interrupted evidence are preserved on Hold until a
- * human deliberately chooses the next action.
- */
+/** Backward-compatible predicate used by focused tests/operator tooling. */
 export function assayInterruptionRequiresHuman(
   role: string | null | undefined,
 ): boolean {
-  const normalized = (role ?? '').trim().toLowerCase()
-  return normalized === 'verifier' || normalized === 'reviewer'
+  return (
+    decideRuntimeRecovery({
+      role,
+      attempts: 0,
+      maxAttempts: 3,
+      reason: 'policy probe',
+    }).action === 'hold-human'
+  )
 }
 
 /**
- * Runtime interruption is not story failure.
+ * Runtime recovery is policy, not prose.
  *
- * This is the durable recovery seam for a worker process that died, exited
- * non-zero, or was orphaned by a host restart. The interrupted run is closed
- * truthfully as `Interrupted`; ordinary execution work is then either re-queued
- * for another process attempt or held after its retry budget is exhausted.
- *
- * ASSAY EXCEPTION: verifier/reviewer is an explicit human intervention point.
- * Any Assay interruption goes directly to Hold on the first interruption,
- * regardless of remaining retry budget. It is never automatically re-run and
- * never causes Smith to restart.
- *
- * Important: story_run_id is intentionally preserved on an ordinary re-queued
- * row until the next beginRun() replaces it. The caller that observed the
- * process failure can therefore still normalize and return evidence for the
- * exact interrupted run after this transition.
+ * Smith/ordinary infrastructure interruptions may retry while budget remains.
+ * Assay interruption is always a human intervention point: Hold immediately,
+ * no automatic Assay retry and no Smith restart.
  */
 export async function recoverAgentWorkInterruption(
   workItemId: string,
@@ -67,21 +57,15 @@ export async function recoverAgentWorkInterruption(
 
   const conciseReason = String(reason || 'runtime interrupted').slice(0, 2000)
   const interruptedRunId = item.storyRunId
-  const humanGate = assayInterruptionRequiresHuman(item.role)
-  const exhausted = humanGate || item.attempts >= item.maxAttempts
+  const recovery = decideRuntimeRecovery({
+    role: item.role,
+    attempts: item.attempts,
+    maxAttempts: item.maxAttempts,
+    reason: conciseReason,
+  })
+  const hold = recovery.action === 'hold-human'
 
-  if (exhausted) {
-    const errorText = humanGate
-      ? `Assay interrupted; human intervention required: ${conciseReason}`
-      : `runtime retry budget exhausted (${item.attempts}/${item.maxAttempts}): ${conciseReason}`
-    const runNote = humanGate
-      ? `Assay interrupted: ${conciseReason}. Human intervention required; no automatic Assay retry and no Smith restart.`
-      : `runtime interrupted: ${conciseReason}`
-
-    // One statement = one atomic recovery decision. The run closes as
-    // Interrupted, the work item becomes terminal, and the story moves to Hold
-    // without ever claiming implementation failure. For Assay this happens on
-    // the FIRST interruption even when retry budget remains.
+  if (hold) {
     await execute`
       with interrupted_run as (
         update storyboard_story_run
@@ -89,17 +73,17 @@ export async function recoverAgentWorkInterruption(
             result_status = 'Interrupted',
             notes = case
               when notes is null or notes = ''
-                then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${runNote}
-              else notes || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${runNote}
+                then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${recovery.reason}
+              else notes || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${recovery.reason}
             end,
             updated_at = now()
         where id = ${interruptedRunId}
           and ended_at is null
         returning id
-      ), exhausted_work as (
+      ), held_work as (
         update agent_work_item
         set state = 'Error',
-            error_text = ${errorText},
+            error_text = ${recovery.reason},
             finished_at = now(),
             updated_at = now()
         where id = ${workItemId}
@@ -110,16 +94,13 @@ export async function recoverAgentWorkInterruption(
       set status = 'Hold',
           completed_at = null,
           updated_at = now()
-      from exhausted_work w
+      from held_work w
       where s.id = w.story_id
     `
   } else {
-    // Row FIRST inside the same statement, then story -> Ready. This matters
-    // for Paused: the historical per-story active index excludes Paused, so a
-    // story-first Ready transition could let the dispatch trigger create a
-    // duplicate queue row. By the time that trigger fires here, THIS work item
-    // is already Ready and its insert conflicts safely with the existing row.
-    // This automatic retry path is deliberately unreachable for Assay roles.
+    // Release the existing work row before Story -> Ready so the dispatch
+    // trigger cannot create a duplicate active item. This path is unreachable
+    // for Assay roles by policy.
     await execute`
       with interrupted_run as (
         update storyboard_story_run
@@ -159,23 +140,37 @@ export async function recoverAgentWorkInterruption(
     `
   }
 
+  if (interruptedRunId) {
+    await appendForgeRunEvent(
+      {
+        storyRunId: interruptedRunId,
+        storyId: item.storyId,
+        eventType: 'recovery.decision',
+        payload: {
+          role: item.role,
+          action: recovery.action,
+          humanRequired: recovery.humanRequired,
+          attempts: item.attempts,
+          maxAttempts: item.maxAttempts,
+          reason: recovery.reason,
+        },
+      },
+      execute,
+    )
+  }
+
   const recovered = await getAgentWorkItem(workItemId, execute)
   if (!recovered) {
     throw new PortalWriteError('not-found', `Work item "${workItemId}" disappeared during recovery.`)
   }
   return {
     workItem: recovered,
-    disposition: exhausted ? 'hold' : 'retry',
+    disposition: hold ? 'hold' : 'retry',
     interruptedRunId,
   }
 }
 
-/**
- * Host/scheduler recovery uses the exact same primitive as an observed child
- * process failure. No special stale-work semantics, no conversion to story
- * Failed, and no destruction of the worker branch/worktree. Because the same
- * primitive is used, a stale Assay also stops on Hold for human intervention.
- */
+/** Host/scheduler recovery uses the exact same policy primitive. */
 export async function recoverStaleAgentWorkIndustrial(
   staleAfterMinutes: number,
   execute: QueryExecutor,
