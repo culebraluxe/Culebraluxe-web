@@ -7,6 +7,10 @@ import {
   type ModelLineage,
 } from './lanes'
 import {
+  ARCHITECT_HANDOFF_INSTRUCTIONS,
+  SCOUT_HANDOFF_INSTRUCTIONS,
+} from './handoff-contract'
+import {
   DEFAULT_FORGE_TEAM,
   resolveForgeAssignment,
   type ForgeAssignmentGrade,
@@ -71,10 +75,14 @@ export interface ResolveLaneInput {
 }
 
 const LANE_PREAMBLE: Record<LaneId, string> = {
-  scout:
-    'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls. Return a packet: ranked files, signatures, and the 3–7 files the Architect must read.',
-  architect:
-    'Lane=architect. Own design truth. Produce a complete contract for Lead: scope, constraints, execution-relevant architecture, acceptance checks, and Assay plan. Do not perform implementation.',
+  scout: [
+    'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls.',
+    SCOUT_HANDOFF_INSTRUCTIONS,
+  ].join('\n'),
+  architect: [
+    'Lane=architect. Own design truth. Produce a complete contract for Lead. Do not perform implementation.',
+    ARCHITECT_HANDOFF_INSTRUCTIONS,
+  ].join('\n'),
   lead:
     'Lane=lead. Own execution strategy and integration. Validate the frozen Architect contract against repository reality, veto bad scope/architecture, choose the cheapest sound implementation shape, and protect the QA/Assay handoff. Never silently rewrite architectural truth.',
   smith:
@@ -138,11 +146,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
 
   if (input.lane === 'inspector') {
     if (!input.session?.hasInlineDiff) {
-      return {
-        ok: false,
-        code: 'missing-diff',
-        reason: 'QA requires an integrated candidate/diff from Lead',
-      }
+      return { ok: false, code: 'missing-diff', reason: 'QA requires an integrated candidate/diff from Lead' }
     }
     const smithLineage = input.session.smithLineage
     if (smithLineage && smithLineage === assignment.lineage) {
@@ -155,11 +159,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
   }
 
   if (input.lane === 'architect' && input.session && input.session.hasScoutPacket === false) {
-    return {
-      ok: false,
-      code: 'missing-scout-packet',
-      reason: 'Architect requires the Scout packet before planning.',
-    }
+    return { ok: false, code: 'missing-scout-packet', reason: 'Architect requires the Scout packet before planning.' }
   }
 
   if (
@@ -170,25 +170,16 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
     return {
       ok: false,
       code: 'missing-architect-brief',
-      reason:
-        `${input.lane === 'lead' ? 'Lead' : 'Smith'} requires the frozen Architect contract. Run the Architect lane first.`,
+      reason: `${input.lane === 'lead' ? 'Lead' : 'Smith'} requires the frozen Architect contract. Run the Architect lane first.`,
     }
   }
 
   if (input.lane === 'assay' && input.session && input.session.hasAssayPlan === false) {
-    return {
-      ok: false,
-      code: 'missing-assay-plan',
-      reason: 'Assay needs the frozen Assay command plan.',
-    }
+    return { ok: false, code: 'missing-assay-plan', reason: 'Assay needs the frozen Assay command plan.' }
   }
 
   if (input.lane === 'architect' && binding.toolPolicy !== 'plan-only') {
-    return {
-      ok: false,
-      code: 'architect-must-not-tool',
-      reason: 'Architect lane must stay plan-only',
-    }
+    return { ok: false, code: 'architect-must-not-tool', reason: 'Architect lane must stay plan-only' }
   }
 
   const extra = (input.extraInstructions ?? '').trim()
@@ -216,10 +207,5 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
 }
 
 export const DEFAULT_PIPELINE: LaneId[] = [
-  'scout',
-  'architect',
-  'lead',
-  'smith',
-  'inspector',
-  'assay',
+  'scout', 'architect', 'lead', 'smith', 'inspector', 'assay',
 ]
