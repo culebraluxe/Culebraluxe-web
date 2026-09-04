@@ -12,11 +12,12 @@ export type ProviderCommandContext = {
   cwd: string
   task: string
   modelProfile: string
-  playerId: string
-  providerId: string
-  modelId: string
+  /** V6.1 runtime supplies these from the frozen work-item assignment. */
+  playerId?: string
+  providerId?: string
+  modelId?: string
   /** Canonical provider/model reference for gateways that support explicit selection. */
-  modelRef: string
+  modelRef?: string
 }
 
 export interface ForgeProviderDescriptor {
