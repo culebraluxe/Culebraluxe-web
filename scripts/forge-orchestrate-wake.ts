@@ -12,6 +12,7 @@ import {
 } from '../agent-runtime/accepted-candidate-publish'
 import {
   finishedRunCandidateSha,
+  smithCandidateSha,
   verifiedShaFromWorkspaceEvidence,
 } from '../agent-runtime/candidate-assay-handoff'
 import {
@@ -19,6 +20,7 @@ import {
   type ForgeTransitionDecision,
 } from '../agent-runtime/forge-transition'
 import type { ForgeFailureCode } from '../agent-runtime/forge-failure'
+import type { LeadDecisionCode, LeadRunPhase } from '../agent-runtime/lead-decision'
 import {
   hasStructuredRunMachineEvidence,
   isCleanRunMachineEvidence,
@@ -29,6 +31,7 @@ import {
 } from '../db/agent-work'
 import {
   appendForgeRunDetail,
+  getForgeLeadRunRecord,
   getForgeRunMachineEvidence,
 } from '../db/forge-run'
 import {
@@ -52,7 +55,7 @@ async function appendTransitionDecision(
     : ''
   await appendForgeRunDetail(
     run.id,
-    `transition action=${decision.action} next_lane=${decision.nextLane ?? '(none)'} story_status=${decision.storyStatus ?? '(unchanged)'} human_required=${decision.humanRequired}${failure}`,
+    `transition action=${decision.action} next_lane=${decision.nextLane ?? '(none)'} next_phase=${decision.nextPhase ?? '(none)'} story_status=${decision.storyStatus ?? '(unchanged)'} human_required=${decision.humanRequired}${failure}`,
   )
 }
 
@@ -64,60 +67,132 @@ export async function runForgeHydrate(): Promise<string[]> {
   })
 }
 
+function leadTransition(input: {
+  phase: LeadRunPhase | null
+  decision: LeadDecisionCode | null
+  splitCount: number | null
+  reason: string | null
+  ownCandidate: string | null
+  integratedCandidate: string | null
+}): ForgeTransitionDecision {
+  if (input.phase === 'pre') {
+    return decideForgeTransition({
+      type: 'lead-pre',
+      decision: input.decision,
+      splitCount: input.splitCount,
+      detail: input.reason,
+    })
+  }
+  if (input.phase === 'implement') {
+    return decideForgeTransition({
+      type: 'lead-implement-complete',
+      candidateSha: input.ownCandidate,
+    })
+  }
+  if (input.phase === 'post') {
+    return decideForgeTransition({
+      type: 'lead-post',
+      decision: input.decision,
+      candidateSha: input.integratedCandidate,
+      detail: input.reason,
+    })
+  }
+  return decideForgeTransition({
+    type: 'lead-pre',
+    decision: null,
+    detail: 'Lead Run has no valid run_phase; refusing to infer PRE/IMPLEMENT/POST from prose.',
+  })
+}
+
 export async function runForgeFollow(input: {
   storyId: string
   finishedRole: string | null
   resultStatus?: string | null
   testsSummary?: string | null
 }): Promise<string | null> {
-  if (!input.finishedRole) return null
+  if (!input.finishedRole || isTerminalAssayRole(input.finishedRole)) return null
+
+  const okResult =
+    !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
+  if (!okResult) return null
+
   const runs = await listStoryRuns(input.storyId)
   const newestRun = runs[0] ?? null
-  const candidateSha = finishedRunCandidateSha(runs)
+  const ownCandidate = finishedRunCandidateSha(runs)
+  const integratedCandidate = smithCandidateSha(runs)
+
+  let leadPhase: LeadRunPhase | null = null
+  let leadDecision: LeadDecisionCode | null = null
+  let leadSplitCount: number | null = null
+  let leadReason: string | null = null
+  let transition: ForgeTransitionDecision | null = null
+  let candidateSha: string | null = null
+
+  if (input.finishedRole === 'architect' || input.finishedRole === 'scout') {
+    transition = decideForgeTransition({ type: 'architect-complete' })
+  } else if (input.finishedRole === 'builder') {
+    candidateSha = ownCandidate
+    transition = decideForgeTransition({
+      type: 'smith-complete',
+      candidateSha,
+    })
+  } else if (input.finishedRole === 'lead') {
+    const record = newestRun ? await getForgeLeadRunRecord(newestRun.id) : null
+    leadPhase = (record?.phase as LeadRunPhase | null) ?? null
+    leadDecision = (record?.decision as LeadDecisionCode | null) ?? null
+    leadSplitCount = record?.splitCount ?? null
+    const evidence = newestRun ? await getForgeRunMachineEvidence(newestRun.id) : null
+    leadReason = evidence?.evidenceDetail ?? null
+    candidateSha = leadPhase === 'implement' ? ownCandidate : integratedCandidate
+    transition = leadTransition({
+      phase: leadPhase,
+      decision: leadDecision,
+      splitCount: leadSplitCount,
+      reason: leadReason,
+      ownCandidate,
+      integratedCandidate,
+    })
+  }
+
+  if (!transition) return null
+  await appendTransitionDecision(newestRun, transition)
+
+  if (transition.action === 'hold-human') {
+    await markForgeStoryHumanHold(input.storyId)
+    if (newestRun && transition.failure) {
+      await updateStoryRunProgress(newestRun.id, {
+        note: `${transition.failure.code}: ${transition.failure.detail} Human intervention required.`,
+      })
+    }
+    return null
+  }
+
   const followed = await followFinishedLane({
     storyId: input.storyId,
     finishedRole: input.finishedRole,
     resultStatus: input.resultStatus,
     testsSummary: input.testsSummary ?? null,
     candidateSha,
+    leadPhase,
+    leadDecision,
+    leadSplitCount,
+    leadReason,
     getStory: getStoryboardStory,
     enqueue: enqueueAgentWorkCommand,
   })
+  if (followed) return followed
 
-  const okResult =
-    !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
-
-  if (input.finishedRole === 'builder' && okResult) {
-    const transition = decideForgeTransition({
-      type: 'smith-complete',
-      candidateSha,
-    })
-    await appendTransitionDecision(newestRun, transition)
-
-    if (transition.action === 'hold-human') {
-      await markForgeStoryHumanHold(input.storyId)
-      if (newestRun && transition.failure) {
-        await updateStoryRunProgress(newestRun.id, {
-          note: `${transition.failure.code}: ${transition.failure.detail} Human intervention required.`,
-        })
-      }
-      return null
-    }
-
-    if (followed) return followed
-
-    // Defensive compatibility for a Smith item launched before V6 preflight.
-    // New V6 Smith work cannot reach this condition because the Assay recipe is
-    // now required before token spend.
+  if (transition.nextLane) {
     const story = await getStoryboardStory(input.storyId)
     const merged = story
       ? storyFieldsFromBoardAndGit(story, input.storyId)
       : null
     const missingPlan =
-      !merged || parseAssayCommands(merged.assayCommands).length === 0
+      transition.nextLane === 'assay' &&
+      (!merged || parseAssayCommands(merged.assayCommands).length === 0)
     const detail = missingPlan
-      ? `Smith candidate ${candidateSha} was preserved, but its historical work item has no Assay plan. Human intervention required; do not rebuild Smith automatically.`
-      : `Smith candidate ${candidateSha} could not hand off to Assay. Human intervention required; do not retry Smith automatically.`
+      ? `Integrated candidate ${candidateSha ?? '(none)'} was preserved, but the handoff has no Assay plan. Human intervention required; do not rebuild implementation automatically.`
+      : `Forge transition expected ${transition.nextLane}${transition.nextPhase ? `/${transition.nextPhase}` : ''} but no work item was enqueued. Human intervention required.`
     const holdDecision = decideForgeTransition({
       type: 'smith-failed',
       code: missingPlan ? 'MISSING_ASSAY_PLAN' : 'HUMAN_DECISION_REQUIRED',
@@ -126,10 +201,8 @@ export async function runForgeFollow(input: {
     await appendTransitionDecision(newestRun, holdDecision)
     await markForgeStoryHumanHold(input.storyId)
     if (newestRun) await updateStoryRunProgress(newestRun.id, { note: detail })
-    return null
   }
-
-  return followed
+  return null
 }
 
 export type ForgePublishAfterAssayInput = {
@@ -166,6 +239,7 @@ export async function runForgePublishAfterAssay(
   const machineEvidence = await getForgeRunMachineEvidence(newestRun.id)
   const hasStructured = hasStructuredRunMachineEvidence(machineEvidence)
   const resultStatus = newestRun.resultStatus ?? input.resultStatus ?? null
+  // Newest commit wins: Lead POST may have integrated Smith into a new candidate.
   const candidateRun = runs.find((run) => Boolean(run.commitHash)) ?? null
   const candidateCommit = candidateRun?.commitHash ?? null
   const assayedCandidate = machineEvidence?.baseCommitHash ??
