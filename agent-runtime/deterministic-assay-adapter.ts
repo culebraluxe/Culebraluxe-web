@@ -32,12 +32,14 @@ import {
 
 const OUTPUT_TAIL_MAX = 8_000
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000
+const STATUS_POLL_MS = 250
 
 export type AssayCommandRunner = (input: {
   command: string
   cwd: string
   env: Record<string, string | undefined>
   timeoutMs: number
+  onProcess?: (proc: ChildProcessWithoutNullStreams | null) => void
 }) => Promise<AssayCommandResult>
 
 export type DeterministicAssayConfig = {
@@ -52,15 +54,13 @@ function appendTail(current: string, chunk: string): string {
     : next.slice(next.length - OUTPUT_TAIL_MAX)
 }
 
-/**
- * Execute exactly one immutable Assay command. Process exit state is recorded
- * as data; a non-zero test exit is NOT a harness/runtime crash.
- */
+/** Execute one immutable command and return process/test facts, not a verdict. */
 export async function runAssayCommand(input: {
   command: string
   cwd: string
   env: Record<string, string | undefined>
   timeoutMs: number
+  onProcess?: (proc: ChildProcessWithoutNullStreams | null) => void
 }): Promise<AssayCommandResult> {
   const started = Date.now()
   let stdoutTail = ''
@@ -73,6 +73,7 @@ export async function runAssayCommand(input: {
     const finish = (result: Omit<AssayCommandResult, 'durationMs' | 'tests'>) => {
       if (settled) return
       settled = true
+      input.onProcess?.(null)
       const combined = `${stdoutTail}\n${stderrTail}`
       resolve({
         ...result,
@@ -88,6 +89,7 @@ export async function runAssayCommand(input: {
         shell: process.env.FORGE_ASSAY_SHELL ?? process.env.SHELL ?? true,
         stdio: ['ignore', 'pipe', 'pipe'],
       }) as ChildProcessWithoutNullStreams
+      input.onProcess?.(proc)
     } catch (error) {
       stderrTail = appendTail(
         stderrTail,
@@ -156,13 +158,20 @@ function gitHead(cwd: string): string | null {
   }
 }
 
-/**
- * Forge V6 Assay runtime.
- *
- * No model is invoked. Forge executes the architect-approved commands in the
- * exact candidate worktree, records process/test facts, applies arithmetic,
- * and returns PASS/Hold. Human prose is presentation only.
- */
+function failedCommandResult(command: string, error: unknown): AssayCommandResult {
+  return {
+    command,
+    exitCode: null,
+    signal: null,
+    timedOut: false,
+    durationMs: 0,
+    tests: { total: null, passed: null, failed: null },
+    stdoutTail: '',
+    stderrTail: String((error as Error)?.message ?? error),
+  }
+}
+
+/** Forge V6 model-free exact-candidate verifier. */
 export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId = 'forge-assay'
   readonly capabilities: AgentCapability[] = ASSAY_CAPABILITIES
@@ -187,9 +196,33 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     this.externalRunId = externalRunId
     this.done = false
     this.cancelled = false
-    this.execution = this.executePlan(context).finally(() => {
-      this.done = true
-    })
+    this.evidence = null
+    this.execution = this.executePlan(context)
+      .catch((error) => {
+        // Defensive: an Assay implementation exception is verification failure
+        // evidence, not permission to invoke another model or restart Smith.
+        const candidateSha = assayCandidateFromInstructions(
+          context.command.specialInstructions,
+        )
+        const workspace = context.executionWorkspace?.worktreePath ?? null
+        this.evidence = finalizeAssayEvidence({
+          version: 1,
+          candidateSha,
+          verifiedSha: workspace ? gitHead(workspace) : null,
+          requiredCommands:
+            assayPlanFromInstructions(context.command.specialInstructions)?.commands ?? [],
+          commandResults: [],
+          policyViolations: [
+            `Assay runtime exception: ${String((error as Error)?.message ?? error)}`,
+          ],
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+        })
+      })
+      .finally(() => {
+        this.currentChild = null
+        this.done = true
+      })
     return { externalRunId }
   }
 
@@ -227,30 +260,34 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       }
     }
 
+    let env: Record<string, string | undefined> | null = null
     if (workspace && policyViolations.length === 0) {
-      const target = parseExecutionEnvironment(
-        context.executionEnvironment ?? context.command.executionEnvironment,
-        'DEV',
-      )
       try {
+        const target = parseExecutionEnvironment(
+          context.executionEnvironment ?? context.command.executionEnvironment,
+          'DEV',
+        )
         assertExecutionTargetSafe(target)
         verifyWorkspaceEnvFile(workspace, target)
+        env = buildChildProcessEnv(target)
       } catch (error) {
         policyViolations.push(
           `Execution-target safety rejected Assay: ${String((error as Error)?.message ?? error)}`,
         )
       }
+    }
 
-      if (policyViolations.length === 0) {
-        const env = buildChildProcessEnv(target)
-        const timeoutMs =
-          this.config.commandTimeoutMs ??
-          Number(process.env.FORGE_ASSAY_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS)
-        const runner = this.config.runCommand ?? runAssayCommand
+    if (workspace && env && policyViolations.length === 0) {
+      const timeoutMs =
+        this.config.commandTimeoutMs ??
+        Number(process.env.FORGE_ASSAY_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS)
+      const runner = this.config.runCommand ?? runAssayCommand
 
-        for (const command of requiredCommands) {
-          if (this.cancelled) break
-          const result = await runner({
+      for (const command of requiredCommands) {
+        if (this.cancelled) break
+        let result: AssayCommandResult
+        try {
+          result = await runner({
             command,
             cwd: workspace,
             env,
@@ -258,26 +295,30 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
               Number.isFinite(timeoutMs) && timeoutMs > 0
                 ? timeoutMs
                 : DEFAULT_COMMAND_TIMEOUT_MS,
+            onProcess: (proc) => {
+              this.currentChild = proc
+            },
           })
-          commandResults.push(result)
-          // Fail fast. A broken command cannot be repaired by later commands.
-          if (
-            result.timedOut ||
-            result.exitCode !== 0 ||
-            (result.tests.failed !== null && result.tests.failed !== 0) ||
-            (result.tests.total !== null &&
-              result.tests.passed !== null &&
-              result.tests.total !== result.tests.passed)
-          ) {
-            break
-          }
+        } catch (error) {
+          result = failedCommandResult(command, error)
+        }
+        commandResults.push(result)
+
+        // Fail fast. Later commands cannot repair a broken required command.
+        if (
+          result.timedOut ||
+          result.exitCode !== 0 ||
+          (result.tests.failed !== null && result.tests.failed !== 0) ||
+          (result.tests.total !== null &&
+            result.tests.passed !== null &&
+            result.tests.total !== result.tests.passed)
+        ) {
+          break
         }
       }
     }
 
-    if (this.cancelled) {
-      policyViolations.push('Assay cancelled by operator.')
-    }
+    if (this.cancelled) policyViolations.push('Assay cancelled by operator.')
 
     this.evidence = finalizeAssayEvidence({
       version: 1,
@@ -296,7 +337,10 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     _context: AgentExecutionContext,
   ): Promise<ExternalStatusResult> {
     if (this.cancelled) return { lifecycle: 'cancelled' }
-    if (!this.execution || !this.done) return { lifecycle: 'running' }
+    if (!this.execution || !this.done) {
+      await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS))
+      return { lifecycle: this.cancelled ? 'cancelled' : 'running' }
+    }
     await this.execution
     return { lifecycle: 'success' }
   }
@@ -336,18 +380,6 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       executionEnvironment: command.executionEnvironment ?? null,
       startedAt: evidence.startedAt,
       endedAt: evidence.endedAt,
-    }
-  }
-
-  protected override progressFromStatus(): {
-    step?: string
-    completion?: number
-    note?: string
-  } | null {
-    return {
-      step: 'running_tests',
-      completion: 50,
-      note: 'Forge deterministic Assay executing immutable verification commands',
     }
   }
 }
