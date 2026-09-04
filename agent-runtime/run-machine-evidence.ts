@@ -51,8 +51,11 @@ function assayDetail(evidence: AssayEvidence): string {
 
 /**
  * Convert any lane finish into the common storyboard_story_run evidence shape.
- * Assay has richer structured input; ordinary model/runtime lanes use the
- * numeric facts already present in their tests summary and workspace evidence.
+ * Deterministic Assay supplies machine-observed command/test counters. Ordinary
+ * model/runtime lanes persist only facts the harness itself can establish
+ * (workspace base, outer process exit facts, policy violations, failure code).
+ * Their self-reported Tests: prose remains in tests_summary and is never
+ * promoted into structured machine truth.
  */
 export function runMachineEvidenceFromFinish(input: {
   role: string | null | undefined
@@ -103,9 +106,9 @@ export function runMachineEvidenceFromFinish(input: {
       facts.exitCodes.length > 0
         ? facts.exitCodes.filter((code) => code !== 0).length
         : null,
-    testsTotal: facts.testsTotal,
-    testsPassed: facts.testsPassed,
-    testsFailed: facts.testsFailed,
+    testsTotal: null,
+    testsPassed: null,
+    testsFailed: null,
     policyViolationCount,
     failureCode,
     evidenceDetail: input.notes.trim() || null,
