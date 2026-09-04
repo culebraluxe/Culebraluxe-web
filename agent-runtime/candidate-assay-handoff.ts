@@ -40,15 +40,15 @@ export function isAssayTerminalRole(
 }
 
 /**
- * Legacy failure/abort vocabulary for old Assay rows that contain no numeric
- * facts at all. New evidence with exit/test counters never uses this scanner;
+ * Legacy failure/abort vocabulary for old Assay rows that contain no usable
+ * test counters. New evidence with real counters never uses this scanner;
  * its verdict comes only from assay-arithmetic.ts.
  */
 export const ASSAY_FAILURE_EVIDENCE =
   /\b(fail(?:ed|ure|ures|ing)?|violation|policy|error|missing|not found|no such file|no test files|does not exist|doesn't exist|command not found|cannot find|unresolvable|could not resolve|exit code [1-9]|nonzero)\b/i
 
 /**
- * Legacy summaries sometimes contain zero counters but no other arithmetic
+ * Legacy summaries sometimes contain zero counters but no complete arithmetic
  * evidence. Strip explicit zero-failure counters only for that legacy fallback.
  */
 const ASSAY_ZERO_FAILURE_COUNTER =
@@ -69,8 +69,10 @@ function assayFailureScanText(testsSummary: string | null | undefined): string {
  *   AND, when both exist, passed == total
  *   AND policy violation count == 0.
  *
- * Human wording cannot override those facts. The vocabulary scanner remains
- * only as a compatibility fallback for historical rows with no numeric facts.
+ * Human wording cannot override real test counters. A non-zero exit always
+ * fails mathematically. Exit-only evidence is not enough to suppress a real
+ * legacy blocker such as "missing file", so that narrow compatibility case
+ * still goes through the old fail-closed vocabulary scanner.
  */
 export function isCleanAssayEvidence(input: {
   resultStatus?: string | null
@@ -79,7 +81,8 @@ export function isCleanAssayEvidence(input: {
   if (!/^complete$/i.test((input.resultStatus ?? '').trim())) return false
 
   const facts = parseAssayArithmeticFacts(input.testsSummary)
-  if (facts.hasNumericEvidence) return isArithmeticAssayPass(facts)
+  if (facts.exitCodes.some((code) => code !== 0)) return false
+  if (facts.hasTestCounters) return isArithmeticAssayPass(facts)
 
   return !ASSAY_FAILURE_EVIDENCE.test(assayFailureScanText(input.testsSummary))
 }
