@@ -15,6 +15,7 @@
 
 import type { StoryboardStory } from '../db/storyboard'
 import type { AgentCapability } from './capabilities'
+import type { AssayEvidence } from './assay-evidence'
 
 /** Logical agent roles (extensible — not a closed enum). */
 export type AgentRole = 'architect' | 'builder' | 'reviewer' | 'verifier' | (string & {})
@@ -120,13 +121,16 @@ export interface AgentExecutionPolicy {
   allowControlPlaneWrite: boolean
 }
 
-/** Normalized, persisted run evidence (storyboard_story_run projection). */
+/** Normalized run evidence. Narrative fields remain human-readable; V6 Assay
+ * carries structured machine evidence separately and persists it append-only. */
 export interface AgentRunEvidence {
   resultStatus: string
   completion: number
   notes: string
   testsSummary: string | null
   commitHash: string | null
+  /** Forge V6 structured verifier evidence. Present only for deterministic Assay runs. */
+  assayEvidence?: AssayEvidence | null
   runtimeAdapter: string | null
   modelProfile: ModelProfile | null
   externalRunId: string | null
