@@ -59,9 +59,11 @@ const LANE_PREAMBLE: Record<LaneId, string> = {
   scout:
     'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls. Return a packet: ranked files, signatures, and the 3–7 files the next lane must read.',
   architect:
-    'Lane=architect. One-pass decomposition. Do not run tools. Consume the Scout packet. Output files, order, and acceptance checks only.',
+    'Lane=architect. Own design truth. Produce a complete contract for Lead: scope, constraints, execution-relevant architecture, acceptance checks, and Assay plan. Do not perform implementation.',
+  lead:
+    'Lane=lead. Own execution strategy and integration. Validate the frozen Architect contract against repository reality, veto bad scope/architecture, choose the cheapest sound implementation shape, and protect the Assay handoff. Never silently rewrite architectural truth.',
   smith:
-    'Lane=smith. Implement against the Architect plan on storyboard_story. Do not review your own diff. Stop when the plan items are done or maxSteps is hit.',
+    'Lane=smith. Implement against the frozen Architect contract and Lead assignment. Do not review your own diff. Stop when the assigned work is done or maxSteps is hit.',
   inspector:
     'Lane=inspector. Second opinion on the inline diff. Different lineage from Smith. Read-only. Disagreement is the point. Do not silently patch.',
   assay:
@@ -130,7 +132,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
   }
 
   if (
-    (input.lane === 'smith' || input.lane === 'night') &&
+    (input.lane === 'lead' || input.lane === 'smith' || input.lane === 'night') &&
     input.session &&
     input.session.hasArchitectBrief === false
   ) {
@@ -138,7 +140,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       ok: false,
       code: 'missing-architect-brief',
       reason:
-        'Smith reads storyboard_story.architect_brief. Write the brief (human Architect) or run the Architect lane first.',
+        `${input.lane === 'lead' ? 'Lead' : 'Smith'} requires the frozen Architect contract. Write the brief or run the Architect lane first.`,
     }
   }
 
@@ -146,7 +148,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
     return {
       ok: false,
       code: 'missing-assay-plan',
-      reason: 'Assay needs ## Assay commands on the git packet.',
+      reason: 'Assay needs the frozen Assay command plan.',
     }
   }
 
@@ -180,6 +182,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
 export const DEFAULT_PIPELINE: LaneId[] = [
   'scout',
   'architect',
+  'lead',
   'smith',
   'inspector',
   'assay',
