@@ -15,7 +15,14 @@ import {
   isCleanAssayEvidence,
 } from './candidate-assay-handoff'
 import { withAssayCandidateDirective } from './assay-evidence'
-import { decideForgeTransition } from './forge-transition'
+import {
+  decideForgeTransition,
+  type ForgeTransitionDecision,
+} from './forge-transition'
+import type {
+  LeadDecisionCode,
+  LeadRunPhase,
+} from './lead-decision'
 
 export type BareWorkItem = {
   id: string
@@ -42,11 +49,9 @@ export type HydrateDeps = {
     executionEnvironment?: string | null
   }) => Promise<unknown>
   repoRoot?: string
-  /** Optional runtime registry for the gate; defaults to the live factory registry. */
   registry?: AgentRuntimeRegistry
 }
 
-/** One deterministic preflight gate before Smith token spend. */
 function gateSmithEnvelope(input: {
   lane: LaneId
   story: StoryPacketFields
@@ -64,8 +69,6 @@ function gateSmithEnvelope(input: {
   })
 }
 
-/** Legacy compatibility for pre-V6 Assay rows. New V6 Assay decisions use the
- * structured assay.verdict event and never derive truth from this summary. */
 export function isCleanAssayResult(input: {
   resultStatus?: string | null
   testsSummary?: string | null
@@ -98,15 +101,15 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
     const story = await deps.getStory(item.storyId)
     if (!story) continue
     const merged = storyFieldsFromBoardAndGit(story, item.storyId, deps.repoRoot)
-    let lane = pickLane({ story: merged })
-    if (lane === 'smith' && !merged.architectBrief?.trim()) lane = 'scout'
-    const decision = buildLaneEnqueue({ lane, story: merged, registry })
+    const lane = pickLane({ story: merged })
+    const decision = buildLaneEnqueue({
+      lane,
+      story: merged,
+      registry,
+      ...(lane === 'lead' ? { leadPhase: 'pre' as const } : {}),
+    })
     if (!decision.ok || !decision.envelope) {
-      console.log(
-        'hydrate skip',
-        item.storyId,
-        decision.ok ? 'no envelope' : decision.code,
-      )
+      console.log('hydrate skip', item.storyId, decision.ok ? 'no envelope' : decision.code)
       continue
     }
 
@@ -142,6 +145,50 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
   return stamped
 }
 
+function transitionForFinishedLane(input: {
+  finishedRole: string
+  candidateSha: string | null
+  leadPhase?: LeadRunPhase | null
+  leadDecision?: LeadDecisionCode | null
+  leadSplitCount?: number | null
+  leadReason?: string | null
+}): ForgeTransitionDecision | null {
+  if (input.finishedRole === 'architect' || input.finishedRole === 'scout') {
+    return decideForgeTransition({ type: 'architect-complete' })
+  }
+  if (input.finishedRole === 'builder') {
+    return decideForgeTransition({
+      type: 'smith-complete',
+      candidateSha: input.candidateSha,
+    })
+  }
+  if (input.finishedRole === 'lead') {
+    if (input.leadPhase === 'pre') {
+      return decideForgeTransition({
+        type: 'lead-pre',
+        decision: input.leadDecision ?? null,
+        splitCount: input.leadSplitCount ?? null,
+        detail: input.leadReason ?? null,
+      })
+    }
+    if (input.leadPhase === 'implement') {
+      return decideForgeTransition({
+        type: 'lead-implement-complete',
+        candidateSha: input.candidateSha,
+      })
+    }
+    if (input.leadPhase === 'post') {
+      return decideForgeTransition({
+        type: 'lead-post',
+        decision: input.leadDecision ?? null,
+        candidateSha: input.candidateSha,
+        detail: input.leadReason ?? null,
+      })
+    }
+  }
+  return null
+}
+
 export async function followFinishedLane(input: {
   storyId: string
   finishedRole: string
@@ -152,32 +199,17 @@ export async function followFinishedLane(input: {
   repoRoot?: string
   registry?: AgentRuntimeRegistry
   candidateSha?: string | null
+  leadPhase?: LeadRunPhase | null
+  leadDecision?: LeadDecisionCode | null
+  leadSplitCount?: number | null
+  leadReason?: string | null
 }): Promise<string | null> {
-  // Assay is terminal for automation. A PASS goes to the separate publish seam;
-  // a FAIL goes to human Hold. Neither outcome may enqueue another lane here.
-  if (isAssayTerminalRole(input.finishedRole)) {
-    const clean = isCleanAssayResult(input)
-    const transition = decideForgeTransition(
-      clean
-        ? { type: 'assay-pass' }
-        : {
-            type: 'assay-fail',
-            code: 'ASSAY_TEST_FAILED',
-            detail: 'Assay did not produce a clean verification result.',
-          },
-    )
-    if (transition.action === 'publish' || transition.action === 'hold-human') {
-      return null
-    }
-    return null
-  }
+  if (isAssayTerminalRole(input.finishedRole)) return null
 
   const ok =
     !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
   if (!ok) return null
-  if (input.finishedRole !== 'builder' && input.finishedRole !== 'scout') {
-    return null
-  }
+
   const story = await input.getStory(input.storyId)
   if (!story) return null
   const merged = storyFieldsFromBoardAndGit(story, input.storyId, input.repoRoot)
@@ -187,32 +219,25 @@ export async function followFinishedLane(input: {
     return null
   }
 
-  const lane = pickLane({ story: merged, lastFinishedRole: input.finishedRole })
   const candidateSha = (input.candidateSha ?? '').trim() || null
-
-  if (input.finishedRole === 'builder') {
-    const transition = decideForgeTransition({
-      type: 'smith-complete',
-      candidateSha,
-    })
-    if (transition.action !== 'enqueue-assay') {
-      console.log(
-        'follow skip',
-        input.storyId,
-        'assay',
-        transition.failure?.code ?? 'transition-stop',
-        transition.failure?.detail ?? '',
-      )
-      return null
-    }
+  const transition = transitionForFinishedLane({
+    finishedRole: input.finishedRole,
+    candidateSha,
+    leadPhase: input.leadPhase,
+    leadDecision: input.leadDecision,
+    leadSplitCount: input.leadSplitCount,
+    leadReason: input.leadReason,
+  })
+  if (!transition || !transition.nextLane || transition.action === 'hold-human') {
+    return null
   }
 
-  if (lane === 'assay' && !candidateSha) return null
-
+  const lane = transition.nextLane
+  const leadPhase = transition.nextPhase ?? undefined
   const extraInstructions =
     lane === 'assay' && candidateSha
       ? withAssayCandidateDirective(
-          `Forge V6 exact-candidate Assay: execute the immutable Assay plan against Smith candidate ${candidateSha}. The worktree HEAD MUST equal this SHA. Any command failure, policy violation, or SHA mismatch is a human intervention point; never restart Smith automatically.`,
+          `Forge V6 exact-candidate Assay: execute the immutable Assay plan against integrated candidate ${candidateSha}. The worktree HEAD MUST equal this SHA. Any command failure, policy violation, or SHA mismatch is a human intervention point; never restart Smith automatically.`,
           candidateSha,
         )
       : null
@@ -220,6 +245,7 @@ export async function followFinishedLane(input: {
   const decision = buildLaneEnqueue({
     lane,
     story: merged,
+    ...(leadPhase ? { leadPhase } : {}),
     ...(extraInstructions ? { extraInstructions } : {}),
   })
   if (!decision.ok || !decision.envelope) {
@@ -249,6 +275,7 @@ export async function followFinishedLane(input: {
     )
     return null
   }
+
   await input.enqueue({
     storyId: input.storyId,
     role: decision.envelope.role,
