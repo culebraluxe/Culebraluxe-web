@@ -49,11 +49,8 @@ export type AdapterRuntimeStatus =
 
 /**
  * Durable Agent Work Command.
- *
- * V6.1 runtime work is required by the launch guard to carry the typed routing
- * fields below. They remain optional in this public shape only so historical
- * fixtures/legacy tooling can still construct pre-V6.1 commands for tests and
- * diagnostics. Absence is NEVER accepted at the production launch boundary.
+ * V6.1 launch validation requires typed routing for production work. Optional
+ * typing here only preserves historical fixtures and diagnostic callers.
  */
 export interface AgentWorkCommand {
   workItemId: string
@@ -93,8 +90,8 @@ export interface AgentExecutionContext {
   story: StoryboardStory & StoryPacketFields
   policy: AgentExecutionPolicy
   capabilities: AgentCapability[]
-  /** Frozen player/model/harness/field selection from the durable work item. */
-  runtimeSelection: AgentRuntimeSelection
+  /** Convenience copy. Production execution also carries this on command.runtimeSelection. */
+  runtimeSelection?: AgentRuntimeSelection
   executionEnvironment?: string | null
   executionWorkspace?: AgentExecutionWorkspace | null
   storyRunId: string
