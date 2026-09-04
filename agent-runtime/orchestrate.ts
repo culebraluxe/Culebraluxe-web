@@ -14,15 +14,17 @@ export type PickLaneInput = {
   lastFinishedRole?: string | null
 }
 
-/** A1 series picker. Never auto-queues Architect or Inspector. */
+/**
+ * V6 series picker. A complete Architect contract always hands to Lead before
+ * implementation. Lead's structured decision then chooses SOLO, Smith, split,
+ * or Hold; this picker never skips that judgment gate.
+ */
 export function pickLane(input: PickLaneInput): LaneId {
-  if (input.lastFinishedRole === 'builder') return 'assay'
-  // ENG-FORGE-V3-02: Smith is never selected without a real architect brief,
-  // including after Scout. The brief may come from Neon or the git packet,
-  // but this picker never invents one.
   if (!present(input.story.architectBrief)) return 'scout'
-  if (input.lastFinishedRole === 'scout') return 'smith'
-  return 'smith'
+  if (input.lastFinishedRole === 'builder') return 'lead'
+  if (input.lastFinishedRole === 'architect') return 'lead'
+  if (input.lastFinishedRole === 'scout') return 'lead'
+  return 'lead'
 }
 
 export function loadGitPacket(
