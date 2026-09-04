@@ -1,8 +1,6 @@
-// Forge V6 — typed failure vocabulary.
-//
+// Forge V6/V6.1 — typed failure vocabulary.
 // Failure meaning is machine data. Human notes may describe a failure, but
-// orchestration must never infer recovery behavior from prose such as "failed"
-// or from a generic Hold status.
+// orchestration must never infer recovery behavior from prose.
 
 export type ForgeFailureCode =
   | 'PRECHECK_FAILED'
@@ -10,10 +8,16 @@ export type ForgeFailureCode =
   | 'LEAD_ARCHITECTURE_CHALLENGE'
   | 'LEAD_DECISION_MISSING'
   | 'LEAD_SPLIT_REQUIRES_MULTIWORKER'
+  | 'LEAD_SPLIT_INVALID'
   | 'LEAD_INTEGRATION_FAILED'
+  | 'LEAD_RUNTIME_INTERRUPTED'
   | 'SMITH_RUNTIME_INTERRUPTED'
   | 'SMITH_RESULT_FAILED'
+  | 'SMITH_SPLIT_FAILED'
   | 'NO_CANDIDATE'
+  | 'QA_DECISION_MISSING'
+  | 'QA_REVIEW_FAILED'
+  | 'QA_RUNTIME_INTERRUPTED'
   | 'MISSING_ASSAY_PLAN'
   | 'ASSAY_TEST_FAILED'
   | 'ASSAY_POLICY_FAILED'
