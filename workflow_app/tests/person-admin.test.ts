@@ -31,6 +31,11 @@ type Row = Record<string, any>
 
 const UUID = '00000000-0000-4000-8000-000000000001'
 
+function semanticPhone(value: string): string {
+  const digits = value.replace(/\D/g, '')
+  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+}
+
 class FakePersonAdmin {
   persons: Row[] = []
   identities: Row[] = []
@@ -49,33 +54,37 @@ class FakePersonAdmin {
     )
     const p = params as any[]
 
-    // person row read (personRow)
     if (t.startsWith('select id, display_name, role, status, location, budget_min')) {
       const row = this.persons.find((r) => r.id === p[0])
       return Promise.resolve(row ? [{ ...row }] : [])
     }
-    // assignable agent existence
     if (t.startsWith('select id from app_user')) {
       const row = this.users.find((r) => r.id === p[0] && r.active)
       return Promise.resolve(row ? [{ id: row.id }] : [])
     }
-    // findIdentityOwnership
+    // findIdentityOwnership(s) now uses semantic matching and repeats the
+    // identity type in the SQL predicates. The normalized lookup value is p[2].
     if (t.includes('from person_identity') && t.includes('join person')) {
-      const row = this.identities.find(
-        (r) => r.identity_type === p[0] && r.identity_value === p[1],
+      const kind = String(p[0] ?? '')
+      const value = String(p[2] ?? '')
+      const rows = this.identities.filter((r) => {
+        if (r.identity_type !== kind) return false
+        if (kind === 'phone') return semanticPhone(String(r.identity_value)) === semanticPhone(value)
+        if (kind === 'email') return String(r.identity_value).trim().toLowerCase() === value.trim().toLowerCase()
+        return String(r.identity_value) === value
+      })
+      return Promise.resolve(
+        rows.map((row) => {
+          const person = this.persons.find((r) => r.id === row.person_id)
+          return {
+            identity_id: row.id,
+            person_id: row.person_id,
+            identity_value: row.identity_value,
+            archived_at: person?.archived_at ?? null,
+          }
+        }),
       )
-      if (!row) return Promise.resolve([])
-      const person = this.persons.find((r) => r.id === row.person_id)
-      return Promise.resolve([
-        {
-          identity_id: row.id,
-          person_id: row.person_id,
-          identity_value: row.identity_value,
-          archived_at: person?.archived_at ?? null,
-        },
-      ])
     }
-    // insert into person
     if (t.startsWith('insert into person (')) {
       this.persons.push({
         id: p[0],
@@ -95,9 +104,6 @@ class FakePersonAdmin {
       })
       return Promise.resolve([])
     }
-    // insert into person_identity. 'email'/'phone' appear as SQL literals in
-    // the create path and as a parameter in setClientIdentity; 'true' primary
-    // is always literal. Detect the kind from the SQL text when possible.
     if (t.startsWith('insert into person_identity (')) {
       const hasLiteralKind = t.includes("'email'") || t.includes("'phone'")
       this.identities.push({
@@ -113,7 +119,6 @@ class FakePersonAdmin {
       })
       return Promise.resolve([])
     }
-    // update person profile (merged fixed SET)
     if (t.startsWith('update person set display_name')) {
       const person = this.persons.find(
         (r) => r.id === p[12] && r.archived_at === null,
@@ -133,7 +138,6 @@ class FakePersonAdmin {
       person.assigned_user_id = p[11]
       return Promise.resolve([{ id: person.id }])
     }
-    // archive (soft delete)
     if (t.startsWith('update person set archived_at')) {
       const person = this.persons.find(
         (r) => r.id === p[0] && r.archived_at === null,
@@ -142,7 +146,6 @@ class FakePersonAdmin {
       person.archived_at = new Date().toISOString()
       return Promise.resolve([{ id: person.id }])
     }
-    // unset primary for kind on person
     if (t.startsWith('update person_identity set is_primary = false')) {
       for (const row of this.identities) {
         if (row.person_id === p[0] && row.identity_type === p[1]) {
@@ -151,13 +154,11 @@ class FakePersonAdmin {
       }
       return Promise.resolve([])
     }
-    // set primary by identity id
     if (t.startsWith('update person_identity set is_primary = true')) {
       const row = this.identities.find((r) => r.id === p[0])
       if (row) row.is_primary = true
       return Promise.resolve([])
     }
-    // delete identities of a kind
     if (t.startsWith('delete from person_identity')) {
       this.identities = this.identities.filter(
         (r) => !(r.person_id === p[0] && r.identity_type === p[1]),
@@ -193,10 +194,6 @@ function seededFake() {
   return fake
 }
 
-// ---------------------------------------------------------------------------
-// Pure contract — lib/person-admin.ts
-// ---------------------------------------------------------------------------
-
 test('normalizeClientCreateInput normalizes a full valid input', () => {
   const input = normalizeClientCreateInput({
     displayName: '  Ana  Rivera ',
@@ -227,10 +224,7 @@ test('normalizeClientCreateInput normalizes a full valid input', () => {
 })
 
 test('normalizeClientCreateInput defaults status to new and contact to null', () => {
-  const input = normalizeClientCreateInput({
-    displayName: 'No Contact',
-    role: 'seller',
-  })
+  const input = normalizeClientCreateInput({ displayName: 'No Contact', role: 'seller' })
   assert.equal(input.status, 'new')
   assert.equal(input.email, null)
   assert.equal(input.phone, null)
@@ -238,75 +232,36 @@ test('normalizeClientCreateInput defaults status to new and contact to null', ()
 
 test('normalizeClientCreateInput rejects an invalid role', () => {
   assert.throws(
-    () =>
-      normalizeClientCreateInput({
-        displayName: 'X',
-        role: 'developer' as any,
-      }),
-    (error: unknown) =>
-      error instanceof PortalWriteError &&
-      error.code === 'validation' &&
-      /role/i.test(error.message),
+    () => normalizeClientCreateInput({ displayName: 'X', role: 'developer' as any }),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation' && /role/i.test(error.message),
   )
 })
 
 test('normalizeClientCreateInput rejects a missing display name', () => {
   assert.throws(
-    () =>
-      normalizeClientCreateInput({
-        displayName: '   ',
-        role: 'buyer',
-      }),
-    (error: unknown) =>
-      error instanceof PortalWriteError &&
-      error.code === 'validation' &&
-      /name/i.test(error.message),
+    () => normalizeClientCreateInput({ displayName: '   ', role: 'buyer' }),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation' && /name/i.test(error.message),
   )
 })
 
 test('normalizeClientCreateInput rejects an invalid email', () => {
   assert.throws(
-    () =>
-      normalizeClientCreateInput({
-        displayName: 'X',
-        role: 'buyer',
-        email: 'not-an-email',
-      }),
-    (error: unknown) =>
-      error instanceof PortalWriteError &&
-      error.code === 'validation' &&
-      /email/i.test(error.message),
+    () => normalizeClientCreateInput({ displayName: 'X', role: 'buyer', email: 'not-an-email' }),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation' && /email/i.test(error.message),
   )
 })
 
 test('normalizeClientCreateInput rejects a phone without a country code', () => {
   assert.throws(
-    () =>
-      normalizeClientCreateInput({
-        displayName: 'X',
-        role: 'buyer',
-        phone: '7875550142',
-      }),
-    (error: unknown) =>
-      error instanceof PortalWriteError &&
-      error.code === 'validation' &&
-      /country code/i.test(error.message),
+    () => normalizeClientCreateInput({ displayName: 'X', role: 'buyer', phone: '7875550142' }),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation' && /country code/i.test(error.message),
   )
 })
 
 test('normalizeClientCreateInput rejects min budget above max budget', () => {
   assert.throws(
-    () =>
-      normalizeClientCreateInput({
-        displayName: 'X',
-        role: 'buyer',
-        budgetMin: 900000,
-        budgetMax: 500000,
-      }),
-    (error: unknown) =>
-      error instanceof PortalWriteError &&
-      error.code === 'validation' &&
-      /budget/i.test(error.message),
+    () => normalizeClientCreateInput({ displayName: 'X', role: 'buyer', budgetMin: 900000, budgetMax: 500000 }),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation' && /budget/i.test(error.message),
   )
 })
 
@@ -330,8 +285,7 @@ test('normalizeClientContact normalizes email and phone, clears empty', () => {
   assert.equal(normalizeClientContact('phone', null), null)
   assert.throws(
     () => normalizeClientContact('phone', '7875550142'),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'validation',
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation',
   )
 })
 
@@ -340,25 +294,16 @@ test('closed role and status vocabularies match the person schema', () => {
   assert.deepEqual([...CLIENT_STATUSES], ['new', 'warm', 'active', 'referral'])
 })
 
-// ---------------------------------------------------------------------------
-// DB seam — db/person-admin.ts through the fake TxRunner
-// ---------------------------------------------------------------------------
-
 test('createClient inserts the person and both identities atomically', async () => {
   const fake = seededFake()
   const before = fake.identities.length
-
   const result = await createClient(
     {
-      displayName: 'New Buyer',
-      role: 'buyer',
-      email: 'new@example.com',
-      phone: '+17875550142',
-      assignedUserId: 'user-1',
+      displayName: 'New Buyer', role: 'buyer', email: 'new@example.com',
+      phone: '+17875550142', assignedUserId: 'user-1',
     },
     fake.runner,
   )
-
   assert.ok(result.personId)
   assert.equal(fake.persons.length, 2)
   assert.equal(fake.identities.length, before + 2)
@@ -366,22 +311,13 @@ test('createClient inserts the person and both identities atomically', async () 
   assert.equal(created.display_name, 'New Buyer')
   assert.equal(created.status, 'new')
   assert.equal(created.assigned_user_id, 'user-1')
-  assert.ok(
-    fake.identities.some(
-      (i) => i.person_id === result.personId && i.identity_type === 'email' && i.is_primary,
-    ),
-  )
+  assert.ok(fake.identities.some((i) => i.person_id === result.personId && i.identity_type === 'email' && i.is_primary))
 })
 
 test('createClient with no contact identities creates the person only', async () => {
   const fake = seededFake()
   const before = fake.identities.length
-
-  const result = await createClient(
-    { displayName: 'No Contact', role: 'seller' },
-    fake.runner,
-  )
-
+  const result = await createClient({ displayName: 'No Contact', role: 'seller' }, fake.runner)
   assert.ok(result.personId)
   assert.equal(fake.identities.length, before)
   assert.equal(fake.persons.length, 2)
@@ -390,36 +326,19 @@ test('createClient with no contact identities creates the person only', async ()
 test('createClient refuses an email already owned by another person', async () => {
   const fake = seededFake()
   fake.identities.push({
-    id: 'identity-owned',
-    person_id: UUID,
-    identity_type: 'email',
-    identity_value: 'taken@example.com',
-    is_primary: true,
+    id: 'identity-owned', person_id: UUID, identity_type: 'email',
+    identity_value: 'taken@example.com', is_primary: true,
   })
-
   await assert.rejects(
-    createClient(
-      { displayName: 'Clash', role: 'buyer', email: 'taken@example.com' },
-      fake.runner,
-    ),
-    (error: unknown) =>
-      error instanceof PortalWriteError &&
-      error.code === 'conflict' &&
-      /Existing Client/.test(error.message),
+    createClient({ displayName: 'Clash', role: 'buyer', email: 'taken@example.com' }, fake.runner),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'conflict' && /Existing Client/.test(error.message),
   )
-  // No person was created on conflict (seeded roster unchanged).
   assert.equal(fake.persons.length, 1)
 })
 
 test('updateClientProfile merges provided fields and keeps the rest', async () => {
   const fake = seededFake()
-
-  await updateClientProfile(
-    UUID,
-    { displayName: 'Renamed Client', status: 'warm', location: null },
-    fake.runner,
-  )
-
+  await updateClientProfile(UUID, { displayName: 'Renamed Client', status: 'warm', location: null }, fake.runner)
   const person = fake.persons.find((p) => p.id === UUID)!
   assert.equal(person.display_name, 'Renamed Client')
   assert.equal(person.status, 'warm')
@@ -431,13 +350,8 @@ test('updateClientProfile merges provided fields and keeps the rest', async () =
 test('updateClientProfile is not-found for a missing person', async () => {
   const fake = seededFake()
   await assert.rejects(
-    updateClientProfile(
-      '00000000-0000-4000-8000-0000000000ff',
-      { displayName: 'Ghost' },
-      fake.runner,
-    ),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'not-found',
+    updateClientProfile('00000000-0000-4000-8000-0000000000ff', { displayName: 'Ghost' }, fake.runner),
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'not-found',
   )
 })
 
@@ -445,21 +359,17 @@ test('updateClientProfile rejects a min budget above max budget', async () => {
   const fake = seededFake()
   await assert.rejects(
     updateClientProfile(UUID, { budgetMin: 900000, budgetMax: 500000 }, fake.runner),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'validation',
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'validation',
   )
 })
 
 test('archiveClient soft-deletes and is a conflict on the second call', async () => {
   const fake = seededFake()
-
   await archiveClient(UUID, fake.runner)
   assert.ok(fake.persons.find((p) => p.id === UUID)!.archived_at)
-
   await assert.rejects(
     archiveClient(UUID, fake.runner),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'conflict',
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'conflict',
   )
 })
 
@@ -467,35 +377,18 @@ test('archiveClient is not-found for a missing person', async () => {
   const fake = seededFake()
   await assert.rejects(
     archiveClient('00000000-0000-4000-8000-0000000000ff', fake.runner),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'not-found',
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'not-found',
   )
 })
 
 test('setClientIdentity inserts a new primary email and unmarks the old one', async () => {
   const fake = seededFake()
-  fake.identities.push({
-    id: 'identity-old',
-    person_id: UUID,
-    identity_type: 'email',
-    identity_value: 'old@example.com',
-    is_primary: true,
-  })
-
+  fake.identities.push({ id: 'identity-old', person_id: UUID, identity_type: 'email', identity_value: 'old@example.com', is_primary: true })
   await setClientIdentity(UUID, 'email', 'NEW@example.com', fake.runner)
-
-  const identities = fake.identities.filter(
-    (i) => i.person_id === UUID && i.identity_type === 'email',
-  )
+  const identities = fake.identities.filter((i) => i.person_id === UUID && i.identity_type === 'email')
   assert.equal(identities.length, 2)
-  assert.equal(
-    identities.find((i) => i.identity_value === 'new@example.com')?.is_primary,
-    true,
-  )
-  assert.equal(
-    identities.find((i) => i.identity_value === 'old@example.com')?.is_primary,
-    false,
-  )
+  assert.equal(identities.find((i) => i.identity_value === 'new@example.com')?.is_primary, true)
+  assert.equal(identities.find((i) => i.identity_value === 'old@example.com')?.is_primary, false)
 })
 
 test('setClientIdentity sets primary on an identity already owned by the person', async () => {
@@ -504,33 +397,20 @@ test('setClientIdentity sets primary on an identity already owned by the person'
     { id: 'identity-a', person_id: UUID, identity_type: 'phone', identity_value: '+17875550111', is_primary: true },
     { id: 'identity-b', person_id: UUID, identity_type: 'phone', identity_value: '+17875550142', is_primary: false },
   )
-
   await setClientIdentity(UUID, 'phone', '+17875550142', fake.runner)
-
-  assert.equal(
-    fake.identities.find((i) => i.id === 'identity-b')?.is_primary,
-    true,
-  )
-  assert.equal(
-    fake.identities.find((i) => i.id === 'identity-a')?.is_primary,
-    false,
-  )
+  assert.equal(fake.identities.find((i) => i.id === 'identity-b')?.is_primary, true)
+  assert.equal(fake.identities.find((i) => i.id === 'identity-a')?.is_primary, false)
 })
 
 test('setClientIdentity refuses a value owned by another person', async () => {
   const fake = seededFake()
   fake.identities.push({
-    id: 'identity-other',
-    person_id: '00000000-0000-4000-8000-000000000002',
-    identity_type: 'email',
-    identity_value: 'taken@example.com',
-    is_primary: true,
+    id: 'identity-other', person_id: '00000000-0000-4000-8000-000000000002',
+    identity_type: 'email', identity_value: 'taken@example.com', is_primary: true,
   })
-
   await assert.rejects(
     setClientIdentity(UUID, 'email', 'taken@example.com', fake.runner),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'conflict',
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'conflict',
   )
 })
 
@@ -540,13 +420,8 @@ test('setClientIdentity with null clears every identity of that kind', async () 
     { id: 'identity-a', person_id: UUID, identity_type: 'email', identity_value: 'a@example.com', is_primary: true },
     { id: 'identity-b', person_id: UUID, identity_type: 'phone', identity_value: '+17875550142', is_primary: true },
   )
-
   await setClientIdentity(UUID, 'email', null, fake.runner)
-
-  assert.equal(
-    fake.identities.some((i) => i.person_id === UUID && i.identity_type === 'email'),
-    false,
-  )
+  assert.equal(fake.identities.some((i) => i.person_id === UUID && i.identity_type === 'email'), false)
   assert.equal(
     fake.identities.some((i) => i.person_id === UUID && i.identity_type === 'phone'),
     true,
@@ -558,7 +433,6 @@ test('setClientIdentity is not-found for a missing person', async () => {
   const fake = seededFake()
   await assert.rejects(
     setClientIdentity('00000000-0000-4000-8000-0000000000ff', 'email', 'x@example.com', fake.runner),
-    (error: unknown) =>
-      error instanceof PortalWriteError && error.code === 'not-found',
+    (error: unknown) => error instanceof PortalWriteError && error.code === 'not-found',
   )
 })
