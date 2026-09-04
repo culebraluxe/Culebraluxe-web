@@ -45,13 +45,29 @@ export function isAssayTerminalRole(
 export const ASSAY_FAILURE_EVIDENCE =
   /\b(fail(?:ed|ure|ures|ing)?|violation|policy|error|missing|not found|no such file|no test files|does not exist|doesn't exist|command not found|cannot find|unresolvable|could not resolve|exit code [1-9]|nonzero)\b/i
 
-/** Clean Assay evidence = a Complete result with no failure marker. */
+/**
+ * Test runners commonly emit successful counters such as `fail 0`, `0 fail`,
+ * or `errors: 0`. Those are success evidence, not failure markers. Strip only
+ * explicit ZERO counters before applying the fail-closed failure vocabulary;
+ * positive/ambiguous counters remain untouched and therefore still fail.
+ */
+const ASSAY_ZERO_FAILURE_COUNTER =
+  /\b(?:0\s+(?:fail(?:ed|ure|ures|ing)?|errors?)|(?:fail(?:ed|ure|ures|ing)?|errors?)\s*[:=]?\s*0)\b/gi
+
+function assayFailureScanText(testsSummary: string | null | undefined): string {
+  return (testsSummary ?? '')
+    .replace(ASSAY_ZERO_FAILURE_COUNTER, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Clean Assay evidence = a Complete result with no real failure marker. */
 export function isCleanAssayEvidence(input: {
   resultStatus?: string | null
   testsSummary?: string | null
 }): boolean {
   if (!/^complete$/i.test((input.resultStatus ?? '').trim())) return false
-  return !ASSAY_FAILURE_EVIDENCE.test(input.testsSummary ?? '')
+  return !ASSAY_FAILURE_EVIDENCE.test(assayFailureScanText(input.testsSummary))
 }
 
 /** Normalize a 40-hex commit hash (git case-insensitive), or null. */
