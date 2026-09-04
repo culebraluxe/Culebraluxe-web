@@ -1,5 +1,7 @@
 # ENG-FORGE-V5-03R — Durable Contract Snapshot and Scheduler Integrity
 
+> Historical incident-repair work item. Its failed/Interrupted runs remain truthful evidence, but it is no longer a hard predecessor for the V5 architecture pack. Direct outer-harness recovery repairs on current `main` supersede this story as a release gate.
+
 ## Goal
 Close the ENG-FORGE-V5-03 control-plane incident so an admitted Forge story can run unattended without depending on a freshly-pulled local Git packet, without losing completed Smith work when an Assay recipe is absent, and without silently building a successor from stale local `main`.
 
@@ -27,7 +29,7 @@ Migration 104 is intentionally limited to three nullable text columns on `storyb
 2. A single admission/materialization seam validates a Git packet and persists its executable snapshot before/promoted with executable Ready work; partial manual admission cannot create a launchable Smith envelope.
 3. For an admitted story, durable Neon `test_mode`/`assay_commands` win over local Git fallback. A missing/stale local packet cannot erase a persisted executable contract.
 4. Missing Assay commands do not reject Smith launch. After a real Smith candidate exists, missing Assay commands cause Hold / needs-Assay-plan with the candidate preserved and no Assay launched.
-5. Supplying the missing durable Assay plan can resume by enqueueing Assay against the exact preserved candidate without rerunning Smith. Wrong/missing candidate still fails closed.
+5. Supplying the missing durable Assay plan can resume by enqueueing Assay against the exact existing candidate without rerunning Smith. Wrong/missing candidate still fails closed.
 6. Scheduler wrapper performs no Git remote operation or branch mutation. `agent:scheduler:run` executes the exact deployed wrapper path launchd uses. Install/status exposes a deterministic repo/deployed wrapper fingerprint and fails closed on mismatch.
 7. Successor Smith work does not silently branch from stale local `main`. Default base selection uses the accepted integration tracking state (or an explicit admitted base commit); a mismatch/unresolvable expected base is a factual Hold/Error before model execution.
 8. Existing exact-candidate Assay and non-force publication semantics remain unchanged.
@@ -42,5 +44,5 @@ Migration 104 is intentionally limited to three nullable text columns on `storyb
 ## Test mode
 SCOPED only. Full regression forbidden.
 
-## Loop
-Incident packet → Smith bounded repair → Forge candidate → exact-candidate Assay → non-force publish → only then release ENG-FORGE-V5-04.
+## Historical disposition
+Preserve the existing Hold/Error/Interrupted evidence. Do not mark this story Complete retroactively and do not use it as a global pack gate. V5-04 through V5-11 may proceed independently from the accepted V5-03 baseline; only explicit `HARD:` edges may block descendants.
