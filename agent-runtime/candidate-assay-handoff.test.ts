@@ -362,7 +362,7 @@ test('builder finish WITH a candidate hands off to Assay (verifier) carrying the
     candidateSha: CANDIDATE,
     getStory: async () => packetStory,
     enqueue: async (input) => {
-      enqueued.push({ role: input.role, specialInstructions: input.specialInstructions })
+      enqueued.push({ role: input.role, specialInstructions: input.specialInstructions ?? null })
     },
     repoRoot: '/definitely/missing',
   })
