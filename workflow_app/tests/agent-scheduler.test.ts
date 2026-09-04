@@ -92,7 +92,7 @@ test('escapeXml handles the five XML entities', () => {
   assert.equal(escapeXml('plain-path'), 'plain-path')
 })
 
-test('wrapper dry-run logs timestamped start/end and exits 0', () => {
+test('wrapper dry-run records the dry-run and exits 0 without claiming work', () => {
   const home = makeTempHome()
   const logDir = join(home, 'logs')
   try {
@@ -102,8 +102,8 @@ test('wrapper dry-run logs timestamped start/end and exits 0', () => {
     })
     assert.equal(r.status, 0, r.stderr)
     const log = invocationLog(logDir)
-    assert.match(log, /start: cwd=.*cmd="pnpm agent:work"/)
-    assert.match(log, /end: exit=0/)
+    assert.match(log, /dry-run/)
+    assert.ok(!/start: cwd/.test(log), 'dry-run exits before Forge work starts')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -114,8 +114,6 @@ test('deployed wrapper copy uses AGENT_WORKER_REPO to enter the repository', () 
   const logDir = join(home, 'logs')
   const supportDir = join(home, 'Application Support', 'CulebraLuxe')
   try {
-    // The LaunchAgent runs a copy of the wrapper outside ~/Documents; the
-    // plist environment supplies AGENT_WORKER_REPO so it finds the repo.
     mkdirSync(supportDir, { recursive: true })
     const deployed = join(supportDir, 'agent-worker-once.sh')
     const source = readFileSync(WRAPPER, 'utf8')
@@ -132,7 +130,8 @@ test('deployed wrapper copy uses AGENT_WORKER_REPO to enter the repository', () 
     })
     assert.equal(r.status, 0, r.stderr)
     const log = invocationLog(logDir)
-    assert.match(log, new RegExp(`start: cwd=${REPO_ROOT} cmd="pnpm agent:work"`))
+    assert.match(log, /dry-run/)
+    assert.ok(!/start: cwd/.test(log), 'deployed dry-run does not start Forge work')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -142,7 +141,6 @@ test('wrapper local lock skips a second overlapping invocation', () => {
   const home = makeTempHome()
   const logDir = join(home, 'logs')
   try {
-    // Hold the lock with a live pid (this test process is alive).
     const lockDir = join(logDir, 'agent-worker.lock')
     mkdirSync(lockDir, { recursive: true })
     writeFileSync(join(lockDir, 'pid'), String(process.pid))
@@ -153,7 +151,7 @@ test('wrapper local lock skips a second overlapping invocation', () => {
     })
     assert.equal(r.status, 0, r.stderr)
     const log = invocationLog(logDir)
-    assert.match(log, /skipped: another agent-worker invocation is still running/)
+    assert.match(log, /skipped: another Forge worker invocation is still running/)
     assert.ok(!/start: cwd/.test(log), 'blocked invocation must not start work')
   } finally {
     rmSync(home, { recursive: true, force: true })
@@ -166,33 +164,33 @@ test('wrapper reclaims a stale lock held by a dead pid', () => {
   try {
     const lockDir = join(logDir, 'agent-worker.lock')
     mkdirSync(lockDir, { recursive: true })
-    writeFileSync(join(lockDir, 'pid'), '999999') // unlikely-live pid
+    writeFileSync(join(lockDir, 'pid'), '999999')
     const r = runWrapper({
       AGENT_WORKER_DRY_RUN: '1',
       AGENT_WORKER_LOG_DIR: logDir,
     })
     assert.equal(r.status, 0, r.stderr)
     const log = invocationLog(logDir)
-    assert.match(log, /start: cwd=/)
+    assert.match(log, /dry-run/)
     assert.ok(!existsSync(lockDir), 'stale lock must be cleaned up')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
 })
 
-test('wrapper propagates a pnpm-unavailable failure and records it in the log', () => {
+test('wrapper propagates a pnpm-unavailable failure and records it without starting Forge', () => {
   const home = makeTempHome()
   const logDir = join(home, 'logs')
   try {
     const r = runWrapper({
-      AGENT_WORKER_PATH: '/usr/bin:/bin', // no Homebrew pnpm on PATH
+      AGENT_WORKER_PATH: '/usr/bin:/bin',
       AGENT_WORKER_LOG_DIR: logDir,
     })
     assert.equal(r.status, 127, r.stderr)
     assert.match(r.stderr, /pnpm not found/)
     const log = invocationLog(logDir)
-    assert.match(log, /start: cwd=/)
-    assert.match(log, /end: exit=127/)
+    assert.ok(!/start: cwd/.test(log), 'missing pnpm fails before Forge work starts')
+    assert.match(log, /end: exit=127 pnpm-missing/)
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -215,4 +213,3 @@ test('scheduler status reports not installed when no plist exists', () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
-
