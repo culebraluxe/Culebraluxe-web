@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // Accepted Candidate Publish — outer Forge only.
 //
-// V6 publication consumes structured Assay evidence when present. Narrative
-// tests_summary is legacy compatibility only and cannot override a V6 verdict.
-// Git publication remains safe non-force fast-forward only.
+// V6 publication consumes structured Story Run machine evidence when present.
+// Narrative tests_summary is legacy compatibility only and cannot override a
+// structured verdict. Git publication remains safe non-force fast-forward only.
 // ---------------------------------------------------------------------------
 
 import {
@@ -11,6 +11,10 @@ import {
   type PublishAcceptedCandidateInput,
   type PublishAcceptedCandidateOutcome,
 } from '../lib/worker-workspace'
+import {
+  isCleanRunMachineEvidence,
+  type RunMachineEvidence,
+} from '../lib/forge-run-evidence'
 import { isCleanAssayResult } from './orchestrate-apply'
 import type { AssayEvidence } from './assay-evidence'
 
@@ -40,7 +44,9 @@ export type AcceptedCandidatePublishInput = {
   role: string | null | undefined
   resultStatus?: string | null
   testsSummary?: string | null
-  /** V6 source of truth. If present, prose cannot affect eligibility. */
+  /** V6 durable source of truth on storyboard_story_run. */
+  machineEvidence?: RunMachineEvidence | null
+  /** In-process deterministic Assay evidence; retained for compatibility/tests. */
   assayEvidence?: AssayEvidence | null
   candidateCommit?: string | null
   assayedCandidate?: string | null
@@ -61,20 +67,26 @@ export async function publishAcceptedCandidateAfterAssay(
   }
 
   const completeStatus = /^complete$/i.test((input.resultStatus ?? '').trim())
-  const clean = input.assayEvidence
+  const clean = input.machineEvidence
     ? completeStatus &&
-      input.assayEvidence.verdict === 'PASS' &&
-      input.assayEvidence.failureCode === null
-    : isCleanAssayResult({
-        resultStatus: input.resultStatus ?? null,
-        testsSummary: input.testsSummary ?? null,
-      })
+      (input.machineEvidence.commandsTotal ?? 0) > 0 &&
+      isCleanRunMachineEvidence(input.machineEvidence)
+    : input.assayEvidence
+      ? completeStatus &&
+        input.assayEvidence.verdict === 'PASS' &&
+        input.assayEvidence.failureCode === null
+      : isCleanAssayResult({
+          resultStatus: input.resultStatus ?? null,
+          testsSummary: input.testsSummary ?? null,
+        })
   if (!clean) {
     return {
       action: 'not-eligible',
-      reason: input.assayEvidence
-        ? `structured Assay is not publishable: status=${input.resultStatus ?? '(none)'}, verdict=${input.assayEvidence.verdict}${input.assayEvidence.failureCode ? `, failure=${input.assayEvidence.failureCode}` : ''}`
-        : `legacy Assay did not finish clean (resultStatus='${input.resultStatus ?? '(none)'}'); a failed/Hold Assay never publishes accepted code`,
+      reason: input.machineEvidence
+        ? `structured Run evidence is not publishable: status=${input.resultStatus ?? '(none)'}, commands=${input.machineEvidence.commandsPassed ?? '?'}/${input.machineEvidence.commandsTotal ?? '?'}, tests=${input.machineEvidence.testsPassed ?? '?'}/${input.machineEvidence.testsTotal ?? '?'}, failures=${input.machineEvidence.testsFailed ?? '?'}, policy=${input.machineEvidence.policyViolationCount ?? '?'}, failure=${input.machineEvidence.failureCode ?? '(none)'}`
+        : input.assayEvidence
+          ? `structured Assay is not publishable: status=${input.resultStatus ?? '(none)'}, verdict=${input.assayEvidence.verdict}${input.assayEvidence.failureCode ? `, failure=${input.assayEvidence.failureCode}` : ''}`
+          : `legacy Assay did not finish clean (resultStatus='${input.resultStatus ?? '(none)'}'); a failed/Hold Assay never publishes accepted code`,
     }
   }
 
@@ -87,9 +99,9 @@ export async function publishAcceptedCandidateAfterAssay(
     }
   }
 
-  const assayedSource = input.assayEvidence
-    ? input.assayEvidence.verifiedSha
-    : input.assayedCandidate
+  const assayedSource = input.machineEvidence?.baseCommitHash ??
+    input.assayEvidence?.verifiedSha ??
+    input.assayedCandidate
   if (assayedSource !== undefined) {
     const assayed = (assayedSource ?? '').trim().toLowerCase()
     if (!assayed || assayed !== candidate.toLowerCase()) {
