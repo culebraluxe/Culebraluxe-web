@@ -47,70 +47,85 @@ export async function recoverAgentWorkInterruption(
 
   const conciseReason = String(reason || 'runtime interrupted').slice(0, 2000)
   const interruptedRunId = item.storyRunId
-
-  // Close only an ACTIVE run. Recovery is idempotent: a second pass never
-  // rewrites an already-terminal run or appends duplicate interruption notes.
-  if (interruptedRunId) {
-    await execute`
-      update storyboard_story_run
-      set ended_at = now(),
-          result_status = 'Interrupted',
-          notes = case
-            when notes is null or notes = ''
-              then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
-            else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
-          end,
-          updated_at = now()
-      where id = ${interruptedRunId}
-        and ended_at is null
-    `
-  }
-
   const exhausted = item.attempts >= item.maxAttempts
+
   if (exhausted) {
-    // Retry budget is infrastructure/process budget, not acceptance evidence.
-    // Preserve the interrupted run/worktree and Hold for a human decision.
+    // One statement = one atomic recovery decision. The run closes as
+    // Interrupted, the work item consumes its final infrastructure attempt,
+    // and the story moves to Hold without ever claiming implementation failure.
     await execute`
-      update storyboard_story
+      with interrupted_run as (
+        update storyboard_story_run
+        set ended_at = now(),
+            result_status = 'Interrupted',
+            notes = case
+              when notes is null or notes = ''
+                then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+              else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+            end,
+            updated_at = now()
+        where id = ${interruptedRunId}
+          and ended_at is null
+        returning id
+      ), exhausted_work as (
+        update agent_work_item
+        set state = 'Error',
+            error_text = ${`runtime retry budget exhausted (${item.attempts}/${item.maxAttempts}): ${conciseReason}`},
+            finished_at = now(),
+            updated_at = now()
+        where id = ${workItemId}
+          and state in ('Claimed', 'Running', 'Paused')
+        returning story_id
+      )
+      update storyboard_story s
       set status = 'Hold',
           completed_at = null,
           updated_at = now()
-      where id = ${item.storyId}
-    `
-    await execute`
-      update agent_work_item
-      set state = 'Error',
-          error_text = ${`runtime retry budget exhausted (${item.attempts}/${item.maxAttempts}): ${conciseReason}`},
-          finished_at = now(),
-          updated_at = now()
-      where id = ${workItemId}
-        and state in ('Claimed', 'Running', 'Paused')
+      from exhausted_work w
+      where s.id = w.story_id
     `
   } else {
-    // Set the story Ready while this row is still active. The existing Ready
-    // dispatch trigger sees the active row and therefore cannot create a
-    // duplicate queue item. Then release this SAME item back to Ready.
+    // Row FIRST inside the same statement, then story -> Ready. This matters
+    // for Paused: the historical per-story active index excludes Paused, so a
+    // story-first Ready transition could let the dispatch trigger create a
+    // duplicate queue row. By the time that trigger fires here, THIS work item
+    // is already Ready and its insert conflicts safely with the existing row.
     await execute`
-      update storyboard_story
+      with interrupted_run as (
+        update storyboard_story_run
+        set ended_at = now(),
+            result_status = 'Interrupted',
+            notes = case
+              when notes is null or notes = ''
+                then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+              else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — runtime interrupted: ' || ${conciseReason}
+            end,
+            updated_at = now()
+        where id = ${interruptedRunId}
+          and ended_at is null
+        returning id
+      ), released_work as (
+        update agent_work_item
+        set state = 'Ready',
+            queued_at = now(),
+            claimed_at = null,
+            claimed_by = null,
+            started_at = null,
+            finished_at = null,
+            error_text = null,
+            runtime_adapter = null,
+            external_run_id = null,
+            updated_at = now()
+        where id = ${workItemId}
+          and state in ('Claimed', 'Running', 'Paused')
+        returning story_id
+      )
+      update storyboard_story s
       set status = 'Ready',
           completed_at = null,
           updated_at = now()
-      where id = ${item.storyId}
-    `
-    await execute`
-      update agent_work_item
-      set state = 'Ready',
-          queued_at = now(),
-          claimed_at = null,
-          claimed_by = null,
-          started_at = null,
-          finished_at = null,
-          error_text = null,
-          runtime_adapter = null,
-          external_run_id = null,
-          updated_at = now()
-      where id = ${workItemId}
-        and state in ('Claimed', 'Running', 'Paused')
+      from released_work w
+      where s.id = w.story_id
     `
   }
 
