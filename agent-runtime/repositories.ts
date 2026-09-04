@@ -233,7 +233,7 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       testsSummary: string | null
       assayEvidence?: AssayEvidence | null
     },
-  ) {
+  ): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }> {
     const q = await this.executor()
     const item = await getAgentWorkItem(workItemId, q)
     let context: AssayFinishContext | undefined
@@ -267,9 +267,6 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       )
     }
 
-    // finishStoryRun historically maps any Complete lane to Story Complete.
-    // V6 corrects the projection immediately: successful Smith and successful
-    // exact-candidate Assay are intermediate gates. Outer publish owns Done.
     const smithAwaitingAssay = Boolean(
       item?.role === 'builder' &&
         /^complete$/i.test(normalized.resultStatus) &&
@@ -283,14 +280,12 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     )
     if (item && (smithAwaitingAssay || assayAwaitingPublish)) {
       await markForgeStoryInProgress(item.storyId, q)
-      return {
-        ...finished,
-        story: {
-          ...finished.story,
-          status: 'In Progress',
-          completedAt: null,
-        },
+      const story: StoryboardStory = {
+        ...finished.story,
+        status: 'In Progress',
+        completedAt: null,
       }
+      return { ...finished, story }
     }
 
     return finished
