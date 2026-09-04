@@ -62,21 +62,21 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
     const target = parseExecutionEnvironment(context.executionEnvironment, 'DEV')
     verifyWorkspaceEnvFile(cwd, target)
 
+    const selection = context.runtimeSelection
     const task = buildTaskText(context.command, context)
     const command = this.provider.buildCommand({
       cwd,
       task,
       modelProfile: context.command.modelProfile,
+      playerId: selection.playerId,
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+      modelRef: `${selection.providerId}/${selection.modelId}`,
     })
     const childEnv = buildGatewayChildEnv(target, command.env ?? {})
 
     this.stdout = ''
     this.stderr = ''
-    // Keep the spawned process in a local non-null binding while wiring its
-    // listeners. Next augments NodeJS.ProcessEnv with required framework keys,
-    // while our sanitized runtime env is intentionally a generic string map;
-    // the cast is only at Node's spawn boundary and does not change runtime
-    // values or the execution-target safety policy.
     const proc = spawn(command.bin, command.args, {
       cwd,
       env: childEnv as NodeJS.ProcessEnv,
@@ -145,10 +145,12 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
     }
 
     const output = this.stdout.trim()
+    const modelRef = `${context.runtimeSelection.providerId}/${context.runtimeSelection.modelId}`
+    const notes = output || `${this.provider.id} completed successfully`
     return {
       resultStatus: 'Complete',
       completion: 100,
-      notes: output || `${this.provider.id} completed successfully`,
+      notes: `Forge player=${context.runtimeSelection.playerId} model=${modelRef}\n${notes}`,
       testsSummary: extractTestsSummary(output, `${this.provider.id} exit 0`),
       commitHash,
       runtimeAdapter: this.runtimeAdapterId,
