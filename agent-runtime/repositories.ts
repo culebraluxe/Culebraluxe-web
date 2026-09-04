@@ -35,7 +35,6 @@ import {
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
 import type { AssayEvidence } from './assay-evidence'
-import { DEFAULT_LANES } from './lanes'
 import {
   leadRunPhaseFromInstructions,
   parseLeadDecision,
@@ -55,15 +54,18 @@ export type AssayFinishContext = {
 }
 
 function runTypeForWorkItem(
-  item: Pick<AgentWorkItem, 'role' | 'modelProfile'>,
+  item: Pick<AgentWorkItem, 'role' | 'specialInstructions'>,
 ): string | null {
-  const role = (item.role ?? '').trim()
-  const profile = (item.modelProfile ?? '').trim()
-  const exact = Object.values(DEFAULT_LANES).find(
-    (binding) => binding.role === role && binding.profile === profile,
-  )
-  if (exact) return exact.lane
+  // Lane identity comes from Forge's own machine-authored envelope, never from
+  // whichever model/profile happened to be mapped into the position.
+  const lane = (item.specialInstructions ?? '').match(
+    /\bLane=(scout|architect|lead|smith|inspector|assay|archive|night)\b/,
+  )?.[1]
+  if (lane) return lane
 
+  // Legacy work items predate the lane preamble. Preserve the nearest factual
+  // role mapping without consulting model/profile identity.
+  const role = (item.role ?? '').trim()
   if (role === 'lead') return 'lead'
   if (role === 'builder') return 'smith'
   if (role === 'verifier') return 'assay'
