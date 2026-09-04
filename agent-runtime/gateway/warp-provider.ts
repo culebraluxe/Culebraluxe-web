@@ -20,7 +20,9 @@ export const warpProvider: ForgeProviderDescriptor = {
     }
     return {
       bin: headlessBin,
-      args: ['--cwd', cwd, '--task', task, '--model', modelRef],
+      args: modelRef
+        ? ['--cwd', cwd, '--task', task, '--model', modelRef]
+        : ['--cwd', cwd, '--task', task],
     }
   },
 }
