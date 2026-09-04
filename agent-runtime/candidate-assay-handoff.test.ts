@@ -1,11 +1,7 @@
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V4-10C — Exact Candidate Assay Handoff: focused tests.
-//
-// Reproduces the V4-11 false-positive path (Assay workspace provisioned from
-// main@<head> while Smith's candidate commit was <candidate>; the failed
-// packet command still normalized to Complete 100%) and proves every seam of
-// the strict invariant fails closed. V6.1 inserts mandatory independent QA
-// before deterministic Assay while preserving the exact candidate SHA.
+// V6.1 inserts mandatory independent QA before deterministic Assay while
+// preserving the exact candidate SHA and fail-closed publish boundary.
 // ---------------------------------------------------------------------------
 
 import assert from 'node:assert/strict'
@@ -120,22 +116,10 @@ test('missing-file and non-zero command evidence is failure evidence', () => {
 })
 
 test('isCleanAssayEvidence requires Complete and no failure marker', () => {
-  assert.equal(
-    isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '12 passed, 0 errors' }),
-    true,
-  )
-  assert.equal(
-    isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: null }),
-    true,
-  )
-  assert.equal(
-    isCleanAssayEvidence({ resultStatus: 'Hold', testsSummary: 'clean summary' }),
-    false,
-  )
-  assert.equal(
-    isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '1 failed' }),
-    false,
-  )
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '12 passed, 0 errors' }), true)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: null }), true)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Hold', testsSummary: 'clean summary' }), false)
+  assert.equal(isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: '1 failed' }), false)
   assert.equal(
     isCleanAssayEvidence({
       resultStatus: 'Complete',
@@ -146,14 +130,9 @@ test('isCleanAssayEvidence requires Complete and no failure marker', () => {
 })
 
 test('verifiedShaFromWorkspaceEvidence reads the base commit the Assay ran on', () => {
+  assert.equal(verifiedShaFromWorkspaceEvidence(notesWithBase(CANDIDATE)), CANDIDATE)
   assert.equal(
-    verifiedShaFromWorkspaceEvidence(notesWithBase(CANDIDATE)),
-    CANDIDATE,
-  )
-  assert.equal(
-    verifiedShaFromWorkspaceEvidence(
-      `Assay output above.\n\n${notesWithBase(MAIN_BASE, 'main')}`,
-    ),
+    verifiedShaFromWorkspaceEvidence(`Assay output above.\n\n${notesWithBase(MAIN_BASE, 'main')}`),
     MAIN_BASE,
   )
   assert.equal(verifiedShaFromWorkspaceEvidence('no workspace line'), null)
@@ -161,55 +140,35 @@ test('verifiedShaFromWorkspaceEvidence reads the base commit the Assay ran on', 
 })
 
 test('candidateVerifiedEvidenceLine records the exact verified SHA', () => {
-  assert.equal(
-    candidateVerifiedEvidenceLine(CANDIDATE),
-    `Assay verified candidate ${CANDIDATE} (workspace base == candidate).`,
-  )
+  assert.equal(candidateVerifiedEvidenceLine(CANDIDATE), `Assay verified candidate ${CANDIDATE} (workspace base == candidate).`)
 })
 
 test('Assay lanes resolve their workspace base to the exact candidate commit', () => {
   for (const role of ['reviewer', 'verifier']) {
-    const resolved = resolveAssayWorkspaceBase({
-      role,
-      candidateSha: CANDIDATE,
-      fallbackBaseRef: 'main',
-    })
+    const resolved = resolveAssayWorkspaceBase({ role, candidateSha: CANDIDATE, fallbackBaseRef: 'main' })
     assert.deepEqual(resolved, { baseRef: CANDIDATE })
   }
 })
 
 test('non-Assay lanes keep the existing approved integration base', () => {
   for (const role of ['builder', 'scout', 'architect', null]) {
-    const resolved = resolveAssayWorkspaceBase({
-      role,
-      candidateSha: CANDIDATE,
-      fallbackBaseRef: 'main',
-    })
+    const resolved = resolveAssayWorkspaceBase({ role, candidateSha: CANDIDATE, fallbackBaseRef: 'main' })
     assert.deepEqual(resolved, { baseRef: 'main' })
   }
 })
 
 test('an Assay lane with no resolvable candidate fails closed (never main)', () => {
   for (const candidateSha of [null, '', '   ', 'not-a-commit']) {
-    const resolved = resolveAssayWorkspaceBase({
-      role: 'verifier',
-      candidateSha,
-      fallbackBaseRef: 'main',
-    })
+    const resolved = resolveAssayWorkspaceBase({ role: 'verifier', candidateSha, fallbackBaseRef: 'main' })
     assert.ok('error' in resolved, String(candidateSha))
-    if ('error' in resolved) {
-      assert.match(resolved.error, /refusing to provision from main/)
-    }
+    if ('error' in resolved) assert.match(resolved.error, /refusing to provision from main/)
   }
 })
 
 test('V4-11: verifier Assay provisioned from main cannot normalize to Complete', () => {
   const normalized = normalizeAgentFinishForRole(
     'verifier',
-    {
-      ...cleanInput,
-      notes: notesWithBase(MAIN_BASE, 'main'),
-    },
+    { ...cleanInput, notes: notesWithBase(MAIN_BASE, 'main') },
     context(CANDIDATE),
   )
   assert.equal(normalized.resultStatus, 'Hold')
@@ -222,10 +181,7 @@ test('V4-11: verifier Assay provisioned from main cannot normalize to Complete',
 test('reviewer role gets the same wrong-base Hold semantics', () => {
   const normalized = normalizeAgentFinishForRole(
     'reviewer',
-    {
-      ...cleanInput,
-      notes: notesWithBase(MAIN_BASE, 'main'),
-    },
+    { ...cleanInput, notes: notesWithBase(MAIN_BASE, 'main') },
     context(CANDIDATE),
   )
   assert.equal(normalized.resultStatus, 'Hold')
@@ -235,10 +191,7 @@ test('reviewer role gets the same wrong-base Hold semantics', () => {
 test('clean Assay that verified the exact candidate stays Complete + records the SHA', () => {
   const normalized = normalizeAgentFinishForRole(
     'verifier',
-    {
-      ...cleanInput,
-      notes: notesWithBase(CANDIDATE),
-    },
+    { ...cleanInput, notes: notesWithBase(CANDIDATE) },
     context(CANDIDATE),
   )
   assert.equal(normalized.resultStatus, 'Complete')
@@ -250,10 +203,7 @@ test('Assay with a clean summary but no candidate fails closed to Hold', () => {
   for (const role of ['reviewer', 'verifier']) {
     const normalized = normalizeAgentFinishForRole(
       role,
-      {
-        ...cleanInput,
-        notes: notesWithBase(MAIN_BASE, 'main'),
-      },
+      { ...cleanInput, notes: notesWithBase(MAIN_BASE, 'main') },
       context(null),
     )
     assert.equal(normalized.resultStatus, 'Hold', role)
@@ -272,15 +222,8 @@ test('Assay with clean summary but no workspace evidence fails closed to Hold', 
 })
 
 test('verifier failed/missing command evidence is never Complete (no context either)', () => {
-  for (const testsSummary of [
-    '1 failed',
-    'slack-notifier.test.ts does not exist in this checkout',
-    'No test files found',
-  ]) {
-    const normalized = normalizeAgentFinishForRole('verifier', {
-      ...cleanInput,
-      testsSummary,
-    })
+  for (const testsSummary of ['1 failed', 'slack-notifier.test.ts does not exist in this checkout', 'No test files found']) {
+    const normalized = normalizeAgentFinishForRole('verifier', { ...cleanInput, testsSummary })
     assert.equal(normalized.resultStatus, 'Hold', testsSummary)
     assert.equal(normalized.commitHash, null)
   }
@@ -294,11 +237,7 @@ test('clean verifier (legacy no-context caller) keeps Complete but never a commi
 
 test('builder finish behavior is unchanged by the Assay invariants', () => {
   const builderInput = {
-    resultStatus: 'Complete',
-    completion: 100,
-    notes: 'smith done',
-    commitHash: CANDIDATE,
-    testsSummary: 'all checks passed',
+    resultStatus: 'Complete', completion: 100, notes: 'smith done', commitHash: CANDIDATE, testsSummary: 'all checks passed',
   }
   assert.deepEqual(normalizeAgentFinishForRole('builder', builderInput), builderInput)
 })
@@ -310,10 +249,7 @@ const packetStory = {
 }
 
 test('builder finish WITH a candidate hands off to mandatory QA carrying the candidate', async () => {
-  const enqueued: Array<{
-    role: string
-    specialInstructions: string | null
-  }> = []
+  const enqueued: Array<{ role: string; specialInstructions: string | null }> = []
   const followed = await followFinishedLane({
     storyId: 'ENG-FORGE-V4-10C-WITH-CANDIDATE',
     finishedRole: 'builder',
@@ -339,9 +275,7 @@ test('builder finish WITHOUT a candidate never launches QA or Assay', async () =
     resultStatus: 'Complete',
     candidateSha: null,
     getStory: async () => packetStory,
-    enqueue: async (input) => {
-      enqueued.push(input)
-    },
+    enqueue: async (input) => { enqueued.push(input) },
     repoRoot: '/definitely/missing',
   })
   assert.equal(followed, null)
@@ -350,26 +284,15 @@ test('builder finish WITHOUT a candidate never launches QA or Assay', async () =
 
 test('publish only runs when the Assay verified the exact candidate being published', async () => {
   let invoked = 0
-  const publishSpy = async (
-    input: PublishAcceptedCandidateInput,
-  ): Promise<PublishAcceptedCandidateOutcome> => {
+  const publishSpy = async (input: PublishAcceptedCandidateInput): Promise<PublishAcceptedCandidateOutcome> => {
     invoked += 1
     const sha = input.candidateCommit ?? ''
-    return {
-      outcome: 'published',
-      candidateCommit: sha,
-      publishedMainHash: sha,
-    }
+    return { outcome: 'published', candidateCommit: sha, publishedMainHash: sha }
   }
-
   const report = await publishAcceptedCandidateAfterAssay({
-    role: 'verifier',
-    resultStatus: 'Complete',
-    testsSummary: 'all checks passed',
-    candidateCommit: CANDIDATE,
-    assayedCandidate: CANDIDATE,
-    repoRoot: '/definitely/missing',
-    publish: publishSpy,
+    role: 'verifier', resultStatus: 'Complete', testsSummary: 'all checks passed',
+    candidateCommit: CANDIDATE, assayedCandidate: CANDIDATE,
+    repoRoot: '/definitely/missing', publish: publishSpy,
   })
   assert.equal(report.action, 'published')
   assert.equal(invoked, 1)
@@ -381,16 +304,11 @@ test('publish refuses when the Assay verified a different base (V4-11 main case)
     invoked += 1
     return { outcome: 'no-candidate' as const, reason: 'unexpected invocation' }
   }
-
   for (const assayedCandidate of [MAIN_BASE, null, '', '   ']) {
     const report = await publishAcceptedCandidateAfterAssay({
-      role: 'verifier',
-      resultStatus: 'Complete',
-      testsSummary: 'all checks passed',
-      candidateCommit: CANDIDATE,
-      assayedCandidate,
-      repoRoot: '/definitely/missing',
-      publish: publishSpy,
+      role: 'verifier', resultStatus: 'Complete', testsSummary: 'all checks passed',
+      candidateCommit: CANDIDATE, assayedCandidate,
+      repoRoot: '/definitely/missing', publish: publishSpy,
     })
     assert.equal(report.action, 'not-eligible', String(assayedCandidate))
     assert.match(report.reason, /does not equal the publish candidate/)
@@ -401,21 +319,13 @@ test('publish refuses when the Assay verified a different base (V4-11 main case)
 test('omitting assayedCandidate keeps the legacy V4-10B publish decision unchanged', async () => {
   let invoked = 0
   const report = await publishAcceptedCandidateAfterAssay({
-    role: 'reviewer',
-    resultStatus: 'Complete',
+    role: 'reviewer', resultStatus: 'Complete',
     testsSummary: 'accepted-candidate-publish.test.ts 4/4 pass',
-    candidateCommit: CANDIDATE,
-    repoRoot: '/definitely/missing',
-    publish: async (
-      input: PublishAcceptedCandidateInput,
-    ): Promise<PublishAcceptedCandidateOutcome> => {
+    candidateCommit: CANDIDATE, repoRoot: '/definitely/missing',
+    publish: async (input: PublishAcceptedCandidateInput): Promise<PublishAcceptedCandidateOutcome> => {
       invoked += 1
       const sha = input.candidateCommit ?? ''
-      return {
-        outcome: 'published',
-        candidateCommit: sha,
-        publishedMainHash: sha,
-      }
+      return { outcome: 'published', candidateCommit: sha, publishedMainHash: sha }
     },
   })
   assert.equal(report.action, 'published')
