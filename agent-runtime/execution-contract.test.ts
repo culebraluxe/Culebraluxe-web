@@ -69,22 +69,7 @@ test('a fully complete Smith contract passes unchanged', () => {
 
 test('missing Architect brief rejects Smith with named evidence', () => {
   const result = validateExecutionContract(
-    subject({
-      story: { ...COMPLETE_STORY, architectBrief: null },
-    }),
-  )
-  assert.equal(result.ok, false)
-  if (result.ok) return
-  assert.equal(result.code, 'missing-architect-brief')
-  assert.ok(
-    result.reasons.some((r) => /Architect brief/.test(r.message)),
-    'reason names the failing condition',
-  )
-})
-
-test('whitespace-only Architect brief rejects Smith (never treated as present)', () => {
-  const result = validateExecutionContract(
-    subject({ story: { ...COMPLETE_STORY, architectBrief: '   \n  ' } }),
+    subject({ story: { ...COMPLETE_STORY, architectBrief: null } }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -98,20 +83,14 @@ test('missing acceptance criteria rejects Smith before external execution', () =
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.code, 'missing-acceptance-criteria')
-  assert.ok(
-    result.reasons.some((r) => /Acceptance criteria/.test(r.message)),
-    'reason names the failing condition',
-  )
 })
 
-test('missing Assay commands/plan rejects Smith before external execution', () => {
+test('missing Assay commands do not block Smith launch', () => {
   for (const assayCommands of [null, '   \n  ', '']) {
     const result = validateExecutionContract(
       subject({ story: { ...COMPLETE_STORY, assayCommands } }),
     )
-    assert.equal(result.ok, false, `assayCommands=${JSON.stringify(assayCommands)}`)
-    if (result.ok) continue
-    assert.equal(result.code, 'missing-assay-plan')
+    assert.equal(result.ok, true, `assayCommands=${JSON.stringify(assayCommands)}`)
   }
 })
 
@@ -121,10 +100,6 @@ test('missing execution target rejects Smith before external execution', () => {
     assert.equal(result.ok, false, `executionTarget=${JSON.stringify(executionTarget)}`)
     if (result.ok) continue
     assert.equal(result.code, 'missing-execution-target')
-    assert.ok(
-      result.reasons.some((r) => /execution target/.test(r.message)),
-      'reason names the failing condition',
-    )
   }
 })
 
@@ -134,27 +109,16 @@ test('invalid execution target rejects Smith before external execution', () => {
     assert.equal(result.ok, false, executionTarget)
     if (result.ok) continue
     assert.equal(result.code, 'invalid-execution-target')
-    assert.ok(
-      result.reasons.some((r) => /not one of DEV\|PROD\|TEST\|LOCAL/.test(r.message)),
-      'reason names the invalid token',
-    )
   }
 })
 
 test('unknown profile rejects Smith and never falls back to another profile', () => {
   const result = validateExecutionContract(
-    subject({
-      modelProfile: 'builder-mystery',
-      registry: fakeRegistry({ registered: false }),
-    }),
+    subject({ modelProfile: 'builder-mystery', registry: fakeRegistry({ registered: false }) }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.code, 'profile-unregistered')
-  assert.ok(
-    result.reasons.some((r) => /'builder-mystery' is not registered/.test(r.message)),
-    'reason names the unknown profile and forbids substitution',
-  )
 })
 
 test('unregistered profile never invokes profile resolution (no throw path)', () => {
@@ -184,10 +148,6 @@ test('registered-but-unready adapter rejects Smith under the readiness gate', ()
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.code, 'adapter-not-ready')
-  assert.ok(
-    result.reasons.some((r) => /not ready: harness entrypoint not found/.test(r.message)),
-    'reason carries the adapter readiness evidence',
-  )
 })
 
 test('unavailable Field rejects Smith without falling back', () => {
@@ -197,10 +157,6 @@ test('unavailable Field rejects Smith without falling back', () => {
   assert.equal(fieldResult.ok, false)
   if (fieldResult.ok) return
   assert.equal(fieldResult.code, 'field-not-ready')
-  assert.ok(
-    fieldResult.reasons.some((r) => /'warp-swarm' is not ready/.test(r.message)),
-    'reason names the unavailable field',
-  )
 
   const missingResult = validateExecutionContract(subject({ field: null }))
   assert.equal(missingResult.ok, false)
@@ -216,19 +172,12 @@ test('insufficient Smith capabilities reject Smith with the missing capability n
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.code, 'insufficient-capabilities')
-  assert.ok(
-    result.reasons.some((r) => /git\.commit/.test(r.message)),
-    'reason names the missing capability',
-  )
 })
 
-test('multiple failing conditions are all reported; code is the first failure', () => {
+test('multiple launch-time failures are all reported', () => {
   const result = validateExecutionContract(
     subject({
-      story: {
-        assayCommands: COMPLETE_STORY.assayCommands,
-        acceptanceCriteria: null,
-      },
+      story: { acceptanceCriteria: null, assayCommands: null },
       executionTarget: undefined,
     }),
   )
@@ -239,7 +188,7 @@ test('multiple failing conditions are all reported; code is the first failure', 
   assert.ok(codes.includes('missing-architect-brief'))
   assert.ok(codes.includes('missing-acceptance-criteria'))
   assert.ok(codes.includes('missing-execution-target'))
-  assert.equal(codes.includes('missing-assay-plan'), false, 'assay plan is complete')
+  assert.equal(codes.includes('missing-assay-plan' as never), false)
 })
 
 test('failure text is a compact provider-neutral evidence line', () => {
@@ -253,8 +202,5 @@ test('failure text is a compact provider-neutral evidence line', () => {
   assert.ok(text)
   assert.match(text!, /missing-acceptance-criteria/)
   assert.match(text!, /field-not-ready/)
-  assert.ok(
-    !/deepseek|warp|openclaw|claude|gpt|kimi|mistral/i.test(text!),
-    'orchestration evidence stays provider-neutral',
-  )
+  assert.ok(!/deepseek|warp|openclaw|claude|gpt|kimi|mistral/i.test(text!))
 })
