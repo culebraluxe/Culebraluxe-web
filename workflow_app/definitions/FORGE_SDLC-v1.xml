@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FORGE_SDLC-v1 — Forge Software Delivery Lifecycle Supermodel.
+  Parsed (mini-xml -> xml-parser) into a ProcessGraph, validated
+  (graph-validator), deployed (upsertProcessDefinition) through the SAME
+  generic four-layer pipeline as RE_supermodel. The XML node id IS the Forge
+  state identity; `label` is presentation metadata. No second Forge-state enum.
+
+  Topology (V6 ROLES locked, serial first): Scout -> Architect -> Lead PRE
+  -> SOLO | Smith | Hold -> Smith -> Lead POST -> Candidate Assay (QA,
+  exact-SHA math) -> DEV_OPS publish (non-force fast-forward only).
+
+  Inspector is a QA independent-review capability (lineage separation), not
+  a seventh roster agent. Archive/night are capabilities/grades, not roster
+  roles. SPLIT:n stays parsed but Hold-gated (single-active lock; no swarm).
+
+  Responsibility hints here are FORGE positions (scout | architect | lead |
+  smith | qa | dev_ops), NOT RE deal responsibilities. The engine treats
+  them as free-string metadata; Forge lane-policy resolves them.
+
+  Facts consumed by decision gates (harness-observed, never self-report):
+      leadDecision     string  SOLO | SMITH | SPLIT | ASSAY | HOLD
+      candidateReady   bool    exact Smith/Lead candidate commit exists
+      assayPass        bool    deterministic Assay PASS on exact candidate
+      publishConflict  bool    origin/main advanced (non-fast-forward)
+
+  Command inventory — EMPTY for v1 (see forge-sdlc.ts loader): v1 is the
+  serial human/agent backbone only (task + decision + state). forge.*
+  command-nodes are a future slice; each must gain a router case plus a
+  canonical handler first, or Layer 4 fails the deploy as for RE_supermodel.
+-->
+<process-definition
+  key="FORGE_SDLC"
+  version="1"
+  name="Forge SDLC Supermodel"
+  description="Scout to Architect to Lead to Smith to QA Candidate Assay to DEV_OPS publish. Serial first; SPLIT holds; publish never force-pushes."
+>
+  <display-order>
+    <node ref="ready"/>
+    <node ref="scout"/>
+    <node ref="architect"/>
+    <node ref="lead_pre"/>
+    <node ref="lead_execution_gate"/>
+    <node ref="lead_implement"/>
+    <node ref="smith"/>
+    <node ref="lead_post"/>
+    <node ref="lead_integration_gate"/>
+    <node ref="candidate_gate"/>
+    <node ref="assay"/>
+    <node ref="assay_gate"/>
+    <node ref="publish"/>
+    <node ref="publish_gate"/>
+    <node ref="story_complete"/>
+    <node ref="forge_hold"/>
+  </display-order>
+
+  <start-state id="start" label="Start">
+    <transition name="offer" to="ready"/>
+  </start-state>
+
+  <state id="ready" label="Ready" description="Story is Ready: explicit authorization to execute.">
+    <transition name="begin" to="scout"/>
+  </state>
+
+  <task-node id="scout" label="Scout" responsibility="scout"
+    description="Volume context gathering only. Rank files, capture signatures verbatim, name must-reads. No design, no edits, no commits.">
+    <transition name="done" to="architect"/>
+  </task-node>
+
+  <task-node id="architect" label="Architect" responsibility="architect"
+    description="Own design truth. Frozen contract for Lead: scope, constraints, architecture, acceptance, Assay plan. No implementation.">
+    <transition name="done" to="lead_pre"/>
+  </task-node>
+
+  <task-node id="lead_pre" label="Lead PRE" responsibility="lead"
+    description="Validate frozen contract vs repository reality. Choose cheapest sound shape: SOLO, SMITH, SPLIT:n (Hold-gated), HOLD. No implementation.">
+    <transition name="decide" to="lead_execution_gate"/>
+  </task-node>
+
+  <decision id="lead_execution_gate" label="Lead Execution Gate" refresh-facts="true"
+    description="Lead PRE judgment. SOLO builds directly; SMITH delegates once; SPLIT and HOLD park on forge_hold.">
+    <on condition='leadDecision == "SOLO"' transition="solo"/>
+    <on condition='leadDecision == "SMITH"' transition="smith"/>
+    <transition name="solo" to="lead_implement"/>
+    <transition name="smith" to="smith"/>
+    <transition name="split" to="forge_hold"/>
+    <transition name="hold" to="forge_hold"/>
+  </decision>
+
+  <task-node id="lead_implement" label="Lead Implement" responsibility="lead"
+    description="Lead SOLO implementation. Build frozen contract, verify in frozen test policy, create exact candidate. Stop on architecture defect.">
+    <transition name="done" to="candidate_gate"/>
+  </task-node>
+
+  <task-node id="smith" label="Smith" responsibility="smith"
+    description="Implement frozen contract and Lead assignment. One coherent assignment; create candidate commit. Never review own diff.">
+    <transition name="done" to="lead_post"/>
+  </task-node>
+
+  <task-node id="lead_post" label="Lead POST" responsibility="lead"
+    description="Integrate Smith candidate vs frozen contract. May edit and re-commit. May STOP on defect. Never weaken acceptance or Assay.">
+    <transition name="decide" to="lead_integration_gate"/>
+  </task-node>
+
+  <decision id="lead_integration_gate" label="Lead Integration Gate" refresh-facts="true"
+    description="Lead POST judgment. ASSAY hands exact integrated candidate to verification; HOLD parks on forge_hold.">
+    <on condition='leadDecision == "ASSAY"' transition="assay_branch"/>
+    <transition name="assay_branch" to="candidate_gate"/>
+    <transition name="hold" to="forge_hold"/>
+  </decision>
+
+  <decision id="candidate_gate" label="Candidate Gate" refresh-facts="true"
+    description="Exact-candidate invariant: Assay verifies ONLY the recorded candidate, never a fallback base. Missing parks on forge_hold.">
+    <on condition="candidateReady == true" transition="verified"/>
+    <transition name="verified" to="assay"/>
+    <transition name="missing" to="forge_hold"/>
+  </decision>
+
+  <task-node id="assay" label="Candidate Assay" responsibility="qa"
+    description="QA Candidate Assay operation. Deterministic, model-free: ONLY the immutable packet plan in the exact candidate worktree.">
+    <transition name="done" to="assay_gate"/>
+  </task-node>
+
+  <decision id="assay_gate" label="Assay Gate" refresh-facts="true"
+    description="Assay verdict. PASS to DEV_OPS publish; FAIL, violation, SHA mismatch, or missing plan parks on forge_hold.">
+    <on condition="assayPass == true" transition="pass"/>
+    <transition name="pass" to="publish"/>
+    <transition name="fail" to="forge_hold"/>
+  </decision>
+
+  <task-node id="publish" label="Publish" responsibility="dev_ops"
+    description="DEV_OPS accepted-candidate publish. Safe non-force fast-forward of exact assayed candidate only. Never force-push.">
+    <transition name="done" to="publish_gate"/>
+  </task-node>
+
+  <decision id="publish_gate" label="Publish Gate" refresh-facts="true"
+    description="Mainline safety. Clean fast-forward completes; advanced origin/main conflicts to forge_hold.">
+    <on condition="publishConflict == true" transition="conflict"/>
+    <transition name="conflict" to="forge_hold"/>
+    <transition name="done" to="story_complete"/>
+  </decision>
+
+  <end-state id="story_complete" label="Story Complete" outcome="completed"
+    description="Accepted candidate published; story Complete with durable run evidence."/>
+
+  <end-state id="forge_hold" label="Forge Hold" outcome="cancelled"
+    description="Human boundary. Lead veto, missing candidate, failed Assay, or publish conflict. Paused, resumable; never auto-retried."/>
+
+</process-definition>
