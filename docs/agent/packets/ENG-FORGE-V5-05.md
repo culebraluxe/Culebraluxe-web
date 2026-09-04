@@ -4,7 +4,7 @@
 Add a minimal Forge-specific OpenCode agent/profile that constrains Smith behavior to bounded repo editing under Forge ownership.
 
 ## Depends on
-ENG-FORGE-V5-04 accepted and published.
+ENG-FORGE-V5-03 accepted and published. This story is independent of V5-04 operational proof; V5-04 may fail or Hold without blocking this work.
 
 ## Scope
 Define only the execution behavior needed for Forge Smith: obey packet scope, edit only the assigned worktree, stop when acceptance items are complete, never self-approve, never publish, never alter Neon directly, never widen model/tool scope.
