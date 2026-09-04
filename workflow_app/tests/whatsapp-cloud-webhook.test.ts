@@ -93,7 +93,7 @@ test('Meta handshake and raw-body signature fail closed', () => {
   assert.equal(verifyMetaWhatsAppSignature(body, signature.slice(7), secret), false)
 })
 
-test('Meta inbound lowers to metadata-only ODS fact and canonical WhatsApp input', () => {
+test('Meta inbound preserves CRM summary without retaining the raw webhook payload', () => {
   const events = parseMetaWhatsAppWebhook({
     payload: inboundPayload(),
     phoneNumberId: PHONE_NUMBER_ID,
@@ -107,8 +107,7 @@ test('Meta inbound lowers to metadata-only ODS fact and canonical WhatsApp input
   assert.equal(event.direction, 'inbound')
   assert.equal(event.contactCandidates?.[0]?.value, EXTERNAL_PHONE)
   assert.equal(event.contactCandidates?.[0]?.displayName, 'Test Buyer')
-  assert.equal(event.content, undefined)
-  assert.doesNotMatch(JSON.stringify(event), new RegExp(MESSAGE_BODY))
+  assert.equal(event.content?.summary, MESSAGE_BODY)
 
   const adapted = adaptWhatsAppEvent(
     mapWhatsAppEvent(event, 'meta'),
@@ -119,11 +118,11 @@ test('Meta inbound lowers to metadata-only ODS fact and canonical WhatsApp input
   assert.equal(adapted.inboundEvent.source.system, `communications:meta:meta-${PHONE_NUMBER_ID}`)
   assert.equal(adapted.inboundEvent.source.externalId, 'whatsapp:wamid.INBOUND_TEST_001')
   assert.equal(adapted.inboundEvent.direction, 'inbound')
-  assert.equal(adapted.inboundEvent.content?.summary, undefined)
+  assert.equal(adapted.inboundEvent.content?.summary, MESSAGE_BODY)
   assert.equal(adapted.inboundEvent.rawMetadata.messageType, 'text')
 })
 
-test('Meta phone-app echo lowers as outbound without retaining its body', () => {
+test('Meta phone-app echo lowers as outbound and preserves its CRM summary', () => {
   const events = parseMetaWhatsAppWebhook({
     payload: echoPayload(),
     phoneNumberId: PHONE_NUMBER_ID,
@@ -133,8 +132,7 @@ test('Meta phone-app echo lowers as outbound without retaining its body', () => 
   assert.equal(events.length, 1)
   assert.equal(events[0].direction, 'outbound')
   assert.equal(events[0].contactCandidates?.[0]?.value, EXTERNAL_PHONE)
-  assert.equal(events[0].content, undefined)
-  assert.doesNotMatch(JSON.stringify(events[0]), /show it Saturday/)
+  assert.equal(events[0].content?.summary, 'Yes, I can show it Saturday.')
 })
 
 test('Meta payloads for another business phone are ignored', () => {
