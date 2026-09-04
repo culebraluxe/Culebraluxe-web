@@ -1,5 +1,6 @@
 import type { AgentCapability } from './capabilities'
-import type { AgentRole, ModelProfile } from './types'
+import type { AgentRole } from './types'
+import type { ForgePosition } from './team'
 
 export type LaneId =
   | 'scout'
@@ -15,13 +16,14 @@ export type ModelLineage = string
 
 export type ToolPolicy = 'read-only' | 'plan-only' | 'write' | 'detach'
 
+/**
+ * A lane defines behavior only. Model/profile/provider/harness/field selection
+ * belongs exclusively to ForgeTeam mapping (team.ts).
+ */
 export interface LaneBinding {
   lane: LaneId
+  position: ForgePosition
   role: AgentRole
-  profile: ModelProfile
-  upgradeProfile?: ModelProfile
-  emergencyProfile?: ModelProfile
-  lineage: ModelLineage
   maxSteps: number
   toolPolicy: ToolPolicy
   requiredCapabilities: AgentCapability[]
@@ -65,9 +67,8 @@ export const WRITE_CAPABILITIES: AgentCapability[] = [
 export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   scout: {
     lane: 'scout',
+    position: 'scout',
     role: 'scout',
-    profile: 'scout-volume',
-    lineage: 'volume-lab',
     maxSteps: 12,
     toolPolicy: 'read-only',
     requiredCapabilities: READ_CAPABILITIES,
@@ -75,9 +76,8 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   },
   architect: {
     lane: 'architect',
+    position: 'architect',
     role: 'architect',
-    profile: 'architect-pro',
-    lineage: 'judgment-lab',
     maxSteps: 1,
     toolPolicy: 'plan-only',
     requiredCapabilities: ['storyboard.read', 'config.read'],
@@ -85,9 +85,8 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   },
   lead: {
     lane: 'lead',
+    position: 'lead',
     role: 'lead',
-    profile: 'lead-pro',
-    lineage: 'judgment-lab',
     maxSteps: 20,
     // PRE is made read-only by execution policy. The same Lead position needs
     // write capability for SOLO implementation and POST integration.
@@ -97,11 +96,8 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   },
   smith: {
     lane: 'smith',
+    position: 'smith',
     role: 'builder',
-    profile: 'builder-flash',
-    upgradeProfile: 'builder-plus',
-    emergencyProfile: 'builder-emergency',
-    lineage: 'volume-lab',
     maxSteps: 40,
     toolPolicy: 'write',
     requiredCapabilities: WRITE_CAPABILITIES,
@@ -109,9 +105,8 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   },
   inspector: {
     lane: 'inspector',
+    position: 'inspector',
     role: 'reviewer',
-    profile: 'reviewer-other',
-    lineage: 'judgment-lab',
     maxSteps: 8,
     toolPolicy: 'read-only',
     requiredCapabilities: [...READ_CAPABILITIES, 'git.diff', 'host.tests'],
@@ -119,9 +114,8 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   },
   assay: {
     lane: 'assay',
+    position: 'assay',
     role: 'verifier',
-    profile: 'verifier-mini',
-    lineage: 'volume-lab',
     maxSteps: 6,
     toolPolicy: 'read-only',
     requiredCapabilities: ASSAY_CAPABILITIES,
@@ -129,19 +123,16 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
   },
   archive: {
     lane: 'archive',
+    position: 'archive',
     role: 'architect',
-    profile: 'architect-pro',
-    lineage: 'judgment-lab',
     maxSteps: 3,
     toolPolicy: 'plan-only',
     requiredCapabilities: ['storyboard.read', 'config.read'],
   },
   night: {
     lane: 'night',
+    position: 'night',
     role: 'builder',
-    profile: 'builder-flash',
-    upgradeProfile: 'builder-plus',
-    lineage: 'volume-lab',
     maxSteps: 40,
     toolPolicy: 'detach',
     requiredCapabilities: WRITE_CAPABILITIES,
