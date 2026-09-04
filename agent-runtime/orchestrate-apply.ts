@@ -14,6 +14,8 @@ import {
   isAssayTerminalRole,
   isCleanAssayEvidence,
 } from './candidate-assay-handoff'
+import { withAssayCandidateDirective } from './assay-evidence'
+import { decideForgeTransition } from './forge-transition'
 
 export type BareWorkItem = {
   id: string
@@ -44,12 +46,7 @@ export type HydrateDeps = {
   registry?: AgentRuntimeRegistry
 }
 
-/**
- * ENG-FORGE-V4-08: run the execution-contract gate for a Smith envelope at the
- * hydration/enqueue boundary. Returns `null` when the gate does not apply
- * (non-Smith lane); otherwise the gate verdict. A failing verdict means the
- * envelope must NOT be queued — Smith never launches on a partial contract.
- */
+/** One deterministic preflight gate before Smith token spend. */
 function gateSmithEnvelope(input: {
   lane: LaneId
   story: StoryPacketFields
@@ -62,19 +59,13 @@ function gateSmithEnvelope(input: {
     story: input.story,
     executionTarget: input.executionTarget,
     modelProfile: input.envelope.modelProfile,
-    // Live factory registry by default; callers may inject a deterministic one.
     registry: input.registry ?? createAgentRuntimeRegistry(),
     field: smithFieldFacts(),
   })
 }
 
-/**
- * ENG-FORGE-V3-01: Assay is clean only when the run reports Complete and its
- * test evidence contains no failure marker (failed/missing command evidence,
- * violation/policy, non-zero exit, unresolvable candidate — shared with the
- * ENG-FORGE-V4-10C seams so the clean semantics cannot drift). Missing test
- * evidence is not invented; resultStatus remains the primary completion fact.
- */
+/** Legacy compatibility for pre-V6 Assay rows. New V6 Assay decisions use the
+ * structured assay.verdict event and never derive truth from this summary. */
 export function isCleanAssayResult(input: {
   resultStatus?: string | null
   testsSummary?: string | null
@@ -84,12 +75,6 @@ export function isCleanAssayResult(input: {
 
 export function assayFailureEvidence(input: {
   testsSummary?: string | null
-  /**
-   * Backward-compatible field name. Some callers pass the packet's configured
-   * Assay commands because structured per-command failure facts do not yet
-   * exist. They MUST therefore be rendered as configured commands, never
-   * falsely relabeled as commands that actually failed.
-   */
   failedCommands?: string[] | null
   assayCommands?: string[] | null
 }): string | null {
@@ -114,14 +99,8 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
     if (!story) continue
     const merged = storyFieldsFromBoardAndGit(story, item.storyId, deps.repoRoot)
     let lane = pickLane({ story: merged })
-    // ENG-FORGE-V3-02 defense at the envelope boundary: even if lane-picking
-    // regresses later, hydration cannot create Smith without a real brief.
     if (lane === 'smith' && !merged.architectBrief?.trim()) lane = 'scout'
-    const decision = buildLaneEnqueue({
-      lane,
-      story: merged,
-      registry,
-    })
+    const decision = buildLaneEnqueue({ lane, story: merged, registry })
     if (!decision.ok || !decision.envelope) {
       console.log(
         'hydrate skip',
@@ -130,9 +109,7 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
       )
       continue
     }
-    // ENG-FORGE-V4-08: an incomplete Smith contract must not be stamped. The
-    // gate sees the exact envelope this hydration would persist (target from
-    // the bare item, defaulted to DEV exactly as the enqueue below does).
+
     const contract = gateSmithEnvelope({
       lane,
       story: merged,
@@ -173,21 +150,25 @@ export async function followFinishedLane(input: {
   getStory: (id: string) => Promise<StoryPacketFields | null>
   enqueue: HydrateDeps['enqueue']
   repoRoot?: string
-  /** Optional runtime registry for the gate; defaults to the live factory registry. */
   registry?: AgentRuntimeRegistry
-  /**
-   * ENG-FORGE-V4-10C: the exact Smith candidate commit the just-finished
-   * code-changing run produced (null/absent when the run produced none). A
-   * builder finish may only hand off to Assay with a real candidate — Assay
-   * must verify the candidate, never a fallback base such as `main`.
-   */
   candidateSha?: string | null
 }): Promise<string | null> {
-  // Assay/reviewer+verifier is a terminal verification lane for this slice. A
-  // failed verification never grows and, importantly, cannot be treated as a
-  // shipped success merely because the worker itself reached Done.
+  // Assay is terminal for automation. A PASS goes to the separate publish seam;
+  // a FAIL goes to human Hold. Neither outcome may enqueue another lane here.
   if (isAssayTerminalRole(input.finishedRole)) {
-    if (!isCleanAssayResult(input)) return null
+    const clean = isCleanAssayResult(input)
+    const transition = decideForgeTransition(
+      clean
+        ? { type: 'assay-pass' }
+        : {
+            type: 'assay-fail',
+            code: 'ASSAY_TEST_FAILED',
+            detail: 'Assay did not produce a clean verification result.',
+          },
+    )
+    if (transition.action === 'publish' || transition.action === 'hold-human') {
+      return null
+    }
     return null
   }
 
@@ -201,36 +182,41 @@ export async function followFinishedLane(input: {
   if (!story) return null
   const merged = storyFieldsFromBoardAndGit(story, input.storyId, input.repoRoot)
 
-  // ENG-FORGE-V3-03: the first no-brief Ready hydration may Scout, but Scout
-  // cannot wake itself forever. After Scout completes, a real architect brief
-  // from Neon or the git packet must exist before the loop can advance to Smith.
   if (input.finishedRole === 'scout' && !merged.architectBrief?.trim()) {
     console.log('follow skip', input.storyId, 'scout', 'missing-architect-brief')
     return null
   }
 
   const lane = pickLane({ story: merged, lastFinishedRole: input.finishedRole })
-
-  // ENG-FORGE-V4-10C handoff gate: a code-changing Smith run with NO candidate
-  // commit must never launch Assay as though verification were possible —
-  // Assay would execute against `main`, not the candidate (the V4-11 false
-  // positive). The caller holds the story with factual evidence instead.
   const candidateSha = (input.candidateSha ?? '').trim() || null
-  if (lane === 'assay' && !candidateSha) {
-    console.log(
-      'follow skip',
-      input.storyId,
-      'assay',
-      'no-candidate',
-      'Smith produced no candidate commit; Assay must not verify a fallback base such as main',
-    )
-    return null
+
+  if (input.finishedRole === 'builder') {
+    const transition = decideForgeTransition({
+      type: 'smith-complete',
+      candidateSha,
+    })
+    if (transition.action !== 'enqueue-assay') {
+      console.log(
+        'follow skip',
+        input.storyId,
+        'assay',
+        transition.failure?.code ?? 'transition-stop',
+        transition.failure?.detail ?? '',
+      )
+      return null
+    }
   }
+
+  if (lane === 'assay' && !candidateSha) return null
 
   const extraInstructions =
     lane === 'assay' && candidateSha
-      ? `ENG-FORGE-V4-10C exact-candidate Assay: verify Smith candidate ${candidateSha} and nothing else. The Assay workspace base MUST be ${candidateSha} (never main). Record the candidate SHA you verified in your tests evidence; a failed/missing command or a base other than ${candidateSha} is a failed verification, never Complete.`
+      ? withAssayCandidateDirective(
+          `Forge V6 exact-candidate Assay: execute the immutable Assay plan against Smith candidate ${candidateSha}. The worktree HEAD MUST equal this SHA. Any command failure, policy violation, or SHA mismatch is a human intervention point; never restart Smith automatically.`,
+          candidateSha,
+        )
       : null
+
   const decision = buildLaneEnqueue({
     lane,
     story: merged,
@@ -245,9 +231,7 @@ export async function followFinishedLane(input: {
     )
     return null
   }
-  // ENG-FORGE-V4-08: Scout→Smith may advance only when the merged packet plus
-  // the resolved runtime assignment satisfy the full execution contract.
-  // Follow persists the DEV target explicitly, so the gate sees 'DEV'.
+
   const contract = gateSmithEnvelope({
     lane,
     story: merged,
