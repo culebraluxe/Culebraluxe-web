@@ -4,8 +4,8 @@
 // wakes the unattended Forge worker every 3 minutes.
 //
 //   pnpm agent:scheduler:install     render + install + bootstrap (idempotent)
-//   pnpm agent:scheduler:status      loaded/enabled state + last invocation
-//   pnpm agent:scheduler:run         run the exact same wrapper now
+//   pnpm agent:scheduler:status      loaded/enabled state + deployed integrity
+//   pnpm agent:scheduler:run         run the exact deployed launchd wrapper now
 //   pnpm agent:scheduler:stop        kill switch: boot out + persist disabled
 //   pnpm agent:scheduler:uninstall   stop + delete the plist
 //
@@ -14,8 +14,9 @@
 // The wrapper simply repeats clean Forge passes until Forge reports no work.
 // ---------------------------------------------------------------------------
 
+import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,14 +55,33 @@ export function machinePaths(env = process.env) {
   }
 }
 
+export function sha256File(path) {
+  if (!existsSync(path)) return null
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+export function wrapperIntegrity(repoWrapper, deployedWrapper) {
+  const repoSha = sha256File(repoWrapper)
+  const deployedSha = sha256File(deployedWrapper)
+  return {
+    repoSha,
+    deployedSha,
+    synced: Boolean(repoSha && deployedSha && repoSha === deployedSha),
+  }
+}
+
+function shortSha(value) {
+  return value ? value.slice(0, 12) : 'missing'
+}
+
 export function escapeXml(value) {
-  return String(value).replace(/[<>&'"]/g, (ch) => {
+  return String(value).replace(/[<>&'\"]/g, (ch) => {
     switch (ch) {
       case '<': return '&lt;'
       case '>': return '&gt;'
       case '&': return '&amp;'
       case "'": return '&apos;'
-      case '"': return '&quot;'
+      case '\"': return '&quot;'
       default: return ch
     }
   })
@@ -97,7 +117,7 @@ function isLoaded(p) {
 function isDisabled(p) {
   const out = launchctl(['print-disabled', p.target])
   if (out.status !== 0) return false
-  const m = out.stdout.match(new RegExp(`"${LABEL}"\\s*=>\\s*(disabled|enabled)`))
+  const m = out.stdout.match(new RegExp(`\"${LABEL}\"\\s*=>\\s*(disabled|enabled)`))
   return m ? m[1] === 'disabled' : false
 }
 
@@ -131,6 +151,7 @@ function lastInvocations(p, count = 4) {
 export function printStatus() {
   const p = machinePaths()
   const plistPresent = existsSync(p.plistPath)
+  const integrity = wrapperIntegrity(p.wrapper, p.deployedWrapper)
 
   let summary
   if (!plistPresent) summary = 'not installed (plist missing)'
@@ -146,6 +167,9 @@ export function printStatus() {
   console.log(`  disabled:   ${plistPresent ? (isDisabled(p) ? 'yes' : 'no') : 'n/a'}`)
   console.log(`  deployed:   ${p.deployedWrapper}${existsSync(p.deployedWrapper) ? '' : ' (missing)'}`)
   console.log(`  repo:       ${p.repo}/scripts/agent-worker-once.sh`)
+  console.log(
+    `  wrapper:    ${integrity.synced ? `synced sha256=${shortSha(integrity.repoSha)}` : `MISMATCH repo=${shortSha(integrity.repoSha)} deployed=${shortSha(integrity.deployedSha)}`}`,
+  )
   console.log(`  running:    ${worker ? `yes (pid ${worker.pid})` : 'no'}`)
   console.log(`  logs:       ${p.logDir}/agent-worker.{out,err,invocations}.log`)
   console.log('  last invocations:')
@@ -160,6 +184,17 @@ export function install() {
 
   const wrapperSource = readFileSync(p.wrapper, 'utf8')
   writeFileSync(p.deployedWrapper, wrapperSource, { mode: 0o755 })
+  const integrity = wrapperIntegrity(p.wrapper, p.deployedWrapper)
+  if (!integrity.synced) {
+    console.error(
+      `agent-worker install integrity failure: repo=${shortSha(integrity.repoSha)} deployed=${shortSha(integrity.deployedSha)}`,
+    )
+    process.exit(1)
+  }
+  appendFileSync(
+    p.invocationLog,
+    `${new Date().toISOString()} installed: deployed-wrapper sha256=${shortSha(integrity.deployedSha)}\n`,
+  )
 
   const templatePath = join(p.repo, 'scripts', `${LABEL}.plist.template`)
   const template = readFileSync(templatePath, 'utf8')
@@ -192,11 +227,22 @@ export function install() {
 
 export function runOnce() {
   const p = machinePaths()
-  if (!existsSync(p.wrapper)) {
-    console.error(`agent-worker wrapper missing: ${p.wrapper}`)
+  if (!existsSync(p.deployedWrapper)) {
+    console.error(`deployed agent-worker wrapper missing: ${p.deployedWrapper}`)
+    console.error('run `pnpm agent:scheduler:install` first')
     process.exit(1)
   }
-  const r = spawnSync('/bin/bash', [p.wrapper], { stdio: 'inherit' })
+  const integrity = wrapperIntegrity(p.wrapper, p.deployedWrapper)
+  if (!integrity.synced) {
+    console.error(
+      `refusing diagnostic run: deployed wrapper differs from repo wrapper (repo=${shortSha(integrity.repoSha)} deployed=${shortSha(integrity.deployedSha)})`,
+    )
+    console.error('run `pnpm agent:scheduler:install` first')
+    process.exit(2)
+  }
+  // IMPORTANT: this is the exact file path launchd executes. Diagnostic runs
+  // must never exercise a different copy than the scheduled worker.
+  const r = spawnSync('/bin/bash', [p.deployedWrapper], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
 }
 
@@ -229,13 +275,7 @@ function main() {
     case 'help':
     case '--help':
     case '-h':
-      console.log(`usage: node scripts/agent-scheduler.mjs <command>
-commands:
-  install     render + install + bootstrap the 3-minute LaunchAgent (idempotent)
-  status      show loaded/enabled state, running worker, last invocations
-  run         run the same unattended Forge wrapper now
-  stop        kill switch: boot out + persist disabled
-  uninstall   stop + delete the plist`)
+      console.log(`usage: node scripts/agent-scheduler.mjs <command>\ncommands:\n  install     render + install + bootstrap the 3-minute LaunchAgent (idempotent)\n  status      show loaded/enabled state, wrapper integrity, running worker, last invocations\n  run         run the exact deployed unattended Forge wrapper now\n  stop        kill switch: boot out + persist disabled\n  uninstall   stop + delete the plist`)
       break
     default:
       console.error(`unknown command: ${command ?? '(none)'}`)
