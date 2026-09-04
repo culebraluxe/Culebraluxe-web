@@ -10,7 +10,7 @@ import { ASSAY_CAPABILITIES, READ_CAPABILITIES, WRITE_CAPABILITIES } from './lan
  *
  * Swarm/parallelism belongs to Field. It is never a Player or Position.
  */
-export type ForgePosition = 'scout' | 'architect' | 'smith' | 'assay'
+export type ForgePosition = 'scout' | 'architect' | 'lead' | 'smith' | 'assay'
 
 export type ForgeHarnessId =
   | 'forge-native'
@@ -104,7 +104,7 @@ export const FORGE_FIELDS: Record<ForgeFieldId, ForgeField> = {
     location: 'cloud',
     topology: 'parallel-capable',
     ready: false,
-    description: 'Reserved future parallel field. Architect-controlled decomposition is required before activation.',
+    description: 'Reserved future parallel field. Lead-controlled decomposition is required before activation.',
   },
 }
 
@@ -129,14 +129,16 @@ export const FORGE_PLAYERS: Record<string, ForgePlayer> = {
     provider: 'deepseek',
     model: 'Pro',
     harness: 'forge-native',
-    capabilities: [...READ_CAPABILITIES, ...ASSAY_CAPABILITIES],
+    capabilities: [...READ_CAPABILITIES, ...WRITE_CAPABILITIES, ...ASSAY_CAPABILITIES],
     ready: true,
   },
 }
 
 /**
- * The default sequential team deliberately mirrors today's working Forge.
- * Architect is represented now even though A1 still does not auto-queue it.
+ * Default sequential team. Lead is a first-class position between Architect
+ * and implementation, and returns after delegated Smith work for integration.
+ * The logical lead-pro profile can later be routed to GPT/Claude without
+ * changing the Story/Run contract.
  */
 export const DEFAULT_FORGE_TEAM: ForgeTeam = {
   id: 'default',
@@ -153,6 +155,12 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
       playerId: 'deepseek-pro',
       fieldId: 'local',
       profile: 'architect-pro',
+    },
+    lead: {
+      position: 'lead',
+      playerId: 'deepseek-pro',
+      fieldId: 'local',
+      profile: 'lead-pro',
     },
     smith: {
       position: 'smith',
@@ -200,7 +208,7 @@ export function resolveForgeAssignment(
 export function listForgeTeamAssignments(
   team: ForgeTeam = DEFAULT_FORGE_TEAM,
 ): ResolvedForgeAssignment[] {
-  const positions: ForgePosition[] = ['scout', 'architect', 'smith', 'assay']
+  const positions: ForgePosition[] = ['scout', 'architect', 'lead', 'smith', 'assay']
   return positions.map((position) => resolveForgeAssignment(position, team))
 }
 
