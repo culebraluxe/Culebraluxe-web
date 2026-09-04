@@ -1,23 +1,5 @@
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V4-10C — Exact Candidate Assay Handoff: focused tests.
-//
-// Reproduces the V4-11 false-positive path (Assay workspace provisioned from
-// main@<head> while Smith's candidate commit was <candidate>; the failed
-// packet command still normalized to Complete 100%) and proves every seam of
-// the strict invariant fails closed:
-//
-//   Smith candidate C -> Assay workspace base C -> Assay evidence about C
-//   -> only then may C publish.
-//
-//   - an Assay lane is provisioned from the EXACT Smith candidate commit,
-//     never `main` (resolveAssayWorkspaceBase / followFinishedLane gate)
-//   - a verifier/reviewer run whose workspace base is NOT the candidate (or
-//     that has no candidate / no workspace evidence) normalizes to Hold —
-//     never Complete (normalizeAgentFinishForRole with context)
-//   - missing-file / non-zero / not-found command evidence is failure
-//     evidence, not a clean pass (isCleanAssayEvidence)
-//   - accepted-candidate publication requires assayed SHA == publish SHA
-//     (publishAcceptedCandidateAfterAssay with assayedCandidate)
 // ---------------------------------------------------------------------------
 
 import assert from 'node:assert/strict'
@@ -46,7 +28,6 @@ import type {
   PublishAcceptedCandidateOutcome,
 } from '../lib/worker-workspace'
 
-/** V4-11 recorded facts: the Smith candidate and the (wrong) main base. */
 const CANDIDATE = '549866555152c6f4bb55ffa9d45f19910ffab9f5'
 const MAIN_BASE = '7b14c6b'.padEnd(40, '0')
 
@@ -71,10 +52,6 @@ function context(candidateSha: string | null): AssayFinishContext {
   return { candidateSha }
 }
 
-// ---------------------------------------------------------------------------
-// Role predicates and commit/candidate helpers.
-// ---------------------------------------------------------------------------
-
 test('isAssayTerminalRole covers reviewer + verifier only', () => {
   assert.equal(isAssayTerminalRole('reviewer'), true)
   assert.equal(isAssayTerminalRole('verifier'), true)
@@ -90,7 +67,7 @@ test('smithCandidateSha resolves the newest commit-bearing run; never invents on
   const C = CANDIDATE
   assert.equal(
     smithCandidateSha([
-      { commitHash: null }, // the Assay run itself never keeps a commit
+      { commitHash: null },
       { commitHash: C },
     ]),
     C,
@@ -102,8 +79,6 @@ test('smithCandidateSha resolves the newest commit-bearing run; never invents on
 })
 
 test('finishedRunCandidateSha is strict: the just-finished run owns the candidate', () => {
-  // A builder run that just finished WITHOUT a commit has no candidate even
-  // when an older cycle's candidate commit still exists.
   assert.equal(
     finishedRunCandidateSha([
       { commitHash: null },
@@ -121,10 +96,6 @@ test('commitSha normalizes only real 40-hex hashes', () => {
   assert.equal(commitSha(null), null)
   assert.equal(commitSha(''), null)
 })
-
-// ---------------------------------------------------------------------------
-// Failure evidence (criterion 4): missing command / file must never be clean.
-// ---------------------------------------------------------------------------
 
 test('missing-file and non-zero command evidence is failure evidence', () => {
   assert.equal(ASSAY_FAILURE_EVIDENCE.test('all checks passed'), false)
@@ -168,10 +139,6 @@ test('isCleanAssayEvidence requires Complete and no failure marker', () => {
   )
 })
 
-// ---------------------------------------------------------------------------
-// Workspace base evidence parsing (criterion 1 + 2).
-// ---------------------------------------------------------------------------
-
 test('verifiedShaFromWorkspaceEvidence reads the base commit the Assay ran on', () => {
   assert.equal(
     verifiedShaFromWorkspaceEvidence(notesWithBase(CANDIDATE)),
@@ -193,10 +160,6 @@ test('candidateVerifiedEvidenceLine records the exact verified SHA', () => {
     `Assay verified candidate ${CANDIDATE} (workspace base == candidate).`,
   )
 })
-
-// ---------------------------------------------------------------------------
-// Provisioning decision (criteria 1 + 3): Assay base == candidate, never main.
-// ---------------------------------------------------------------------------
 
 test('Assay lanes resolve their workspace base to the exact candidate commit', () => {
   for (const role of ['reviewer', 'verifier']) {
@@ -234,13 +197,7 @@ test('an Assay lane with no resolvable candidate fails closed (never main)', () 
   }
 })
 
-// ---------------------------------------------------------------------------
-// Terminal normalization (criteria 3 + 4): V4-11 cannot become Complete.
-// ---------------------------------------------------------------------------
-
 test('V4-11: verifier Assay provisioned from main cannot normalize to Complete', () => {
-  // Clean summary, but the workspace evidence says base=main@<mainSHA> while
-  // the Smith candidate is <candidate>. This is exactly the V4-11 shape.
   const normalized = normalizeAgentFinishForRole(
     'verifier',
     {
@@ -340,17 +297,13 @@ test('builder finish behavior is unchanged by the Assay invariants', () => {
   assert.deepEqual(normalizeAgentFinishForRole('builder', builderInput), builderInput)
 })
 
-// ---------------------------------------------------------------------------
-// Handoff gate (criteria 3 + 6): no candidate -> no Assay launch.
-// ---------------------------------------------------------------------------
-
 const packetStory = {
   architectBrief: 'Implement the exact candidate Assay handoff.',
   acceptanceCriteria: '- Assay verifies the exact Smith candidate commit\n- never main',
   assayCommands: '- pnpm exec tsx --test agent-runtime/candidate-assay-handoff.test.ts',
 }
 
-test('builder finish WITH a candidate hands off to Assay (verifier) carrying the candidate', async () => {
+test('builder finish WITH a candidate hands off to mandatory QA carrying the candidate', async () => {
   const enqueued: Array<{
     role: string
     specialInstructions: string | null
@@ -366,14 +319,13 @@ test('builder finish WITH a candidate hands off to Assay (verifier) carrying the
     },
     repoRoot: '/definitely/missing',
   })
-  assert.equal(followed, 'assay')
+  assert.equal(followed, 'inspector')
   assert.equal(enqueued.length, 1)
-  assert.equal(enqueued[0]?.role, 'verifier')
+  assert.equal(enqueued[0]?.role, 'reviewer')
   assert.ok(enqueued[0]?.specialInstructions?.includes(CANDIDATE))
-  assert.ok(enqueued[0]?.specialInstructions?.includes('never main'))
 })
 
-test('builder finish WITHOUT a candidate never launches Assay', async () => {
+test('builder finish WITHOUT a candidate never launches QA or Assay', async () => {
   const enqueued: unknown[] = []
   const followed = await followFinishedLane({
     storyId: 'ENG-FORGE-V4-10C-NO-CANDIDATE',
@@ -389,10 +341,6 @@ test('builder finish WITHOUT a candidate never launches Assay', async () => {
   assert.equal(followed, null)
   assert.deepEqual(enqueued, [])
 })
-
-// ---------------------------------------------------------------------------
-// Accepted-candidate publish gate (criterion 5): assayed SHA == publish SHA.
-// ---------------------------------------------------------------------------
 
 test('publish only runs when the Assay verified the exact candidate being published', async () => {
   let invoked = 0
