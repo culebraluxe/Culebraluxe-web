@@ -49,6 +49,8 @@ export type DshStartOptions = {
   cwd: string
   /** Task text. */
   task: string
+  /** Absolute path to a `--patch` overlay (e.g. model pin), or null. */
+  modelPatchFile?: string | null
   /** Optional env additions (e.g. DEEPSEEK_API_KEY passthrough). */
   env?: Record<string, string | undefined>
 }
@@ -146,7 +148,12 @@ export function startDshRun(opts: DshStartOptions): DshHandle {
   const env: NodeJS.ProcessEnv = opts.env
     ? ({ ...opts.env } as NodeJS.ProcessEnv)
     : { ...process.env }
-  const proc = spawn(opts.cliBin, ['--profile', 'headless', opts.task], {
+  const args = ['--profile', 'headless']
+  if (opts.modelPatchFile?.trim()) {
+    args.push('--patch', opts.modelPatchFile.trim())
+  }
+  args.push(opts.task)
+  const proc = spawn(opts.cliBin, args, {
     cwd: opts.cwd,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

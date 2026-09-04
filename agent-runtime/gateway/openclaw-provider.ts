@@ -1,4 +1,4 @@
-import { CORE_CAPABILITIES } from '../capabilities'
+import { WRITE_CAPABILITIES } from '../lanes'
 import type { ForgeProviderDescriptor } from './provider'
 
 /**
@@ -8,7 +8,7 @@ import type { ForgeProviderDescriptor } from './provider'
 export const openClawProvider: ForgeProviderDescriptor = {
   id: 'openclaw',
   description: 'OpenClaw isolated headless agent provider',
-  capabilities: CORE_CAPABILITIES,
+  capabilities: WRITE_CAPABILITIES,
   buildCommand: ({ cwd, task }) => ({
     bin: process.env.OPENCLAW_BIN ?? 'openclaw',
     args: ['agent', 'exec', task, '--cwd', cwd, '--json'],

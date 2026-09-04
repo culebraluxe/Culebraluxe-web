@@ -22,7 +22,8 @@ import type {
   AgentRunEvidence,
   AgentWorkCommand,
 } from './types'
-import { CORE_CAPABILITIES, type AgentCapability } from './capabilities'
+import type { AgentCapability } from './capabilities'
+import { WRITE_CAPABILITIES } from './lanes'
 
 export type TUnitScriptStep = {
   lifecycle: 'running' | 'paused'
@@ -45,7 +46,7 @@ export type TUnitScenario =
 
 export class TUnitAgentRuntimeAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId = 'tunit'
-  readonly capabilities: AgentCapability[] = CORE_CAPABILITIES
+  readonly capabilities: AgentCapability[] = WRITE_CAPABILITIES
 
   private stepIndex = 0
   private currentStep: string | null = null

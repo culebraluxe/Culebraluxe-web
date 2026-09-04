@@ -43,30 +43,7 @@ export type AgentCapability =
   | 'connector.vercel'
   | 'connector.neon'
 
-export const CORE_CAPABILITIES: AgentCapability[] = [
-  'workspace.fs.read',
-  'workspace.fs.write',
-  'workspace.fs.delete',
-  'git.status',
-  'git.diff',
-  'git.history',
-  'git.commit',
-  'data.db.read',
-  'data.db.write',
-  'data.schema.migrate',
-  'storyboard.read',
-  'storyboard.write',
-  'config.read',
-  'host.exec',
-  'host.process',
-  'host.logs',
-  'host.tests',
-  'host.typecheck',
-  'host.build',
-  'host.lint',
-  'host.repo-scripts',
-]
-
+/** Optional future capabilities (browser / connectors); not granted by default. */
 export const OPTIONAL_FUTURE_CAPABILITIES: AgentCapability[] = [
   'git.push',
   'browser.dom',

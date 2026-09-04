@@ -16,6 +16,18 @@ export type RunMachineEvidence = {
   failureCode: string | null
   /** Large plain-text detail/evidence dumping ground; never parsed for truth. */
   evidenceDetail: string | null
+  /**
+   * Spend vision (migration 107): exact provider/model the run executed
+   * under, as enforced by the harness — never model self-report. Null =
+   * unmeasured (older runs, model-free Assay, unmetered harnesses).
+   */
+  modelUsed?: string | null
+  /** Harness-observed token counts; null = unmeasured. */
+  tokensInput?: number | null
+  tokensOutput?: number | null
+  /** Computed cost in USD; null = unpriced. Set by the recorder from the
+   * price table, never by the model. */
+  costUsd?: number | null
 }
 
 export function hasStructuredRunMachineEvidence(

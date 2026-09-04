@@ -50,7 +50,7 @@ test('explicit deepseek override keeps builder-flash ready on the qualified forg
     // ENG-FORGE-V5-03: builder-flash defaults to OpenCode, so this test
     // explicitly returns it to forge-native DeepSeek (explicit overrides
     // remain supported) and verifies the qualified harness is ready.
-    assert.equal(registry.resolveProfile('builder-flash').adapterId, 'deepseek-harness')
+    assert.equal(registry.resolveProfile('builder-flash').adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
     const readiness = registry.inspectProfileReadiness('builder-flash')
     assert.equal(readiness.registered, true)
     assert.equal(readiness.installed, true)

@@ -4,7 +4,7 @@ import {
   validateExecutionContract,
   type ExecutionContractResult,
 } from './execution-contract'
-import { createAgentRuntimeRegistry } from './factory'
+import { createAgentRuntimeRegistry, sharedAgentRuntimeRegistry } from './factory'
 import { pickLane, storyFieldsFromBoardAndGit } from './orchestrate'
 import type { AgentRuntimeRegistry } from './registry'
 import type { LaneId } from './lanes'
@@ -48,6 +48,14 @@ export type HydrateDeps = {
     executionPolicy?: string
     executionEnvironment?: string | null
   }) => Promise<unknown>
+  persistContract?: (
+    storyId: string,
+    fields: {
+      testMode?: string | null
+      assayCommands?: string | null
+      packetSha?: string | null
+    },
+  ) => Promise<void>
   repoRoot?: string
   registry?: AgentRuntimeRegistry
 }
@@ -64,7 +72,7 @@ function gateSmithEnvelope(input: {
     story: input.story,
     executionTarget: input.executionTarget,
     modelProfile: input.envelope.modelProfile,
-    registry: input.registry ?? createAgentRuntimeRegistry(),
+    registry: input.registry ?? sharedAgentRuntimeRegistry(),
     field: smithFieldFacts(),
   })
 }
@@ -96,11 +104,25 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
     (item) => item.state === 'Ready' && (!item.role || !item.modelProfile),
   )
   const stamped: string[] = []
-  const registry = deps.registry ?? createAgentRuntimeRegistry()
+  // Factory finding #8: reuse the memoized process registry instead of
+  // rescanning PATH / probing CLIs on every scheduler wake.
+  const registry = deps.registry ?? sharedAgentRuntimeRegistry()
   for (const item of bare) {
     const story = await deps.getStory(item.storyId)
     if (!story) continue
     const merged = storyFieldsFromBoardAndGit(story, item.storyId, deps.repoRoot)
+
+    if (
+      deps.persistContract &&
+      (merged.testMode || merged.assayCommands || merged.packetSha)
+    ) {
+      await deps.persistContract(item.storyId, {
+        testMode: merged.testMode,
+        assayCommands: merged.assayCommands,
+        packetSha: merged.packetSha,
+      })
+    }
+
     const lane = pickLane({ story: merged })
     const decision = buildLaneEnqueue({
       lane,

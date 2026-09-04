@@ -32,7 +32,7 @@ import {
   SqlAgentWorkRepository,
   SqlAgentRunRepository,
 } from '../../../agent-runtime/repositories'
-import { CORE_CAPABILITIES } from '../../../agent-runtime/capabilities'
+import { WRITE_CAPABILITIES } from '../../../agent-runtime/lanes'
 
 const executor = interactiveSql as any
 let seq = 0
@@ -182,13 +182,13 @@ test('ENG-20A: correctly configured command reaches the runtime seam with adapte
     registry.registerAdapter({
       adapterId: 'tunit',
       description: 'deterministic reference adapter',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
       factory: (deps) => new TUnitAgentRuntimeAdapter(deps, handoffScenario()),
     })
     registry.registerProfile({
       profile: 'builder-flash',
       adapterId: 'tunit',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
     })
 
     const result = await invokeNextAgentCommand('guard-worker', { work, runs, registry })
@@ -232,13 +232,13 @@ test('ENG-20B: scheduler two-phase dispatch claims then executes the claimed com
     registry.registerAdapter({
       adapterId: 'tunit',
       description: 'deterministic reference adapter',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
       factory: (deps) => new TUnitAgentRuntimeAdapter(deps, handoffScenario()),
     })
     registry.registerProfile({
       profile: 'builder-flash',
       adapterId: 'tunit',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
     })
 
     // Phase 1 — claim (exactly what the scheduler/poller does).
@@ -289,13 +289,13 @@ test('ENG-20B: invokeNextAgentCommand is the composition of claim + execute (no 
     registry.registerAdapter({
       adapterId: 'tunit',
       description: 'deterministic reference adapter',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
       factory: (deps) => new TUnitAgentRuntimeAdapter(deps, handoffScenario()),
     })
     registry.registerProfile({
       profile: 'builder-flash',
       adapterId: 'tunit',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
     })
 
     const composed = await invokeNextAgentCommand('debug-worker', { work, runs, registry })

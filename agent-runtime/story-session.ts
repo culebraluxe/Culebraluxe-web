@@ -10,6 +10,7 @@ export type StoryPacketFields = {
   scope?: string | null
   testMode?: string | null
   assayCommands?: string | null
+  packetSha?: string | null
   skills?: string | null
   loop?: string | null
 }
@@ -30,6 +31,7 @@ export function mergeStoryPackets(
     'scope',
     'testMode',
     'assayCommands',
+    'packetSha',
     'skills',
     'loop',
   ]

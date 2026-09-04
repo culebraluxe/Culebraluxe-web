@@ -68,6 +68,12 @@ class FakeDb {
       return Promise.resolve([{ ready: true }])
     }
 
+    if (t.includes('information_schema.columns')) {
+      // ENG-FORGE-V6-VIS probe: this run fake models the legacy shape, so
+      // report the V6 columns absent and exercise the legacy path.
+      return Promise.resolve([{ count: 0 }])
+    }
+
     if (t.includes('insert into storyboard_story_run')) {
       this.runSeq += 1
       const row = {
@@ -111,12 +117,15 @@ class FakeDb {
         acceptance_criteria: p[13] ?? null,
         postconditions: p[14] ?? null,
         architect_brief_updated_at: p[15] ? this.now : null,
-        completion: p[16],
-        rollup: p[17],
-        planned_start_at: p[18] ?? null,
-        actual_start_at: p[19] ?? null,
-        completed_at: p[20] ?? null,
-        operating_surface: p[21] ?? null,
+        test_mode: p[16] ?? null,
+        assay_commands: p[17] ?? null,
+        packet_sha: p[18] ?? null,
+        completion: p[19],
+        rollup: p[20],
+        planned_start_at: p[21] ?? null,
+        actual_start_at: p[22] ?? null,
+        completed_at: p[23] ?? null,
+        operating_surface: p[24] ?? null,
         created_at: this.now,
         updated_at: this.now,
       }
@@ -158,8 +167,8 @@ class FakeDb {
         return Promise.resolve([r])
       }
       if (t.includes('set workstream')) {
-        // operating_surface is $18 (p[18]); where id is $20 (p[19]).
-        const r = this.stories.find((x) => x.id === p[19])
+        // Full update has 23 params with the id last as $23 (p[22]).
+        const r = this.stories.find((x) => x.id === p[22])
         if (!r) return Promise.resolve([])
         r.workstream = p[0]
         r.title = p[1]
@@ -175,10 +184,13 @@ class FakeDb {
         r.context_refs = p[11] ?? null
         r.acceptance_criteria = p[12] ?? null
         r.postconditions = p[13] ?? null
-        r.completion = p[15]
-        r.rollup = p[16]
-        r.planned_start_at = p[17] ?? null
-        r.operating_surface = p[18] ?? null
+        r.test_mode = p[15] ?? r.test_mode ?? null
+        r.assay_commands = p[16] ?? r.assay_commands ?? null
+        r.packet_sha = p[17] ?? r.packet_sha ?? null
+        r.completion = p[18]
+        r.rollup = p[19]
+        r.planned_start_at = p[20] ?? null
+        r.operating_surface = p[21] ?? null
         r.updated_at = this.now
         return Promise.resolve([r])
       }
@@ -339,6 +351,25 @@ test('starting a run snapshots the execution specification', async () => {
   assert.equal(run.contextRefsSnapshot, spec.contextRefs)
   assert.equal(run.acceptanceCriteriaSnapshot, spec.acceptanceCriteria)
   assert.equal(run.postconditionsSnapshot, spec.postconditions)
+})
+
+test('ENG-FORGE-V6-VIS: legacy-shaped fake stays on the legacy run path with V6 fields null', async () => {
+  // This fake models a pre-106 database: the information_schema probe reports
+  // count 0, so every run read/write takes the legacy literal path and the
+  // V6-mapped fields come back null via mapRun's ?? null tolerance.
+  const f = new FakeDb()
+  await createStoryboardStory(baseInput, f.tx)
+  const { run } = await startStoryRun('CRM-19', f.tx)
+  assert.equal(run.scopeSnapshot, null)
+  assert.equal(run.packetShaSnapshot, null)
+  assert.equal(run.baseCommitHash, null)
+  assert.equal(run.runPhase, null)
+  assert.equal(run.leadDecision, null)
+  assert.equal(run.failureCode, null)
+
+  const listed = await listStoryRuns('CRM-19', f.tx)
+  assert.equal(listed.length, 1)
+  assert.equal(listed[0]?.packetShaSnapshot, null)
 })
 
 test('historical snapshots are immutable; a later run captures the newer spec', async () => {

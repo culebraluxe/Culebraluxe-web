@@ -193,6 +193,10 @@ export async function recordForgeRunMachineEvidence(
         tests_failed = coalesce(${evidence.testsFailed}, tests_failed),
         policy_violation_count = coalesce(${evidence.policyViolationCount}, policy_violation_count),
         failure_code = coalesce(${evidence.failureCode}, failure_code),
+        model_used = coalesce(${evidence.modelUsed ?? null}, model_used),
+        tokens_input = coalesce(${evidence.tokensInput ?? null}, tokens_input),
+        tokens_output = coalesce(${evidence.tokensOutput ?? null}, tokens_output),
+        cost_usd = coalesce(${evidence.costUsd ?? null}, cost_usd),
         evidence_detail = case
           when ${detail}::text is null then evidence_detail
           when evidence_detail is null or evidence_detail = '' then ${detail}
@@ -235,6 +239,11 @@ type EvidenceRow = QueryRow & {
   policy_violation_count: number | null
   failure_code: string | null
   evidence_detail: string | null
+  // Spend vision (migration 107). Absent on pre-107 rows → null.
+  model_used?: string | null
+  tokens_input?: number | null
+  tokens_output?: number | null
+  cost_usd?: number | string | null
 }
 
 export async function getForgeRunMachineEvidence(
@@ -242,7 +251,19 @@ export async function getForgeRunMachineEvidence(
   execute?: QueryExecutor,
 ): Promise<RunMachineEvidence | null> {
   const q = execute ?? (await executor())
-  const rows = await q`
+  // Spend columns selected only when migration 107 is present; legacy path
+  // otherwise. No dynamic SQL — two literal queries.
+  const hasSpend = await hasSpendColumns(q)
+  const rows = hasSpend
+    ? await q`
+    select base_commit_hash, commands_total, commands_passed, commands_failed,
+      tests_total, tests_passed, tests_failed, policy_violation_count,
+      failure_code, evidence_detail,
+      model_used, tokens_input, tokens_output, cost_usd
+    from storyboard_story_run
+    where id = ${runId}
+  `
+    : await q`
     select base_commit_hash, commands_total, commands_passed, commands_failed,
       tests_total, tests_passed, tests_failed, policy_violation_count,
       failure_code, evidence_detail
@@ -262,5 +283,31 @@ export async function getForgeRunMachineEvidence(
     policyViolationCount: row.policy_violation_count ?? null,
     failureCode: row.failure_code ?? null,
     evidenceDetail: row.evidence_detail ?? null,
+    modelUsed: row.model_used ?? null,
+    tokensInput: row.tokens_input ?? null,
+    tokensOutput: row.tokens_output ?? null,
+    costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
   }
+}
+
+let spendColumnsAvailable: boolean | null = null
+
+export function resetSpendColumnCache(): void {
+  spendColumnsAvailable = null
+}
+
+async function hasSpendColumns(q: QueryExecutor): Promise<boolean> {
+  if (spendColumnsAvailable !== null) return spendColumnsAvailable
+  try {
+    const rows = await q`
+      select count(*)::int as count
+      from information_schema.columns
+      where table_name = 'storyboard_story_run'
+        and column_name = 'model_used'
+    `
+    spendColumnsAvailable = Number((rows[0] as { count: number })?.count ?? 0) > 0
+  } catch {
+    spendColumnsAvailable = false
+  }
+  return spendColumnsAvailable
 }

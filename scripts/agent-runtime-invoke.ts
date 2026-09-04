@@ -22,7 +22,7 @@ import {
   SqlAgentWorkRepository,
   SqlAgentRunRepository,
 } from '../agent-runtime/repositories'
-import { CORE_CAPABILITIES } from '../agent-runtime/capabilities'
+import { WRITE_CAPABILITIES } from '../agent-runtime/lanes'
 
 const executor = async () => interactiveSql as any
 
@@ -62,13 +62,13 @@ async function main(): Promise<void> {
     registry.registerAdapter({
       adapterId: 'tunit',
       description: 'deterministic reference adapter',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
       factory: (deps) => new TUnitAgentRuntimeAdapter(deps, scenario()),
     })
     registry.registerProfile({
       profile: 'builder-flash',
       adapterId: 'tunit',
-      capabilities: CORE_CAPABILITIES,
+      capabilities: WRITE_CAPABILITIES,
     })
 
     const result = await invokeNextAgentCommand('dogfood-worker', {

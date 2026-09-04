@@ -88,3 +88,12 @@ test('Smith grade changes are map variants, not lane changes', () => {
   assert.equal(resolveForgeAssignment('smith', DEFAULT_FORGE_TEAM, 'upgrade').profile, 'builder-plus')
   assert.equal(resolveForgeAssignment('smith', DEFAULT_FORGE_TEAM, 'emergency').profile, 'builder-emergency')
 })
+
+test('factory finding #9: player models are pinned to exact ids (never vague)', () => {
+  assert.equal(FORGE_PLAYERS['deepseek-flash'].model, 'deepseek-v4-flash')
+  assert.equal(FORGE_PLAYERS['deepseek-pro'].model, 'deepseek-chat')
+  for (const [id, player] of Object.entries(FORGE_PLAYERS)) {
+    assert.ok(player.model.trim(), `${id} has an exact model id`)
+    assert.notEqual(player.model, 'pro', `${id} model is not vague`)
+  }
+})

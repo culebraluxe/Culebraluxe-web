@@ -141,6 +141,24 @@ test('ENG-21 CLI: remove passes story/run through and reports the preserved bran
   assert.match(missing.text, /usage: pnpm agent:workspace remove/)
 })
 
+test('ENG-FORGE-V6-VIS: doctor dispatches read-only health with story filter', async () => {
+  const calls: Array<{ storyId?: string }> = []
+  const deps = fakeDeps({
+    doctor: async (opts) => {
+      calls.push(opts)
+      return `forge workspace doctor (read-only, no mutations)\nstory=${opts.storyId ?? '(all)'}`
+    },
+  })
+  const out = await runWorkspaceCliCore(deps, ['doctor', '--story', 'ENG-1'])
+  assert.equal(out.code, 0)
+  assert.match(out.text, /read-only, no mutations/)
+  assert.deepEqual(calls, [{ storyId: 'ENG-1' }])
+
+  const all = await runWorkspaceCliCore(deps, ['doctor'])
+  assert.equal(all.code, 0)
+  assert.deepEqual(calls[1], { storyId: undefined })
+})
+
 test('ENG-21 CLI: unknown subcommand and help behave', async () => {
   const unknown = await runWorkspaceCliCore(fakeDeps(), ['frobnicate'])
   assert.equal(unknown.code, 2)
@@ -156,11 +174,12 @@ test('ENG-21 CLI: unknown subcommand and help behave', async () => {
 })
 
 test('ENG-21: buildAgentInvokerWorkspaces resolves the approved base fail-closed', () => {
-  // Default: workspace execution enabled at the canonical main branch.
+  // Default: workspace execution enabled at the accepted integration tracking
+  // ref (origin/main) so successors never branch from a stale local main.
   const def = buildAgentInvokerWorkspaces('w1', {})
   assert.ok(def)
   assert.equal(def.workerId, 'w1')
-  assert.equal(def.baseRef, 'main')
+  assert.equal(def.baseRef, 'origin/main')
   assert.equal(typeof def.provision, 'function')
 
   // Explicit approved base override wins.

@@ -13,7 +13,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createAgentRuntimeRegistry } from '../factory'
+import { createAgentRuntimeRegistry, forgeTeamWithBuilderFlashOverride, parseBuilderFlashOverride, sharedAgentRuntimeRegistry, resetSharedAgentRuntimeRegistry, resolveDeepSeekWorkspace } from '../factory'
+import { buildDeepSeekModelPatch, resolveDeepSeekModel } from '../deepseek/deepseek-harness-adapter'
+import { DEFAULT_FORGE_TEAM } from '../team'
 import { OPENCODE_PINNED_MODEL } from './opencode-harness-adapter'
 import type { AgentRuntimeRegistry } from '../registry'
 import type {
@@ -70,8 +72,8 @@ test('default Smith is OpenCode while V6 Assay is deterministic Forge runtime', 
     assert.ok(registry.listAdapters().includes('opencode-harness'))
     assert.ok(registry.listAdapters().includes('forge-assay'))
     const expected: Record<string, string> = {
-      'scout-volume': 'deepseek-harness',
-      'architect-pro': 'deepseek-harness',
+      'scout-volume': 'deepseek-harness:deepseek/deepseek-v4-flash',
+      'architect-pro': 'deepseek-harness:deepseek/deepseek-chat',
       'builder-flash': 'opencode-harness',
       'verifier-mini': 'forge-assay',
     }
@@ -103,8 +105,8 @@ test('explicit Smith OpenCode routing does not reroute Assay', () => {
       true,
       'ready when the CLI/config are qualified',
     )
-    assert.equal(registry.resolveProfile('scout-volume').adapterId, 'deepseek-harness')
-    assert.equal(registry.resolveProfile('architect-pro').adapterId, 'deepseek-harness')
+    assert.equal(registry.resolveProfile('scout-volume').adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
+    assert.equal(registry.resolveProfile('architect-pro').adapterId, 'deepseek-harness:deepseek/deepseek-chat')
     assert.equal(registry.resolveProfile('verifier-mini').adapterId, 'forge-assay')
 
     const smith = registry.resolveAdapter('builder-flash', {
@@ -121,7 +123,9 @@ test('explicit deepseek override returns Smith to forge-native DeepSeek but leav
       deepSeekReadyConfig(),
       openCodeReadyConfig(),
     )
-    assert.equal(registry.resolveProfile('builder-flash').adapterId, 'deepseek-harness')
+    // Routing truth is the pinned registry id; the class-level
+    // runtimeAdapterId stays 'deepseek-harness' for evidence compat.
+    assert.equal(registry.resolveProfile('builder-flash').adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
     assert.equal(registry.resolveProfile('verifier-mini').adapterId, 'forge-assay')
     assert.equal(registry.inspectProfileReadiness('builder-flash').ready, true)
     const smith = registry.resolveAdapter('builder-flash', {
@@ -177,6 +181,132 @@ test('OpenCode selected with a non-pinned model fails closed', () => {
     assert.equal(readiness.ready, false)
     assert.match(readiness.reason, /not the ENG-FORGE-V5-01 pinned model/)
   })
+})
+
+test('factory finding #1: explicit override matrix routes builder-flash without env reads mid-loop', () => {
+  const matrix: Array<{ override: 'deepseek' | 'forge-native' | 'opencode' | 'openclaw' | 'warp' | 'warp-agent'; adapterId: string }> = [
+    { override: 'deepseek', adapterId: 'deepseek-harness:deepseek/deepseek-v4-flash' },
+    { override: 'forge-native', adapterId: 'deepseek-harness:deepseek/deepseek-v4-flash' },
+    { override: 'opencode', adapterId: 'opencode-harness' },
+    { override: 'openclaw', adapterId: 'gateway-openclaw' },
+    { override: 'warp', adapterId: 'gateway-warp' },
+    { override: 'warp-agent', adapterId: 'gateway-warp' },
+  ]
+  for (const { override, adapterId } of matrix) {
+    const registry = createAgentRuntimeRegistry({
+      deepseek: deepSeekReadyConfig(),
+      opencode: openCodeReadyConfig(),
+      builderFlashOverride: override,
+    })
+    assert.equal(registry.resolveProfile('builder-flash').adapterId, adapterId, override)
+  }
+  assert.equal(parseBuilderFlashOverride(null), null)
+  assert.equal(parseBuilderFlashOverride('  '), null)
+  assert.equal(parseBuilderFlashOverride('OpenCode'), 'opencode')
+  assert.throws(() => parseBuilderFlashOverride('mystery'), /unknown FORGE_PROVIDER_BUILDER_FLASH/)
+})
+
+test('factory finding #1: team override applies to every builder-flash variant including grades', () => {
+  const overridden = forgeTeamWithBuilderFlashOverride(DEFAULT_FORGE_TEAM, 'deepseek')
+  assert.equal(overridden.assignments.smith.harnessId, 'forge-native')
+  assert.equal(overridden.assignments.smith.playerId, 'deepseek-flash')
+  assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.harnessId, 'opencode', 'base team is not mutated')
+})
+
+test('factory finding #3: Pi mapping registers a blocked placeholder instead of crashing hydration', () => {
+  const team = {
+    ...DEFAULT_FORGE_TEAM,
+    assignments: {
+      ...DEFAULT_FORGE_TEAM.assignments,
+      archive: {
+        ...DEFAULT_FORGE_TEAM.assignments.archive,
+        profile: 'archivist-pi',
+        harnessId: 'pi' as const,
+      },
+    },
+  }
+  const registry = createAgentRuntimeRegistry({
+    deepseek: deepSeekReadyConfig(),
+    opencode: openCodeReadyConfig(),
+    team,
+  })
+  assert.ok(registry.hasProfile('builder-flash'))
+  assert.ok(registry.hasProfile('archivist-pi'))
+  const readiness = registry.inspectProfileReadiness('archivist-pi')
+  assert.equal(readiness.ready, false)
+  assert.match(readiness.reason, /no Pi runtime adapter is configured/)
+})
+
+test('factory finding #7: explicit DeepSeek workspace wins over CWD-baked default', () => {
+  assert.equal(resolveDeepSeekWorkspace('/tmp/worktree'), '/tmp/worktree')
+  assert.equal(resolveDeepSeekWorkspace('  '), resolveDeepSeekWorkspace(null))
+})
+
+test('factory finding #8: shared registry memoizes per process', () => {
+  resetSharedAgentRuntimeRegistry()
+  try {
+    const first = sharedAgentRuntimeRegistry()
+    const second = sharedAgentRuntimeRegistry()
+    assert.equal(first, second)
+    assert.ok(first.hasProfile('builder-flash'))
+  } finally {
+    resetSharedAgentRuntimeRegistry()
+  }
+})
+
+test('factory finding #6: sharing a profile across lanes with different capabilities fails closed', () => {
+  // architect requires [storyboard.read, config.read]; archive shares the
+  // architect-pro profile today. Point archive at the assay lane's narrower
+  // ASSAY set via the same profile name: same player/harness route would
+  // silently widen/narrow privilege, so the factory refuses.
+  const team = {
+    ...DEFAULT_FORGE_TEAM,
+    assignments: {
+      ...DEFAULT_FORGE_TEAM.assignments,
+      assay: {
+        ...DEFAULT_FORGE_TEAM.assignments.assay,
+        profile: 'architect-pro',
+        playerId: 'deepseek-pro' as const,
+        harnessId: 'forge-native' as const,
+      },
+    },
+  }
+  assert.throws(
+    () =>
+      createAgentRuntimeRegistry({
+        deepseek: deepSeekReadyConfig(),
+        opencode: openCodeReadyConfig(),
+        team,
+      }),
+    /different required capabilities/,
+  )
+})
+
+test('spend vision: forge-native profiles route to model-pinned adapters', () => {
+  const registry = createAgentRuntimeRegistry({
+    deepseek: deepSeekReadyConfig(),
+    opencode: openCodeReadyConfig(),
+  })
+  // scout-volume (flash) and architect-pro (pro) share the forge-native
+  // harness but must NOT share an adapter: each gets its exact model.
+  const scout = registry.resolveProfile('scout-volume')
+  const architect = registry.resolveProfile('architect-pro')
+  assert.notEqual(scout.adapterId, architect.adapterId)
+  assert.equal(scout.adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
+  assert.equal(architect.adapterId, 'deepseek-harness:deepseek/deepseek-chat')
+  assert.ok(registry.listAdapters().includes('deepseek-harness:deepseek/deepseek-v4-flash'))
+  assert.ok(registry.listAdapters().includes('deepseek-harness:deepseek/deepseek-chat'))
+})
+
+test('spend vision: dsh model patch pins the exact provider/model', () => {
+  const patch = buildDeepSeekModelPatch('deepseek/deepseek-chat')
+  assert.match(patch, /id: agent-default-model/)
+  assert.match(patch, /provider: deepseek/)
+  assert.match(patch, /model: deepseek-chat/)
+  assert.equal(resolveDeepSeekModel('deepseek/deepseek-chat'), 'deepseek/deepseek-chat')
+  assert.equal(resolveDeepSeekModel(null), null)
+  assert.throws(() => resolveDeepSeekModel('  '), /no explicit model configuration/)
+  assert.throws(() => resolveDeepSeekModel('vague'), /exact 'provider\/model' id/)
 })
 
 function makeWorkspace(): { workspace: AgentExecutionWorkspace; cleanup: () => void } {

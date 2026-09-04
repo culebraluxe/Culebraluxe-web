@@ -1,6 +1,6 @@
 import { type ReactNode } from "react"
 
-import type { StoryRun } from "@/db/storyboard"
+import type { StoryRun, StoryboardStory } from "@/db/storyboard"
 import {
   statusBucket,
   workstreamName,
@@ -102,6 +102,134 @@ function SnapshotField({
   )
 }
 
+// ENG-FORGE-V6-VIS — one truth, Portal lens. Frozen Run contract vs the live
+// parent Story: any drift means the Run executed against older truth.
+// Rendered server-side from already-loaded rows; no new queries.
+function RunContractPanel({ story, run }: { story: StoryboardStory; run: StoryRun }) {
+  const drifts: Array<{ field: string; frozen: string | null; live: string | null }> = []
+  const pairs: Array<{ field: string; frozen?: string | null; live?: string | null }> = [
+    { field: 'Goal', frozen: run.goalSnapshot, live: story.goal },
+    { field: 'Scope', frozen: run.scopeSnapshot, live: story.scope },
+    { field: 'Dependencies', frozen: run.dependenciesSnapshot, live: story.dependencies },
+    { field: 'Preconditions', frozen: run.preconditionsSnapshot, live: story.preconditions },
+    { field: 'Architect brief', frozen: run.architectBriefSnapshot, live: story.architectBrief },
+    { field: 'Context refs', frozen: run.contextRefsSnapshot, live: story.contextRefs },
+    { field: 'Acceptance criteria', frozen: run.acceptanceCriteriaSnapshot, live: story.acceptanceCriteria },
+    { field: 'Postconditions', frozen: run.postconditionsSnapshot, live: story.postconditions },
+    { field: 'Test mode', frozen: run.testModeSnapshot, live: story.testMode ?? null },
+    { field: 'Assay commands', frozen: run.assayCommandsSnapshot, live: story.assayCommands ?? null },
+  ]
+  for (const pair of pairs) {
+    const frozen = (pair.frozen ?? '').trim()
+    const live = (pair.live ?? '').trim()
+    if (frozen !== live) {
+      drifts.push({ field: pair.field, frozen: pair.frozen ?? null, live: pair.live ?? null })
+    }
+  }
+  const packetStale =
+    (run.packetShaSnapshot ?? '').trim() !== '' &&
+    (story.packetSha ?? '').trim() !== '' &&
+    run.packetShaSnapshot!.trim() !== story.packetSha!.trim()
+
+  const counters: Array<{ label: string; value: number | null }> = [
+    { label: 'Commands', value: run.commandsTotal ?? null },
+    { label: 'Passed', value: run.commandsPassed ?? null },
+    { label: 'Failed', value: run.commandsFailed ?? null },
+    { label: 'Tests', value: run.testsTotal ?? null },
+    { label: 'Tests passed', value: run.testsPassed ?? null },
+    { label: 'Tests failed', value: run.testsFailed ?? null },
+    { label: 'Policy violations', value: run.policyViolationCount ?? null },
+  ]
+  const hasCounters = counters.some(({ value }) => value !== null)
+
+  return (
+    <DetailSection
+      title="Run Contract (frozen vs live)"
+      hint={packetStale ? 'Packet stale — Neon sha != live sha' : undefined}
+    >
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <span className="text-black/40">Run phase</span>
+        <span>{run.runPhase ?? '—'}</span>
+        <span className="text-black/40">Lead decision</span>
+        <span>
+          {run.leadDecision ?? '—'}
+          {run.leadSplitCount !== null && run.leadSplitCount !== undefined
+            ? ` (${run.leadSplitCount})`
+            : ''}
+        </span>
+        <span className="text-black/40">Base commit</span>
+        <span className="font-mono">
+          {run.baseCommitHash ? run.baseCommitHash.slice(0, 12) : '—'}
+        </span>
+        <span className="text-black/40">Frozen packet sha</span>
+        <span className="font-mono">
+          {run.packetShaSnapshot ? run.packetShaSnapshot.slice(0, 12) : '—'}
+        </span>
+        <span className="text-black/40">Failure code</span>
+        <span>{run.failureCode ?? '—'}</span>
+        <span className="text-black/40">Model used</span>
+        <span className="font-mono">{run.modelUsed ?? '—'}</span>
+        {(run.tokensInput !== null && run.tokensInput !== undefined) ||
+        (run.tokensOutput !== null && run.tokensOutput !== undefined) ||
+        (run.costUsd !== null && run.costUsd !== undefined) ? (
+          <>
+            <span className="text-black/40">Tokens in/out</span>
+            <span className="font-mono">
+              {run.tokensInput ?? '—'} / {run.tokensOutput ?? '—'}
+            </span>
+            <span className="text-black/40">Cost (USD)</span>
+            <span className="font-mono">
+              {run.costUsd !== null && run.costUsd !== undefined ? `$${Number(run.costUsd).toFixed(4)}` : '—'}
+            </span>
+          </>
+        ) : null}
+      </div>
+      {hasCounters && (
+        <div className="mt-2 grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
+          {counters.map(({ label, value }) => (
+            <span key={label}>
+              <span className="text-black/40">{label}: </span>
+              {value ?? '—'}
+            </span>
+          ))}
+        </div>
+      )}
+      {run.evidenceDetail && (
+        <p className="mt-2 whitespace-pre-wrap text-xs font-light leading-5 text-black/55">
+          {run.evidenceDetail}
+        </p>
+      )}
+      {drifts.length === 0 ? (
+        <p className="mt-2 text-xs font-light italic text-black/45">
+          Frozen contract matches the live story — this run executed against current truth.
+        </p>
+      ) : (
+        <div className="mt-2 space-y-2 border-t border-[var(--portal-border)] pt-2">
+          <p className="text-[10px] font-light uppercase tracking-[0.18em] text-red-700">
+            {drifts.length} drifted field{drifts.length === 1 ? '' : 's'} — run used frozen (left), live story now says (right)
+          </p>
+          {drifts.map(({ field, frozen, live }) => (
+            <div key={field} className="grid gap-2 text-xs sm:grid-cols-2">
+              <div className="rounded-sm bg-black/[0.03] p-2">
+                <div className="text-[10px] uppercase tracking-[0.14em] text-black/40">
+                  Frozen · {field}
+                </div>
+                <p className="mt-1 whitespace-pre-wrap">{frozen ?? '—'}</p>
+              </div>
+              <div className="rounded-sm bg-red-50 p-2">
+                <div className="text-[10px] uppercase tracking-[0.14em] text-red-700/70">
+                  Live · {field}
+                </div>
+                <p className="mt-1 whitespace-pre-wrap">{live ?? '—'}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </DetailSection>
+  )
+}
+
 function RunHistory({ runs }: { runs: StoryRun[] }) {
   if (runs.length === 0) {
     return (
@@ -175,11 +303,13 @@ export function StoryDetailSections({
   story,
   runs,
 }: {
-  story: StoryRecord
+  story: StoryboardStory
   runs: StoryRun[]
 }) {
+  const newestRun = runs[0] ?? null
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      {newestRun && <RunContractPanel story={story} run={newestRun} />}
       <DetailSection title="Overview">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
           <span className="text-black/40">ID</span>

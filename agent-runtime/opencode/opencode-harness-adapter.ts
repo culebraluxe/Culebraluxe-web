@@ -401,6 +401,8 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
         ? `opencode exit code ${result.exitCode} | TEST-MODE VIOLATION (SCOPED): ${forbidden}`
         : testsSummary,
       commitHash,
+      // Spend vision: harness-enforced exact model, recorded as evidence.
+      modelUsed: model,
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
       externalRunId: this.externalRunId,

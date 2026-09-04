@@ -138,6 +138,26 @@ test('terminal messages carry the outcome and never leak secrets or transcripts'
   assert.match(redactForSlack('see https://hooks.slack.com/services/a/b with Bearer abc')!, /\[redacted\]/)
 })
 
+test('ENG-FORGE-V6-VIS: contract facts render on every event without new event types', () => {
+  const contract = {
+    packetShaStale: true,
+    leadDecision: 'ASSAY',
+    leadReason: 'Candidate verified cleanly.',
+    publishPreview: 'publishable',
+  }
+  for (const event of ['lane-started', 'lane-completed', 'lane-follow', 'lane-terminal'] as const) {
+    const text = buildSlackMessage(startedContext({ event, ...contract }))!
+    assert.match(text, /packet stale \(Neon sha != Git sha\)/)
+    assert.match(text, /lead ASSAY: Candidate verified cleanly\./)
+    assert.match(text, /publish preview: publishable/)
+  }
+
+  // Absent contract fields render nothing extra.
+  const plain = buildSlackMessage(startedContext())!
+  assert.doesNotMatch(plain, /packet stale/)
+  assert.doesNotMatch(plain, /publish preview/)
+})
+
 test('fail-open: network/HTTP failure never throws and never mutates anything', async () => {
   const cases: Array<{ label: string; post: SlackWebhookPost }> = [
     {

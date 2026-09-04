@@ -1,8 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { resolveLane } from './lane-policy'
+import { LANE_DEFAULT_SKILLS, laneDefaultSkillInstructions, resolveLane } from './lane-policy'
 import { DEFAULT_FORGE_TEAM, type ForgeTeam } from './team'
+import { leadPhaseInstructions } from './lead-decision'
+import { MODEL_PRICE_TABLE, modelPriceFor, renderModelCostLines } from './model-prices'
 
 const registered = {
   hasProfile(profile: string) {
@@ -85,7 +87,7 @@ test('inspector refuses without a diff', () => {
 test('inspector refuses same mapped lineage as smith', () => {
   const d = resolveLane({
     lane: 'inspector',
-    session: { smithLineage: 'deepseek-judgment', hasInlineDiff: true },
+    session: { smithLineage: 'deepseek-review', hasInlineDiff: true },
     registry: registered,
   })
   assert.equal(d.ok, false)
@@ -102,8 +104,21 @@ test('inspector launches when mapped lineage differs and diff exists', () => {
   if (d.ok) {
     assert.equal(d.launch.role, 'reviewer')
     assert.equal(d.launch.modelProfile, 'reviewer-other')
-    assert.equal(d.launch.lineage, 'deepseek-judgment')
+    assert.equal(d.launch.lineage, 'deepseek-review')
     assert.equal(d.launch.toolPolicy, 'read-only')
+  }
+})
+
+test('inspector stays independent from every Smith grade lineage (default, upgrade, emergency)', () => {
+  const smithLineages = [
+    DEFAULT_FORGE_TEAM.assignments.smith.lineage,
+    DEFAULT_FORGE_TEAM.assignments.smith.upgrade?.lineage,
+    DEFAULT_FORGE_TEAM.assignments.smith.emergency?.lineage,
+  ]
+  const inspectorLineage = DEFAULT_FORGE_TEAM.assignments.inspector.lineage
+  for (const smithLineage of smithLineages) {
+    assert.ok(smithLineage)
+    assert.notEqual(inspectorLineage, smithLineage)
   }
 })
 
@@ -177,4 +192,69 @@ test('default Smith model choice is owned by team mapping, not lane definition',
   assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.profile, 'builder-flash')
   assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.playerId, 'deepseek-flash')
   assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.harnessId, 'opencode')
+})
+
+test('spend vision: lanes carry expertise preambles with cost discipline', () => {
+  const sessions: Record<string, object> = {
+    architect: { hasScoutPacket: true },
+  }
+  for (const lane of ['scout', 'architect', 'lead', 'smith', 'inspector', 'assay'] as const) {
+    const d = resolveLane({
+      lane,
+      registry: registered,
+      session: {
+        hasScoutPacket: true,
+        hasArchitectBrief: true,
+        hasAssayPlan: true,
+        hasInlineDiff: true,
+        ...(sessions[lane] ?? {}),
+      },
+    })
+    assert.equal(d.ok, true, `${lane} resolves`)
+    if (d.ok) {
+      assert.match(d.launch.specialInstructions, /Cost:/, `${lane} preamble names cost`)
+    }
+  }
+  const smith = resolveLane({ lane: 'smith', registry: registered })
+  assert.equal(smith.ok, true)
+  if (smith.ok) {
+    assert.match(smith.launch.specialInstructions, /Workflow:/)
+    assert.match(smith.launch.specialInstructions, /never push/)
+  }
+})
+
+test('spend vision: lane default skills load domain knowledge without a packet', () => {
+  assert.deepEqual(LANE_DEFAULT_SKILLS.smith, ['workflow', 'ui'])
+  assert.deepEqual(LANE_DEFAULT_SKILLS.assay, [])
+  const smith = laneDefaultSkillInstructions('smith')
+  assert.ok(smith)
+  assert.match(smith, /Lane default skills \(workflow, ui\)/)
+  assert.equal(laneDefaultSkillInstructions('assay'), null)
+
+  // Defaults are additive: packet extras still land after the preamble.
+  const d = resolveLane({
+    lane: 'smith',
+    extraInstructions: 'Focus on db/migrations.',
+    registry: registered,
+  })
+  assert.equal(d.ok, true)
+  if (d.ok) {
+    assert.match(d.launch.specialInstructions, /Lane=smith/)
+    assert.match(d.launch.specialInstructions, /Lane default skills/)
+    assert.match(d.launch.specialInstructions, /db\/migrations/)
+  }
+})
+
+test('spend vision: Lead PRE carries relative prices and demands a priced reason', () => {
+  const instructions = leadPhaseInstructions('pre')
+  assert.match(instructions, /Relative model cost/)
+  assert.match(instructions, /deepseek\/deepseek-v4-flash: 1x/)
+  assert.match(instructions, /deepseek\/deepseek-chat: 10x/)
+  assert.match(instructions, /Name the grade tradeoff in LEAD_REASON/)
+  assert.equal(modelPriceFor('deepseek/deepseek-v4-flash')?.weight, 1)
+  assert.equal(modelPriceFor('deepseek/deepseek-chat')?.weight, 10)
+  assert.equal(modelPriceFor('forge/deterministic-assay')?.weight, 0)
+  assert.equal(modelPriceFor(null), null)
+  assert.ok(renderModelCostLines().length >= 4)
+  assert.equal(MODEL_PRICE_TABLE.length, 3)
 })

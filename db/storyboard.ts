@@ -41,6 +41,9 @@ export type StoryboardStory = {
   plannedStartAt: string | null
   actualStartAt: string | null
   completedAt: string | null
+  testMode?: string | null
+  assayCommands?: string | null
+  packetSha?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -63,6 +66,9 @@ export type StoryboardStoryInput = {
   contextRefs: string | null
   acceptanceCriteria: string | null
   postconditions: string | null
+  testMode?: string | null
+  assayCommands?: string | null
+  packetSha?: string | null
   completion: number
   rollup: boolean
   plannedStartAt: string | null
@@ -89,6 +95,9 @@ export type StoryRow = QueryRow & {
   context_refs: string | null
   acceptance_criteria: string | null
   postconditions: string | null
+  test_mode?: string | null
+  assay_commands?: string | null
+  packet_sha?: string | null
   architect_brief_updated_at: string | null
   completion: number
   rollup: boolean
@@ -139,6 +148,9 @@ export function mapStory(row: StoryRow): StoryboardStory {
     acceptanceCriteria: row.acceptance_criteria,
     postconditions: row.postconditions,
     architectBriefUpdatedAt: dateOrNull(row.architect_brief_updated_at),
+    testMode: (row.test_mode as string | null) ?? null,
+    assayCommands: (row.assay_commands as string | null) ?? null,
+    packetSha: (row.packet_sha as string | null) ?? null,
     completion: row.completion,
     rollup: row.rollup,
     plannedStartAt: dateOrNull(row.planned_start_at),
@@ -171,6 +183,7 @@ export async function listStoryboardStories(
       batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
     from storyboard_story
@@ -244,6 +257,7 @@ export async function getStoryboardStory(
       batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
     from storyboard_story
@@ -263,6 +277,7 @@ export async function createStoryboardStory(
       id, workstream, title, priority, status, notes, batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       operating_surface
     ) values (
@@ -273,6 +288,7 @@ export async function createStoryboardStory(
       ${input.architectBrief ?? null}, ${input.contextRefs ?? null},
       ${input.acceptanceCriteria ?? null}, ${input.postconditions ?? null},
       case when ${input.architectBrief ?? null}::text is null then null else now() end,
+      ${input.testMode ?? null}, ${input.assayCommands ?? null}, ${input.packetSha ?? null},
       ${input.completion}, ${input.rollup},
       ${input.plannedStartAt ?? null}, ${input.actualStartAt ?? null},
       ${input.completedAt ?? null},
@@ -283,6 +299,7 @@ export async function createStoryboardStory(
       batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -318,6 +335,9 @@ export async function updateStoryboardStory(
         context_refs = ${input.contextRefs ?? null},
         acceptance_criteria = ${input.acceptanceCriteria ?? null},
         postconditions = ${input.postconditions ?? null},
+        test_mode = coalesce(${input.testMode ?? null}, test_mode),
+        assay_commands = coalesce(${input.assayCommands ?? null}, assay_commands),
+        packet_sha = coalesce(${input.packetSha ?? null}, packet_sha),
         architect_brief_updated_at = case
           when architect_brief is distinct from ${input.architectBrief ?? null}::text
           then now() else architect_brief_updated_at end,
@@ -331,6 +351,7 @@ export async function updateStoryboardStory(
       batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -339,6 +360,30 @@ export async function updateStoryboardStory(
     throw new PortalWriteError('not-found', `Story "${id}" was not found.`)
   }
   return mapStory(row)
+}
+
+/**
+ * ENG-FORGE-V5-03R: Persist durable executable contract facts into Neon so
+ * subsequent execution lanes do not depend on reading local git packets.
+ */
+export async function updateStoryboardExecutableContract(
+  storyId: string,
+  input: {
+    testMode?: string | null
+    assayCommands?: string | null
+    packetSha?: string | null
+  },
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  await q`
+    update storyboard_story
+    set test_mode = coalesce(${input.testMode ?? null}, test_mode),
+        assay_commands = coalesce(${input.assayCommands ?? null}, assay_commands),
+        packet_sha = coalesce(${input.packetSha ?? null}, packet_sha),
+        updated_at = now()
+    where id = ${storyId}
+  `
 }
 
 /**
@@ -366,6 +411,7 @@ export async function setStoryboardStatus(
       batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -467,6 +513,32 @@ export type StoryRun = {
   contextRefsSnapshot: string | null
   acceptanceCriteriaSnapshot: string | null
   postconditionsSnapshot: string | null
+  // ENG-FORGE-V6-VIS — V6 frozen contract + machine facts (migration 106).
+  // Nullable: historical rows predate the columns; readers must tolerate null.
+  scopeSnapshot?: string | null
+  dependenciesSnapshot?: string | null
+  operatingSurfaceSnapshot?: string | null
+  testModeSnapshot?: string | null
+  assayCommandsSnapshot?: string | null
+  packetShaSnapshot?: string | null
+  baseCommitHash?: string | null
+  commandsTotal?: number | null
+  commandsPassed?: number | null
+  commandsFailed?: number | null
+  testsTotal?: number | null
+  testsPassed?: number | null
+  testsFailed?: number | null
+  policyViolationCount?: number | null
+  failureCode?: string | null
+  evidenceDetail?: string | null
+  runPhase?: string | null
+  leadDecision?: string | null
+  leadSplitCount?: number | null
+  // Spend vision (migration 107). Null = unmeasured/unpriced.
+  modelUsed?: string | null
+  tokensInput?: number | null
+  tokensOutput?: number | null
+  costUsd?: number | null
   createdAt: string
   /** Last activity on the run (progress updates, terminal writes). */
   updatedAt: string
@@ -500,6 +572,31 @@ type RunRow = QueryRow & {
   context_refs_snapshot: string | null
   acceptance_criteria_snapshot: string | null
   postconditions_snapshot: string | null
+  // ENG-FORGE-V6-VIS — migration 106 columns; absent on old rows / old DBs.
+  scope_snapshot?: string | null
+  dependencies_snapshot?: string | null
+  operating_surface_snapshot?: string | null
+  test_mode_snapshot?: string | null
+  assay_commands_snapshot?: string | null
+  packet_sha_snapshot?: string | null
+  base_commit_hash?: string | null
+  commands_total?: number | null
+  commands_passed?: number | null
+  commands_failed?: number | null
+  tests_total?: number | null
+  tests_passed?: number | null
+  tests_failed?: number | null
+  policy_violation_count?: number | null
+  failure_code?: string | null
+  evidence_detail?: string | null
+  run_phase?: string | null
+  lead_decision?: string | null
+  lead_split_count?: number | null
+  // Spend vision (migration 107). Absent on pre-107 rows → null.
+  model_used?: string | null
+  tokens_input?: number | null
+  tokens_output?: number | null
+  cost_usd?: number | string | null
   created_at: string
   updated_at: string
 }
@@ -524,8 +621,97 @@ function mapRun(row: RunRow): StoryRun {
     contextRefsSnapshot: row.context_refs_snapshot,
     acceptanceCriteriaSnapshot: row.acceptance_criteria_snapshot,
     postconditionsSnapshot: row.postconditions_snapshot,
+    scopeSnapshot: row.scope_snapshot ?? null,
+    dependenciesSnapshot: row.dependencies_snapshot ?? null,
+    operatingSurfaceSnapshot: row.operating_surface_snapshot ?? null,
+    testModeSnapshot: row.test_mode_snapshot ?? null,
+    assayCommandsSnapshot: row.assay_commands_snapshot ?? null,
+    packetShaSnapshot: row.packet_sha_snapshot ?? null,
+    baseCommitHash: row.base_commit_hash ?? null,
+    commandsTotal: row.commands_total ?? null,
+    commandsPassed: row.commands_passed ?? null,
+    commandsFailed: row.commands_failed ?? null,
+    testsTotal: row.tests_total ?? null,
+    testsPassed: row.tests_passed ?? null,
+    testsFailed: row.tests_failed ?? null,
+    policyViolationCount: row.policy_violation_count ?? null,
+    failureCode: row.failure_code ?? null,
+    evidenceDetail: row.evidence_detail ?? null,
+    runPhase: row.run_phase ?? null,
+    leadDecision: row.lead_decision ?? null,
+    leadSplitCount: row.lead_split_count ?? null,
+    modelUsed: row.model_used ?? null,
+    tokensInput: row.tokens_input ?? null,
+    tokensOutput: row.tokens_output ?? null,
+    costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
     createdAt: dateOrNull(row.created_at) ?? '',
     updatedAt: dateOrNull(row.updated_at) ?? '',
+  }
+}
+
+// ENG-FORGE-V6-VIS — V6 run columns (migration 106). Column lists stay
+// literal at every query site per repo convention (the `sql` tag binds
+// ${} as parameters, never SQL). Readers probe `hasRunV6Columns` then run
+// one of the two literal paths; mapRun tolerates absence via `?? null`.
+
+/**
+ * Whether the connected database has the V6 run-contract columns (migration
+ * 106). Probed once per process; false on older DBs so legacy columns alone
+ * are selected and no query ever fails on a missing column.
+ *
+ * NOTE: the probe never runs speculatively inside unit-test fakes. Callers
+ * use runWithV6Fallback below, which tries the literal V6 path and retries
+ * the legacy path only on an undefined-column error — so fakes that never
+ * implement information_schema keep working unchanged.
+ */
+let v6RunColumnsAvailable: boolean | null = null
+
+export function resetRunV6ColumnCache(): void {
+  v6RunColumnsAvailable = null
+}
+
+async function hasRunV6Columns(q: QueryExecutor): Promise<boolean> {
+  if (v6RunColumnsAvailable !== null) return v6RunColumnsAvailable
+  try {
+    const rows = await q`
+      select count(*)::int as count
+      from information_schema.columns
+      where table_name = 'storyboard_story_run'
+        and column_name = 'packet_sha_snapshot'
+    `
+    v6RunColumnsAvailable = Number((rows[0] as { count: number })?.count ?? 0) > 0
+  } catch {
+    v6RunColumnsAvailable = false
+  }
+  return v6RunColumnsAvailable
+}
+
+function isUndefinedColumnError(error: unknown): boolean {
+  const message = String((error as { message?: unknown })?.message ?? error)
+  return /undefined_column|column .* does not exist|no such column/i.test(message)
+}
+
+/**
+ * Run a V6 literal query, falling back to the legacy literal query when the
+ * database predates migration 106. Callers MUST probe hasRunV6Columns first;
+ * this helper exists for write paths that already probed and want a single
+ * retry point. The fallback triggers ONLY on an undefined-column error — any
+ * other failure propagates.
+ */
+async function runWithV6Fallback<T>(
+  probedV6: boolean,
+  v6Query: () => Promise<T>,
+  legacyQuery: () => Promise<T>,
+): Promise<T> {
+  if (!probedV6) return legacyQuery()
+  try {
+    return await v6Query()
+  } catch (error) {
+    if (isUndefinedColumnError(error)) {
+      v6RunColumnsAvailable = false
+      return legacyQuery()
+    }
+    throw error
   }
 }
 
@@ -547,7 +733,30 @@ export async function listStoryboardRuns(
   const ready = await isRunTableReady(q)
   if (!ready) return null
 
-  const rows = await q`
+  // ENG-FORGE-V6-VIS: literal V6 path when migration 106 is present, legacy
+  // path otherwise. No dynamic SQL — the `sql` tag binds ${} as parameters.
+  const probedV6 = await hasRunV6Columns(q)
+  const rows = await runWithV6Fallback(
+    probedV6,
+    () => q`
+      select id, story_id, started_at, ended_at, result_status, run_type,
+        agent_runtime, completion,
+        notes, commit_hash, tests_summary, execution_environment,
+        goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+        context_refs_snapshot, acceptance_criteria_snapshot,
+        postconditions_snapshot,
+        scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+        test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+        base_commit_hash, commands_total, commands_passed, commands_failed,
+        tests_total, tests_passed, tests_failed, policy_violation_count,
+        failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
+        model_used, tokens_input, tokens_output, cost_usd,
+        created_at,
+        updated_at
+      from storyboard_story_run
+      order by started_at desc, id
+    `,
+    () => q`
     select id, story_id, started_at, ended_at, result_status, run_type,
       agent_runtime, completion,
       notes, commit_hash, tests_summary, execution_environment,
@@ -557,7 +766,8 @@ export async function listStoryboardRuns(
       updated_at
     from storyboard_story_run
     order by started_at desc, id
-  `
+  `,
+  )
   return rows.map((row) => mapRun(row as RunRow))
 }
 
@@ -566,7 +776,29 @@ export async function listStoryRuns(
   execute?: QueryExecutor,
 ): Promise<StoryRun[]> {
   const q = execute ?? (await executor())
-  const rows = await q`
+  const probedV6 = await hasRunV6Columns(q)
+  const rows = await runWithV6Fallback(
+    probedV6,
+    () => q`
+      select id, story_id, started_at, ended_at, result_status, run_type,
+        agent_runtime, completion,
+        notes, commit_hash, tests_summary, execution_environment,
+        goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+        context_refs_snapshot, acceptance_criteria_snapshot,
+        postconditions_snapshot,
+        scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+        test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+        base_commit_hash, commands_total, commands_passed, commands_failed,
+        tests_total, tests_passed, tests_failed, policy_violation_count,
+        failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
+        model_used, tokens_input, tokens_output, cost_usd,
+        created_at,
+        updated_at
+      from storyboard_story_run
+      where story_id = ${storyId}
+      order by started_at desc, id
+    `,
+    () => q`
     select id, story_id, started_at, ended_at, result_status, run_type,
       agent_runtime, completion,
       notes, commit_hash, tests_summary, execution_environment,
@@ -577,7 +809,8 @@ export async function listStoryRuns(
     from storyboard_story_run
     where story_id = ${storyId}
     order by started_at desc, id
-  `
+  `,
+  )
   return rows.map((row) => mapRun(row as RunRow))
 }
 
@@ -596,6 +829,10 @@ export async function startStoryRun(
   opts?: { executionEnvironment?: string | null },
 ): Promise<{ run: StoryRun; story: StoryboardStory }> {
   const q = execute ?? (await executor())
+  // ENG-FORGE-V6-VIS: freeze the V6 executable packet onto the new Run when
+  // migration 106 is present; legacy insert otherwise. Snapshot values come
+  // from the already-returned parent Story row — no extra query.
+  const probedV6Start = await hasRunV6Columns(q)
   const storyRows = await q`
     update storyboard_story
     set status = 'In Progress',
@@ -605,6 +842,7 @@ export async function startStoryRun(
     returning id, workstream, title, priority, status, notes, batch, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
+      test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -613,7 +851,40 @@ export async function startStoryRun(
     throw new PortalWriteError('not-found', `Story "${storyId}" was not found.`)
   }
 
-  const runRows = await q`
+  const runRows = await runWithV6Fallback(
+    probedV6Start,
+    () => q`
+    insert into storyboard_story_run (
+      story_id, started_at, execution_environment,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot,
+      scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+      test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot
+    ) values (
+      ${storyId}, now(), ${opts?.executionEnvironment ?? null},
+      ${storyRow.goal ?? null}, ${storyRow.preconditions ?? null},
+      ${storyRow.architect_brief ?? null}, ${storyRow.context_refs ?? null},
+      ${storyRow.acceptance_criteria ?? null}, ${storyRow.postconditions ?? null},
+      ${storyRow.scope ?? null}, ${storyRow.dependencies ?? null},
+      ${storyRow.operating_surface ?? null}, ${storyRow.test_mode ?? null},
+      ${storyRow.assay_commands ?? null}, ${storyRow.packet_sha ?? null}
+    )
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, execution_environment,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot,
+      scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+      test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+      base_commit_hash, commands_total, commands_passed, commands_failed,
+      tests_total, tests_passed, tests_failed, policy_violation_count,
+      failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
+      model_used, tokens_input, tokens_output, cost_usd,
+      created_at,
+      updated_at
+  `,
+    () => q`
     insert into storyboard_story_run (
       story_id, started_at, execution_environment,
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
@@ -631,7 +902,8 @@ export async function startStoryRun(
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at,
       updated_at
-  `
+  `,
+  )
   const runRow = runRows[0] as RunRow
   return { run: mapRun(runRow), story: mapStory(storyRow) }
 }
@@ -653,7 +925,39 @@ export async function finishStoryRun(
   execute?: QueryExecutor,
 ): Promise<{ run: StoryRun; story: StoryboardStory }> {
   const q = execute ?? (await executor())
-  const runRows = await q`
+  const probedV6Finish = await hasRunV6Columns(q)
+  const runRows = await runWithV6Fallback(
+    probedV6Finish,
+    () => q`
+    update storyboard_story_run
+    set ended_at = now(),
+        result_status = ${input.resultStatus},
+        completion = ${input.completion},
+        notes = case
+          when ${input.notes}::text is null or ${input.notes}::text = '' then notes
+          when notes is null or notes = '' then ${input.notes}
+          else notes || E'\\n' || ${input.notes}
+        end,
+        commit_hash = ${input.commitHash ?? null},
+        tests_summary = ${input.testsSummary ?? null},
+        execution_environment = coalesce(${input.executionEnvironment ?? null}, execution_environment),
+        updated_at = now()
+    where id = ${runId}
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, execution_environment,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot,
+      scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+      test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+      base_commit_hash, commands_total, commands_passed, commands_failed,
+      tests_total, tests_passed, tests_failed, policy_violation_count,
+      failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
+      model_used, tokens_input, tokens_output, cost_usd,
+      created_at,
+      updated_at
+  `,
+    () => q`
     update storyboard_story_run
     set ended_at = now(),
         result_status = ${input.resultStatus},
@@ -674,7 +978,8 @@ export async function finishStoryRun(
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at,
       updated_at
-  `
+  `,
+  )
   const runRow = runRows[0] as RunRow | undefined
   if (!runRow) {
     throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)
@@ -732,7 +1037,41 @@ export async function updateStoryRunProgress(
   execute?: QueryExecutor,
 ): Promise<StoryRun> {
   const q = execute ?? (await executor())
-  const rows = await q`
+  const probedV6Progress = await hasRunV6Columns(q)
+  const rows = await runWithV6Fallback(
+    probedV6Progress,
+    () => q`
+    update storyboard_story_run
+    set completion = case when ${input.completion ?? null}::int is null
+          then completion else ${input.completion ?? null} end,
+        notes = case
+          when ${input.note ?? null}::text is null or ${input.note ?? null}::text = '' then notes
+          when notes is null or notes = '' then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note ?? null}
+          -- HEARTBEAT IS STATE, NOT HISTORY (ENG-20A): an unchanged heartbeat note
+          -- (identical content regardless of the minute-level timestamp prefix) is
+          -- NOT appended again. Only meaningful state changes create history.
+          when regexp_replace(split_part(notes, E'\\n', -1), '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} — ', '') = ${input.note ?? null}
+            then notes
+          else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note ?? null}
+        end,
+        tests_summary = case when ${input.testsSummary ?? null}::text is null
+          then tests_summary else ${input.testsSummary ?? null} end,
+        updated_at = now()
+    where id = ${runId}
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, execution_environment,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot,
+      scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+      test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+      base_commit_hash, commands_total, commands_passed, commands_failed,
+      tests_total, tests_passed, tests_failed, policy_violation_count,
+      failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
+      model_used, tokens_input, tokens_output, cost_usd,
+      created_at, updated_at
+  `,
+    () => q`
     update storyboard_story_run
     set completion = case when ${input.completion ?? null}::int is null
           then completion else ${input.completion ?? null} end,
@@ -755,7 +1094,8 @@ export async function updateStoryRunProgress(
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at, updated_at
-  `
+  `,
+  )
   const row = rows[0] as RunRow | undefined
   if (!row) {
     throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)
@@ -782,7 +1122,37 @@ export async function terminateStoryRun(
   execute?: QueryExecutor,
 ): Promise<StoryRun> {
   const q = execute ?? (await executor())
-  const rows = await q`
+  const probedV6Terminate = await hasRunV6Columns(q)
+  const rows = await runWithV6Fallback(
+    probedV6Terminate,
+    () => q`
+    update storyboard_story_run
+    set ended_at = now(),
+        result_status = ${input.resultStatus},
+        completion = case when ${input.completion ?? null}::int is null
+          then completion else ${input.completion ?? null} end,
+        notes = case
+          when notes is null or notes = '' then to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note}
+          else notes || E'\\n' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ' — ' || ${input.note}
+        end,
+        tests_summary = case when ${input.testsSummary ?? null}::text is null
+          then tests_summary else ${input.testsSummary ?? null} end,
+        updated_at = now()
+    where id = ${runId}
+    returning id, story_id, started_at, ended_at, result_status, completion,
+      notes, commit_hash, tests_summary, execution_environment,
+      goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
+      context_refs_snapshot, acceptance_criteria_snapshot,
+      postconditions_snapshot,
+      scope_snapshot, dependencies_snapshot, operating_surface_snapshot,
+      test_mode_snapshot, assay_commands_snapshot, packet_sha_snapshot,
+      base_commit_hash, commands_total, commands_passed, commands_failed,
+      tests_total, tests_passed, tests_failed, policy_violation_count,
+      failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
+      model_used, tokens_input, tokens_output, cost_usd,
+      created_at, updated_at
+  `,
+    () => q`
     update storyboard_story_run
     set ended_at = now(),
         result_status = ${input.resultStatus},
@@ -801,7 +1171,8 @@ export async function terminateStoryRun(
       goal_snapshot, preconditions_snapshot, architect_brief_snapshot,
       context_refs_snapshot, acceptance_criteria_snapshot,
       postconditions_snapshot, created_at, updated_at
-  `
+  `,
+  )
   const row = rows[0] as RunRow | undefined
   if (!row) {
     throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)

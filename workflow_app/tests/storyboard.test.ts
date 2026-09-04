@@ -44,6 +44,12 @@ class FakeDb {
       return Promise.resolve([{ ready: this.tableReady }])
     }
 
+    if (t.includes('information_schema.columns')) {
+      // ENG-FORGE-V6-VIS probe: this story-level fake has no run table, so
+      // report the V6 columns absent and stay on the legacy path.
+      return Promise.resolve([{ count: 0 }])
+    }
+
     if (t.includes('insert into storyboard_story')) {
       if (this.rows.some((r) => r.id === p[0])) return Promise.resolve([])
       const row = {
@@ -63,12 +69,15 @@ class FakeDb {
         acceptance_criteria: p[13] ?? null,
         postconditions: p[14] ?? null,
         architect_brief_updated_at: p[15] ? this.stamp() : null,
-        completion: p[16],
-        rollup: p[17],
-        planned_start_at: p[18] ?? null,
-        actual_start_at: p[19] ?? null,
-        completed_at: p[20] ?? null,
-        operating_surface: p[21] ?? null,
+        test_mode: p[16] ?? null,
+        assay_commands: p[17] ?? null,
+        packet_sha: p[18] ?? null,
+        completion: p[19],
+        rollup: p[20],
+        planned_start_at: p[21] ?? null,
+        actual_start_at: p[22] ?? null,
+        completed_at: p[23] ?? null,
+        operating_surface: p[24] ?? null,
         created_at: '2026-08-21T00:00:00Z',
         updated_at: '2026-08-21T00:00:00Z',
       }
@@ -80,9 +89,10 @@ class FakeDb {
       const statusOnly =
         t.includes('set status = $1') && !t.includes('set workstream')
       // status-only update: `set status=$1, completion=case when $2='Complete'...`
-      // so the story id is $3 (p[2]); full update has id as $20 (p[19]) and no
-      // longer touches the system-owned actual_start_at / completed_at.
-      const id = statusOnly ? p[2] : p[19]
+      // so the story id is $3 (p[2]); full update has 23 params with the id
+      // last as $23 (p[22]) and no longer touches the system-owned
+      // actual_start_at / completed_at.
+      const id = statusOnly ? p[2] : p[22]
       const r = this.rows.find((x) => x.id === id)
       if (!r) return Promise.resolve([])
       if (statusOnly) {
@@ -106,16 +116,20 @@ class FakeDb {
         r.acceptance_criteria = p[12] ?? null
         r.postconditions = p[13] ?? null
         // architect_brief_updated_at = case when architect_brief is distinct
-        // from $14 then now() else architect_brief_updated_at end — compares
-        // the incoming brief (p[14] === p[10]) to the PRIOR stored value.
-        if ((p[14] ?? null) !== priorBrief) {
+        // from $18 then now() else architect_brief_updated_at end — the CASE
+        // re-binds the brief as p[17] (after test_mode p[14], assay p[15],
+        // packet p[16]); compare it to the PRIOR stored value.
+        if ((p[17] ?? null) !== priorBrief) {
           r.architect_brief_updated_at = this.stamp()
         }
-        r.completion = p[15]
-        r.rollup = p[16]
-        r.planned_start_at = p[17] ?? null
-        // operating_surface is $18 (p[18]); where id is $20 (p[19]).
-        r.operating_surface = p[18] ?? null
+        r.test_mode = p[14] ?? r.test_mode ?? null
+        r.assay_commands = p[15] ?? r.assay_commands ?? null
+        r.packet_sha = p[16] ?? r.packet_sha ?? null
+        r.completion = p[18]
+        r.rollup = p[19]
+        r.planned_start_at = p[20] ?? null
+        // operating_surface is $22 (p[21]); where id is $23 (p[22]).
+        r.operating_surface = p[21] ?? null
       }
       r.updated_at = '2026-08-21T01:00:00Z'
       return Promise.resolve([r])

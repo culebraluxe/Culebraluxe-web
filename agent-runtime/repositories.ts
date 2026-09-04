@@ -84,6 +84,7 @@ export function normalizeAgentFinishForRole(
     commitHash: string | null
     testsSummary: string | null
     assayEvidence?: AssayEvidence | null
+    modelUsed?: string | null
   },
   context?: AssayFinishContext | null,
 ): {
@@ -93,6 +94,7 @@ export function normalizeAgentFinishForRole(
   commitHash: string | null
   testsSummary: string | null
   assayEvidence?: AssayEvidence | null
+  modelUsed?: string | null
 } {
   if (!isAssayTerminalRole(role)) return input
 
@@ -294,6 +296,7 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       commitHash: string | null
       testsSummary: string | null
       assayEvidence?: AssayEvidence | null
+      modelUsed?: string | null
     },
   ): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }> {
     const q = await this.executor()
@@ -305,13 +308,17 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     }
 
     const normalized = normalizeAgentFinishForRole(item?.role ?? null, input, context)
-    const machineEvidence = runMachineEvidenceFromFinish({
-      role: item?.role ?? null,
-      resultStatus: normalized.resultStatus,
-      notes: normalized.notes,
-      testsSummary: normalized.testsSummary,
-      assayEvidence: normalized.assayEvidence ?? input.assayEvidence ?? null,
-    })
+    const machineEvidence = {
+      ...runMachineEvidenceFromFinish({
+        role: item?.role ?? null,
+        resultStatus: normalized.resultStatus,
+        notes: normalized.notes,
+        testsSummary: normalized.testsSummary,
+        assayEvidence: normalized.assayEvidence ?? input.assayEvidence ?? null,
+      }),
+      // Spend vision: harness-observed model identity, never model self-report.
+      modelUsed: normalized.modelUsed ?? input.modelUsed ?? null,
+    }
 
     const finished = await finishAgentWork(
       workItemId,

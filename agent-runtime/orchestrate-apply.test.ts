@@ -44,6 +44,13 @@ function readyBuilderRegistry(): AgentRuntimeRegistry {
     adapterId: 'gate-test',
     capabilities: WRITE_CAPABILITIES,
   })
+  // V6 Lead PRE gate: hydration/follow now stamps Lead before Smith, so the
+  // deterministic gate registry must also resolve the Lead profile.
+  registry.registerProfile({
+    profile: 'lead-pro',
+    adapterId: 'gate-test',
+    capabilities: WRITE_CAPABILITIES,
+  })
   return registry
 }
 
@@ -67,6 +74,11 @@ function unreadyBuilderRegistry(): AgentRuntimeRegistry {
   })
   registry.registerProfile({
     profile: 'builder-flash',
+    adapterId: 'gate-test',
+    capabilities: WRITE_CAPABILITIES,
+  })
+  registry.registerProfile({
+    profile: 'lead-pro',
     adapterId: 'gate-test',
     capabilities: WRITE_CAPABILITIES,
   })
@@ -194,7 +206,7 @@ test('Scout done with no brief stops: no second Scout and no Smith', async () =>
   assert.deepEqual(enqueued, [])
 })
 
-test('Scout done with a complete contract follows to Smith', async () => {
+test('Scout done with a complete contract follows to Lead PRE (V6 gate, not direct Smith)', async () => {
   const enqueued: Array<{ role: string; modelProfile: string }> = []
   const followed = await followFinishedLane({
     storyId: 'ENG-FORGE-V3-03-WITH-BRIEF',
@@ -208,31 +220,34 @@ test('Scout done with a complete contract follows to Smith', async () => {
     registry: readyBuilderRegistry(),
   })
 
-  assert.equal(followed, 'smith')
+  assert.equal(followed, 'lead')
   assert.equal(enqueued.length, 1)
-  assert.equal(enqueued[0]?.role, 'builder')
-  assert.equal(enqueued[0]?.modelProfile, 'builder-flash')
+  assert.equal(enqueued[0]?.role, 'lead')
+  assert.equal(enqueued[0]?.modelProfile, 'lead-pro')
 })
 
-test('Scout done with brief but incomplete contract never follows to Smith', async () => {
-  const enqueued: unknown[] = []
+test('Scout done with brief but incomplete contract follows to Lead PRE for vetting (never direct Smith)', async () => {
+  const enqueued: Array<{ role: string; modelProfile: string }> = []
   const followed = await followFinishedLane({
     storyId: 'ENG-FORGE-V4-08-INCOMPLETE',
     finishedRole: 'scout',
     resultStatus: 'Complete',
     getStory: async () => ({ architectBrief: 'Build only the approved slice.' }),
     enqueue: async (input) => {
-      enqueued.push(input)
+      enqueued.push({ role: input.role, modelProfile: input.modelProfile })
     },
     repoRoot: '/definitely/missing',
     registry: readyBuilderRegistry(),
   })
 
-  assert.equal(followed, null)
-  assert.deepEqual(enqueued, [])
+  // V6: Lead PRE vets the incomplete contract (SOLO/SMITH/HOLD); Smith is
+  // never enqueued directly from Scout.
+  assert.equal(followed, 'lead')
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'lead')
 })
 
-test('Ready with a complete contract hydrates Smith only when the runtime is ready', async () => {
+test('Ready with a complete contract hydrates Lead PRE only when the runtime is ready', async () => {
   const enqueued: Array<{
     role: string
     modelProfile: string
@@ -261,15 +276,15 @@ test('Ready with a complete contract hydrates Smith only when the runtime is rea
     registry: readyBuilderRegistry(),
   })
 
-  assert.deepEqual(stamped, ['ENG-FORGE-V4-08-COMPLETE:smith'])
+  assert.deepEqual(stamped, ['ENG-FORGE-V4-08-COMPLETE:lead'])
   assert.equal(enqueued.length, 1)
-  assert.equal(enqueued[0]?.role, 'builder')
-  assert.equal(enqueued[0]?.modelProfile, 'builder-flash')
+  assert.equal(enqueued[0]?.role, 'lead')
+  assert.equal(enqueued[0]?.modelProfile, 'lead-pro')
   assert.equal(enqueued[0]?.executionEnvironment, 'DEV')
 })
 
-test('hydration refuses to stamp Smith when acceptance criteria are missing', async () => {
-  const enqueued: unknown[] = []
+test('hydration stamps Lead PRE (not Smith) when acceptance criteria are missing — Lead vets the gap', async () => {
+  const enqueued: Array<{ role: string; modelProfile: string }> = []
   const stamped = await hydrateBareReadyItems({
     listItems: async () => [{
       id: 'work-incomplete-1',
@@ -286,18 +301,22 @@ test('hydration refuses to stamp Smith when acceptance criteria are missing', as
       assayCommands: completeStory.assayCommands,
     }),
     enqueue: async (input) => {
-      enqueued.push(input)
+      enqueued.push({ role: input.role, modelProfile: input.modelProfile })
     },
     repoRoot: '/definitely/missing',
     registry: readyBuilderRegistry(),
   })
 
-  assert.deepEqual(stamped, [], 'no lane stamp is produced for a rejected Smith contract')
-  assert.deepEqual(enqueued, [], 'no builder work item is enqueued')
+  // V6: incomplete Smith contract still hydrates Lead PRE for judgment;
+  // Smith is never stamped directly, so the Smith execution-contract gate
+  // fires later (Lead SMITH decision), not at hydration.
+  assert.deepEqual(stamped, ['ENG-FORGE-V4-08-NO-ACCEPTANCE:lead'])
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'lead')
 })
 
-test('hydration refuses to stamp Smith when Assay commands are missing', async () => {
-  const enqueued: unknown[] = []
+test('hydration stamps Lead PRE (not Smith) when Assay commands are missing — Lead vets the gap', async () => {
+  const enqueued: Array<{ role: string; modelProfile: string }> = []
   const stamped = await hydrateBareReadyItems({
     listItems: async () => [{
       id: 'work-no-assay-1',
@@ -314,18 +333,19 @@ test('hydration refuses to stamp Smith when Assay commands are missing', async (
       acceptanceCriteria: completeStory.acceptanceCriteria,
     }),
     enqueue: async (input) => {
-      enqueued.push(input)
+      enqueued.push({ role: input.role, modelProfile: input.modelProfile })
     },
     repoRoot: '/definitely/missing',
     registry: readyBuilderRegistry(),
   })
 
-  assert.deepEqual(stamped, [], 'no lane stamp is produced for a rejected Smith contract')
-  assert.deepEqual(enqueued, [], 'no builder work item is enqueued')
+  assert.deepEqual(stamped, ['ENG-FORGE-V4-08-NO-ASSAY:lead'])
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'lead')
 })
 
-test('hydration refuses to stamp Smith when the adapter runtime is not ready', async () => {
-  const enqueued: unknown[] = []
+test('hydration still stamps Lead PRE when the Smith adapter is not ready — Smith readiness gates later launch, not Lead hydration', async () => {
+  const enqueued: Array<{ role: string; modelProfile: string }> = []
   const stamped = await hydrateBareReadyItems({
     listItems: async () => [{
       id: 'work-unready-1',
@@ -339,12 +359,16 @@ test('hydration refuses to stamp Smith when the adapter runtime is not ready', a
     }],
     getStory: async () => completeStory,
     enqueue: async (input) => {
-      enqueued.push(input)
+      enqueued.push({ role: input.role, modelProfile: input.modelProfile })
     },
     repoRoot: '/definitely/missing',
     registry: unreadyBuilderRegistry(),
   })
 
-  assert.deepEqual(stamped, [], 'no lane stamp for an unready adapter')
-  assert.deepEqual(enqueued, [], 'no builder work item is enqueued')
+  // V6: hydration stamps Lead PRE (judgment gate) even when the Smith adapter
+  // is unready. The Smith execution-contract readiness gate fires later when
+  // Lead decides SMITH, not at hydration. No builder work is enqueued here.
+  assert.deepEqual(stamped, ['ENG-FORGE-V4-08-UNREADY-ADAPTER:lead'])
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'lead')
 })

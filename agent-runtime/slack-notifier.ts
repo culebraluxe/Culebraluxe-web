@@ -75,6 +75,13 @@ export type ForgeSlackContext = {
   resultStatus?: string | null
   /** Run completion 0-100 when known. */
   completion?: number | null
+  /** ENG-FORGE-V6-VIS — packet-stale flag: Neon packet_sha != Git packet sha. */
+  packetShaStale?: boolean | null
+  /** ENG-FORGE-V6-VIS — structured Lead judgment (never inferred from prose). */
+  leadDecision?: string | null
+  leadReason?: string | null
+  /** ENG-FORGE-V6-VIS — dry-run publish preview: publishable|conflict|no-candidate. */
+  publishPreview?: string | null
   /** Lane the story now follows to (lane-follow): smith | assay | scout. */
   toLane?: string | null
   /** Concise one-line failure context (terminal only). Bounded + redacted. */
@@ -209,11 +216,32 @@ export function buildSlackMessage(
       : null
 
   const lines: string[] = []
+  // ENG-FORGE-V6-VIS — same frozen-contract facts on every lens. Bounded,
+  // redacted, fail-open: never a new event type, never model output.
+  const contractLines: string[] = []
+  if (context.packetShaStale === true) {
+    contractLines.push('packet stale (Neon sha != Git sha)')
+  }
+  const leadDecision = singleLine(context.leadDecision, 24)
+  if (leadDecision) {
+    const leadReason = safeDetail(context.leadReason)
+    contractLines.push(
+      leadReason ? `lead ${leadDecision}: ${leadReason}` : `lead ${leadDecision}`,
+    )
+  }
+  const publishPreview = singleLine(context.publishPreview, 24)
+  if (publishPreview) {
+    contractLines.push(`publish preview: ${publishPreview}`)
+  }
+  const pushContract = () => {
+    for (const line of contractLines) lines.push(line)
+  }
   switch (context.event) {
     case 'lane-started':
       lines.push(`▶️ Forge · ${player} started`)
       lines.push(titleLine, idsLine)
       lines.push(attribution)
+      pushContract()
       break
     case 'lane-completed':
       lines.push(`✅ Forge · ${player} completed`)
@@ -222,12 +250,14 @@ export function buildSlackMessage(
       if (result) lines.push(`result ${result}${completion ? ` · ${completion}` : ''}`)
       pushLine(lines, 'commit', context.commitHash, 48)
       pushLine(lines, 'external run', context.externalRunId, 160)
+      pushContract()
       break
     case 'lane-follow': {
       const toLane = forgePlayerLabel(context.toLane) ?? 'the next lane'
       lines.push(`🔀 Forge · follows to ${toLane}`)
       lines.push(titleLine, idsLine)
       lines.push(`${attribution} → ${toLane}`)
+      pushContract()
       break
     }
     case 'lane-terminal': {
@@ -239,6 +269,7 @@ export function buildSlackMessage(
       }
       const detail = safeDetail(context.detail)
       if (detail) lines.push(detail)
+      pushContract()
       break
     }
   }

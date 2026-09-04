@@ -35,7 +35,7 @@
 // ---------------------------------------------------------------------------
 
 import { invokeNextAgentCommand, buildAgentInvokerWorkspaces } from '../agent-runtime/invoker'
-import { createAgentRuntimeRegistry } from '../agent-runtime/factory'
+import { createAgentRuntimeRegistry, parseBuilderFlashOverride } from '../agent-runtime/factory'
 import type { DeepSeekHarnessConfig } from '../agent-runtime/deepseek/deepseek-harness-adapter'
 import {
   SqlAgentWorkRepository,
@@ -98,14 +98,16 @@ async function main(): Promise<void> {
   // adapter opencode-harness. This driver is the EXPLICIT DeepSeek-harness
   // dogfood path, so it pins the Smith profile back to the forge-native
   // DeepSeek harness unless the operator already selected a provider override.
-  if (
-    !process.env.FORGE_PROVIDER_BUILDER_FLASH &&
-    !process.env.FORGE_EXECUTION_PROVIDER
-  ) {
-    process.env.FORGE_PROVIDER_BUILDER_FLASH = 'deepseek'
-  }
+  // Factory finding #1: parse the override once at the call boundary and pass
+  // it explicitly; the factory no longer reads process.env mid-loop.
+  const builderFlashOverride =
+    parseBuilderFlashOverride(process.env.FORGE_PROVIDER_BUILDER_FLASH ?? null) ??
+    (process.env.FORGE_EXECUTION_PROVIDER?.trim() ? undefined : 'deepseek' as const)
 
-  const registry = createAgentRuntimeRegistry(deepseekConfig())
+  const registry = createAgentRuntimeRegistry({
+    deepseek: deepseekConfig(),
+    ...(builderFlashOverride ? { builderFlashOverride } : {}),
+  })
 
   // ENG-21 — isolated worker workspace execution (same default-on rule as the
   // scheduled worker). The interactive architecture agent executes in its OWN

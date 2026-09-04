@@ -350,27 +350,48 @@ const packetStory = {
   assayCommands: '- pnpm exec tsx --test agent-runtime/candidate-assay-handoff.test.ts',
 }
 
-test('builder finish WITH a candidate hands off to Assay (verifier) carrying the candidate', async () => {
-  const enqueued: Array<{
+test('builder finish WITH a candidate hands off to Lead POST, which hands off to Assay carrying the candidate', async () => {
+  const enqueuedLead: Array<{
     role: string
     specialInstructions: string | null
   }> = []
-  const followed = await followFinishedLane({
+  const followedLead = await followFinishedLane({
     storyId: 'ENG-FORGE-V4-10C-WITH-CANDIDATE',
     finishedRole: 'builder',
     resultStatus: 'Complete',
     candidateSha: CANDIDATE,
     getStory: async () => packetStory,
     enqueue: async (input) => {
-      enqueued.push({ role: input.role, specialInstructions: input.specialInstructions })
+      enqueuedLead.push({ role: input.role, specialInstructions: input.specialInstructions })
     },
     repoRoot: '/definitely/missing',
   })
-  assert.equal(followed, 'assay')
-  assert.equal(enqueued.length, 1)
-  assert.equal(enqueued[0]?.role, 'verifier')
-  assert.ok(enqueued[0]?.specialInstructions?.includes(CANDIDATE))
-  assert.ok(enqueued[0]?.specialInstructions?.includes('never main'))
+  assert.equal(followedLead, 'lead')
+  assert.equal(enqueuedLead.length, 1)
+  assert.equal(enqueuedLead[0]?.role, 'lead')
+  assert.ok(enqueuedLead[0]?.specialInstructions?.includes('run-phase: post'))
+
+  const enqueuedAssay: Array<{
+    role: string
+    specialInstructions: string | null
+  }> = []
+  const followedAssay = await followFinishedLane({
+    storyId: 'ENG-FORGE-V4-10C-WITH-CANDIDATE',
+    finishedRole: 'lead',
+    resultStatus: 'Complete',
+    candidateSha: CANDIDATE,
+    leadPhase: 'post',
+    leadDecision: 'ASSAY',
+    getStory: async () => packetStory,
+    enqueue: async (input) => {
+      enqueuedAssay.push({ role: input.role, specialInstructions: input.specialInstructions })
+    },
+    repoRoot: '/definitely/missing',
+  })
+  assert.equal(followedAssay, 'assay')
+  assert.equal(enqueuedAssay.length, 1)
+  assert.equal(enqueuedAssay[0]?.role, 'verifier')
+  assert.ok(enqueuedAssay[0]?.specialInstructions?.includes(CANDIDATE))
 })
 
 test('builder finish WITHOUT a candidate never launches Assay', async () => {

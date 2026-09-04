@@ -59,6 +59,15 @@ export type DeepSeekHarnessConfig = {
   cliBin: string
   /** Repository workspace the harness operates in. */
   workspace: string
+  /**
+   * Exact `provider/model` the run must execute under (e.g.
+   * `deepseek/deepseek-chat`). Enforced per-run via a `--patch` overlay on
+   * the `agent-default-model` plugin config — the dsh CLI exposes no --model
+   * flag, so the overlay is the only explicit-selection seam. Omitted means
+   * "no enforcement" (legacy behavior); the factory always passes it from
+   * the team-mapped player.
+   */
+  model?: string | null
   /** Optional env overrides (API key is read from process env by the harness). */
   env?: Record<string, string | undefined>
   /** Injectable start function (tests substitute a fake handle). */
@@ -66,8 +75,49 @@ export type DeepSeekHarnessConfig = {
     cliBin: string
     cwd: string
     task: string
+    /** Absolute path to a `--patch` overlay pinning the model, or null. */
+    modelPatchFile?: string | null
     env?: Record<string, string | undefined>
   }) => DshHandle
+}
+
+/**
+ * Render the `--patch` overlay that pins the dsh `agent-default-model`
+ * plugin to an exact `provider/model`. The dsh CLI accepts per-run config
+ * overrides only through `--patch` files, so this is the explicit-selection
+ * seam (verified against `dsh --profile headless --dump-config`).
+ */
+export function buildDeepSeekModelPatch(model: string): string {
+  const [provider, name] = model.split('/')
+  if (!provider?.trim() || !name?.trim()) {
+    throw new Error(
+      `DeepSeek harness model '${model}' must be an exact 'provider/model' id — refusing to run with an unpinned model.`,
+    )
+  }
+  return [
+    '- id: agent-default-model',
+    '  config:',
+    `    provider: ${provider.trim()}`,
+    `    model: ${name.trim()}`,
+    '',
+  ].join('\n')
+}
+
+/** Fail-closed model resolution mirroring resolveOpenCodeModel. */
+export function resolveDeepSeekModel(model: string | null | undefined): string | null {
+  if (model === null || model === undefined) return null
+  const value = model.trim()
+  if (!value) {
+    throw new Error(
+      'DeepSeek harness has no explicit model configuration: expected an exact provider/model id, got empty. Refusing to run with an unpinned model.',
+    )
+  }
+  if (!/^[^/\s]+\/[^/\s]+$/.test(value)) {
+    throw new Error(
+      `DeepSeek harness model '${value}' must be an exact 'provider/model' id — refusing to run with an unpinned model.`,
+    )
+  }
+  return value
 }
 
 /** Build the agent task text from canonical story context (below the boundary). */
@@ -170,6 +220,8 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
   private handle: DshHandle | null = null
   private lastResult: DshRunResult | null = null
+  /** Exact `provider/model` enforced for the current run via --patch overlay. */
+  private modelUsed: string | null = null
   /** Newest DSH session present in the workspace BEFORE this run spawned —
    * used to reject a stale pre-run session during in-run discovery. */
   private sessionBaseline: string | null = null
@@ -215,10 +267,26 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     // (APP_ENV/EXECUTION_ENV/DATABASE_URL forced to the DEV target; the PROD
     // url removed) and FAILS FAST on a DEV->PROD mismatch before spawn.
     const childEnv = buildChildProcessEnv(target)
+    // Spend vision: enforce the team-mapped exact model per run via a --patch
+    // overlay. dsh exposes no --model flag; the overlay is written to the OS
+    // temp dir (outside the worktree, never committed) and passed by absolute
+    // path. Omitted model = no enforcement (legacy); the factory always sets it.
+    const model = resolveDeepSeekModel(this.config.model ?? null)
+    let modelPatchFile: string | null = null
+    if (model) {
+      const { mkdtempSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+      const dir = mkdtempSync(join(tmpdir(), 'forge-dsh-model-'))
+      modelPatchFile = join(dir, 'model-pin.patch.yml')
+      writeFileSync(modelPatchFile, buildDeepSeekModelPatch(model), 'utf8')
+      this.modelUsed = model
+    }
     this.handle = startRun({
       cliBin: this.config.cliBin,
       cwd: workspace,
       task,
+      ...(modelPatchFile ? { modelPatchFile } : {}),
       env: { ...childEnv, ...(this.config.env ?? {}) },
     })
 
@@ -359,6 +427,7 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
     const notes = [
       'DeepSeek Harness run completed.',
+      this.modelUsed ? `Run metadata: harness=forge-native model=${this.modelUsed}` : null,
       context.executionWorkspace
         ? workspaceEvidenceLine(context.executionWorkspace)
         : null,
@@ -399,6 +468,8 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
         ? `dsh exit code ${result.exitCode} | TEST-MODE VIOLATION (SCOPED): ${forbidden}`
         : testsSummary,
       commitHash,
+      // Spend vision: harness-enforced exact model, recorded as evidence.
+      modelUsed: this.modelUsed,
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
       externalRunId: this.externalRunId,

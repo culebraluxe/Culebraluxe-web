@@ -41,6 +41,7 @@ import {
 import {
   getStoryboardStory,
   listStoryRuns,
+  updateStoryboardExecutableContract,
   updateStoryRunProgress,
   type StoryRun,
 } from '../db/storyboard'
@@ -64,6 +65,7 @@ export async function runForgeHydrate(): Promise<string[]> {
     listItems: listAgentWorkItems,
     getStory: getStoryboardStory,
     enqueue: enqueueAgentWorkCommand,
+    persistContract: updateStoryboardExecutableContract,
   })
 }
 

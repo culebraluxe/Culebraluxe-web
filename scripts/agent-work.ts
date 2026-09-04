@@ -37,8 +37,13 @@ async function main(): Promise<void> {
     await runRecoverCommand(args.slice(1))
     return
   }
+  if (command === '--preview-publish') {
+    await runPreviewPublishCommand(args.slice(1))
+    return
+  }
   if (command && command.startsWith('-')) {
     console.error('Unknown option:', command)
+    console.error('usage: pnpm agent:work [--preview-publish <storyId> | --finish | --error | --progress | --cancel | --recover]')
     process.exit(2)
   }
 
@@ -92,6 +97,44 @@ function slackIdentifiers(
     workItemId: item.id,
     role: item.role,
     modelProfile: item.modelProfile,
+  }
+}
+
+/**
+ * ENG-FORGE-V6-VIS — read-only contract facts for Slack mirrors.
+ *
+ * Compares the durable Neon packet_sha against the local Git packet bytes
+ * (sha256 of the exact file, same as admitExecutableContract). Any failure —
+ * missing file, missing column, DB unreachable — resolves to "unknown"
+ * (all nulls), never throws, so Slack enrichment can never gate execution.
+ * Callers spread the result into the buffered context; absent fields render
+ * nothing.
+ */
+async function slackContractFacts(storyId: string): Promise<
+  Pick<ForgeSlackContext, 'packetShaStale'>
+> {
+  try {
+    const { getStoryboardStory } = await import('../db/storyboard')
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const { createHash } = await import('node:crypto')
+    const story = await getStoryboardStory(storyId)
+    const neonSha = story?.packetSha?.trim() || null
+    let gitSha: string | null = null
+    try {
+      const markdown = readFileSync(
+        join(process.cwd(), 'docs', 'agent', 'packets', `${storyId}.md`),
+        'utf8',
+      )
+      gitSha = createHash('sha256').update(markdown, 'utf8').digest('hex')
+    } catch {
+      gitSha = null
+    }
+    if (!neonSha || !gitSha) return {}
+    if (neonSha === gitSha) return {}
+    return { packetShaStale: true }
+  } catch {
+    return {}
   }
 }
 
@@ -278,8 +321,14 @@ async function runClaimCommand(): Promise<void> {
 
   const work = new SqlAgentWorkRepository(() => interactiveSql as any)
   const runs = new SqlAgentRunRepository(() => interactiveSql as any)
-  const registry = createAgentRuntimeRegistry()
+  // Factory finding #1: the builder-flash harness override is parsed at the
+  // call boundary (env) and passed explicitly; Factory finding #7: the worker
+  // worktree is injected as the DeepSeek workspace when known.
+  const { parseBuilderFlashOverride } = await import('../agent-runtime/factory')
   const workspaces = buildAgentInvokerWorkspaces(workerId)
+  const registry = createAgentRuntimeRegistry({
+    builderFlashOverride: parseBuilderFlashOverride(process.env.FORGE_PROVIDER_BUILDER_FLASH ?? null),
+  })
   if (workspaces) {
     console.log(
       'workspace execution: base ref',
@@ -337,10 +386,15 @@ async function runClaimCommand(): Promise<void> {
       !result.evidence.resultStatus ||
       /complete|success|pass/i.test(result.evidence.resultStatus)
 
+    // ENG-FORGE-V6-VIS — read-only enrichment for the buffered mirrors.
+    // Never gates execution: any failure resolves to {} (renders nothing).
+    const contract = await slackContractFacts(result.storyId)
+
     if (assayFailed) {
       mirrorForgeSlack(slack, {
         event: 'lane-terminal',
         ...slackIdentifiers(story, workItem),
+        ...contract,
         runtimeAdapter: result.runtimeAdapter,
         resultStatus: 'Assay Failed',
         detail:
@@ -350,6 +404,7 @@ async function runClaimCommand(): Promise<void> {
       mirrorForgeSlack(slack, {
         event: 'lane-completed',
         ...slackIdentifiers(story, workItem),
+        ...contract,
         runtimeAdapter: result.runtimeAdapter,
         resultStatus: result.evidence.resultStatus ?? null,
         completion: result.evidence.completion,
@@ -361,6 +416,7 @@ async function runClaimCommand(): Promise<void> {
       mirrorForgeSlack(slack, {
         event: 'lane-terminal',
         ...slackIdentifiers(story, workItem),
+        ...contract,
         runtimeAdapter: result.runtimeAdapter,
         resultStatus: result.evidence.resultStatus ?? 'Failed',
         detail:
@@ -378,6 +434,7 @@ async function runClaimCommand(): Promise<void> {
       mirrorForgeSlack(slack, {
         event: 'lane-follow',
         ...slackIdentifiers(story, workItem),
+        ...contract,
         toLane: followed,
       })
     }
@@ -398,6 +455,7 @@ async function runClaimCommand(): Promise<void> {
       mirrorForgeSlack(slack, {
         event: 'lane-terminal',
         ...slackIdentifiers(story, workItem),
+        ...contract,
         runtimeAdapter: result.runtimeAdapter,
         resultStatus: 'Hold',
         detail:
@@ -427,8 +485,10 @@ async function runClaimCommand(): Promise<void> {
       mirrorForgeSlack(slack, {
         event: 'lane-terminal',
         ...slackIdentifiers(story, workItem),
+        ...contract,
         runtimeAdapter: result.runtimeAdapter,
         resultStatus: 'Hold',
+        publishPreview: 'conflict',
         detail: `publish conflict: ${publishOutcome.detail}`,
       })
     }
@@ -450,6 +510,55 @@ async function runClaimCommand(): Promise<void> {
     })
     process.exit(1)
   }
+}
+
+/**
+ * ENG-FORGE-V6-VIS — dry-run publish preview.
+ *
+ * Read-only: resolves the newest run's candidate + verified base, runs the
+ * same gates as publishAcceptedCandidateAfterAssay through a zero-mutation
+ * dry-run (no push, no update-ref), and prints publishable|conflict plus
+ * the factual reason. Never changes story state, never enqueues work.
+ */
+async function runPreviewPublishCommand(args: string[]): Promise<void> {
+  const storyId = args[0]
+  if (!storyId) {
+    console.error('usage: pnpm agent:work --preview-publish <storyId>')
+    process.exit(2)
+  }
+  const { getStoryboardStory, listStoryRuns } = await import('../db/storyboard')
+  const { getForgeRunMachineEvidence } = await import('../db/forge-run')
+  const { previewAcceptedCandidatePublish } = await import(
+    '../agent-runtime/accepted-candidate-publish'
+  )
+  const { smithCandidateSha } = await import(
+    '../agent-runtime/candidate-assay-handoff'
+  )
+
+  const story = await getStoryboardStory(storyId)
+  if (!story) {
+    console.error(`story "${storyId}" was not found.`)
+    process.exit(2)
+  }
+  const runs = await listStoryRuns(storyId)
+  const newest = runs[0] ?? null
+  if (!newest) {
+    console.log(`preview: no-candidate — no runs recorded for story ${storyId}`)
+    return
+  }
+  const candidate = newest.commitHash ?? smithCandidateSha(runs as never)
+  const machineEvidence =
+    (await getForgeRunMachineEvidence(newest.id).catch(() => null)) ?? null
+  const preview = await previewAcceptedCandidatePublish({
+    // Preview evaluates the newest run through the terminal-Assay gates;
+    // the role is fixed to verifier so the gate set matches publication.
+    role: 'verifier',
+    resultStatus: newest.resultStatus,
+    testsSummary: newest.testsSummary,
+    machineEvidence: machineEvidence ?? undefined,
+    candidateCommit: candidate,
+  })
+  console.log(`preview: ${preview.preview} — ${preview.detail}`)
 }
 
 async function runProgressCommand(args: string[]): Promise<void> {

@@ -176,8 +176,14 @@ export async function publishAcceptedCandidate(
   const remoteMain = refHash(remoteLine)
 
   // Idempotent success: the accepted code is already the remote head (e.g. a
-  // retry after a partial/confirmed push).
+  // retry after a partial/confirmed push). Synchronize the integration
+  // tracking ref best-effort so successors branch from accepted state.
   if (remoteMain === candidate) {
+    await runGit(repoRoot, [
+      'update-ref',
+      `refs/remotes/${remoteName}/${remoteBranch}`,
+      candidate,
+    ])
     return {
       outcome: 'published',
       candidateCommit: candidate,
@@ -241,6 +247,15 @@ export async function publishAcceptedCandidate(
       reason: `push reported success but ${remoteName}/${remoteBranch} does not point at candidate ${candidate} (head is ${verifiedHead || 'unreadable'}); treating the publication as unresolved`,
     }
   }
+
+  // ENG-FORGE-V5-03R / Invariant 8: synchronize the remote-tracking ref with
+  // the accepted integration state so successor worktrees branch from the
+  // newly-published head instead of a stale local checkout.
+  await runGit(repoRoot, [
+    'update-ref',
+    `refs/remotes/${remoteName}/${remoteBranch}`,
+    candidate,
+  ])
 
   return {
     outcome: 'published',

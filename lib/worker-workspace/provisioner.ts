@@ -92,16 +92,22 @@ export async function resolveRepoRoot(repoRoot?: string): Promise<string> {
  * Resolve the EXPLICIT approved integration base ref for worker execution.
  *
  * Precedence: the `AGENT_WORKSPACE_BASE_REF` environment override, else the
- * repository's canonical integration branch (`main`). The value is a REF
+ * accepted integration tracking ref (`origin/main`). The value is a REF
  * (branch/tag/commit) — never a silent "whatever HEAD is current" — and the
  * provisioner pins it to a fixed commit at creation time. An unresolvable ref
  * fails closed with an actionable error instead of defaulting.
+ *
+ * Gemini #1 / V5-03R Invariant 8: successor worktrees must branch from the
+ * accepted integration state, not a potentially stale local `main` checkout.
+ * `publishAcceptedCandidate` synchronizes `refs/remotes/origin/main` after a
+ * successful push, so the default base MUST be the tracking ref. Local
+ * `refs/heads/main` is intentionally left untouched by publication.
  */
 export function resolveApprovedBaseRef(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const explicit = (env.AGENT_WORKSPACE_BASE_REF ?? '').trim()
-  return explicit || 'main'
+  return explicit || 'origin/main'
 }
 
 // ---------------------------------------------------------------------------

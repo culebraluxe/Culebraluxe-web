@@ -29,6 +29,35 @@ test('Lead POST decisions are explicit and malformed split fails closed', () => 
     splitCount: null,
     reason: null,
   })
+  assert.deepEqual(
+    parseLeadDecision('**LEAD_DECISION:** ASSAY.\n**LEAD_REASON:** Candidate verified cleanly.'),
+    {
+      decision: 'ASSAY',
+      splitCount: null,
+      reason: 'Candidate verified cleanly',
+    },
+  )
+  assert.deepEqual(
+    parseLeadDecision('`LEAD_DECISION: SOLO`\n`LEAD_REASON: Small fix`'),
+    {
+      decision: 'SOLO',
+      splitCount: null,
+      reason: 'Small fix',
+    },
+  )
+  // Gemini #4: blockquote / bullet / fenced-code wrappers still parse.
+  assert.deepEqual(
+    parseLeadDecision('> **LEAD_DECISION:** HOLD\n> **LEAD_REASON:** Scope is wrong.'),
+    { decision: 'HOLD', splitCount: null, reason: 'Scope is wrong' },
+  )
+  assert.deepEqual(
+    parseLeadDecision('- LEAD_DECISION: SMITH\n- LEAD_REASON: One coherent build'),
+    { decision: 'SMITH', splitCount: null, reason: 'One coherent build' },
+  )
+  assert.deepEqual(
+    parseLeadDecision('```\nLEAD_DECISION: SOLO\nLEAD_REASON: Small fix\n```'),
+    { decision: 'SOLO', splitCount: null, reason: 'Small fix' },
+  )
   assert.equal(parseLeadDecision('LEAD_DECISION: SPLIT:1'), null)
   assert.equal(parseLeadDecision('looks good'), null)
 })

@@ -1,4 +1,4 @@
-import { CORE_CAPABILITIES } from '../capabilities'
+import { WRITE_CAPABILITIES } from '../lanes'
 import type { ForgeProviderDescriptor } from './provider'
 
 /**
@@ -18,7 +18,7 @@ import type { ForgeProviderDescriptor } from './provider'
 export const warpProvider: ForgeProviderDescriptor = {
   id: 'warp',
   description: 'Warp provider (headless wrapper required)',
-  capabilities: CORE_CAPABILITIES,
+  capabilities: WRITE_CAPABILITIES,
   buildCommand: ({ cwd, task }) => {
     const headlessBin = process.env.WARP_HEADLESS_BIN?.trim()
     if (!headlessBin) {

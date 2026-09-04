@@ -1,4 +1,5 @@
 import type { AgentRuntimeRegistry } from './registry'
+import { loadSkillText } from './skills'
 import type { AgentRole, ModelProfile } from './types'
 import {
   DEFAULT_LANES,
@@ -65,21 +66,40 @@ export interface ResolveLaneInput {
 
 const LANE_PREAMBLE: Record<LaneId, string> = {
   scout:
-    'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls. Return a packet: ranked files, signatures, and the 3–7 files the next lane must read.',
+    'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls. ' +
+    'Checklist: 1) locate the story surface (routes/components/tables named in the brief); ' +
+    '2) rank files by relevance with one-line why-each-matters; ' +
+    '3) capture signatures (exports, props, column names) verbatim, never paraphrased; ' +
+    '4) name the 3–7 files the next lane must read and what to look for in each. ' +
+    'Return a packet: ranked files, signatures, and must-reads. Cost: flash volume — be thorough but cheap.',
   architect:
-    'Lane=architect. Own design truth. Produce a complete contract for Lead: scope, constraints, execution-relevant architecture, acceptance checks, and Assay plan. Do not perform implementation.',
+    'Lane=architect. Own design truth. Produce a complete contract for Lead: scope, constraints, execution-relevant architecture, acceptance checks, and Assay plan. ' +
+    'Template: Goal (one line) / Non-goals (explicit) / Touched surfaces (files, tables, routes) / Contract (inputs, outputs, invariants) / Acceptance (verifiable checks, each with its Assay command) / Risks (what could invalidate this plan). ' +
+    'Do not perform implementation. Cost: pro judgment — precision here saves every downstream token.',
   lead:
-    'Lane=lead. Own execution strategy and integration. Validate the frozen Architect contract against repository reality, veto bad scope/architecture, choose the cheapest sound implementation shape, and protect the Assay handoff. Never silently rewrite architectural truth.',
+    'Lane=lead. Own execution strategy and integration. Validate the frozen Architect contract against repository reality, veto bad scope/architecture, choose the cheapest sound implementation shape, and protect the Assay handoff. Never silently rewrite architectural truth. ' +
+    'Workflow: PRE (vet contract → SOLO/SMITH/HOLD with priced reason) → IMPLEMENT (solo builds, exact candidate) → POST (integrate Smith candidate, ASSAY/HOLD). ' +
+    'Cost: pro judgment — your grade call is the spend decision.',
   smith:
-    'Lane=smith. Implement against the frozen Architect contract and Lead assignment. Do not review your own diff. Stop when the assigned work is done or maxSteps is hit.',
+    'Lane=smith. Implement against the frozen Architect contract and Lead assignment. Do not review your own diff. Stop when the assigned work is done or maxSteps is hit. ' +
+    'Workflow: 1) read the 3–7 must-read files; 2) make the smallest change satisfying acceptance; ' +
+    '3) run the frozen Assay commands locally before finishing; 4) leave the worktree clean with one candidate commit. ' +
+    'Never invent scope, never weaken acceptance, never push. Cost: flash by default, pro on upgrade — act like the meter is running.',
   inspector:
-    'Lane=inspector. Second opinion on the inline diff. Different lineage from Smith. Read-only. Disagreement is the point. Do not silently patch.',
+    'Lane=inspector. Second opinion on the inline diff. Different lineage from Smith. Read-only. Disagreement is the point. Do not silently patch. ' +
+    'Rubric: 1) does the diff do ONLY what the contract says (scope discipline)? 2) does it satisfy EVERY acceptance check (no partial credit)? ' +
+    '3) does it introduce coupling, secrets, or migration risk the brief forbids? Report verdict + specific line refs; a clean pass needs no essay. ' +
+    'Cost: pro review — cheaper than shipping a defect.',
   assay:
-    'Lane=assay. Read-only TUNIT/evidence check. Instruction-following only. Inventiveness is a defect. Willing to return nothing.',
+    'Lane=assay. Read-only TUNIT/evidence check. Instruction-following only. Inventiveness is a defect. Willing to return nothing. ' +
+    'Execute exactly the frozen Assay commands against the exact candidate SHA, in order. ' +
+    'Exit codes and numeric counters are the verdict; prose never overrides arithmetic. Cost: free (deterministic, model-free).',
   archive:
-    'Lane=archive. One huge input, few calls. Extract invariants. Do not implement.',
+    'Lane=archive. One huge input, few calls. Extract invariants. Do not implement. ' +
+    'Output: durable facts (what is true), decisions (what was chosen and why), open risks. Compress, do not narrate.',
   night:
-    'Lane=night. Same job as Smith, detached. Write factual progress. Stop cleanly on maxSteps.',
+    'Lane=night. Same job as Smith, detached. Write factual progress. Stop cleanly on maxSteps. ' +
+    'Same smith workflow and cost discipline; the only difference is unattended execution — leave breadcrumbs, never leave mess.',
 }
 
 export function resolveLane(input: ResolveLaneInput): LaneDecision {
@@ -185,9 +205,14 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
   }
 
   const extra = (input.extraInstructions ?? '').trim()
-  const specialInstructions = extra
-    ? `${LANE_PREAMBLE[input.lane]}\n\n${extra}`
-    : LANE_PREAMBLE[input.lane]
+  // Spend vision: lane default skills guarantee domain knowledge even when
+  // the packet omits Skills. Packet-listed skills are appended by
+  // storyPacketInstructions via `extra`; defaults come first so the packet
+  // can specialize without losing the baseline.
+  const defaults = laneDefaultSkillInstructions(input.lane)
+  const specialInstructions = [LANE_PREAMBLE[input.lane], defaults, extra || null]
+    .filter(Boolean)
+    .join('\n\n')
 
   return {
     ok: true,
@@ -203,6 +228,22 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
   }
 }
 
+/**
+ * Spend vision: default skill packs per lane. Packet `Skills` still wins when
+ * present; these defaults guarantee every role starts with its domain
+ * knowledge even when the packet omits the section.
+ */
+export const LANE_DEFAULT_SKILLS: Record<LaneId, string[]> = {
+  scout: ['neon'],
+  architect: ['planner', 'neon'],
+  lead: ['planner'],
+  smith: ['workflow', 'ui'],
+  inspector: ['workflow'],
+  assay: [],
+  archive: ['planner'],
+  night: ['workflow', 'ui'],
+}
+
 export const DEFAULT_PIPELINE: LaneId[] = [
   'scout',
   'architect',
@@ -211,3 +252,12 @@ export const DEFAULT_PIPELINE: LaneId[] = [
   'inspector',
   'assay',
 ]
+
+/** Rendered default skill pack for a lane, or null when the lane has none. */
+export function laneDefaultSkillInstructions(lane: LaneId, repoRoot = process.cwd()): string | null {
+  const ids = LANE_DEFAULT_SKILLS[lane] ?? []
+  if (ids.length === 0) return null
+  const body = loadSkillText(ids as never, repoRoot).trim()
+  if (!body) return null
+  return `Lane default skills (${ids.join(', ')}):\n${body}`
+}

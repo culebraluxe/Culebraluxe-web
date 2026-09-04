@@ -56,6 +56,79 @@ export type AcceptedCandidatePublishInput = {
   ) => Promise<PublishAcceptedCandidateOutcome>
 }
 
+/**
+ * ENG-FORGE-V6-VIS — dry-run publish preview.
+ *
+ * Same gates as publishAcceptedCandidateAfterAssay (terminal Assay role, clean
+ * evidence, exact verified==candidate, fast-forward over origin/main) but
+ * performs zero mutations: no push, no update-ref. Returns the preview string
+ * the Portal/Slack/CLI lenses share: publishable|conflict|no-candidate plus
+ * the factual reason.
+ */
+export async function previewAcceptedCandidatePublish(
+  input: Omit<AcceptedCandidatePublishInput, 'publish'>,
+): Promise<{ preview: 'publishable' | 'conflict' | 'no-candidate'; detail: string }> {
+  const dryRun = async (
+    publishInput: PublishAcceptedCandidateInput,
+  ): Promise<PublishAcceptedCandidateOutcome> => {
+    const { execFile: execFileCb } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const execFileAsync = promisify(execFileCb)
+    const repoRoot = publishInput.repoRoot
+    const candidate = (publishInput.candidateCommit ?? '').trim()
+    const runGit = async (args: string[]) => {
+      try {
+        const { stdout } = await execFileAsync('git', args, { cwd: repoRoot, encoding: 'utf8' })
+        return stdout.trim()
+      } catch {
+        return null
+      }
+    }
+    if (!candidate) {
+      return { outcome: 'no-candidate', reason: 'no candidate commit recorded' }
+    }
+    const remoteLine = await runGit(['ls-remote', 'origin', 'refs/heads/main'])
+    const remoteMain = remoteLine?.split(/\s+/)[0] ?? ''
+    if (!remoteMain) {
+      return {
+        outcome: 'publish-conflict',
+        candidateCommit: candidate,
+        remoteMainHash: null,
+        reason: 'origin/main is unreadable (offline or no remote)',
+      }
+    }
+    if (remoteMain === candidate) {
+      return { outcome: 'published', candidateCommit: candidate, publishedMainHash: candidate }
+    }
+    try {
+      await execFileAsync('git', ['merge-base', '--is-ancestor', remoteMain, candidate], {
+        cwd: repoRoot,
+      })
+    } catch {
+      return {
+        outcome: 'publish-conflict',
+        candidateCommit: candidate,
+        remoteMainHash: remoteMain,
+        reason: `origin/main (${remoteMain.slice(0, 12)}) is not an ancestor of candidate ${candidate.slice(0, 12)} — push would NOT fast-forward`,
+      }
+    }
+    return { outcome: 'published', candidateCommit: candidate, publishedMainHash: remoteMain }
+  }
+
+  const report = await publishAcceptedCandidateAfterAssay({ ...input, publish: dryRun })
+  switch (report.action) {
+    case 'published':
+      return {
+        preview: 'publishable',
+        detail: `candidate ${report.candidateCommit.slice(0, 12)} fast-forwards origin/main (dry-run, no push)`,
+      }
+    case 'no-candidate':
+      return { preview: 'no-candidate', detail: report.reason }
+    default:
+      return { preview: 'conflict', detail: report.reason }
+  }
+}
+
 export async function publishAcceptedCandidateAfterAssay(
   input: AcceptedCandidatePublishInput,
 ): Promise<AcceptedCandidatePublishReport> {

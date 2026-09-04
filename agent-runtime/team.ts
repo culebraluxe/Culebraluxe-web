@@ -153,8 +153,9 @@ export const FORGE_PLAYERS: Record<string, ForgePlayer> = {
     id: 'deepseek-pro',
     name: 'DeepSeek Pro',
     provider: 'deepseek',
-    model: 'pro',
-    capabilities: [...READ_CAPABILITIES, ...WRITE_CAPABILITIES, ...ASSAY_CAPABILITIES],
+    // Factory finding #9: exact DeepSeek model id (was vague 'pro').
+    model: 'deepseek-chat',
+    capabilities: [...new Set([...READ_CAPABILITIES, ...WRITE_CAPABILITIES, ...ASSAY_CAPABILITIES])],
     ready: true,
   },
   'forge-deterministic-assay': {
@@ -228,7 +229,11 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
       playerId: 'deepseek-pro',
       harnessId: 'forge-native',
       fieldId: 'local',
-      lineage: 'deepseek-judgment',
+      // Factory finding #10: dedicated review lineage, distinct from every
+      // Smith grade lineage (deepseek-volume / deepseek-judgment), so an
+      // upgraded Smith build never silently loses independent-review
+      // separation and same-lineage-review only fires on real collisions.
+      lineage: 'deepseek-review',
     },
     assay: {
       position: 'assay',

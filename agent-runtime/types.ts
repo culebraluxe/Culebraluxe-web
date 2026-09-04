@@ -145,6 +145,8 @@ export interface AgentRunEvidence {
   commitHash: string | null
   /** Deterministic Assay's rich in-process evidence before generic Run projection. */
   assayEvidence?: AssayEvidence | null
+  /** Spend vision: harness-enforced exact provider/model. Null = unmeasured. */
+  modelUsed?: string | null
   runtimeAdapter: string | null
   modelProfile: ModelProfile | null
   externalRunId: string | null
