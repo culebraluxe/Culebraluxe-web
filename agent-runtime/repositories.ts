@@ -13,7 +13,6 @@ import {
   claimNextAgentWork,
   claimSpecificAgentWork,
   enqueueAgentWorkCommand,
-  failAgentWork,
   finishAgentWork,
   getAgentWorkItem,
   setAgentWorkRuntime,
@@ -21,6 +20,7 @@ import {
   type AgentWorkClaim,
   type AgentWorkItem,
 } from '../db/agent-work'
+import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
 import {
   getStoryboardStory,
   listStoryRuns,
@@ -246,7 +246,12 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
 
   async fail(workItemId: string, errorText: string) {
     const q = await this.executor()
-    return failAgentWork(workItemId, errorText, {}, q)
+    // A vendor child/runtime failure is an interruption of the current process,
+    // not acceptance evidence that the story failed. Re-queue the SAME work
+    // item when budget remains and preserve its deterministic worker workspace.
+    // Launch/configuration failures do not use this seam and remain fail-closed.
+    const recovered = await recoverAgentWorkInterruption(workItemId, errorText, q)
+    return recovered.workItem
   }
 
   async cancel(workItemId: string, note?: string) {
