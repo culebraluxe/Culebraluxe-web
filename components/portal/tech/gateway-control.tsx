@@ -20,6 +20,7 @@ type TeamRoute = {
 const positionLabel: Record<ForgePosition, string> = {
   scout: 'Scout',
   architect: 'Architect',
+  lead: 'Lead',
   smith: 'Smith',
   assay: 'Assay',
 }
@@ -36,7 +37,7 @@ export function GatewayControl({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-[9px] font-light uppercase tracking-[0.22em] text-[var(--portal-feature-eyebrow)]">
-            Forge V4 / Team & Gateway
+            Forge V6 / Team & Gateway
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/80">
             <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5">{teamName}</span>
@@ -44,7 +45,7 @@ export function GatewayControl({
             <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5">Execution Gateway</span>
           </div>
         </div>
-        <div className="grid min-w-[22rem] gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid min-w-[22rem] gap-1.5 sm:grid-cols-2 xl:grid-cols-5">
           {routes.map((route) => (
             <div key={route.position} className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
               <div className="text-[9px] uppercase tracking-[0.14em] text-white/40">
