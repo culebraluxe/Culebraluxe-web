@@ -16,6 +16,7 @@
 import type { StoryboardStory } from '../db/storyboard'
 import type { AgentCapability } from './capabilities'
 import type { AssayEvidence } from './assay-evidence'
+import type { StoryPacketFields } from './story-session'
 
 /** Logical agent roles (extensible — not a closed enum). */
 export type AgentRole = 'architect' | 'builder' | 'reviewer' | 'verifier' | (string & {})
@@ -75,8 +76,12 @@ export interface AgentWorkCommand {
 /** Execution context handed to a runtime adapter for ONE attempt. */
 export interface AgentExecutionContext {
   command: AgentWorkCommand
-  /** Canonical Story Board specification resolved at execution time. */
-  story: StoryboardStory
+  /**
+   * Run-bound execution view. Stable Story identity metadata may originate on
+   * the parent, but architecture/acceptance/test-plan fields are frozen on
+   * storyboard_story_run before any agent starts.
+   */
+  story: StoryboardStory & StoryPacketFields
   /** Resolved runtime policy for this execution. */
   policy: AgentExecutionPolicy
   /** Capabilities the selected runtime advertises/requires. */
