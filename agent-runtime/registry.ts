@@ -1,12 +1,3 @@
-// ---------------------------------------------------------------------------
-// AgentRuntimeRegistry — resolves LOGICAL model profiles to runtime adapters.
-//
-// The SDLC workflow only knows logical profiles (architect-pro, builder-flash,
-// reviewer, local-builder). The registry owns the profile -> adapter mapping.
-// Provider/model identifiers are confined to the concrete adapter layer and
-// its configuration, never the command/Story Board/workflow code.
-// ---------------------------------------------------------------------------
-
 import { AgentRuntimeAdapter } from './agent-runtime-adapter'
 import type { AgentCapability } from './capabilities'
 import type { AgentRuntimeAdapterDeps } from './agent-runtime-adapter'
@@ -16,16 +7,13 @@ import { readyAdapterReadiness } from './readiness'
 export interface AdapterDescriptor {
   adapterId: string
   description: string
-  /** Capabilities this adapter can satisfy. */
   capabilities: AgentCapability[]
-  /** Runtime readiness is evaluated on the host that will execute the work. */
   readiness?: () => AdapterReadiness
   factory: (deps: AgentRuntimeAdapterDeps) => AgentRuntimeAdapter
 }
 
 export interface ModelProfileConfig {
   profile: string
-  /** Logical adapter id this profile resolves to. */
   adapterId: string
   capabilities: AgentCapability[]
 }
@@ -52,15 +40,12 @@ export class AgentRuntimeRegistry {
 
   resolveProfile(profile: string): ModelProfileConfig {
     const config = this.profiles.get(profile)
-    if (!config) {
-      throw new Error(`unknown model profile: '${profile}'`)
-    }
+    if (!config) throw new Error(`unknown model profile: '${profile}'`)
     return config
   }
 
   inspectProfileReadiness(profile: string): AdapterReadiness {
-    const config = this.resolveProfile(profile)
-    return this.inspectAdapterReadiness(config.adapterId)
+    return this.inspectAdapterReadiness(this.resolveProfile(profile).adapterId)
   }
 
   inspectAdapterReadiness(adapterId: string): AdapterReadiness {
@@ -86,15 +71,21 @@ export class AgentRuntimeRegistry {
 
   resolveAdapter(profile: string, deps: AgentRuntimeAdapterDeps): AgentRuntimeAdapter {
     const config = this.resolveProfile(profile)
-    const descriptor = this.adapters.get(config.adapterId)
-    if (!descriptor) {
-      throw new Error(`unknown adapter: '${config.adapterId}'`)
-    }
-    // Profile resolution is the work-assignment boundary. A profile can be
-    // registered/configured yet still refuse execution until its adapter is
-    // installed and authenticated on this host.
-    this.assertAdapterReady(config.adapterId)
+    return this.resolveAdapterById(config.adapterId, deps)
+  }
+
+  /** V6.1 execution path: frozen work-item harness identity outranks mutable team/profile maps. */
+  resolveAdapterById(adapterId: string, deps: AgentRuntimeAdapterDeps): AgentRuntimeAdapter {
+    const descriptor = this.adapters.get(adapterId)
+    if (!descriptor) throw new Error(`unknown adapter: '${adapterId}'`)
+    this.assertAdapterReady(adapterId)
     return descriptor.factory(deps)
+  }
+
+  adapterCapabilities(adapterId: string): AgentCapability[] {
+    const descriptor = this.adapters.get(adapterId)
+    if (!descriptor) throw new Error(`unknown adapter: '${adapterId}'`)
+    return descriptor.capabilities
   }
 
   /** Low-level diagnostic/test access; intentionally does not imply readiness. */
