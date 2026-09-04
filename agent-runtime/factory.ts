@@ -73,7 +73,7 @@ class PolicyDeepSeekHarnessAdapter extends DeepSeekHarnessAdapter {
         committedEvidence = {
           ...evidence,
           commitHash: committed.commitHash,
-          notes: `${evidence.notes}\n\nForge harness created candidate commit ${committed.commitHash} from Smith's worker changes.`,
+          notes: `${evidence.notes}\n\nForge harness created candidate commit ${committed.commitHash} from worker changes.`,
         }
       }
     }
@@ -146,6 +146,7 @@ function adapterIdForProvider(provider: ForgeExecutionProvider): string {
 const POSITION_CAPABILITIES: Record<ForgePosition, typeof READ_CAPABILITIES> = {
   scout: READ_CAPABILITIES,
   architect: READ_CAPABILITIES,
+  lead: WRITE_CAPABILITIES,
   smith: WRITE_CAPABILITIES,
   assay: ASSAY_CAPABILITIES,
 }
@@ -179,8 +180,6 @@ export function createAgentRuntimeRegistry(
       }),
   })
 
-  // Forge V6 — Assay is a local deterministic executor, not an AI agent.
-  // Provider/model overrides cannot reroute verifier-mini away from this gate.
   registry.registerAdapter({
     adapterId: 'forge-assay',
     description: 'Forge deterministic exact-candidate Assay executor (model-free)',
@@ -219,6 +218,7 @@ export function createAgentRuntimeRegistry(
     },
     factory: (deps) => new CliAgentGatewayAdapter(deps, warpProvider),
   })
+
   registry.registerAdapter({
     adapterId: 'gateway-openclaw',
     description: openClawProvider.description,
@@ -246,8 +246,6 @@ export function createAgentRuntimeRegistry(
     factory: (deps) => new CliAgentGatewayAdapter(deps, openClawProvider),
   })
 
-  // Smith remains on the V5 OpenCode path by default. V6 changes Assay only;
-  // it does not disturb successful builder provider routing.
   registry.registerAdapter({
     adapterId: 'opencode-harness',
     description: 'OpenCode CLI inner harness adapter (opencode run)',
@@ -283,7 +281,7 @@ export function createAgentRuntimeRegistry(
       }),
   })
 
-  for (const position of ['scout', 'architect', 'smith', 'assay'] as ForgePosition[]) {
+  for (const position of ['scout', 'architect', 'lead', 'smith', 'assay'] as ForgePosition[]) {
     const assignment = DEFAULT_FORGE_TEAM.assignments[position]
     const adapterId =
       position === 'assay'
