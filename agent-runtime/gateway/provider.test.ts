@@ -22,36 +22,22 @@ test('gateway fails closed on unknown providers', () => {
   assert.throws(() => resolveForgeExecutionProvider('mystery'), /unknown FORGE_EXECUTION_PROVIDER/)
 })
 
-// ---------------------------------------------------------------------------
-// ENG-FORGE-V5-03 — default-selection cutover: the Smith `builder-flash`
-// profile resolves to provider `opencode` by default, while every other Forge
-// profile keeps the forge-native `deepseek` default. Explicit per-profile and
-// global overrides still win over these defaults.
-// ---------------------------------------------------------------------------
-
-test('builder-flash defaults to OpenCode; other Forge profiles default to DeepSeek', () => {
-  assert.equal(resolveForgeExecutionProviderForProfile('builder-flash', {}), 'opencode')
-  assert.equal(resolveForgeExecutionProviderForProfile('scout-volume', {}), 'deepseek')
-  assert.equal(resolveForgeExecutionProviderForProfile('architect-pro', {}), 'deepseek')
+test('profile helper has no hidden role-specific default routing', () => {
+  assert.equal(resolveForgeExecutionProviderForProfile('builder-flash', {}), 'deepseek')
+  assert.equal(resolveForgeExecutionProviderForProfile('lead-pro', {}), 'deepseek')
   assert.equal(resolveForgeExecutionProviderForProfile('verifier-mini', {}), 'deepseek')
 })
 
-test('explicit profile override returns builder-flash to the forge-native DeepSeek provider', () => {
+test('explicit profile override remains available for gateway experiments', () => {
   assert.equal(
     resolveForgeExecutionProviderForProfile('builder-flash', {
-      FORGE_PROVIDER_BUILDER_FLASH: 'deepseek',
+      FORGE_PROVIDER_BUILDER_FLASH: 'opencode',
     }),
-    'deepseek',
+    'opencode',
   )
 })
 
-test('explicit global override still routes builder-flash away from the OpenCode default', () => {
-  assert.equal(
-    resolveForgeExecutionProviderForProfile('builder-flash', {
-      FORGE_EXECUTION_PROVIDER: 'deepseek',
-    }),
-    'deepseek',
-  )
+test('explicit global override remains available', () => {
   assert.equal(
     resolveForgeExecutionProviderForProfile('builder-flash', {
       FORGE_EXECUTION_PROVIDER: 'openclaw',
@@ -60,33 +46,13 @@ test('explicit global override still routes builder-flash away from the OpenCode
   )
 })
 
-test('profile provider overrides the global provider', () => {
+test('profile gateway override outranks global gateway override', () => {
   assert.equal(
     resolveForgeExecutionProviderForProfile('builder-flash', {
       FORGE_EXECUTION_PROVIDER: 'deepseek',
       FORGE_PROVIDER_BUILDER_FLASH: 'warp',
     }),
     'warp',
-  )
-})
-
-test('different Forge profiles can route to different providers', () => {
-  const env = {
-    FORGE_PROVIDER_SCOUT_VOLUME: 'deepseek',
-    FORGE_PROVIDER_BUILDER_FLASH: 'warp',
-    FORGE_PROVIDER_VERIFIER_MINI: 'openclaw',
-  }
-  assert.equal(resolveForgeExecutionProviderForProfile('scout-volume', env), 'deepseek')
-  assert.equal(resolveForgeExecutionProviderForProfile('builder-flash', env), 'warp')
-  assert.equal(resolveForgeExecutionProviderForProfile('verifier-mini', env), 'openclaw')
-})
-
-test('profile routing falls back to the global provider', () => {
-  assert.equal(
-    resolveForgeExecutionProviderForProfile('scout-volume', {
-      FORGE_EXECUTION_PROVIDER: 'openclaw',
-    }),
-    'openclaw',
   )
 })
 
