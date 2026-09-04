@@ -6,7 +6,7 @@ import {
   readlinkSync,
   symlinkSync,
 } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import {
