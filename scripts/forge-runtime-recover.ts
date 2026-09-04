@@ -8,6 +8,12 @@ function value(args: string[], flag: string): string | undefined {
 }
 
 async function main(): Promise<void> {
+  if ((process.env.APP_ENV ?? 'development') !== 'production') {
+    throw new Error(
+      'forge-runtime-recover must target the PRODUCTION Forge control plane. Run with APP_ENV=production.',
+    )
+  }
+
   const args = process.argv.slice(2)
   const workItemId = value(args, '--work-item')
   const reason = value(args, '--reason') ?? 'operator-forced runtime recovery'
