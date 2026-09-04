@@ -8,6 +8,10 @@ export const openClawProvider: ForgeProviderDescriptor = {
   capabilities: CORE_CAPABILITIES,
   buildCommand: ({ cwd, task, modelRef }) => ({
     bin: process.env.OPENCLAW_BIN ?? 'openclaw',
-    args: ['agent', 'exec', task, '--cwd', cwd, '--model', modelRef, '--json'],
+    // Legacy provider unit fixtures may omit modelRef. Production V6.1 runtime
+    // always supplies it from the frozen work item before this seam.
+    args: modelRef
+      ? ['agent', 'exec', task, '--cwd', cwd, '--model', modelRef, '--json']
+      : ['agent', 'exec', task, '--cwd', cwd, '--json'],
   }),
 }
