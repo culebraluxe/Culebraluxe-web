@@ -141,7 +141,7 @@ function failedCommandResult(command: string, error: unknown): AssayCommandResul
 
 /** V6.1 typed candidate is authoritative; prompt parsing is legacy-only. */
 export function assayCandidateForCommand(command: AgentWorkCommand): string | null {
-  const typed = command.candidateShas[0]?.trim().toLowerCase() ?? ''
+  const typed = command.candidateShas?.[0]?.trim().toLowerCase() ?? ''
   if (/^[0-9a-f]{40}$/.test(typed)) return typed
   return assayCandidateFromInstructions(command.specialInstructions)
 }
