@@ -1,6 +1,8 @@
 -- Forge V6.1 — typed work routing + bounded parallel Smith execution.
--- Story -> Story Run remains unchanged. This extends the existing work queue
--- only; no new persistence table is introduced.
+-- Story -> Story Run remains unchanged. No child/event persistence table.
+
+alter table storyboard_story_run
+  add column if not exists lead_split_assignments text[];
 
 alter table agent_work_item
   add column if not exists lane text,
@@ -20,7 +22,7 @@ alter table agent_work_item
 -- is validated in the repository launch guard before it may become Running.
 
 -- V3-V6 serialized the whole system. V6.1 keeps serial work isolated per story
--- while allowing explicit Lead-created Smith sibling groups.
+-- while allowing only explicit Lead-created Smith sibling groups.
 drop index if exists agent_work_item_one_active_per_story;
 drop index if exists agent_work_item_single_active;
 
