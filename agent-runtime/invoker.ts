@@ -24,9 +24,9 @@ import { storyFieldsFromBoardAndGit } from './orchestrate'
 import { smithFieldFacts } from './team'
 import {
   isAssayTerminalRole,
-  resolveAssayWorkspaceBase,
   smithCandidateSha,
 } from './candidate-assay-handoff'
+import { leadRunPhaseFromInstructions } from './lead-decision'
 import { resolveApprovedBaseRef } from '../lib/worker-workspace'
 import { provisionOrRecoverWorkerWorkspace } from '../lib/worker-workspace/recovering-provisioner'
 import type {
@@ -56,13 +56,6 @@ export interface AgentInvokerDeps {
   registry: AgentRuntimeRegistry
   requiredCapabilities?: AgentCapability[]
   workspaces?: AgentInvokerWorkspaces
-  /**
-   * ENG-FORGE-V4-08: enforce the Smith execution-contract gate at this final
-   * pre-execution boundary (merged packet + resolved runtime assignment) for
-   * builder launches. The durable poller (scripts/agent-work.ts) enables it;
-   * direct dev-driver/dogfood callers that hand-build board-only fixtures keep
-   * the legacy V3 handoff path byte-for-byte.
-   */
   enforceExecutionContract?: boolean
 }
 
@@ -77,9 +70,6 @@ export function buildAgentInvokerWorkspaces(
     workerId,
     baseRef,
     ...(worktreesRoot ? { worktreesRoot } : {}),
-    // Industrial recovery: the durable work-item id is the deterministic runId.
-    // A retry therefore reattaches the exact existing branch/worktree and
-    // preserves dirty or committed Smith work instead of provisioning over it.
     provision: provisionOrRecoverWorkerWorkspace,
   }
 }
@@ -98,6 +88,10 @@ export async function executeClaimedAgentCommand(
 ): Promise<InvokerResult> {
   const workItem = claim.workItem
   const story = claim.story
+  const leadPhase =
+    workItem.role === 'lead'
+      ? leadRunPhaseFromInstructions(workItem.specialInstructions)
+      : null
 
   const launchError = validateAgentWorkLaunchConfig(workItem)
   if (launchError) {
@@ -105,13 +99,6 @@ export async function executeClaimedAgentCommand(
     throw new Error(`launch guard: ${launchError}`)
   }
 
-  // ENG-FORGE-V4-08 — the execution-contract gate at the LATEST safe point
-  // before external Smith execution begins. The merged story packet (Story
-  // Board + git packet) and the resolved runtime assignment must be complete
-  // and internally consistent; a failing verdict terminalizes the claimed
-  // command (Error + story Hold) exactly like the V3 launch guard, with
-  // concrete reasons naming every failing contract condition. No silent
-  // fallback to another profile/field/target is ever performed.
   if (deps.enforceExecutionContract && workItem.role === 'builder') {
     const merged = storyFieldsFromBoardAndGit(story, story.id)
     const contract = validateExecutionContract({
@@ -174,7 +161,11 @@ export async function executeClaimedAgentCommand(
     updatedAt: workItem.updatedAt,
   }
 
-  const writable = workItem.role === 'builder'
+  // Lead PRE is a judgment/veto gate and must not mutate implementation.
+  // Lead IMPLEMENT and POST are allowed to create/integrate a candidate.
+  const writable =
+    workItem.role === 'builder' ||
+    (workItem.role === 'lead' && (leadPhase === 'implement' || leadPhase === 'post'))
   const context: AgentExecutionContext = {
     command,
     story,
@@ -195,27 +186,24 @@ export async function executeClaimedAgentCommand(
 
   let executionWorkspace: AgentExecutionWorkspace | null = null
   if (deps.workspaces) {
-    // ENG-FORGE-V4-10C: an Assay/verification lane must execute against the
-    // EXACT Smith candidate commit — never the current `main` (the V4-11
-    // false-positive path provisioned the Assay from main@<head> and "passed"
-    // against a checkout that did not contain the candidate). Resolve the
-    // candidate from existing run evidence; a missing/unresolvable candidate
-    // fails closed with a factual error instead of silently falling back.
-    const candidateSha = isAssayTerminalRole(workItem.role)
+    // Assay and Lead POST must start from the newest candidate commit. PRE,
+    // SOLO implementation, Architect and Smith start from the approved base.
+    const needsCandidateBase =
+      isAssayTerminalRole(workItem.role) ||
+      (workItem.role === 'lead' && leadPhase === 'post')
+    const candidateSha = needsCandidateBase
       ? smithCandidateSha(await deps.runs.listForStory(workItem.storyId))
       : null
-    const base = resolveAssayWorkspaceBase({
-      role: workItem.role,
-      candidateSha,
-      fallbackBaseRef: deps.workspaces.baseRef,
-    })
-    if ('error' in base) {
-      throw new Error(base.error)
+    if (needsCandidateBase && !candidateSha) {
+      throw new Error(
+        `${workItem.role === 'lead' ? 'Lead POST' : 'Assay'} requires an exact candidate commit; refusing to provision from main.`,
+      )
     }
+    const baseRef = candidateSha ?? deps.workspaces.baseRef
     const ws = await deps.workspaces.provision({
       storyId: workItem.storyId,
       workerId: deps.workspaces.workerId,
-      baseRef: base.baseRef,
+      baseRef,
       runId: workItem.id,
       ...(deps.workspaces.worktreesRoot
         ? { worktreesRoot: deps.workspaces.worktreesRoot }
