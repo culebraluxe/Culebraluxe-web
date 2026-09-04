@@ -21,17 +21,19 @@ import type {
   AgentRunEvidence,
   AgentWorkCommand,
 } from './types'
+import type { AgentCapability } from './capabilities'
 import { CORE_CAPABILITIES } from './capabilities'
-import { ASSAY_CAPABILITIES, READ_CAPABILITIES, WRITE_CAPABILITIES } from './lanes'
+import { ASSAY_CAPABILITIES, DEFAULT_LANES } from './lanes'
 import { revokeForbiddenCommit, writeBoundaryLines } from './write-policy'
 import { CliAgentGatewayAdapter } from './gateway/cli-agent-adapter'
 import { openClawProvider } from './gateway/openclaw-provider'
-import {
-  resolveForgeExecutionProviderForProfile,
-  type ForgeExecutionProvider,
-} from './gateway/provider'
 import { warpProvider } from './gateway/warp-provider'
-import { DEFAULT_FORGE_TEAM, type ForgePosition } from './team'
+import {
+  allForgeAssignmentVariants,
+  DEFAULT_FORGE_TEAM,
+  FORGE_PLAYERS,
+  type ForgeHarnessId,
+} from './team'
 import {
   blockedAdapterReadiness,
   commandIsInstalled,
@@ -137,18 +139,29 @@ class PolicyOpenCodeHarnessAdapter extends OpenCodeHarnessAdapter {
   }
 }
 
-function adapterIdForProvider(provider: ForgeExecutionProvider): string {
-  if (provider === 'deepseek') return 'deepseek-harness'
-  if (provider === 'opencode') return 'opencode-harness'
-  return `gateway-${provider}`
+/** Team mapping chooses the harness. Position/role code never does. */
+function adapterIdForHarness(harnessId: ForgeHarnessId): string {
+  switch (harnessId) {
+    case 'forge-native':
+      return 'deepseek-harness'
+    case 'forge-assay':
+      return 'forge-assay'
+    case 'opencode':
+      return 'opencode-harness'
+    case 'openclaw':
+      return 'gateway-openclaw'
+    case 'warp-agent':
+      return 'gateway-warp'
+    case 'pi':
+      throw new Error('Forge team maps a profile to Pi, but no Pi runtime adapter is configured')
+  }
 }
 
-const POSITION_CAPABILITIES: Record<ForgePosition, typeof READ_CAPABILITIES> = {
-  scout: READ_CAPABILITIES,
-  architect: READ_CAPABILITIES,
-  lead: WRITE_CAPABILITIES,
-  smith: WRITE_CAPABILITIES,
-  assay: ASSAY_CAPABILITIES,
+function unionCapabilities(
+  left: AgentCapability[],
+  right: AgentCapability[],
+): AgentCapability[] {
+  return [...new Set([...left, ...right])]
 }
 
 export function createAgentRuntimeRegistry(
@@ -281,19 +294,52 @@ export function createAgentRuntimeRegistry(
       }),
   })
 
-  for (const position of ['scout', 'architect', 'lead', 'smith', 'assay'] as ForgePosition[]) {
-    const assignment = DEFAULT_FORGE_TEAM.assignments[position]
-    const adapterId =
-      position === 'assay'
-        ? 'forge-assay'
-        : adapterIdForProvider(
-            resolveForgeExecutionProviderForProfile(assignment.profile),
-          )
+  // Build logical profile -> runtime adapter registrations from ONE team map.
+  // A shared profile must map to the same player+harness everywhere it is used.
+  const mapped = new Map<
+    string,
+    { adapterId: string; playerId: string; capabilities: AgentCapability[] }
+  >()
+
+  for (const { position, variant } of allForgeAssignmentVariants(DEFAULT_FORGE_TEAM)) {
+    const player = FORGE_PLAYERS[variant.playerId]
+    if (!player) throw new Error(`unknown Forge player '${variant.playerId}'`)
+
+    const adapterId = adapterIdForHarness(variant.harnessId)
+    if (variant.harnessId === 'opencode') {
+      const mappedModel = `${player.provider}/${player.model}`
+      if (mappedModel !== OPENCODE_PINNED_MODEL) {
+        throw new Error(
+          `Forge team maps profile '${variant.profile}' to OpenCode player '${mappedModel}', but OpenCode is pinned to '${OPENCODE_PINNED_MODEL}'`,
+        )
+      }
+    }
+
+    const required = DEFAULT_LANES[position].requiredCapabilities
+    const existing = mapped.get(variant.profile)
+    if (existing) {
+      if (existing.adapterId !== adapterId || existing.playerId !== variant.playerId) {
+        throw new Error(
+          `logical profile '${variant.profile}' has conflicting Forge team mappings`,
+        )
+      }
+      existing.capabilities = unionCapabilities(existing.capabilities, required)
+    } else {
+      mapped.set(variant.profile, {
+        adapterId,
+        playerId: variant.playerId,
+        capabilities: [...required],
+      })
+    }
+  }
+
+  for (const [profile, configEntry] of mapped) {
     registry.registerProfile({
-      profile: assignment.profile,
-      adapterId,
-      capabilities: POSITION_CAPABILITIES[position],
+      profile,
+      adapterId: configEntry.adapterId,
+      capabilities: configEntry.capabilities,
     })
   }
+
   return registry
 }
