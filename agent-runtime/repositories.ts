@@ -19,6 +19,7 @@ import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
 import {
   getForgeRunExecutionStory,
   initializeForgeStoryRun,
+  recordForgeLeadDecision,
   recordForgeRunMachineEvidence,
   setForgeRunRuntime,
 } from '../db/forge-run'
@@ -35,6 +36,10 @@ import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
 import type { AssayEvidence } from './assay-evidence'
 import { DEFAULT_LANES } from './lanes'
+import {
+  leadRunPhaseFromInstructions,
+  parseLeadDecision,
+} from './lead-decision'
 import { runMachineEvidenceFromFinish } from './run-machine-evidence'
 import {
   assayHoldEvidenceLine,
@@ -59,8 +64,7 @@ function runTypeForWorkItem(
   )
   if (exact) return exact.lane
 
-  // Legacy rows predate explicit lane vocabulary. Preserve the nearest factual
-  // lane rather than inventing a new classification.
+  if (role === 'lead') return 'lead'
   if (role === 'builder') return 'smith'
   if (role === 'verifier') return 'assay'
   if (role === 'reviewer') return 'inspector'
@@ -231,10 +235,15 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       throw new Error(`work item ${workItemId} began without a Story Run id`)
     }
 
+    const runPhase =
+      begun.workItem.role === 'lead'
+        ? leadRunPhaseFromInstructions(begun.workItem.specialInstructions)
+        : null
     await initializeForgeStoryRun(
       runId,
       {
         runType: runTypeForWorkItem(begun.workItem),
+        runPhase,
         agentRuntime: begun.workItem.runtimeAdapter ?? null,
       },
       q,
@@ -245,8 +254,6 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       throw new Error(`Story Run ${runId} disappeared before execution context could be loaded`)
     }
 
-    // Critical V6 boundary: after beginRun, every lane receives the Run-bound
-    // contract. Mutable parent Story contract fields are no longer execution input.
     return { ...begun, story: executionStory }
   }
 
@@ -318,12 +325,35 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
 
     if (item?.storyRunId) {
       await recordForgeRunMachineEvidence(item.storyRunId, machineEvidence, q)
+
+      if (item.role === 'lead') {
+        const phase = leadRunPhaseFromInstructions(item.specialInstructions)
+        if (phase === 'pre' || phase === 'post') {
+          const parsed = parseLeadDecision(normalized.notes)
+          const decision = parsed?.decision ?? 'HOLD'
+          const detail = parsed?.reason ??
+            `Lead ${phase.toUpperCase()} did not produce a valid structured decision; fail closed.`
+          await recordForgeLeadDecision(
+            item.storyRunId,
+            {
+              phase,
+              decision,
+              splitCount: parsed?.splitCount ?? null,
+              detail: `Lead ${phase.toUpperCase()} decision=${decision}${parsed?.splitCount ? `:${parsed.splitCount}` : ''} — ${detail}`,
+            },
+            q,
+          )
+        }
+      }
     }
 
-    const smithAwaitingAssay = Boolean(
-      item?.role === 'builder' &&
-        /^complete$/i.test(normalized.resultStatus) &&
-        normalized.commitHash,
+    // Intermediate lanes never own final Story completion. Lead PRE/IMPLEMENT/
+    // POST and Smith all hand off to another gate; a clean Assay still waits
+    // for outer publish to own final Complete.
+    const intermediateAwaitingFollow = Boolean(
+      item &&
+        (item.role === 'builder' || item.role === 'lead' || item.role === 'architect') &&
+        /^complete$/i.test(normalized.resultStatus),
     )
     const assayAwaitingPublish = Boolean(
       item &&
@@ -331,7 +361,7 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
         input.assayEvidence?.verdict === 'PASS' &&
         /^complete$/i.test(normalized.resultStatus),
     )
-    if (item && (smithAwaitingAssay || assayAwaitingPublish)) {
+    if (item && (intermediateAwaitingFollow || assayAwaitingPublish)) {
       await markForgeStoryInProgress(item.storyId, q)
       const story: StoryboardStory = {
         ...finished.story,
@@ -364,7 +394,7 @@ export class SqlAgentRunRepository implements AgentRunRepository {
     const started = await startStoryRun(storyId, q)
     await initializeForgeStoryRun(
       started.run.id,
-      { runType: null, agentRuntime: null },
+      { runType: null, runPhase: null, agentRuntime: null },
       q,
     )
     const executionStory = await getForgeRunExecutionStory(started.run.id, started.story, q)
