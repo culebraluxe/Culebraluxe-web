@@ -28,6 +28,10 @@ import {
   recordForgeRunMachineEvidence,
   setForgeRunRuntime,
 } from '../db/forge-run'
+import {
+  applyForgeArchitectHandoff,
+  applyForgeScoutHandoff,
+} from '../db/forge-story-contract'
 import { markForgeStoryInProgress } from '../db/forge-story-state'
 import {
   getStoryboardStory,
@@ -40,6 +44,10 @@ import {
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
 import type { AssayEvidence } from './assay-evidence'
+import {
+  parseArchitectHandoff,
+  parseScoutHandoff,
+} from './handoff-contract'
 import { leadRunPhaseFromInstructions, parseLeadDecision } from './lead-decision'
 import { parseQaDecision } from './qa-decision'
 import { runMachineEvidenceFromFinish } from './run-machine-evidence'
@@ -61,6 +69,11 @@ type FinishInput = {
   commitHash: string | null
   testsSummary: string | null
   assayEvidence?: AssayEvidence | null
+}
+
+type NormalizedFinish = {
+  finish: FinishInput
+  failureCode: string | null
 }
 
 function runTypeForWorkItem(item: ForgeAgentWorkItem): string | null {
@@ -122,10 +135,7 @@ export function normalizeAgentFinishForRole(
   }
 }
 
-function normalizeQaFinish(item: ForgeAgentWorkItem, input: FinishInput): {
-  finish: FinishInput
-  failureCode: string | null
-} {
+function normalizeQaFinish(item: ForgeAgentWorkItem, input: FinishInput): NormalizedFinish {
   if (item.lane !== 'inspector' && item.role !== 'reviewer') {
     return { finish: input, failureCode: null }
   }
@@ -152,10 +162,47 @@ function normalizeQaFinish(item: ForgeAgentWorkItem, input: FinishInput): {
       failureCode: 'QA_REVIEW_FAILED',
     }
   }
-  return {
-    finish: { ...input, resultStatus: 'Complete', commitHash: null },
-    failureCode: null,
+  return { finish: { ...input, resultStatus: 'Complete', commitHash: null }, failureCode: null }
+}
+
+async function normalizeHandoffFinish(
+  item: ForgeAgentWorkItem,
+  input: FinishInput,
+  q: QueryExecutor,
+): Promise<NormalizedFinish> {
+  if (item.lane === 'scout' || item.role === 'scout') {
+    const handoff = parseScoutHandoff(input.notes)
+    if (!handoff) {
+      return {
+        finish: {
+          ...input,
+          resultStatus: 'Hold',
+          commitHash: null,
+          notes: `${input.notes.trim()}\n\nScout Hold: missing durable SCOUT_CONTEXT_REFS handoff.`.trim(),
+        },
+        failureCode: 'SCOUT_HANDOFF_INVALID',
+      }
+    }
+    await applyForgeScoutHandoff(item.storyId, handoff, q)
   }
+
+  if (item.lane === 'architect' || item.role === 'architect') {
+    const handoff = parseArchitectHandoff(input.notes)
+    if (!handoff) {
+      return {
+        finish: {
+          ...input,
+          resultStatus: 'Hold',
+          commitHash: null,
+          notes: `${input.notes.trim()}\n\nArchitect Hold: incomplete durable Architect contract.`.trim(),
+        },
+        failureCode: 'ARCHITECT_CONTRACT_INVALID',
+      }
+    }
+    await applyForgeArchitectHandoff(item.storyId, handoff, q)
+  }
+
+  return { finish: input, failureCode: null }
 }
 
 export interface AgentWorkRepository {
@@ -274,8 +321,14 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     }
 
     const assayNormalized = normalizeAgentFinishForRole(item?.role ?? null, input, assayContext)
-    const qaNormalized = item ? normalizeQaFinish(item, assayNormalized) : { finish: assayNormalized, failureCode: null }
+    const handoffNormalized = item
+      ? await normalizeHandoffFinish(item, assayNormalized, q)
+      : { finish: assayNormalized, failureCode: null }
+    const qaNormalized = item
+      ? normalizeQaFinish(item, handoffNormalized.finish)
+      : { finish: handoffNormalized.finish, failureCode: null }
     const normalized = qaNormalized.finish
+
     const machineEvidence = runMachineEvidenceFromFinish({
       role: item?.role ?? null,
       resultStatus: normalized.resultStatus,
@@ -283,7 +336,8 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       testsSummary: normalized.testsSummary,
       assayEvidence: normalized.assayEvidence ?? input.assayEvidence ?? null,
     })
-    if (qaNormalized.failureCode) machineEvidence.failureCode = qaNormalized.failureCode
+    machineEvidence.failureCode =
+      qaNormalized.failureCode ?? handoffNormalized.failureCode ?? machineEvidence.failureCode
 
     const finished = await finishAgentWork(
       workItemId,
@@ -314,6 +368,7 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
               phase,
               decision,
               splitCount: parsed?.splitCount ?? null,
+              assignments: parsed?.assignments ?? [],
               detail: `Lead ${phase.toUpperCase()} decision=${decision}${parsed?.splitCount ? `:${parsed.splitCount}` : ''} — ${detail}`,
             },
             q,
