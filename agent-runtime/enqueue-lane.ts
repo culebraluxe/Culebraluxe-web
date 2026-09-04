@@ -1,4 +1,5 @@
 import { planAssay } from './assay-plan'
+import { leadPhaseInstructions, type LeadRunPhase } from './lead-decision'
 import { resolveLane, type LaneDecision, type LaneSession, type SmithGrade } from './lane-policy'
 import type { LaneId } from './lanes'
 import type { AgentRuntimeRegistry } from './registry'
@@ -10,6 +11,7 @@ export type LaneEnqueueInput = {
   session?: Partial<LaneSession>
   smithGrade?: SmithGrade
   extraInstructions?: string | null
+  leadPhase?: LeadRunPhase
   authorizeEmergency?: boolean
   registry?: Pick<AgentRuntimeRegistry, 'hasProfile'>
 }
@@ -29,6 +31,10 @@ export function buildLaneEnqueue(input: LaneEnqueueInput): LaneDecision & {
   const extras: string[] = []
   if (input.extraInstructions?.trim()) extras.push(input.extraInstructions.trim())
   if (packet) extras.push(packet)
+
+  if (input.lane === 'lead') {
+    extras.unshift(leadPhaseInstructions(input.leadPhase ?? 'pre'))
+  }
 
   if (input.lane === 'assay') {
     const plan = planAssay({
