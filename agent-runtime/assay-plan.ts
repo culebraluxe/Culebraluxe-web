@@ -5,6 +5,7 @@ import {
   type TestMode,
   withTestModeDirective,
 } from './test-mode'
+import { withAssayPlanDirective } from './assay-evidence'
 
 export type AssayPlan =
   | { ok: true; mode: TestMode; commands: string[]; instructions: string }
@@ -48,13 +49,19 @@ export function planAssay(input: {
       }
     }
   }
+
   const list = commands.map((c) => `- ${c}`).join('\n')
-  const instructions = [
-    `Assay plan (${mode}). Run ONLY these commands in the Smith worktree.`,
-    'Do not edit files, commit, migrate, or mark the story Complete.',
-    'Write the exact command + exit + tail to tests_summary.',
-    'If a command fails, stop. Inventiveness is a defect.',
+  const humanInstructions = [
+    `Assay plan (${mode}). Forge executes ONLY these immutable commands in the exact Smith candidate worktree.`,
+    'Assay is deterministic and model-free: do not edit files, commit, migrate, invent commands, or infer success from prose.',
+    'Process exit codes and numeric test counters are the acceptance facts. A failed command stops the Assay and hands the story to a human.',
     list,
   ].join('\n')
-  return { ok: true, mode, commands, instructions: withTestModeDirective(instructions, mode) }
+  const runtimeInstructions = withTestModeDirective(humanInstructions, mode)
+  return {
+    ok: true,
+    mode,
+    commands,
+    instructions: withAssayPlanDirective(runtimeInstructions, { mode, commands }),
+  }
 }
