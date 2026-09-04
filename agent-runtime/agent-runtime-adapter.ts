@@ -146,7 +146,6 @@ export abstract class AgentRuntimeAdapter {
       note: `run started via ${this.runtimeAdapterId} (external ${this.externalRunId})`,
     })
 
-
     // Heartbeat/progress loop until the vendor runtime reaches a terminal
     // lifecycle. Every pass refreshes liveness (heartbeat) via the work repo,
     // but identical heartbeat content is coalesced (HEARTBEAT IS STATE, NOT
@@ -188,10 +187,8 @@ export abstract class AgentRuntimeAdapter {
     // Success path.
     const result = await this.resultExternal(command, ctxWithRun)
     // ENG-FORGE-V4-10C: every run that executed inside an isolated workspace
-    // records its base commit as machine-scannable evidence (branch/worktree/
-    // base line). Adapters may already write it; this shared enrichment keeps
-    // the evidence uniform so Assay verification can prove WHICH candidate
-    // commit the run actually executed against — never a silent fallback.
+    // records its base commit as machine-scannable evidence. V6 also carries
+    // structured Assay evidence beside this human-readable compatibility line.
     const notes = withWorkspaceEvidence(context.executionWorkspace, result!.notes)
     const finished = await this.deps.work.finish(command.workItemId, {
       resultStatus: result!.resultStatus,
@@ -199,8 +196,12 @@ export abstract class AgentRuntimeAdapter {
       notes,
       commitHash: result!.commitHash,
       testsSummary: result!.testsSummary,
+      assayEvidence: result!.assayEvidence ?? null,
     })
-    return this.normalizeEvidence(finished.run as any, command)
+    return {
+      ...this.normalizeEvidence(finished.run as any, command),
+      assayEvidence: result!.assayEvidence ?? null,
+    }
   }
 
   /** Query runtime status from persisted canonical state + optional vendor detail. */
@@ -261,7 +262,6 @@ export abstract class AgentRuntimeAdapter {
     }
     return this.normalizeEvidence(run as any, command)
   }
-
 
   // -------------------------------------------------------------------------
   // PROTECTED VENDOR HOOKS — the ONLY place concrete adapters translate to a
