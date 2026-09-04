@@ -64,7 +64,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(String((error as Error)?.stack ?? error))
-  process.exitCode = 1
-})
+// This is a one-shot scheduler helper, not a long-lived service. interactiveSql
+// owns a lazy Neon Pool whose open sockets intentionally keep normal server
+// processes alive. Once recovery's awaited database work and console output are
+// complete, terminate this helper explicitly so launchd can continue to the
+// claim phase instead of hanging on an idle Pool.
+main().then(
+  () => process.exit(0),
+  (error) => {
+    console.error(String((error as Error)?.stack ?? error))
+    process.exit(1)
+  },
+)
