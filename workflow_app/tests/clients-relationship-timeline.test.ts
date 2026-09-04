@@ -13,8 +13,6 @@ import type { QueryExecutor } from '../../db/query-executor'
 // CLIENTS — source-neutral relationship timeline / Cloze-style summary proofs.
 // ---------------------------------------------------------------------------
 
-// --- Relationship summary (pure) -------------------------------------------
-
 function ev(overrides: Record<string, unknown>) {
   return {
     source: 'apple_messages',
@@ -42,12 +40,12 @@ test('timeline 1: newest communication across channels wins last_contact_at', ()
   assert.equal(summary.lastObservedAt, '2023-08-15T00:00:00.000Z', 'email (Aug) is newer than iMessage (Jun)')
 })
 
-test('timeline 2: winning channel is the newest source projection', () => {
+test('timeline 2: winning channel is the newest presentation projection', () => {
   const summary = summarizeRelationshipEvidence([
     ev({ source: 'apple_messages', lastObservedAt: '2023-06-01T00:00:00.000Z' }),
     ev({ source: 'gmail_contacts', lastObservedAt: '2023-08-15T00:00:00.000Z', hasEmail: true, hasPhone: false }),
   ])
-  assert.equal(summary.channels[0].source, 'gmail_contacts', 'channels sorted newest-first')
+  assert.equal(summary.channels[0].source, 'email', 'email-family sources collapse to the presentation source and remain newest-first')
   assert.equal(summary.channels[0].channel, 'email')
 })
 
@@ -82,8 +80,6 @@ test('timeline 11: per-channel last activity is correct', () => {
   assert.equal(email?.lastObservedAt, '2023-08-15T00:00:00.000Z')
   assert.equal(imessage?.observedCommunicationCount, 4)
 })
-
-// --- Bounded recent timeline (read model) ----------------------------------
 
 type HistoryRow = {
   interaction_id: string
@@ -132,10 +128,10 @@ test('timeline 12/13: recent timeline is bounded to 10 and newest-first', async 
   }
 })
 
-test('timeline 14/15: primary UI is source-grain (one node per source); full archive is secondary "View all"', () => {
+test('timeline 14/15: primary UI is source-grain rows; full archive is secondary "View all"', () => {
   const src = readFileSync('components/portal/contact-history.tsx', 'utf8')
   assert.ok(src.includes('relationship-channels'), 'default load reads the source-grain channels route')
-  assert.ok(src.includes('SourceChannelNode'), 'one gold node per communication source')
+  assert.ok(src.includes('SourceActivityRow'), 'one compact row per communication source slot')
   assert.ok(src.includes('View all'), 'View all reveals the full detailed archive')
 })
 
@@ -150,7 +146,7 @@ test('timeline 17: normal PROD Apple Messages sync does NOT run a second full re
   const src = readFileSync('scripts/apple-messages-intake.ts', 'utf8')
   assert.ok(!src.includes('=== REPLAY (second run'), 'no second full replay in the CLI')
   assert.ok(!src.includes('const second = await runAppleMessagesIntake'), 'single intake pass only')
-  assert.ok(src.includes('runAppleMessagesIntake(target, dir, execute)'), 'one intake call')
+  assert.ok(src.includes('const result = await runAppleMessagesIntake(target, dir, execute, { evidenceOnly })'), 'one intake call with current options contract')
 })
 
 test('timeline 18: idempotency remains proven in the regression harness', () => {
@@ -165,4 +161,3 @@ test('timeline 19/20: New/Add Client button removed, Edit preserved', () => {
   assert.ok(manager.includes('showEdit'), 'edit path preserved')
   assert.ok(editor.includes('mode === "create"') && editor.includes('createClientAction'), 'create backend preserved')
 })
-
