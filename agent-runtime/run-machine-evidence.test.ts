@@ -8,7 +8,7 @@ import { runMachineEvidenceFromFinish } from './run-machine-evidence'
 const BASE = 'a'.repeat(40)
 const CANDIDATE = 'b'.repeat(40)
 
-test('Smith and other model lanes project numeric facts into the common Run shape', () => {
+test('Smith and other model lanes project only harness-observed facts into the common Run shape', () => {
   const evidence = runMachineEvidenceFromFinish({
     role: 'builder',
     resultStatus: 'Complete',
@@ -20,9 +20,11 @@ test('Smith and other model lanes project numeric facts into the common Run shap
   assert.equal(evidence.commandsTotal, 1)
   assert.equal(evidence.commandsPassed, 1)
   assert.equal(evidence.commandsFailed, 0)
-  assert.equal(evidence.testsTotal, 26)
-  assert.equal(evidence.testsPassed, 26)
-  assert.equal(evidence.testsFailed, 0)
+  // Smith's Tests: line may be model-authored narrative. Preserve it in
+  // tests_summary, but never promote it into structured machine truth.
+  assert.equal(evidence.testsTotal, null)
+  assert.equal(evidence.testsPassed, null)
+  assert.equal(evidence.testsFailed, null)
   assert.equal(evidence.policyViolationCount, 0)
   assert.equal(evidence.failureCode, null)
   assert.match(evidence.evidenceDetail ?? '', /Smith complete/)
