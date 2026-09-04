@@ -107,13 +107,13 @@ test('Assay nominal Complete with fail violation or policy evidence fails closed
   }
 })
 
-test('Assay failure evidence retains packet-named failed commands', () => {
+test('legacy Assay evidence names configured commands without falsely calling them failed', () => {
   assert.equal(
     assayFailureEvidence({
       testsSummary: '1 failed',
       failedCommands: ['node --test agent-runtime/orchestrate-apply.test.ts', 'pnpm typecheck'],
     }),
-    '1 failed | failed commands: node --test agent-runtime/orchestrate-apply.test.ts, pnpm typecheck',
+    '1 failed | assay commands: node --test agent-runtime/orchestrate-apply.test.ts, pnpm typecheck',
   )
 })
 
@@ -220,7 +220,6 @@ test('Scout done with brief but incomplete contract never follows to Smith', asy
     storyId: 'ENG-FORGE-V4-08-INCOMPLETE',
     finishedRole: 'scout',
     resultStatus: 'Complete',
-    // Brief present, but acceptance criteria AND assay commands are missing.
     getStory: async () => ({ architectBrief: 'Build only the approved slice.' }),
     enqueue: async (input) => {
       enqueued.push(input)
