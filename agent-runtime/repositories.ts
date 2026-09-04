@@ -17,6 +17,7 @@ import {
 } from '../db/agent-work'
 import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
 import {
+  getForgeRunExecutionStory,
   initializeForgeStoryRun,
   recordForgeRunMachineEvidence,
   setForgeRunRuntime,
@@ -225,17 +226,28 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
   async beginRun(workItemId: string) {
     const q = await this.executor()
     const begun = await beginAgentWorkRun(workItemId, q)
-    if (begun.workItem.storyRunId) {
-      await initializeForgeStoryRun(
-        begun.workItem.storyRunId,
-        {
-          runType: runTypeForWorkItem(begun.workItem),
-          agentRuntime: begun.workItem.runtimeAdapter ?? null,
-        },
-        q,
-      )
+    const runId = begun.workItem.storyRunId
+    if (!runId) {
+      throw new Error(`work item ${workItemId} began without a Story Run id`)
     }
-    return begun
+
+    await initializeForgeStoryRun(
+      runId,
+      {
+        runType: runTypeForWorkItem(begun.workItem),
+        agentRuntime: begun.workItem.runtimeAdapter ?? null,
+      },
+      q,
+    )
+
+    const executionStory = await getForgeRunExecutionStory(runId, begun.story, q)
+    if (!executionStory) {
+      throw new Error(`Story Run ${runId} disappeared before execution context could be loaded`)
+    }
+
+    // Critical V6 boundary: after beginRun, every lane receives the Run-bound
+    // contract. Mutable parent Story contract fields are no longer execution input.
+    return { ...begun, story: executionStory }
   }
 
   async progress(workItemId: string, input: AgentProgressUpdate) {
@@ -355,7 +367,11 @@ export class SqlAgentRunRepository implements AgentRunRepository {
       { runType: null, agentRuntime: null },
       q,
     )
-    return started
+    const executionStory = await getForgeRunExecutionStory(started.run.id, started.story, q)
+    if (!executionStory) {
+      throw new Error(`Story Run ${started.run.id} disappeared before execution context could be loaded`)
+    }
+    return { ...started, story: executionStory }
   }
 
   async progress(runId: string, input: AgentProgressUpdate) {
