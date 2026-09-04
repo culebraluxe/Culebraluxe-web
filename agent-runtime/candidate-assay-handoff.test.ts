@@ -1,5 +1,13 @@
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V4-10C — Exact Candidate Assay Handoff: focused tests.
+//
+// Reproduces the V4-11 false-positive path (Assay workspace provisioned from
+// main@<head> while Smith's candidate commit was <candidate>; the failed
+// packet command still normalized to Complete 100%) and proves every seam of
+// the strict invariant fails closed:
+//
+//   Smith candidate C -> QA candidate C -> Assay workspace base C
+//   -> Assay evidence about C -> only then may C publish.
 // ---------------------------------------------------------------------------
 
 import assert from 'node:assert/strict'
