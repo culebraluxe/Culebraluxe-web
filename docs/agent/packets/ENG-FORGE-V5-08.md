@@ -4,7 +4,7 @@
 Make Forge derive story/work status from durable evidence and repair only deterministic mismatches.
 
 ## Depends on
-ENG-FORGE-V5-07 accepted and published.
+ENG-FORGE-V5-03 accepted and published plus the existing exact-candidate Assay/non-force publish semantics. This story is independent of V5-07 telemetry.
 
 ## Scope
 Implement a consistency pass for known invariants: Complete with only Scout evidence, In Progress with no actionable work, Smith candidate without Assay, clean Assay with unpublished candidate, and terminal work/story disagreement. Repair status or enqueue the missing deterministic next lane; never invent success.
