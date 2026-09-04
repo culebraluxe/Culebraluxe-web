@@ -19,7 +19,13 @@ import type { AssayEvidence } from './assay-evidence'
 import type { StoryPacketFields } from './story-session'
 
 /** Logical agent roles (extensible — not a closed enum). */
-export type AgentRole = 'architect' | 'builder' | 'reviewer' | 'verifier' | (string & {})
+export type AgentRole =
+  | 'architect'
+  | 'lead'
+  | 'builder'
+  | 'reviewer'
+  | 'verifier'
+  | (string & {})
 
 /** Logical model profile — a capability/quality label, never a vendor model id. */
 export type ModelProfile = string
