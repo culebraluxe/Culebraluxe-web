@@ -2,33 +2,14 @@
 # ---------------------------------------------------------------------------
 # scripts/agent-worker-once.sh — bounded Forge wake/run wrapper.
 #
-# ONE scheduled wake => repeatedly invokes `pnpm agent:work` until Forge is
-# idle or a run fails. This mirrors the manual operator loop:
-#   1. run Forge
-#   2. if a clean lane queues the next lane, run Forge again immediately
-#   3. if Forge reports no work, exit cleanly
-#   4. if Forge exits non-zero, stop immediately and preserve the durable
-#      Neon/Slack evidence for human inspection
+# ONE scheduled wake => fast-forward the local main checkout, then repeatedly
+# invokes `pnpm agent:work` until Forge is idle or a run fails. This mirrors the
+# manual operator loop while ensuring newly-published git packets are visible
+# to the local control plane before hydration/claim.
 #
-# The database and `pnpm agent:work` own ALL queue/orchestration semantics:
-# Ready discovery, hydration, single-worker enforcement, claiming, Smith,
-# exact-candidate Assay, publication, Hold/Error state, and Slack notifications.
-# This wrapper is only the unattended hand that presses the same button again.
-#
-# No secrets are embedded here. `pnpm agent:work` reads the gitignored
-# `.env.local`. An optional untracked `.env.scheduler` may override local
-# runtime settings.
-#
-# macOS TCC note: `pnpm agent:scheduler:install` deploys a copy of this wrapper
-# outside ~/Documents and passes AGENT_WORKER_REPO so launchd can enter the repo.
-#
-# Env controls (all optional):
-#   AGENT_WORKER_REPO       - repository root override
-#   AGENT_WORKER_PATH       - replace default PATH
-#   AGENT_WORKER_LOG_DIR    - log directory
-#   AGENT_WORKER_ID         - worker identity (default scheduler)
-#   AGENT_WORKER_DRY_RUN    - "1" logs/exits without running Forge
-#   AGENT_WORKER_MAX_PASSES - runaway guard (default 20)
+# The database and `pnpm agent:work` own ALL queue/orchestration semantics.
+# This wrapper only keeps the local control-plane checkout current and presses
+# the same Forge button again. Git sync is fail-closed and NEVER force-updates.
 # ---------------------------------------------------------------------------
 
 set -u
@@ -115,7 +96,32 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 127
 fi
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "agent-worker: git not found on PATH=$PATH" >&2
+  inv_log "end: exit=127 git-missing"
+  exit 127
+fi
+
 inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
+
+# Git is the planned packet stack; Neon is the live execution state. The local
+# control-plane checkout must therefore see accepted/new packet commits before
+# it hydrates a Ready row. Fast-forward only: never stash, reset, rebase, force,
+# or overwrite local work. Any divergence/dirty conflict is a factual stop.
+branch="$(git branch --show-current 2>/dev/null || true)"
+if [ "$branch" != "main" ]; then
+  echo "agent-worker: expected control-plane checkout on main, found '$branch'" >&2
+  inv_log "stop: checkout-not-main branch=$branch"
+  exit 2
+fi
+
+inv_log "git-sync: start origin/main"
+if ! git pull --ff-only origin main; then
+  echo "agent-worker: git fast-forward failed; Forge not started" >&2
+  inv_log "stop: git-sync-failed"
+  exit 2
+fi
+inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
@@ -133,8 +139,6 @@ while [ "$pass" -le "$MAX_PASSES" ]; do
     exit "$rc"
   fi
 
-  # `agent:work` prints this only when there is nothing claimable/active.
-  # Stop the wake cycle here. The launchd scheduler will check again in 3 min.
   if grep -Eq '^no work($| —)' "$output_file"; then
     rm -f "$output_file"
     inv_log "idle: no work"
@@ -143,11 +147,8 @@ while [ "$pass" -le "$MAX_PASSES" ]; do
 
   rm -f "$output_file"
   pass=$((pass + 1))
-
 done
 
-# Runaway protection only. Durable Forge state remains untouched; the next
-# scheduled wake can continue normally.
 inv_log "stop: max passes reached ($MAX_PASSES)"
 echo "agent-worker: max passes reached ($MAX_PASSES); stopping until next scheduled wake" >&2
 exit 0
