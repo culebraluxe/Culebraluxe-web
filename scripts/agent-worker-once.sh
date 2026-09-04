@@ -108,11 +108,19 @@ inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
 # control-plane checkout must therefore see accepted/new packet commits before
 # it hydrates a Ready row. Fast-forward only: never stash, reset, rebase, force,
 # or overwrite local work. Any divergence/dirty conflict is a factual stop.
+#
+# launchd has been observed to return an empty value for `git branch --show-current`
+# even when the same checkout reports `main` interactively. Treat an explicit
+# non-main branch as unsafe, but do not turn an empty branch probe into a false
+# terminal. The ff-only pull below remains the authoritative safety gate.
 branch="$(git branch --show-current 2>/dev/null || true)"
-if [ "$branch" != "main" ]; then
+if [ -n "$branch" ] && [ "$branch" != "main" ]; then
   echo "agent-worker: expected control-plane checkout on main, found '$branch'" >&2
   inv_log "stop: checkout-not-main branch=$branch"
   exit 2
+fi
+if [ -z "$branch" ]; then
+  inv_log "git-sync: branch probe empty under scheduler; continuing to ff-only origin/main"
 fi
 
 inv_log "git-sync: start origin/main"
