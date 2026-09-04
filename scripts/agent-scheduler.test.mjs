@@ -37,7 +37,7 @@ test('wrapperIntegrity proves repo and deployed wrapper bytes are identical', ()
     writeFileSync(deployed, '#!/bin/bash\necho two\n')
     const mismatched = wrapperIntegrity(repo, deployed)
     assert.equal(mismatched.synced, false)
-    assert.notEqual(mismatched.repoSha, mismatched.deployedSha)
+    assert.notEqual(synced.repoSha, mismatched.deployedSha)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -58,16 +58,31 @@ test('wrapperIntegrity fails closed when either wrapper is absent', () => {
   }
 })
 
-test('scheduled wake recovers stale runtime before claiming and performs no Git mutation', () => {
+test('scheduled wake is a stable Forge button with no recovery or Git business logic', () => {
   const wrapper = readFileSync(new URL('./agent-worker-once.sh', import.meta.url), 'utf8')
-  const recovery = wrapper.indexOf('scripts/forge-runtime-recover.ts --stale-after')
-  const claim = wrapper.indexOf('pnpm agent:work 2>&1')
 
-  assert.ok(recovery >= 0, 'scheduled wrapper must invoke industrial runtime recovery')
-  assert.ok(claim > recovery, 'stale runtime recovery must happen before the first Forge claim')
+  assert.match(wrapper, /pnpm agent:work 2>&1/)
+  assert.doesNotMatch(
+    wrapper,
+    /forge-runtime-recover|recoverStaleAgentWorkIndustrial/,
+    'launchd wrapper must delegate recovery to Forge itself',
+  )
   assert.doesNotMatch(
     wrapper,
     /\bgit\s+(?:pull|fetch|checkout|switch|reset|rebase|stash)\b/,
-    'scheduler remains only a wake/recovery timer; it must not mutate/sync Git',
+    'scheduler remains only a wake timer; it must not mutate/sync Git',
   )
+})
+
+test('agent:work owns recovery before invoking the existing Forge command', () => {
+  const packageJson = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  )
+  assert.match(packageJson.scripts['agent:work'], /scripts\/agent-work-entry\.ts/)
+
+  const entry = readFileSync(new URL('./agent-work-entry.ts', import.meta.url), 'utf8')
+  const recovery = entry.indexOf('recoverStaleAgentWorkIndustrial')
+  const child = entry.indexOf("resolve(process.cwd(), 'scripts/agent-work.ts')")
+  assert.ok(recovery >= 0, 'agent:work entry must own industrial stale recovery')
+  assert.ok(child > recovery, 'recovery must run before the normal Forge pass')
 })
