@@ -42,10 +42,15 @@ export function blockedAdapterReadiness(input: {
  * Resolve whether a CLI entrypoint is executable on this host. Absolute and
  * slash-containing paths are checked directly; bare command names are resolved
  * against PATH. Injectable env keeps the probe deterministic in tests.
+ *
+ * Use a plain env map rather than NodeJS.ProcessEnv here: Next augments
+ * ProcessEnv with required framework keys (for example NODE_ENV), which makes
+ * deterministic test literals such as { PATH: dir } fail type-check even
+ * though PATH is the only value this helper consumes.
  */
 export function commandIsInstalled(
   bin: string | null | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
   const candidate = (bin ?? '').trim()
   if (!candidate) return false
