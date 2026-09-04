@@ -14,16 +14,60 @@ import {
   finishedRunCandidateSha,
   verifiedShaFromWorkspaceEvidence,
 } from '../agent-runtime/candidate-assay-handoff'
+import type { AssayEvidence } from '../agent-runtime/assay-evidence'
+import { decideForgeTransition, type ForgeTransitionDecision } from '../agent-runtime/forge-transition'
 import {
   enqueueAgentWorkCommand,
   listAgentWorkItems,
 } from '../db/agent-work'
 import {
+  appendForgeRunEvent,
+  latestForgeRunEvent,
+} from '../db/forge-run-event'
+import {
+  markForgeStoryHumanHold,
+  markForgeStoryPublishedComplete,
+} from '../db/forge-story-state'
+import {
   getStoryboardStory,
   listStoryRuns,
-  setStoryboardStatus,
   updateStoryRunProgress,
+  type StoryRun,
 } from '../db/storyboard'
+
+function structuredAssayEvidence(
+  payload: Record<string, unknown> | null | undefined,
+): AssayEvidence | null {
+  if (!payload || payload.version !== 1) return null
+  if (payload.verdict !== 'PASS' && payload.verdict !== 'FAIL') return null
+  if (!Array.isArray(payload.requiredCommands)) return null
+  if (!Array.isArray(payload.commandResults)) return null
+  if (!Array.isArray(payload.policyViolations)) return null
+  if (typeof payload.startedAt !== 'string' || typeof payload.endedAt !== 'string') {
+    return null
+  }
+  return payload as unknown as AssayEvidence
+}
+
+async function appendTransitionDecision(
+  run: StoryRun | null,
+  storyId: string,
+  decision: ForgeTransitionDecision,
+): Promise<void> {
+  if (!run) return
+  await appendForgeRunEvent({
+    storyRunId: run.id,
+    storyId,
+    eventType: 'transition.decision',
+    payload: {
+      action: decision.action,
+      nextLane: decision.nextLane,
+      storyStatus: decision.storyStatus,
+      humanRequired: decision.humanRequired,
+      failure: decision.failure,
+    },
+  })
+}
 
 export async function runForgeHydrate(): Promise<string[]> {
   return hydrateBareReadyItems({
@@ -40,11 +84,8 @@ export async function runForgeFollow(input: {
   testsSummary?: string | null
 }): Promise<string | null> {
   if (!input.finishedRole) return null
-  // ENG-FORGE-V4-10C: resolve the exact Smith candidate this cycle produced
-  // from existing run evidence. For a JUST-finished code run the candidate is
-  // that run's OWN commit (never an older cycle's candidate); follow may only
-  // hand a builder finish to Assay when a candidate exists.
   const runs = await listStoryRuns(input.storyId)
+  const newestRun = runs[0] ?? null
   const candidateSha = finishedRunCandidateSha(runs)
   const followed = await followFinishedLane({
     storyId: input.storyId,
@@ -59,45 +100,48 @@ export async function runForgeFollow(input: {
   const okResult =
     !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
 
-  // V5 repairability: Assay planning belongs at the Smith→Assay boundary, not
-  // the Smith launch boundary. A clean Smith candidate is valuable evidence.
-  // If verification commands are missing, preserve that candidate and Hold the
-  // story for an Assay-plan repair instead of turning completed Smith work into
-  // a launch Error or allowing the story to stand Complete without verification.
-  if (!followed && input.finishedRole === 'builder' && okResult && candidateSha) {
+  if (input.finishedRole === 'builder' && okResult) {
+    const transition = decideForgeTransition({
+      type: 'smith-complete',
+      candidateSha,
+    })
+    await appendTransitionDecision(newestRun, input.storyId, transition)
+
+    if (transition.action === 'hold-human') {
+      await markForgeStoryHumanHold(input.storyId)
+      if (newestRun && transition.failure) {
+        await updateStoryRunProgress(newestRun.id, {
+          note: `${transition.failure.code}: ${transition.failure.detail} Human intervention required.`,
+        })
+      }
+      return null
+    }
+
+    if (followed) return followed
+
+    // Defensive compatibility for a Smith item launched before V6 preflight.
+    // New V6 Smith work cannot reach this condition because the Assay recipe is
+    // now required before token spend.
     const story = await getStoryboardStory(input.storyId)
     const merged = story
       ? storyFieldsFromBoardAndGit(story, input.storyId)
       : null
-    if (!merged || parseAssayCommands(merged.assayCommands).length === 0) {
-      const newestRun = runs[0] ?? null
-      const detail =
-        `Smith candidate ${candidateSha} completed and was preserved, but Assay was not launched because the story packet has no ## Assay commands. ` +
-        'Story held for verification planning; add the Assay plan and resume from the existing candidate rather than rebuilding Smith work.'
-      await setStoryboardStatus(input.storyId, 'Hold')
-      if (newestRun) {
-        await updateStoryRunProgress(newestRun.id, { note: detail })
-      }
-      console.log('follow hold', input.storyId, 'builder', 'missing-assay-plan', detail)
-      return null
-    }
-  }
-
-  // ENG-FORGE-V4-10C: a code-changing Smith run that finished without a
-  // candidate commit must NOT stand Complete or launch Assay-as-though-
-  // verification-were-possible. Hold the story with factual evidence; the
-  // candidate branch/worktree (when one exists) is always preserved.
-  if (!followed && input.finishedRole === 'builder' && okResult && !candidateSha) {
-    const newestRun = runs[0] ?? null
-    const detail =
-      'Smith produced no candidate commit for this code-changing run; Assay was not launched because verification requires the exact candidate commit (never a fallback base such as main). Story held for repair/retry.'
-    await setStoryboardStatus(input.storyId, 'Hold')
-    if (newestRun) {
-      await updateStoryRunProgress(newestRun.id, { note: detail })
-    }
-    console.log('follow hold', input.storyId, 'builder', 'no-candidate', detail)
+    const missingPlan =
+      !merged || parseAssayCommands(merged.assayCommands).length === 0
+    const detail = missingPlan
+      ? `Smith candidate ${candidateSha} was preserved, but its historical work item has no Assay plan. Human intervention required; do not rebuild Smith automatically.`
+      : `Smith candidate ${candidateSha} could not hand off to Assay. Human intervention required; do not retry Smith automatically.`
+    const holdDecision = decideForgeTransition({
+      type: 'smith-failed',
+      code: missingPlan ? 'MISSING_ASSAY_PLAN' : 'HUMAN_DECISION_REQUIRED',
+      detail,
+    })
+    await appendTransitionDecision(newestRun, input.storyId, holdDecision)
+    await markForgeStoryHumanHold(input.storyId)
+    if (newestRun) await updateStoryRunProgress(newestRun.id, { note: detail })
     return null
   }
+
   return followed
 }
 
@@ -106,7 +150,6 @@ export type ForgePublishAfterAssayInput = {
   finishedRole: string | null
   resultStatus?: string | null
   testsSummary?: string | null
-  /** Primary checkout root owning `origin` (defaults to the scheduler cwd). */
   repoRoot?: string
   publish?: typeof publishAcceptedCandidateAfterAssay
 }
@@ -118,10 +161,8 @@ export type ForgePublishAfterAssayOutcome =
   | { kind: 'skipped'; detail: string }
 
 /**
- * ENG-FORGE-V4-10B — outer-Forge publication of an accepted candidate after a
- * clean Assay result. Runs ONLY in the outer Forge process (the scheduler /
- * worker host that owns the git checkout and `origin`), never in the model
- * sandbox.
+ * V6 outer publication gate. Structured assay.verdict is authoritative for new
+ * runs. Legacy text scanning is used only when no V6 event exists.
  */
 export async function runForgePublishAfterAssay(
   input: ForgePublishAfterAssayInput,
@@ -130,50 +171,108 @@ export async function runForgePublishAfterAssay(
 
   const runs = await listStoryRuns(input.storyId)
   const newestRun = runs[0] ?? null
-  const candidateRun = runs.find((run) => Boolean(run.commitHash)) ?? null
-  const candidateCommit = candidateRun?.commitHash ?? null
-  const assayedCandidate = newestRun
-    ? verifiedShaFromWorkspaceEvidence(newestRun.notes)
-    : null
-  const persistedClean = isCleanAssayResult({
-    resultStatus: newestRun?.resultStatus ?? input.resultStatus ?? null,
-    testsSummary: newestRun?.testsSummary ?? input.testsSummary ?? null,
-  })
+  if (!newestRun) {
+    return { kind: 'skipped', detail: 'Assay run not found.' }
+  }
 
-  if (persistedClean && candidateCommit && assayedCandidate !== candidateCommit) {
+  const verdictEvent = await latestForgeRunEvent(newestRun.id, 'assay.verdict')
+  const assayEvidence = structuredAssayEvidence(verdictEvent?.payload)
+  const resultStatus = newestRun.resultStatus ?? input.resultStatus ?? null
+  const candidateRun = runs.find((run) => Boolean(run.commitHash)) ?? null
+  const candidateCommit = assayEvidence?.candidateSha ?? candidateRun?.commitHash ?? null
+  const assayedCandidate = assayEvidence?.verifiedSha ??
+    verifiedShaFromWorkspaceEvidence(newestRun.notes)
+
+  const persistedClean = assayEvidence
+    ? /^complete$/i.test((resultStatus ?? '').trim()) &&
+      assayEvidence.verdict === 'PASS' &&
+      assayEvidence.failureCode === null
+    : isCleanAssayResult({
+        resultStatus,
+        testsSummary: newestRun.testsSummary ?? input.testsSummary ?? null,
+      })
+
+  const acceptanceTransition = decideForgeTransition(
+    persistedClean
+      ? { type: 'assay-pass' }
+      : {
+          type: 'assay-fail',
+          code: assayEvidence?.failureCode ?? 'ASSAY_TEST_FAILED',
+          detail:
+            assayEvidence?.failureDetail ??
+            `Assay did not produce a publishable result (status=${resultStatus ?? '(none)'}).`,
+        },
+  )
+  await appendTransitionDecision(newestRun, input.storyId, acceptanceTransition)
+
+  if (acceptanceTransition.action !== 'publish') {
+    await markForgeStoryHumanHold(input.storyId)
     const detail =
-      `Clean Assay verified candidate ${assayedCandidate ? assayedCandidate.slice(0, 12) : '(none)'} (workspace base), ` +
-      `but the publish candidate is ${candidateCommit.slice(0, 12)}. ` +
-      `Publication requires the clean Assay to have verified the exact candidate being published (ENG-FORGE-V4-10C). ` +
-      `Candidate commit preserved; story held for repair.`
-    await setStoryboardStatus(input.storyId, 'Hold')
-    if (newestRun) {
-      await updateStoryRunProgress(newestRun.id, { note: detail })
-    }
+      acceptanceTransition.failure?.detail ?? 'Assay failed; human intervention required.'
+    await updateStoryRunProgress(newestRun.id, {
+      note: `${detail} No automatic Assay retry and no Smith restart.`,
+    })
+    return { kind: 'skipped', detail }
+  }
+
+  if (candidateCommit && assayedCandidate !== candidateCommit) {
+    const detail =
+      `Assay verified ${assayedCandidate ? assayedCandidate.slice(0, 12) : '(none)'}, ` +
+      `but publish candidate is ${candidateCommit.slice(0, 12)}. Candidate preserved; human intervention required.`
+    const conflict = decideForgeTransition({ type: 'publish-conflict', detail })
+    await appendTransitionDecision(newestRun, input.storyId, conflict)
+    await markForgeStoryHumanHold(input.storyId)
+    await updateStoryRunProgress(newestRun.id, { note: detail })
     return { kind: 'publish-conflict', detail }
   }
 
   const publish = input.publish ?? publishAcceptedCandidateAfterAssay
   const report: AcceptedCandidatePublishReport = await publish({
     role: input.finishedRole,
-    resultStatus: newestRun?.resultStatus ?? input.resultStatus ?? null,
-    testsSummary: newestRun?.testsSummary ?? input.testsSummary ?? null,
+    resultStatus,
+    testsSummary: newestRun.testsSummary ?? input.testsSummary ?? null,
+    assayEvidence,
     candidateCommit,
     assayedCandidate,
     repoRoot: input.repoRoot,
   })
 
   switch (report.action) {
-    case 'not-eligible':
+    case 'not-eligible': {
+      const decision = decideForgeTransition({
+        type: 'publish-conflict',
+        detail: report.reason,
+      })
+      await appendTransitionDecision(newestRun, input.storyId, decision)
+      await markForgeStoryHumanHold(input.storyId)
       return { kind: 'skipped', detail: report.reason }
-    case 'no-candidate':
+    }
+    case 'no-candidate': {
+      const decision = decideForgeTransition({
+        type: 'smith-failed',
+        code: 'NO_CANDIDATE',
+        detail: report.reason,
+      })
+      await appendTransitionDecision(newestRun, input.storyId, decision)
+      await markForgeStoryHumanHold(input.storyId)
       return { kind: 'no-candidate', detail: report.reason }
+    }
     case 'published': {
-      if (newestRun) {
-        await updateStoryRunProgress(newestRun.id, {
-          note: `Accepted candidate published: candidate ${report.candidateCommit} -> origin/main ${report.publishedMainHash}`,
-        })
-      }
+      await appendForgeRunEvent({
+        storyRunId: newestRun.id,
+        storyId: input.storyId,
+        eventType: 'publish.completed',
+        payload: {
+          candidateCommit: report.candidateCommit,
+          publishedMainHash: report.publishedMainHash,
+        },
+      })
+      const complete = decideForgeTransition({ type: 'publish-complete' })
+      await appendTransitionDecision(newestRun, input.storyId, complete)
+      await markForgeStoryPublishedComplete(input.storyId)
+      await updateStoryRunProgress(newestRun.id, {
+        note: `Accepted candidate published: candidate ${report.candidateCommit} -> origin/main ${report.publishedMainHash}`,
+      })
       return {
         kind: 'published',
         candidateCommit: report.candidateCommit,
@@ -181,15 +280,25 @@ export async function runForgePublishAfterAssay(
       }
     }
     case 'publish-conflict': {
-      await setStoryboardStatus(input.storyId, 'Hold')
       const detail =
         `Accepted candidate ${report.candidateCommit ?? '(none)'} was NOT published to origin/main ` +
         `(remote main ${report.remoteMainHash ?? '(unreadable)'}): ${report.reason}`
-      if (newestRun) {
-        await updateStoryRunProgress(newestRun.id, {
-          note: `Publish conflict — story held for repair: ${detail}`,
-        })
-      }
+      await appendForgeRunEvent({
+        storyRunId: newestRun.id,
+        storyId: input.storyId,
+        eventType: 'publish.conflict',
+        payload: {
+          candidateCommit: report.candidateCommit,
+          remoteMainHash: report.remoteMainHash,
+          reason: report.reason,
+        },
+      })
+      const decision = decideForgeTransition({ type: 'publish-conflict', detail })
+      await appendTransitionDecision(newestRun, input.storyId, decision)
+      await markForgeStoryHumanHold(input.storyId)
+      await updateStoryRunProgress(newestRun.id, {
+        note: `Publish conflict — human intervention required: ${detail}`,
+      })
       return { kind: 'publish-conflict', detail }
     }
     default:
