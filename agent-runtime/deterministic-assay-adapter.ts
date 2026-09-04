@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
 
 import {
@@ -39,7 +39,7 @@ export type AssayCommandRunner = (input: {
   cwd: string
   env: Record<string, string | undefined>
   timeoutMs: number
-  onProcess?: (proc: ChildProcessWithoutNullStreams | null) => void
+  onProcess?: (proc: ChildProcess | null) => void
 }) => Promise<AssayCommandResult>
 
 export type DeterministicAssayConfig = {
@@ -60,7 +60,7 @@ export async function runAssayCommand(input: {
   cwd: string
   env: Record<string, string | undefined>
   timeoutMs: number
-  onProcess?: (proc: ChildProcessWithoutNullStreams | null) => void
+  onProcess?: (proc: ChildProcess | null) => void
 }): Promise<AssayCommandResult> {
   const started = Date.now()
   let stdoutTail = ''
@@ -68,7 +68,7 @@ export async function runAssayCommand(input: {
   let timedOut = false
 
   return await new Promise<AssayCommandResult>((resolve) => {
-    let proc: ChildProcessWithoutNullStreams | null = null
+    let proc: ChildProcess | null = null
     let settled = false
     const finish = (result: Omit<AssayCommandResult, 'durationMs' | 'tests'>) => {
       if (settled) return
@@ -88,7 +88,7 @@ export async function runAssayCommand(input: {
         env: input.env as NodeJS.ProcessEnv,
         shell: process.env.FORGE_ASSAY_SHELL ?? process.env.SHELL ?? true,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }) as ChildProcessWithoutNullStreams
+      })
       input.onProcess?.(proc)
     } catch (error) {
       stderrTail = appendTail(
@@ -106,10 +106,10 @@ export async function runAssayCommand(input: {
       return
     }
 
-    proc.stdout.on('data', (chunk) => {
+    proc.stdout?.on('data', (chunk) => {
       stdoutTail = appendTail(stdoutTail, String(chunk))
     })
-    proc.stderr.on('data', (chunk) => {
+    proc.stderr?.on('data', (chunk) => {
       stderrTail = appendTail(stderrTail, String(chunk))
     })
     proc.on('error', (error) => {
@@ -180,7 +180,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
   private execution: Promise<void> | null = null
   private done = false
   private cancelled = false
-  private currentChild: ChildProcessWithoutNullStreams | null = null
+  private currentChild: ChildProcess | null = null
 
   constructor(
     deps: ConstructorParameters<typeof AgentRuntimeAdapter>[0],
@@ -199,8 +199,6 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     this.evidence = null
     this.execution = this.executePlan(context)
       .catch((error) => {
-        // Defensive: an Assay implementation exception is verification failure
-        // evidence, not permission to invoke another model or restart Smith.
         const candidateSha = assayCandidateFromInstructions(
           context.command.specialInstructions,
         )
@@ -304,7 +302,6 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
         }
         commandResults.push(result)
 
-        // Fail fast. Later commands cannot repair a broken required command.
         if (
           result.timedOut ||
           result.exitCode !== 0 ||
