@@ -6,7 +6,13 @@
 // packet truth) plus the RESOLVED runtime assignment. It fails closed with
 // concrete reasons and NEVER invents a missing value, never falls back to a
 // different player/field/profile, and never silently fills an empty brief,
-// acceptance criteria, Assay plan, or execution target.
+// acceptance criteria, or execution target.
+//
+// Assay planning is intentionally NOT a Smith-launch prerequisite. Smith may
+// finish useful code and produce a candidate before an Assay recipe exists.
+// The Smith→Assay handoff owns the Assay-plan gate so a missing plan preserves
+// the completed candidate and holds the story for verification planning rather
+// than discarding useful work at launch time.
 //
 // The result is a small PROVIDER-NEUTRAL contract (`ok + reasons/code`).
 // Hydration/enqueue boundaries and the launch boundary reuse the same
@@ -19,18 +25,16 @@
 // Existing V3 defenses are kept in place — this gate strengthens them.
 // ---------------------------------------------------------------------------
 
-import { parseAssayCommands } from './assay-plan'
 import type { AgentCapability } from './capabilities'
 import { DEFAULT_LANES } from './lanes'
 import type { AdapterReadiness } from './readiness'
 import type { StoryPacketFields } from './story-session'
 import { EXECUTION_ENVIRONMENTS } from '../lib/execution-target'
 
-/** Every fail-closed condition the execution-contract gate can name. */
+/** Every fail-closed condition the Smith launch gate can name. */
 export type ExecutionContractCheck =
   | 'missing-architect-brief'
   | 'missing-acceptance-criteria'
-  | 'missing-assay-plan'
   | 'missing-execution-target'
   | 'invalid-execution-target'
   | 'profile-unregistered'
@@ -82,9 +86,9 @@ function present(value: string | null | undefined): boolean {
 
 /**
  * Validate a Smith launch contract. Returns `{ ok: true }` only when every
- * packet requirement and every resolved-runtime requirement holds; otherwise
- * `{ ok: false }` with a first-failure `code` plus one reason per violated
- * condition. Pure and provider-neutral — never throws on a bad contract.
+ * launch-time packet/runtime requirement holds; otherwise `{ ok: false }` with
+ * a first-failure `code` plus one reason per violated condition. Assay commands
+ * are deliberately excluded here and enforced at Smith→Assay handoff.
  */
 export function validateExecutionContract(
   input: ExecutionContractSubject,
@@ -110,16 +114,7 @@ export function validateExecutionContract(
     })
   }
 
-  // 3. Non-empty Assay commands / Assay plan.
-  if (parseAssayCommands(story.assayCommands).length === 0) {
-    reasons.push({
-      code: 'missing-assay-plan',
-      message:
-        'Assay commands / Assay plan are missing — a Smith launch requires non-empty ## Assay commands on the packet',
-    })
-  }
-
-  // 4. Explicit execution target on the work envelope (DEV|PROD|TEST|LOCAL).
+  // 3. Explicit execution target on the work envelope (DEV|PROD|TEST|LOCAL).
   const target = String(input.executionTarget ?? '').trim()
   if (target === '') {
     reasons.push({
@@ -134,7 +129,7 @@ export function validateExecutionContract(
     })
   }
 
-  // 5. Assigned logical profile exists (never invented, never substituted).
+  // 4. Assigned logical profile exists (never invented, never substituted).
   const profile = String(input.modelProfile ?? '').trim()
   if (profile === '') {
     reasons.push({
@@ -147,7 +142,7 @@ export function validateExecutionContract(
       message: `profile '${profile}' is not registered — do not invent or fall back to another profile`,
     })
   } else {
-    // 6. Selected adapter/player runtime is ready under the V4-07 readiness gate.
+    // 5. Selected adapter/player runtime is ready under the V4-07 readiness gate.
     const readiness = input.registry.inspectProfileReadiness(profile)
     if (!readiness.ready) {
       reasons.push({
@@ -156,7 +151,7 @@ export function validateExecutionContract(
       })
     }
 
-    // 8. Smith-required capabilities are satisfied by the selected runtime/profile.
+    // 7. Smith-required capabilities are satisfied by the selected runtime/profile.
     const required =
       input.requiredCapabilities ?? DEFAULT_LANES.smith.requiredCapabilities
     const config = input.registry.resolveProfile(profile)
@@ -169,7 +164,7 @@ export function validateExecutionContract(
     }
   }
 
-  // 7. Assigned Field is ready (never a fallback field).
+  // 6. Assigned Field is ready (never a fallback field).
   const field = input.field
   if (!field) {
     reasons.push({
