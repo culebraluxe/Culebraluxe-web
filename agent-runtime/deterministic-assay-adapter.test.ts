@@ -71,10 +71,20 @@ class ExposedAssay extends DeterministicAssayAdapter {
   }
 }
 
-function context(cwd: string, sha: string, cmd: AgentWorkCommand): AgentExecutionContext {
+function context(
+  cwd: string,
+  sha: string,
+  cmd: AgentWorkCommand,
+  assayCommands: string,
+): AgentExecutionContext {
   return {
     command: cmd,
-    story: { id: 'ENG-FORGE-V6', title: 'V6' } as never,
+    story: {
+      id: 'ENG-FORGE-V6',
+      title: 'V6',
+      testMode: 'SCOPED',
+      assayCommands,
+    } as never,
     policy: {
       allowCommit: false,
       allowDevDbWrite: false,
@@ -105,7 +115,7 @@ async function terminalStatus(
   throw new Error('Assay did not terminalize')
 }
 
-test('deterministic Assay executes immutable commands with no model and returns structured PASS', async () => {
+test('deterministic Assay executes frozen Story Run commands, not stale envelope plan', async () => {
   const w = workspace()
   try {
     const calls: string[] = []
@@ -122,13 +132,13 @@ test('deterministic Assay executes immutable commands with no model and returns 
         stderrTail: '',
       }
     }
-    const planned = withAssayPlanDirective('plan', {
-      mode: 'SCOPED',
-      commands: ['verify-one', 'verify-two'],
+    const staleEnvelopePlan = withAssayPlanDirective('stale plan', {
+      mode: 'FULL',
+      commands: ['must-not-run-from-envelope'],
     })
-    const instructions = withAssayCandidateDirective(planned, w.sha)
+    const instructions = withAssayCandidateDirective(staleEnvelopePlan, w.sha)
     const cmd = command(instructions)
-    const ctx = context(w.cwd, w.sha, cmd)
+    const ctx = context(w.cwd, w.sha, cmd, 'verify-one\nverify-two')
     const adapter = new ExposedAssay(
       { work: {} as never, runs: {} as never },
       { runCommand: runner, commandTimeoutMs: 1_000 },
@@ -150,7 +160,7 @@ test('deterministic Assay executes immutable commands with no model and returns 
   }
 })
 
-test('deterministic Assay stops at first failed command and returns Hold for human intervention', async () => {
+test('deterministic Assay stops at first failed frozen Run command and returns Hold', async () => {
   const w = workspace()
   try {
     const calls: string[] = []
@@ -167,13 +177,13 @@ test('deterministic Assay stops at first failed command and returns Hold for hum
         stderrTail: 'test failed',
       }
     }
-    const planned = withAssayPlanDirective('plan', {
-      mode: 'SCOPED',
-      commands: ['verify-one', 'must-not-run'],
+    const staleEnvelopePlan = withAssayPlanDirective('stale plan', {
+      mode: 'FULL',
+      commands: ['must-not-run-from-envelope'],
     })
-    const instructions = withAssayCandidateDirective(planned, w.sha)
+    const instructions = withAssayCandidateDirective(staleEnvelopePlan, w.sha)
     const cmd = command(instructions)
-    const ctx = context(w.cwd, w.sha, cmd)
+    const ctx = context(w.cwd, w.sha, cmd, 'verify-one\nmust-not-run')
     const adapter = new ExposedAssay(
       { work: {} as never, runs: {} as never },
       { runCommand: runner },
