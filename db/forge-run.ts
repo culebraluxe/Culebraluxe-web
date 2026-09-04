@@ -23,19 +23,30 @@ export type ForgeRunExecutionStory = StoryboardStory & {
   packetSha?: string | null
 }
 
+export type ForgeLeadRunRecord = {
+  phase: string | null
+  decision: string | null
+  splitCount: number | null
+}
+
 /**
  * Freeze the complete architect/execution contract onto a newly-created Run.
  * Existing historical runs are deliberately not backfilled from today's Story.
  */
 export async function initializeForgeStoryRun(
   runId: string,
-  input: { runType: string | null; agentRuntime: string | null },
+  input: {
+    runType: string | null
+    agentRuntime: string | null
+    runPhase?: string | null
+  },
   execute?: QueryExecutor,
 ): Promise<void> {
   const q = execute ?? (await executor())
   await q`
     update storyboard_story_run r
     set run_type = coalesce(${input.runType}, r.run_type),
+        run_phase = coalesce(${input.runPhase ?? null}, r.run_phase),
         agent_runtime = coalesce(${input.agentRuntime}, r.agent_runtime),
         goal_snapshot = s.goal,
         scope_snapshot = s.scope,
@@ -114,6 +125,53 @@ export async function setForgeRunRuntime(
     set agent_runtime = ${agentRuntime}, updated_at = now()
     where id = ${runId}
   `
+}
+
+/** Persist Lead judgment as structured Run truth, not prose to be re-parsed later. */
+export async function recordForgeLeadDecision(
+  runId: string,
+  input: {
+    phase: string
+    decision: string
+    splitCount?: number | null
+    detail?: string | null
+  },
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  const detail = input.detail?.trim() || null
+  await q`
+    update storyboard_story_run
+    set run_phase = ${input.phase},
+        lead_decision = ${input.decision},
+        lead_split_count = ${input.splitCount ?? null},
+        evidence_detail = case
+          when ${detail}::text is null then evidence_detail
+          when evidence_detail is null or evidence_detail = '' then ${detail}
+          else evidence_detail || E'\n' || ${detail}
+        end,
+        updated_at = now()
+    where id = ${runId}
+  `
+}
+
+export async function getForgeLeadRunRecord(
+  runId: string,
+  execute?: QueryExecutor,
+): Promise<ForgeLeadRunRecord | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select run_phase, lead_decision, lead_split_count
+    from storyboard_story_run
+    where id = ${runId}
+  `
+  const row = rows[0]
+  if (!row) return null
+  return {
+    phase: (row.run_phase as string | null) ?? null,
+    decision: (row.lead_decision as string | null) ?? null,
+    splitCount: (row.lead_split_count as number | null) ?? null,
+  }
 }
 
 /** Persist generic machine facts. Null inputs preserve already-known facts. */
