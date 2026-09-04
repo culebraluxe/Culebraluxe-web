@@ -1,8 +1,8 @@
-import type { ForgeExecutionProvider } from '@/agent-runtime/gateway/provider'
 import type { ForgePosition } from '@/agent-runtime/team'
 
-const labels: Record<ForgeExecutionProvider, string> = {
-  deepseek: 'DeepSeek Harness',
+const labels: Record<string, string> = {
+  deepseek: 'DeepSeek',
+  forge: 'Forge',
   warp: 'Warp / Oz',
   openclaw: 'OpenClaw',
   opencode: 'OpenCode',
@@ -14,7 +14,7 @@ type TeamRoute = {
   player: string
   harness: string
   field: string
-  provider: ForgeExecutionProvider
+  provider: string
 }
 
 const positionLabel: Record<ForgePosition, string> = {
@@ -22,7 +22,10 @@ const positionLabel: Record<ForgePosition, string> = {
   architect: 'Architect',
   lead: 'Lead',
   smith: 'Smith',
+  inspector: 'Inspector',
   assay: 'Assay',
+  archive: 'Archive',
+  night: 'Night',
 }
 
 export function GatewayControl({
@@ -54,7 +57,7 @@ export function GatewayControl({
               <div className="mt-0.5 text-xs font-medium text-[var(--portal-gold-soft)]">{route.player}</div>
               <div className="mt-1 text-[9px] text-white/55">{route.harness} · {route.field}</div>
               <div className="mt-0.5 font-mono text-[9px] text-white/40">{route.profile}</div>
-              <div className="mt-0.5 text-[9px] text-white/35">gateway: {labels[route.provider]}</div>
+              <div className="mt-0.5 text-[9px] text-white/35">gateway: {labels[route.provider] ?? route.provider}</div>
             </div>
           ))}
         </div>
