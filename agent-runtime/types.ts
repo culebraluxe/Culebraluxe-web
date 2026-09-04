@@ -47,21 +47,28 @@ export type AdapterRuntimeStatus =
   | 'failed'
   | 'cancelled'
 
-/** Durable Agent Work Command — WHAT work is requested and WHO/HOW was frozen for it. */
+/**
+ * Durable Agent Work Command.
+ *
+ * V6.1 runtime work is required by the launch guard to carry the typed routing
+ * fields below. They remain optional in this public shape only so historical
+ * fixtures/legacy tooling can still construct pre-V6.1 commands for tests and
+ * diagnostics. Absence is NEVER accepted at the production launch boundary.
+ */
 export interface AgentWorkCommand {
   workItemId: string
   storyId: string
   role: AgentRole
-  lane: LaneId
-  runPhase: LeadRunPhase | null
+  lane?: LaneId
+  runPhase?: LeadRunPhase | null
   modelProfile: ModelProfile
-  runtimeSelection: AgentRuntimeSelection
+  runtimeSelection?: AgentRuntimeSelection
   specialInstructions: string | null
-  candidateShas: string[]
-  parallelGroupId: string | null
-  parallelSlot: number | null
-  parallelSize: number | null
-  splitAssignment: string | null
+  candidateShas?: string[]
+  parallelGroupId?: string | null
+  parallelSlot?: number | null
+  parallelSize?: number | null
+  splitAssignment?: string | null
   priority: number
   state: AgentCommandState
   claimedBy: string | null
@@ -86,11 +93,8 @@ export interface AgentExecutionContext {
   story: StoryboardStory & StoryPacketFields
   policy: AgentExecutionPolicy
   capabilities: AgentCapability[]
-  /**
-   * Convenience copy for active execution. The durable command is authoritative;
-   * pause/resume/cancel helper contexts may omit this copy and use command.runtimeSelection.
-   */
-  runtimeSelection?: AgentRuntimeSelection
+  /** Frozen player/model/harness/field selection from the durable work item. */
+  runtimeSelection: AgentRuntimeSelection
   executionEnvironment?: string | null
   executionWorkspace?: AgentExecutionWorkspace | null
   storyRunId: string
