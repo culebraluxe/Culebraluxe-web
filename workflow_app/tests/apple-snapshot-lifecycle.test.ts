@@ -35,15 +35,14 @@ function currentProjection(staged: Staged[], snapshotMembers: string[]): string[
 }
 
 test('lifecycle A+B: Snapshot A then Snapshot B -> l_person is exactly B,C,D; A stays in ODS', () => {
-  // ODS staged history contains A,B,C,D.
   const staged: Staged[] = [
     { key: 'A', rev: 1, batch: 'X' },
-    { key: 'B', rev: 1, batch: 'X' }, // B's latest revision was created by batch X
+    { key: 'B', rev: 1, batch: 'X' },
     { key: 'C', rev: 1, batch: 'X' },
     { key: 'D', rev: 1, batch: 'Y' },
   ]
   const membershipX = ['A', 'B', 'C']
-  const membershipY = ['B', 'C', 'D'] // B is a replay in Y -> no new staged row
+  const membershipY = ['B', 'C', 'D']
 
   const before = currentProjection(staged, membershipX)
   assert.deepEqual(before, ['A', 'B', 'C'], 'Snapshot A projected A,B,C')
@@ -96,13 +95,14 @@ test('lifecycle F: projection restricts l_person to current snapshot members and
   assert.ok(PROJECTOR.includes("load_status = 'loaded'"), 'projection uses the latest LOADED batch')
 })
 
-test('lifecycle G: reconciliation/promotion are current-only (EXISTS current l_person)', () => {
+test('lifecycle G: operator masters exactly the current l_person population', () => {
   const promote = readFileSync('db/promote-evidence.ts', 'utf8')
-  assert.ok(promote.includes('lp.source_contact_id = integration_relationship_evidence.source_identity_key'), 'promote restricts to current l_person members')
-  assert.ok(promote.includes('currentOnly'), 'promoteEvidence exposes the current-only option')
+  assert.ok(promote.includes('lp.source_contact_id = integration_relationship_evidence.source_identity_key'), 'legacy evidence promotion can restrict to current l_person members')
   const run = readFileSync('scripts/promote-apple-contacts.ts', 'utf8')
-  assert.ok(run.includes('getCurrentAppleEvidenceRows'), 'operator run reconciles current-only evidence')
-  assert.ok(run.includes('currentOnly: true'), 'operator promote is current-only')
+  assert.ok(run.includes('loadAppleEvidence'), 'operator projects current Apple evidence before mastering')
+  assert.ok(run.includes('masterCurrentSourcePeople'), 'operator masters current source people directly')
+  assert.ok(run.includes('membership !== current'), 'operator fails closed if snapshot and l_person populations diverge')
+  assert.ok(run.includes('mastered.current !== current'), 'operator verifies mastering consumed the current population')
 })
 
 test('lifecycle H: migration enforces unique membership per batch + FK', () => {
@@ -111,12 +111,13 @@ test('lifecycle H: migration enforces unique membership per batch + FK', () => {
   assert.ok(MIGRATION.includes('references integration_intake_batch'), 'FK to the intake batch')
 })
 
-test('lifecycle I: phone comparison is digits-only but never guesses country codes', () => {
+test('lifecycle I: NANP E.164 and ten-digit handles share one semantic phone key', () => {
   assert.equal(phoneDigitsKey('+8609895020'), '8609895020')
   assert.equal(phoneDigitsKey('8609895020'), '8609895020')
   assert.equal(phoneDigitsKey('+8609895020'), phoneDigitsKey('8609895020'), '+8609895020 == 8609895020')
-  assert.notEqual(phoneDigitsKey('+18609895020'), '8609895020', '+18609895020 is NOT guessed equal (country code not stripped)')
-  assert.notEqual(phoneDigitsKey('+18609895020').length, phoneDigitsKey('8609895020').length, '11 vs 10 digits never match')
+  assert.equal(phoneDigitsKey('+18609895020'), '8609895020', 'leading NANP country code 1 is stripped for semantic matching')
+  assert.equal(phoneDigitsKey('+18609895020'), phoneDigitsKey('8609895020'), 'E.164 and ten-digit NANP representations match')
+  assert.equal(phoneDigitsKey('+442079460958'), '442079460958', 'non-NANP country codes are never stripped')
 })
 
 test('lifecycle J: multi-owner phone conflict is surfaced (not silently first-won)', async () => {
@@ -144,4 +145,3 @@ test('lifecycle K: reconcile marks a multi-owner phone conflict ambiguous', asyn
   assert.equal(decision.reviewState, 'ambiguous', 'multi-owner phone -> ambiguous, not silent')
   assert.equal(decision.canonicalPersonId, null)
 })
-
