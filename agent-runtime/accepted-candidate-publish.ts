@@ -60,8 +60,10 @@ export async function publishAcceptedCandidateAfterAssay(
     }
   }
 
+  const completeStatus = /^complete$/i.test((input.resultStatus ?? '').trim())
   const clean = input.assayEvidence
-    ? input.assayEvidence.verdict === 'PASS' &&
+    ? completeStatus &&
+      input.assayEvidence.verdict === 'PASS' &&
       input.assayEvidence.failureCode === null
     : isCleanAssayResult({
         resultStatus: input.resultStatus ?? null,
@@ -71,7 +73,7 @@ export async function publishAcceptedCandidateAfterAssay(
     return {
       action: 'not-eligible',
       reason: input.assayEvidence
-        ? `structured Assay verdict is ${input.assayEvidence.verdict}${input.assayEvidence.failureCode ? ` (${input.assayEvidence.failureCode})` : ''}; failed/Hold Assay never publishes accepted code`
+        ? `structured Assay is not publishable: status=${input.resultStatus ?? '(none)'}, verdict=${input.assayEvidence.verdict}${input.assayEvidence.failureCode ? `, failure=${input.assayEvidence.failureCode}` : ''}`
         : `legacy Assay did not finish clean (resultStatus='${input.resultStatus ?? '(none)'}'); a failed/Hold Assay never publishes accepted code`,
     }
   }
@@ -100,10 +102,7 @@ export async function publishAcceptedCandidateAfterAssay(
 
   const repoRoot = input.repoRoot?.trim() || process.cwd()
   const publish = input.publish ?? publishAcceptedCandidate
-  const outcome = await publish({
-    repoRoot,
-    candidateCommit: candidate,
-  })
+  const outcome = await publish({ repoRoot, candidateCommit: candidate })
 
   switch (outcome.outcome) {
     case 'no-candidate':
