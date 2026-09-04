@@ -29,7 +29,6 @@ export type AgentRuntimeSelection = {
   fieldId: string
 }
 
-/** Canonical work-item lifecycle states (migration 025 + 028). */
 export type AgentCommandState =
   | 'Ready'
   | 'Claimed'
@@ -39,7 +38,6 @@ export type AgentCommandState =
   | 'Error'
   | 'Cancelled'
 
-/** Canonical runtime status vocabulary exposed by adapters. */
 export type AdapterRuntimeStatus =
   | 'idle'
   | 'starting'
@@ -49,7 +47,7 @@ export type AdapterRuntimeStatus =
   | 'failed'
   | 'cancelled'
 
-/** Durable Agent Work Command — WHAT work is requested. */
+/** Durable Agent Work Command — WHAT work is requested and WHO/HOW was frozen for it. */
 export interface AgentWorkCommand {
   workItemId: string
   storyId: string
@@ -88,8 +86,11 @@ export interface AgentExecutionContext {
   story: StoryboardStory & StoryPacketFields
   policy: AgentExecutionPolicy
   capabilities: AgentCapability[]
-  /** Frozen player/model/harness/field selection from the durable work item. */
-  runtimeSelection: AgentRuntimeSelection
+  /**
+   * Convenience copy for active execution. The durable command is authoritative;
+   * pause/resume/cancel helper contexts may omit this copy and use command.runtimeSelection.
+   */
+  runtimeSelection?: AgentRuntimeSelection
   executionEnvironment?: string | null
   executionWorkspace?: AgentExecutionWorkspace | null
   storyRunId: string
@@ -109,7 +110,6 @@ export interface AgentExecutionPolicy {
   allowControlPlaneWrite: boolean
 }
 
-/** Normalized adapter evidence. */
 export interface AgentRunEvidence {
   resultStatus: string
   completion: number
