@@ -4,13 +4,8 @@
 // Reproduces the V4-11 false-positive path (Assay workspace provisioned from
 // main@<head> while Smith's candidate commit was <candidate>; the failed
 // packet command still normalized to Complete 100%) and proves every seam of
-// the strict invariant fails closed:
-//
-//   Smith candidate C -> QA candidate C -> Assay workspace base C
-//   -> Assay evidence about C -> only then may C publish.
-//
-// V6.1 inserts mandatory independent QA before deterministic Assay; the exact
-// candidate SHA still remains immutable across both gates.
+// the strict invariant fails closed. V6.1 inserts mandatory independent QA
+// before deterministic Assay while preserving the exact candidate SHA.
 // ---------------------------------------------------------------------------
 
 import assert from 'node:assert/strict'
