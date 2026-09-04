@@ -10,6 +10,8 @@ import {
   DEFAULT_FORGE_TEAM,
   resolveForgeAssignment,
   type ForgeAssignmentGrade,
+  type ForgeFieldId,
+  type ForgeHarnessId,
   type ForgeTeam,
 } from './team'
 
@@ -29,6 +31,11 @@ export interface LaneLaunch {
   lane: LaneId
   role: AgentRole
   modelProfile: ModelProfile
+  playerId: string
+  providerId: string
+  modelId: string
+  harnessId: ForgeHarnessId
+  fieldId: ForgeFieldId
   lineage: ModelLineage
   maxSteps: number
   toolPolicy: LaneBinding['toolPolicy']
@@ -65,17 +72,17 @@ export interface ResolveLaneInput {
 
 const LANE_PREAMBLE: Record<LaneId, string> = {
   scout:
-    'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls. Return a packet: ranked files, signatures, and the 3–7 files the next lane must read.',
+    'Lane=scout. Volume context gathering only. Do not design, edit, or commit. Cap tool calls. Return a packet: ranked files, signatures, and the 3–7 files the Architect must read.',
   architect:
     'Lane=architect. Own design truth. Produce a complete contract for Lead: scope, constraints, execution-relevant architecture, acceptance checks, and Assay plan. Do not perform implementation.',
   lead:
-    'Lane=lead. Own execution strategy and integration. Validate the frozen Architect contract against repository reality, veto bad scope/architecture, choose the cheapest sound implementation shape, and protect the Assay handoff. Never silently rewrite architectural truth.',
+    'Lane=lead. Own execution strategy and integration. Validate the frozen Architect contract against repository reality, veto bad scope/architecture, choose the cheapest sound implementation shape, and protect the QA/Assay handoff. Never silently rewrite architectural truth.',
   smith:
     'Lane=smith. Implement against the frozen Architect contract and Lead assignment. Do not review your own diff. Stop when the assigned work is done or maxSteps is hit.',
   inspector:
-    'Lane=inspector. Second opinion on the inline diff. Different lineage from Smith. Read-only. Disagreement is the point. Do not silently patch.',
+    'Lane=inspector. Independent QA judgment on the integrated candidate. Different lineage from Smith. Read-only. Challenge implementation and architecture conformance; do not silently patch.',
   assay:
-    'Lane=assay. Read-only TUNIT/evidence check. Instruction-following only. Inventiveness is a defect. Willing to return nothing.',
+    'Lane=assay. Deterministic exact-candidate evidence check. Instruction-following only. Inventiveness is a defect.',
   archive:
     'Lane=archive. One huge input, few calls. Extract invariants. Do not implement.',
   night:
@@ -134,7 +141,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       return {
         ok: false,
         code: 'missing-diff',
-        reason: 'Inspector requires an inline diff from Smith',
+        reason: 'QA requires an integrated candidate/diff from Lead',
       }
     }
     const smithLineage = input.session.smithLineage
@@ -142,7 +149,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       return {
         ok: false,
         code: 'same-lineage-review',
-        reason: `Inspector lineage '${assignment.lineage}' equals Smith lineage — map a different player/lab.`,
+        reason: `QA lineage '${assignment.lineage}' equals Smith lineage — map a different player/lab.`,
       }
     }
   }
@@ -151,7 +158,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
     return {
       ok: false,
       code: 'missing-scout-packet',
-      reason: 'Architect does not tool. Scout must produce a packet first.',
+      reason: 'Architect requires the Scout packet before planning.',
     }
   }
 
@@ -164,7 +171,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       ok: false,
       code: 'missing-architect-brief',
       reason:
-        `${input.lane === 'lead' ? 'Lead' : 'Smith'} requires the frozen Architect contract. Write the brief or run the Architect lane first.`,
+        `${input.lane === 'lead' ? 'Lead' : 'Smith'} requires the frozen Architect contract. Run the Architect lane first.`,
     }
   }
 
@@ -195,6 +202,11 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       lane: input.lane,
       role: binding.role,
       modelProfile: profile,
+      playerId: assignment.player.id,
+      providerId: assignment.player.provider,
+      modelId: assignment.player.model,
+      harnessId: assignment.harness.id,
+      fieldId: assignment.field.id,
       lineage: assignment.lineage,
       maxSteps: binding.maxSteps,
       toolPolicy: binding.toolPolicy,
