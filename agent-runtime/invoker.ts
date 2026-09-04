@@ -48,6 +48,11 @@ export interface AgentInvokerDeps {
   enforceExecutionContract?: boolean
 }
 
+type InvokerClaim = {
+  workItem: { id: string }
+  story: ForgeAgentWorkClaim['story']
+}
+
 export function buildAgentInvokerWorkspaces(
   workerId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -72,10 +77,14 @@ export async function claimNextAgentCommand(
 
 export async function executeClaimedAgentCommand(
   _workerId: string,
-  claim: ForgeAgentWorkClaim,
+  claim: InvokerClaim,
   deps: AgentInvokerDeps,
 ): Promise<InvokerResult> {
-  const workItem = claim.workItem
+  // Always re-read the durable V6.1 row here. This keeps legacy callers that
+  // still hold an old AgentWorkClaim shape compatible without letting that
+  // stale shape become routing authority.
+  const workItem = await deps.work.get(claim.workItem.id)
+  if (!workItem) throw new Error(`work item ${claim.workItem.id} disappeared before execution`)
   const story = claim.story
   const leadPhase = workItem.runPhase ??
     (workItem.role === 'lead' ? leadRunPhaseFromInstructions(workItem.specialInstructions) : null)
