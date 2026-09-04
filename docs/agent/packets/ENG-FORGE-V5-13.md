@@ -4,7 +4,7 @@
 Add a decision gate that allows parallel Dev execution only when decomposition evidence shows independent work and measured benefit is likely.
 
 ## Depends on
-ENG-FORGE-V5-12 accepted and published.
+HARD: ENG-FORGE-V5-12 accepted and published. This is a real dependency because parallel eligibility consumes the decomposition/output contract defined there. V5-07 telemetry is useful evidence when present but is not a hard blocker.
 
 ## Scope
 Do not build a swarm. Add eligibility rules and measurements for future parallelism: independent outputs, no shared mutable files, bounded merge/reassembly contract, expected input count, cost/time thresholds, and fallback to serial.
