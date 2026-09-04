@@ -72,14 +72,20 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
 
     this.stdout = ''
     this.stderr = ''
-    this.proc = spawn(command.bin, command.args, {
+    // Keep the spawned process in a local non-null binding while wiring its
+    // listeners. Next augments NodeJS.ProcessEnv with required framework keys,
+    // while our sanitized runtime env is intentionally a generic string map;
+    // the cast is only at Node's spawn boundary and does not change runtime
+    // values or the execution-target safety policy.
+    const proc = spawn(command.bin, command.args, {
       cwd,
-      env: childEnv,
+      env: childEnv as NodeJS.ProcessEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    this.proc.stdout?.on('data', (chunk) => { this.stdout += String(chunk) })
-    this.proc.stderr?.on('data', (chunk) => { this.stderr += String(chunk) })
-    this.proc.on('error', (error) => { this.externalErrorText = error.message })
+    this.proc = proc
+    proc.stdout?.on('data', (chunk) => { this.stdout += String(chunk) })
+    proc.stderr?.on('data', (chunk) => { this.stderr += String(chunk) })
+    proc.on('error', (error) => { this.externalErrorText = error.message })
     const externalRunId = `${this.provider.id}-${context.command.workItemId}-${Date.now()}`
     return { externalRunId }
   }
