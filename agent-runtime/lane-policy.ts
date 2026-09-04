@@ -6,8 +6,14 @@ import {
   type LaneId,
   type ModelLineage,
 } from './lanes'
+import {
+  DEFAULT_FORGE_TEAM,
+  resolveForgeAssignment,
+  type ForgeAssignmentGrade,
+  type ForgeTeam,
+} from './team'
 
-export type SmithGrade = 'default' | 'upgrade' | 'emergency'
+export type SmithGrade = ForgeAssignmentGrade
 
 export interface LaneSession {
   smithLineage?: ModelLineage | null
@@ -31,6 +37,7 @@ export interface LaneLaunch {
 
 export type LaneRejectCode =
   | 'unknown-lane'
+  | 'assignment-unavailable'
   | 'profile-unregistered'
   | 'same-lineage-review'
   | 'missing-diff'
@@ -52,6 +59,7 @@ export interface ResolveLaneInput {
   extraInstructions?: string | null
   registry?: Pick<AgentRuntimeRegistry, 'hasProfile'>
   lanes?: Record<LaneId, LaneBinding>
+  team?: ForgeTeam
   authorizeEmergency?: boolean
 }
 
@@ -82,21 +90,37 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
   }
 
   const grade = input.smithGrade ?? input.session?.smithGrade ?? 'default'
-  let profile = binding.profile
-  if ((input.lane === 'smith' || input.lane === 'night') && grade === 'upgrade') {
-    profile = binding.upgradeProfile ?? binding.profile
-  }
-  if ((input.lane === 'smith' || input.lane === 'night') && grade === 'emergency') {
-    if (!input.authorizeEmergency) {
-      return {
-        ok: false,
-        code: 'emergency-not-authorized',
-        reason: 'emergency Smith grade requires an explicit authorizeEmergency flag',
-      }
+  if (
+    (input.lane === 'smith' || input.lane === 'night') &&
+    grade === 'emergency' &&
+    !input.authorizeEmergency
+  ) {
+    return {
+      ok: false,
+      code: 'emergency-not-authorized',
+      reason: 'emergency Smith grade requires an explicit authorizeEmergency flag',
     }
-    profile = binding.emergencyProfile ?? binding.profile
   }
 
+  const assignmentGrade: ForgeAssignmentGrade =
+    input.lane === 'smith' || input.lane === 'night' ? grade : 'default'
+
+  let assignment
+  try {
+    assignment = resolveForgeAssignment(
+      binding.position,
+      input.team ?? DEFAULT_FORGE_TEAM,
+      assignmentGrade,
+    )
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'assignment-unavailable',
+      reason: String((error as Error)?.message ?? error),
+    }
+  }
+
+  const profile = assignment.profile
   if (input.registry && !input.registry.hasProfile(profile)) {
     return {
       ok: false,
@@ -114,11 +138,11 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       }
     }
     const smithLineage = input.session.smithLineage
-    if (smithLineage && smithLineage === binding.lineage) {
+    if (smithLineage && smithLineage === assignment.lineage) {
       return {
         ok: false,
         code: 'same-lineage-review',
-        reason: `Inspector lineage '${binding.lineage}' equals Smith lineage — pick a different lab`,
+        reason: `Inspector lineage '${assignment.lineage}' equals Smith lineage — map a different player/lab.`,
       }
     }
   }
@@ -171,7 +195,7 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
       lane: input.lane,
       role: binding.role,
       modelProfile: profile,
-      lineage: binding.lineage,
+      lineage: assignment.lineage,
       maxSteps: binding.maxSteps,
       toolPolicy: binding.toolPolicy,
       specialInstructions,
