@@ -62,7 +62,7 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
     const target = parseExecutionEnvironment(context.executionEnvironment, 'DEV')
     verifyWorkspaceEnvFile(cwd, target)
 
-    const selection = context.runtimeSelection
+    const selection = context.runtimeSelection ?? context.command.runtimeSelection
     const task = buildTaskText(context.command, context)
     const command = this.provider.buildCommand({
       cwd,
@@ -145,12 +145,13 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
     }
 
     const output = this.stdout.trim()
-    const modelRef = `${context.runtimeSelection.providerId}/${context.runtimeSelection.modelId}`
+    const selection = context.runtimeSelection ?? context.command.runtimeSelection
+    const modelRef = `${selection.providerId}/${selection.modelId}`
     const notes = output || `${this.provider.id} completed successfully`
     return {
       resultStatus: 'Complete',
       completion: 100,
-      notes: `Forge player=${context.runtimeSelection.playerId} model=${modelRef}\n${notes}`,
+      notes: `Forge player=${selection.playerId} model=${modelRef}\n${notes}`,
       testsSummary: extractTestsSummary(output, `${this.provider.id} exit 0`),
       commitHash,
       runtimeAdapter: this.runtimeAdapterId,
