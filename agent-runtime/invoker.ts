@@ -27,10 +27,8 @@ import {
   resolveAssayWorkspaceBase,
   smithCandidateSha,
 } from './candidate-assay-handoff'
-import {
-  provisionWorkerWorkspace,
-  resolveApprovedBaseRef,
-} from '../lib/worker-workspace'
+import { resolveApprovedBaseRef } from '../lib/worker-workspace'
+import { provisionOrRecoverWorkerWorkspace } from '../lib/worker-workspace/recovering-provisioner'
 import type {
   WorkerWorkspace,
   WorkerWorkspaceSpec,
@@ -79,7 +77,10 @@ export function buildAgentInvokerWorkspaces(
     workerId,
     baseRef,
     ...(worktreesRoot ? { worktreesRoot } : {}),
-    provision: provisionWorkerWorkspace,
+    // Industrial recovery: the durable work-item id is the deterministic runId.
+    // A retry therefore reattaches the exact existing branch/worktree and
+    // preserves dirty or committed Smith work instead of provisioning over it.
+    provision: provisionOrRecoverWorkerWorkspace,
   }
 }
 
