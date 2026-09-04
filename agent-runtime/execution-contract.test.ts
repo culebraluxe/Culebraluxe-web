@@ -63,7 +63,7 @@ test('a fully complete Smith contract passes unchanged', () => {
   const storyBefore = JSON.stringify(COMPLETE_STORY)
   const result = validateExecutionContract(subject())
   assert.equal(result.ok, true)
-  assert.equal(JSON.stringify(COMPLETE_STORY), storyBefore, 'story packet is not mutated')
+  assert.equal(JSON.stringify(COMPLETE_STORY), storyBefore)
   assert.equal(executionContractFailureText(result), null)
 })
 
@@ -85,12 +85,14 @@ test('missing acceptance criteria rejects Smith before external execution', () =
   assert.equal(result.code, 'missing-acceptance-criteria')
 })
 
-test('missing Assay commands do not block Smith launch', () => {
+test('Forge V6 refuses Smith token spend when Assay commands are missing', () => {
   for (const assayCommands of [null, '   \n  ', '']) {
     const result = validateExecutionContract(
       subject({ story: { ...COMPLETE_STORY, assayCommands } }),
     )
-    assert.equal(result.ok, true, `assayCommands=${JSON.stringify(assayCommands)}`)
+    assert.equal(result.ok, false, `assayCommands=${JSON.stringify(assayCommands)}`)
+    if (result.ok) continue
+    assert.equal(result.code, 'missing-assay-plan')
   }
 })
 
@@ -121,7 +123,7 @@ test('unknown profile rejects Smith and never falls back to another profile', ()
   assert.equal(result.code, 'profile-unregistered')
 })
 
-test('unregistered profile never invokes profile resolution (no throw path)', () => {
+test('unregistered profile never invokes profile resolution', () => {
   const result = validateExecutionContract(
     subject({
       modelProfile: 'builder-mystery',
@@ -133,7 +135,7 @@ test('unregistered profile never invokes profile resolution (no throw path)', ()
   assert.equal(result.code, 'profile-unregistered')
 })
 
-test('registered-but-unready adapter rejects Smith under the readiness gate', () => {
+test('registered-but-unready adapter rejects Smith under readiness gate', () => {
   const result = validateExecutionContract(
     subject({
       registry: fakeRegistry({
@@ -164,7 +166,7 @@ test('unavailable Field rejects Smith without falling back', () => {
   assert.equal(missingResult.code, 'field-not-ready')
 })
 
-test('insufficient Smith capabilities reject Smith with the missing capability named', () => {
+test('insufficient Smith capabilities reject Smith with missing capability named', () => {
   const withoutCommit = WRITE_CAPABILITIES.filter((c) => c !== 'git.commit')
   const result = validateExecutionContract(
     subject({ registry: fakeRegistry({ capabilities: withoutCommit }) }),
@@ -174,7 +176,7 @@ test('insufficient Smith capabilities reject Smith with the missing capability n
   assert.equal(result.code, 'insufficient-capabilities')
 })
 
-test('multiple launch-time failures are all reported', () => {
+test('multiple launch-time failures are all reported including missing Assay plan', () => {
   const result = validateExecutionContract(
     subject({
       story: { acceptanceCriteria: null, assayCommands: null },
@@ -187,11 +189,11 @@ test('multiple launch-time failures are all reported', () => {
   const codes = result.reasons.map((r) => r.code)
   assert.ok(codes.includes('missing-architect-brief'))
   assert.ok(codes.includes('missing-acceptance-criteria'))
+  assert.ok(codes.includes('missing-assay-plan'))
   assert.ok(codes.includes('missing-execution-target'))
-  assert.equal(codes.includes('missing-assay-plan' as never), false)
 })
 
-test('failure text is a compact provider-neutral evidence line', () => {
+test('failure text is compact provider-neutral evidence', () => {
   const result = validateExecutionContract(
     subject({
       story: { ...COMPLETE_STORY, acceptanceCriteria: null },
