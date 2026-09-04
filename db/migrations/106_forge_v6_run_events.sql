@@ -16,6 +16,3 @@ create index if not exists forge_run_event_run_idx
 
 create index if not exists forge_run_event_story_type_idx
   on forge_run_event (story_id, event_type, created_at, id);
-
-comment on table forge_run_event is
-  'Forge V6 append-only machine evidence. Insert new facts; never rewrite prior execution evidence.';
