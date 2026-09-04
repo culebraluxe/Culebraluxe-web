@@ -48,7 +48,7 @@
     "cleanse:dev": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/cleanse-dev-fixtures.ts --yes",
     "agent:runtime:dogfood": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-runtime-invoke.ts",
     "agent:runtime:deepseek": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-runtime-deepseek.ts",
-    "agent:work": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-work.ts",
+    "agent:work": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-work-entry.ts",
     "agent:scheduler:install": "node scripts/agent-scheduler.mjs install",
     "agent:scheduler:status": "node scripts/agent-scheduler.mjs status",
     "agent:scheduler:run": "node scripts/agent-scheduler.mjs run",
