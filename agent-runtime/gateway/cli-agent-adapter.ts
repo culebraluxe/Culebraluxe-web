@@ -63,6 +63,9 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
     verifyWorkspaceEnvFile(cwd, target)
 
     const selection = context.runtimeSelection ?? context.command.runtimeSelection
+    if (!selection) {
+      throw new Error('Forge gateway requires frozen player/provider/model/harness/field selection')
+    }
     const task = buildTaskText(context.command, context)
     const command = this.provider.buildCommand({
       cwd,
@@ -144,8 +147,11 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
       }
     }
 
+    const selection = context.runtimeSelection ?? command.runtimeSelection
+    if (!selection) {
+      throw new Error('Forge gateway result requires frozen runtime selection')
+    }
     const output = this.stdout.trim()
-    const selection = context.runtimeSelection ?? context.command.runtimeSelection
     const modelRef = `${selection.providerId}/${selection.modelId}`
     const notes = output || `${this.provider.id} completed successfully`
     return {
