@@ -30,9 +30,10 @@ import { openClawProvider } from './gateway/openclaw-provider'
 import { warpProvider } from './gateway/warp-provider'
 import {
   allForgeAssignmentVariants,
-  DEFAULT_FORGE_TEAM,
+  configuredForgeTeam,
   FORGE_PLAYERS,
   type ForgeHarnessId,
+  type ForgeTeam,
 } from './team'
 import {
   blockedAdapterReadiness,
@@ -58,15 +59,10 @@ class PolicyDeepSeekHarnessAdapter extends DeepSeekHarnessAdapter {
   ): Promise<AgentRunEvidence | null> {
     const evidence = await super.resultExternal(command, context)
     if (!evidence) return evidence
-    const workspace =
-      context.executionWorkspace?.worktreePath ?? defaultDeepSeekConfig().workspace
+    const workspace = context.executionWorkspace?.worktreePath ?? defaultDeepSeekConfig().workspace
 
     let committedEvidence = evidence
-    if (
-      context.policy.allowCommit &&
-      context.executionWorkspace &&
-      !evidence.commitHash
-    ) {
+    if (context.policy.allowCommit && context.executionWorkspace && !evidence.commitHash) {
       const committed = await commitWorkerWorkspaceChanges(
         workspace,
         `${context.story.id}: ${context.story.title}`,
@@ -102,15 +98,10 @@ class PolicyOpenCodeHarnessAdapter extends OpenCodeHarnessAdapter {
   ): Promise<AgentRunEvidence | null> {
     const evidence = await super.resultExternal(command, context)
     if (!evidence) return evidence
-    const workspace =
-      context.executionWorkspace?.worktreePath ?? defaultOpenCodeConfig().workspace
+    const workspace = context.executionWorkspace?.worktreePath ?? defaultOpenCodeConfig().workspace
 
     let committedEvidence = evidence
-    if (
-      context.policy.allowCommit &&
-      context.executionWorkspace &&
-      !evidence.commitHash
-    ) {
+    if (context.policy.allowCommit && context.executionWorkspace && !evidence.commitHash) {
       const committed = await commitWorkerWorkspaceChanges(
         workspace,
         `${context.story.id}: ${context.story.title}`,
@@ -140,33 +131,26 @@ class PolicyOpenCodeHarnessAdapter extends OpenCodeHarnessAdapter {
 }
 
 /** Team mapping chooses the harness. Position/role code never does. */
-function adapterIdForHarness(harnessId: ForgeHarnessId): string {
+export function adapterIdForHarness(harnessId: ForgeHarnessId): string {
   switch (harnessId) {
-    case 'forge-native':
-      return 'deepseek-harness'
-    case 'forge-assay':
-      return 'forge-assay'
-    case 'opencode':
-      return 'opencode-harness'
-    case 'openclaw':
-      return 'gateway-openclaw'
-    case 'warp-agent':
-      return 'gateway-warp'
+    case 'forge-native': return 'deepseek-harness'
+    case 'forge-assay': return 'forge-assay'
+    case 'opencode': return 'opencode-harness'
+    case 'openclaw': return 'gateway-openclaw'
+    case 'warp-agent': return 'gateway-warp'
     case 'pi':
       throw new Error('Forge team maps a profile to Pi, but no Pi runtime adapter is configured')
   }
 }
 
-function unionCapabilities(
-  left: AgentCapability[],
-  right: AgentCapability[],
-): AgentCapability[] {
+function unionCapabilities(left: AgentCapability[], right: AgentCapability[]): AgentCapability[] {
   return [...new Set([...left, ...right])]
 }
 
 export function createAgentRuntimeRegistry(
   config: DeepSeekHarnessConfig = defaultDeepSeekConfig(),
   openCodeConfig: OpenCodeHarnessConfig = defaultOpenCodeConfig(),
+  team: ForgeTeam = configuredForgeTeam(),
 ): AgentRuntimeRegistry {
   const registry = new AgentRuntimeRegistry()
 
@@ -197,11 +181,7 @@ export function createAgentRuntimeRegistry(
     adapterId: 'forge-assay',
     description: 'Forge deterministic exact-candidate Assay executor (model-free)',
     capabilities: ASSAY_CAPABILITIES,
-    readiness: () =>
-      readyAdapterReadiness(
-        'delegated',
-        'Forge deterministic Assay is local, model-free, and ready',
-      ),
+    readiness: () => readyAdapterReadiness('delegated', 'Forge deterministic Assay is local, model-free, and ready'),
     factory: (deps) => new DeterministicAssayAdapter(deps),
   })
 
@@ -264,8 +244,7 @@ export function createAgentRuntimeRegistry(
     description: 'OpenCode CLI inner harness adapter (opencode run)',
     capabilities: CORE_CAPABILITIES,
     readiness: () => {
-      const installed =
-        Boolean(openCodeConfig.startRun) || commandIsInstalled(openCodeConfig.cliBin)
+      const installed = Boolean(openCodeConfig.startRun) || commandIsInstalled(openCodeConfig.cliBin)
       if (!installed) {
         return blockedAdapterReadiness({
           installed: false,
@@ -275,16 +254,9 @@ export function createAgentRuntimeRegistry(
       }
       const modelBlocker = openCodeModelBlocker(openCodeConfig.model)
       if (modelBlocker) {
-        return blockedAdapterReadiness({
-          installed: true,
-          authentication: 'delegated',
-          reason: modelBlocker,
-        })
+        return blockedAdapterReadiness({ installed: true, authentication: 'delegated', reason: modelBlocker })
       }
-      return readyAdapterReadiness(
-        'delegated',
-        `OpenCode CLI is installed; model pinned explicitly to ${OPENCODE_PINNED_MODEL}`,
-      )
+      return readyAdapterReadiness('delegated', `OpenCode CLI is installed; model pinned explicitly to ${OPENCODE_PINNED_MODEL}`)
     },
     factory: (deps) =>
       new PolicyOpenCodeHarnessAdapter(deps, openCodeConfig, (command, context) => {
@@ -294,17 +266,13 @@ export function createAgentRuntimeRegistry(
       }),
   })
 
-  // Build logical profile -> runtime adapter registrations from ONE team map.
-  // A shared profile must map to the same player+harness everywhere it is used.
-  const mapped = new Map<
-    string,
-    { adapterId: string; playerId: string; capabilities: AgentCapability[] }
-  >()
-
-  for (const { position, variant } of allForgeAssignmentVariants(DEFAULT_FORGE_TEAM)) {
+  // Profiles remain convenient quality labels, but the durable work item freezes
+  // the actual harness/player/model. Registry execution can therefore use the
+  // frozen harness id even if the host team map changes after enqueue.
+  const mapped = new Map<string, { adapterId: string; playerId: string; capabilities: AgentCapability[] }>()
+  for (const { position, variant } of allForgeAssignmentVariants(team)) {
     const player = FORGE_PLAYERS[variant.playerId]
     if (!player) throw new Error(`unknown Forge player '${variant.playerId}'`)
-
     const adapterId = adapterIdForHarness(variant.harnessId)
     if (variant.harnessId === 'opencode') {
       const mappedModel = `${player.provider}/${player.model}`
@@ -314,32 +282,20 @@ export function createAgentRuntimeRegistry(
         )
       }
     }
-
     const required = DEFAULT_LANES[position].requiredCapabilities
     const existing = mapped.get(variant.profile)
     if (existing) {
       if (existing.adapterId !== adapterId || existing.playerId !== variant.playerId) {
-        throw new Error(
-          `logical profile '${variant.profile}' has conflicting Forge team mappings`,
-        )
+        throw new Error(`logical profile '${variant.profile}' has conflicting Forge team mappings`)
       }
       existing.capabilities = unionCapabilities(existing.capabilities, required)
     } else {
-      mapped.set(variant.profile, {
-        adapterId,
-        playerId: variant.playerId,
-        capabilities: [...required],
-      })
+      mapped.set(variant.profile, { adapterId, playerId: variant.playerId, capabilities: [...required] })
     }
   }
 
-  for (const [profile, configEntry] of mapped) {
-    registry.registerProfile({
-      profile,
-      adapterId: configEntry.adapterId,
-      capabilities: configEntry.capabilities,
-    })
+  for (const [profile, entry] of mapped) {
+    registry.registerProfile({ profile, adapterId: entry.adapterId, capabilities: entry.capabilities })
   }
-
   return registry
 }
