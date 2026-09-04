@@ -12,6 +12,11 @@ export type ProviderCommandContext = {
   cwd: string
   task: string
   modelProfile: string
+  playerId: string
+  providerId: string
+  modelId: string
+  /** Canonical provider/model reference for gateways that support explicit selection. */
+  modelRef: string
 }
 
 export interface ForgeProviderDescriptor {
@@ -40,14 +45,7 @@ export function resolveForgeExecutionProvider(
   return parseProvider(value, 'FORGE_EXECUTION_PROVIDER')
 }
 
-/**
- * Legacy explicit override helper for gateway experiments.
- *
- * IMPORTANT: this is NOT Forge's default role/model routing. V6 owns all
- * default position -> player -> harness selection in team.ts. With no explicit
- * environment override this returns the generic historical gateway default
- * only for backwards compatibility; core lane/factory code does not call it.
- */
+/** Legacy explicit override helper for gateway experiments only. */
 export function resolveForgeExecutionProviderForProfile(
   profile: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -55,9 +53,7 @@ export function resolveForgeExecutionProviderForProfile(
   const profileKey = `FORGE_PROVIDER_${profile.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()}`
   const profileValue = env[profileKey]
   if (profileValue?.trim()) return parseProvider(profileValue, profileKey)
-
   const globalValue = env.FORGE_EXECUTION_PROVIDER
   if (globalValue?.trim()) return parseProvider(globalValue, 'FORGE_EXECUTION_PROVIDER')
-
   return 'deepseek'
 }
