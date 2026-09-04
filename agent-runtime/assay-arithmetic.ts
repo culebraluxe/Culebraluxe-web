@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
 // Assay arithmetic — numeric verification facts, never prose sentiment.
 //
-// Once a verifier summary contains machine-readable numeric evidence, the
-// acceptance decision is arithmetic only:
+// Once a verifier summary contains real test counters, the acceptance decision
+// is arithmetic only:
 //   - every reported command exit code must be 0
 //   - reported failed/error count must be 0
 //   - when total + passed are both reported, passed must equal total
@@ -10,8 +10,9 @@
 //
 // Human prose may still be retained for diagnostics, but words such as
 // "failed commands" cannot override 26/26 pass, fail 0, exit 0.
-// Legacy summaries with no numeric facts fall back to the older defensive
-// vocabulary in candidate-assay-handoff.ts until historical evidence ages out.
+// Exit-only legacy summaries do NOT get that override: a non-zero exit fails
+// immediately, while exit 0 without test counters still uses the defensive
+// legacy vocabulary in candidate-assay-handoff.ts.
 // ---------------------------------------------------------------------------
 
 export type AssayArithmeticFacts = {
@@ -21,6 +22,7 @@ export type AssayArithmeticFacts = {
   testsFailed: number | null
   policyViolations: number
   hasNumericEvidence: boolean
+  hasTestCounters: boolean
 }
 
 function lastNumber(text: string, patterns: RegExp[]): number | null {
@@ -85,11 +87,10 @@ export function parseAssayArithmeticFacts(
     (summary.match(/TEST-MODE VIOLATION/gi) ?? []).length +
     (summary.match(/POLICY VIOLATION/gi) ?? []).length
 
-  const hasNumericEvidence =
-    exitCodes.length > 0 ||
-    testsTotal !== null ||
-    testsPassed !== null ||
-    testsFailed !== null
+  const hasTestCounters =
+    testsFailed !== null || (testsTotal !== null && testsPassed !== null)
+
+  const hasNumericEvidence = exitCodes.length > 0 || hasTestCounters
 
   return {
     exitCodes,
@@ -98,12 +99,13 @@ export function parseAssayArithmeticFacts(
     testsFailed,
     policyViolations,
     hasNumericEvidence,
+    hasTestCounters,
   }
 }
 
-/** Arithmetic verdict for summaries that contain numeric evidence. */
+/** Arithmetic verdict for summaries with real test counters. */
 export function isArithmeticAssayPass(facts: AssayArithmeticFacts): boolean {
-  if (!facts.hasNumericEvidence) return false
+  if (!facts.hasTestCounters) return false
   if (facts.exitCodes.some((code) => code !== 0)) return false
   if (facts.testsFailed !== null && facts.testsFailed !== 0) return false
   if (
