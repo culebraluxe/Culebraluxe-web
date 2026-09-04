@@ -1,10 +1,5 @@
 // ---------------------------------------------------------------------------
 // Repository layer for the Agent Runtime (ENG-18).
-//
-// The abstract AgentRuntimeAdapter and its concrete subclasses never issue raw
-// SQL. All persisted lifecycle behavior flows through these narrow services,
-// which delegate to the existing db/agent-work.ts and db/storyboard.ts
-// repositories (no parallel queue/run/story systems).
 // ---------------------------------------------------------------------------
 
 import {
@@ -22,6 +17,7 @@ import {
 } from '../db/agent-work'
 import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
 import { appendForgeRunEvent } from '../db/forge-run-event'
+import { markForgeStoryInProgress } from '../db/forge-story-state'
 import {
   getStoryboardStory,
   listStoryRuns,
@@ -42,9 +38,6 @@ import {
   verifiedShaFromWorkspaceEvidence,
 } from './candidate-assay-handoff'
 
-/** Resolved Assay verification context (ENG-FORGE-V4-10C). When present, a
- *  clean Assay must additionally prove it executed against the exact Smith
- *  candidate commit — never a fallback base such as `main`. */
 export type AssayFinishContext = {
   candidateSha: string | null
 }
@@ -70,9 +63,6 @@ export function normalizeAgentFinishForRole(
 } {
   if (!isAssayTerminalRole(role)) return input
 
-  // Forge V6: structured evidence is authoritative when present. Narrative
-  // tests_summary remains a human projection and is never allowed to overturn
-  // a machine PASS/FAIL. Legacy V5 and older rows use the compatibility path.
   const structured = input.assayEvidence ?? null
   const cleanEvidence = structured
     ? structured.verdict === 'PASS' && structured.failureCode === null
@@ -81,8 +71,6 @@ export function normalizeAgentFinishForRole(
         testsSummary: input.testsSummary,
       })
 
-  // No resolved candidate context (legacy/direct callers): clean structured or
-  // legacy evidence may survive, but Assay never keeps a commit.
   if (!context) {
     if (!cleanEvidence) {
       return { ...input, resultStatus: 'Hold', commitHash: null }
@@ -176,7 +164,6 @@ export interface StoryContextRepository {
   getStory(storyId: string): Promise<StoryboardStory | null>
 }
 
-/** Production/DEV query executor provider (lazy so tests inject fakes). */
 export type ExecutorProvider = () => Promise<QueryExecutor>
 
 export class SqlAgentWorkRepository implements AgentWorkRepository {
@@ -268,8 +255,6 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       q,
     )
 
-    // V6 machine evidence is append-only and independent from human narrative.
-    // The event is written only after the canonical run has terminalized.
     if (item?.storyRunId && item && input.assayEvidence) {
       await appendForgeRunEvent(
         {
@@ -281,14 +266,38 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
         q,
       )
     }
+
+    // finishStoryRun historically maps any Complete lane to Story Complete.
+    // V6 corrects the projection immediately: successful Smith and successful
+    // exact-candidate Assay are intermediate gates. Outer publish owns Done.
+    const smithAwaitingAssay = Boolean(
+      item?.role === 'builder' &&
+        /^complete$/i.test(normalized.resultStatus) &&
+        normalized.commitHash,
+    )
+    const assayAwaitingPublish = Boolean(
+      item &&
+        isAssayTerminalRole(item.role) &&
+        input.assayEvidence?.verdict === 'PASS' &&
+        /^complete$/i.test(normalized.resultStatus),
+    )
+    if (item && (smithAwaitingAssay || assayAwaitingPublish)) {
+      await markForgeStoryInProgress(item.storyId, q)
+      return {
+        ...finished,
+        story: {
+          ...finished.story,
+          status: 'In Progress',
+          completedAt: null,
+        },
+      }
+    }
+
     return finished
   }
 
   async fail(workItemId: string, errorText: string) {
     const q = await this.executor()
-    // Runtime interruption recovery is lane-policy driven in Forge V6. Smith
-    // may retry infrastructure failures within budget; Assay always stops for
-    // human intervention and never restarts Smith.
     const recovered = await recoverAgentWorkInterruption(workItemId, errorText, q)
     return recovered.workItem
   }
