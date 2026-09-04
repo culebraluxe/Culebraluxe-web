@@ -21,6 +21,7 @@ import {
   type AgentWorkItem,
 } from '../db/agent-work'
 import { recoverAgentWorkInterruption } from '../db/agent-work-recovery'
+import { appendForgeRunEvent } from '../db/forge-run-event'
 import {
   getStoryboardStory,
   listStoryRuns,
@@ -31,6 +32,7 @@ import {
 } from '../db/storyboard'
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
+import type { AssayEvidence } from './assay-evidence'
 import {
   assayHoldEvidenceLine,
   candidateVerifiedEvidenceLine,
@@ -55,6 +57,7 @@ export function normalizeAgentFinishForRole(
     notes: string
     commitHash: string | null
     testsSummary: string | null
+    assayEvidence?: AssayEvidence | null
   },
   context?: AssayFinishContext | null,
 ): {
@@ -63,35 +66,43 @@ export function normalizeAgentFinishForRole(
   notes: string
   commitHash: string | null
   testsSummary: string | null
+  assayEvidence?: AssayEvidence | null
 } {
   if (!isAssayTerminalRole(role)) return input
-  const cleanEvidence = isCleanAssayEvidence({
-    resultStatus: input.resultStatus,
-    testsSummary: input.testsSummary,
-  })
 
-  // No resolved candidate context (legacy/direct callers): keep the original
-  // status + failure-evidence semantics — clean Complete may survive (with no
-  // commit) only when the evidence contains no failure marker.
+  // Forge V6: structured evidence is authoritative when present. Narrative
+  // tests_summary remains a human projection and is never allowed to overturn
+  // a machine PASS/FAIL. Legacy V5 and older rows use the compatibility path.
+  const structured = input.assayEvidence ?? null
+  const cleanEvidence = structured
+    ? structured.verdict === 'PASS' && structured.failureCode === null
+    : isCleanAssayEvidence({
+        resultStatus: input.resultStatus,
+        testsSummary: input.testsSummary,
+      })
+
+  // No resolved candidate context (legacy/direct callers): clean structured or
+  // legacy evidence may survive, but Assay never keeps a commit.
   if (!context) {
     if (!cleanEvidence) {
       return { ...input, resultStatus: 'Hold', commitHash: null }
     }
-    // Smith/builder remains the only writable lane. Assay never keeps a commit.
     return { ...input, commitHash: null }
   }
 
-  // ENG-FORGE-V4-10C strict invariant: the Assay workspace base recorded in
-  // the run evidence must be EXACTLY the Smith candidate this Assay was meant
-  // to verify. Missing/unresolvable candidate, missing workspace evidence, or
-  // a base that differs from the candidate fails closed to Hold — Assay never
-  // silently falls back to `main` and a wrong-base verification is never
-  // normalized to Complete.
   const candidateSha = smithCandidateSha([{ commitHash: context.candidateSha }])
-  const verifiedSha = verifiedShaFromWorkspaceEvidence(input.notes)
+  const verifiedSha =
+    structured?.verifiedSha ?? verifiedShaFromWorkspaceEvidence(input.notes)
+  const structuredCandidateMatches = structured
+    ? structured.candidateSha === candidateSha
+    : true
   const verifiedExactCandidate = Boolean(
-    cleanEvidence && candidateSha && verifiedSha === candidateSha,
+    cleanEvidence &&
+      candidateSha &&
+      verifiedSha === candidateSha &&
+      structuredCandidateMatches,
   )
+
   if (verifiedExactCandidate) {
     return {
       ...input,
@@ -102,7 +113,10 @@ export function normalizeAgentFinishForRole(
     }
   }
 
-  const evidence = assayHoldEvidenceLine({
+  const structuredFailure = structured?.failureCode
+    ? `Assay Hold: ${structured.failureCode}: ${structured.failureDetail ?? 'structured verification failed.'}`
+    : null
+  const compatibilityEvidence = assayHoldEvidenceLine({
     candidateSha,
     verifiedSha,
     cleanEvidence,
@@ -110,7 +124,9 @@ export function normalizeAgentFinishForRole(
   return {
     ...input,
     resultStatus: 'Hold',
-    notes: [input.notes.trim(), evidence].filter(Boolean).join('\n\n'),
+    notes: [input.notes.trim(), structuredFailure ?? compatibilityEvidence]
+      .filter(Boolean)
+      .join('\n\n'),
     commitHash: null,
   }
 }
@@ -143,6 +159,7 @@ export interface AgentWorkRepository {
       notes: string
       commitHash: string | null
       testsSummary: string | null
+      assayEvidence?: AssayEvidence | null
     },
   ): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }>
   fail(workItemId: string, errorText: string): Promise<AgentWorkItem>
@@ -227,29 +244,51 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       notes: string
       commitHash: string | null
       testsSummary: string | null
+      assayEvidence?: AssayEvidence | null
     },
   ) {
     const q = await this.executor()
     const item = await getAgentWorkItem(workItemId, q)
-    // ENG-FORGE-V4-10C: resolve the exact Smith candidate this Assay lane was
-    // meant to verify from existing run evidence so Assay terminal
-    // normalization can require a verified workspace base == candidate (and
-    // never normalize a wrong-base/failed verification to Complete).
     let context: AssayFinishContext | undefined
     if (item && isAssayTerminalRole(item.role)) {
       const runs = await listStoryRuns(item.storyId, q)
       context = { candidateSha: smithCandidateSha(runs) }
     }
+
     const normalized = normalizeAgentFinishForRole(item?.role ?? null, input, context)
-    return finishAgentWork(workItemId, normalized, q)
+    const finished = await finishAgentWork(
+      workItemId,
+      {
+        resultStatus: normalized.resultStatus,
+        completion: normalized.completion,
+        notes: normalized.notes,
+        commitHash: normalized.commitHash,
+        testsSummary: normalized.testsSummary,
+      },
+      q,
+    )
+
+    // V6 machine evidence is append-only and independent from human narrative.
+    // The event is written only after the canonical run has terminalized.
+    if (item?.storyRunId && item && input.assayEvidence) {
+      await appendForgeRunEvent(
+        {
+          storyRunId: item.storyRunId,
+          storyId: item.storyId,
+          eventType: 'assay.verdict',
+          payload: { ...input.assayEvidence },
+        },
+        q,
+      )
+    }
+    return finished
   }
 
   async fail(workItemId: string, errorText: string) {
     const q = await this.executor()
-    // A vendor child/runtime failure is an interruption of the current process,
-    // not acceptance evidence that the story failed. Re-queue the SAME work
-    // item when budget remains and preserve its deterministic worker workspace.
-    // Launch/configuration failures do not use this seam and remain fail-closed.
+    // Runtime interruption recovery is lane-policy driven in Forge V6. Smith
+    // may retry infrastructure failures within budget; Assay always stops for
+    // human intervention and never restarts Smith.
     const recovered = await recoverAgentWorkInterruption(workItemId, errorText, q)
     return recovered.workItem
   }
