@@ -1,26 +1,30 @@
 # ENG-FORGE-V5 — Architecture Build Stack
 
-This file defines planned order only. Git is the ordered architecture stack; Neon remains live execution truth. Only one next story should become Ready at a time, and only after its predecessor is accepted and published.
+This file defines planned order, not a predecessor chain. Git holds the architecture plan; Neon remains live execution truth. Forge executes serially, but a failed/Hold story must not freeze unrelated eligible work.
 
-0. `ENG-FORGE-V5-03R` — Durable Contract Snapshot and Scheduler Integrity
+0. `ENG-FORGE-V5-03R` — incident history / superseded recovery attempt; not a pack gate
 1. `ENG-FORGE-V5-04` — True OpenCode Operational Proof
 2. `ENG-FORGE-V5-05` — Forge OpenCode Agent Profile
 3. `ENG-FORGE-V5-06` — Repository AGENTS Contract
 4. `ENG-FORGE-V5-07` — Execution Cost and Throughput Telemetry
 5. `ENG-FORGE-V5-08` — Forge Consistency Janitor
 6. `ENG-FORGE-V5-09` — Stale Work Recovery and Lease Semantics
-7. `ENG-FORGE-V5-10` — Ordered Story Feeder
+7. `ENG-FORGE-V5-10` — Dependency-Aware Story Feeder
 8. `ENG-FORGE-V5-11` — Lead / Dev / QA Serial Topology
 9. `ENG-FORGE-V5-12` — Decomposition and Output Contracts
 10. `ENG-FORGE-V5-13` — Measured Parallelism Gate
 
-## Sequence invariant
-A successor may be promoted only when the predecessor has durable Complete evidence, exact-candidate Assay success where applicable, and accepted publication on `origin/main`.
+## Eligibility invariant
+Planned order is only a tie-breaker among eligible stories. It is not a dependency. A story is blocked only by an explicit `HARD:` dependency edge in its packet. Hold/Error/Failed on one story blocks that story and its true descendants only; Forge continues with the next unrelated eligible story.
 
-`ENG-FORGE-V5-03R` is a mandatory incident-closure gate after V5-03. V5-04 must not start until V5-03R is accepted and published.
+## Hard dependency graph
+- `ENG-FORGE-V5-04` through `ENG-FORGE-V5-11`: independent children of the accepted V5-03 baseline.
+- `ENG-FORGE-V5-12` HARD-depends on `ENG-FORGE-V5-11` because decomposition contracts extend the Lead / Dev / QA topology.
+- `ENG-FORGE-V5-13` HARD-depends on `ENG-FORGE-V5-12` because parallel eligibility consumes the decomposition/output contract.
+- V5-07 telemetry is useful to V5-13 when available, but is not a hard gate.
 
-## Stop conditions
-Hold, Error, missing packet, missing execution contract, ambiguous evidence, failed Assay, publish conflict, or a human/product gate stops automatic advancement. Never skip forward to keep the queue moving.
+## Failure behavior
+A story failure is local. Preserve its evidence and continue to the next eligible independent story. Missing packet or ambiguous hard dependency blocks only the affected story. A human/product gate blocks only the story it gates unless an explicit `HARD:` descendant requires it.
 
 ## Operating principle
-Boring serial reliability first. Earn concurrency with measured decomposition quality and cost/time evidence; never assume N parallel agents beat one coordinated path.
+Boring serial reliability first. One worker at a time; no swarm. Earn concurrency only from measured decomposition quality and cost/time evidence.
