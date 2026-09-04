@@ -27,6 +27,15 @@ import {
   BROKER_SIGNATURE_DATE_SEMANTIC,
 } from '../../lib/forms/applied-signature'
 
+const LISA_ROLE_BY_TEMPLATE: Readonly<Record<string, string>> = {
+  [OFFER_LETTER_TEMPLATE_ID]: 'BUYER_BROKER',
+  [PURCHASE_SALE_TEMPLATE_ID]: 'SELLER_BROKER',
+  [PURCHASE_SALE_AMENDMENT_TEMPLATE_ID]: 'SELLER_BROKER',
+  [LISTING_AGREEMENT_TEMPLATE_ID]: 'SELLER_BROKER',
+  [SHOWING_INFO_TEMPLATE_ID]: 'BUYER_BROKER',
+  [SHOWING_REPORT_TEMPLATE_ID]: 'BUYER_BROKER',
+}
+
 test('FORMS-01: all production templates load and validate', () => {
   const ids = [
     OFFER_LETTER_TEMPLATE_ID,
@@ -76,6 +85,7 @@ test('FORMS-BR: every production form renders at least three complete signer set
                 : `${field.label} review value`
     }
 
+    const lisaRole = LISA_ROLE_BY_TEMPLATE[template.id]
     const participants =
       template.id === LISTING_AGREEMENT_TEMPLATE_ID
         ? [
@@ -90,9 +100,10 @@ test('FORMS-BR: every production form renders at least three complete signer set
         : template.signatureGroups.map((group, index) => ({
             role: group.role,
             slotId: `${group.role}:1`,
-            name: group.role.endsWith('_BROKER')
-              ? 'Lisa Penfield'
-              : `External Party ${index + 1}`,
+            name:
+              group.role === lisaRole
+                ? 'Lisa Penfield'
+                : `External Party ${index + 1}`,
           }))
 
     assert.ok(
@@ -322,7 +333,6 @@ test('FORMS-BR: draft identity ignores record insertion order', () => {
     formContentFingerprint({ a: '1', b: '2' }, { m: 'middle', z: 'last' }),
   )
 })
-
 
 
 test('LISTING-01: first generic Seller signature row uses the full owner name', () => {
