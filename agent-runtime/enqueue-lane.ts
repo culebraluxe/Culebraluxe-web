@@ -3,6 +3,7 @@ import { leadPhaseInstructions, type LeadRunPhase } from './lead-decision'
 import { resolveLane, type LaneDecision, type LaneSession, type SmithGrade } from './lane-policy'
 import type { LaneId } from './lanes'
 import type { AgentRuntimeRegistry } from './registry'
+import type { ForgeTeam } from './team'
 import { sessionFromStory, storyPacketInstructions, type StoryPacketFields } from './story-session'
 
 export type LaneEnqueueInput = {
@@ -14,6 +15,7 @@ export type LaneEnqueueInput = {
   leadPhase?: LeadRunPhase
   authorizeEmergency?: boolean
   registry?: Pick<AgentRuntimeRegistry, 'hasProfile'>
+  team?: ForgeTeam
 }
 
 export type LaneEnqueueEnvelope = {
@@ -56,6 +58,7 @@ export function buildLaneEnqueue(input: LaneEnqueueInput): LaneDecision & {
     extraInstructions: extra,
     authorizeEmergency: input.authorizeEmergency,
     registry: input.registry,
+    team: input.team,
   })
   if (!decision.ok) return decision
   return {
