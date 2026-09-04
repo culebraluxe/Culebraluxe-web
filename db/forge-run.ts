@@ -1,3 +1,4 @@
+import type { StoryboardStory } from './storyboard'
 import type { RunMachineEvidence } from '../lib/forge-run-evidence'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
@@ -9,6 +10,17 @@ async function executor(): Promise<QueryExecutor> {
     defaultExecutor = client.sql
   }
   return defaultExecutor
+}
+
+/**
+ * Runtime-facing Story shape. Stable Story identity/UI metadata remains on the
+ * parent, while every execution-contract field comes from the immutable Run
+ * snapshot created for this attempt.
+ */
+export type ForgeRunExecutionStory = StoryboardStory & {
+  testMode?: string | null
+  assayCommands?: string | null
+  packetSha?: string | null
 }
 
 /**
@@ -42,6 +54,52 @@ export async function initializeForgeStoryRun(
     where r.id = ${runId}
       and s.id = r.story_id
   `
+}
+
+/**
+ * Build the execution-facing Story strictly from the frozen Run contract.
+ * Parent Story values are retained only for stable identity/UI metadata that is
+ * not part of the execution contract (id/title/workstream/priority/timestamps).
+ * No execution lane may re-read mutable parent contract fields after this seam.
+ */
+export async function getForgeRunExecutionStory(
+  runId: string,
+  parent: StoryboardStory,
+  execute?: QueryExecutor,
+): Promise<ForgeRunExecutionStory | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select story_id, goal_snapshot, scope_snapshot, dependencies_snapshot,
+      preconditions_snapshot, architect_brief_snapshot, context_refs_snapshot,
+      acceptance_criteria_snapshot, postconditions_snapshot,
+      operating_surface_snapshot, test_mode_snapshot, assay_commands_snapshot,
+      packet_sha_snapshot
+    from storyboard_story_run
+    where id = ${runId}
+  `
+  const row = rows[0]
+  if (!row) return null
+  if (String(row.story_id) !== parent.id) {
+    throw new Error(
+      `Run ${runId} belongs to story ${String(row.story_id)}, not ${parent.id}`,
+    )
+  }
+
+  return {
+    ...parent,
+    operatingSurface: (row.operating_surface_snapshot as StoryboardStory['operatingSurface']) ?? null,
+    goal: (row.goal_snapshot as string | null) ?? null,
+    scope: (row.scope_snapshot as string | null) ?? null,
+    dependencies: (row.dependencies_snapshot as string | null) ?? null,
+    preconditions: (row.preconditions_snapshot as string | null) ?? null,
+    architectBrief: (row.architect_brief_snapshot as string | null) ?? null,
+    contextRefs: (row.context_refs_snapshot as string | null) ?? null,
+    acceptanceCriteria: (row.acceptance_criteria_snapshot as string | null) ?? null,
+    postconditions: (row.postconditions_snapshot as string | null) ?? null,
+    testMode: (row.test_mode_snapshot as string | null) ?? null,
+    assayCommands: (row.assay_commands_snapshot as string | null) ?? null,
+    packetSha: (row.packet_sha_snapshot as string | null) ?? null,
+  }
 }
 
 /** Keep the Run's runtime identity durable even when it is resolved after start. */
