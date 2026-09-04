@@ -16,6 +16,7 @@ test('V5-10 regression: 26/26, fail 0, exit 0 stays PASS even with bogus failed-
   assert.equal(facts.testsTotal, 26)
   assert.equal(facts.testsPassed, 26)
   assert.equal(facts.testsFailed, 0)
+  assert.equal(facts.hasTestCounters, true)
   assert.equal(facts.policyViolations, 0)
   assert.equal(isArithmeticAssayPass(facts), true)
   assert.equal(
@@ -33,6 +34,7 @@ test('V5-11 regression: 25/25, 0 fail, exit 0 stays PASS even with bogus failed-
   assert.equal(facts.testsTotal, 25)
   assert.equal(facts.testsPassed, 25)
   assert.equal(facts.testsFailed, 0)
+  assert.equal(facts.hasTestCounters, true)
   assert.equal(isArithmeticAssayPass(facts), true)
   assert.equal(
     isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: summary }),
@@ -73,6 +75,27 @@ test('explicit runtime policy violation defeats otherwise clean arithmetic', () 
     isCleanAssayEvidence({
       resultStatus: 'Complete',
       testsSummary: 'exit 0; tests 26; pass 26; fail 0 | TEST-MODE VIOLATION (SCOPED): pnpm test',
+    }),
+    false,
+  )
+})
+
+test('exit 0 alone cannot hide a missing-file blocker', () => {
+  const summary = 'command exit 0, but the required verification file is missing'
+  const facts = parseAssayArithmeticFacts(summary)
+  assert.deepEqual(facts.exitCodes, [0])
+  assert.equal(facts.hasTestCounters, false)
+  assert.equal(
+    isCleanAssayEvidence({ resultStatus: 'Complete', testsSummary: summary }),
+    false,
+  )
+})
+
+test('non-zero exit fails even without test counters', () => {
+  assert.equal(
+    isCleanAssayEvidence({
+      resultStatus: 'Complete',
+      testsSummary: 'typecheck exit 2',
     }),
     false,
   )
