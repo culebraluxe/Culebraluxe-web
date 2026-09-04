@@ -321,6 +321,14 @@ export async function resolveBrokerSignatureForIssuance(
 
   const resolved = await resolveBrokerRows(config, execute)
   if (typeof resolved === 'string') return invalidConfiguration(resolved)
+  if (input.actorAppUserId !== resolved.appUserId) {
+    return {
+      ok: false,
+      outcome: 'unauthorized',
+      message:
+        'document.issue failed: the authenticated actor is not the configured broker signature owner.',
+    }
+  }
 
   const roleSlots = input.participants.filter(
     (slot) =>
