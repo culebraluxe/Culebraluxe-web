@@ -8,6 +8,9 @@
 //
 //   Smith candidate C -> QA candidate C -> Assay workspace base C
 //   -> Assay evidence about C -> only then may C publish.
+//
+// V6.1 inserts mandatory independent QA before deterministic Assay; the exact
+// candidate SHA still remains immutable across both gates.
 // ---------------------------------------------------------------------------
 
 import assert from 'node:assert/strict'
