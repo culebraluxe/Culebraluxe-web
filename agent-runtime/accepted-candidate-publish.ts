@@ -1,25 +1,9 @@
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V4-10B — Accepted Candidate Publish: decision orchestration.
+// Accepted Candidate Publish — outer Forge only.
 //
-// Publication is a POST-Assay acceptance action, owned by the OUTER Forge
-// process (never by Smith execution and never by Assay itself). This module
-// answers one question: given the terminal verification run that just
-// finished, is the story's accepted Smith candidate eligible for direct
-// publication to `origin/main`, and did that publication succeed?
-//
-// Gates (fail closed, in order):
-//   1. the finished lane is a terminal Assay/verification lane
-//   2. the Assay result is clean (Complete with no failure/violation/policy
-//      evidence) — the same isCleanAssayResult semantic Assay repair uses
-//   3. a real Smith candidate commit exists — an empty/no-change candidate is
-//      never published
-//   4. the git publish itself must be a safe non-force fast-forward
-//      (lib/worker-workspace/publish.ts); divergence fails closed into a
-//      factual publish-conflict that preserves the candidate
-//
-// No schema change, no provider change, no swarm/parallel behavior. Existing
-// lane ordering, execution-contract, harness-owned commit, readiness, and
-// Assay semantics are untouched — this module only OBSERVES their results.
+// V6 publication consumes structured Assay evidence when present. Narrative
+// tests_summary is legacy compatibility only and cannot override a V6 verdict.
+// Git publication remains safe non-force fast-forward only.
 // ---------------------------------------------------------------------------
 
 import {
@@ -28,13 +12,8 @@ import {
   type PublishAcceptedCandidateOutcome,
 } from '../lib/worker-workspace'
 import { isCleanAssayResult } from './orchestrate-apply'
+import type { AssayEvidence } from './assay-evidence'
 
-/**
- * Roles that represent a terminal Assay/verification completion in the Forge
- * vocabulary. The codebase has used both `reviewer` (V3 Assay repair/terminal
- * semantics) and `verifier` (the DEFAULT_LANES.assay binding role) for this
- * lane; publication triggers on either so Assay semantics stay unchanged.
- */
 export const ASSAY_FINISH_ROLES = ['reviewer', 'verifier'] as const
 
 export function isTerminalAssayRole(role: string | null | undefined): boolean {
@@ -58,34 +37,19 @@ export type AcceptedCandidatePublishReport =
     }
 
 export type AcceptedCandidatePublishInput = {
-  /** Role of the run that just finished (the Assay lane). */
   role: string | null | undefined
-  /** Assay run result status (Complete / Partial / Hold / ...). */
   resultStatus?: string | null
-  /** Assay run tests/checks summary (used by the clean-Assay gate). */
   testsSummary?: string | null
-  /** Smith candidate commit hash recorded in the story's run evidence. */
+  /** V6 source of truth. If present, prose cannot affect eligibility. */
+  assayEvidence?: AssayEvidence | null
   candidateCommit?: string | null
-  /**
-   * ENG-FORGE-V4-10C: the candidate SHA the clean Assay actually verified
-   * (the workspace base its run evidence records). When supplied, accepted-
-   * candidate publication requires EXACT equality with `candidateCommit` —
-   * an Assay that verified `main` (or any other base) may never publish the
-   * candidate. Omitted keeps the legacy V4-10B decision for direct callers.
-   */
   assayedCandidate?: string | null
-  /** Primary checkout root owning `origin` (outer Forge host). */
   repoRoot?: string
-  /** Injectable git publish (tests substitute a spy / fake repo). */
   publish?: (
     input: PublishAcceptedCandidateInput,
   ) => Promise<PublishAcceptedCandidateOutcome>
 }
 
-/**
- * Run the accepted-candidate publication decision for a just-finished Assay
- * run. Never throws for publish decisions; every gate produces a typed report.
- */
 export async function publishAcceptedCandidateAfterAssay(
   input: AcceptedCandidatePublishInput,
 ): Promise<AcceptedCandidatePublishReport> {
@@ -96,14 +60,19 @@ export async function publishAcceptedCandidateAfterAssay(
     }
   }
 
-  const clean = isCleanAssayResult({
-    resultStatus: input.resultStatus ?? null,
-    testsSummary: input.testsSummary ?? null,
-  })
+  const clean = input.assayEvidence
+    ? input.assayEvidence.verdict === 'PASS' &&
+      input.assayEvidence.failureCode === null
+    : isCleanAssayResult({
+        resultStatus: input.resultStatus ?? null,
+        testsSummary: input.testsSummary ?? null,
+      })
   if (!clean) {
     return {
       action: 'not-eligible',
-      reason: `Assay did not finish clean (resultStatus='${input.resultStatus ?? '(none)'}'); a failed/Hold Assay never publishes accepted code`,
+      reason: input.assayEvidence
+        ? `structured Assay verdict is ${input.assayEvidence.verdict}${input.assayEvidence.failureCode ? ` (${input.assayEvidence.failureCode})` : ''}; failed/Hold Assay never publishes accepted code`
+        : `legacy Assay did not finish clean (resultStatus='${input.resultStatus ?? '(none)'}'); a failed/Hold Assay never publishes accepted code`,
     }
   }
 
@@ -116,15 +85,15 @@ export async function publishAcceptedCandidateAfterAssay(
     }
   }
 
-  // ENG-FORGE-V4-10C: accepted-candidate publication requires a clean Assay
-  // that verified EXACTLY the candidate being published. A mismatched (or
-  // unprovable) verified base never reaches the git publish.
-  if (input.assayedCandidate !== undefined) {
-    const assayed = (input.assayedCandidate ?? '').trim().toLowerCase()
+  const assayedSource = input.assayEvidence
+    ? input.assayEvidence.verifiedSha
+    : input.assayedCandidate
+  if (assayedSource !== undefined) {
+    const assayed = (assayedSource ?? '').trim().toLowerCase()
     if (!assayed || assayed !== candidate.toLowerCase()) {
       return {
         action: 'not-eligible',
-        reason: `Assay verified candidate ${assayed ? assayed.slice(0, 12) : '(none)'}${assayed ? '' : ' (no workspace base evidence)'}, which does not equal the publish candidate ${candidate.slice(0, 12)}; accepted-candidate publication requires the clean Assay to have verified the exact candidate commit being published`,
+        reason: `Assay verified candidate ${assayed ? assayed.slice(0, 12) : '(none)'}, which does not equal the publish candidate ${candidate.slice(0, 12)}; accepted-candidate publication requires the exact candidate commit`,
       }
     }
   }
@@ -153,7 +122,6 @@ export async function publishAcceptedCandidateAfterAssay(
         reason: outcome.reason,
       }
     default:
-      // Exhaustiveness guard — a new git outcome must be mapped explicitly.
       return {
         action: 'publish-conflict',
         candidateCommit: candidate,
