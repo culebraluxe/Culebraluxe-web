@@ -1,13 +1,9 @@
 // ---------------------------------------------------------------------------
-// Poller / Invoker (ENG-18) — the boring parent wrapper.
+// Poller / Invoker — V6.1 executes the durable typed work assignment.
 // ---------------------------------------------------------------------------
 
 import { AgentRuntimeRegistry } from './registry'
-import {
-  rejectAgentWorkConfiguration,
-  validateAgentWorkLaunchConfig,
-  type AgentWorkClaim,
-} from '../db/agent-work'
+import { rejectAgentWorkConfiguration, validateAgentWorkLaunchConfig } from '../db/agent-work'
 import type {
   AgentExecutionContext,
   AgentExecutionWorkspace,
@@ -15,24 +11,17 @@ import type {
   AgentWorkCommand,
 } from './types'
 import type { AgentRunRepository, AgentWorkRepository } from './repositories'
+import type { ForgeAgentWorkClaim } from '../db/agent-work-v61'
 import type { AgentCapability } from './capabilities'
-import {
-  executionContractFailureText,
-  validateExecutionContract,
-} from './execution-contract'
+import { executionContractFailureText, validateExecutionContract } from './execution-contract'
 import { storyFieldsFromBoardAndGit } from './orchestrate'
-import { smithFieldFacts } from './team'
-import {
-  isAssayTerminalRole,
-  smithCandidateSha,
-} from './candidate-assay-handoff'
+import { DEFAULT_LANES } from './lanes'
+import { FORGE_FIELDS, type ForgeHarnessId } from './team'
+import { adapterIdForHarness } from './factory'
 import { leadRunPhaseFromInstructions } from './lead-decision'
 import { resolveApprovedBaseRef } from '../lib/worker-workspace'
 import { provisionOrRecoverWorkerWorkspace } from '../lib/worker-workspace/recovering-provisioner'
-import type {
-  WorkerWorkspace,
-  WorkerWorkspaceSpec,
-} from '../lib/worker-workspace/types'
+import type { WorkerWorkspace, WorkerWorkspaceSpec } from '../lib/worker-workspace/types'
 
 export type InvokerResult = {
   workItemId: string
@@ -77,36 +66,52 @@ export function buildAgentInvokerWorkspaces(
 export async function claimNextAgentCommand(
   workerId: string,
   deps: AgentInvokerDeps,
-): Promise<AgentWorkClaim | null> {
+): Promise<ForgeAgentWorkClaim | null> {
   return deps.work.claimNext(workerId)
 }
 
 export async function executeClaimedAgentCommand(
-  workerId: string,
-  claim: AgentWorkClaim,
+  _workerId: string,
+  claim: ForgeAgentWorkClaim,
   deps: AgentInvokerDeps,
 ): Promise<InvokerResult> {
   const workItem = claim.workItem
   const story = claim.story
-  const leadPhase =
-    workItem.role === 'lead'
-      ? leadRunPhaseFromInstructions(workItem.specialInstructions)
-      : null
+  const leadPhase = workItem.runPhase ??
+    (workItem.role === 'lead' ? leadRunPhaseFromInstructions(workItem.specialInstructions) : null)
 
   const launchError = validateAgentWorkLaunchConfig(workItem)
   if (launchError) {
     await rejectAgentWorkConfiguration(workItem.id, launchError)
     throw new Error(`launch guard: ${launchError}`)
   }
+  if (!workItem.lane || !workItem.harnessId || !workItem.playerId || !workItem.providerId || !workItem.modelId || !workItem.fieldId) {
+    const detail = 'typed Forge routing is incomplete (lane/player/provider/model/harness/field required)'
+    await rejectAgentWorkConfiguration(workItem.id, detail)
+    throw new Error(`launch guard: ${detail}`)
+  }
 
-  if (deps.enforceExecutionContract && workItem.role === 'builder') {
+  const lane = workItem.lane
+  const adapterId = adapterIdForHarness(workItem.harnessId as ForgeHarnessId)
+  const adapterCapabilities = deps.registry.adapterCapabilities(adapterId)
+  const laneCapabilities = DEFAULT_LANES[lane].requiredCapabilities
+  const required = [...new Set([...(deps.requiredCapabilities ?? []), ...laneCapabilities])]
+  const missing = required.filter((capability) => !adapterCapabilities.includes(capability))
+  if (missing.length > 0) {
+    throw new Error(
+      `frozen harness '${workItem.harnessId}' adapter '${adapterId}' lacks ${missing.join(',')} required by lane '${lane}'`,
+    )
+  }
+
+  if (deps.enforceExecutionContract && lane === 'smith') {
     const merged = storyFieldsFromBoardAndGit(story, story.id)
+    const field = FORGE_FIELDS[workItem.fieldId as keyof typeof FORGE_FIELDS]
     const contract = validateExecutionContract({
       story: merged,
       executionTarget: workItem.executionEnvironment,
       modelProfile: workItem.modelProfile,
       registry: deps.registry,
-      field: smithFieldFacts(),
+      field: { id: workItem.fieldId, ready: Boolean(field?.ready) },
     })
     if (!contract.ok) {
       const evidence = `execution contract gate: ${executionContractFailureText(contract) ?? contract.code}`
@@ -115,35 +120,30 @@ export async function executeClaimedAgentCommand(
     }
   }
 
-  const modelProfile = workItem.modelProfile as string
-  const profileConfig = deps.registry.resolveProfile(modelProfile)
+  const adapter = deps.registry.resolveAdapterById(adapterId, { work: deps.work, runs: deps.runs })
+  await deps.work.setRuntime(workItem.id, { runtimeAdapter: adapter.runtimeAdapterId })
 
-  if (deps.requiredCapabilities?.length) {
-    const missing = deps.requiredCapabilities.filter(
-      (c) => !profileConfig.capabilities.includes(c),
-    )
-    if (missing.length > 0) {
-      throw new Error(
-        `profile '${modelProfile}' adapter '${profileConfig.adapterId}' lacks required capability ${missing.join(',')}`,
-      )
-    }
+  const runtimeSelection = {
+    playerId: workItem.playerId,
+    providerId: workItem.providerId,
+    modelId: workItem.modelId,
+    harnessId: workItem.harnessId,
+    fieldId: workItem.fieldId,
   }
-
-  const adapter = deps.registry.resolveAdapter(modelProfile, {
-    work: deps.work,
-    runs: deps.runs,
-  })
-
-  await deps.work.setRuntime(workItem.id, {
-    runtimeAdapter: adapter.runtimeAdapterId,
-  })
-
   const command: AgentWorkCommand = {
     workItemId: workItem.id,
     storyId: workItem.storyId,
     role: (workItem.role ?? 'builder') as AgentWorkCommand['role'],
-    modelProfile,
+    lane,
+    runPhase: leadPhase,
+    modelProfile: workItem.modelProfile as string,
+    runtimeSelection,
     specialInstructions: workItem.specialInstructions ?? null,
+    candidateShas: workItem.candidateShas,
+    parallelGroupId: workItem.parallelGroupId,
+    parallelSlot: workItem.parallelSlot,
+    parallelSize: workItem.parallelSize,
+    splitAssignment: workItem.splitAssignment,
     priority: workItem.priority,
     state: workItem.state,
     claimedBy: workItem.claimedBy,
@@ -161,11 +161,7 @@ export async function executeClaimedAgentCommand(
     updatedAt: workItem.updatedAt,
   }
 
-  // Lead PRE is a judgment/veto gate and must not mutate implementation.
-  // Lead IMPLEMENT and POST are allowed to create/integrate a candidate.
-  const writable =
-    workItem.role === 'builder' ||
-    (workItem.role === 'lead' && (leadPhase === 'implement' || leadPhase === 'post'))
+  const writable = lane === 'smith' || (lane === 'lead' && (leadPhase === 'implement' || leadPhase === 'post'))
   const context: AgentExecutionContext = {
     command,
     story,
@@ -174,7 +170,8 @@ export async function executeClaimedAgentCommand(
       allowDevDbWrite: writable,
       allowControlPlaneWrite: true,
     },
-    capabilities: profileConfig.capabilities,
+    capabilities: adapterCapabilities,
+    runtimeSelection,
     executionEnvironment: workItem.executionEnvironment ?? null,
     storyRunId: '',
   }
@@ -186,18 +183,10 @@ export async function executeClaimedAgentCommand(
 
   let executionWorkspace: AgentExecutionWorkspace | null = null
   if (deps.workspaces) {
-    // Assay and Lead POST must start from the newest candidate commit. PRE,
-    // SOLO implementation, Architect and Smith start from the approved base.
-    const needsCandidateBase =
-      isAssayTerminalRole(workItem.role) ||
-      (workItem.role === 'lead' && leadPhase === 'post')
-    const candidateSha = needsCandidateBase
-      ? smithCandidateSha(await deps.runs.listForStory(workItem.storyId))
-      : null
+    const needsCandidateBase = lane === 'assay' || lane === 'inspector' || (lane === 'lead' && leadPhase === 'post')
+    const candidateSha = needsCandidateBase ? workItem.candidateShas[0] ?? null : null
     if (needsCandidateBase && !candidateSha) {
-      throw new Error(
-        `${workItem.role === 'lead' ? 'Lead POST' : 'Assay'} requires an exact candidate commit; refusing to provision from main.`,
-      )
+      throw new Error(`${lane}${leadPhase ? `/${leadPhase}` : ''} requires a typed candidate commit; refusing to provision from main.`)
     }
     const baseRef = candidateSha ?? deps.workspaces.baseRef
     const ws = await deps.workspaces.provision({
@@ -205,16 +194,11 @@ export async function executeClaimedAgentCommand(
       workerId: deps.workspaces.workerId,
       baseRef,
       runId: workItem.id,
-      ...(deps.workspaces.worktreesRoot
-        ? { worktreesRoot: deps.workspaces.worktreesRoot }
-        : {}),
+      ...(deps.workspaces.worktreesRoot ? { worktreesRoot: deps.workspaces.worktreesRoot } : {}),
     })
     if (workItem.executionEnvironment) {
       const { verifyWorkspaceEnvFile } = await import('../lib/execution-target')
-      verifyWorkspaceEnvFile(
-        ws.worktreePath,
-        workItem.executionEnvironment as never,
-      )
+      verifyWorkspaceEnvFile(ws.worktreePath, workItem.executionEnvironment as never)
     }
     executionWorkspace = {
       branchName: ws.branchName,
@@ -224,15 +208,14 @@ export async function executeClaimedAgentCommand(
       runId: ws.runId,
     }
   }
-  const finalContext: AgentExecutionContext =
-    executionWorkspace !== null ? { ...context, executionWorkspace } : context
 
+  const finalContext: AgentExecutionContext = executionWorkspace ? { ...context, executionWorkspace } : context
   const evidence = await adapter.execute(command, finalContext)
   return {
     workItemId: workItem.id,
     storyId: workItem.storyId,
     role: command.role,
-    modelProfile,
+    modelProfile: command.modelProfile,
     runtimeAdapter: adapter.runtimeAdapterId,
     evidence,
   }
