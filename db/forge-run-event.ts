@@ -51,6 +51,8 @@ function mapEvent(row: ForgeRunEventRow): ForgeRunEvent {
 export async function appendForgeRunEvent(
   input: {
     storyRunId: string
+    /** Compatibility only. The canonical relationship is inherited from the parent run and is not persisted twice. */
+    storyId?: string
     eventType: string
     payload: Record<string, unknown>
   },
