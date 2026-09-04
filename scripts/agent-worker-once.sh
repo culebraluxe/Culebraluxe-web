@@ -2,14 +2,14 @@
 # ---------------------------------------------------------------------------
 # scripts/agent-worker-once.sh — bounded Forge wake/run wrapper.
 #
-# ONE scheduled wake => fast-forward the local main checkout, then repeatedly
-# invokes `pnpm agent:work` until Forge is idle or a run fails. This mirrors the
-# manual operator loop while ensuring newly-published git packets are visible
-# to the local control plane before hydration/claim.
+# ONE scheduled wake => repeatedly invokes `pnpm agent:work` until Forge is
+# idle or a run fails. The database and `pnpm agent:work` own queue and
+# orchestration semantics. This wrapper only presses the Forge button again.
 #
-# The database and `pnpm agent:work` own ALL queue/orchestration semantics.
-# This wrapper only keeps the local control-plane checkout current and presses
-# the same Forge button again. Git sync is fail-closed and NEVER force-updates.
+# IMPORTANT: launchd does not perform GitHub synchronization. Packet/story
+# truth needed for execution must already be present in the checkout and/or
+# durable Neon story fields before work is promoted Ready. Git synchronization
+# remains an operator/control-plane concern, not a scheduler precondition.
 # ---------------------------------------------------------------------------
 
 set -u
@@ -96,40 +96,7 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 127
 fi
 
-if ! command -v git >/dev/null 2>&1; then
-  echo "agent-worker: git not found on PATH=$PATH" >&2
-  inv_log "end: exit=127 git-missing"
-  exit 127
-fi
-
 inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
-
-# Git is the planned packet stack; Neon is the live execution state. The local
-# control-plane checkout must therefore see accepted/new packet commits before
-# it hydrates a Ready row. Fast-forward only: never stash, reset, rebase, force,
-# or overwrite local work. Any divergence/dirty conflict is a factual stop.
-#
-# launchd has been observed to return an empty value for `git branch --show-current`
-# even when the same checkout reports `main` interactively. Treat an explicit
-# non-main branch as unsafe, but do not turn an empty branch probe into a false
-# terminal. The ff-only pull below remains the authoritative safety gate.
-branch="$(git branch --show-current 2>/dev/null || true)"
-if [ -n "$branch" ] && [ "$branch" != "main" ]; then
-  echo "agent-worker: expected control-plane checkout on main, found '$branch'" >&2
-  inv_log "stop: checkout-not-main branch=$branch"
-  exit 2
-fi
-if [ -z "$branch" ]; then
-  inv_log "git-sync: branch probe empty under scheduler; continuing to ff-only origin/main"
-fi
-
-inv_log "git-sync: start origin/main"
-if ! git pull --ff-only origin main; then
-  echo "agent-worker: git fast-forward failed; Forge not started" >&2
-  inv_log "stop: git-sync-failed"
-  exit 2
-fi
-inv_log "git-sync: complete head=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
