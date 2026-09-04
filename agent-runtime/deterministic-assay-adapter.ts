@@ -49,12 +49,9 @@ export type DeterministicAssayConfig = {
 
 function appendTail(current: string, chunk: string): string {
   const next = current + chunk
-  return next.length <= OUTPUT_TAIL_MAX
-    ? next
-    : next.slice(next.length - OUTPUT_TAIL_MAX)
+  return next.length <= OUTPUT_TAIL_MAX ? next : next.slice(next.length - OUTPUT_TAIL_MAX)
 }
 
-/** Execute one immutable command and return process/test facts, not a verdict. */
 export async function runAssayCommand(input: {
   command: string
   cwd: string
@@ -74,11 +71,10 @@ export async function runAssayCommand(input: {
       if (settled) return
       settled = true
       input.onProcess?.(null)
-      const combined = `${stdoutTail}\n${stderrTail}`
       resolve({
         ...result,
         durationMs: Date.now() - started,
-        tests: parseAssayTestCounters(combined),
+        tests: parseAssayTestCounters(`${stdoutTail}\n${stderrTail}`),
       })
     }
 
@@ -91,47 +87,19 @@ export async function runAssayCommand(input: {
       })
       input.onProcess?.(proc)
     } catch (error) {
-      stderrTail = appendTail(
-        stderrTail,
-        String((error as Error)?.message ?? error),
-      )
-      finish({
-        command: input.command,
-        exitCode: null,
-        signal: null,
-        timedOut: false,
-        stdoutTail,
-        stderrTail,
-      })
+      stderrTail = appendTail(stderrTail, String((error as Error)?.message ?? error))
+      finish({ command: input.command, exitCode: null, signal: null, timedOut: false, stdoutTail, stderrTail })
       return
     }
 
-    proc.stdout?.on('data', (chunk) => {
-      stdoutTail = appendTail(stdoutTail, String(chunk))
-    })
-    proc.stderr?.on('data', (chunk) => {
-      stderrTail = appendTail(stderrTail, String(chunk))
-    })
+    proc.stdout?.on('data', (chunk) => { stdoutTail = appendTail(stdoutTail, String(chunk)) })
+    proc.stderr?.on('data', (chunk) => { stderrTail = appendTail(stderrTail, String(chunk)) })
     proc.on('error', (error) => {
       stderrTail = appendTail(stderrTail, String(error.message ?? error))
-      finish({
-        command: input.command,
-        exitCode: null,
-        signal: null,
-        timedOut,
-        stdoutTail,
-        stderrTail,
-      })
+      finish({ command: input.command, exitCode: null, signal: null, timedOut, stdoutTail, stderrTail })
     })
     proc.on('close', (code, signal) => {
-      finish({
-        command: input.command,
-        exitCode: code,
-        signal: signal ?? null,
-        timedOut,
-        stdoutTail,
-        stderrTail,
-      })
+      finish({ command: input.command, exitCode: code, signal: signal ?? null, timedOut, stdoutTail, stderrTail })
     })
 
     const timeout = setTimeout(() => {
@@ -171,7 +139,13 @@ function failedCommandResult(command: string, error: unknown): AssayCommandResul
   }
 }
 
-/** Forge V6 model-free exact-candidate verifier. */
+/** V6.1 typed candidate is authoritative; prompt parsing is legacy-only. */
+export function assayCandidateForCommand(command: AgentWorkCommand): string | null {
+  const typed = command.candidateShas[0]?.trim().toLowerCase() ?? ''
+  if (/^[0-9a-f]{40}$/.test(typed)) return typed
+  return assayCandidateFromInstructions(command.specialInstructions)
+}
+
 export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
   readonly runtimeAdapterId = 'forge-assay'
   readonly capabilities: AgentCapability[] = ASSAY_CAPABILITIES
@@ -189,9 +163,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     super(deps)
   }
 
-  protected async startExternal(
-    context: AgentExecutionContext,
-  ): Promise<ExternalStartResult> {
+  protected async startExternal(context: AgentExecutionContext): Promise<ExternalStartResult> {
     const externalRunId = `forge-assay-${context.storyRunId}`
     this.externalRunId = externalRunId
     this.done = false
@@ -199,9 +171,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     this.evidence = null
     this.execution = this.executePlan(context)
       .catch((error) => {
-        const candidateSha = assayCandidateFromInstructions(
-          context.command.specialInstructions,
-        )
+        const candidateSha = assayCandidateForCommand(context.command)
         const workspace = context.executionWorkspace?.worktreePath ?? null
         const frozenPlan = planAssay({
           testMode: context.story.testMode,
@@ -229,13 +199,12 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
 
   private async executePlan(context: AgentExecutionContext): Promise<void> {
     const startedAt = new Date().toISOString()
-    const instructions = context.command.specialInstructions
     const frozenPlan = planAssay({
       testMode: context.story.testMode,
       assayCommands: context.story.assayCommands,
     })
     const plan = frozenPlan.ok ? frozenPlan : null
-    const candidateSha = assayCandidateFromInstructions(instructions)
+    const candidateSha = assayCandidateForCommand(context.command)
     const workspace = context.executionWorkspace?.worktreePath ?? null
     const verifiedSha = workspace ? gitHead(workspace) : null
     const policyViolations: string[] = []
@@ -243,9 +212,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     const requiredCommands = plan?.commands ?? []
 
     if (!workspace) {
-      policyViolations.push(
-        'Assay requires an isolated exact-candidate worktree; no execution workspace was provided.',
-      )
+      policyViolations.push('Assay requires an isolated exact-candidate worktree; no execution workspace was provided.')
     }
     if (!plan || requiredCommands.length === 0) {
       policyViolations.push(
@@ -255,16 +222,17 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       )
     }
     if (!candidateSha) {
-      policyViolations.push('Assay immutable candidate SHA is missing or invalid.')
+      policyViolations.push('Assay typed immutable candidate SHA is missing or invalid.')
+    }
+    if (candidateSha && verifiedSha && candidateSha !== verifiedSha) {
+      policyViolations.push(`Assay candidate mismatch: typed=${candidateSha} workspace=${verifiedSha}.`)
     }
 
     if (plan?.mode !== 'FULL') {
       for (const command of requiredCommands) {
         const forbidden = detectFullRegressionAttempt(command)
         if (forbidden) {
-          policyViolations.push(
-            `Assay command violates ${plan?.mode ?? 'SCOPED'} test policy: ${forbidden}`,
-          )
+          policyViolations.push(`Assay command violates ${plan?.mode ?? 'SCOPED'} test policy: ${forbidden}`)
         }
       }
     }
@@ -280,16 +248,12 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
         verifyWorkspaceEnvFile(workspace, target)
         env = buildChildProcessEnv(target)
       } catch (error) {
-        policyViolations.push(
-          `Execution-target safety rejected Assay: ${String((error as Error)?.message ?? error)}`,
-        )
+        policyViolations.push(`Execution-target safety rejected Assay: ${String((error as Error)?.message ?? error)}`)
       }
     }
 
     if (workspace && env && policyViolations.length === 0) {
-      const timeoutMs =
-        this.config.commandTimeoutMs ??
-        Number(process.env.FORGE_ASSAY_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS)
+      const timeoutMs = this.config.commandTimeoutMs ?? Number(process.env.FORGE_ASSAY_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS)
       const runner = this.config.runCommand ?? runAssayCommand
 
       for (const command of requiredCommands) {
@@ -300,26 +264,18 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
             command,
             cwd: workspace,
             env,
-            timeoutMs:
-              Number.isFinite(timeoutMs) && timeoutMs > 0
-                ? timeoutMs
-                : DEFAULT_COMMAND_TIMEOUT_MS,
-            onProcess: (proc) => {
-              this.currentChild = proc
-            },
+            timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_COMMAND_TIMEOUT_MS,
+            onProcess: (proc) => { this.currentChild = proc },
           })
         } catch (error) {
           result = failedCommandResult(command, error)
         }
         commandResults.push(result)
-
         if (
           result.timedOut ||
           result.exitCode !== 0 ||
           (result.tests.failed !== null && result.tests.failed !== 0) ||
-          (result.tests.total !== null &&
-            result.tests.passed !== null &&
-            result.tests.total !== result.tests.passed)
+          (result.tests.total !== null && result.tests.passed !== null && result.tests.total !== result.tests.passed)
         ) {
           break
         }
