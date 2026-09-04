@@ -26,41 +26,46 @@ function executor(): QueryExecutor {
   )
   return async (strings) => {
     const sql = strings.join('?')
-    if (sql.includes('from app_user u')) {
+    if (sql.includes('from app_user')) {
       return [
         {
+          id: 'owner-user',
           display_name: 'Lisa Penfield',
+          email: 'owner@example.test',
           person_id: 'lisa-person',
           active: true,
-          is_owner: true,
         },
       ]
     }
-    if (sql.includes('from media')) {
-      return [{ file_data: image, mime_type: 'image/png' }]
+    if (sql.includes('select id') && sql.includes('from media')) {
+      return [{ id: 'protected-signature-media' }]
+    }
+    if (sql.includes('select file_data') && sql.includes('from media')) {
+      return [
+        {
+          file_data: image,
+          mime_type: 'image/png',
+          alt_text: 'broker_signature:lisa_penfield',
+          caption: null,
+        },
+      ]
     }
     return []
   }
 }
 
-test('broker signature config requires an explicit enabled gate and all bindings', () => {
+test('broker signature config defaults to the durable Lisa identity and supports an explicit disable gate', () => {
   assert.deepEqual(getBrokerSignatureConfig({}), {
-    enabled: false,
+    enabled: true,
     appUserId: null,
     mediaId: null,
-    signerName: null,
-    licenseNumber: null,
-    configured: false,
+    signerName: 'Lisa Penfield',
+    licenseNumber: 'C-9931',
+    configured: true,
   })
   assert.equal(
-    getBrokerSignatureConfig({
-      BROKER_SIGNATURE_ENABLED: 'true',
-      BROKER_SIGNATURE_APP_USER_ID: 'owner-user',
-      BROKER_SIGNATURE_MEDIA_ID: 'media-id',
-      BROKER_SIGNATURE_SIGNER_NAME: 'Lisa Penfield',
-    }).configured,
+    getBrokerSignatureConfig({ BROKER_SIGNATURE_ENABLED: 'false' }).enabled,
     false,
-    'the legal credential must be present before composition can be enabled',
   )
   assert.equal(
     getBrokerSignatureConfig({
@@ -141,7 +146,7 @@ test('signature policy never signs another broker and rejects a different actor'
 })
 
 test('PR-PNS requires Lisa to occupy one immutable seller-broker slot', async () => {
-  const template = getTemplate('PR-PNS', 1)!
+  const template = getTemplate('PR-PNS', 3)!
   const result = await resolveBrokerSignatureForIssuance(
     {
       template,
