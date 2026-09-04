@@ -58,10 +58,15 @@ test('wrapperIntegrity fails closed when either wrapper is absent', () => {
   }
 })
 
-test('scheduled wake is a stable Forge button with no recovery or Git business logic', () => {
+test('scheduled wake fast-forwards main but contains no recovery or destructive Git logic', () => {
   const wrapper = readFileSync(new URL('./agent-worker-once.sh', import.meta.url), 'utf8')
 
   assert.match(wrapper, /pnpm agent:work 2>&1/)
+  assert.match(
+    wrapper,
+    /git pull --ff-only origin main/,
+    'scheduler must refresh the control-plane checkout before unattended work',
+  )
   assert.doesNotMatch(
     wrapper,
     /forge-runtime-recover|recoverStaleAgentWorkIndustrial/,
@@ -69,8 +74,8 @@ test('scheduled wake is a stable Forge button with no recovery or Git business l
   )
   assert.doesNotMatch(
     wrapper,
-    /\bgit\s+(?:pull|fetch|checkout|switch|reset|rebase|stash)\b/,
-    'scheduler remains only a wake timer; it must not mutate/sync Git',
+    /\bgit\s+(?:checkout|switch|reset|rebase|stash|push)\b/,
+    'scheduler Git sync must stay fast-forward-only and never rewrite/publish history',
   )
 })
 
