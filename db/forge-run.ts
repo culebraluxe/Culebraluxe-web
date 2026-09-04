@@ -12,11 +12,6 @@ async function executor(): Promise<QueryExecutor> {
   return defaultExecutor
 }
 
-/**
- * Runtime-facing Story shape. Stable Story identity/UI metadata remains on the
- * parent, while every execution-contract field comes from the immutable Run
- * snapshot created for this attempt.
- */
 export type ForgeRunExecutionStory = StoryboardStory & {
   testMode?: string | null
   assayCommands?: string | null
@@ -27,12 +22,9 @@ export type ForgeLeadRunRecord = {
   phase: string | null
   decision: string | null
   splitCount: number | null
+  assignments: string[]
 }
 
-/**
- * Freeze the complete architect/execution contract onto a newly-created Run.
- * Existing historical runs are deliberately not backfilled from today's Story.
- */
 export async function initializeForgeStoryRun(
   runId: string,
   input: {
@@ -67,12 +59,6 @@ export async function initializeForgeStoryRun(
   `
 }
 
-/**
- * Build the execution-facing Story strictly from the frozen Run contract.
- * Parent Story values are retained only for stable identity/UI metadata that is
- * not part of the execution contract (id/title/workstream/priority/timestamps).
- * No execution lane may re-read mutable parent contract fields after this seam.
- */
 export async function getForgeRunExecutionStory(
   runId: string,
   parent: StoryboardStory,
@@ -91,9 +77,7 @@ export async function getForgeRunExecutionStory(
   const row = rows[0]
   if (!row) return null
   if (String(row.story_id) !== parent.id) {
-    throw new Error(
-      `Run ${runId} belongs to story ${String(row.story_id)}, not ${parent.id}`,
-    )
+    throw new Error(`Run ${runId} belongs to story ${String(row.story_id)}, not ${parent.id}`)
   }
 
   return {
@@ -113,7 +97,6 @@ export async function getForgeRunExecutionStory(
   }
 }
 
-/** Keep the Run's runtime identity durable even when it is resolved after start. */
 export async function setForgeRunRuntime(
   runId: string,
   agentRuntime: string,
@@ -127,24 +110,27 @@ export async function setForgeRunRuntime(
   `
 }
 
-/** Persist Lead judgment as structured Run truth, not prose to be re-parsed later. */
+/** Persist Lead judgment and split decomposition as structured Run truth. */
 export async function recordForgeLeadDecision(
   runId: string,
   input: {
     phase: string
     decision: string
     splitCount?: number | null
+    assignments?: string[]
     detail?: string | null
   },
   execute?: QueryExecutor,
 ): Promise<void> {
   const q = execute ?? (await executor())
   const detail = input.detail?.trim() || null
+  const assignments = (input.assignments ?? []).map((value) => value.trim()).filter(Boolean)
   await q`
     update storyboard_story_run
     set run_phase = ${input.phase},
         lead_decision = ${input.decision},
         lead_split_count = ${input.splitCount ?? null},
+        lead_split_assignments = ${assignments},
         evidence_detail = case
           when ${detail}::text is null then evidence_detail
           when evidence_detail is null or evidence_detail = '' then ${detail}
@@ -161,7 +147,7 @@ export async function getForgeLeadRunRecord(
 ): Promise<ForgeLeadRunRecord | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select run_phase, lead_decision, lead_split_count
+    select run_phase, lead_decision, lead_split_count, lead_split_assignments
     from storyboard_story_run
     where id = ${runId}
   `
@@ -171,10 +157,10 @@ export async function getForgeLeadRunRecord(
     phase: (row.run_phase as string | null) ?? null,
     decision: (row.lead_decision as string | null) ?? null,
     splitCount: (row.lead_split_count as number | null) ?? null,
+    assignments: (row.lead_split_assignments as string[] | null) ?? [],
   }
 }
 
-/** Persist generic machine facts. Null inputs preserve already-known facts. */
 export async function recordForgeRunMachineEvidence(
   runId: string,
   evidence: RunMachineEvidence,
@@ -203,7 +189,6 @@ export async function recordForgeRunMachineEvidence(
   `
 }
 
-/** Append human/machine diagnostic detail without creating another history table. */
 export async function appendForgeRunDetail(
   runId: string,
   detail: string,
