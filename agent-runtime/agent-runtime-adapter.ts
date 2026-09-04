@@ -25,6 +25,11 @@ import type {
 } from './repositories'
 import type { AgentCapability } from './capabilities'
 import { withWorkspaceEvidence } from './candidate-assay-handoff'
+import {
+  parseTestMode,
+  resolveTestModeFromInstructions,
+  withTestModeDirective,
+} from './test-mode'
 
 /** Minimum wall-clock interval between heartbeat progress writes (ms).
  * Bounds the DB write cadence of the status-poll loop while keeping liveness
@@ -132,12 +137,28 @@ export abstract class AgentRuntimeAdapter {
     // parent contract fields.
     const begun = await this.deps.work.beginRun(command.workItemId)
     const runId = begun.workItem.storyRunId!
+    const executionStory = begun.story as AgentExecutionContext['story']
     command = { ...command, storyRunId: runId, state: 'Running' }
-    this.currentStory = begun.story
+
+    // Test-mode is part of the frozen Run contract. Rewrite any older envelope
+    // directive to the Run snapshot before Smith/Architect adapters see it.
+    const frozenTestMode = parseTestMode(executionStory.testMode)
+    if (frozenTestMode) {
+      const parsed = resolveTestModeFromInstructions(command.specialInstructions, null)
+      command = {
+        ...command,
+        specialInstructions: withTestModeDirective(
+          parsed.instructions ?? '',
+          frozenTestMode,
+        ),
+      }
+    }
+
+    this.currentStory = executionStory
     const ctxWithRun: AgentExecutionContext = {
       ...context,
       command,
-      story: begun.story,
+      story: executionStory,
       storyRunId: runId,
     }
 
