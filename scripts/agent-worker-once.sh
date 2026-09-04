@@ -2,9 +2,10 @@
 # ---------------------------------------------------------------------------
 # scripts/agent-worker-once.sh — bounded Forge wake/run wrapper.
 #
-# ONE scheduled wake => repeatedly invokes `pnpm agent:work` until Forge is
-# idle or a run fails. The database and `pnpm agent:work` own queue and
-# orchestration semantics. This wrapper only presses the Forge button again.
+# ONE scheduled wake => recover an orphaned runtime if necessary, then
+# repeatedly invoke `pnpm agent:work` until Forge is idle or a run fails.
+# The database and `pnpm agent:work` own queue and orchestration semantics.
+# This wrapper only heals stale process ownership and presses Forge again.
 #
 # IMPORTANT: launchd does not perform GitHub synchronization. Packet/story
 # truth needed for execution must already be present in the checkout and/or
@@ -47,6 +48,7 @@ fi
 
 export AGENT_WORKER_ID="${AGENT_WORKER_ID:-scheduler}"
 MAX_PASSES="${AGENT_WORKER_MAX_PASSES:-20}"
+STALE_AFTER_MINUTES="${AGENT_WORKER_STALE_AFTER_MINUTES:-60}"
 
 LOG_DIR="${AGENT_WORKER_LOG_DIR:-$HOME/Library/Logs/CulebraLuxe}"
 INVOCATION_LOG="$LOG_DIR/agent-worker.invocations.log"
@@ -85,7 +87,7 @@ fi
 trap release_lock EXIT
 
 if [ "${AGENT_WORKER_DRY_RUN:-0}" = "1" ]; then
-  echo "[agent-worker] dry-run: pnpm agent:work not invoked"
+  echo "[agent-worker] dry-run: runtime recovery and pnpm agent:work not invoked"
   inv_log "dry-run"
   exit 0
 fi
@@ -96,7 +98,29 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 127
 fi
 
-inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
+if [ ! -f "$REPO_ROOT/.env.local" ]; then
+  echo "agent-worker: .env.local missing; cannot recover/execute production control-plane work" >&2
+  inv_log "end: exit=2 env-local-missing"
+  exit 2
+fi
+
+inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES stale_after_minutes=$STALE_AFTER_MINUTES"
+
+# Industrial recovery boundary: if the previous worker/OpenCode/host died,
+# recover its stale durable work BEFORE trying to claim anything new. The
+# recovery command never deletes/reset/rebases the worker workspace. It closes
+# the old run as Interrupted and requeues the SAME work item when retry budget
+# remains. Any recovery failure stops this wake rather than risking a second
+# writer or silently skipping durable state.
+inv_log "recovery start stale_after_minutes=$STALE_AFTER_MINUTES"
+APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs \
+  scripts/forge-runtime-recover.ts --stale-after "$STALE_AFTER_MINUTES"
+recovery_rc=$?
+inv_log "recovery end exit=$recovery_rc"
+if [ "$recovery_rc" -ne 0 ]; then
+  echo "agent-worker: stale runtime recovery failed; refusing to claim new work" >&2
+  exit "$recovery_rc"
+fi
 
 pass=1
 while [ "$pass" -le "$MAX_PASSES" ]; do
