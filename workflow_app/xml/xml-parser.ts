@@ -123,6 +123,7 @@ const ELEMENT_ALLOWED_ATTRS: Record<string, ReadonlySet<string>> = {
     'count-variable',
     'plan-variable',
     'branch-command-type',
+    'branch-node',
     'join',
     'minimum',
     'maximum',
@@ -382,6 +383,7 @@ function parseNodeElement(el: XmlElement): NodeDefinition {
       const countVariable = requiredAttr(el, 'count-variable')
       const branchCommandType = requiredAttr(el, 'branch-command-type')
       const joinTarget = requiredAttr(el, 'join')
+      const branchNode = el.attributes['branch-node'] ?? undefined
       const planVariable = el.attributes['plan-variable'] ?? undefined
       const minimum = parseOptionalNonNegativeInt(el, 'minimum', 2)
       const maximum = parseOptionalNonNegativeInt(el, 'maximum', 8)
@@ -399,6 +401,7 @@ function parseNodeElement(el: XmlElement): NodeDefinition {
         countVariable,
         ...(planVariable !== undefined ? { planVariable } : {}),
         branchCommandType,
+        ...(branchNode !== undefined ? { branchNode } : {}),
         join: joinTarget,
         minimum,
         maximum,

@@ -1891,13 +1891,15 @@ export class WorkflowEngine {
     if (count < minimum) count = minimum;
     if (count > maximum) count = maximum;
 
-    const joinId = node.join;
-    if (!joinId || !graph.nodes[joinId]) {
-      throw new Error(`dynamic-fork node ${node.id} has no valid join target`);
+    // Each branch token arrives at the per-branch runnable node when declared,
+    // otherwise at the join directly.
+    const branchTarget = node.branchNode ?? node.join;
+    if (!branchTarget || !graph.nodes[branchTarget]) {
+      throw new Error(`dynamic-fork node ${node.id} has no valid branch or join target`);
     }
 
-    // Phase 1: create all N branch tokens at the join first, so the join
-    // (which counts active required siblings by fork-parent) waits for N.
+    // Phase 1: create all N branch tokens at the branch/join target first, so
+    // the join (which counts active required siblings by fork-parent) waits for N.
     const children: Token[] = [];
     for (let i = 0; i < count; i++) {
       // A prior branch may have terminated the process; do not spawn further.
@@ -1908,7 +1910,7 @@ export class WorkflowEngine {
       if (live.status !== 'active') break;
 
       if (this.hooks?.beforeForkChildCreate) {
-        await this.hooks.beforeForkChildCreate(parentToken.id, joinId);
+        await this.hooks.beforeForkChildCreate(parentToken.id, branchTarget);
       }
 
       const childRows = await tx`
@@ -1918,7 +1920,7 @@ export class WorkflowEngine {
           ${parentToken.tenantId},
           ${parentToken.processInstanceId},
           ${parentToken.id},
-          ${joinId},
+          ${branchTarget},
           'active',
           true
         )
@@ -1930,7 +1932,7 @@ export class WorkflowEngine {
         processInstanceId: instance.id,
         tokenId: childToken.id,
         eventType: 'token.forked',
-        nodeId: joinId,
+        nodeId: branchTarget,
         actor,
         data: { parentTokenId: parentToken.id, branchIndex: i, dynamicCount: count },
       });

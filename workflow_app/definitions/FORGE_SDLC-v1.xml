@@ -205,7 +205,14 @@
   <dynamic-fork id="split_dispatch" label="Parallel Smith Dispatch"
     description="Launch independently bounded Smith work items produced by Lead." responsibility="lead"
     count-variable="splitCount" plan-variable="splitPlan"
-    branch-command-type="forge.run_smith_split" join="split_join" minimum="2" maximum="8"/>
+    branch-command-type="forge.run_smith_split" branch-node="smith_split_work"
+    join="split_join" minimum="2" maximum="8"/>
+
+  <task-node id="smith_split_work" label="Smith Split" responsibility="smith" form-key="forge.smith_split"
+    description="One parallel Smith work item (a branch of a SPLIT). Produce the branch candidate; rejoin at split_join.">
+    <transition name="complete" to="split_join"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
 
   <join id="split_join" label="Join Smith Work"
     description="Wait until all required Smith branches have completed.">

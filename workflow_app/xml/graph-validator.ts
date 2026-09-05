@@ -307,11 +307,16 @@ function collectReachableNodes(graph: ProcessGraph): Set<string> {
     for (const t of graph.nodes[id]?.transitions ?? []) {
       if (t.to && !seen.has(t.to)) stack.push(t.to)
     }
-    // ENG-FORGE-V9 — a dynamic-fork's branches rejoin at its `join` node, so the
-    // join (and everything downstream of it) is reachable from the fork.
+    // ENG-FORGE-V9 — a dynamic-fork's branches arrive at its branch node (or
+    // join) and rejoin at its `join` node, so those are reachable from the fork.
     const dynamic = graph.nodes[id]
-    if (dynamic?.type === 'dynamic-fork' && dynamic.join && !seen.has(dynamic.join)) {
-      stack.push(dynamic.join)
+    if (dynamic?.type === 'dynamic-fork') {
+      if (dynamic.branchNode && !seen.has(dynamic.branchNode)) {
+        stack.push(dynamic.branchNode)
+      }
+      if (dynamic.join && !seen.has(dynamic.join)) {
+        stack.push(dynamic.join)
+      }
     }
   }
   return seen

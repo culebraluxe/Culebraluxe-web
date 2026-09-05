@@ -194,6 +194,8 @@ test('ENG-FORGE-V9 smoke: SPLIT fan-out rejoins before QA and completes', async 
     })
     instanceId = res.instanceId
     assert.equal(res.status, 'completed', 'SPLIT chain must reach complete')
+    const splitSteps = res.steps.filter((s) => s === 'smith_split_work').length
+    assert.equal(splitSteps, 2, 'both SPLIT branches must run as Smith-split tasks')
     assert.ok(res.steps.includes('lead_post'), 'join must release Lead POST after fan-out')
     assert.ok(res.steps.includes('qa_verify'), 'QA verify after the join')
   } finally {

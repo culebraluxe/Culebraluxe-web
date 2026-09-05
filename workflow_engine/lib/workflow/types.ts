@@ -134,6 +134,9 @@ export interface NodeDefinition {
   countVariable?: string;
   planVariable?: string | null;
   branchCommandType?: string;
+  /** Optional per-branch runnable node (e.g. a Smith-split task-node) the
+   *  dynamic-fork's child tokens arrive at instead of the join directly. */
+  branchNode?: string;
   join?: string;
   minimum?: number;
   maximum?: number;
