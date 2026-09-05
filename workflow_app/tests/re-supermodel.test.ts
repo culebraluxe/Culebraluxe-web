@@ -1148,7 +1148,7 @@ function setupCustomApp(app: any) {
   return { fake, engine }
 }
 
-test('command ids are stable and deterministic (sha256 of instance:node)', async () => {
+test('command ids are stable and deterministic (sha256 of instance:node:visit)', async () => {
   const { fake, engine } = setup(simpleCashFacts())
   const processInstanceId = await startAndSignContract(engine, fake)
 
@@ -1157,7 +1157,7 @@ test('command ids are stable and deterministic (sha256 of instance:node)', async
   )
   assert.equal(records.length, 1) // mark_under_contract
   const expected = createHash('sha256')
-    .update(`${processInstanceId}:mark_under_contract`)
+    .update(`${processInstanceId}:mark_under_contract:1`)
     .digest('hex')
   assert.equal(records[0].command_id, expected)
 })

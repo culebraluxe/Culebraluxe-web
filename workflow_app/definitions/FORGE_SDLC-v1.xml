@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  FORGE_SDLC-v1.xml — Forge V7 Workflow-Driven Software Delivery (superset).
+  FORGE_SDLC-v1.xml — ENG-FORGE-V10 Workflow-Driven Software Delivery.
   One authoritative master workflow. The XML owns routing/responsibility
   sequencing/mode/repair/parallel shape/QA/DEV_OPS release/HOLD/completion; it
   does NOT own provider/model/harness/worktree/prompt/credential selection.
-  Reconciliation note (ENG-FORGE-V9): the <dynamic-fork> split_dispatch fans out
-  by branch-command-type (forge.run_smith_split) and rejoins at split_join, so
-  the redundant smith_split_1..4 slot command-nodes are omitted.
+  The <dynamic-fork> split_dispatch creates real claimed smith_split_work
+  task-nodes and rejoins once at split_join. Release command-nodes use durable
+  evidence and real release executors; missing executors fail closed.
 -->
 <process-definition
     key="FORGE_SDLC"

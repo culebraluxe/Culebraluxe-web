@@ -11,11 +11,9 @@
 // placed inside FORGE_SDLC fails closed here, and a forge.* command can never
 // silently ride RE's router.
 //
-// v1 (FORGE_SDLC-v1.xml) carries ZERO command-nodes, so this set is empty for
-// now — matching V7. Each future forge.* command-node (FORGE_SDLC-v2) must gain
-// a type here PLUS a Forge-owned canonical handler + router case before Layer 4
-// will pass, exactly as the V7 packet's "router case + canonical handler first"
-// contract requires.
+// FORGE_SDLC-v1 now carries release-critical command nodes. This inventory is
+// deliberately compared with the parsed XML in tests so comments, XML and the
+// application router cannot drift silently.
 //
 // This module imports nothing from the database or the RE registry.
 // ---------------------------------------------------------------------------
@@ -53,8 +51,16 @@ export const FORGE_VERIFY_DERIVED_MODELS = 'forge.verify_derived_models'
 export const FORGE_DEPLOY = 'forge.deploy'
 export const FORGE_VERIFY_PRODUCTION = 'forge.verify_production'
 
-/** Command-node types referenced by FORGE_SDLC XML (filled as the XML is wired). */
-export const FORGE_XML_COMMAND_NODE_TYPES: ReadonlySet<string> = new Set([])
+/** Command-node types referenced by the authoritative FORGE_SDLC XML. */
+export const FORGE_XML_COMMAND_NODE_TYPES: ReadonlySet<string> = new Set([
+  FORGE_PUBLISH_CANDIDATE,
+  FORGE_MIGRATE_DEV,
+  FORGE_VERIFY_DEV_MIGRATION,
+  FORGE_MIGRATE_PROD,
+  FORGE_VERIFY_PROD_MIGRATION,
+  FORGE_REFRESH_DERIVED_MODELS,
+  FORGE_VERIFY_DERIVED_MODELS,
+])
 
 /**
  * Every Forge command with a registered handler (or routing surface) in the

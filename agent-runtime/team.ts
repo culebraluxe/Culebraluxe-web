@@ -21,6 +21,7 @@ export type ForgePosition =
   | 'assay'
   | 'archive'
   | 'night'
+  | 'dev_ops'
 
 export type ForgeHarnessId =
   | 'forge-native'
@@ -273,6 +274,14 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
         lineage: 'deepseek-judgment',
       },
     },
+    dev_ops: {
+      position: 'dev_ops',
+      profile: 'devops-pro',
+      playerId: 'deepseek-pro',
+      harnessId: 'forge-native',
+      fieldId: 'local',
+      lineage: 'deepseek-operations',
+    },
   },
 }
 
@@ -329,7 +338,7 @@ export function resolveForgeAssignment(
 export function listForgeTeamAssignments(
   team: ForgeTeam = DEFAULT_FORGE_TEAM,
 ): ResolvedForgeAssignment[] {
-  const positions: ForgePosition[] = ['scout', 'architect', 'lead', 'smith', 'assay']
+  const positions: ForgePosition[] = ['scout', 'architect', 'lead', 'smith', 'assay', 'dev_ops']
   return positions.map((position) => resolveForgeAssignment(position, team))
 }
 

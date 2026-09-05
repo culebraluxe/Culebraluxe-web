@@ -124,7 +124,7 @@ export interface NodeDefinition {
   /** Present on `decision` nodes — refresh application facts before evaluating. */
   refreshFacts?: boolean;
   /**
-   * Present on `dynamic-fork` nodes — data-driven N-way fan-out (ENG-FORGE-V9).
+   * Present on `dynamic-fork` nodes — data-driven N-way fan-out (ENG-FORGE-V10).
    * The engine reads the branch count from the process variable named by
    * `countVariable` (clamped to minimum..maximum), fans out that many branch
    * tokens, executes `branchCommandType` per branch, and rejoins at the node

@@ -145,6 +145,14 @@ export interface AgentRunEvidence {
   commitHash: string | null
   /** Deterministic Assay's rich in-process evidence before generic Run projection. */
   assayEvidence?: AssayEvidence | null
+  /** Provider-neutral release receipt. Forge accepts it only when its exact
+   * artifact SHA matches the engine-owned lineage for the requested stage. */
+  releaseEvidence?: {
+    kind: 'deployment' | 'production_verification'
+    artifactSha: string
+    receiptId: string
+    success: boolean
+  } | null
   /** Spend vision: harness-enforced exact provider/model. Null = unmeasured. */
   modelUsed?: string | null
   runtimeAdapter: string | null

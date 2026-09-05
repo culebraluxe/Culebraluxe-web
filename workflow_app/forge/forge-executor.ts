@@ -1,7 +1,10 @@
 import {
+  claimForgeRoleTask,
   completeForgeRoleTask,
   findActiveForgeInstance,
   listActiveForgeRoleTasks,
+  releaseForgeRoleTask,
+  syncForgeStoryboardState,
   startForgeWorkflow,
   type ActiveForgeRoleTask,
   type ForgeStartFacts,
@@ -10,18 +13,16 @@ import type { ForgeGateEvidence } from './forge-facts'
 import { engineSql } from '../engine-client'
 
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V9 Item 3 — Forge role executor (drives an instance to completion).
+// ENG-FORGE-V10 — Forge role executor (drives an instance to completion).
 //
 // The engine drives FORGE_SDLC tokens; async role steps are task-nodes. This
 // loop is the execution layer: for each open role task it runs the role (via an
 // injectable runner) and completes the engine task with the resulting gate
 // evidence, so downstream decisions route.
 //
-// `defaultForgeRoleRunner` supplies conservative evidence that drives a
-// straight-line FEATURE/SOLO story (no migration/deploy) to `complete`, proving
-// the full engine traversal. The REAL runner (which launches Scout/Smith/QA/
-// DEV_OPS agents through agent-runtime and records real evidence) is injected
-// at the cutover seam.
+// `defaultForgeRoleRunner` is exported only as explicit demo/test
+// infrastructure. Production callers must inject a real runner; silently
+// inventing QA/release success is forbidden.
 // ---------------------------------------------------------------------------
 
 export type ForgeRoleOutcome = {
@@ -72,6 +73,8 @@ export type DriveForgeStoryOptions = {
   start?: ForgeStartFacts
   runner?: ForgeRoleRunner
   maxSteps?: number
+  /** Durable engine-task owner used for claim-before-launch. */
+  workerId?: string
 }
 
 export type DriveForgeStoryResult = {
@@ -114,8 +117,14 @@ export async function driveForgeStory(
   storyId: string,
   opts: DriveForgeStoryOptions = {},
 ): Promise<DriveForgeStoryResult> {
-  const runner = opts.runner ?? defaultForgeRoleRunner
+  if (!opts.runner) {
+    throw new Error(
+      'Forge production execution requires an explicit real role runner; the synthetic runner is test-only.',
+    )
+  }
+  const runner = opts.runner
   const maxSteps = opts.maxSteps ?? 40
+  const workerId = opts.workerId?.trim() || `forge-engine-${process.pid}`
   const steps: string[] = []
 
   let instanceId = await findActiveForgeInstance(storyId)
@@ -131,6 +140,7 @@ export async function driveForgeStory(
     // Stop (do not auto-complete) at a human decision gate.
     const humanGate = tasks.find((t) => FORGE_HUMAN_GATE_NODES.has(t.nodeId))
     if (humanGate) {
+      await syncForgeStoryboardState(storyId, instanceId, { humanHold: true })
       return {
         instanceId,
         status: await instanceStatus(instanceId),
@@ -140,23 +150,62 @@ export async function driveForgeStory(
       }
     }
 
+    // Reserved/in-progress work already has a durable owner. Never relaunch it
+    // merely because another worker can see it; recovery is an explicit path.
+    if (!tasks.some((task) => task.status === 'ready')) {
+      return {
+        instanceId,
+        status: await instanceStatus(instanceId),
+        steps,
+        exhausted: true,
+        needsHuman: false,
+      }
+    }
+
     for (const task of tasks) {
-      const outcome = await runner(task.nodeId, task)
+      if (task.status !== 'ready') continue
       try {
+        await claimForgeRoleTask(task.taskId, workerId)
+      } catch (err) {
+        // Another worker won the claim or the task advanced between list and
+        // claim. In either case this worker must not launch duplicate work.
+        if (isAdvanceConflict(err) || /TASK_NOT_CLAIMABLE|TASK_ALREADY_ASSIGNED/i.test(String(err))) {
+          continue
+        }
+        throw err
+      }
+
+      let outcome: ForgeRoleOutcome
+      try {
+        outcome = await runner(task.nodeId, task)
         await completeForgeRoleTask(task.taskId, {
           transitionName: outcome.transitionName ?? 'complete',
           evidence: outcome.evidence,
+          userId: workerId,
         })
       } catch (err) {
         // The token may already have advanced (duplicate/racing completion) —
         // recover by rescanning instead of aborting the whole drive.
-        if (!isAdvanceConflict(err)) throw err
+        if (isAdvanceConflict(err)) continue
+        try {
+          await releaseForgeRoleTask(task.taskId, workerId)
+        } catch (releaseError) {
+          if (!isAdvanceConflict(releaseError)) {
+            throw new AggregateError(
+              [err, releaseError],
+              `Forge role ${task.nodeId} failed and its task could not be released`,
+            )
+          }
+        }
+        throw err
       }
       steps.push(task.nodeId)
+      await syncForgeStoryboardState(storyId, instanceId)
     }
   }
 
   const status = await instanceStatus(instanceId)
+  await syncForgeStoryboardState(storyId, instanceId)
   const tasks = await listActiveForgeRoleTasks(storyId)
   return {
     instanceId,

@@ -27,6 +27,7 @@ export async function markForgeStoryInProgress(
 
 export async function markForgeStoryHumanHold(
   storyId: string,
+  reason?: string | null,
   execute?: QueryExecutor,
 ): Promise<void> {
   const q = execute ?? (await executor())
@@ -34,6 +35,31 @@ export async function markForgeStoryHumanHold(
     update storyboard_story
     set status = 'Hold',
         completed_at = null,
+        notes = case
+          when ${reason?.trim() || null}::text is null then notes
+          when notes is null or notes = '' then ${reason?.trim() || null}
+          else notes || E'\n' || ${reason?.trim() || null}
+        end,
+        updated_at = now()
+    where id = ${storyId}
+  `
+}
+
+export async function markForgeStoryFailed(
+  storyId: string,
+  reason?: string | null,
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  await q`
+    update storyboard_story
+    set status = 'Failed',
+        completed_at = null,
+        notes = case
+          when ${reason?.trim() || null}::text is null then notes
+          when notes is null or notes = '' then ${reason?.trim() || null}
+          else notes || E'\n' || ${reason?.trim() || null}
+        end,
         updated_at = now()
     where id = ${storyId}
   `

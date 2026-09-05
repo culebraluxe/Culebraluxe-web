@@ -10,12 +10,13 @@ import type {
   ForgeCommandHandler,
   ForgeCommandRegistry,
   ForgeCommandResult,
+  ForgeReleaseExecutor,
   ForgeStateWriter,
 } from './forge-state-writer'
 import { optionalString, requiredString } from './forge-state-writer'
 
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V9 Stage 3 — Forge command handlers + registry (DB-free core).
+// ENG-FORGE-V10 — Forge command handlers + registry (DB-free core).
 //
 // Handlers are thin adapters: envelope -> required/optional fields ->
 // ForgeStateWriter call -> normalized result. NO business rules live here; they
@@ -102,7 +103,20 @@ function appendRunDetailHandler(writer: ForgeStateWriter): ForgeCommandHandler {
 }
 
 /** Registry of the four forge.* handlers bound to the given writer. */
-export function buildForgeCommandRegistry(writer: ForgeStateWriter): ForgeCommandRegistry {
+const RELEASE_COMMAND_TYPES: ReadonlySet<string> = new Set([
+  'forge.publish_candidate',
+  'forge.migrate_dev',
+  'forge.verify_dev_migration',
+  'forge.migrate_prod',
+  'forge.verify_prod_migration',
+  'forge.refresh_derived_models',
+  'forge.verify_derived_models',
+])
+
+export function buildForgeCommandRegistry(
+  writer: ForgeStateWriter,
+  releaseExecutor?: ForgeReleaseExecutor,
+): ForgeCommandRegistry {
   const handlers = new Map<string, ForgeCommandHandler>([
     [FORGE_STORY_MARK_HOLD, markHoldHandler(writer)],
     [FORGE_STORY_MARK_COMPLETE, markCompleteHandler(writer)],
@@ -110,20 +124,19 @@ export function buildForgeCommandRegistry(writer: ForgeStateWriter): ForgeComman
     [FORGE_RUN_APPEND_DETAIL, appendRunDetailHandler(writer)],
   ])
 
-  // ENG-FORGE-V9 Item 1 — route EVERY forge.* command in the inventory so a
-  // FORGE_SDLC command-node never returns not_found (which would abort the
-  // engine step). Role-execution commands (run_* / classify / publish /
-  // migrate / deploy / verify_*) are routed here as IDEMPOTENT intent handlers:
-  // they validate their payload and return a stable success. Their REAL
-  // execution (launching the Scout/Smith/QA role, git publish, Neon migration,
-  // production smoke) plugs into these seams from the async Forge execution
-  // layer (ENG-FORGE-V9 Item 3); the engine's own process_commands uniqueness
-  // already guarantees per-node-visit idempotency (invariant #10). Until that
-  // layer is wired these advance the token so the full topology is traversable.
+  // Route every maintained forge.* name so drift is explicit. XML release
+  // command-nodes use real executors. Historical role-command names remain a
+  // compatibility surface, but fail closed: roles execute only as claimed
+  // engine task-nodes through the agent-runtime adapter.
   const special = new Set<string>(handlers.keys())
   for (const commandType of FORGE_ROUTED_COMMAND_TYPES) {
     if (special.has(commandType)) continue
-    handlers.set(commandType, genericIntentHandler(commandType))
+    handlers.set(
+      commandType,
+      RELEASE_COMMAND_TYPES.has(commandType)
+        ? releaseCommandHandler(commandType, releaseExecutor)
+        : genericIntentHandler(commandType),
+    )
   }
 
   return {
@@ -142,10 +155,27 @@ export function buildForgeCommandRegistry(writer: ForgeStateWriter): ForgeComman
   }
 }
 
+function releaseCommandHandler(
+  commandType: string,
+  executor?: ForgeReleaseExecutor,
+): ForgeCommandHandler {
+  return {
+    async handle(envelope) {
+      if (!executor) {
+        return {
+          commandType,
+          outcome: 'precondition_failure',
+          message: `${commandType} requires a configured real Forge release executor`,
+        }
+      }
+      return executor.execute(envelope)
+    },
+  }
+}
+
 /**
- * Generic idempotent intent handler for a routed forge.* command. Validates
- * required context when supplied and returns a stable success. Real side
- * effects are attached by the async Forge execution layer.
+ * Fail-closed compatibility handler for non-XML Forge command names. Returning
+ * success here would claim a role ran when no external execution occurred.
  */
 function genericIntentHandler(commandType: string): ForgeCommandHandler {
   return {
@@ -160,7 +190,11 @@ function genericIntentHandler(commandType: string): ForgeCommandHandler {
           message: `${commandType} requires a non-empty storyId or runId`,
         }
       }
-      return { commandType, outcome: 'success' }
+      return {
+        commandType,
+        outcome: 'precondition_failure',
+        message: `${commandType} is not executable as a command; use a claimed Forge engine task`,
+      }
     },
   }
 }

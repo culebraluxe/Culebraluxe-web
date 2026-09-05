@@ -14,6 +14,7 @@ import {
 import { createForgeApplicationPort } from '../forge/application-port'
 import { buildForgeCommandRegistry, dispatchForgeCommand } from '../forge/forge-command'
 import type { ForgeStateWriter } from '../forge/forge-state-writer'
+import type { ForgeReleaseExecutor } from '../forge/forge-state-writer'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V9 Stage 3 — Forge command domain (the "B" fork), DB-free.
@@ -47,9 +48,15 @@ function envelope(commandType: string, input: Record<string, unknown>) {
   return { commandId: 'cmd-1', commandType, input }
 }
 
+const fakeReleaseExecutor: ForgeReleaseExecutor = {
+  async execute(input) {
+    return { commandType: input.commandType, outcome: 'success' }
+  },
+}
+
 test('ENG-FORGE-V9: the Forge registry covers every routed forge.* command', () => {
   const { writer } = fakeWriter()
-  const registry = buildForgeCommandRegistry(writer)
+  const registry = buildForgeCommandRegistry(writer, fakeReleaseExecutor)
   const registered = new Set(registry.list())
   for (const type of FORGE_ROUTED_COMMAND_TYPES) {
     assert.ok(registered.has(type), `registry must route ${type}`)
@@ -57,14 +64,25 @@ test('ENG-FORGE-V9: the Forge registry covers every routed forge.* command', () 
   assert.equal(registered.size, FORGE_ROUTED_COMMAND_TYPES.size)
 })
 
-test('ENG-FORGE-V9: a role-execution command (forge.run_smith_split) dispatches to success, never not_found', async () => {
+test('ENG-FORGE-V10: a legacy role command cannot simulate successful execution', async () => {
   const { writer } = fakeWriter()
   const registry = buildForgeCommandRegistry(writer)
   const result = await dispatchForgeCommand(
     envelope(FORGE_RUN_SMITH_SPLIT, { storyId: 'S-1', runId: 'R-9' }),
     registry,
   )
-  assert.equal(result.outcome, 'success')
+  assert.equal(result.outcome, 'precondition_failure')
+  assert.match(result.message ?? '', /claimed Forge engine task/)
+})
+
+test('ENG-FORGE-V10: release-critical command fails closed without a real executor', async () => {
+  const { writer } = fakeWriter()
+  const registry = buildForgeCommandRegistry(writer)
+  const result = await dispatchForgeCommand(
+    envelope('forge.publish_candidate', { storyId: 'S-1' }),
+    registry,
+  )
+  assert.equal(result.outcome, 'precondition_failure')
 })
 
 test('ENG-FORGE-V9: forge.story.hold routes to the writer with storyId + reason', async () => {

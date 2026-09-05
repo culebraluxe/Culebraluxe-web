@@ -11,6 +11,7 @@ export type LaneId =
   | 'assay'
   | 'archive'
   | 'night'
+  | 'dev_ops'
 
 export type ModelLineage = string
 
@@ -137,6 +138,15 @@ export const DEFAULT_LANES: Record<LaneId, LaneBinding> = {
     toolPolicy: 'detach',
     requiredCapabilities: WRITE_CAPABILITIES,
   },
+  dev_ops: {
+    lane: 'dev_ops',
+    position: 'dev_ops',
+    role: 'dev_ops',
+    maxSteps: 20,
+    toolPolicy: 'write',
+    requiredCapabilities: WRITE_CAPABILITIES,
+    openClaudeKey: 'general-purpose',
+  },
 }
 
 export const LANE_ORDER: LaneId[] = [
@@ -148,4 +158,5 @@ export const LANE_ORDER: LaneId[] = [
   'assay',
   'archive',
   'night',
+  'dev_ops',
 ]

@@ -26,6 +26,7 @@ const positionLabel: Record<ForgePosition, string> = {
   assay: 'Assay',
   archive: 'Archive',
   night: 'Night',
+  dev_ops: 'DEV_OPS',
 }
 
 export function GatewayControl({

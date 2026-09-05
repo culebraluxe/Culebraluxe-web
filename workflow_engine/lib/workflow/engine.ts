@@ -69,8 +69,9 @@ type SqlClient = any; // neon tagged template client
 // callback but on the APPLICATION's own connection, so that side effect can
 // commit independently of the engine transaction. Correctness is recovered
 // WITHOUT a distributed transaction by three cooperating guarantees:
-//   1. deterministic commandId = sha256(instanceId:nodeId)  (_commandId)
-//   2. process_commands UNIQUE(process_instance_id, node_id) replay guard -
+//   1. deterministic commandId = sha256(instanceId:nodeId:visitSequence)
+//   2. process_commands UNIQUE(process_instance_id, node_id, visit_sequence)
+//      replay guard -
 //      if the engine transaction rolls back the command row is gone and the
 //      step is retried with the SAME commandId (the instance id is stable)
 //   3. the application's workflow_command_receipt claim-first receipt makes
@@ -1874,7 +1875,7 @@ export class WorkflowEngine {
     actor: string,
     variables: Record<string, any>,
   ) {
-    // ENG-FORGE-V9 — synchronous N-way fan-out primitive. The process variable
+    // ENG-FORGE-V10 — durable N-way fan-out primitive. The process variable
     // named by node.countVariable holds the requested branch count; it is
     // clamped to node.minimum..node.maximum. The parent token completes and N
     // child tokens are created at the join target so the existing join (by
@@ -1941,7 +1942,7 @@ export class WorkflowEngine {
 
     // Phase 2: arrive each branch token at the join. The first N-1 arrivals
     // find still-active required siblings and wait; the Nth releases once.
-    for (const childToken of children) {
+    for (const [branchIndex, childToken] of children.entries()) {
       const liveRows = await tx`
         SELECT * FROM process_instances WHERE id = ${parentToken.processInstanceId} FOR UPDATE
       `;
@@ -1954,6 +1955,22 @@ export class WorkflowEngine {
         actor,
         variables,
       });
+      if (graph.nodes[branchTarget]?.type === 'task') {
+        const splitPlan = Array.isArray(variables?.[node.planVariable ?? ''])
+          ? variables[node.planVariable ?? ''][branchIndex] ?? null
+          : null;
+        await tx`
+          UPDATE tasks
+          SET form_data = ${JSON.stringify({
+            splitBranchIndex: branchIndex,
+            splitBranchCount: count,
+            splitBranch: splitPlan,
+          })},
+              version = version + 1
+          WHERE token_id = ${childToken.id}
+            AND status = 'ready'
+        `;
+      }
     }
   }
 
@@ -2183,28 +2200,19 @@ export class WorkflowEngine {
     let result: ApplicationCommandResult;
     let commandId: string;
 
-    const existing = await tx`
-      SELECT * FROM process_commands
+    // A command visit is the durable activation of this node. A transaction
+    // replay sees the same count because the failed engine transaction did not
+    // persist its process_command row, so it recreates the same commandId and
+    // the application receipt suppresses duplicate side effects. An
+    // intentional repair loop reaches the node after the prior visit committed,
+    // producing the next sequence and therefore a genuinely new attempt.
+    const visitRows = await tx`
+      SELECT count(*)::int AS visit_count
+      FROM process_commands
       WHERE process_instance_id = ${instance.id} AND node_id = ${node.id}
     `;
-    if (existing[0]) {
-      // Idempotent replay: reuse the stored identity and outcome; never re-execute.
-      commandId = existing[0].command_id;
-      result = {
-        commandId,
-        outcome: existing[0].outcome,
-        message: existing[0].message,
-      };
-      await this._event(tx, {
-        processInstanceId: instance.id,
-        tokenId: token.id,
-        eventType: 'command.replayed',
-        nodeId: node.id,
-        actor,
-        data: { commandId, outcome: result.outcome },
-      });
-    } else {
-      commandId = this._commandId(instance.id, node.id);
+    const visitSequence = Number(visitRows[0]?.visit_count ?? 0) + 1;
+    commandId = this._commandId(instance.id, node.id, visitSequence);
       const input =
         node.inputMappings && Object.keys(node.inputMappings).length > 0
           ? node.inputMappings
@@ -2242,12 +2250,13 @@ export class WorkflowEngine {
 
       await tx`
         INSERT INTO process_commands (
-          process_instance_id, token_id, node_id, command_id, command_type,
+          process_instance_id, token_id, node_id, visit_sequence, command_id, command_type,
           subject_type, subject_id, correlation_id, causation_id, input, outcome, message
         ) VALUES (
           ${instance.id},
           ${token.id},
           ${node.id},
+          ${visitSequence},
           ${commandId},
           ${commandType},
           ${request.subjectType},
@@ -2259,7 +2268,6 @@ export class WorkflowEngine {
           ${result.message ?? null}
         )
       `;
-    }
 
     if (result.outcome === 'success') {
       await this._event(tx, {
@@ -2353,8 +2361,10 @@ export class WorkflowEngine {
     return merged;
   }
 
-  private _commandId(processInstanceId: string, nodeId: string): string {
-    return createHash('sha256').update(`${processInstanceId}:${nodeId}`).digest('hex');
+  private _commandId(processInstanceId: string, nodeId: string, visitSequence = 1): string {
+    return createHash('sha256')
+      .update(`${processInstanceId}:${nodeId}:${visitSequence}`)
+      .digest('hex');
   }
 
   private async _event(

@@ -9,11 +9,12 @@ import { buildForgeCommandRegistry, dispatchForgeCommand } from './forge-command
 import type {
   ForgeFactReader,
   ForgeStateWriter,
+  ForgeReleaseExecutor,
 } from './forge-state-writer'
 import { projectForgeGateFacts, type ForgeGateEvidence } from './forge-facts'
 
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V9 Stage 3 — Forge ApplicationPort (the "B" engine seam).
+// ENG-FORGE-V10 — Forge ApplicationPort (the engine-owned Forge seam).
 //
 // This is the concrete adapter the generic workflow engine uses when it runs a
 // FORGE_SDLC instance — the exact mirror of RE's createApplicationPort in
@@ -25,8 +26,8 @@ import { projectForgeGateFacts, type ForgeGateEvidence } from './forge-facts'
 //   - readFacts returns Forge subject facts when a reader is supplied, else {}
 //     for non-Forge subjects.
 //
-// The engine never imports this file; a future Forge-on-engine integration
-// constructs an ApplicationPort from here and passes it to WorkflowEngine.
+// The engine stays domain-neutral; the live Forge engine runtime constructs
+// this ApplicationPort and passes it to WorkflowEngine.
 // ---------------------------------------------------------------------------
 
 export type ForgeApplicationPortOptions = {
@@ -40,6 +41,8 @@ export type ForgeApplicationPortOptions = {
    * story's execution evidence (Item 2). Mutually exclusive with `readFacts`.
    */
   evidenceReader?: (storyId: string) => Promise<ForgeGateEvidence>
+  /** Real executor for release-critical command nodes. */
+  releaseExecutor?: ForgeReleaseExecutor
 }
 
 async function resolveWriter(
@@ -57,7 +60,7 @@ export async function createForgeApplicationPort(
   opts: ForgeApplicationPortOptions = {},
 ): Promise<ApplicationPort> {
   const writer = await resolveWriter(opts)
-  const registry = buildForgeCommandRegistry(writer)
+  const registry = buildForgeCommandRegistry(writer, opts.releaseExecutor)
 
   return {
     async executeCommand(request): Promise<ApplicationCommandResult> {
@@ -69,7 +72,13 @@ export async function createForgeApplicationPort(
         }
       }
       const result = await dispatchForgeCommand(
-        { commandId: request.commandId, commandType: request.commandType, input: request.input },
+        {
+          commandId: request.commandId,
+          commandType: request.commandType,
+          processInstanceId: request.correlationId,
+          storyId: request.subjectType === 'story' ? request.subjectId : null,
+          input: request.input,
+        },
         registry,
       )
       return {
@@ -81,14 +90,14 @@ export async function createForgeApplicationPort(
 
     async readFacts(subject: WorkflowSubject): Promise<ApplicationFacts> {
       if (opts.readFacts) return opts.readFacts(subject)
-      if (subject.subjectType !== 'story') return {}
-      // Explicit evidence wins (used by the executor for a single completion);
-      // otherwise fall back to the DURABLE reader over the run tables (#1).
-      const reader =
-        opts.evidenceReader ??
-        (await import('./forge-evidence-db')).createStoryGateEvidenceReader()
-      const evidence = await reader(subject.subjectId)
-      return projectForgeGateFacts(evidence)
+      if (subject.subjectType === 'story') {
+        const reader =
+          opts.evidenceReader ??
+          (await import('./forge-evidence-db')).createStoryGateEvidenceReader()
+        const evidence = await reader(subject.subjectId)
+        return projectForgeGateFacts(evidence)
+      }
+      return {}
     },
   }
 }

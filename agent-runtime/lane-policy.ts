@@ -100,6 +100,9 @@ const LANE_PREAMBLE: Record<LaneId, string> = {
   night:
     'Lane=night. Same job as Smith, detached. Write factual progress. Stop cleanly on maxSteps. ' +
     'Same smith workflow and cost discipline; the only difference is unattended execution — leave breadcrumbs, never leave mess.',
+  dev_ops:
+    'Lane=dev_ops. Deliver only the exact QA-approved candidate. Own publication, migrations, derived-state refresh, deployment, production verification, and operational repair. ' +
+    'Never substitute a different SHA, skip verification, force-push, or report an operation successful without machine evidence. Resume only the failed release stage.',
 }
 
 export function resolveLane(input: ResolveLaneInput): LaneDecision {
@@ -242,6 +245,7 @@ export const LANE_DEFAULT_SKILLS: Record<LaneId, string[]> = {
   assay: [],
   archive: ['planner'],
   night: ['workflow', 'ui'],
+  dev_ops: ['workflow', 'neon'],
 }
 
 export const DEFAULT_PIPELINE: LaneId[] = [

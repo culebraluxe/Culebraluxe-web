@@ -16,11 +16,8 @@ import { forgeCommandIsRouted } from '../forge-command-types'
 // engine grammar via parseProcessDefinitionXml, generic graph semantics via
 // graph-validator, and the application contract via validateParsedDefinition.
 // Layer 4 here is the FORGE inventory (forge-command-types.ts), NOT the RE
-// registry — the two models are cleanly forked (ENG-FORGE-V9). v1 carries NO
-// <command-node> elements (serial human/agent backbone only), so Layer 4 passes
-// vacuously; any future forge.* command-node must gain a Forge-owned router
-// case plus a canonical handler first, or the deploy fails here exactly as it
-// does for RE_supermodel.
+// registry — the two models are cleanly forked. Every release-critical
+// <command-node> must have a Forge-owned router case and canonical handler.
 // ---------------------------------------------------------------------------
 
 export const FORGE_SDLC_KEY = 'FORGE_SDLC'

@@ -248,8 +248,11 @@ export class FakeSql {
       return row ? [row] : [];
     }
 
-    if (t.startsWith('select * from process_commands where process_instance_id =') && t.includes('and node_id =')) {
-      return st.processCommands.filter((r) => r.process_instance_id === params[0] && r.node_id === params[1]);
+    if (t.startsWith('select count(*)::int as visit_count from process_commands where process_instance_id =') && t.includes('and node_id =')) {
+      const visitCount = st.processCommands.filter(
+        (r) => r.process_instance_id === params[0] && r.node_id === params[1],
+      ).length;
+      return [{ visit_count: visitCount }];
     }
 
     if (t.startsWith('select * from process_events where process_instance_id =') && t.includes('order by created_at desc')) {
@@ -324,7 +327,11 @@ export class FakeSql {
         parent_token_id: hasParent ? params[2] : null,
         node_id: hasParent ? params[3] : params[2],
         status: 'active',
-        required: hasParent ? params[4] : true,
+        // Some engine paths bind branch requirement as a parameter while the
+        // dynamic-fork and join-successor paths use the SQL literal `true`.
+        // Mirror PostgreSQL in both cases instead of turning literal-required
+        // branches into optional branches in the in-memory harness.
+        required: hasParent ? (params.length > 4 ? params[4] : true) : true,
         outcome: null,
         is_able_to_reactivate_parent: true,
         started_at: now,
@@ -412,15 +419,16 @@ export class FakeSql {
         process_instance_id: params[0],
         token_id: params[1],
         node_id: params[2],
-        command_id: params[3],
-        command_type: params[4],
-        subject_type: params[5],
-        subject_id: params[6],
-        correlation_id: params[7],
-        causation_id: params[8],
-        input: JSON.parse(params[9]),
-        outcome: params[10],
-        message: params[11],
+        visit_sequence: params[3],
+        command_id: params[4],
+        command_type: params[5],
+        subject_type: params[6],
+        subject_id: params[7],
+        correlation_id: params[8],
+        causation_id: params[9],
+        input: JSON.parse(params[10]),
+        outcome: params[11],
+        message: params[12],
         created_at: now,
       };
       st.processCommands.push(row);
@@ -433,6 +441,14 @@ export class FakeSql {
     if (t.startsWith('update process_instances set root_token_id =')) {
       const row = st.processInstances.find((r) => r.id === params[1]);
       if (row) row.root_token_id = params[0];
+      return [];
+    }
+    if (t.startsWith('update tasks set form_data =') && t.includes("and status = 'ready'")) {
+      const row = st.tasks.find((r) => r.token_id === params[1] && r.status === 'ready');
+      if (row) {
+        row.form_data = JSON.parse(params[0]);
+        row.version += 1;
+      }
       return [];
     }
     if (t.startsWith('update process_instances set variables =') && t.includes('version = version + 1')) {

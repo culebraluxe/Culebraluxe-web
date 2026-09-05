@@ -15,7 +15,7 @@ test('default Forge team maps one ready player to every core position', () => {
   const assignments = listForgeTeamAssignments()
   assert.deepEqual(
     assignments.map((assignment) => assignment.position),
-    ['scout', 'architect', 'lead', 'smith', 'assay'],
+    ['scout', 'architect', 'lead', 'smith', 'assay', 'dev_ops'],
   )
   assert.ok(assignments.every((assignment) => assignment.player.ready))
   assert.ok(assignments.every((assignment) => assignment.field.ready))
@@ -78,6 +78,7 @@ test('implemented harness mappings are distinct from host runtime readiness', ()
 test('default role model choices live only in the team map', () => {
   assert.equal(resolveForgeAssignment('scout').playerId, 'deepseek-flash')
   assert.equal(resolveForgeAssignment('architect').playerId, 'deepseek-pro')
+  assert.equal(resolveForgeAssignment('dev_ops').playerId, 'deepseek-pro')
   assert.equal(resolveForgeAssignment('lead').playerId, 'deepseek-pro')
   assert.equal(resolveForgeAssignment('smith').playerId, 'deepseek-flash')
   assert.equal(resolveForgeAssignment('assay').playerId, 'forge-deterministic-assay')

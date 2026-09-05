@@ -1,7 +1,7 @@
 import type { ApplicationFacts } from '../../workflow_engine/lib/workflow/types'
 
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V9 Item 2 — Forge decision-gate facts projection.
+// ENG-FORGE-V10 — Forge decision-gate facts projection.
 //
 // Every <decision> in FORGE_SDLC-v1.xml evaluates conditions against facts the
 // engine refreshes from the application (ApplicationPort.readFacts -> engine
@@ -63,17 +63,30 @@ export type ForgeGateEvidence = {
   publishSucceeded?: boolean
   /** migration_required */
   migrationRequired?: boolean
+  migrationFiles?: string[]
+  devMigrationApplied?: boolean
   /** dev/prod migration verification */
   devMigrationVerified?: boolean
+  prodMigrationApplied?: boolean
   prodMigrationVerified?: boolean
   /** derived refresh */
   derivedRefreshRequired?: boolean
+  derivedModels?: string[]
+  derivedRefreshSucceeded?: boolean
   derivedRefreshVerified?: boolean
   /** deploy */
   deploymentRequired?: boolean
   deploymentSucceeded?: boolean
+  deploymentReceipt?: string | null
   /** production_result */
   productionVerified?: boolean
+  productionVerificationReceipt?: string | null
+  /** Immutable artifact identity chain. */
+  candidateSha?: string | null
+  qaVerifiedSha?: string | null
+  publishedSha?: string | null
+  deployedSha?: string | null
+  productionVerifiedSha?: string | null
   /** hold_resolution */
   resumeTarget?:
     | 'SCOUT'
@@ -87,6 +100,54 @@ export type ForgeGateEvidence = {
     | 'DEPLOY'
     | 'SMOKE'
     | 'CANCEL'
+}
+
+export type ForgeLineageStage = 'qa' | 'publish' | 'deploy' | 'production'
+
+function normalizedSha(value: string | null | undefined): string | null {
+  const sha = value?.trim().toLowerCase() ?? ''
+  return /^[0-9a-f]{7,64}$/.test(sha) ? sha : null
+}
+
+/**
+ * Return null only when the exact-candidate invariant is satisfied through the
+ * requested stage. This is intentionally independent of the boolean gate:
+ * `qaPassed=true` never substitutes for artifact identity.
+ */
+export function forgeLineageError(
+  evidence: ForgeGateEvidence,
+  stage: ForgeLineageStage,
+): string | null {
+  const candidate = normalizedSha(evidence.candidateSha)
+  if (!candidate) return 'candidateSha is missing or invalid'
+
+  const qa = normalizedSha(evidence.qaVerifiedSha)
+  if (!qa) return 'qaVerifiedSha is missing or invalid'
+  if (qa !== candidate) return `QA verified ${qa}, expected candidate ${candidate}`
+  if (stage === 'qa') return null
+
+  const published = normalizedSha(evidence.publishedSha)
+  if (!published) return 'publishedSha is missing or invalid'
+  if (published !== candidate) return `published ${published}, expected candidate ${candidate}`
+  if (stage === 'publish') return null
+
+  if (stage === 'deploy') {
+    const deployed = normalizedSha(evidence.deployedSha)
+    if (!deployed) return 'deployedSha is missing or invalid'
+    if (deployed !== published) return `deployed ${deployed}, expected published ${published}`
+    return null
+  }
+
+  const expectedProduction = evidence.deploymentRequired
+    ? normalizedSha(evidence.deployedSha)
+    : published
+  if (!expectedProduction) return 'production artifact source SHA is missing or invalid'
+  const verified = normalizedSha(evidence.productionVerifiedSha)
+  if (!verified) return 'productionVerifiedSha is missing or invalid'
+  if (verified !== expectedProduction) {
+    return `production verified ${verified}, expected ${expectedProduction}`
+  }
+  return null
 }
 
 /** Booleans default to false; omitted when absent. */
@@ -108,6 +169,8 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     if (value !== undefined) facts[key] = value
   }
   if (evidence.splitCount !== undefined) facts.splitCount = evidence.splitCount
+  if (evidence.migrationFiles !== undefined) facts.migrationFiles = evidence.migrationFiles
+  if (evidence.derivedModels !== undefined) facts.derivedModels = evidence.derivedModels
 
   // Booleans: default false (gate holds until positive evidence exists).
   const boolFacts: Record<string, boolean | undefined> = {
@@ -117,16 +180,22 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     architectureSuspect: evidence.architectureSuspect,
     qaReviewRequired: evidence.qaReviewRequired,
     qaReviewPassed: evidence.qaReviewPassed,
-    qaPassed: evidence.qaPassed,
-    publishSucceeded: evidence.publishSucceeded,
+    qaPassed: evidence.qaPassed === true && forgeLineageError(evidence, 'qa') === null,
+    publishSucceeded:
+      evidence.publishSucceeded === true && forgeLineageError(evidence, 'publish') === null,
     migrationRequired: evidence.migrationRequired,
+    devMigrationApplied: evidence.devMigrationApplied,
     devMigrationVerified: evidence.devMigrationVerified,
+    prodMigrationApplied: evidence.prodMigrationApplied,
     prodMigrationVerified: evidence.prodMigrationVerified,
     derivedRefreshRequired: evidence.derivedRefreshRequired,
+    derivedRefreshSucceeded: evidence.derivedRefreshSucceeded,
     derivedRefreshVerified: evidence.derivedRefreshVerified,
     deploymentRequired: evidence.deploymentRequired,
-    deploymentSucceeded: evidence.deploymentSucceeded,
-    productionVerified: evidence.productionVerified,
+    deploymentSucceeded:
+      evidence.deploymentSucceeded === true && forgeLineageError(evidence, 'deploy') === null,
+    productionVerified:
+      evidence.productionVerified === true && forgeLineageError(evidence, 'production') === null,
   }
   for (const [key, value] of Object.entries(boolFacts)) {
     facts[key] = value ?? false

@@ -644,7 +644,7 @@ test('command node invokes the application port with a stable commandId', async 
 
   assert.equal(app.calls.length, 1);
   assert.equal(app.calls[0].commandType, 'c.do');
-  const expectedCommandId = createHash('sha256').update(`${processInstanceId}:cmd`).digest('hex');
+  const expectedCommandId = createHash('sha256').update(`${processInstanceId}:cmd:1`).digest('hex');
   assert.equal(app.calls[0].commandId, expectedCommandId);
 
   const record = fake.store.processCommands.find((r) => r.process_instance_id === processInstanceId)!;
@@ -652,6 +652,56 @@ test('command node invokes the application port with a stable commandId', async 
   assert.equal(record.outcome, 'success');
   assert.equal(events(fake, 'command.requested').length, 1);
   assert.equal(events(fake, 'command.completed').length, 1);
+});
+
+test('ENG-FORGE-V10: repair revisit gets a new command identity while each visit stays deterministic', async () => {
+  const graph = {
+    startNodeId: 'start',
+    nodes: {
+      start: { id: 'start', type: 'start', transitions: [{ name: 'go', to: 'cmd' }] },
+      cmd: {
+        id: 'cmd',
+        type: 'command',
+        commandType: 'forge.publish_candidate',
+        transition: 'done',
+        transitions: [{ name: 'done', to: 'repair' }],
+      },
+      repair: {
+        id: 'repair',
+        type: 'task',
+        name: 'Repair',
+        transitions: [{ name: 'retry', to: 'cmd' }],
+      },
+    },
+  };
+  const fake = new FakeSql();
+  fake.seedDefinition('visit', 1, graph);
+  const app = makeApp();
+  const engine = new WorkflowEngine(fake.sql, { evaluate: stubEvaluator, app });
+  const { processInstanceId } = await engine.startProcess({
+    definitionKey: 'visit',
+    startedBy: 'x',
+  });
+
+  const firstRepair = fake.store.tasks.find(
+    (task) => task.process_instance_id === processInstanceId && task.name === 'Repair',
+  )!;
+  await engine.completeTask({ taskId: firstRepair.id, userId: 'u', transitionName: 'retry' });
+
+  assert.equal(app.calls.length, 2);
+  assert.notEqual(app.calls[0].commandId, app.calls[1].commandId);
+  assert.equal(
+    app.calls[0].commandId,
+    createHash('sha256').update(`${processInstanceId}:cmd:1`).digest('hex'),
+  );
+  assert.equal(
+    app.calls[1].commandId,
+    createHash('sha256').update(`${processInstanceId}:cmd:2`).digest('hex'),
+  );
+  assert.deepEqual(
+    fake.store.processCommands.map((record) => record.visit_sequence),
+    [1, 2],
+  );
 });
 
 test('command conflict outcome terminates the process with conflict', async () => {

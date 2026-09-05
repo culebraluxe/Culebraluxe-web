@@ -165,6 +165,7 @@ export async function executeClaimedAgentCommand(
   // Lead IMPLEMENT and POST are allowed to create/integrate a candidate.
   const writable =
     workItem.role === 'builder' ||
+    workItem.role === 'dev_ops' ||
     (workItem.role === 'lead' && (leadPhase === 'implement' || leadPhase === 'post'))
   const context: AgentExecutionContext = {
     command,

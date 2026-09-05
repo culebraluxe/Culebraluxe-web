@@ -1,7 +1,7 @@
 import type { ForgeStateWriter } from './forge-state-writer'
 
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V9 Stage 3 — Real Neon-backed ForgeStateWriter.
+// ENG-FORGE-V10 — Real Neon-backed ForgeStateWriter.
 //
 // Thin adapter over the existing Forge DB writers. Imported lazily (dynamic
 // import below) so the pure command domain never pulls the database layer; this
@@ -23,8 +23,8 @@ export async function createDbForgeStateWriter(): Promise<ForgeStateWriter> {
     async markStoryInProgress(storyId) {
       await storyState.markForgeStoryInProgress(storyId)
     },
-    async markStoryHumanHold(storyId) {
-      await storyState.markForgeStoryHumanHold(storyId)
+    async markStoryHumanHold(storyId, reason) {
+      await storyState.markForgeStoryHumanHold(storyId, reason)
     },
     async markStoryComplete(storyId) {
       await storyState.markForgeStoryPublishedComplete(storyId)

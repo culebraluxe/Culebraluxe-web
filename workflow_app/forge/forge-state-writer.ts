@@ -20,8 +20,8 @@ import type { ApplicationFacts, WorkflowSubject } from '../../workflow_engine/li
 //   forge.story.in_progress  -> mark story In Progress (V6 lane-start)
 //   forge.run.detail         -> append a durable run detail/audit line
 //
-// v1 FORGE_SDLC carries NO command-nodes, so none of these appear in XML yet;
-// they are the executable surface a FORGE_SDLC-v2 command-node can reference.
+// FORGE_SDLC-v1 carries release command-nodes; state and release effects remain
+// behind this Forge-only application boundary.
 // ---------------------------------------------------------------------------
 
 /** Injected repository seam the Forge handlers write through (DI / fakes). */
@@ -36,11 +36,17 @@ export interface ForgeStateWriter {
 /** Optional fact reader for the Forge ApplicationPort (subject -> facts). */
 export type ForgeFactReader = (subject: WorkflowSubject) => Promise<ApplicationFacts>
 
-export type ForgeCommandOutcome = 'success' | 'not_found' | 'validation_failure'
+export type ForgeCommandOutcome =
+  | 'success'
+  | 'not_found'
+  | 'validation_failure'
+  | 'precondition_failure'
 
 export type ForgeCommandEnvelope = {
-  commandId?: string
+  commandId: string
   commandType: string
+  processInstanceId?: string | null
+  storyId?: string | null
   input: Record<string, unknown>
 }
 
@@ -58,6 +64,11 @@ export interface ForgeCommandRegistry {
   register(commandType: string, handler: ForgeCommandHandler): void
   resolve(commandType: string): ForgeCommandHandler | undefined
   list(): string[]
+}
+
+/** Real side-effect boundary for release-critical Forge command nodes. */
+export interface ForgeReleaseExecutor {
+  execute(envelope: ForgeCommandEnvelope): Promise<ForgeCommandResult>
 }
 
 /** Read a required string field from a command input; throws on malformed. */

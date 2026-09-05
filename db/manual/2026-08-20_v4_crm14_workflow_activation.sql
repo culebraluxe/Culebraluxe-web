@@ -219,6 +219,7 @@ create table process_commands (
     process_instance_id uuid not null references process_instances(id) on delete cascade,
     token_id            uuid,
     node_id             text not null,
+    visit_sequence      integer not null default 1,
     command_id          text not null,
     command_type        text not null,
     subject_type        text,
@@ -229,7 +230,7 @@ create table process_commands (
     outcome             text not null,
     message             text,
     created_at          timestamptz not null default now(),
-    unique (process_instance_id, node_id),
+    unique (process_instance_id, node_id, visit_sequence),
     unique (command_id)
 );
 

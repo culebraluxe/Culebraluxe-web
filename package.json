@@ -45,6 +45,8 @@
     "test:engine": "tsx --test workflow_engine/tests/*.test.ts",
     "test:app": "tsx --test workflow_app/tests/*.test.ts",
     "test:forge": "tsx --test workflow_app/tests/agent-work.test.ts workflow_app/tests/agent-scheduler.test.ts",
+    "test:forge:engine": "node --import tsx --test workflow_app/tests/forge-*.test.ts workflow_app/tests/dynamic-fork.test.ts workflow_engine/tests/hardening.test.ts",
+    "forge:engine": "node --env-file=.env.local --import tsx scripts/forge-engine-worker.ts",
     "test:persistence": "node --env-file=.env.local --import tsx --test-concurrency=1 --test workflow_engine/tests/persistence/*.test.ts workflow_app/tests/persistence/*.test.ts",
     "cleanse:dev": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/cleanse-dev-fixtures.ts --yes",
     "agent:runtime:dogfood": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/agent-runtime-invoke.ts",

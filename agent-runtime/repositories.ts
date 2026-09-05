@@ -361,7 +361,10 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     // for outer publish to own final Complete.
     const intermediateAwaitingFollow = Boolean(
       item &&
-        (item.role === 'builder' || item.role === 'lead' || item.role === 'architect') &&
+        (item.role === 'builder' ||
+          item.role === 'lead' ||
+          item.role === 'architect' ||
+          item.role === 'dev_ops') &&
         /^complete$/i.test(normalized.resultStatus),
     )
     const assayAwaitingPublish = Boolean(

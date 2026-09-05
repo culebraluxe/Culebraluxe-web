@@ -7,7 +7,7 @@ import {
   parseForgeSdlc,
 } from '../definitions/forge-sdlc'
 import { validateWorkflowDefinitionXml } from '../definitions/validate-definition'
-import { forgeCommandIsRouted } from '../forge-command-types'
+import { FORGE_XML_COMMAND_NODE_TYPES, forgeCommandIsRouted } from '../forge-command-types'
 import type { NodeDefinition } from '../../workflow_engine/lib/workflow/types'
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,15 @@ test('ENG-FORGE-V9: every task/command responsibility is a Forge position', () =
   for (const role of roles) {
     assert.ok(role !== undefined && valid.has(role), `responsibility '${role}' must be a Forge position`)
   }
+})
+
+test('ENG-FORGE-V10: XML command inventory exactly matches the maintained Forge inventory', () => {
+  const parsed = parseForgeSdlc()
+  const xmlCommands = Object.values(parsed.graph.nodes)
+    .filter((node) => node.type === 'command')
+    .map((node) => node.commandType)
+    .sort()
+  assert.deepEqual(xmlCommands, [...FORGE_XML_COMMAND_NODE_TYPES].sort())
 })
 
 test('ENG-FORGE-V9: no Inspector roster node (independent review is a QA capability)', () => {
