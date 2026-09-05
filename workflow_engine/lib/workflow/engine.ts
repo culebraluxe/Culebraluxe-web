@@ -1393,7 +1393,10 @@ export class WorkflowEngine {
     // Terminal: end node (with optional outcome) or a leaf with nowhere to go.
     if (
       node.type === 'end' ||
-      (!node.transitions?.length && node.type !== 'timer' && node.type !== 'command')
+      (!node.transitions?.length &&
+        node.type !== 'timer' &&
+        node.type !== 'command' &&
+        node.type !== 'dynamic-fork')
     ) {
       const endOutcome: ProcessOutcome =
         node.type === 'end' ? (node.outcome ?? 'completed') : 'completed';
@@ -1436,6 +1439,11 @@ export class WorkflowEngine {
 
     if (node.type === 'fork') {
       await this._handleFork(tx, token, node, instance, graph, actor, variables);
+      return;
+    }
+
+    if (node.type === 'dynamic-fork') {
+      await this._handleDynamicFork(tx, token, node, instance, graph, actor, variables);
       return;
     }
 
@@ -1847,6 +1855,96 @@ export class WorkflowEngine {
         data: { parentTokenId: parentToken.id, transition: transition.name, required },
       });
 
+      await this._arriveAtNode(tx, {
+        token: childToken,
+        instance,
+        graph,
+        actor,
+        variables,
+      });
+    }
+  }
+
+  private async _handleDynamicFork(
+    tx: SqlClient,
+    parentToken: Token,
+    node: NodeDefinition,
+    instance: ProcessInstance,
+    graph: ProcessGraph,
+    actor: string,
+    variables: Record<string, any>,
+  ) {
+    // ENG-FORGE-V9 — synchronous N-way fan-out primitive. The process variable
+    // named by node.countVariable holds the requested branch count; it is
+    // clamped to node.minimum..node.maximum. The parent token completes and N
+    // child tokens are created at the join target so the existing join (by
+    // fork-parent token correlation) releases exactly once when all N arrive.
+    // Async agent fan-out (enqueue + resume) is layered on top by the Forge
+    // execution integration; this is the engine-native synchronous primitive.
+    await this._completeToken(tx, parentToken, actor, 'completed');
+
+    const minimum = node.minimum ?? 2;
+    const maximum = node.maximum ?? 8;
+    const raw = variables?.[node.countVariable ?? ''];
+    let count = typeof raw === 'number' ? raw : minimum;
+    if (!Number.isInteger(count)) count = minimum;
+    if (count < minimum) count = minimum;
+    if (count > maximum) count = maximum;
+
+    const joinId = node.join;
+    if (!joinId || !graph.nodes[joinId]) {
+      throw new Error(`dynamic-fork node ${node.id} has no valid join target`);
+    }
+
+    // Phase 1: create all N branch tokens at the join first, so the join
+    // (which counts active required siblings by fork-parent) waits for N.
+    const children: Token[] = [];
+    for (let i = 0; i < count; i++) {
+      // A prior branch may have terminated the process; do not spawn further.
+      const liveRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${parentToken.processInstanceId} FOR UPDATE
+      `;
+      const live = this._mapInstance(liveRows[0]);
+      if (live.status !== 'active') break;
+
+      if (this.hooks?.beforeForkChildCreate) {
+        await this.hooks.beforeForkChildCreate(parentToken.id, joinId);
+      }
+
+      const childRows = await tx`
+        INSERT INTO tokens (
+          tenant_id, process_instance_id, parent_token_id, node_id, status, required
+        ) VALUES (
+          ${parentToken.tenantId},
+          ${parentToken.processInstanceId},
+          ${parentToken.id},
+          ${joinId},
+          'active',
+          true
+        )
+        RETURNING *
+      `;
+      const childToken = this._mapToken(childRows[0])!;
+
+      await this._event(tx, {
+        processInstanceId: instance.id,
+        tokenId: childToken.id,
+        eventType: 'token.forked',
+        nodeId: joinId,
+        actor,
+        data: { parentTokenId: parentToken.id, branchIndex: i, dynamicCount: count },
+      });
+      children.push(childToken);
+    }
+
+    // Phase 2: arrive each branch token at the join. The first N-1 arrivals
+    // find still-active required siblings and wait; the Nth releases once.
+    for (const childToken of children) {
+      const liveRows = await tx`
+        SELECT * FROM process_instances WHERE id = ${parentToken.processInstanceId} FOR UPDATE
+      `;
+      const live = this._mapInstance(liveRows[0]);
+      if (live.status !== 'active') break;
       await this._arriveAtNode(tx, {
         token: childToken,
         instance,
