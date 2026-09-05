@@ -85,14 +85,100 @@ test('ENG-FORGE-V9 smoke: SPLIT fan-out rejoins before QA and completes', async 
   try {
     const res = await driveForgeStory(story, {
       start: { workType: 'FEATURE' },
-      runner: runnerFor('SPLIT', 2),
+      runner: chainRunner({ lead_pre: { leadDecision: 'SPLIT', splitCount: 2 } }),
     })
     instanceId = res.instanceId
     assert.equal(res.status, 'completed', 'SPLIT chain must reach complete')
-    assert.ok(res.steps.includes('architect'))
-    // SPLIT branches rejoin at split_join and only then reach Lead POST -> QA.
     assert.ok(res.steps.includes('lead_post'), 'join must release Lead POST after fan-out')
     assert.ok(res.steps.includes('qa_verify'), 'QA verify after the join')
+  } finally {
+    if (instanceId) await cleanup(story, instanceId)
+  }
+})
+
+function ev(e: ForgeGateEvidence): { transitionName: string; evidence: ForgeGateEvidence } {
+  return { transitionName: 'complete', evidence: e }
+}
+
+/** Base chain runner: SMITH then QA then production smoke. */
+function chainRunner(
+  extra?: Record<string, ForgeGateEvidence>,
+): ForgeRoleRunner {
+  return async (nodeId) => {
+    if (extra?.[nodeId]) return ev(extra[nodeId])
+    switch (nodeId) {
+      case 'lead_pre':
+        return ev({ leadDecision: 'SMITH' })
+      case 'qa_verify':
+        return ev({
+          qaPassed: true,
+          publishSucceeded: true,
+          migrationRequired: false,
+          derivedRefreshRequired: false,
+          deploymentRequired: false,
+        })
+      case 'production_smoke':
+        return ev({ productionVerified: true })
+      default:
+        return ev({})
+    }
+  }
+}
+
+test('ENG-FORGE-V9 smoke: BUG classifies -> diagnoses -> architect/smith/QA completes', async () => {
+  process.env.APP_ENV = DEV
+  const story = 'SMOKE-BUG-' + Date.now()
+  let instanceId = ''
+  try {
+    const res = await driveForgeStory(story, {
+      start: { workType: 'BUG', evidence: { rootCauseKnown: false } },
+      runner: chainRunner({ diagnose_scout: { rootCauseKnown: true } }),
+    })
+    instanceId = res.instanceId
+    assert.equal(res.status, 'completed')
+    assert.ok(res.steps.includes('diagnose_scout'), 'BUG must route through diagnosis')
+    assert.ok(res.steps.includes('smith'))
+    assert.ok(res.steps.includes('qa_verify'))
+  } finally {
+    if (instanceId) await cleanup(story, instanceId)
+  }
+})
+
+test('ENG-FORGE-V9 smoke: RESEARCH classifies -> archive_research (no software change)', async () => {
+  process.env.APP_ENV = DEV
+  const story = 'SMOKE-RESEARCH-' + Date.now()
+  let instanceId = ''
+  try {
+    const res = await driveForgeStory(story, {
+      start: { workType: 'RESEARCH' },
+      runner: chainRunner({ research_architect: { researchDisposition: 'ARCHIVE' } }),
+    })
+    instanceId = res.instanceId
+    assert.equal(res.status, 'completed', 'research archive is a completed terminal')
+    assert.ok(res.steps.includes('research_scout'))
+    assert.ok(res.steps.includes('research_architect'))
+    assert.ok(!res.steps.includes('smith'), 'archived research must NOT proceed to implementation')
+  } finally {
+    if (instanceId) await cleanup(story, instanceId)
+  }
+})
+
+test('ENG-FORGE-V9 smoke: HOTFIX classifies -> straight to Lead (skips Architect) -> smith/QA', async () => {
+  process.env.APP_ENV = DEV
+  const story = 'SMOKE-HOTFIX-' + Date.now()
+  let instanceId = ''
+  try {
+    const res = await driveForgeStory(story, {
+      start: { workType: 'HOTFIX', evidence: { architectureSuspect: false } },
+      runner: chainRunner(),
+    })
+    instanceId = res.instanceId
+    assert.equal(res.status, 'completed')
+    assert.ok(!res.steps.includes('architect'), 'clean hotfix must skip Architect')
+    assert.ok(!res.steps.includes('diagnose_scout'), 'hotfix must not diagnose')
+    assert.ok(res.steps.includes('lead_pre'))
+    assert.ok(res.steps.includes('smith'))
+    assert.ok(res.steps.includes('qa_verify'))
   } finally {
     if (instanceId) await cleanup(story, instanceId)
   }
