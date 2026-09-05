@@ -79,12 +79,36 @@ export type DriveForgeStoryResult = {
   status: string | null
   steps: string[]
   exhausted: boolean
+  /** True when the instance is waiting on a human decision gate (HOLD /
+   *  requirements), not an auto-drivable role task. */
+  needsHuman: boolean
+}
+
+/**
+ * Task-node ids that are HUMAN decision gates (never auto-driven): a HOLD is a
+ * durable intentional stop (resolve/cancel/fail), and requirements repair is a
+ * Product Owner decision. The executor stops here and surfaces them rather than
+ * trying to "complete" them as a role run.
+ */
+export const FORGE_HUMAN_GATE_NODES: ReadonlySet<string> = new Set([
+  'hold',
+  'repair_requirements',
+])
+
+/** Engine conflicts that mean the token already advanced — recover by rescan. */
+function isAdvanceConflict(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err)
+  return /already completed|not active|state changed|STALE_TASK|TASK_ALREADY_COMPLETED|PROCESS_NOT_ACTIVE/i.test(
+    m,
+  )
 }
 
 /**
  * Ensure a story has a FORGE_SDLC instance, then drive it: repeatedly run each
  * open async role task and complete it with its gate evidence until no role
- * task remains (the instance should reach a terminal state).
+ * task remains (the instance should reach a terminal state). Human decision
+ * gates (HOLD / requirements) stop the drive and are reported via `needsHuman`;
+ * engine "already advanced" conflicts are recovered by rescanning.
  */
 export async function driveForgeStory(
   storyId: string,
@@ -103,12 +127,31 @@ export async function driveForgeStory(
   for (let i = 0; i < maxSteps; i++) {
     const tasks = await listActiveForgeRoleTasks(storyId)
     if (tasks.length === 0) break
+
+    // Stop (do not auto-complete) at a human decision gate.
+    const humanGate = tasks.find((t) => FORGE_HUMAN_GATE_NODES.has(t.nodeId))
+    if (humanGate) {
+      return {
+        instanceId,
+        status: await instanceStatus(instanceId),
+        steps,
+        exhausted: false,
+        needsHuman: true,
+      }
+    }
+
     for (const task of tasks) {
       const outcome = await runner(task.nodeId, task)
-      await completeForgeRoleTask(task.taskId, {
-        transitionName: outcome.transitionName ?? 'complete',
-        evidence: outcome.evidence,
-      })
+      try {
+        await completeForgeRoleTask(task.taskId, {
+          transitionName: outcome.transitionName ?? 'complete',
+          evidence: outcome.evidence,
+        })
+      } catch (err) {
+        // The token may already have advanced (duplicate/racing completion) —
+        // recover by rescanning instead of aborting the whole drive.
+        if (!isAdvanceConflict(err)) throw err
+      }
       steps.push(task.nodeId)
     }
   }
@@ -120,5 +163,6 @@ export async function driveForgeStory(
     status,
     steps,
     exhausted: tasks.length > 0,
+    needsHuman: tasks.some((t) => FORGE_HUMAN_GATE_NODES.has(t.nodeId)),
   }
 }

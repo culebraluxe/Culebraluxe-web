@@ -78,19 +78,19 @@ test('ENG-FORGE-V9 smoke: architect -> smith -> QA basic path completes', async 
   }
 })
 
-test('ENG-FORGE-V9 smoke: SPLIT fan-out rejoins before QA and completes', async () => {
+test('ENG-FORGE-V9 smoke: a HOLD decision stops the drive at the human gate (not auto-completed)', async () => {
   process.env.APP_ENV = DEV
-  const story = 'SMOKE-SPLIT-' + Date.now()
+  const story = 'SMOKE-HOLD-' + Date.now()
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
       start: { workType: 'FEATURE' },
-      runner: chainRunner({ lead_pre: { leadDecision: 'SPLIT', splitCount: 2 } }),
+      runner: chainRunner({ lead_pre: { leadDecision: 'HOLD' } }),
     })
     instanceId = res.instanceId
-    assert.equal(res.status, 'completed', 'SPLIT chain must reach complete')
-    assert.ok(res.steps.includes('lead_post'), 'join must release Lead POST after fan-out')
-    assert.ok(res.steps.includes('qa_verify'), 'QA verify after the join')
+    assert.equal(res.needsHuman, true, 'drive must stop at the HOLD human gate')
+    assert.ok(res.steps.includes('lead_pre'), 'must reach Lead PRE before HOLD')
+    assert.equal(res.status, 'active', 'a held instance stays active (not completed)')
   } finally {
     if (instanceId) await cleanup(story, instanceId)
   }
@@ -179,6 +179,23 @@ test('ENG-FORGE-V9 smoke: HOTFIX classifies -> straight to Lead (skips Architect
     assert.ok(res.steps.includes('lead_pre'))
     assert.ok(res.steps.includes('smith'))
     assert.ok(res.steps.includes('qa_verify'))
+  } finally {
+    if (instanceId) await cleanup(story, instanceId)
+  }
+})
+test('ENG-FORGE-V9 smoke: SPLIT fan-out rejoins before QA and completes', async () => {
+  process.env.APP_ENV = DEV
+  const story = 'SMOKE-SPLIT-' + Date.now()
+  let instanceId = ''
+  try {
+    const res = await driveForgeStory(story, {
+      start: { workType: 'FEATURE' },
+      runner: chainRunner({ lead_pre: { leadDecision: 'SPLIT', splitCount: 2 } }),
+    })
+    instanceId = res.instanceId
+    assert.equal(res.status, 'completed', 'SPLIT chain must reach complete')
+    assert.ok(res.steps.includes('lead_post'), 'join must release Lead POST after fan-out')
+    assert.ok(res.steps.includes('qa_verify'), 'QA verify after the join')
   } finally {
     if (instanceId) await cleanup(story, instanceId)
   }
