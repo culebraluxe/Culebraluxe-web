@@ -81,11 +81,14 @@ export async function createForgeApplicationPort(
 
     async readFacts(subject: WorkflowSubject): Promise<ApplicationFacts> {
       if (opts.readFacts) return opts.readFacts(subject)
-      if (subject.subjectType === 'story' && opts.evidenceReader) {
-        const evidence = await opts.evidenceReader(subject.subjectId)
-        return projectForgeGateFacts(evidence)
-      }
-      return {}
+      if (subject.subjectType !== 'story') return {}
+      // Explicit evidence wins (used by the executor for a single completion);
+      // otherwise fall back to the DURABLE reader over the run tables (#1).
+      const reader =
+        opts.evidenceReader ??
+        (await import('./forge-evidence-db')).createStoryGateEvidenceReader()
+      const evidence = await reader(subject.subjectId)
+      return projectForgeGateFacts(evidence)
     },
   }
 }
