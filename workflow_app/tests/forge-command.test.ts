@@ -171,9 +171,9 @@ test('ENG-FORGE-V9: the Forge ApplicationPort executes forge.* and refuses RE co
   assert.deepEqual(calls, ['hold:S-1:veto'], 'only the Forge command reached the writer')
 })
 
-test('ENG-FORGE-V9: Forge ApplicationPort readFacts returns {} without a reader', async () => {
+test('ENG-FORGE-V9: Forge ApplicationPort readFacts returns {} for a non-story subject', async () => {
   const { writer } = fakeWriter()
   const port: ApplicationPort = await createForgeApplicationPort({ writer })
-  const facts = await port.readFacts({ subjectType: 'story', subjectId: 'S-1' })
+  const facts = await port.readFacts({ subjectType: 'deal', subjectId: 'D-1' })
   assert.deepEqual(facts, {})
 })
