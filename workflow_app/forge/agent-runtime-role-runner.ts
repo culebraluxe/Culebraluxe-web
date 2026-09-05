@@ -23,18 +23,19 @@ import {
   forgeEvidenceFromAgentResult,
   forgeRoleNodePlan,
 } from './forge-role-mapping'
+import { assertNotJudgmentLabAutoRun } from './forge-judgment'
+import {
+  forgeNodeRequiresTypedGateEvidence,
+  missingTypedGateHoldEvidence,
+  readTypedGateEvidence,
+} from './forge-typed-evidence'
+import type { ForgeGateEvidence } from './forge-facts'
 
 export type AgentRuntimeForgeRunnerOptions = {
   workerId: string
   executionEnvironment?: string | null
 }
 
-/**
- * Canonical engine-task -> agent-runtime adapter. It creates exactly one
- * durable work item/Story Run for the claimed engine task, executes through
- * the existing provider-neutral runtime, then returns structured evidence to
- * the engine. It never chooses the next workflow node.
- */
 export function createAgentRuntimeForgeRoleRunner(
   options: AgentRuntimeForgeRunnerOptions,
 ): ForgeRoleRunner {
@@ -48,8 +49,8 @@ export function createAgentRuntimeForgeRoleRunner(
   const workspaces = buildAgentInvokerWorkspaces(options.workerId)
 
   return async (nodeId, task) => {
-    // The task's canonical story comes from its process instance, never from
-    // mutable form input.
+    assertNotJudgmentLabAutoRun(nodeId)
+
     const subjectRows = await interactiveSql`
       select subject_id
       from process_instances
@@ -131,18 +132,37 @@ export function createAgentRuntimeForgeRoleRunner(
     const leadDecision = finishedItem?.storyRunId
       ? await getForgeLeadRunRecord(finishedItem.storyRunId)
       : null
+
+    const typed = readTypedGateEvidence(result.evidence)
+    if (forgeNodeRequiresTypedGateEvidence(nodeId) && !typed) {
+      await finishForgeEngineTaskExecution(task.taskId, {
+        storyRunId: finishedItem?.storyRunId ?? null,
+        status: 'completed',
+        error: 'missing typed gateEvidence',
+      })
+      return {
+        transitionName: 'complete',
+        evidence: missingTypedGateHoldEvidence(nodeId),
+      }
+    }
+
+    const mapped = forgeEvidenceFromAgentResult({
+      nodeId,
+      result: result.evidence,
+      current,
+      leadDecision,
+    })
+    const evidence: ForgeGateEvidence = typed ? { ...mapped, ...typed } : mapped
+
     await finishForgeEngineTaskExecution(task.taskId, {
       storyRunId: finishedItem?.storyRunId ?? null,
-      status: 'completed',
+      status: /pass|success|complete/i.test(result.evidence.resultStatus)
+        ? 'completed'
+        : 'error',
     })
     return {
       transitionName: 'complete',
-      evidence: forgeEvidenceFromAgentResult({
-        nodeId,
-        result: result.evidence,
-        current,
-        leadDecision,
-      }),
+      evidence,
     }
   }
 }
