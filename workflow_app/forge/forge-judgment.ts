@@ -7,7 +7,11 @@ import {
   syncForgeStoryboardState,
 } from './forge-engine-runtime'
 
-/** Engine nodes that are judgment-lab (Grok / human), never auto-queued. */
+/**
+ * Judgment-lab labels (Grok / Chris). These are consult/review roles.
+ * They MUST auto-run overnight so Smith can produce working code.
+ * Humans review that code; they do not sit on an empty Architect gate.
+ */
 export const FORGE_JUDGMENT_LAB_NODES: ReadonlySet<string> = new Set([
   'architect',
   'repair_architect',
@@ -22,19 +26,6 @@ export function isForgeJudgmentLabNode(nodeId: string): boolean {
 export const FORGE_JUDGMENT_DECISIONS = ['accept', 'revise', 'reject'] as const
 export type ForgeJudgmentDecision = (typeof FORGE_JUDGMENT_DECISIONS)[number]
 
-export class ForgeJudgmentAutoRunError extends Error {
-  constructor(nodeId: string) {
-    super(
-      `Forge judgment-lab node '${nodeId}' must not auto-execute a volume-lab player`,
-    )
-    this.name = 'ForgeJudgmentAutoRunError'
-  }
-}
-
-export function assertNotJudgmentLabAutoRun(nodeId: string): void {
-  if (isForgeJudgmentLabNode(nodeId)) throw new ForgeJudgmentAutoRunError(nodeId)
-}
-
 export type ResolveForgeJudgmentInput = {
   storyId: string
   nodeId: string
@@ -45,6 +36,7 @@ export type ResolveForgeJudgmentInput = {
   note?: string
 }
 
+/** Optional human override after code exists. Never the default overnight path. */
 export async function resolveForgeJudgment(
   input: ResolveForgeJudgmentInput,
 ): Promise<{ taskId: string }> {

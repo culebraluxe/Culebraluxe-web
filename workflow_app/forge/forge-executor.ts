@@ -11,7 +11,6 @@ import {
 } from './forge-engine-runtime'
 import type { ForgeGateEvidence } from './forge-facts'
 import { engineSql } from '../engine-client'
-import { FORGE_JUDGMENT_LAB_NODES } from './forge-judgment'
 
 export type ForgeRoleOutcome = {
   transitionName?: string
@@ -27,6 +26,17 @@ function defaultEvidenceFor(nodeId: string): ForgeGateEvidence {
   switch (nodeId) {
     case 'lead_pre':
       return { leadDecision: 'SOLO' }
+    case 'feature_scout':
+    case 'research_scout':
+    case 'diagnose_scout':
+    case 'repair_scout':
+      return { scoutRequired: false }
+    case 'architect':
+    case 'repair_architect':
+    case 'research_architect':
+      return {}
+    case 'qa_review':
+      return { qaReviewRequired: false, qaReviewPassed: true }
     case 'qa_verify':
       return {
         qaPassed: true,
@@ -70,10 +80,10 @@ export type DriveForgeStoryResult = {
   needsHuman: boolean
 }
 
+/** Only true human stops. Architect/Inspector auto-run so Smith can write code overnight. */
 export const FORGE_HUMAN_GATE_NODES: ReadonlySet<string> = new Set([
   'hold',
   'repair_requirements',
-  ...FORGE_JUDGMENT_LAB_NODES,
 ])
 
 function isAdvanceConflict(err: unknown): boolean {

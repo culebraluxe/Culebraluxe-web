@@ -23,10 +23,8 @@ import {
   forgeEvidenceFromAgentResult,
   forgeRoleNodePlan,
 } from './forge-role-mapping'
-import { assertNotJudgmentLabAutoRun } from './forge-judgment'
 import {
-  forgeNodeRequiresTypedGateEvidence,
-  missingTypedGateHoldEvidence,
+  readLegacyMarkerGateEvidence,
   readTypedGateEvidence,
 } from './forge-typed-evidence'
 import type { ForgeGateEvidence } from './forge-facts'
@@ -49,8 +47,6 @@ export function createAgentRuntimeForgeRoleRunner(
   const workspaces = buildAgentInvokerWorkspaces(options.workerId)
 
   return async (nodeId, task) => {
-    assertNotJudgmentLabAutoRun(nodeId)
-
     const subjectRows = await interactiveSql`
       select subject_id
       from process_instances
@@ -134,25 +130,14 @@ export function createAgentRuntimeForgeRoleRunner(
       : null
 
     const typed = readTypedGateEvidence(result.evidence)
-    if (forgeNodeRequiresTypedGateEvidence(nodeId) && !typed) {
-      await finishForgeEngineTaskExecution(task.taskId, {
-        storyRunId: finishedItem?.storyRunId ?? null,
-        status: 'completed',
-        error: 'missing typed gateEvidence',
-      })
-      return {
-        transitionName: 'complete',
-        evidence: missingTypedGateHoldEvidence(nodeId),
-      }
-    }
-
     const mapped = forgeEvidenceFromAgentResult({
       nodeId,
       result: result.evidence,
       current,
       leadDecision,
     })
-    const evidence: ForgeGateEvidence = typed ? { ...mapped, ...typed } : mapped
+    const marked = readLegacyMarkerGateEvidence(result.evidence)
+    const evidence: ForgeGateEvidence = { ...mapped, ...marked, ...(typed ?? {}) }
 
     await finishForgeEngineTaskExecution(task.taskId, {
       storyRunId: finishedItem?.storyRunId ?? null,
