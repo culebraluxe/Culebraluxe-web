@@ -46,6 +46,7 @@ import {
   updateStoryRunProgress,
   type StoryRun,
 } from '../db/storyboard'
+import { planForgeNight } from '../workflow_app/forge/forge-night-driver'
 
 async function appendTransitionDecision(
   run: StoryRun | null,
@@ -62,9 +63,7 @@ async function appendTransitionDecision(
 }
 
 export async function runForgeHydrate(): Promise<string[]> {
-  // ENG-FORGE-V8: FORGE_SDLC is the single topology contract of the live
-  // driver. Fail closed here if the canonical definition is broken/drifted so
-  // the orchestrator never routes against a stale topology.
+  if (!planForgeNight().hydrate) return []
   ensureForgeSdlcTopology()
   return hydrateBareReadyItems({
     listItems: listAgentWorkItems,
@@ -117,10 +116,9 @@ export async function runForgeFollow(input: {
   resultStatus?: string | null
   testsSummary?: string | null
 }): Promise<string | null> {
+  if (!planForgeNight().follow) return null
   if (!input.finishedRole || isTerminalAssayRole(input.finishedRole)) return null
 
-  // ENG-FORGE-V8: fail closed on the canonical topology before routing a follow,
-  // exactly as in runForgeHydrate, so a drifted FORGE_SDLC never mis-routes.
   ensureForgeSdlcTopology()
 
   const okResult =
@@ -231,14 +229,12 @@ export type ForgePublishAfterAssayOutcome =
   | { kind: 'no-candidate'; detail: string }
   | { kind: 'skipped'; detail: string }
 
-/**
- * V6 outer publication gate. Generic structured fields on the Assay Story Run
- * are authoritative for new runs. Legacy text scanning is used only when those
- * fields are absent.
- */
 export async function runForgePublishAfterAssay(
   input: ForgePublishAfterAssayInput,
 ): Promise<ForgePublishAfterAssayOutcome | null> {
+  if (!planForgeNight().publish) {
+    return { kind: 'skipped', detail: 'engine brain owns publish; reducer publish skipped' }
+  }
   if (!input.storyId || !isTerminalAssayRole(input.finishedRole)) return null
 
   const runs = await listStoryRuns(input.storyId)
@@ -250,7 +246,6 @@ export async function runForgePublishAfterAssay(
   const machineEvidence = await getForgeRunMachineEvidence(newestRun.id)
   const hasStructured = hasStructuredRunMachineEvidence(machineEvidence)
   const resultStatus = newestRun.resultStatus ?? input.resultStatus ?? null
-  // Newest commit wins: Lead POST may have integrated Smith into a new candidate.
   const candidateRun = runs.find((run) => Boolean(run.commitHash)) ?? null
   const candidateCommit = candidateRun?.commitHash ?? null
   const assayedCandidate = machineEvidence?.baseCommitHash ??
