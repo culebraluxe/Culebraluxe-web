@@ -11,10 +11,11 @@ Short facts that are expensive to rediscover. Not the current story — that is 
 - Six Forge roles: Scout (what is going on?) → Architect (what should we build/change?) → Lead (how do we get this story done?) → Smith (can I build it correctly?) → QA (is it correct and ready to ship?) → DEV_OPS (can I safely get it into production and prove it?).
 - Spend vision: team map owns model selection; forge-native runs pin exact models via dsh --patch; model_used persists per run (107); Lead PRE decides grades against relative prices.
 - Skills are markdown packs. Neon skill packs are knowledge. Neon Functions are not Smith.
-- Architect and Inspector are judgment-lab (Grok / human). They are not auto-queued.
+- Architect and Inspector are judgment-lab labels. They auto-run overnight so Smith can produce code. Humans review a working SHA in the morning pack, they do not sit on an empty Architect gate.
 - Assay is TUNIT with an allow-list. Empty assay list means Assay does not launch.
 - Only `builder` may keep a git commit or write DEV. Scout/Assay commits are rewinded.
 - `main` is production-sensitive. Agents commit locally and do not push.
 - Code + DEV schema + PROD schema + verification = done for schema stories.
 - Do not reset PROD or copy DEV over PROD to fix drift.
 - Google Maps is the production map. Never use the Demo key in production.
+- FORGE_ROUTING_BRAIN defaults to reducer. engine mode skips hydrate/follow/publish and drives FORGE_SDLC. Never dual-write.
