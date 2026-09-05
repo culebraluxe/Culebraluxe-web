@@ -337,9 +337,11 @@ test('AUTH-03: every write export of app/portal/actions.ts is gated and the read
   // administration actions, OPS-03 adds the three property lifecycle actions
   // (create / archive / restore), and OPS-05 adds the three deal/participant
   // administration actions (create deal / set structural participant / end
-  // structural participant), so the inventory is now 34. This count exists to
-  // force an explicit review whenever the write surface grows.
-  assert.equal(writeExports.length, 34, 'Portal write inventory must be exactly 34 actions')
+  // structural participant). Later stories added the deal/showing/offer and
+  // task/media administration actions, growing the write surface to 39 — every
+  // one of them remains gated via portalWrite (verified below). This count
+  // exists to force an explicit review whenever the write surface grows.
+  assert.equal(writeExports.length, 39, 'Portal write inventory must be exactly 39 actions')
   for (const name of writeExports) {
     assert.ok(
       gates.has(name),

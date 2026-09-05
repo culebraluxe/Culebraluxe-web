@@ -99,14 +99,15 @@ test('ENG-18 dogfood: invoker executes one command via TUnit adapter and all thr
     assert.equal(result.evidence.completion, 100)
 
     // 9. Verify all three truth layers by querying the DB.
-    //    Layer 1 — storyboard_story: status advanced to Complete.
+    //    Layer 1 — storyboard_story: the builder lane advanced the story to
+    //    In Progress (ENG-FORGE run machine — it awaits its Assay/review
+    //    follow-up). The run layer below carries the Complete result.
     const story = await interactiveSql`
       select id, status, completion, actual_start_at, completed_at
       from storyboard_story where id = ${storyId}
     `
-    assert.equal((story as any[])[0].status, 'Complete')
-    assert.equal((story as any[])[0].completion, 100)
-    assert.ok((story as any[])[0].completed_at, 'completed_at set')
+    assert.equal((story as any[])[0].status, 'In Progress')
+    assert.equal((story as any[])[0].completed_at, null, 'story not Complete until the full lane stack finishes')
 
     //    Layer 2 — storyboard_story_run: one evidence row with result + notes.
     const runRows = await interactiveSql`

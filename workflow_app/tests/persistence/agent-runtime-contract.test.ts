@@ -233,7 +233,7 @@ test('ENG-18: TUnit success persists one run + work Done + story status', async 
   }
 })
 
-test('ENG-18: TUnit failure scenario persists normalized failure evidence (run Failed, work Error)', async () => {
+test('ENG-18: TUnit runtime failure records an Interrupted run and releases the work item for retry (never success)', async () => {
   const f = await createFixture()
   try {
     const adapter = new TUnitAgentRuntimeAdapter(
@@ -241,16 +241,21 @@ test('ENG-18: TUnit failure scenario persists normalized failure evidence (run F
       { mode: 'failure', steps: [{ lifecycle: 'running', note: 'executing', completion: 20 }], error: 'boom' },
     )
     const evidence = await adapter.execute(f.command, f.makeContext(f.command, f.story))
-    assert.equal(evidence.resultStatus, 'Failed')
+    // Migration 105 interruption model: a runtime failure with retry budget
+    // remaining is a RETRYABLE interruption. The run is preserved as
+    // Interrupted evidence (never treated as success), and the work item is
+    // released back to Ready so a later worker retries the same logical work.
+    assert.equal(evidence.resultStatus, 'Interrupted')
     assert.match(evidence.notes, /simulated failure/)
 
     const item = await f.work.get(f.command.workItemId)
-    assert.equal(item!.state, 'Error')
-    assert.match(item!.errorText ?? '', /simulated failure/)
+    assert.equal(item!.state, 'Ready', 'released for retry — never terminal Error, never Done')
+    assert.equal(item!.errorText, null, 'interruption clears the transient error (not a persisted work Error)')
+    assert.ok(item!.storyRunId, 'work item still links the Interrupted run (evidence preserved)')
 
     const runs = await new SqlAgentRunRepository(executor).listForStory(f.story.id)
     assert.equal(runs.length, 1)
-    assert.equal(runs[0].resultStatus, 'Failed')
+    assert.equal(runs[0].resultStatus, 'Interrupted')
   } finally {
     await f.cleanup()
   }

@@ -303,7 +303,7 @@ test('ENG-19: DeepSeekHarnessAdapter success path persists Complete evidence + o
   }
 })
 
-test('ENG-19: DeepSeekHarnessAdapter failure path persists Error terminal state', async () => {
+test('ENG-19: DeepSeekHarnessAdapter runtime failure exhausts retry budget -> run Interrupted + work Error (terminal hold)', async () => {
   const fx = await createFixture()
   try {
     const work = fx.work
@@ -328,14 +328,21 @@ test('ENG-19: DeepSeekHarnessAdapter failure path persists Error terminal state'
     )
 
     const evidence = await adapter.execute(fx.command, makeContext(fx.command, fx.story))
-    assert.equal(evidence.resultStatus, 'Failed')
+    // Migration 105 interruption model with maxAttempts=1: the single runtime
+    // failure exhausts the retry budget, so recovery HOLDS. The run is
+    // preserved as Interrupted evidence (never success); the work item is the
+    // terminal Error hold awaiting a human.
+    assert.equal(evidence.resultStatus, 'Interrupted')
     assert.match(evidence.notes, /model provider error/)
 
     const rows = await interactiveSql`
       select state, error_text from agent_work_item where id = ${fx.command.workItemId}
     `
-    assert.equal(rows[0].state, 'Error')
+    assert.equal(rows[0].state, 'Error', 'budget exhausted -> terminal Error hold, never Done/success')
     assert.match(rows[0].error_text, /model provider error/)
+
+    const storyRows = await interactiveSql`select status from storyboard_story where id = ${fx.storyId}`
+    assert.equal(storyRows[0].status, 'Hold')
   } finally {
     await fx.cleanup()
   }

@@ -30,6 +30,11 @@ test('CRM-14B: RE_supermodel 10-way fork releases exactly once under concurrent 
       tenantId: f.tenantId,
       startedBy: 'tester',
       variables: {},
+      // The engine only refreshes facts for a subject-backed instance
+      // (ApplicationPort.readFacts). Production always starts the RE workflow
+      // with the deal subject (see workflow_app/runtime.ts), so the test must
+      // set one for the closing_documents_gate to see closingDocumentsReady.
+      subject: { subjectType: 'deal', subjectId: 'deal-residential-test' },
     })
 
     const byName = async (name: string) => {
