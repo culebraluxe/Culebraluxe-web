@@ -84,7 +84,33 @@ export async function readStoryGateEvidence(
     order by started_at desc nulls last, created_at desc
     limit 50
   `) as ForgeRunRowShape[]
-  return mapRunsToGateEvidence(rows)
+  const evidence = mapRunsToGateEvidence(rows)
+
+  // V11-S1: merge the durable repair/replan observers + last QA disposition from
+  // the canonical story row. These are OBSERVERS (evidence for the engine to read
+  // as facts), not a worker-owned stop condition — the engine graph routes to
+  // HOLD when a budget is exhausted.
+  const story = (
+    await engineSql()`
+      select forge_repair_attempts, forge_replan_attempts, forge_last_qa_disposition
+      from storyboard_story
+      where id = ${storyId}
+    `
+  )[0] as
+    | {
+        forge_repair_attempts: number | null
+        forge_replan_attempts: number | null
+        forge_last_qa_disposition: string | null
+      }
+    | undefined
+  if (story) {
+    evidence.repairAttempts = Number(story.forge_repair_attempts ?? 0)
+    evidence.replanAttempts = Number(story.forge_replan_attempts ?? 0)
+    if (story.forge_last_qa_disposition) {
+      evidence.disposition = story.forge_last_qa_disposition as ForgeGateEvidence['disposition']
+    }
+  }
+  return evidence
 }
 
 /**

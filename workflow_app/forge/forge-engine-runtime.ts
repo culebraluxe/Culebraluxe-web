@@ -53,7 +53,7 @@ export async function findActiveForgeInstance(
 }
 
 export type ForgeStartFacts = {
-  workType: 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION'
+  workType: 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' | 'FAST'
   /** Optional initial gate evidence (e.g. rootCauseKnown for BUG). */
   evidence?: ForgeGateEvidence
 }

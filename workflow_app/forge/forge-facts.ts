@@ -1,4 +1,5 @@
 import type { ApplicationFacts } from '../../workflow_engine/lib/workflow/types'
+import { routeQaResult } from './qa-repair-policy'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V10 — Forge decision-gate facts projection.
@@ -21,7 +22,7 @@ import type { ApplicationFacts } from '../../workflow_engine/lib/workflow/types'
 
 export type ForgeGateEvidence = {
   /** classify_work */
-  workType?: 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION'
+  workType?: 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' | 'FAST'
   /** research_disposition */
   researchDisposition?: 'IMPLEMENT' | 'ARCHIVE' | 'HOLD'
   /** feature_scout_needed / bug diagnosis */
@@ -38,6 +39,20 @@ export type ForgeGateEvidence = {
   qaReviewPassed?: boolean
   /** qa_result */
   qaPassed?: boolean
+  /** qa_failure_route (V11-S1): the QA-supplied disposition + durable observers */
+  disposition?: 'REPAIR' | 'REPLAN' | 'ESCALATE'
+  repairAttempts?: number
+  replanAttempts?: number
+  failedCriteria?: string[]
+  failedCommands?: string[]
+  /**
+   * Engine-facing routing facts (computed, NOT role-settable). The engine is the
+   * stop authority: the graph routes REPAIR/REPLAN only while its budget remains,
+   * otherwise to HOLD. These discretize disposition+budget so the graph decision
+   * stays a single-comparison rule (no boolean `and` needed in condition exprs).
+   */
+  qaRepairEligible?: boolean
+  qaReplanEligible?: boolean
   /** failure_route */
   failureClass?:
     | 'CODE_DEFECT'
@@ -161,6 +176,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     workType: evidence.workType,
     researchDisposition: evidence.researchDisposition,
     leadDecision: evidence.leadDecision,
+    disposition: evidence.disposition,
     failureClass: evidence.failureClass,
     failedReleaseStage: evidence.failedReleaseStage,
     resumeTarget: evidence.resumeTarget,
@@ -169,8 +185,26 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     if (value !== undefined) facts[key] = value
   }
   if (evidence.splitCount !== undefined) facts.splitCount = evidence.splitCount
+  if (evidence.repairAttempts !== undefined) facts.repairAttempts = evidence.repairAttempts
+  if (evidence.replanAttempts !== undefined) facts.replanAttempts = evidence.replanAttempts
   if (evidence.migrationFiles !== undefined) facts.migrationFiles = evidence.migrationFiles
   if (evidence.derivedModels !== undefined) facts.derivedModels = evidence.derivedModels
+
+  // V11-S1: QA-failure routing is computed here (engine is the stop). Given a
+  // FAIL with a disposition + the durable observer counts, only an in-budget,
+  // legal REPAIR/REPLAN is eligible; ESCALATE / missing / invalid / exhausted
+  // all yield neither flag -> the graph routes to HOLD.
+  const qaRoute =
+    evidence.qaPassed === false
+      ? routeQaResult({
+          verdict: 'FAIL',
+          disposition: evidence.disposition,
+          state: {
+            repairAttempts: evidence.repairAttempts ?? 0,
+            replanAttempts: evidence.replanAttempts ?? 0,
+          },
+        })
+      : null
 
   // Booleans: default false (gate holds until positive evidence exists).
   const boolFacts: Record<string, boolean | undefined> = {
@@ -181,6 +215,8 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     qaReviewRequired: evidence.qaReviewRequired,
     qaReviewPassed: evidence.qaReviewPassed,
     qaPassed: evidence.qaPassed === true && forgeLineageError(evidence, 'qa') === null,
+    qaRepairEligible: qaRoute?.action === 'smith',
+    qaReplanEligible: qaRoute?.action === 'architect',
     publishSucceeded:
       evidence.publishSucceeded === true && forgeLineageError(evidence, 'publish') === null,
     migrationRequired: evidence.migrationRequired,

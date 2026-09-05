@@ -162,5 +162,30 @@ export async function readForgeWorkflowEvidence(
     order by (pi.status = 'active') desc, e.updated_at desc
     limit 1
   `
-  return rows[0] ? mapForgeWorkflowEvidence(rows[0] as EvidenceRow) : {}
+  const evidence = rows[0] ? mapForgeWorkflowEvidence(rows[0] as EvidenceRow) : {}
+
+  // V11-S1: merge the durable repair/replan OBSERVER counts + last QA disposition
+  // from the canonical story row so the engine's qa_failure_route decision can
+  // route on them (the engine is the stop authority; the ledger only records).
+  const ledger = (
+    await q`
+      select forge_repair_attempts, forge_replan_attempts, forge_last_qa_disposition
+      from storyboard_story
+      where id = ${storyId}
+    `
+  )[0] as
+    | {
+        forge_repair_attempts: number | null
+        forge_replan_attempts: number | null
+        forge_last_qa_disposition: string | null
+      }
+    | undefined
+  if (ledger) {
+    evidence.repairAttempts = Number(ledger.forge_repair_attempts ?? 0)
+    evidence.replanAttempts = Number(ledger.forge_replan_attempts ?? 0)
+    if (ledger.forge_last_qa_disposition) {
+      evidence.disposition = ledger.forge_last_qa_disposition as ForgeGateEvidence['disposition']
+    }
+  }
+  return evidence
 }

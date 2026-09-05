@@ -53,7 +53,12 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
     case 'qa_review':
       return { lane: 'inspector' }
     case 'qa_verify':
-      return { lane: 'assay' }
+      return {
+        lane: 'assay',
+        evidenceInstruction:
+          `${STRUCTURED_PREFIX} {"disposition":"REPAIR|REPLAN|ESCALATE","failedCriteria":["..."],"failedCommands":["..."]} ` +
+          '(on FAIL, emit the machine disposition REPAIR/REPLAN/ESCALATE plus failed criteria/commands; REPAIR = plan valid, REPLAN = plan invalid, ESCALATE = cannot auto-recover)',
+      }
     case 'repair_devops':
     case 'deploy':
     case 'production_smoke':
@@ -74,6 +79,9 @@ const allowedEvidenceKeys = new Set<keyof ForgeGateEvidence>([
   'qaReviewRequired',
   'qaReviewPassed',
   'qaPassed',
+  'disposition',
+  'failedCriteria',
+  'failedCommands',
   'failureClass',
   'failedReleaseStage',
   'migrationRequired',
@@ -100,11 +108,14 @@ const booleanEvidenceKeys = new Set<keyof ForgeGateEvidence>([
 const stringArrayEvidenceKeys = new Set<keyof ForgeGateEvidence>([
   'migrationFiles',
   'derivedModels',
+  'failedCriteria',
+  'failedCommands',
 ])
 
 const enumEvidenceValues: Partial<Record<keyof ForgeGateEvidence, ReadonlySet<string>>> = {
   researchDisposition: new Set(['IMPLEMENT', 'ARCHIVE', 'HOLD']),
   leadDecision: new Set(['SOLO', 'SMITH', 'SPLIT', 'HOLD']),
+  disposition: new Set(['REPAIR', 'REPLAN', 'ESCALATE']),
   failureClass: new Set([
     'CODE_DEFECT',
     'TEST_DEFECT',

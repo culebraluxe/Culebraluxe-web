@@ -28,7 +28,7 @@ test('ENG-FORGE-V9: FORGE_SDLC-v1 superset passes all four validation layers', (
   assert.equal(report.valid, true, report.errors.join('; '))
   assert.deepEqual(report.errors, [])
   assert.equal(report.parsed!.key, 'FORGE_SDLC')
-  assert.equal(report.parsed!.version, 1)
+  assert.equal(report.parsed!.version, FORGE_SDLC_VERSION)
 })
 
 test('ENG-FORGE-V9: the loader parses + validates the superset (deploy-time guard)', () => {

@@ -11,6 +11,11 @@ import {
 } from './forge-engine-runtime'
 import type { ForgeGateEvidence } from './forge-facts'
 import { engineSql } from '../engine-client'
+import {
+  incrementForgeReplan,
+  incrementForgeRepair,
+  recordForgeQaFailure,
+} from '../../db/forge-repair-ledger'
 
 export type ForgeRoleOutcome = {
   transitionName?: string
@@ -84,6 +89,9 @@ export type DriveForgeStoryResult = {
 export const FORGE_HUMAN_GATE_NODES: ReadonlySet<string> = new Set([
   'hold',
   'repair_requirements',
+  // FAST_LANE (workType FAST) ends here: Smith produced code + unit tests and
+  // the operator runs the QA loop manually before approving/cancelling.
+  'fast_confirmation',
 ])
 
 function isAdvanceConflict(err: unknown): boolean {
@@ -152,11 +160,36 @@ export async function driveForgeStory(
       let outcome: ForgeRoleOutcome
       try {
         outcome = await runner(task.nodeId, task)
+        // V11-S1: record the QA disposition durably BEFORE the engine advances
+        // past QA, so qa_result -> qa_failure_route can route on it via the
+        // durable reader. The ledger is an OBSERVER; the engine is the stop.
+        if (
+          task.nodeId === 'qa_verify' &&
+          outcome.evidence.qaPassed === false &&
+          outcome.evidence.disposition
+        ) {
+          const reason =
+            outcome.evidence.failedCommands?.join('; ') ||
+            outcome.evidence.failedCriteria?.join('; ') ||
+            'QA verification failed'
+          await recordForgeQaFailure(
+            storyId,
+            { disposition: outcome.evidence.disposition, reason },
+            engineSql(),
+          )
+        }
         await completeForgeRoleTask(task.taskId, {
           transitionName: outcome.transitionName ?? 'complete',
           evidence: outcome.evidence,
           userId: workerId,
         })
+        // V11-S1 observers: a repair/replan actually happened — record it so the
+        // durable counts the engine reads for the NEXT QA decision stay truthful.
+        if (task.nodeId === 'repair_smith') {
+          await incrementForgeRepair(storyId, engineSql())
+        } else if (task.nodeId === 'repair_architect') {
+          await incrementForgeReplan(storyId, engineSql())
+        }
       } catch (err) {
         if (isAdvanceConflict(err)) return
         try {
