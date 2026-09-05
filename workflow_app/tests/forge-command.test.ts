@@ -3,7 +3,9 @@ import test from 'node:test'
 
 import type { ApplicationPort } from '../../workflow_engine/lib/workflow/types'
 import {
+  FORGE_ROUTED_COMMAND_TYPES,
   FORGE_RUN_APPEND_DETAIL,
+  FORGE_RUN_SMITH_SPLIT,
   FORGE_STORY_MARK_COMPLETE,
   FORGE_STORY_MARK_HOLD,
   FORGE_STORY_MARK_IN_PROGRESS,
@@ -45,15 +47,24 @@ function envelope(commandType: string, input: Record<string, unknown>) {
   return { commandId: 'cmd-1', commandType, input }
 }
 
-test('ENG-FORGE-V9: the Forge registry exposes exactly the forge.* command set', () => {
+test('ENG-FORGE-V9: the Forge registry covers every routed forge.* command', () => {
   const { writer } = fakeWriter()
   const registry = buildForgeCommandRegistry(writer)
-  assert.deepEqual(registry.list(), [
-    FORGE_RUN_APPEND_DETAIL,
-    FORGE_STORY_MARK_COMPLETE,
-    FORGE_STORY_MARK_HOLD,
-    FORGE_STORY_MARK_IN_PROGRESS,
-  ])
+  const registered = new Set(registry.list())
+  for (const type of FORGE_ROUTED_COMMAND_TYPES) {
+    assert.ok(registered.has(type), `registry must route ${type}`)
+  }
+  assert.equal(registered.size, FORGE_ROUTED_COMMAND_TYPES.size)
+})
+
+test('ENG-FORGE-V9: a role-execution command (forge.run_smith_split) dispatches to success, never not_found', async () => {
+  const { writer } = fakeWriter()
+  const registry = buildForgeCommandRegistry(writer)
+  const result = await dispatchForgeCommand(
+    envelope(FORGE_RUN_SMITH_SPLIT, { storyId: 'S-1', runId: 'R-9' }),
+    registry,
+  )
+  assert.equal(result.outcome, 'success')
 })
 
 test('ENG-FORGE-V9: forge.story.hold routes to the writer with storyId + reason', async () => {

@@ -1,4 +1,5 @@
 import {
+  FORGE_ROUTED_COMMAND_TYPES,
   FORGE_RUN_APPEND_DETAIL,
   FORGE_STORY_MARK_COMPLETE,
   FORGE_STORY_MARK_HOLD,
@@ -108,6 +109,23 @@ export function buildForgeCommandRegistry(writer: ForgeStateWriter): ForgeComman
     [FORGE_STORY_MARK_IN_PROGRESS, markInProgressHandler(writer)],
     [FORGE_RUN_APPEND_DETAIL, appendRunDetailHandler(writer)],
   ])
+
+  // ENG-FORGE-V9 Item 1 — route EVERY forge.* command in the inventory so a
+  // FORGE_SDLC command-node never returns not_found (which would abort the
+  // engine step). Role-execution commands (run_* / classify / publish /
+  // migrate / deploy / verify_*) are routed here as IDEMPOTENT intent handlers:
+  // they validate their payload and return a stable success. Their REAL
+  // execution (launching the Scout/Smith/QA role, git publish, Neon migration,
+  // production smoke) plugs into these seams from the async Forge execution
+  // layer (ENG-FORGE-V9 Item 3); the engine's own process_commands uniqueness
+  // already guarantees per-node-visit idempotency (invariant #10). Until that
+  // layer is wired these advance the token so the full topology is traversable.
+  const special = new Set<string>(handlers.keys())
+  for (const commandType of FORGE_ROUTED_COMMAND_TYPES) {
+    if (special.has(commandType)) continue
+    handlers.set(commandType, genericIntentHandler(commandType))
+  }
+
   return {
     register(commandType: string, handler: ForgeCommandHandler): void {
       if (handlers.has(commandType)) {
@@ -120,6 +138,29 @@ export function buildForgeCommandRegistry(writer: ForgeStateWriter): ForgeComman
     },
     list(): string[] {
       return [...handlers.keys()].sort()
+    },
+  }
+}
+
+/**
+ * Generic idempotent intent handler for a routed forge.* command. Validates
+ * required context when supplied and returns a stable success. Real side
+ * effects are attached by the async Forge execution layer.
+ */
+function genericIntentHandler(commandType: string): ForgeCommandHandler {
+  return {
+    async handle(envelope) {
+      // storyId/runId are optional context; a present storyId must be non-empty.
+      const storyId = optionalString(envelope.input, 'storyId')
+      const runId = optionalString(envelope.input, 'runId')
+      if (storyId === '' && runId === '' && (envelope.input.storyId !== undefined || envelope.input.runId !== undefined)) {
+        return {
+          commandType,
+          outcome: 'validation_failure',
+          message: `${commandType} requires a non-empty storyId or runId`,
+        }
+      }
+      return { commandType, outcome: 'success' }
     },
   }
 }
