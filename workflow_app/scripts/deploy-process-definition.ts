@@ -35,10 +35,15 @@
 
 import { readFile } from 'node:fs/promises'
 import { validateWorkflowDefinitionXml } from '../definitions/validate-definition'
+import { forgeCommandIsRouted } from '../forge-command-types'
 
 async function main(filePath: string, dryRun: boolean): Promise<void> {
   const source = await readFile(filePath, 'utf-8')
-  const report = validateWorkflowDefinitionXml(source)
+  // ENG-FORGE-V9: FORGE_SDLC command-nodes validate against the FORGE inventory
+  // (never the RE registry); every other definition uses the RE default.
+  const keyMatch = /<process-definition[\s\S]*?\bkey="([^"]+)"/.exec(source)
+  const isForge = keyMatch?.[1] === 'FORGE_SDLC'
+  const report = validateWorkflowDefinitionXml(source, isForge ? forgeCommandIsRouted : undefined)
 
   if (!report.valid) {
     for (const err of report.errors) console.error(`  ✗ ${err}`)
