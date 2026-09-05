@@ -80,6 +80,16 @@ export function validateApplicationContract(
       const commandType = (node as NodeDefinition & { commandType: string }).commandType
       if (commandType.length > 0) commandTypes.push(commandType)
     }
+    // dynamic-fork branches execute a per-branch command-node (ENG-FORGE-V9), so
+    // its branch-command-type must be routed in this domain's inventory too.
+    if (
+      node.type === 'dynamic-fork' &&
+      typeof (node as NodeDefinition & { branchCommandType?: string }).branchCommandType === 'string'
+    ) {
+      const branchCommandType = (node as NodeDefinition & { branchCommandType: string })
+        .branchCommandType
+      if (branchCommandType.length > 0) commandTypes.push(branchCommandType)
+    }
   }
 
   const unrouted = [...new Set(commandTypes)]

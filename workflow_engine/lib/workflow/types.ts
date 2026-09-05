@@ -91,6 +91,7 @@ export interface NodeDefinition {
     | 'timer'
     | 'command'
     | 'state'
+    | 'dynamic-fork'
     | 'subprocess'
     | string;
   name?: string;
@@ -122,6 +123,20 @@ export interface NodeDefinition {
   transition?: string;
   /** Present on `decision` nodes — refresh application facts before evaluating. */
   refreshFacts?: boolean;
+  /**
+   * Present on `dynamic-fork` nodes — data-driven N-way fan-out (ENG-FORGE-V9).
+   * The engine reads the branch count from the process variable named by
+   * `countVariable` (clamped to minimum..maximum), fans out that many branch
+   * tokens, executes `branchCommandType` per branch, and rejoins at the node
+   * id in `join` (fork-parent token correlation). `planVariable` is optional
+   * structured per-branch intent produced by the caller (e.g. Lead's split plan).
+   */
+  countVariable?: string;
+  planVariable?: string | null;
+  branchCommandType?: string;
+  join?: string;
+  minimum?: number;
+  maximum?: number;
 }
 
 export interface TransitionDefinition {

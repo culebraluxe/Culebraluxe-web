@@ -72,6 +72,7 @@ const SUPPORTED_NODE_TYPES: ReadonlySet<string> = new Set([
   'timer',
   'command',
   'state',
+  'dynamic-fork',
 ])
 
 /**
@@ -224,6 +225,28 @@ function validateNode(
     }
   }
 
+  if (node.type === 'dynamic-fork') {
+    // ENG-FORGE-V9 — data-driven fan-out definition-time contract.
+    if (!node.branchCommandType) {
+      errors.push(`dynamic-fork node '${id}' has no branch-command-type`)
+    }
+    if (!node.countVariable) {
+      errors.push(`dynamic-fork node '${id}' has no count-variable`)
+    }
+    if (!node.join) {
+      errors.push(`dynamic-fork node '${id}' has no join target`)
+    } else if (nodes[node.join] === undefined) {
+      errors.push(`dynamic-fork node '${id}' join references missing node '${node.join}'`)
+    } else if (nodes[node.join]?.type !== 'join') {
+      errors.push(`dynamic-fork node '${id}' join '${node.join}' must reference a <join> node`)
+    }
+    const min = node.minimum ?? 2
+    const max = node.maximum ?? 8
+    if (min > max) {
+      errors.push(`dynamic-fork node '${id}' minimum (${min}) exceeds maximum (${max})`)
+    }
+  }
+
   if (node.type === 'join') {
     if (!node.transitions || node.transitions.length === 0) {
       warnings.push(`join node '${id}' has no outgoing transition; the process may end here`)
@@ -283,6 +306,12 @@ function collectReachableNodes(graph: ProcessGraph): Set<string> {
     seen.add(id)
     for (const t of graph.nodes[id]?.transitions ?? []) {
       if (t.to && !seen.has(t.to)) stack.push(t.to)
+    }
+    // ENG-FORGE-V9 — a dynamic-fork's branches rejoin at its `join` node, so the
+    // join (and everything downstream of it) is reachable from the fork.
+    const dynamic = graph.nodes[id]
+    if (dynamic?.type === 'dynamic-fork' && dynamic.join && !seen.has(dynamic.join)) {
+      stack.push(dynamic.join)
     }
   }
   return seen

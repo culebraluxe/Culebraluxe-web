@@ -117,6 +117,16 @@ const ELEMENT_ALLOWED_ATTRS: Record<string, ReadonlySet<string>> = {
     'on-fire',
   ]),
   'end-state': new Set([...COMMON_ATTRS, 'outcome']),
+  'dynamic-fork': new Set([
+    ...COMMON_ATTRS,
+    'responsibility',
+    'count-variable',
+    'plan-variable',
+    'branch-command-type',
+    'join',
+    'minimum',
+    'maximum',
+  ]),
   transition: TRANSITION_ATTRS,
   on: ON_ATTRS,
 }
@@ -143,6 +153,7 @@ const NODE_ELEMENTS = new Set([
   'join',
   'timer',
   'end-state',
+  'dynamic-fork',
 ])
 
 // ---------------------------------------------------------------------------
@@ -367,6 +378,32 @@ function parseNodeElement(el: XmlElement): NodeDefinition {
         transitions,
       }
     }
+    case 'dynamic-fork': {
+      const countVariable = requiredAttr(el, 'count-variable')
+      const branchCommandType = requiredAttr(el, 'branch-command-type')
+      const joinTarget = requiredAttr(el, 'join')
+      const planVariable = el.attributes['plan-variable'] ?? undefined
+      const minimum = parseOptionalNonNegativeInt(el, 'minimum', 2)
+      const maximum = parseOptionalNonNegativeInt(el, 'maximum', 8)
+      if (minimum > maximum) {
+        throw new XmlGrammarError(
+          `<dynamic-fork id="${id}"> minimum (${minimum}) must not exceed maximum (${maximum})`,
+        )
+      }
+      return {
+        id,
+        type: 'dynamic-fork',
+        name: label,
+        description,
+        responsibility,
+        countVariable,
+        ...(planVariable !== undefined ? { planVariable } : {}),
+        branchCommandType,
+        join: joinTarget,
+        minimum,
+        maximum,
+      }
+    }
     default:
       throw new XmlGrammarError(`Unsupported node element <${el.name}>`)
   }
@@ -455,6 +492,23 @@ function parsePositiveInt(el: XmlElement, attr: string): number {
 
 function parseNonNegativeInt(el: XmlElement, attr: string): number {
   const raw = requiredAttr(el, attr)
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 0) {
+    throw new XmlGrammarError(
+      `<${el.name}> attribute '${attr}' must be a non-negative integer, got '${raw}'`,
+    )
+  }
+  return value
+}
+
+/** Optional non-negative integer attribute with a default when absent. */
+function parseOptionalNonNegativeInt(
+  el: XmlElement,
+  attr: string,
+  fallback: number,
+): number {
+  const raw = el.attributes[attr]
+  if (raw === undefined || raw === '') return fallback
   const value = Number(raw)
   if (!Number.isInteger(value) || value < 0) {
     throw new XmlGrammarError(
