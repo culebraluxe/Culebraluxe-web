@@ -10,6 +10,7 @@ import type {
   ForgeFactReader,
   ForgeStateWriter,
 } from './forge-state-writer'
+import { projectForgeGateFacts, type ForgeGateEvidence } from './forge-facts'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V9 Stage 3 — Forge ApplicationPort (the "B" engine seam).
@@ -31,8 +32,14 @@ import type {
 export type ForgeApplicationPortOptions = {
   /** Injected writer. Absent => lazily resolved Neon writer (db-state-writer). */
   writer?: ForgeStateWriter | (() => Promise<ForgeStateWriter>)
-  /** Optional subject fact reader. */
+  /** Optional subject fact reader (raw facts). */
   readFacts?: ForgeFactReader
+  /**
+   * Optional Forge evidence loader keyed by story. When present and the subject
+   * is a story, readFacts projects the FORGE_SDLC decision-gate facts from the
+   * story's execution evidence (Item 2). Mutually exclusive with `readFacts`.
+   */
+  evidenceReader?: (storyId: string) => Promise<ForgeGateEvidence>
 }
 
 async function resolveWriter(
@@ -74,6 +81,10 @@ export async function createForgeApplicationPort(
 
     async readFacts(subject: WorkflowSubject): Promise<ApplicationFacts> {
       if (opts.readFacts) return opts.readFacts(subject)
+      if (subject.subjectType === 'story' && opts.evidenceReader) {
+        const evidence = await opts.evidenceReader(subject.subjectId)
+        return projectForgeGateFacts(evidence)
+      }
       return {}
     },
   }
