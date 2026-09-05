@@ -25,7 +25,35 @@
 // ---------------------------------------------------------------------------
 
 import type { NodeDefinition, ProcessGraph } from '../../workflow_engine/lib/workflow/types'
-import { assertCommandNodesRouted } from '../command-types'
+import { ROUTED_COMMAND_TYPES } from '../command-types'
+
+// ---------------------------------------------------------------------------
+// Layer 4 — Application contract validation (ENG-14).
+//
+// The generic workflow pipeline accepts ANY definition; Layer 4 is the
+// embedding-application gate: every <command-node> must reference an
+// application command the engine's ApplicationPort can actually execute.
+//
+// ENG-FORGE-V9 — the application-contract is now DOMAIN-FORKED. The engine
+// hosts two clean models (RE_supermodel for real estate, FORGE_SDLC for Forge)
+// and the "rest of the pieces" fork A/B: each definition validates its
+// command-nodes against ITS OWN command inventory, never the other domain's.
+//
+//   A) Real estate (default, unchanged): workflow_app/command-types.ts
+//      ROUTED_COMMAND_TYPES — RE business commands (deal.*, offer.*, task.*).
+//   B) Forge: workflow_app/forge-command-types.ts FORGE_ROUTED_COMMAND_TYPES —
+//      Forge commands only. FORGE_SDLC is NEVER validated against the RE
+//      registry, so an RE command name inside FORGE_SDLC fails closed here.
+//
+// Default inventory is RE so RE_supermodel behavior is byte-for-byte unchanged;
+// the FORGE_SDLC loader (forge-sdlc.ts) passes the Forge inventory explicitly.
+// ---------------------------------------------------------------------------
+
+export type CommandRoutability = (commandType: string) => boolean
+
+/** A) Real-estate routability: is this command in the RE canonical registry? */
+export const reCommandIsRouted: CommandRoutability = (commandType) =>
+  ROUTED_COMMAND_TYPES.has(commandType)
 
 export interface ApplicationContractResult {
   valid: boolean
@@ -34,12 +62,14 @@ export interface ApplicationContractResult {
 }
 
 /**
- * Validate that every <command-node> in the graph references an application
- * command with a router case. Returns `{ valid: true, errors: [] }` when every
- * command-node is routable. Missing `commandType` is already an error in
- * Layer 3 (graph-validator); this layer only judges routability.
+ * Validate that every <command-node> in the graph references a command the
+ * given domain inventory can route. `isRouted` defaults to the real-estate
+ * inventory so RE_supermodel deployment/tests are unchanged.
  */
-export function validateApplicationContract(graph: ProcessGraph): ApplicationContractResult {
+export function validateApplicationContract(
+  graph: ProcessGraph,
+  isRouted: CommandRoutability = reCommandIsRouted,
+): ApplicationContractResult {
   const errors: string[] = []
   const commandTypes: string[] = []
   for (const node of Object.values(graph.nodes ?? {})) {
@@ -52,10 +82,12 @@ export function validateApplicationContract(graph: ProcessGraph): ApplicationCon
     }
   }
 
-  const unrouted = assertCommandNodesRouted(commandTypes)
+  const unrouted = [...new Set(commandTypes)]
+    .filter((type) => !isRouted(type))
+    .sort()
   for (const type of unrouted) {
     errors.push(
-      `command node references application command '${type}' which has no router case — register it in the canonical command inventory (workflow_app/command-types.ts / lib/commands/register.ts) or remove the command-node`,
+      `command node references application command '${type}' which has no router case in this domain's command inventory (RE: workflow_app/command-types.ts; Forge: workflow_app/forge-command-types.ts) — register it in the correct domain inventory + canonical handler, or remove the command-node`,
     )
   }
   return { valid: errors.length === 0, errors }

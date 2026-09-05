@@ -40,7 +40,7 @@ test('ENG-14: an unknown application command fails application-contract validati
     `expected an unrouted-command diagnostic, got: ${result.errors.join('; ')}`,
   )
   assert.ok(
-    result.errors.some((e) => /register it in the canonical command inventory/.test(e)),
+    result.errors.some((e) => /register it in the correct domain inventory/.test(e)),
     'the diagnostic must be actionable',
   )
 })

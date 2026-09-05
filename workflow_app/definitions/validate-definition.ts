@@ -30,6 +30,7 @@ import { validateProcessGraph, type GraphValidationResult } from '../xml/graph-v
 import {
   validateApplicationContract,
   type ApplicationContractResult,
+  type CommandRoutability,
 } from './application-contract'
 
 export interface DefinitionValidationReport {
@@ -59,9 +60,10 @@ function withPrefix(prefix: string, messages: string[]): string[] {
 /** Run layers 3 + 4 against an already-parsed definition. */
 export function validateParsedDefinition(
   parsed: ParsedProcessDefinition,
+  isRouted?: CommandRoutability,
 ): Omit<DefinitionValidationReport, 'xml' | 'grammar' | 'parsed'> {
   const graph = validateProcessGraph(parsed.graph)
-  const application = validateApplicationContract(parsed.graph)
+  const application = validateApplicationContract(parsed.graph, isRouted)
   const errors = [
     ...withPrefix('graph', graph.errors),
     ...withPrefix('application', application.errors),
@@ -80,7 +82,10 @@ export function validateParsedDefinition(
  * for invalid input: every diagnostic is captured in the report. Throws only
  * for internal/plumbing errors that are not definition problems.
  */
-export function validateWorkflowDefinitionXml(source: string): DefinitionValidationReport {
+export function validateWorkflowDefinitionXml(
+  source: string,
+  isRouted?: CommandRoutability,
+): DefinitionValidationReport {
   const xml: { errors: string[] } = { errors: [] }
   const grammar: { errors: string[] } = { errors: [] }
   let parsed: ParsedProcessDefinition | null = null
@@ -114,7 +119,7 @@ export function validateWorkflowDefinitionXml(source: string): DefinitionValidat
     }
   }
 
-  const layers = validateParsedDefinition(parsed)
+  const layers = validateParsedDefinition(parsed, isRouted)
   const errors = [
     ...withPrefix('xml', xml.errors),
     ...withPrefix('grammar', grammar.errors),

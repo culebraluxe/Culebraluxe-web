@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parseProcessDefinitionXml, type ParsedProcessDefinition } from '../xml'
 import { validateParsedDefinition } from './validate-definition'
+import { forgeCommandIsRouted } from '../forge-command-types'
 
 // ---------------------------------------------------------------------------
 // FORGE_SDLC-v1 — authoritative XML definition loader.
@@ -14,10 +15,12 @@ import { validateParsedDefinition } from './validate-definition'
 // Same four-layer pipeline as RE_supermodel (ENG-14): XML well-formedness +
 // engine grammar via parseProcessDefinitionXml, generic graph semantics via
 // graph-validator, and the application contract via validateParsedDefinition.
-// v1 carries NO <command-node> elements (serial human/agent backbone only),
-// so Layer 4 passes vacuously; any future forge.* command-node must gain a
-// router case plus a canonical handler first, or the deploy fails here exactly
-// as it does for RE_supermodel.
+// Layer 4 here is the FORGE inventory (forge-command-types.ts), NOT the RE
+// registry — the two models are cleanly forked (ENG-FORGE-V9). v1 carries NO
+// <command-node> elements (serial human/agent backbone only), so Layer 4 passes
+// vacuously; any future forge.* command-node must gain a Forge-owned router
+// case plus a canonical handler first, or the deploy fails here exactly as it
+// does for RE_supermodel.
 // ---------------------------------------------------------------------------
 
 export const FORGE_SDLC_KEY = 'FORGE_SDLC'
@@ -32,7 +35,7 @@ export function forgeSdlcXmlSource(): string {
 /** Parse + validate the FORGE_SDLC XML (all four layers). Throws on failure. */
 export function parseForgeSdlc(): ParsedProcessDefinition {
   const parsed = parseProcessDefinitionXml(forgeSdlcXmlSource())
-  const validation = validateParsedDefinition(parsed)
+  const validation = validateParsedDefinition(parsed, forgeCommandIsRouted)
   if (!validation.valid) {
     throw new Error(
       `FORGE_SDLC-v1.xml failed validation:\n${validation.errors
