@@ -45,13 +45,18 @@ fi
 if [[ "$DO_PUSH" -eq 1 ]]; then
   echo "== pushing main -> origin/main (Vercel auto-deploys) =="
   git push origin main
+  ARTIFACT_SHA=$(git rev-parse HEAD)
+  echo ""
+  echo "== deployment receipt =="
+  echo "{\"kind\":\"deployment\",\"artifactSha\":\"$ARTIFACT_SHA\",\"receiptId\":\"push:$ARTIFACT_SHA\",\"success\":true}"
+  echo "$ARTIFACT_SHA" > /tmp/forge_v10_deployed_sha.txt
 fi
 
-ARTIFACT_SHA=$(git rev-parse HEAD)
-echo ""
-echo "== deployment receipt =="
-echo "{\"kind\":\"deployment\",\"artifactSha\":\"$ARTIFACT_SHA\",\"receiptId\":\"push:$ARTIFACT_SHA\",\"success\":true}"
-echo "$ARTIFACT_SHA" > /tmp/forge_v10_deployed_sha.txt
+if [[ -n "${FORGE_ARTIFACT_SHA:-}" ]]; then
+  ARTIFACT_SHA="$FORGE_ARTIFACT_SHA"
+else
+  ARTIFACT_SHA=$(cat /tmp/forge_v10_deployed_sha.txt 2>/dev/null || git rev-parse HEAD)
+fi
 
 if [[ "$DO_VERIFY" -eq 1 && -n "${PROD_BASE_URL:-}" ]]; then
   echo "== waiting for Vercel to finish (~3 min) then probing $PROD_BASE_URL =="
