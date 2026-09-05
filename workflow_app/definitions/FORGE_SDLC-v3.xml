@@ -1,0 +1,570 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FORGE_SDLC-v1.xml — ENG-FORGE-V10 Workflow-Driven Software Delivery.
+  One authoritative master workflow. The XML owns routing/responsibility
+  sequencing/mode/repair/parallel shape/QA/DEV_OPS release/HOLD/completion; it
+  does NOT own provider/model/harness/worktree/prompt/credential selection.
+  The <dynamic-fork> split_dispatch creates real claimed smith_split_work
+  task-nodes and rejoins once at split_join. Release command-nodes use durable
+  evidence and real release executors; missing executors fail closed.
+-->
+<process-definition
+    key="FORGE_SDLC"
+    version="3"
+    name="Forge Software Delivery Lifecycle"
+    description="End-state Forge orchestration workflow for feature, bug, hotfix, research, repair, migration, QA, release and production verification.">
+
+  <display-order>
+    <node ref="start"/>
+    <node ref="classify_work"/>
+    <node ref="research_scout"/>
+    <node ref="research_architect"/>
+    <node ref="research_disposition"/>
+    <node ref="bug_diagnosis_needed"/>
+    <node ref="diagnose_scout"/>
+    <node ref="diagnosis_result"/>
+    <node ref="feature_scout_needed"/>
+    <node ref="feature_scout"/>
+    <node ref="architect"/>
+    <node ref="lead_pre"/>
+    <node ref="execution_shape"/>
+    <node ref="lead_solo_implement"/>
+    <node ref="smith"/>
+    <node ref="split_dispatch"/>
+    <node ref="split_join"/>
+    <node ref="lead_post"/>
+    <node ref="qa_policy"/>
+    <node ref="qa_review"/>
+    <node ref="qa_verify"/>
+    <node ref="qa_result"/>
+    <node ref="failure_classifier"/>
+    <node ref="failure_route"/>
+    <node ref="repair_smith"/>
+    <node ref="repair_architect"/>
+    <node ref="repair_scout"/>
+    <node ref="repair_devops"/>
+    <node ref="repair_requirements"/>
+    <node ref="devops_begin"/>
+    <node ref="publish_candidate"/>
+    <node ref="publish_result"/>
+    <node ref="migration_required"/>
+    <node ref="migrate_dev"/>
+    <node ref="verify_dev_migration"/>
+    <node ref="dev_migration_result"/>
+    <node ref="migrate_prod"/>
+    <node ref="verify_prod_migration"/>
+    <node ref="prod_migration_result"/>
+    <node ref="derived_refresh_required"/>
+    <node ref="refresh_derived_models"/>
+    <node ref="verify_derived_models"/>
+    <node ref="deploy_required"/>
+    <node ref="deploy"/>
+    <node ref="deployment_result"/>
+    <node ref="production_smoke"/>
+    <node ref="production_result"/>
+    <node ref="hold"/>
+    <node ref="hold_resolution"/>
+    <node ref="archive_research"/>
+    <node ref="complete"/>
+    <node ref="cancelled"/>
+    <node ref="failed"/>
+  </display-order>
+
+  <start-state id="start" label="Start Forge Story"
+    description="Start a Forge workflow instance for one software delivery story.">
+    <transition name="begin" to="classify_work"/>
+  </start-state>
+
+  <decision id="classify_work" label="Classify Work"
+    description="Select feature, bug, hotfix, research, or migration workflow." refresh-facts="true">
+    <on condition="workType == 'FEATURE'" transition="feature"/>
+    <on condition="workType == 'BUG'" transition="bug"/>
+    <on condition="workType == 'HOTFIX'" transition="hotfix"/>
+    <on condition="workType == 'RESEARCH'" transition="research"/>
+    <on condition="workType == 'MIGRATION'" transition="migration"/>
+    <on condition="workType == 'FAST'" transition="fast"/>
+    <transition name="feature" to="feature_scout_needed"/>
+    <transition name="bug" to="bug_diagnosis_needed"/>
+    <transition name="hotfix" to="hotfix_architecture_check"/>
+    <transition name="research" to="research_scout"/>
+    <transition name="migration" to="architect"/>
+    <transition name="fast" to="lead_pre"/>
+    <transition name="unknown" to="hold"/>
+  </decision>
+
+  <task-node id="research_scout" label="Research Scout" responsibility="scout" form-key="forge.research_scout"
+    description="Investigate technology, repository state, external options, prior art, or unexplained behavior.">
+    <transition name="complete" to="research_architect"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="research_architect" label="Research Architecture Assessment" responsibility="architect" form-key="forge.research_architect"
+    description="Architect evaluates Scout findings and determines whether implementation work is warranted.">
+    <transition name="complete" to="research_disposition"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="research_disposition" label="Research Disposition"
+    description="Decide whether research becomes implementation work or closes as research." refresh-facts="true">
+    <on condition="researchDisposition == 'IMPLEMENT'" transition="implement"/>
+    <on condition="researchDisposition == 'ARCHIVE'" transition="archive"/>
+    <on condition="researchDisposition == 'HOLD'" transition="hold"/>
+    <transition name="implement" to="lead_pre"/>
+    <transition name="archive" to="archive_research"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <end-state id="archive_research" label="Research Complete"
+    description="Research completed without a software delivery change." outcome="completed"/>
+
+  <decision id="feature_scout_needed" label="Discovery Needed?"
+    description="Use Scout when repository truth or current behavior is not sufficiently known." refresh-facts="true">
+    <on condition="scoutRequired == true" transition="scout"/>
+    <on condition="scoutRequired == false" transition="architect"/>
+    <transition name="scout" to="feature_scout"/>
+    <transition name="architect" to="architect"/>
+  </decision>
+
+  <task-node id="feature_scout" label="Scout" responsibility="scout" form-key="forge.scout"
+    description="Gather repository facts and context before architecture.">
+    <transition name="complete" to="architect"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="bug_diagnosis_needed" label="Diagnosis Needed?"
+    description="Determine whether root cause is already sufficiently known." refresh-facts="true">
+    <on condition="rootCauseKnown == true" transition="known"/>
+    <on condition="rootCauseKnown == false" transition="diagnose"/>
+    <transition name="known" to="architect"/>
+    <transition name="diagnose" to="diagnose_scout"/>
+  </decision>
+
+  <task-node id="diagnose_scout" label="Diagnose" responsibility="scout" form-key="forge.diagnose"
+    description="Investigate the defect until root cause, evidence, or architecture gap can be stated.">
+    <transition name="complete" to="diagnosis_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="diagnosis_result" label="Diagnosis Result"
+    description="Route known root cause to architecture or continue investigation." refresh-facts="true">
+    <on condition="rootCauseKnown == true" transition="architect"/>
+    <on condition="rootCauseKnown == false" transition="retry"/>
+    <on condition="diagnosisBlocked == true" transition="hold"/>
+    <transition name="architect" to="architect"/>
+    <transition name="retry" to="diagnose_scout"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <decision id="hotfix_architecture_check" label="Hotfix Architecture Check"
+    description="Obvious bounded fixes may go directly to Lead; architecture uncertainty goes through Architect." refresh-facts="true">
+    <on condition="architectureSuspect == true" transition="architect"/>
+    <on condition="architectureSuspect == false" transition="lead"/>
+    <transition name="architect" to="architect"/>
+    <transition name="lead" to="lead_pre"/>
+  </decision>
+
+  <task-node id="architect" label="Architect" responsibility="architect" form-key="forge.architect"
+    description="Produce or validate the frozen implementation contract, boundaries, invariants, acceptance criteria, and QA plan.">
+    <transition name="complete" to="lead_pre"/>
+    <transition name="research" to="research_scout"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="lead_pre" label="Lead — Execution Plan" responsibility="lead" form-key="forge.lead_pre"
+    description="Validate the architecture contract and choose the cheapest sound execution strategy.">
+    <transition name="complete" to="execution_shape"/>
+    <transition name="architect" to="architect"/>
+    <transition name="scout" to="feature_scout"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="execution_shape" label="Execution Shape"
+    description="Lead chooses SOLO, SMITH, SPLIT, or HOLD." refresh-facts="true">
+    <on condition="leadDecision == 'SOLO'" transition="solo"/>
+    <on condition="leadDecision == 'SMITH'" transition="smith"/>
+    <on condition="leadDecision == 'SPLIT'" transition="split"/>
+    <on condition="leadDecision == 'HOLD'" transition="hold"/>
+    <transition name="solo" to="lead_solo_implement"/>
+    <transition name="smith" to="smith"/>
+    <transition name="split" to="split_dispatch"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <task-node id="lead_solo_implement" label="Lead — Solo Implementation" responsibility="lead" form-key="forge.lead_implement"
+    description="Lead implements a small bounded change directly.">
+    <transition name="complete" to="lead_post"/>
+    <transition name="architect" to="architect"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="smith" label="Smith" responsibility="smith" form-key="forge.smith"
+    description="Implement the frozen contract and produce a candidate commit.">
+    <transition name="complete" to="lead_post"/>
+    <transition name="architect" to="architect"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <dynamic-fork id="split_dispatch" label="Parallel Smith Dispatch"
+    description="Launch independently bounded Smith work items produced by Lead." responsibility="lead"
+    count-variable="splitCount" plan-variable="splitPlan"
+    branch-command-type="forge.run_smith_split" branch-node="smith_split_work"
+    join="split_join" minimum="2" maximum="8"/>
+
+  <task-node id="smith_split_work" label="Smith Split" responsibility="smith" form-key="forge.smith_split"
+    description="One parallel Smith work item (a branch of a SPLIT). Produce the branch candidate; rejoin at split_join.">
+    <transition name="complete" to="split_join"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <join id="split_join" label="Join Smith Work"
+    description="Wait until all required Smith branches have completed.">
+    <transition name="complete" to="lead_post"/>
+  </join>
+
+  <task-node id="lead_post" label="Lead — Integration" responsibility="lead" form-key="forge.lead_post"
+    description="Inspect implementation, integrate split results if necessary, and freeze the exact candidate SHA for QA.">
+    <transition name="complete" to="fast_gate"/>
+    <transition name="smith" to="smith"/>
+    <transition name="architect" to="architect"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="fast_gate" label="FAST Lane / QA Gate"
+    description="FAST_LANE (workType FAST) skips automated QA + DEV_OPS and parks at an operator confirmation for a MANUAL QA loop (low-token path); all normal types continue to automated QA." refresh-facts="true">
+    <on condition="workType == 'FAST'" transition="fast"/>
+    <transition name="qa" to="qa_policy"/>
+    <transition name="fast" to="fast_confirmation"/>
+  </decision>
+
+  <task-node id="fast_confirmation" label="FAST Lane — Operator Review" responsibility="lead" form-key="forge.fast_review"
+    description="Low-token FAST_LANE: Smith produced the code + unit tests. The operator reviews and runs the QA loop manually; the engine never auto-verifies, auto-promotes, or auto-completes FAST work.">
+    <transition name="approved" to="complete"/>
+    <transition name="cancel" to="cancelled"/>
+  </task-node>
+
+
+  <decision id="qa_policy" label="QA Policy"
+    description="Determine whether independent review is required before deterministic verification." refresh-facts="true">
+    <on condition="qaReviewRequired == true" transition="review"/>
+    <on condition="qaReviewRequired == false" transition="verify"/>
+    <transition name="review" to="qa_review"/>
+    <transition name="verify" to="qa_verify"/>
+  </decision>
+
+  <task-node id="qa_review" label="QA — Independent Review" responsibility="qa" form-key="forge.qa_review"
+    description="Independent semantic review for architecture, requirements, regression, security, data, and implementation concerns.">
+    <transition name="complete" to="qa_review_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="qa_review_result" label="QA Review Result"
+    description="Review pass continues to deterministic verification; review failure enters failure classification." refresh-facts="true">
+    <on condition="qaReviewPassed == true" transition="verify"/>
+    <on condition="qaReviewPassed == false" transition="fail"/>
+    <transition name="verify" to="qa_verify"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+  <task-node id="qa_verify" label="QA — Deterministic Verification" responsibility="qa" form-key="forge.qa_verify"
+    description="Run packet-defined tests, type checks and acceptance commands against the exact candidate SHA.">
+    <transition name="complete" to="qa_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="qa_result" label="QA Result"
+    description="Only a clean exact-candidate QA pass may proceed to DEV_OPS." refresh-facts="true">
+    <on condition="qaPassed == true" transition="pass"/>
+    <on condition="qaPassed == false" transition="fail"/>
+    <transition name="pass" to="devops_begin"/>
+    <transition name="fail" to="qa_failure_route"/>
+  </decision>
+
+  <decision id="qa_failure_route" label="QA Failure Route"
+    description="ENG-FORGE-V11-S1 — route a QA FAIL by its machine disposition within the durable bounded budget. The engine is the stop authority: qaRepairEligible/qaReplanEligible are computed from disposition + durable observer counts, so ESCALATE, a missing/invalid disposition, or an exhausted budget route to HOLD (never a silent success)." refresh-facts="true">
+    <on condition="qaRepairEligible == true" transition="smith"/>
+    <on condition="qaReplanEligible == true" transition="architect"/>
+    <transition name="smith" to="repair_smith"/>
+    <transition name="architect" to="repair_architect"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <task-node id="failure_classifier" label="Classify Failure" responsibility="lead" form-key="forge.classify_failure"
+    description="Convert failure evidence into a structured repair classification.">
+    <transition name="complete" to="failure_route"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="failure_route" label="Repair Route"
+    description="Send failure to the responsibility best able to repair its actual cause." refresh-facts="true">
+    <on condition="failureClass == 'CODE_DEFECT'" transition="smith"/>
+    <on condition="failureClass == 'TEST_DEFECT'" transition="smith"/>
+    <on condition="failureClass == 'ARCHITECTURE_GAP'" transition="architect"/>
+    <on condition="failureClass == 'REQUIREMENTS_GAP'" transition="requirements"/>
+    <on condition="failureClass == 'UNKNOWN_CAUSE'" transition="diagnose"/>
+    <on condition="failureClass == 'ENVIRONMENT'" transition="devops"/>
+    <on condition="failureClass == 'MIGRATION'" transition="devops"/>
+    <on condition="failureClass == 'PUBLISH_CONFLICT'" transition="devops"/>
+    <on condition="failureClass == 'DEPLOYMENT'" transition="devops"/>
+    <on condition="failureClass == 'PRODUCTION_SMOKE'" transition="devops"/>
+    <on condition="failureClass == 'HOLD'" transition="hold"/>
+    <transition name="smith" to="repair_smith"/>
+    <transition name="architect" to="repair_architect"/>
+    <transition name="requirements" to="repair_requirements"/>
+    <transition name="diagnose" to="repair_scout"/>
+    <transition name="devops" to="repair_devops"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+
+  <task-node id="repair_smith" label="Repair — Smith" responsibility="smith" form-key="forge.repair_smith"
+    description="Repair an implementation or deterministic test defect.">
+    <transition name="complete" to="lead_post"/>
+    <transition name="architect" to="repair_architect"/>
+    <transition name="diagnose" to="repair_scout"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="repair_architect" label="Repair — Architect" responsibility="architect" form-key="forge.repair_architect"
+    description="Correct or refreeze the implementation contract after architecture failure.">
+    <transition name="complete" to="lead_pre"/>
+    <transition name="diagnose" to="repair_scout"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="repair_requirements" label="Repair — Requirements Decision"
+    description="Human/Product Owner resolves an acceptance, scope, policy, or requirement ambiguity."
+    responsibility="lead" priority="100" form-key="forge.requirements-resolution">
+    <transition name="resolved" to="repair_architect"/>
+    <transition name="cancel" to="cancelled"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="repair_scout" label="Repair — Diagnose" responsibility="scout" form-key="forge.repair_scout"
+    description="Investigate an unknown or disputed failure cause.">
+    <transition name="complete" to="repair_diagnosis_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="repair_diagnosis_result" label="Repair Diagnosis Result"
+    description="Return diagnosed failure to repair routing." refresh-facts="true">
+    <on condition="rootCauseKnown == true" transition="classify"/>
+    <on condition="rootCauseKnown == false" transition="retry"/>
+    <transition name="classify" to="failure_classifier"/>
+    <transition name="retry" to="repair_scout"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <task-node id="repair_devops" label="Repair — DEV_OPS" responsibility="dev_ops" form-key="forge.repair_devops"
+    description="Repair environment, publish, migration, deployment, or production verification failures.">
+    <transition name="complete" to="devops_resume_router"/>
+    <transition name="smith" to="repair_smith"/>
+    <transition name="architect" to="repair_architect"/>
+    <transition name="diagnose" to="repair_scout"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="devops_resume_router" label="Resume Release"
+    description="Resume at the failed release stage after DEV_OPS repair." refresh-facts="true">
+    <on condition="failedReleaseStage == 'PUBLISH'" transition="publish"/>
+    <on condition="failedReleaseStage == 'DEV_MIGRATION'" transition="dev_migration"/>
+    <on condition="failedReleaseStage == 'PROD_MIGRATION'" transition="prod_migration"/>
+    <on condition="failedReleaseStage == 'DERIVED_REFRESH'" transition="derived"/>
+    <on condition="failedReleaseStage == 'DEPLOY'" transition="deploy"/>
+    <on condition="failedReleaseStage == 'SMOKE'" transition="smoke"/>
+    <transition name="publish" to="publish_candidate"/>
+    <transition name="dev_migration" to="migrate_dev"/>
+    <transition name="prod_migration" to="migrate_prod"/>
+    <transition name="derived" to="refresh_derived_models"/>
+    <transition name="deploy" to="deploy"/>
+    <transition name="smoke" to="production_smoke"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+
+  <state id="devops_begin" label="DEV_OPS"
+    description="Begin release of the exact QA-approved candidate.">
+    <transition name="publish" to="publish_candidate"/>
+  </state>
+
+  <command-node id="publish_candidate" label="Publish Candidate" responsibility="dev_ops"
+    command-type="forge.publish_candidate" transition="complete"
+    description="Fast-forward/publish the exact candidate SHA accepted by QA. No alternate candidate or fallback to main is permitted.">
+    <transition name="complete" to="publish_result"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <decision id="publish_result" label="Publish Result"
+    description="Release may proceed only when the exact candidate was published successfully." refresh-facts="true">
+    <on condition="publishSucceeded == true" transition="continue"/>
+    <on condition="publishSucceeded == false" transition="fail"/>
+    <transition name="continue" to="migration_required"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+  <decision id="migration_required" label="Migration Required?"
+    description="Determine whether this story carries database/schema delivery obligations." refresh-facts="true">
+    <on condition="migrationRequired == true" transition="migrate"/>
+    <on condition="migrationRequired == false" transition="derived"/>
+    <transition name="migrate" to="migrate_dev"/>
+    <transition name="derived" to="derived_refresh_required"/>
+  </decision>
+
+  <command-node id="migrate_dev" label="Apply DEV Migration" responsibility="dev_ops"
+    command-type="forge.migrate_dev" transition="complete"
+    description="Apply required migration to DEV.">
+    <transition name="complete" to="verify_dev_migration"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <command-node id="verify_dev_migration" label="Verify DEV Migration" responsibility="dev_ops"
+    command-type="forge.verify_dev_migration" transition="complete"
+    description="Verify DEV schema/data migration state and required acceptance checks.">
+    <transition name="complete" to="dev_migration_result"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <decision id="dev_migration_result" label="DEV Migration Result"
+    description="Only verified DEV migration may proceed to PROD." refresh-facts="true">
+    <on condition="devMigrationVerified == true" transition="prod"/>
+    <on condition="devMigrationVerified == false" transition="fail"/>
+    <transition name="prod" to="migrate_prod"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+  <command-node id="migrate_prod" label="Apply PROD Migration" responsibility="dev_ops"
+    command-type="forge.migrate_prod" transition="complete"
+    description="Apply the approved migration to production.">
+    <transition name="complete" to="verify_prod_migration"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <command-node id="verify_prod_migration" label="Verify PROD Migration" responsibility="dev_ops"
+    command-type="forge.verify_prod_migration" transition="complete"
+    description="Verify production schema/data state after migration.">
+    <transition name="complete" to="prod_migration_result"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <decision id="prod_migration_result" label="PROD Migration Result"
+    description="Production migration must be verified before release continues." refresh-facts="true">
+    <on condition="prodMigrationVerified == true" transition="derived"/>
+    <on condition="prodMigrationVerified == false" transition="fail"/>
+    <transition name="derived" to="derived_refresh_required"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+
+  <decision id="derived_refresh_required" label="Derived Refresh Required?"
+    description="Determine whether materialized views, projections, search indexes, caches, generated models, or other derived state must be refreshed." refresh-facts="true">
+    <on condition="derivedRefreshRequired == true" transition="refresh"/>
+    <on condition="derivedRefreshRequired == false" transition="deploy_check"/>
+    <transition name="refresh" to="refresh_derived_models"/>
+    <transition name="deploy_check" to="deploy_required"/>
+  </decision>
+
+  <command-node id="refresh_derived_models" label="Refresh Derived Models" responsibility="dev_ops"
+    command-type="forge.refresh_derived_models" transition="complete"
+    description="Refresh required projections/materialized views/read models.">
+    <transition name="complete" to="verify_derived_models"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <command-node id="verify_derived_models" label="Verify Derived Models" responsibility="dev_ops"
+    command-type="forge.verify_derived_models" transition="complete"
+    description="Verify refreshed derived state.">
+    <transition name="complete" to="derived_refresh_result"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <decision id="derived_refresh_result" label="Derived Refresh Result"
+    description="Continue only when derived state is healthy." refresh-facts="true">
+    <on condition="derivedRefreshVerified == true" transition="continue"/>
+    <on condition="derivedRefreshVerified == false" transition="fail"/>
+    <transition name="continue" to="deploy_required"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+  <decision id="deploy_required" label="Deployment Required?"
+    description="Some Forge work may be repository-only; production-changing work requires deployment." refresh-facts="true">
+    <on condition="deploymentRequired == true" transition="deploy"/>
+    <on condition="deploymentRequired == false" transition="smoke"/>
+    <transition name="deploy" to="deploy"/>
+    <transition name="smoke" to="production_smoke"/>
+  </decision>
+
+  <task-node id="deploy" label="Deploy" responsibility="dev_ops" form-key="forge.deploy"
+    description="Deploy approved code through the configured production deployment mechanism.">
+    <transition name="complete" to="deployment_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="deployment_result" label="Deployment Result"
+    description="Deployment failure enters repair instead of completing the story." refresh-facts="true">
+    <on condition="deploymentSucceeded == true" transition="smoke"/>
+    <on condition="deploymentSucceeded == false" transition="fail"/>
+    <transition name="smoke" to="production_smoke"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+  <task-node id="production_smoke" label="Production Verification" responsibility="dev_ops" form-key="forge.production_smoke"
+    description="Verify production behavior, health, migrations, critical route(s), and story-specific acceptance evidence.">
+    <transition name="complete" to="production_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="production_result" label="Production Result"
+    description="Story completes only when required production verification succeeds." refresh-facts="true">
+    <on condition="productionVerified == true" transition="complete"/>
+    <on condition="productionVerified == false" transition="fail"/>
+    <transition name="complete" to="complete"/>
+    <transition name="fail" to="failure_classifier"/>
+  </decision>
+
+
+  <task-node id="hold" label="HOLD"
+    description="Durable intentional stop. Preserve reason, evidence, originating node, requested resolution, and resume target."
+    responsibility="lead" priority="100" form-key="forge.hold-resolution">
+    <transition name="resolve" to="hold_resolution"/>
+    <transition name="cancel" to="cancelled"/>
+    <transition name="fail" to="failed"/>
+  </task-node>
+
+  <decision id="hold_resolution" label="Resume From Hold"
+    description="Resume based on explicit structured hold resolution." refresh-facts="true">
+    <on condition="resumeTarget == 'SCOUT'" transition="scout"/>
+    <on condition="resumeTarget == 'DIAGNOSE'" transition="diagnose"/>
+    <on condition="resumeTarget == 'ARCHITECT'" transition="architect"/>
+    <on condition="resumeTarget == 'LEAD'" transition="lead"/>
+    <on condition="resumeTarget == 'SMITH'" transition="smith"/>
+    <on condition="resumeTarget == 'QA'" transition="qa"/>
+    <on condition="resumeTarget == 'DEV_OPS'" transition="devops"/>
+    <on condition="resumeTarget == 'PUBLISH'" transition="publish"/>
+    <on condition="resumeTarget == 'DEPLOY'" transition="deploy"/>
+    <on condition="resumeTarget == 'SMOKE'" transition="smoke"/>
+    <on condition="resumeTarget == 'CANCEL'" transition="cancel"/>
+    <transition name="scout" to="feature_scout"/>
+    <transition name="diagnose" to="repair_scout"/>
+    <transition name="architect" to="architect"/>
+    <transition name="lead" to="lead_pre"/>
+    <transition name="smith" to="repair_smith"/>
+    <transition name="qa" to="qa_policy"/>
+    <transition name="devops" to="devops_resume_router"/>
+    <transition name="publish" to="publish_candidate"/>
+    <transition name="deploy" to="deploy"/>
+    <transition name="smoke" to="production_smoke"/>
+    <transition name="cancel" to="cancelled"/>
+  </decision>
+
+  <end-state id="complete" label="Complete"
+    description="Implementation accepted, exact candidate published, required migrations/deployment completed, and required production verification passed."
+    outcome="completed"/>
+
+  <end-state id="cancelled" label="Cancelled"
+    description="Story intentionally cancelled."
+    outcome="cancelled"/>
+
+  <end-state id="failed" label="Failed"
+    description="Story terminated after an unrecoverable failure."
+    outcome="failed"/>
+
+</process-definition>
