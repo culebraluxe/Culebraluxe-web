@@ -11,19 +11,7 @@ import {
 } from './forge-engine-runtime'
 import type { ForgeGateEvidence } from './forge-facts'
 import { engineSql } from '../engine-client'
-
-// ---------------------------------------------------------------------------
-// ENG-FORGE-V10 — Forge role executor (drives an instance to completion).
-//
-// The engine drives FORGE_SDLC tokens; async role steps are task-nodes. This
-// loop is the execution layer: for each open role task it runs the role (via an
-// injectable runner) and completes the engine task with the resulting gate
-// evidence, so downstream decisions route.
-//
-// `defaultForgeRoleRunner` is exported only as explicit demo/test
-// infrastructure. Production callers must inject a real runner; silently
-// inventing QA/release success is forbidden.
-// ---------------------------------------------------------------------------
+import { FORGE_JUDGMENT_LAB_NODES } from './forge-judgment'
 
 export type ForgeRoleOutcome = {
   transitionName?: string
@@ -35,14 +23,11 @@ export type ForgeRoleRunner = (
   task: ActiveForgeRoleTask,
 ) => Promise<ForgeRoleOutcome>
 
-/** Gate evidence that advances a FEATURE/SOLO, no-migration, no-deploy story. */
 function defaultEvidenceFor(nodeId: string): ForgeGateEvidence {
   switch (nodeId) {
     case 'lead_pre':
-      // execution_shape -> SOLO.
       return { leadDecision: 'SOLO' }
     case 'qa_verify':
-      // qa_result -> devops; publish_result + no migration/deploy -> production_smoke task.
       return {
         qaPassed: true,
         publishSucceeded: true,
@@ -73,9 +58,7 @@ export type DriveForgeStoryOptions = {
   start?: ForgeStartFacts
   runner?: ForgeRoleRunner
   maxSteps?: number
-  /** Durable engine-task owner used for claim-before-launch. */
   workerId?: string
-  /** Bounded parallelism for SPLIT sibling (smith_split_work) tasks (S8). */
   splitConcurrency?: number
 }
 
@@ -84,23 +67,15 @@ export type DriveForgeStoryResult = {
   status: string | null
   steps: string[]
   exhausted: boolean
-  /** True when the instance is waiting on a human decision gate (HOLD /
-   *  requirements), not an auto-drivable role task. */
   needsHuman: boolean
 }
 
-/**
- * Task-node ids that are HUMAN decision gates (never auto-driven): a HOLD is a
- * durable intentional stop (resolve/cancel/fail), and requirements repair is a
- * Product Owner decision. The executor stops here and surfaces them rather than
- * trying to "complete" them as a role run.
- */
 export const FORGE_HUMAN_GATE_NODES: ReadonlySet<string> = new Set([
   'hold',
   'repair_requirements',
+  ...FORGE_JUDGMENT_LAB_NODES,
 ])
 
-/** Engine conflicts that mean the token already advanced — recover by rescan. */
 function isAdvanceConflict(err: unknown): boolean {
   const m = err instanceof Error ? err.message : String(err)
   return /already completed|not active|state changed|STALE_TASK|TASK_ALREADY_COMPLETED|PROCESS_NOT_ACTIVE/i.test(
@@ -108,13 +83,6 @@ function isAdvanceConflict(err: unknown): boolean {
   )
 }
 
-/**
- * Ensure a story has a FORGE_SDLC instance, then drive it: repeatedly run each
- * open async role task and complete it with its gate evidence until no role
- * task remains (the instance should reach a terminal state). Human decision
- * gates (HOLD / requirements) stop the drive and are reported via `needsHuman`;
- * engine "already advanced" conflicts are recovered by rescanning.
- */
 export async function driveForgeStory(
   storyId: string,
   opts: DriveForgeStoryOptions = {},
@@ -139,7 +107,6 @@ export async function driveForgeStory(
     const tasks = await listActiveForgeRoleTasks(storyId)
     if (tasks.length === 0) break
 
-    // Stop (do not auto-complete) at a human decision gate.
     const humanGate = tasks.find((t) => FORGE_HUMAN_GATE_NODES.has(t.nodeId))
     if (humanGate) {
       await syncForgeStoryboardState(storyId, instanceId, { humanHold: true })
@@ -152,8 +119,6 @@ export async function driveForgeStory(
       }
     }
 
-    // Reserved/in-progress work already has a durable owner. Never relaunch it
-    // merely because another worker can see it; recovery is an explicit path.
     if (!tasks.some((task) => task.status === 'ready')) {
       return {
         instanceId,
@@ -164,8 +129,6 @@ export async function driveForgeStory(
       }
     }
 
-    // Claim + run + complete one ready role task. Advance/claim conflicts mean
-    // another worker already owns it or the token moved — never duplicate work.
     const runReady = async (task: ActiveForgeRoleTask): Promise<void> => {
       try {
         await claimForgeRoleTask(task.taskId, workerId)
@@ -185,8 +148,6 @@ export async function driveForgeStory(
           userId: workerId,
         })
       } catch (err) {
-        // The token may already have advanced (duplicate/racing completion) —
-        // recover by rescanning instead of aborting the whole drive.
         if (isAdvanceConflict(err)) return
         try {
           await releaseForgeRoleTask(task.taskId, workerId)
@@ -204,15 +165,11 @@ export async function driveForgeStory(
       await syncForgeStoryboardState(storyId, instanceId)
     }
 
-    // S8 — bounded parallel Smith: run ready smith_split_work siblings
-    // concurrently (cap splitConcurrency) so a SPLIT's branches execute in
-    // parallel and rejoin once. The engine serializes the join release on the
-    // fork-parent token lock, so concurrent branch completion stays exactly-once.
     const ready = tasks.filter((t) => t.status === 'ready')
     const splitSiblings = ready.filter((t) => t.nodeId === 'smith_split_work')
     const others = ready.filter((t) => t.nodeId !== 'smith_split_work')
     for (const t of others) await runReady(t)
-    const cap = Math.min(opts.splitConcurrency ?? 3, splitSiblings.length)
+    const cap = Math.min(opts.splitConcurrency ?? 1, splitSiblings.length)
     let nextSplit = 0
     const pump = async (): Promise<void> => {
       while (nextSplit < splitSiblings.length) {
@@ -220,7 +177,7 @@ export async function driveForgeStory(
         await runReady(t)
       }
     }
-    await Promise.all(Array.from({ length: cap }, () => pump()))
+    await Promise.all(Array.from({ length: Math.max(cap, 0) }, () => pump()))
   }
 
   const status = await instanceStatus(instanceId)
