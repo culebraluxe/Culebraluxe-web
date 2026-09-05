@@ -19,6 +19,7 @@ import {
   decideForgeTransition,
   type ForgeTransitionDecision,
 } from '../agent-runtime/forge-transition'
+import { ensureForgeSdlcTopology } from '../agent-runtime/forge-topology'
 import type { ForgeFailureCode } from '../agent-runtime/forge-failure'
 import type { LeadDecisionCode, LeadRunPhase } from '../agent-runtime/lead-decision'
 import {
@@ -61,6 +62,10 @@ async function appendTransitionDecision(
 }
 
 export async function runForgeHydrate(): Promise<string[]> {
+  // ENG-FORGE-V8: FORGE_SDLC is the single topology contract of the live
+  // driver. Fail closed here if the canonical definition is broken/drifted so
+  // the orchestrator never routes against a stale topology.
+  ensureForgeSdlcTopology()
   return hydrateBareReadyItems({
     listItems: listAgentWorkItems,
     getStory: getStoryboardStory,
@@ -113,6 +118,10 @@ export async function runForgeFollow(input: {
   testsSummary?: string | null
 }): Promise<string | null> {
   if (!input.finishedRole || isTerminalAssayRole(input.finishedRole)) return null
+
+  // ENG-FORGE-V8: fail closed on the canonical topology before routing a follow,
+  // exactly as in runForgeHydrate, so a drifted FORGE_SDLC never mis-routes.
+  ensureForgeSdlcTopology()
 
   const okResult =
     !input.resultStatus || /complete|success|pass/i.test(input.resultStatus)
