@@ -148,8 +148,15 @@ export async function driveForgeStory(
     }
 
     const runReady = async (task: ActiveForgeRoleTask): Promise<void> => {
+      // The engine restricts claims to a task's candidate set (the role). The
+      // Forge executor must claim each role task AS a candidate of that task
+      // and complete/release with the SAME identity (otherwise completeTask
+      // rejects a non-assignee). This is the fix that lets the autonomous
+      // driver actually claim+advance role tasks end to end.
+      const actor =
+        task.candidates && task.candidates.length > 0 ? task.candidates[0] : workerId
       try {
-        await claimForgeRoleTask(task.taskId, workerId)
+        await claimForgeRoleTask(task.taskId, actor)
       } catch (err) {
         if (isAdvanceConflict(err) || /TASK_NOT_CLAIMABLE|TASK_ALREADY_ASSIGNED/i.test(String(err))) {
           return
@@ -181,7 +188,7 @@ export async function driveForgeStory(
         await completeForgeRoleTask(task.taskId, {
           transitionName: outcome.transitionName ?? 'complete',
           evidence: outcome.evidence,
-          userId: workerId,
+          userId: actor,
         })
         // V11-S1 observers: a repair/replan actually happened — record it so the
         // durable counts the engine reads for the NEXT QA decision stay truthful.
@@ -193,7 +200,7 @@ export async function driveForgeStory(
       } catch (err) {
         if (isAdvanceConflict(err)) return
         try {
-          await releaseForgeRoleTask(task.taskId, workerId)
+          await releaseForgeRoleTask(task.taskId, actor)
         } catch (releaseError) {
           if (!isAdvanceConflict(releaseError)) {
             throw new AggregateError(

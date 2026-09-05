@@ -47,10 +47,25 @@ function runnerFor(shape: 'SMITH' | 'SPLIT', splitCount?: number): ForgeRoleRunn
   }
 }
 
+/** A real Forge story always exists; create a temp row so the start evidence FK resolves. */
+async function createStory(storyId: string): Promise<void> {
+  await engineSql()`
+    insert into storyboard_story (
+      id, workstream, title, priority, status, notes, completion, rollup
+    ) values (
+      ${storyId}, 'Platform / Engineering / Data', 'forge smoke fixture',
+      'High', 'Ready', 'temporary', 0, true
+    )
+    on conflict (id) do nothing
+  `
+}
+
 async function cleanup(storyId: string, instanceId: string): Promise<void> {
   try {
+    await engineSql()`delete from forge_workflow_evidence where process_instance_id = ${instanceId}`
     await engineSql()`delete from process_events where process_instance_id = ${instanceId}`
     await engineSql()`delete from process_instances where id = ${instanceId}`
+    await engineSql()`delete from storyboard_story where id = ${storyId}`
   } catch {
     /* best-effort */
   }
@@ -59,6 +74,7 @@ async function cleanup(storyId: string, instanceId: string): Promise<void> {
 test('ENG-FORGE-V9 smoke: architect -> smith -> QA basic path completes', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-SMITH-' + Date.now()
+  await createStory(story)
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
@@ -81,6 +97,7 @@ test('ENG-FORGE-V9 smoke: architect -> smith -> QA basic path completes', async 
 test('ENG-FORGE-V9 smoke: a HOLD decision stops the drive at the human gate (not auto-completed)', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-HOLD-' + Date.now()
+  await createStory(story)
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
@@ -128,6 +145,7 @@ function chainRunner(
 test('ENG-FORGE-V9 smoke: BUG classifies -> diagnoses -> architect/smith/QA completes', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-BUG-' + Date.now()
+  await createStory(story)
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
@@ -147,6 +165,7 @@ test('ENG-FORGE-V9 smoke: BUG classifies -> diagnoses -> architect/smith/QA comp
 test('ENG-FORGE-V9 smoke: RESEARCH classifies -> archive_research (no software change)', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-RESEARCH-' + Date.now()
+  await createStory(story)
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
@@ -166,6 +185,7 @@ test('ENG-FORGE-V9 smoke: RESEARCH classifies -> archive_research (no software c
 test('ENG-FORGE-V9 smoke: HOTFIX classifies -> straight to Lead (skips Architect) -> smith/QA', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-HOTFIX-' + Date.now()
+  await createStory(story)
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
@@ -186,6 +206,7 @@ test('ENG-FORGE-V9 smoke: HOTFIX classifies -> straight to Lead (skips Architect
 test('ENG-FORGE-V9 smoke: SPLIT fan-out rejoins before QA and completes', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-SPLIT-' + Date.now()
+  await createStory(story)
   let instanceId = ''
   try {
     const res = await driveForgeStory(story, {
