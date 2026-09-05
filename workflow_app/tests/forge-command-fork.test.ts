@@ -73,7 +73,7 @@ test('ENG-FORGE-V9: the default application-contract inventory is RE (no RE beha
   assert.equal(defaulted.valid, true, 'default inventory must remain the RE registry')
 })
 
-test('ENG-FORGE-V9: Forge inventory is independent and empty for v1', () => {
+test('ENG-FORGE-V9: Forge inventory is independent of RE and holds the forge.* set', () => {
   assert.equal(forgeCommandIsRouted('deal.set_stage_closed'), false)
-  assert.equal(forgeCommandIsRouted('forge.story.hold'), false, 'no forge.* commands yet in v1')
+  assert.equal(forgeCommandIsRouted('forge.story.hold'), true, 'forge.* commands are routed in the Forge domain')
 })

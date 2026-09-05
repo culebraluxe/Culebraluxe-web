@@ -22,16 +22,25 @@
 
 export const FORGE_COMMAND_NAMESPACE = 'forge'
 
-/** Command-node types referenced by FORGE_SDLC XML (currently none in v1). */
+// Stable Forge command identifiers (the executable surface of the Forge model).
+export const FORGE_STORY_MARK_HOLD = 'forge.story.hold'
+export const FORGE_STORY_MARK_COMPLETE = 'forge.story.complete'
+export const FORGE_STORY_MARK_IN_PROGRESS = 'forge.story.in_progress'
+export const FORGE_RUN_APPEND_DETAIL = 'forge.run.detail'
+
+/** Command-node types referenced by FORGE_SDLC XML (none yet in v1). */
 export const FORGE_XML_COMMAND_NODE_TYPES: ReadonlySet<string> = new Set([])
 
 /**
- * Every Forge command with a registered handler in the Forge canonical
- * boundary. Routing flows through the Forge-owned engine ApplicationPort +
- * dispatcher + handlers — never the RE CommandDispatcher.
+ * Every Forge command with a registered handler in the Forge command domain
+ * (workflow_app/forge/forge-command.ts). Routing flows through the Forge-owned
+ * dispatcher + ApplicationPort — never the RE CommandDispatcher.
  */
 export const FORGE_ROUTED_COMMAND_TYPES: ReadonlySet<string> = new Set([
-  ...FORGE_XML_COMMAND_NODE_TYPES,
+  FORGE_STORY_MARK_HOLD,
+  FORGE_STORY_MARK_COMPLETE,
+  FORGE_STORY_MARK_IN_PROGRESS,
+  FORGE_RUN_APPEND_DETAIL,
 ])
 
 /** Forge routability predicate: is this command in the Forge inventory? */
