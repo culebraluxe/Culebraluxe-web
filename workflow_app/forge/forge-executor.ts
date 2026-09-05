@@ -75,6 +75,8 @@ export type DriveForgeStoryOptions = {
   maxSteps?: number
   /** Durable engine-task owner used for claim-before-launch. */
   workerId?: string
+  /** Bounded parallelism for SPLIT sibling (smith_split_work) tasks (S8). */
+  splitConcurrency?: number
 }
 
 export type DriveForgeStoryResult = {
@@ -162,15 +164,14 @@ export async function driveForgeStory(
       }
     }
 
-    for (const task of tasks) {
-      if (task.status !== 'ready') continue
+    // Claim + run + complete one ready role task. Advance/claim conflicts mean
+    // another worker already owns it or the token moved — never duplicate work.
+    const runReady = async (task: ActiveForgeRoleTask): Promise<void> => {
       try {
         await claimForgeRoleTask(task.taskId, workerId)
       } catch (err) {
-        // Another worker won the claim or the task advanced between list and
-        // claim. In either case this worker must not launch duplicate work.
         if (isAdvanceConflict(err) || /TASK_NOT_CLAIMABLE|TASK_ALREADY_ASSIGNED/i.test(String(err))) {
-          continue
+          return
         }
         throw err
       }
@@ -186,7 +187,7 @@ export async function driveForgeStory(
       } catch (err) {
         // The token may already have advanced (duplicate/racing completion) —
         // recover by rescanning instead of aborting the whole drive.
-        if (isAdvanceConflict(err)) continue
+        if (isAdvanceConflict(err)) return
         try {
           await releaseForgeRoleTask(task.taskId, workerId)
         } catch (releaseError) {
@@ -202,6 +203,24 @@ export async function driveForgeStory(
       steps.push(task.nodeId)
       await syncForgeStoryboardState(storyId, instanceId)
     }
+
+    // S8 — bounded parallel Smith: run ready smith_split_work siblings
+    // concurrently (cap splitConcurrency) so a SPLIT's branches execute in
+    // parallel and rejoin once. The engine serializes the join release on the
+    // fork-parent token lock, so concurrent branch completion stays exactly-once.
+    const ready = tasks.filter((t) => t.status === 'ready')
+    const splitSiblings = ready.filter((t) => t.nodeId === 'smith_split_work')
+    const others = ready.filter((t) => t.nodeId !== 'smith_split_work')
+    for (const t of others) await runReady(t)
+    const cap = Math.min(opts.splitConcurrency ?? 3, splitSiblings.length)
+    let nextSplit = 0
+    const pump = async (): Promise<void> => {
+      while (nextSplit < splitSiblings.length) {
+        const t = splitSiblings[nextSplit++]
+        await runReady(t)
+      }
+    }
+    await Promise.all(Array.from({ length: cap }, () => pump()))
   }
 
   const status = await instanceStatus(instanceId)
