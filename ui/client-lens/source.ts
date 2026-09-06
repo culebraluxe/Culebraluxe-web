@@ -6,6 +6,7 @@ import type {
   ClientRelationshipChannel,
   RelationshipActivity,
 } from '@/lib/portal/types'
+import type { PersonPropertyContextDto } from '@/services/property/types'
 import type {
   ClientLensListItem,
   ClientLensListPage,
@@ -31,6 +32,10 @@ export interface ClientLensSource {
     personId: string,
     options?: ClientLensLoadOptions,
   ): Promise<ClientRelationshipChannel[]>
+  loadPropertyContext(
+    personId: string,
+    options?: ClientLensLoadOptions,
+  ): Promise<PersonPropertyContextDto>
   saveNotes(personId: string, notes: string): Promise<void>
 }
 
@@ -98,6 +103,17 @@ export class HttpClientLensSource implements ClientLensSource {
     return json.channels ?? []
   }
 
+  async loadPropertyContext(
+    personId: string,
+    options: ClientLensLoadOptions = {},
+  ): Promise<PersonPropertyContextDto> {
+    const response = await fetch(`/api/portal/clients/${personId}/property-context`, {
+      signal: options.signal,
+    })
+    if (!response.ok) throw new Error(`Property context HTTP ${response.status}`)
+    return (await response.json()) as PersonPropertyContextDto
+  }
+
   async saveNotes(personId: string, notes: string): Promise<void> {
     const result = await updatePersonNotesAction(personId, notes)
     if (!result.ok) throw new Error(result.message ?? 'Could not save notes.')
@@ -108,14 +124,23 @@ export class HttpClientLensSource implements ClientLensSource {
 export class InMemoryClientLensSource implements ClientLensSource {
   private readonly byId = new Map<string, Client>()
   private readonly channelsById = new Map<string, ClientRelationshipChannel[]>()
+  private readonly propertyByPersonId = new Map<string, PersonPropertyContextDto>()
 
   constructor(
     clients: readonly Client[],
     channels: Readonly<Record<string, readonly ClientRelationshipChannel[]>> = {},
+    propertyContext: Readonly<Record<string, PersonPropertyContextDto>> = {},
   ) {
     for (const client of clients) this.byId.set(client.id, { ...client })
     for (const [personId, rows] of Object.entries(channels)) {
       this.channelsById.set(personId, [...rows])
+    }
+    for (const [personId, context] of Object.entries(propertyContext)) {
+      this.propertyByPersonId.set(personId, {
+        ...context,
+        properties: [...context.properties],
+        observedAddresses: [...context.observedAddresses],
+      })
     }
   }
 
@@ -156,6 +181,11 @@ export class InMemoryClientLensSource implements ClientLensSource {
 
   async loadChannels(personId: string): Promise<ClientRelationshipChannel[]> {
     return [...(this.channelsById.get(personId) ?? [])]
+  }
+
+  async loadPropertyContext(personId: string): Promise<PersonPropertyContextDto> {
+    const context = this.propertyByPersonId.get(personId)
+    return context ?? { personId, properties: [], observedAddresses: [] }
   }
 
   async saveNotes(personId: string, notes: string): Promise<void> {
