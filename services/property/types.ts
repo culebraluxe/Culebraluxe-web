@@ -33,6 +33,10 @@ export type PropertyDto = {
   legalOwnerName: string | null
   /** Existing Property title/listing identifier used by LISTING-01 as catastro. */
   catastroNumber?: string | null
+  /** Puerto Rico registry facts proved intrinsic by PR-PNS. */
+  registryEntry?: string | null
+  fincaNumber?: string | null
+  registrySection?: string | null
   /** Compatibility aliases for the first service-core experiment. */
   addressLine1: string | null
   municipality: string | null
@@ -86,6 +90,9 @@ export type UpsertPropertyForPersonRequest = {
   localName?: string | null
   legalOwnerName?: string | null
   catastroNumber?: string | null
+  registryEntry?: string | null
+  fincaNumber?: string | null
+  registrySection?: string | null
   sourceType?: string
   sourceKey?: string | null
 }

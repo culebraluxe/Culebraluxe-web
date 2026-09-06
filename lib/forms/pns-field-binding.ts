@@ -73,9 +73,9 @@ export const PNS_FIELD_BINDINGS: readonly PnsFieldBinding[] = [
   property('property', 'Property.localName', 'clean', 'Marketing/local name only; the recorded legal description remains controlling.'),
   property('municipality', 'Property.address.city'),
   property('catastroNumber', 'Property.catastroNumber'),
-  property('registryEntry', 'Property.registryEntry', 'adapter_gap', 'Migration 117 adds the canonical column; PropertyService DTO/repository exposure still needs wiring.'),
-  property('fincaNumber', 'Property.fincaNumber', 'adapter_gap', 'Migration 117 adds the canonical column; PropertyService DTO/repository exposure still needs wiring.'),
-  property('registrySection', 'Property.registrySection', 'adapter_gap', 'Migration 117 adds the canonical column; PropertyService DTO/repository exposure still needs wiring.'),
+  property('registryEntry', 'Property.registryEntry'),
+  property('fincaNumber', 'Property.fincaNumber'),
+  property('registrySection', 'Property.registrySection'),
 
   contract('purchasePrice', 'Contract.terms.purchasePrice'),
   contract('deposit', 'Contract.terms.deposit'),

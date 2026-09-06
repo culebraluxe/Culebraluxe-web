@@ -19,6 +19,9 @@ type PropertyRow = {
   name: string | null
   legal_owner_name: string | null
   listing_identifier: string | null
+  registry_entry: string | null
+  finca_number: string | null
+  registry_section: string | null
   status: string
   archived_at: string | Date | null
   address_line1: string | null
@@ -129,6 +132,9 @@ function toProperty(row: PropertyRow): PropertyDto {
     localName,
     legalOwnerName: compact(row.legal_owner_name),
     catastroNumber: compact(row.listing_identifier),
+    registryEntry: compact(row.registry_entry),
+    fincaNumber: compact(row.finca_number),
+    registrySection: compact(row.registry_section),
     addressLine1: address.addressLine1,
     municipality: address.city,
     address,
@@ -174,18 +180,6 @@ function mergeAddress(
   }
 }
 
-const SELECT_PROPERTY = `
-  p.id, p.name,
-  to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
-  p.listing_identifier,
-  p.status, p.archived_at,
-  to_jsonb(p)->>'address_line1' as address_line1,
-  p.location, p.street_number, p.street_name, p.unit_number,
-  p.city, p.state_or_province, p.neighborhood, p.postal_code,
-  to_jsonb(p)->>'country' as country,
-  to_jsonb(p)->>'iso_country_code' as iso_country_code
-`
-
 /** Production adapter behind PropertyService. */
 export class SqlPropertyRepository implements PropertyRepository {
   constructor(private readonly execute: QueryExecutor = sql) {}
@@ -196,6 +190,9 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
         p.status, p.archived_at,
         to_jsonb(p)->>'address_line1' as address_line1,
         p.location, p.street_number, p.street_name, p.unit_number,
@@ -219,6 +216,9 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
         p.status, p.archived_at,
         to_jsonb(p)->>'address_line1' as address_line1,
         p.location, p.street_number, p.street_name, p.unit_number,
@@ -249,6 +249,9 @@ export class SqlPropertyRepository implements PropertyRepository {
           p.id, p.name,
           to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
           p.listing_identifier,
+          to_jsonb(p)->>'registry_entry' as registry_entry,
+          to_jsonb(p)->>'finca_number' as finca_number,
+          to_jsonb(p)->>'registry_section' as registry_section,
           p.status, p.archived_at,
           to_jsonb(p)->>'address_line1' as address_line1,
           p.location, p.street_number, p.street_name, p.unit_number,
@@ -270,6 +273,9 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
         p.status, p.archived_at,
         to_jsonb(p)->>'address_line1' as address_line1,
         p.location, p.street_number, p.street_name, p.unit_number,
@@ -290,6 +296,9 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
         p.status, p.archived_at,
         to_jsonb(p)->>'address_line1' as address_line1,
         p.location, p.street_number, p.street_name, p.unit_number,
@@ -389,6 +398,15 @@ export class SqlPropertyRepository implements PropertyRepository {
     const catastroNumber = request.catastroNumber === undefined
       ? current?.catastroNumber ?? null
       : compact(request.catastroNumber)
+    const registryEntry = request.registryEntry === undefined
+      ? current?.registryEntry ?? null
+      : compact(request.registryEntry)
+    const fincaNumber = request.fincaNumber === undefined
+      ? current?.fincaNumber ?? null
+      : compact(request.fincaNumber)
+    const registrySection = request.registrySection === undefined
+      ? current?.registrySection ?? null
+      : compact(request.registrySection)
 
     if (!current && !compact(address.addressLine1) && !localName) {
       throw new Error('Property requires an address or local name before it can be created.')
@@ -401,6 +419,9 @@ export class SqlPropertyRepository implements PropertyRepository {
         set name = ${localName},
             legal_owner_name = ${legalOwnerName},
             listing_identifier = ${catastroNumber},
+            registry_entry = ${registryEntry},
+            finca_number = ${fincaNumber},
+            registry_section = ${registrySection},
             address_line1 = ${compact(address.addressLine1)},
             city = ${compact(address.city)},
             state_or_province = ${compact(address.stateOrProvince)},
@@ -412,6 +433,7 @@ export class SqlPropertyRepository implements PropertyRepository {
         where p.id = ${current.id}
         returning
           p.id, p.name, p.legal_owner_name, p.listing_identifier,
+          p.registry_entry, p.finca_number, p.registry_section,
           p.status, p.archived_at, p.address_line1,
           p.location, p.street_number, p.street_name, p.unit_number,
           p.city, p.state_or_province, p.neighborhood, p.postal_code,
@@ -422,18 +444,21 @@ export class SqlPropertyRepository implements PropertyRepository {
     } else {
       const rows = (await this.execute`
         insert into property (
-          name, legal_owner_name, listing_identifier, address_line1,
-          city, state_or_province, neighborhood, postal_code,
+          name, legal_owner_name, listing_identifier,
+          registry_entry, finca_number, registry_section,
+          address_line1, city, state_or_province, neighborhood, postal_code,
           country, iso_country_code, source_type
         ) values (
-          ${localName}, ${legalOwnerName}, ${catastroNumber}, ${compact(address.addressLine1)},
-          ${compact(address.city)}, ${compact(address.stateOrProvince)},
+          ${localName}, ${legalOwnerName}, ${catastroNumber},
+          ${registryEntry}, ${fincaNumber}, ${registrySection},
+          ${compact(address.addressLine1)}, ${compact(address.city)}, ${compact(address.stateOrProvince)},
           ${compact(address.neighborhood)}, ${compact(address.postalCode)},
           ${compact(address.country)}, ${compact(address.isoCountryCode)},
           ${compact(request.sourceType) ?? 'manual'}
         )
         returning
           id, name, legal_owner_name, listing_identifier,
+          registry_entry, finca_number, registry_section,
           status, archived_at, address_line1,
           location, street_number, street_name, unit_number,
           city, state_or_province, neighborhood, postal_code,
@@ -469,7 +494,11 @@ export class SqlPropertyRepository implements PropertyRepository {
       where p.id = ${request.propertyId}
       returning
         p.id, p.name, to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
-        p.listing_identifier, p.status, p.archived_at,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
         to_jsonb(p)->>'address_line1' as address_line1,
         p.location, p.street_number, p.street_name, p.unit_number,
         p.city, p.state_or_province, p.neighborhood, p.postal_code,
@@ -487,7 +516,11 @@ export class SqlPropertyRepository implements PropertyRepository {
       where p.id = ${request.propertyId}
       returning
         p.id, p.name, to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
-        p.listing_identifier, p.status, p.archived_at,
+        p.listing_identifier,
+        to_jsonb(p)->>'registry_entry' as registry_entry,
+        to_jsonb(p)->>'finca_number' as finca_number,
+        to_jsonb(p)->>'registry_section' as registry_section,
+        p.status, p.archived_at,
         to_jsonb(p)->>'address_line1' as address_line1,
         p.location, p.street_number, p.street_name, p.unit_number,
         p.city, p.state_or_province, p.neighborhood, p.postal_code,

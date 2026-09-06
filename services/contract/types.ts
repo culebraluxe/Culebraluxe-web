@@ -1,5 +1,7 @@
 import type { ServiceEnvelopeFor, ServiceOperationName } from '../core'
 
+export type ContractRoleAttributes = Readonly<Record<string, unknown>>
+
 /**
  * A Role is the contextual position an identity occupies in this Contract.
  * `kind` is the TypeScript discriminator: Person and Firm stay strongly typed
@@ -11,6 +13,7 @@ export type ContractPersonRoleDto = {
   roleCode: string
   ordinal?: number
   snapshotName?: string | null
+  attributes?: ContractRoleAttributes
 }
 
 export type ContractFirmRoleDto = {
@@ -19,6 +22,7 @@ export type ContractFirmRoleDto = {
   roleCode: string
   ordinal?: number
   snapshotName?: string | null
+  attributes?: ContractRoleAttributes
 }
 
 export type ContractRoleDto = ContractPersonRoleDto | ContractFirmRoleDto
@@ -27,11 +31,14 @@ export type ContractDto = {
   id: string
   contractType: string
   formTemplateId: string
+  sourceFormInstanceId: string | null
+  predecessorContractId: string | null
   propertyId: string
   roles: readonly ContractRoleDto[]
   facts: Readonly<Record<string, unknown>>
   status: string
   executedAt: string | null
+  evidenceDocumentId: string | null
 }
 
 export type ContractEffectiveStateDto = {
@@ -46,6 +53,8 @@ export type CreateContractFromFormRequest = {
   contractId: string
   contractType: string
   formTemplateId: string
+  sourceFormInstanceId?: string | null
+  predecessorContractId?: string | null
   propertyId: string
   roles: readonly ContractRoleDto[]
   facts: Readonly<Record<string, unknown>>

@@ -9,6 +9,7 @@ export {
   type ContractOperationMap,
   type ContractOperationName,
   type ContractPersonRoleDto,
+  type ContractRoleAttributes,
   type ContractRoleDto,
   type CreateContractFromFormRequest,
   type ExecuteContractRequest,
