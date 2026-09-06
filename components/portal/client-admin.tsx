@@ -14,7 +14,11 @@ import {
   PortalTableHeader,
   PortalTableRow,
 } from "@/components/portal/ui/portal-table"
-import { ClientAdminController, HttpClientAdminSource } from "@/ui/client-admin"
+import {
+  ClientAdminController,
+  HttpClientAdminSource,
+  type ClientAdminSource,
+} from "@/ui/client-admin"
 import { usePageController } from "@/ui/runtime"
 
 function roleLabel(role: string) {
@@ -29,10 +33,10 @@ function statusLabel(status: string) {
 // The view knows only PageModel + intents. The real HTTP source is injected at
 // composition time and can be replaced by InMemoryClientAdminSource without
 // changing this render tree or the controller.
-export function ClientAdmin() {
+export function ClientAdmin({ source }: { source?: ClientAdminSource } = {}) {
   const controller = useMemo(
-    () => new ClientAdminController(new HttpClientAdminSource()),
-    [],
+    () => new ClientAdminController(source ?? new HttpClientAdminSource()),
+    [source],
   )
   const model = usePageController(controller)
   const { search, page, pageCount, rows, total, loading } = model
