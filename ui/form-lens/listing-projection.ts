@@ -114,10 +114,8 @@ export function projectListingAgreement(
     : null
 
   const values = prefillFieldValues(template, facts)
-
   if (residenceProperty) {
-    values.sellerResidenceAddress =
-      formatPropertyAddress(residenceProperty.property.address) || ''
+    values.sellerResidenceAddress = formatPropertyAddress(residenceProperty.property.address) || ''
   }
 
   const fields = template.fields.map<FormLensFieldModel>((field) => {
@@ -138,6 +136,21 @@ export function projectListingAgreement(
       ),
     }
   })
+
+  // LISTING-01 v4 predates the canonical legal-owner qualifier. The sidecar
+  // exposes it explicitly now so we can prove the Property binding before a
+  // later immutable template version adopts the field.
+  if (!fields.some((field) => field.name === 'legalOwnerName')) {
+    fields.push({
+      name: 'legalOwnerName',
+      label: 'Legal Owner Name',
+      type: 'text',
+      required: false,
+      options: [],
+      value: listingProperty?.property.legalOwnerName ?? '',
+      origin: listingProperty?.property.legalOwnerName ? 'property' : 'unresolved',
+    })
+  }
 
   return {
     selectedPropertyId: listingProperty?.property.id ?? null,

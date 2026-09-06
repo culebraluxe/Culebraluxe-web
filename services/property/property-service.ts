@@ -47,6 +47,29 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
         execution: { mode: 'inline' },
         handle: async (request) => this.repository.forPerson(request.personId),
       },
+      [PROPERTY_OPERATIONS.UPSERT_FOR_PERSON]: {
+        kind: 'command',
+        description: 'Create or enrich a canonical Property and attach its contextual relationship to a Person.',
+        authorization: 'property.write',
+        execution: { mode: 'ordered', partitionBy: 'personId' },
+        handle: async (request, context) => {
+          const linked = await this.repository.upsertForPerson(request)
+          await this.emit(
+            {
+              type: 'property.person_context_upserted',
+              aggregateId: linked.property.id,
+              payload: {
+                personId: request.personId,
+                propertyId: linked.property.id,
+                relation: linked.relation,
+                sourceType: request.sourceType ?? 'manual',
+              },
+            },
+            context,
+          )
+          return linked
+        },
+      },
       [PROPERTY_OPERATIONS.SET_DISPLAY_NAME]: {
         kind: 'command',
         description: 'Compatibility command for changing the optional local/property name.',
@@ -92,7 +115,8 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       'Person-to-Property relationships supply context such as legal_address, physical_property, address, or interest.',
       'localName and legalOwnerName are optional Property qualifiers, not separate entities and never surrogate Persons.',
       'External address observations such as Apple Contacts remain provenance until matched or promoted to canonical Property.',
-      'Contract-specific terms do not belong in Property; issued Contracts snapshot the Property facts they used.',
+      'Forms may hydrate from and enrich Property; issued Contracts snapshot the exact Property facts they used.',
+      'Contract-specific terms do not belong in Property.',
       'Property persistence is reachable only through the Property repository boundary.',
     ] as const
   }

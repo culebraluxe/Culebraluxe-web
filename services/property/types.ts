@@ -28,15 +28,14 @@ export type PersonPropertyRelation =
 
 export type PropertyDto = {
   id: string
-  /**
-   * Presentation fallback retained for existing callers. Canonical local name
-   * is optional; when absent this may be derived from the address.
-   */
+  /** Presentation fallback retained for existing callers. */
   displayName: string
   /** Human/local name for the place, e.g. "Casa Luar" or "Sea to Soul". */
   localName: string | null
   /** Name appearing on title, e.g. a person, LLC, or trust. Not a Person identity. */
   legalOwnerName: string | null
+  /** Existing Property title/listing identifier used by LISTING-01 as catastro. */
+  catastroNumber: string | null
   /** Compatibility aliases for the first service-core experiment. */
   addressLine1: string | null
   municipality: string | null
@@ -79,6 +78,24 @@ export type FindPropertyByAddressRequest = {
   postalCode?: string
 }
 export type GetPropertiesForPersonRequest = { personId: string }
+
+/**
+ * Canonical two-way ingress used by Forms and later ODS promotion.
+ * Undefined means "leave unchanged"; null explicitly clears an optional qualifier.
+ */
+export type UpsertPropertyForPersonRequest = {
+  personId: string
+  relation: PersonPropertyRelation
+  propertyId?: string
+  relationStatus?: string | null
+  address?: Partial<PropertyAddressDto>
+  localName?: string | null
+  legalOwnerName?: string | null
+  catastroNumber?: string | null
+  sourceType?: string
+  sourceKey?: string | null
+}
+
 export type SetPropertyDisplayNameRequest = { propertyId: string; displayName: string }
 export type SetPropertyStatusRequest = { propertyId: string; status: string }
 
@@ -86,6 +103,7 @@ export const PROPERTY_OPERATIONS = {
   GET: 'property.get',
   FIND_BY_ADDRESS: 'property.findByAddress',
   FOR_PERSON: 'property.forPerson',
+  UPSERT_FOR_PERSON: 'property.upsertForPerson',
   SET_DISPLAY_NAME: 'property.setDisplayName',
   SET_STATUS: 'property.setStatus',
 } as const
@@ -94,6 +112,7 @@ export type PropertyOperationMap = {
   'property.get': { request: GetPropertyRequest; response: PropertyDto | null }
   'property.findByAddress': { request: FindPropertyByAddressRequest; response: PropertyDto | null }
   'property.forPerson': { request: GetPropertiesForPersonRequest; response: PersonPropertyContextDto }
+  'property.upsertForPerson': { request: UpsertPropertyForPersonRequest; response: PropertyForPersonDto }
   'property.setDisplayName': { request: SetPropertyDisplayNameRequest; response: PropertyDto }
   'property.setStatus': { request: SetPropertyStatusRequest; response: PropertyDto }
 }

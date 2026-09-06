@@ -1,3 +1,9 @@
+import {
+  LISTING_CANONICAL_FIELD_NAMES,
+  type ListingCanonicalFieldName,
+  type ListingCanonicalFields,
+  type ListingFieldOrigin,
+} from '@/lib/forms/listing-field-binding'
 import type { TemplateDefinition } from '@/lib/forms/template-types'
 import {
   BasePageController,
@@ -7,13 +13,34 @@ import {
 import { projectListingAgreement } from './listing-projection'
 import {
   INITIAL_FORM_LENS_MODEL,
+  type FormLensFieldOrigin,
   type FormLensIntentMap,
   type FormLensPageModel,
 } from './model'
 import type { FormLensSource } from './source'
 
+const CANONICAL_FIELDS = new Set<string>(LISTING_CANONICAL_FIELD_NAMES)
+const PHYSICAL_FIELDS = new Set<string>([
+  'property',
+  'propertyLocation',
+  'legalOwnerName',
+  'catastroNumber',
+])
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function bindingOrigin(
+  fieldName: string,
+  origin: ListingFieldOrigin,
+): FormLensFieldOrigin {
+  if (origin === 'person') return 'person'
+  if (origin === 'listing_form') return 'listing_form'
+  if (origin === 'property') {
+    return fieldName === 'sellerResidenceAddress' ? 'property_relation' : 'property'
+  }
+  return 'unresolved'
 }
 
 export class FormLensController extends BasePageController<
@@ -42,6 +69,13 @@ export class FormLensController extends BasePageController<
             ...initialModel.propertyContext,
             properties: [...initialModel.propertyContext.properties],
             observedAddresses: [...initialModel.propertyContext.observedAddresses],
+          }
+        : null,
+      listingBinding: initialModel.listingBinding
+        ? {
+            ...initialModel.listingBinding,
+            fields: { ...initialModel.listingBinding.fields },
+            origins: { ...initialModel.listingBinding.origins },
           }
         : null,
     })
@@ -80,7 +114,7 @@ export class FormLensController extends BasePageController<
         },
       },
       'formLens.selectPerson': {
-        description: 'Set seller selection and fan out independent Person and Property lanes.',
+        description: 'Select seller, then fan out Person, Property, and Listing-evidence hydration lanes.',
         execution: 'parallel',
         handle: async ({ personId }, context) => {
           context.update((model) => this.withProjection({
@@ -89,14 +123,20 @@ export class FormLensController extends BasePageController<
             selectedPropertyId: null,
             client: null,
             propertyContext: null,
+            listingBinding: null,
             manualFields: [],
             clientLoading: true,
             propertyLoading: true,
+            bindingLoading: true,
+            savingCanonical: false,
             clientError: null,
             propertyError: null,
+            bindingError: null,
+            canonicalStatus: null,
           }, null, true))
           void this.dispatch({ operation: 'formLens.loadPerson', payload: { personId } })
           void this.dispatch({ operation: 'formLens.loadPropertyContext', payload: { personId } })
+          void this.dispatch({ operation: 'formLens.loadListingBinding', payload: { personId } })
         },
       },
       'formLens.loadPerson': {
@@ -109,6 +149,11 @@ export class FormLensController extends BasePageController<
         execution: 'latest',
         handle: async ({ personId }, context) => this.loadPropertyContext(personId, context),
       },
+      'formLens.loadListingBinding': {
+        description: 'Load canonical-first LISTING-01 fields with the latest Listing draft as fallback evidence.',
+        execution: 'latest',
+        handle: async ({ personId }, context) => this.loadListingBinding(personId, context),
+      },
       'formLens.selectProperty': {
         description: 'Choose the Property feeding the Listing Agreement draft.',
         execution: 'parallel',
@@ -117,7 +162,7 @@ export class FormLensController extends BasePageController<
         },
       },
       'formLens.fieldChanged': {
-        description: 'Edit one local form field without mutating Person, Property, or persisted Forms.',
+        description: 'Edit one local form field; canonical mutation remains explicit.',
         execution: 'parallel',
         handle: async ({ name, value }, context) => {
           context.update((model) => ({
@@ -128,19 +173,25 @@ export class FormLensController extends BasePageController<
             manualFields: model.manualFields.includes(name)
               ? model.manualFields
               : [...model.manualFields, name],
+            canonicalStatus: null,
           }))
         },
       },
       'formLens.resetDraft': {
-        description: 'Discard local field edits and rehydrate from Person, Property, and template defaults.',
+        description: 'Discard local edits and rehydrate from canonical truth, Listing evidence, and template defaults.',
         execution: 'serial',
         handle: async (_request, context) => {
           context.update((model) => this.withProjection(
-            { ...model, manualFields: [] },
+            { ...model, manualFields: [], canonicalStatus: null },
             model.selectedPropertyId,
             true,
           ))
         },
+      },
+      'formLens.promoteCanonical': {
+        description: 'Promote only the six canonical-bound Listing fields back through Person/Property contracts.',
+        execution: 'serial',
+        handle: async (_request, context) => this.promoteCanonical(context),
       },
     }
   }
@@ -165,15 +216,32 @@ export class FormLensController extends BasePageController<
     const manualFields = resetManual ? [] : model.manualFields
     const manual = new Set(manualFields)
     const currentValues = new Map(model.fields.map((field) => [field.name, field.value]))
-    const fields = projection.fields.map((field) =>
-      manual.has(field.name)
-        ? { ...field, value: currentValues.get(field.name) ?? field.value, origin: 'manual' as const }
-        : field,
-    )
+    const binding = model.listingBinding
+    const selectedPropertyId = projection.selectedPropertyId
+
+    const fields = projection.fields.map((field) => {
+      if (manual.has(field.name)) {
+        return { ...field, value: currentValues.get(field.name) ?? field.value, origin: 'manual' as const }
+      }
+
+      if (binding && CANONICAL_FIELDS.has(field.name)) {
+        const name = field.name as ListingCanonicalFieldName
+        const physicalMismatch = PHYSICAL_FIELDS.has(name)
+          && binding.physicalPropertyId
+          && selectedPropertyId
+          && binding.physicalPropertyId !== selectedPropertyId
+        const value = binding.fields[name]
+        if (!physicalMismatch && value) {
+          return { ...field, value, origin: bindingOrigin(name, binding.origins[name]) }
+        }
+      }
+
+      return field
+    })
 
     return {
       ...model,
-      selectedPropertyId: projection.selectedPropertyId,
+      selectedPropertyId,
       fields,
       manualFields,
     }
@@ -190,20 +258,13 @@ export class FormLensController extends BasePageController<
   private async loadList(context: PageOperationContext<FormLensPageModel>): Promise<void> {
     const { query, page, pageSize, selectedPersonId } = context.snapshot()
     context.update((model) => ({ ...model, listLoading: true, listError: null }))
-
     try {
-      const result = await this.source.loadList(
-        { query, page, pageSize },
-        { signal: context.signal },
-      )
+      const result = await this.source.loadList({ query, page, pageSize }, { signal: context.signal })
       const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize))
       const selectedStillVisible = selectedPersonId
         ? result.rows.some((row) => row.id === selectedPersonId)
         : false
-      const nextSelectedId = selectedStillVisible
-        ? selectedPersonId
-        : result.rows[0]?.id ?? null
-
+      const nextSelectedId = selectedStillVisible ? selectedPersonId : result.rows[0]?.id ?? null
       context.update((model) => ({
         ...model,
         list: result.rows,
@@ -215,12 +276,8 @@ export class FormLensController extends BasePageController<
         listLoading: false,
         listError: null,
       }))
-
       if (nextSelectedId && nextSelectedId !== selectedPersonId) {
-        void this.dispatch({
-          operation: 'formLens.selectPerson',
-          payload: { personId: nextSelectedId },
-        })
+        void this.dispatch({ operation: 'formLens.selectPerson', payload: { personId: nextSelectedId } })
       }
     } catch (error) {
       if (isAbortError(error) || context.signal.aborted) return
@@ -266,9 +323,7 @@ export class FormLensController extends BasePageController<
     context: PageOperationContext<FormLensPageModel>,
   ): Promise<void> {
     try {
-      const propertyContext = await this.source.loadPropertyContext(personId, {
-        signal: context.signal,
-      })
+      const propertyContext = await this.source.loadPropertyContext(personId, { signal: context.signal })
       if (!context.isCurrent() || context.snapshot().selectedPersonId !== personId) return
       context.update((model) => this.withProjection({
         ...model,
@@ -284,6 +339,80 @@ export class FormLensController extends BasePageController<
         propertyContext: null,
         propertyLoading: false,
         propertyError: message,
+      }))
+    }
+  }
+
+  private async loadListingBinding(
+    personId: string,
+    context: PageOperationContext<FormLensPageModel>,
+  ): Promise<void> {
+    try {
+      const listingBinding = await this.source.loadListingBinding(personId, { signal: context.signal })
+      if (!context.isCurrent() || context.snapshot().selectedPersonId !== personId) return
+      context.update((model) => this.withProjection({
+        ...model,
+        listingBinding,
+        bindingLoading: false,
+        bindingError: null,
+      }))
+    } catch (error) {
+      if (isAbortError(error) || context.signal.aborted) return
+      const message = error instanceof Error ? error.message : String(error)
+      context.update((model) => this.withProjection({
+        ...model,
+        listingBinding: null,
+        bindingLoading: false,
+        bindingError: message,
+      }))
+    }
+  }
+
+  private async promoteCanonical(
+    context: PageOperationContext<FormLensPageModel>,
+  ): Promise<void> {
+    const model = context.snapshot()
+    const personId = model.selectedPersonId
+    if (!personId) return
+
+    const fieldMap = new Map(model.fields.map((field) => [field.name, field.value]))
+    const fields = Object.fromEntries(
+      LISTING_CANONICAL_FIELD_NAMES.map((name) => [name, fieldMap.get(name) ?? '']),
+    ) as ListingCanonicalFields
+
+    context.update((current) => ({
+      ...current,
+      savingCanonical: true,
+      bindingError: null,
+      canonicalStatus: 'Promoting reviewed Listing facts…',
+    }))
+
+    try {
+      const listingBinding = await this.source.saveListingBinding(
+        personId,
+        fields,
+        model.selectedPropertyId ?? undefined,
+      )
+      context.update((current) => this.withProjection({
+        ...current,
+        listingBinding,
+        manualFields: current.manualFields.filter((name) => !CANONICAL_FIELDS.has(name)),
+        savingCanonical: false,
+        bindingError: null,
+        canonicalStatus: 'Canonical Person / Property updated.',
+      }, current.selectedPropertyId))
+
+      // Refresh the independent canonical lanes so the sidecar immediately shows
+      // the same truth that the next form will consume.
+      void this.dispatch({ operation: 'formLens.loadPerson', payload: { personId } })
+      void this.dispatch({ operation: 'formLens.loadPropertyContext', payload: { personId } })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      context.update((current) => ({
+        ...current,
+        savingCanonical: false,
+        bindingError: message,
+        canonicalStatus: null,
       }))
     }
   }

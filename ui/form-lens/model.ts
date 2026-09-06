@@ -1,3 +1,4 @@
+import type { ListingCanonicalSnapshot } from '@/lib/forms/listing-field-binding'
 import type { Client } from '@/lib/portal/types'
 import type { TemplateFieldType } from '@/lib/forms/template-types'
 import type { PersonPropertyContextDto } from '@/services/property'
@@ -24,6 +25,7 @@ export type FormLensFieldOrigin =
   | 'person'
   | 'property'
   | 'property_relation'
+  | 'listing_form'
   | 'template_default'
   | 'manual'
   | 'unresolved'
@@ -50,6 +52,7 @@ export type FormLensPageModel = {
   selectedPropertyId: string | null
   client: Client | null
   propertyContext: PersonPropertyContextDto | null
+  listingBinding: ListingCanonicalSnapshot | null
 
   fields: FormLensFieldModel[]
   manualFields: string[]
@@ -57,9 +60,13 @@ export type FormLensPageModel = {
   listLoading: boolean
   clientLoading: boolean
   propertyLoading: boolean
+  bindingLoading: boolean
+  savingCanonical: boolean
   listError: string | null
   clientError: string | null
   propertyError: string | null
+  bindingError: string | null
+  canonicalStatus: string | null
 }
 
 export const INITIAL_FORM_LENS_MODEL: FormLensPageModel = {
@@ -74,6 +81,7 @@ export const INITIAL_FORM_LENS_MODEL: FormLensPageModel = {
   selectedPropertyId: null,
   client: null,
   propertyContext: null,
+  listingBinding: null,
 
   fields: [],
   manualFields: [],
@@ -81,9 +89,13 @@ export const INITIAL_FORM_LENS_MODEL: FormLensPageModel = {
   listLoading: true,
   clientLoading: false,
   propertyLoading: false,
+  bindingLoading: false,
+  savingCanonical: false,
   listError: null,
   clientError: null,
   propertyError: null,
+  bindingError: null,
+  canonicalStatus: null,
 }
 
 type EmptyPayload = Record<string, never>
@@ -96,7 +108,9 @@ export type FormLensIntentMap = {
   'formLens.selectPerson': { request: { personId: string }; response: void }
   'formLens.loadPerson': { request: { personId: string }; response: void }
   'formLens.loadPropertyContext': { request: { personId: string }; response: void }
+  'formLens.loadListingBinding': { request: { personId: string }; response: void }
   'formLens.selectProperty': { request: { propertyId: string }; response: void }
   'formLens.fieldChanged': { request: { name: string; value: string }; response: void }
   'formLens.resetDraft': { request: EmptyPayload; response: void }
+  'formLens.promoteCanonical': { request: EmptyPayload; response: void }
 } satisfies PageIntentMap

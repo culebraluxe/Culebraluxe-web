@@ -16,4 +16,5 @@ export {
   type PropertyOperationName,
   type SetPropertyDisplayNameRequest,
   type SetPropertyStatusRequest,
+  type UpsertPropertyForPersonRequest,
 } from './types'
