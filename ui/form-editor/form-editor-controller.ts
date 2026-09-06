@@ -1,5 +1,6 @@
 import { formContentFingerprint } from '@/lib/forms/artifact-identity'
 import { documentBodyText, resolveDocumentBody } from '@/lib/forms/format'
+import { LISTING_CANONICAL_FIELD_NAMES } from '@/lib/forms/listing-field-binding'
 import { applyDateDefaults } from '@/lib/forms/offer-letter-data'
 import type { TemplateDefinition } from '@/lib/forms/template-types'
 import {
@@ -120,6 +121,43 @@ export class FormEditorController extends BasePageController<
             message: null,
             error: null,
           }))
+        },
+      },
+      'formEditor.refreshListing': {
+        description: 'Re-read canonical Person/Property facts and fill only blank Listing fields.',
+        execution: 'latest',
+        handle: async ({ personId }, context) => {
+          const result = await this.source.refreshListing(personId)
+          if (!result.ok) {
+            context.update((model) => ({ ...model, error: result.message }))
+            return 0
+          }
+
+          const before = context.snapshot()
+          const values = { ...before.values }
+          let filled = 0
+          for (const name of LISTING_CANONICAL_FIELD_NAMES) {
+            const origin = result.data.origins[name]
+            const value = result.data.fields[name]?.trim() ?? ''
+            if (origin !== 'person' && origin !== 'property') continue
+            if (!value || (values[name] ?? '').trim()) continue
+            values[name] = value
+            filled += 1
+          }
+
+          context.update((model) => ({
+            ...model,
+            values,
+            detailsText: model.bodyEdited
+              ? model.detailsText
+              : documentBodyText(this.template, values, model.sections),
+            message:
+              filled > 0
+                ? `Refreshed client data · ${filled} field${filled === 1 ? '' : 's'} filled`
+                : 'Client data already current',
+            error: null,
+          }))
+          return filled
         },
       },
       'formEditor.saveDraft': {
