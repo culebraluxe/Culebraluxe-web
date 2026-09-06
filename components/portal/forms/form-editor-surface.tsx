@@ -159,11 +159,13 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
     templates.unshift({ id: template.id, displayName: template.displayName })
   }
 
-  // Active-version drafts sort ahead of historical rows. We keep the proven
-  // Forms rail itself untouched and add version/history clarity to its existing
-  // subtitle so an old v1/v3 record cannot masquerade as the current template.
+  // Group by template first, then put the active template version ahead of
+  // historical versions. FormEditor filters this list by template, so the
+  // dropdown now deterministically finds the active row first.
   const orderedSavedForms = [...savedForms].sort((left, right) => {
-    if (left.templateId !== right.templateId) return 0
+    const templateOrder = left.templateId.localeCompare(right.templateId)
+    if (templateOrder !== 0) return templateOrder
+
     const activeVersion = getActiveTemplate(left.templateId)?.version ?? null
     const leftActive = left.templateVersion === activeVersion
     const rightActive = right.templateVersion === activeVersion
