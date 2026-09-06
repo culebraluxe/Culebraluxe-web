@@ -96,6 +96,37 @@ const TEMPLATE_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, s
     // role locally before the external BoldSign envelope is constructed.
     sellerBrokerName: 'Lisa Penfield',
   },
+  'OFFER-01': {
+    // CulebraLuxe is the buyer's brokerage on the Offer Letter. Keep this as
+    // an editable template-owned default, but populate it so the protected
+    // broker pre-signature can resolve exactly as it does on Listing/P&S.
+    brokerName: 'Lisa Penfield',
+  },
+  'SHOW-RPT': {
+    // The standard Showing Report is conducted by Lisa unless the operator
+    // deliberately changes the agent. A blank agent field previously prevented
+    // the configured broker signature from composing on the PDF.
+    agentName: 'Lisa Penfield',
+  },
+}
+
+/**
+ * Apply human-approved template defaults only to blank values. This is useful
+ * both at creation time and when reopening an unissued historical draft that
+ * predates a default. It never overwrites an explicitly stored value.
+ */
+export function applyTemplateFieldDefaults(
+  template: TemplateDefinition,
+  values: TemplateFieldValues,
+): TemplateFieldValues {
+  const defaults = TEMPLATE_FIELD_DEFAULTS[template.id] ?? {}
+  const next = { ...values }
+  for (const field of template.fields) {
+    if ((next[field.name] ?? '').trim()) continue
+    const value = defaults[field.name]
+    if (value) next[field.name] = value
+  }
+  return next
 }
 
 /** Fill empty date fields so the native date input is a real value, not a grey placeholder. */
@@ -130,7 +161,7 @@ export function prefillFieldValues(
     }
     values[field.name] = resolveBinding(field.binding, facts) ?? defaults[field.name] ?? ''
   }
-  return applyDateDefaults(template, values)
+  return applyDateDefaults(template, applyTemplateFieldDefaults(template, values))
 }
 
 export function emptySectionValues(
