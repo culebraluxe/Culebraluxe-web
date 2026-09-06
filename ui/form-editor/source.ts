@@ -7,6 +7,7 @@ import {
   sendFormForSignatureAction,
   updateFormAction,
 } from '@/app/portal/forms/actions'
+import type { ListingCanonicalSnapshot } from '@/lib/forms/listing-field-binding'
 import type {
   FormEditorCreateContext,
   FormEditorSendSignatureRequest,
@@ -36,6 +37,7 @@ export interface FormEditorSource {
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
   ): Promise<FormEditorSourceResult<{ updated: boolean }>>
+  refreshListing(personId: string): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>>
   grokFill(input: {
     formId: string
     prompt: string
@@ -69,6 +71,25 @@ export class ActionFormEditorSource implements FormEditorSource {
   ): Promise<FormEditorSourceResult<{ updated: boolean }>> {
     const result = await updateFormAction(formId, fieldValues, sections)
     return result.ok ? result : normalizeFailure(result, 'Could not save.')
+  }
+
+  async refreshListing(personId: string): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>> {
+    try {
+      const response = await fetch(
+        `/api/portal/form-sidecar/listing?personId=${encodeURIComponent(personId)}`,
+        { cache: 'no-store' },
+      )
+      const body = (await response.json()) as ListingCanonicalSnapshot & { error?: string }
+      if (!response.ok) {
+        return { ok: false, message: body.error ?? 'Could not refresh client data.' }
+      }
+      return { ok: true, data: body }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Could not refresh client data.',
+      }
+    }
   }
 
   async grokFill(input: {
@@ -110,6 +131,7 @@ export class InMemoryFormEditorSource implements FormEditorSource {
   constructor(
     private readonly options: {
       nextFormId?: string
+      listingSnapshot?: ListingCanonicalSnapshot
       grok?: FormEditorGrokResult
       issued?: FormEditorIssueResult
       signature?: FormEditorSendSignatureResponse
@@ -131,6 +153,37 @@ export class InMemoryFormEditorSource implements FormEditorSource {
       sections: { ...sections },
     })
     return { ok: true, data: { updated: true } }
+  }
+
+  async refreshListing(personId: string): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>> {
+    if (this.options.listingSnapshot) return { ok: true, data: this.options.listingSnapshot }
+    return {
+      ok: true,
+      data: {
+        personId,
+        personDisplayName: 'Client',
+        formInstanceId: null,
+        formUpdatedAt: null,
+        legalAddressPropertyId: null,
+        physicalPropertyId: null,
+        fields: {
+          sellerName: 'Client',
+          sellerResidenceAddress: '',
+          property: '',
+          propertyLocation: '',
+          legalOwnerName: '',
+          catastroNumber: '',
+        },
+        origins: {
+          sellerName: 'person',
+          sellerResidenceAddress: 'empty',
+          property: 'empty',
+          propertyLocation: 'empty',
+          legalOwnerName: 'empty',
+          catastroNumber: 'empty',
+        },
+      },
+    }
   }
 
   async grokFill(input: {
