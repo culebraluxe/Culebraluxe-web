@@ -33,6 +33,7 @@ export type FormEditorPageModel = {
 export function isFormEditorDirty(model: Readonly<FormEditorPageModel>): boolean {
   return (
     JSON.stringify(model.values) !== JSON.stringify(model.saved.values) ||
+    JSON.stringify(model.sections) !== JSON.stringify(model.saved.sections) ||
     model.detailsText !== model.saved.detailsText
   )
 }
@@ -65,6 +66,10 @@ type EmptyPayload = Record<string, never>
 
 export type FormEditorIntentMap = {
   'formEditor.fieldChanged': {
+    request: { name: string; value: string }
+    response: void
+  }
+  'formEditor.sectionChanged': {
     request: { name: string; value: string }
     response: void
   }
