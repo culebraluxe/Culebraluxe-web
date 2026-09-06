@@ -1,9 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useMemo } from "react"
 
-import type { ClientAdminRow, ClientAdminPageResult } from "@/db/client-admin"
 import { ClientArchiveButton } from "@/components/portal/write/client-archive-button"
 import { PortalInput } from "@/components/portal/ui/portal-field"
 import {
@@ -15,6 +14,8 @@ import {
   PortalTableHeader,
   PortalTableRow,
 } from "@/components/portal/ui/portal-table"
+import { ClientAdminController, HttpClientAdminSource } from "@/ui/client-admin"
+import { usePageController } from "@/ui/runtime"
 
 function roleLabel(role: string) {
   if (role === "both") return "Buyer & Seller"
@@ -25,53 +26,20 @@ function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-// Client Administration is a server-side-paginated read over the canonical
-// `person` parent. It fetches its own pages from /api/portal/clients?view=admin
-// so it never materializes the whole person table.
-const PAGE_SIZE = 50
-
+// The view knows only PageModel + intents. The real HTTP source is injected at
+// composition time and can be replaced by InMemoryClientAdminSource without
+// changing this render tree or the controller.
 export function ClientAdmin() {
-  const [search, setSearch] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [page, setPage] = useState(1)
-  const [rows, setRows] = useState<ClientAdminRow[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const controller = useMemo(
+    () => new ClientAdminController(new HttpClientAdminSource()),
+    [],
+  )
+  const model = usePageController(controller)
+  const { search, page, pageCount, rows, total, loading } = model
 
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(search), 250)
-    return () => clearTimeout(id)
-  }, [search])
-
-  const load = useCallback(async (q: string, p: number) => {
-    setLoading(true)
-    const params = new URLSearchParams({
-      view: "admin",
-      search: q,
-      page: String(p),
-      pageSize: String(PAGE_SIZE),
-    })
-    try {
-      const res = await fetch(`/api/portal/clients?${params.toString()}`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as ClientAdminPageResult
-      setRows(json.rows)
-      setTotal(json.total)
-    } catch (err) {
-      console.error("Failed to load client administration:", err)
-      setRows([])
-      setTotal(0)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    setPage(1)
-    void load(debouncedSearch, 1)
-  }, [debouncedSearch, load])
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    void controller.dispatch({ operation: "clientAdmin.load", payload: {} })
+  }, [controller])
 
   return (
     <section className="mt-10 overflow-hidden rounded-[var(--portal-panel-radius)] portal-glass-panel">
@@ -85,7 +53,12 @@ export function ClientAdmin() {
         <div className="flex min-h-9 items-center gap-3">
           <PortalInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              void controller.dispatch({
+                operation: "clientAdmin.searchChanged",
+                payload: { search: e.target.value },
+              })
+            }}
             placeholder="Search people…"
             aria-label="Search client administration"
             className="min-h-9 w-52 bg-white/70"
@@ -260,17 +233,13 @@ export function ClientAdmin() {
 
       <PortalPagination
         page={page}
-        pageCount={totalPages}
+        pageCount={pageCount}
         totalLabel={`${total.toLocaleString()} total`}
         onPrevious={() => {
-          const next = page - 1
-          setPage(next)
-          void load(debouncedSearch, next)
+          void controller.dispatch({ operation: "clientAdmin.previousPage", payload: {} })
         }}
         onNext={() => {
-          const next = page + 1
-          setPage(next)
-          void load(debouncedSearch, next)
+          void controller.dispatch({ operation: "clientAdmin.nextPage", payload: {} })
         }}
       />
     </section>
