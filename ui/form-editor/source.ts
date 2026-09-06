@@ -81,9 +81,12 @@ export class ActionFormEditorSource implements FormEditorSource {
     sections: Record<string, string>,
     options: { syncServices?: boolean } = {},
   ): Promise<FormEditorSourceResult<FormEditorUpdateResult>> {
-    const result = options.syncServices === false
-      ? await updateFormDraftAction(formId, fieldValues, sections)
-      : await updateFormAction(formId, fieldValues, sections)
+    // Editor updates are draft-only unless the caller deliberately opts into
+    // service synchronization. This keeps the 900ms autosave from mutating
+    // Person/Property simply because the operator typed into a field.
+    const result = options.syncServices === true
+      ? await updateFormAction(formId, fieldValues, sections)
+      : await updateFormDraftAction(formId, fieldValues, sections)
     return result.ok ? result : normalizeFailure(result, 'Could not save.')
   }
 
@@ -187,7 +190,7 @@ export class InMemoryFormEditorSource implements FormEditorSource {
     sections: Record<string, string>,
     options: { syncServices?: boolean } = {},
   ): Promise<FormEditorSourceResult<FormEditorUpdateResult>> {
-    const syncServices = options.syncServices !== false
+    const syncServices = options.syncServices === true
     this.updates.push({
       formId,
       fieldValues: { ...fieldValues },
