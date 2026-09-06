@@ -16,26 +16,7 @@ export { AGREEMENT_EXECUTION_MANUAL }
 
 const MAX_NOTE_LENGTH = 500
 
-/**
- * CRM-27 — canonical audited MANUAL/external agreement-execution command.
- *
- * Records that an authorized actor manually confirmed full execution of a specific
- * immutable issued agreement version. Requirements (architect brief):
- *   - immutable document/version scoped (resolveAgreementDocument validates
- *     existence, positive issued_version, known eligible template, agreement type,
- *     Deal linkage);
- *   - authenticated actor_app_user_id (REQUIRED — audit);
- *   - recorded timestamp + bounded note/reason;
- *   - audit-safe persistence (same agreement_execution marker, 069 RESTRICT FK);
- *   - canonical command entry, same marker + outbox path as the automatic claim;
- *   - replay-safe (command receipt + unique marker ON CONFLICT DO NOTHING);
- *   - no provider dependency.
- *
- * AUTHORIZATION SEAM: this command does NOT invent an authorization system. It
- * records the actor and stops at the smallest remaining entitlement decision —
- * an authorized caller (portal/back-office) dispatches this command; the exact
- * role/policy check is a separate entitlement decision, not fabricated here.
- */
+/** Provider-neutral audited manual/external execution command. */
 export class RecordManualAgreementExecutionCommand
   implements CommandHandler<CommandEnvelope, CommandResult>
 {
@@ -60,7 +41,6 @@ export class RecordManualAgreementExecutionCommand
       }
     }
 
-    // An authenticated actor is REQUIRED for the audit record.
     const actor = envelope.actorAppUserId ?? null
     if (!actor) {
       return {
@@ -96,9 +76,7 @@ export class RecordManualAgreementExecutionCommand
       }
     }
 
-    // Canonical event id: marker.event_id == DomainEvent.eventId == outbox.id.
     const eventId = randomUUID()
-
     const docCtx = await resolveAgreementDocument(transactionDocumentId, ctx.tx)
     if (docCtx.outcome !== 'success') {
       await ctx.receipts.save(
@@ -143,6 +121,7 @@ export class RecordManualAgreementExecutionCommand
           transactionDocumentId,
           issuedVersion: document.issuedVersion,
           templateId: docCtx.templateId,
+          contractId: docCtx.contractId,
           dealId: docCtx.dealId,
           agreementVersion:
             docCtx.templateId ? `${docCtx.templateId}-v${document.issuedVersion}` : null,
@@ -188,6 +167,7 @@ export class RecordManualAgreementExecutionCommand
           },
           document,
           templateId: docCtx.templateId,
+          contractId: docCtx.contractId,
           dealId: docCtx.dealId,
           eventId: recorded ? eventId : null,
         },

@@ -17,41 +17,11 @@ import { parseAppliedSignatureSlotIds } from '../forms/applied-signature'
 // ---------------------------------------------------------------------------
 // CRM-27 — Agreement Completion evaluation (provider-neutral wiring).
 //
-// Composes the neutral evidence model with the required-role policy seam and
-// the Agreement Execution Predicate, then records the exactly-once marker.
-//
-//   document → template (declared signature roles) → required roles (policy)
-//   + completed signature-role evidence
-//   → predicate verdict
-//   → fully executed ? claim marker; shouldEmit exactly once : no-op
-//
-// `shouldEmit: true` tells the caller to emit the neutral AGREEMENT_FULLY_EXECUTED
-// fact for this version; duplicate/replayed completions return shouldEmit: false
-// (idempotent). This service never writes workflow state and never touches a
-// provider.
-//
-// DURABILITY REPAIR (CRM-27): the whole evaluation runs through the caller-supplied
-// TxRunner (`run`) — for the canonical command path this is the dispatcher's
-// transaction (`ctx.run`), so the marker insert (`claimAgreementExecution`)
-// commits atomically with the command receipt and the outbox row. It never
-// opens a nested independent `neonTx`. A rolled-back command transaction
-// leaves neither marker nor event.
-//
-// EVENT-ID EQUALITY (CRM-27): the canonical AGREEMENT_FULLY_EXECUTED event id is
-// generated ONCE by the caller and passed in as `eventId`. It is written to
-// agreement_execution.event_id (this marker), carried on the DomainEvent.eventId
-// and used as outbox_message.id — so the marker and the outbox row are directly
-// auditable by id (marker.event_id == outbox.id).
-//
-// TRUTHFUL OUTCOMES (CRM-27): a missing document is `not_found`; malformed
-// identity/lineage is `validation_failure`; a document that is not an
-// execution-eligible agreement (unknown template, non-PR-PNS, no Deal linkage,
-// zero required participants) is `precondition_failure`. These are returned
-// truthfully — never fabricated as "not fully executed" — so the command does
-// not finalize a success receipt for a missing or invalid document.
+// New canonical P&S documents are Contract-linked. Legacy Deal linkage is kept
+// only so already-issued historical agreement evidence can still be evaluated;
+// consumers of the new PR-PNS path must use Contract lineage.
 // ---------------------------------------------------------------------------
 
-/** A not-fully-executed verdict for rejection paths (no evidence was read). */
 const INCOMPLETE: AgreementExecutionVerdict = {
   fullyExecuted: false,
   missingRoles: [],
@@ -68,48 +38,33 @@ export type AgreementCompletionOutcome =
   | 'unauthorized'
 
 export type AgreementCompletionResult = {
-  /** Truthful canonical outcome (never fabricates "not fully executed"). */
   outcome: AgreementCompletionOutcome
-  /** Human-readable rejection detail, when outcome is not success. */
   error: string | null
   verdict: AgreementExecutionVerdict
-  /** True ONLY on the first time this document version is judged fully executed. */
   shouldEmit: boolean
   document: { documentId: string; issuedVersion: number } | null
-  /** Template identity of the immutable issued document (for the event payload). */
   templateId: string | null
-  /** Deal linkage of the immutable issued document (required for execution). */
+  /** Canonical Contract linkage for new P&S execution. */
+  contractId: string | null
+  /** Legacy linkage retained only for historical compatibility. */
   dealId: string | null
-  /**
-   * The canonical AGREEMENT_FULLY_EXECUTED event id (== agreement_execution.event_id
-   * == outbox_message.id) when shouldEmit; null otherwise.
-   */
   eventId: string | null
 }
 
 export type AgreementCompletionDeps = {
   execute: QueryExecutor
-  /** REQUIRED — the interactive transaction the marker participates in. */
   run: TxRunner
   now?: () => Date
 }
 
-
-/**
- * Validate that a document is a workflow-integrated execution-eligible agreement
- * and resolve its immutable identity/lineage. Shared by the automatic claim and
- * the audited manual/external execution command. Returns truthful outcomes:
- * not_found / validation_failure / precondition_failure / success.
- */
 export type AgreementDocumentContext = {
   outcome: 'success' | AgreementCompletionOutcome
   error: string | null
   document: { documentId: string; issuedVersion: number } | null
   templateId: string | null
+  contractId: string | null
   dealId: string | null
-  /** The resolved template, when valid (for slot/role resolution). */
   template: ReturnType<typeof getTemplate>
-  /** The immutable issued source_snapshot (participant slots), when resolved. */
   sourceSnapshot?: Record<string, unknown> | null
 }
 
@@ -118,7 +73,8 @@ export async function resolveAgreementDocument(
   execute: QueryExecutor,
 ): Promise<AgreementDocumentContext> {
   const rows = await execute`
-    select id, template_id, template_version, issued_version, deal_id, document_type, source_snapshot
+    select id, template_id, template_version, issued_version,
+           contract_id, deal_id, document_type, source_snapshot
     from transaction_document
     where id = ${documentId}
     limit 1
@@ -129,24 +85,29 @@ export async function resolveAgreementDocument(
         template_id?: unknown
         template_version?: unknown
         issued_version?: unknown
+        contract_id?: unknown
         deal_id?: unknown
         document_type?: unknown
         source_snapshot?: unknown
       }
     | undefined
+
   if (!row?.id) {
     return {
       outcome: 'not_found',
       error: `Transaction document not found: ${documentId}.`,
       document: null,
       templateId: null,
+      contractId: null,
       dealId: null,
       template: null,
     }
   }
+
   const templateId = typeof row.template_id === 'string' ? row.template_id : ''
   const templateVersion = Number(row.template_version ?? 0)
   const issuedVersion = Number(row.issued_version ?? 0)
+  const contractId = typeof row.contract_id === 'string' ? row.contract_id : null
   const dealId = typeof row.deal_id === 'string' ? row.deal_id : null
   const documentType = typeof row.document_type === 'string' ? row.document_type : ''
   const document = { documentId, issuedVersion }
@@ -157,10 +118,12 @@ export async function resolveAgreementDocument(
       error: `Invalid issued_version for ${documentId}: ${issuedVersion}.`,
       document: { documentId, issuedVersion: 0 },
       templateId: templateId || null,
+      contractId,
       dealId,
       template: null,
     }
   }
+
   const template = getTemplate(templateId, templateVersion)
   if (!template) {
     return {
@@ -168,45 +131,57 @@ export async function resolveAgreementDocument(
       error: `Unknown template ${templateId || '(none)'} v${templateVersion || 0} for document ${documentId}.`,
       document,
       templateId: templateId || null,
+      contractId,
       dealId,
       template: null,
     }
   }
+
   if (!isExecutionEligibleTemplate(templateId)) {
     return {
       outcome: 'precondition_failure',
       error: `Template ${templateId} is not execution-eligible for agreement execution.`,
       document,
       templateId,
+      contractId,
       dealId,
       template,
     }
   }
+
   if (documentType !== 'agreement') {
     return {
       outcome: 'precondition_failure',
       error: `Document ${documentId} is not an agreement (type '${documentType || 'none'}').`,
       document,
       templateId,
+      contractId,
       dealId,
       template,
     }
   }
-  if (!dealId) {
+
+  // CONTRACT-CUT: new Contract-owned P&S carries contract_id and deal_id=null.
+  // Keep accepting historical Deal-linked rows here so already-issued evidence
+  // remains readable, but downstream CRM26 requires Contract lineage.
+  if (!contractId && !dealId) {
     return {
       outcome: 'precondition_failure',
-      error: `Document ${documentId} has no Deal linkage required for workflow-integrated execution.`,
+      error: `Document ${documentId} has neither Contract nor legacy Deal linkage required for execution.`,
       document,
       templateId,
+      contractId,
       dealId,
       template,
     }
   }
+
   return {
     outcome: 'success',
     error: null,
     document,
     templateId,
+    contractId,
     dealId,
     template,
     sourceSnapshot: (row.source_snapshot as Record<string, unknown> | null) ?? null,
@@ -228,18 +203,18 @@ export async function evaluateAgreementCompletion(
         shouldEmit: false,
         document: ctx.document,
         templateId: ctx.templateId,
+        contractId: ctx.contractId,
         dealId: ctx.dealId,
         eventId: null,
       }
     }
+
     const document = ctx.document!
     const templateId = ctx.templateId!
+    const contractId = ctx.contractId
     const dealId = ctx.dealId
     const issuedVersion = document.issuedVersion
-    // PARTICIPANT CARDINALITY: required slots come ONLY from the IMMUTABLE issued
-    // snapshot (source_snapshot.issuedParticipants). Strict parse fails closed on a
-    // missing/malformed/duplicate/ambiguous snapshot — a legacy document without a
-    // valid snapshot returns validation_failure, never fabricated role-only slots.
+
     const parsed = parseIssuedParticipants(ctx.sourceSnapshot?.issuedParticipants)
     if (!parsed.ok) {
       return {
@@ -249,10 +224,12 @@ export async function evaluateAgreementCompletion(
         shouldEmit: false,
         document,
         templateId,
+        contractId,
         dealId,
         eventId: null,
       }
     }
+
     const requiredSlots = resolveRequiredSlots(templateId, parsed.slots)
     if (requiredSlots.length === 0) {
       return {
@@ -262,6 +239,7 @@ export async function evaluateAgreementCompletion(
         shouldEmit: false,
         document,
         templateId,
+        contractId,
         dealId,
         eventId: null,
       }
@@ -289,6 +267,7 @@ export async function evaluateAgreementCompletion(
         shouldEmit: false,
         document,
         templateId,
+        contractId,
         dealId,
         eventId: null,
       }
@@ -300,6 +279,7 @@ export async function evaluateAgreementCompletion(
       eventId,
       emittedAt: deps.now?.() ?? new Date(),
     })
+
     return {
       outcome: 'success',
       error: null,
@@ -307,6 +287,7 @@ export async function evaluateAgreementCompletion(
       shouldEmit: recorded,
       document,
       templateId,
+      contractId,
       dealId,
       eventId: recorded ? eventId : null,
     }

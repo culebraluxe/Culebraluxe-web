@@ -4,6 +4,7 @@ import type {
   ApplicationCommandRequest,
   WorkflowSubject,
 } from '../workflow_engine/lib/workflow/types'
+import { DEAL_SET_STAGE_UNDER_CONTRACT } from '../lib/commands/command-types'
 import { toCommandEnvelope, toApplicationCommandResult } from './engine-bridge'
 import { routeCommand } from './command-router'
 import { getDealWorkflowFacts } from './facts'
@@ -13,18 +14,12 @@ import {
 } from './contract-facts'
 
 // ---------------------------------------------------------------------------
-// CulebraLuxe ApplicationPort — the concrete adapter behind the engine's
-// generic integration seam. The engine never imports this file.
-//
-// Contract-subject strangler rule (WORKFLOW-CONTRACT-01):
-//   READS    Contract owns P&S truth; Deal supplies only not-yet-retired facts.
-//   COMMANDS existing RE command handlers still expect the historical Deal
-//            subject, so the port translates Contract -> source Form -> Deal
-//            only at this compatibility boundary. No heuristic Deal lookup.
-//
-// This lets new workflow instances be Contract-scoped without pretending the
-// old Deal command catalog has already been refactored. As native Contract
-// commands replace Deal commands, this translation shrinks and disappears.
+// Contract-subject strangler rule:
+//   - Contract owns P&S truth and execution.
+//   - The old Deal stage write at mark_under_contract is redundant for Contract
+//     workflows and is intentionally suppressed.
+//   - Other not-yet-strangled workflow commands may still translate through the
+//     explicit source-Form -> Deal compatibility seam until their own stories.
 // ---------------------------------------------------------------------------
 
 async function compatibilityCommandRequest(
@@ -46,6 +41,20 @@ async function compatibilityCommandRequest(
 export function createApplicationPort(): ApplicationPort {
   return {
     async executeCommand(req) {
+      // CONTRACT-CUT: Contract.execute is now the authoritative under-contract
+      // lifecycle transition. Do not dual-write deal.stage for a Contract flow.
+      if (
+        req.subjectType === 'contract' &&
+        req.commandType === DEAL_SET_STAGE_UNDER_CONTRACT
+      ) {
+        return {
+          commandId: req.commandId,
+          outcome: 'success',
+          message: 'Contract execution already owns the under-contract transition.',
+          emittedEvents: [],
+        }
+      }
+
       const routedRequest = await compatibilityCommandRequest(req)
       if (!routedRequest) {
         return {

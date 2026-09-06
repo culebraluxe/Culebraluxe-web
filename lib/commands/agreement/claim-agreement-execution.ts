@@ -1,22 +1,3 @@
-// ---------------------------------------------------------------------------
-// CRM-27 — Canonical command: agreement.execution.claim.
-//
-// The DURABILITY REPAIR over the earlier predicate/marker-only front half. This
-// thin handler evaluates whether a specific immutable issued agreement/document
-// version is FULLY EXECUTED and, when it becomes fully executed, atomically
-// commits in the dispatcher's ONE transaction:
-//
-//   command receipt (claimed + finalized by this handler)
-//   agreement_execution marker (evaluateAgreementCompletion, same tx)
-//   AGREEMENT_FULLY_EXECUTED DomainEvent (ctx.events)
-//   outbox_message row (dispatcher eventSink append, same tx)
-//
-// A single commit covers all of them; a rollback leaves none. External side
-// effects (Phase 2 MQ consumer) react to the committed outbox event AFTER
-// commit. No business rules live here — the completion evaluator owns evidence
-// assembly and the required-role policy seam (lib/agreements).
-// ---------------------------------------------------------------------------
-
 import { randomUUID } from 'node:crypto'
 import { AGREEMENT_EXECUTION_CLAIM } from '../command-types'
 import { commandReceiptStatus } from '../contracts'
@@ -57,9 +38,6 @@ export class ClaimAgreementExecutionCommand
       }
     }
 
-    // Claim-first receipt in the dispatcher transaction. The dispatcher already
-    // served the committed-receipt replay fast-path, so a false claim here means
-    // a concurrent in-flight claim for the same commandId → retryable conflict.
     const claimed = await ctx.receipts.claim(envelope.commandId, ctx.tx)
     if (!claimed) {
       return {
@@ -72,15 +50,7 @@ export class ClaimAgreementExecutionCommand
       }
     }
 
-    // CRM-27 (event-ID equality): generate the canonical AGREEMENT_FULLY_EXECUTED
-    // event id ONCE. It becomes agreement_execution.event_id, DomainEvent.eventId
-    // and outbox_message.id — the marker and the outbox row are auditable by id.
-    // On a rolled-back transaction the marker/event never commit, so a retry may
-    // generate a fresh candidate (harmless).
     const eventId = randomUUID()
-
-    // Evaluate within the SAME transaction: reads + marker write share ctx.tx,
-    // so the marker commits atomically with the receipt and the outbox row.
     const completion = await evaluateAgreementCompletion(
       transactionDocumentId,
       eventId,
@@ -97,6 +67,7 @@ export class ClaimAgreementExecutionCommand
           transactionDocumentId,
           issuedVersion: completion.document?.issuedVersion ?? null,
           templateId: completion.templateId,
+          contractId: completion.contractId,
           dealId: completion.dealId,
           agreementVersion:
             completion.templateId && completion.document
@@ -104,14 +75,9 @@ export class ClaimAgreementExecutionCommand
               : null,
         },
       })
-      // The dispatcher drains ctx.events and appends them to the outbox in the
-      // SAME transaction (step 8); it also merges the drained set into the
-      // returned result, so do NOT return it here (would duplicate).
       ctx.events.add(event)
     }
 
-    // CRM-27 (truthful receipt): a missing/invalid/ineligible document finalizes
-    // its receipt with the matching non-success outcome — never a success receipt.
     await ctx.receipts.save(
       {
         commandId: envelope.commandId,
@@ -144,6 +110,7 @@ export class ClaimAgreementExecutionCommand
           verdict: completion.verdict,
           document: completion.document,
           templateId: completion.templateId,
+          contractId: completion.contractId,
           dealId: completion.dealId,
           eventId: completion.eventId,
         },
