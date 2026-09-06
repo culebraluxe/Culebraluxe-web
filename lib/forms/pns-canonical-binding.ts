@@ -129,7 +129,11 @@ async function findDraftContractId(personId: string, evidenceId: string | null):
       and c.status = 'draft'
       and (
         (${evidenceId}::uuid is not null and c.source_form_instance_id = ${evidenceId}::uuid)
-        or (cp.person_id = ${personId} and r.scope = 'contract_person' and r.code = 'SELLER')
+        or (
+          cp.person_id = ${personId}
+          and r.scope = 'contract_person'
+          and r.code in ('SELLER', 'SELLER_REPRESENTATIVE')
+        )
       )
     order by c.id desc
     limit 1
@@ -378,6 +382,7 @@ export async function savePnsCanonicalFields(
     : null
 
   const roles: ContractRoleDto[] = (existingContract?.roles ?? before.roles)
+    .filter((role) => role.roleCode !== 'SELLER' && role.roleCode !== 'SELLER_REPRESENTATIVE')
     .filter((role) => keepExistingRole(role, fields))
     .map((role) => {
       const field = roleField(role)
@@ -395,6 +400,16 @@ export async function savePnsCanonicalFields(
         'Seller Firm write-back failed',
       )
       roles.push({ kind: 'firm', firmId: sellerFirm.id, roleCode: 'SELLER', snapshotName: sellerName })
+      roles.push({
+        kind: 'person',
+        personId: before.personId,
+        roleCode: 'SELLER_REPRESENTATIVE',
+        snapshotName: before.personDisplayName,
+        attributes: {
+          capacity: 'Entity',
+          signerTitle: compact(fields.entitySignerTitle) || null,
+        },
+      })
     } else {
       roles.push({ kind: 'person', personId: before.personId, roleCode: 'SELLER', snapshotName: sellerName })
     }
