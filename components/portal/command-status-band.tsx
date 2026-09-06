@@ -102,12 +102,12 @@ export function CommandStatus({
         {/* Status is never communicated by colour alone: the text carries meaning. */}
         <span aria-hidden className={["h-2 w-2 shrink-0 rounded-full", TONE_DOT[tone]].join(" ")} />
       </div>
-      <p
+      <div
         aria-live="polite"
         className="min-h-0 flex-1 overflow-hidden px-4 py-2.5 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] line-clamp-3"
       >
         {children}
-      </p>
+      </div>
     </section>
   )
 }
