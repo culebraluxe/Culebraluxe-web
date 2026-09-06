@@ -57,10 +57,6 @@ async function directCreateContext(input: {
  * Deal may launch a service-owned form, but it must not remain the canonical
  * owner afterward. Preserve useful one-time Deal facts in the new direct-
  * context draft before Showing/Contract service binding takes ownership.
- *
- * OFFER-01 v2 intentionally removed Deal bindings from the template itself, so
- * its economics are copied here explicitly as launch evidence rather than
- * re-introducing Deal as a canonical source.
  */
 async function applyDealLaunchFacts(
   formId: string,
@@ -120,8 +116,8 @@ export async function createFormAction(input: {
     }
 
     // LISTING-01 creation is intentionally non-mutating. The canonical Person /
-    // Property values hydrate the working editor, and the first explicit Save
-    // is the review boundary that may synchronize those six owned fields.
+    // Property values hydrate the working editor, and explicit review/issue is
+    // the boundary that may synchronize those owned fields.
     if (normalized.templateId !== 'LISTING-01') {
       await syncFormServiceBinding(result.data.formId)
     }
@@ -132,6 +128,18 @@ export async function createFormAction(input: {
   }
 }
 
+/** Working-draft persistence only. Used by debounced autosave. */
+export async function updateFormDraftAction(
+  formId: string,
+  fieldValues: Record<string, string>,
+  sections: Record<string, string>,
+): Promise<FormActionResult<{ updated: boolean; canonicalUpdates?: string[] }>> {
+  const result = await coreUpdateFormAction(formId, fieldValues, sections)
+  if (!result.ok) return result
+  return { ok: true, data: { updated: true, canonicalUpdates: [] } }
+}
+
+/** Explicit reviewed draft save: persist JSON, then synchronize owning services. */
 export async function updateFormAction(
   formId: string,
   fieldValues: Record<string, string>,
@@ -178,9 +186,6 @@ export async function sendFormForSignatureAction(
   input: Parameters<typeof coreSendFormForSignatureAction>[1],
 ): Promise<FormActionResult<FormSignatureSendData>> {
   try {
-    // The core send action persists these same values when they differ. Binding
-    // from the submitted draft first keeps service truth aligned with the PDF
-    // that is about to be issued without changing the core envelope rules.
     await syncFormServiceBinding(formId, null, {
       fieldValues: input.fieldValues,
       sections: input.sections,
