@@ -15,135 +15,185 @@ type DirectoryResponse = {
   rows?: ClientResult[]
 }
 
-/**
- * Compact Listing V4 client-context control.
- *
- * Canonical hydration is automatic on server load/reload. Canonical write-back
- * happens through the existing Save/Send boundary. The only extra operator
- * action needed in the form is changing which Client owns the Listing draft.
- */
+function normalizedName(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/\s+/g, ' ')
+}
+
 export function ListingV4Controls({
   formId,
-  personId,
+  personId: _personId,
   locked,
 }: {
   formId: string
   personId: string | null
   locked: boolean
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<ClientResult[]>([])
-  const [searching, setSearching] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const [matches, setMatches] = useState<ClientResult[]>([])
 
-  useEffect(() => {
-    if (!pickerOpen) return
-    const needle = query.trim()
-    const abort = new AbortController()
-    const timer = window.setTimeout(async () => {
-      setSearching(true)
-      try {
-        const params = new URLSearchParams({
-          view: 'directory',
-          search: needle,
-          page: '1',
-          pageSize: '8',
-          sort: 'name',
-        })
-        const response = await fetch(`/api/portal/clients?${params.toString()}`, {
-          signal: abort.signal,
-        })
-        if (!response.ok) throw new Error(`Client search HTTP ${response.status}`)
-        const body = (await response.json()) as DirectoryResponse
-        setResults(body.rows ?? [])
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setResults([])
-        }
-      } finally {
-        if (!abort.signal.aborted) setSearching(false)
-      }
-    }, 220)
-    return () => {
-      window.clearTimeout(timer)
-      abort.abort()
-    }
-  }, [pickerOpen, query])
-
-  async function selectClient(client: ClientResult) {
-    if (actionBusy || locked) return
+  async function feedback(next: { message?: string | null; error?: string | null }) {
     const controller = getFormEditorController(formId)
     if (!controller) return
+    await controller.dispatch({
+      operation: 'formEditor.feedback',
+      payload: next,
+    })
+  }
+
+  async function linkClient(client: ClientResult) {
+    const controller = getFormEditorController(formId)
+    if (!controller || locked) return
+
+    const linked = await controller.dispatch({
+      operation: 'formEditor.selectListingClient',
+      payload: { personId: client.id },
+    })
+    if (!linked) return
+
+    // Selection changes only the working Listing context + canonical-owned form
+    // fields. Persist that JSON draft, then reload so the server recomputes
+    // signer candidates and the explicit Person/Property context.
+    const saved = await controller.dispatch({
+      operation: 'formEditor.saveDraft',
+      payload: { quiet: true },
+    })
+    if (!saved) return
+
+    setMatches([])
+    window.location.reload()
+  }
+
+  async function fillFromSeller(rawName?: string) {
+    if (locked || actionBusy) return
+    const controller = getFormEditorController(formId)
+    if (!controller) return
+
+    const sellerName = (rawName ?? controller.snapshot().values.sellerName ?? '').trim()
+    if (!sellerName) {
+      await feedback({ error: 'Enter the seller name first.' })
+      return
+    }
+
     setActionBusy(true)
+    setMatches([])
     try {
-      const linked = await controller.dispatch({
-        operation: 'formEditor.selectListingClient',
-        payload: { personId: client.id },
+      const params = new URLSearchParams({
+        view: 'directory',
+        search: sellerName,
+        page: '1',
+        pageSize: '8',
+        sort: 'name',
       })
-      if (!linked) return
-
-      // Persist the deliberate context switch as working-draft state only.
-      // Reload then performs the normal automatic canonical hydration and
-      // rebuilds signer candidates from the newly selected Person.
-      const saved = await controller.dispatch({
-        operation: 'formEditor.saveDraft',
-        payload: { quiet: true },
+      const response = await fetch(`/api/portal/clients?${params.toString()}`, {
+        cache: 'no-store',
       })
-      if (!saved) return
+      if (!response.ok) {
+        throw new Error(`Client search HTTP ${response.status}`)
+      }
+      const body = (await response.json()) as DirectoryResponse
+      const rows = body.rows ?? []
+      const needle = normalizedName(sellerName)
+      const exact = rows.filter(
+        (client) => normalizedName(client.displayName) === needle,
+      )
 
-      setPickerOpen(false)
-      setQuery('')
-      window.location.reload()
+      // The normal path is intentionally one-step: Enter after the seller name
+      // resolves an exact match, or the only plausible directory result, and
+      // immediately hydrates the Listing. A chooser appears only when the name
+      // is genuinely ambiguous.
+      const candidate = exact.length === 1
+        ? exact[0]
+        : rows.length === 1
+          ? rows[0]
+          : null
+
+      if (candidate) {
+        await linkClient(candidate)
+        return
+      }
+
+      if (rows.length === 0) {
+        await feedback({
+          error: `No Client found for “${sellerName}”. Check the name and try again.`,
+        })
+        return
+      }
+
+      setMatches(exact.length > 1 ? exact : rows)
+      await feedback({
+        message: `More than one Client matches “${sellerName}” · choose one below`,
+        error: null,
+      })
+    } catch (error) {
+      await feedback({
+        error: error instanceof Error ? error.message : 'Could not look up the Client.',
+      })
     } finally {
       setActionBusy(false)
     }
   }
 
+  useEffect(() => {
+    if (locked) return
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target
+      if (!(target instanceof HTMLInputElement)) return
+
+      // ListingV4Controls is rendered immediately above the form grid. Identify
+      // the existing proven Seller field by its own label instead of adding a
+      // second input or a permanent client-picker UI.
+      const label = target.closest('label')
+      const heading = label?.querySelector('span')?.textContent?.trim() ?? ''
+      if (!/^seller\b/i.test(heading)) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      void fillFromSeller(target.value)
+    }
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => document.removeEventListener('keydown', onKeyDown, true)
+  }, [actionBusy, formId, locked])
+
   return (
-    <div className="relative">
+    <div className="relative flex items-center justify-end">
       <button
         type="button"
         disabled={locked || actionBusy}
-        onClick={() => setPickerOpen((open) => !open)}
+        onClick={() => void fillFromSeller()}
         className="inline-flex min-h-7 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
+        title="Fill this Listing from the seller Client"
       >
-        {actionBusy ? 'Working…' : personId ? 'Change Client' : 'Select Client'}
+        {actionBusy ? 'Filling…' : 'Fill Client'}
       </button>
 
-      {pickerOpen && !locked ? (
-        <div className="absolute left-0 top-full z-30 mt-1 w-[min(28rem,75vw)] rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white/95 p-2 shadow-lg backdrop-blur">
-          <input
-            autoFocus
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search clients by name, email, or phone…"
-            className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 py-2 text-sm font-light outline-none placeholder:text-black/30 focus:border-[var(--portal-navy)]"
-          />
-          <div className="mt-1 max-h-48 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white">
-            {searching ? (
-              <p className="px-3 py-2 text-xs font-light text-black/40">Searching…</p>
-            ) : results.length === 0 ? (
-              <p className="px-3 py-2 text-xs font-light text-black/40">No matching clients.</p>
-            ) : (
-              results.map((client) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  onClick={() => void selectClient(client)}
-                  className="flex w-full items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2 text-left last:border-b-0 hover:bg-black/[0.025]"
-                >
-                  <span className="text-sm font-medium text-[var(--portal-navy)]">
-                    {client.displayName}
-                  </span>
-                  <span className="truncate text-[11px] font-light text-black/40">
-                    {client.primaryEmail || client.primaryPhone || 'Client'}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
+      {matches.length > 0 ? (
+        <div className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white shadow-lg">
+          {matches.map((client) => (
+            <button
+              key={client.id}
+              type="button"
+              disabled={actionBusy}
+              onClick={() => {
+                setActionBusy(true)
+                void linkClient(client).finally(() => setActionBusy(false))
+              }}
+              className="flex w-full items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2 text-left last:border-b-0 hover:bg-black/[0.03] disabled:opacity-40"
+            >
+              <span className="truncate text-[12px] font-medium text-[var(--portal-navy)]">
+                {client.displayName}
+              </span>
+              <span className="max-w-32 truncate text-[10px] font-light text-black/40">
+                {client.primaryEmail || client.primaryPhone || 'Client'}
+              </span>
+            </button>
+          ))}
         </div>
       ) : null}
     </div>
