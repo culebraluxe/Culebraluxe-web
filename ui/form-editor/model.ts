@@ -1,5 +1,3 @@
-import type { PageIntentMap } from '../runtime'
-
 export type FormEditorIssuedDocument = {
   documentId: string
   issuedVersion: number
@@ -106,4 +104,4 @@ export type FormEditorIntentMap = {
     request: { busy: boolean }
     response: void
   }
-} satisfies PageIntentMap
+}
