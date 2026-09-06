@@ -1,5 +1,3 @@
-import type { PageIntentMap } from '../runtime'
-
 export type ClientAdminRow = {
   id: string
   displayName: string
@@ -63,4 +61,4 @@ export type ClientAdminIntentMap = {
     request: EmptyPayload
     response: void
   }
-} satisfies PageIntentMap
+}
