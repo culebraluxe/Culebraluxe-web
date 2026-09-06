@@ -469,7 +469,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
             }
           />
 
-          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.8fr)]">
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
             <main className="min-h-0 overflow-y-auto">
               {!client ? (
                 <Panel compact heading={model.clientLoading ? "Loading client" : "Client"}>
