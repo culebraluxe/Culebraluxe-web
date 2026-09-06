@@ -18,6 +18,11 @@ export type FormEditorSourceResult<T> =
   | { ok: true; data: T }
   | { ok: false; message: string }
 
+export type FormEditorUpdateResult = {
+  updated: boolean
+  canonicalUpdates?: string[]
+}
+
 export type FormEditorGrokResult = {
   fieldValues: Record<string, string>
   body: string | null
@@ -36,8 +41,12 @@ export interface FormEditorSource {
     formId: string,
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
-  ): Promise<FormEditorSourceResult<{ updated: boolean }>>
+  ): Promise<FormEditorSourceResult<FormEditorUpdateResult>>
   refreshListing(personId: string): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>>
+  selectListingClient(
+    formId: string,
+    personId: string,
+  ): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>>
   grokFill(input: {
     formId: string
     prompt: string
@@ -68,7 +77,7 @@ export class ActionFormEditorSource implements FormEditorSource {
     formId: string,
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
-  ): Promise<FormEditorSourceResult<{ updated: boolean }>> {
+  ): Promise<FormEditorSourceResult<FormEditorUpdateResult>> {
     const result = await updateFormAction(formId, fieldValues, sections)
     return result.ok ? result : normalizeFailure(result, 'Could not save.')
   }
@@ -88,6 +97,29 @@ export class ActionFormEditorSource implements FormEditorSource {
       return {
         ok: false,
         message: error instanceof Error ? error.message : 'Could not refresh client data.',
+      }
+    }
+  }
+
+  async selectListingClient(
+    formId: string,
+    personId: string,
+  ): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>> {
+    try {
+      const response = await fetch('/api/portal/form-sidecar/listing/select-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formId, personId }),
+      })
+      const body = (await response.json()) as ListingCanonicalSnapshot & { error?: string }
+      if (!response.ok) {
+        return { ok: false, message: body.error ?? 'Could not select the client.' }
+      }
+      return { ok: true, data: body }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Could not select the client.',
       }
     }
   }
@@ -132,6 +164,7 @@ export class InMemoryFormEditorSource implements FormEditorSource {
     private readonly options: {
       nextFormId?: string
       listingSnapshot?: ListingCanonicalSnapshot
+      canonicalUpdates?: string[]
       grok?: FormEditorGrokResult
       issued?: FormEditorIssueResult
       signature?: FormEditorSendSignatureResponse
@@ -146,44 +179,32 @@ export class InMemoryFormEditorSource implements FormEditorSource {
     formId: string,
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
-  ): Promise<FormEditorSourceResult<{ updated: boolean }>> {
+  ): Promise<FormEditorSourceResult<FormEditorUpdateResult>> {
     this.updates.push({
       formId,
       fieldValues: { ...fieldValues },
       sections: { ...sections },
     })
-    return { ok: true, data: { updated: true } }
+    return {
+      ok: true,
+      data: {
+        updated: true,
+        canonicalUpdates: this.options.canonicalUpdates ?? [],
+      },
+    }
   }
 
   async refreshListing(personId: string): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>> {
     if (this.options.listingSnapshot) return { ok: true, data: this.options.listingSnapshot }
-    return {
-      ok: true,
-      data: {
-        personId,
-        personDisplayName: 'Client',
-        formInstanceId: null,
-        formUpdatedAt: null,
-        legalAddressPropertyId: null,
-        physicalPropertyId: null,
-        fields: {
-          sellerName: 'Client',
-          sellerResidenceAddress: '',
-          property: '',
-          propertyLocation: '',
-          legalOwnerName: '',
-          catastroNumber: '',
-        },
-        origins: {
-          sellerName: 'person',
-          sellerResidenceAddress: 'empty',
-          property: 'empty',
-          propertyLocation: 'empty',
-          legalOwnerName: 'empty',
-          catastroNumber: 'empty',
-        },
-      },
-    }
+    return { ok: true, data: defaultListingSnapshot(personId) }
+  }
+
+  async selectListingClient(
+    _formId: string,
+    personId: string,
+  ): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>> {
+    if (this.options.listingSnapshot) return { ok: true, data: this.options.listingSnapshot }
+    return { ok: true, data: defaultListingSnapshot(personId) }
   }
 
   async grokFill(input: {
@@ -223,5 +244,32 @@ export class InMemoryFormEditorSource implements FormEditorSource {
         signerCount: 1,
       },
     }
+  }
+}
+
+function defaultListingSnapshot(personId: string): ListingCanonicalSnapshot {
+  return {
+    personId,
+    personDisplayName: 'Client',
+    formInstanceId: null,
+    formUpdatedAt: null,
+    legalAddressPropertyId: null,
+    physicalPropertyId: null,
+    fields: {
+      sellerName: 'Client',
+      sellerResidenceAddress: '',
+      property: '',
+      propertyLocation: '',
+      legalOwnerName: '',
+      catastroNumber: '',
+    },
+    origins: {
+      sellerName: 'person',
+      sellerResidenceAddress: 'empty',
+      property: 'empty',
+      propertyLocation: 'empty',
+      legalOwnerName: 'empty',
+      catastroNumber: 'empty',
+    },
   }
 }
