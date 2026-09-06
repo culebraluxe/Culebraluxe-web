@@ -3,22 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
-import {
-  createFormAction,
-  grokFillFormAction,
-  issueFormAction,
-  sendFormForSignatureAction,
-  updateFormAction,
-} from "@/app/portal/forms/actions"
-import {
-  documentBodyText,
-  formatMoney,
-  resolveDocumentBody,
-} from "@/lib/forms/format"
-import {
-  applyDateDefaults,
-  validateFormValues,
-} from "@/lib/forms/offer-letter-data"
+import { formatMoney } from "@/lib/forms/format"
+import { validateFormValues } from "@/lib/forms/offer-letter-data"
 import {
   formSupportsSigning,
   isActiveSigningStatus,
@@ -34,6 +20,12 @@ import {
   CommandStatus,
   CommandStatusBand,
 } from "@/components/portal/command-status-band"
+import {
+  ActionFormEditorSource,
+  FormEditorController,
+  isFormEditorDirty,
+} from "@/ui/form-editor"
+import { usePageController } from "@/ui/runtime"
 
 const inputClass =
   "mt-1 block h-9 w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-2.5 text-[13px] font-light leading-9 text-black/70 outline-none focus:border-[var(--portal-navy-soft)]"
@@ -91,14 +83,6 @@ function statusDotClass(status: string) {
   if (status === "issued") return "bg-[var(--portal-success)]"
   if (status === "ready") return "bg-[var(--portal-navy-soft)]"
   return "bg-black/25"
-}
-
-function initialDetailsText(
-  template: TemplateDefinition,
-  sections: Record<string, string>,
-  values: Record<string, string>,
-) {
-  return resolveDocumentBody(template, values, sections)
 }
 
 function fileFromPdfBytes(buffer: ArrayBuffer, filename: string): File {
@@ -171,33 +155,35 @@ export function FormEditor({
   signatureRequest?: { id: string; status: string } | null
 }) {
   const router = useRouter()
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    applyDateDefaults(template, form.fieldValues),
-  )
-  const [sections, setSections] = useState<Record<string, string>>(form.sections)
-  const [detailsText, setDetailsText] = useState(() =>
-    initialDetailsText(template, form.sections, form.fieldValues),
-  )
-  const bodyTouched = useRef(form.sections.bodyEdited === "true")
-  const [saved, setSaved] = useState({
-    values: form.fieldValues,
-    sections: form.sections,
-    detailsText: initialDetailsText(
+  // FormEditor is keyed by form.id by the server surface. Keep one controller
+  // for that mounted working session even when a server action revalidates the
+  // route and supplies fresh prop object identities.
+  const [controller] = useState(
+    () => new FormEditorController(
+      new ActionFormEditorSource(),
+      form.id,
       template,
-      form.sections,
-      form.fieldValues,
+      {
+        fieldValues: form.fieldValues,
+        sections: form.sections,
+        issuedDocument,
+        signatureState: signatureRequest,
+      },
     ),
-  })
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [issued, setIssued] = useState<{
-    documentId: string
-    issuedVersion: number
-    checksum: string
-    contentFingerprint: string | null
-  } | null>(issuedDocument)
-  const [busy, setBusy] = useState(false)
-  const [draftSaving, setDraftSaving] = useState(false)
+  )
+  const model = usePageController(controller)
+  const {
+    values,
+    sections,
+    detailsText,
+    message,
+    error,
+    issued,
+    signatureState,
+    busy,
+    draftSaving,
+  } = model
+
   const [askLeave, setAskLeave] = useState(false)
   const [sessionQuery, setSessionQuery] = useState("")
   const [showSignPanel, setShowSignPanel] = useState(false)
@@ -211,16 +197,9 @@ export function FormEditor({
     () => signerCandidates[0] ?? null,
   )
   const [sendingSignature, setSendingSignature] = useState(false)
-  const [signatureState, setSignatureState] = useState(signatureRequest)
   const working = busy
   const pendingLeave = useRef<(() => void) | null>(null)
-  const valuesRef = useRef(values)
-  const detailsRef = useRef(detailsText)
-  const sectionsRef = useRef(sections)
   const dirtyRef = useRef(false)
-  valuesRef.current = values
-  detailsRef.current = detailsText
-  sectionsRef.current = sections
   const vaultVersion = issued?.issuedVersion ?? null
   const savedOfType = savedForms.filter(
     (item) => item.templateId === form.templateId,
@@ -236,9 +215,7 @@ export function FormEditor({
     currentSaved && !filteredSaved.some((item) => item.id === form.id)
       ? [currentSaved, ...filteredSaved]
       : filteredSaved
-  const dirty =
-    JSON.stringify(values) !== JSON.stringify(saved.values) ||
-    detailsText !== saved.detailsText
+  const dirty = isFormEditorDirty(model)
   dirtyRef.current = dirty
   const statusCue = draftSaving
     ? "Saving…"
@@ -249,6 +226,17 @@ export function FormEditor({
         : form.status === "issued"
           ? "Issued"
           : "Draft"
+
+  function feedback(next: { message?: string | null; error?: string | null }) {
+    void controller.dispatch({ operation: "formEditor.feedback", payload: next })
+  }
+
+  function setWorking(next: boolean) {
+    void controller.dispatch({
+      operation: "formEditor.busyChanged",
+      payload: { busy: next },
+    })
+  }
 
   function requestLeave(proceed: () => void) {
     if (!dirtyRef.current) {
@@ -269,92 +257,53 @@ export function FormEditor({
     pendingLeave.current = null
     setAskLeave(false)
     dirtyRef.current = false
-    setValues(saved.values)
-    setSections(saved.sections)
-    setDetailsText(saved.detailsText)
-    setMessage(null)
-    setError(null)
+    void controller.dispatch({ operation: "formEditor.discard", payload: {} })
     proceed?.()
   }
 
   async function startNewForm(templateId: string) {
-    const result = await createFormAction({
-      templateId,
-      dealId: form.dealId ?? undefined,
-      personId: form.personId ?? undefined,
-      propertyId: form.propertyId ?? undefined,
+    const formId = await controller.dispatch({
+      operation: "formEditor.create",
+      payload: {
+        templateId,
+        dealId: form.dealId ?? undefined,
+        personId: form.personId ?? undefined,
+        propertyId: form.propertyId ?? undefined,
+      },
     })
-    if (result.ok) router.push(`/portal/forms/${result.data.formId}`)
-    else {
-      setError(result.message ?? "Could not start a new form.")
-      setBusy(false)
-    }
+    if (formId) router.push(`/portal/forms/${formId}`)
   }
+
   function composedSections(
     nextDetails = detailsText,
   ): Record<string, string> {
     return {
       ...sections,
       body: nextDetails,
-      bodyEdited: bodyTouched.current ? "true" : "false",
+      bodyEdited: model.bodyEdited ? "true" : "false",
     }
   }
 
   function updateField(name: string, value: string) {
-    const next = { ...values, [name]: value }
-    setValues(next)
-    if (!bodyTouched.current) {
-      setDetailsText(documentBodyText(template, next))
-    }
+    void controller.dispatch({
+      operation: "formEditor.fieldChanged",
+      payload: { name, value },
+    })
   }
 
   async function persistDraft(quiet = false): Promise<boolean> {
-    const nextValues = valuesRef.current
-    const nextDetails = detailsRef.current
-    const nextSections = { ...sectionsRef.current, body: nextDetails }
-    setDraftSaving(true)
-    try {
-      const result = await updateFormAction(form.id, nextValues, nextSections)
-      if (!result.ok) {
-        setError(result.message ?? "Could not save.")
-        return false
-      }
-      const stillSame =
-        JSON.stringify(valuesRef.current) === JSON.stringify(nextValues) &&
-        detailsRef.current === nextDetails
-      setSections(nextSections)
-      sectionsRef.current = nextSections
-      if (stillSame) {
-        setSaved({
-          values: nextValues,
-          sections: nextSections,
-          detailsText: nextDetails,
-        })
-      }
-      if (!quiet) setMessage("Saved")
-      setError(null)
-      return true
-    } finally {
-      setDraftSaving(false)
-    }
+    return controller.dispatch({
+      operation: "formEditor.saveDraft",
+      payload: { quiet },
+    })
   }
 
-  async function saveDraft(
-    nextValues = values,
-    nextDetails = detailsText,
-  ): Promise<boolean> {
-    valuesRef.current = nextValues
-    detailsRef.current = nextDetails
+  async function saveDraft(): Promise<boolean> {
     return persistDraft(false)
   }
 
   function cancelEdits() {
-    setValues(saved.values)
-    setSections(saved.sections)
-    setDetailsText(saved.detailsText)
-    bodyTouched.current = saved.sections.bodyEdited === "true"
-    setMessage("Changes discarded")
-    setError(null)
+    void controller.dispatch({ operation: "formEditor.discard", payload: {} })
   }
 
   function pdfFilename() {
@@ -367,22 +316,13 @@ export function FormEditor({
   }
 
   async function savePdfToVault() {
-    if (dirty) {
-      const savedOk = await saveDraft()
-      if (!savedOk) {
-        throw new Error("Could not save the form before creating the PDF.")
-      }
+    const document = await controller.dispatch({
+      operation: "formEditor.issue",
+      payload: {},
+    })
+    if (!document) {
+      throw new Error(controller.snapshot().error ?? "Could not save the PDF to the vault.")
     }
-    const result = await issueFormAction(form.id)
-    if (!result.ok) {
-      throw new Error(result.message ?? "Could not save the PDF to the vault.")
-    }
-    const contentFingerprint = formContentFingerprint(
-      valuesRef.current,
-      { ...sectionsRef.current, body: detailsRef.current },
-    )
-    const document = { ...result.data, contentFingerprint }
-    setIssued(document)
     return document
   }
 
@@ -397,28 +337,26 @@ export function FormEditor({
   }
 
   async function savePdf() {
-    setError(null)
-    setBusy(true)
     try {
-      const document = await savePdfToVault()
-      setMessage(`Saved to vault v${document.issuedVersion}`)
+      await savePdfToVault()
     } catch (caught) {
       if (isUserCancel(caught)) return
-      setError(caught instanceof Error ? caught.message : "Could not save the PDF.")
-    } finally {
-      setBusy(false)
+      feedback({
+        error: caught instanceof Error ? caught.message : "Could not save the PDF.",
+      })
     }
   }
 
   async function sharePdf() {
-    setError(null)
+    feedback({ error: null })
     if (typeof navigator.share !== "function") {
-      setMessage(
-        "This browser can't attach a PDF from the page. Save PDF, then attach that exact vault file in Mail or Messages.",
-      )
+      feedback({
+        message:
+          "This browser can't attach a PDF from the page. Save PDF, then attach that exact vault file in Mail or Messages.",
+      })
       return
     }
-    setBusy(true)
+    setWorking(true)
     try {
       // Sharing is an issued-document action: dirty drafts are issued first;
       // a clean current version reuses its immutable vault bytes. Never share
@@ -431,25 +369,32 @@ export function FormEditor({
         !issued || issued.contentFingerprint !== currentFingerprint
           ? await savePdfToVault()
           : issued
+      // issue() owns its own busy lifecycle; native sharing remains busy after
+      // it returns so the view cannot launch a second browser share concurrently.
+      setWorking(true)
       const file = await issuedPdfFile(document.documentId)
       await navigator.share({
         title: "CulebraLuxe Document",
         text: "CulebraLuxe transaction document",
         files: [file],
       })
-      setMessage("Shared")
+      feedback({ message: "Shared", error: null })
     } catch (caught) {
       if (isUserCancel(caught)) return
       const name = caught instanceof DOMException ? caught.name : ""
       if (name === "NotAllowedError" || name === "TypeError") {
-        setMessage(
-          "Share needs a direct click. Try Share PDF again, or Save PDF and attach the file.",
-        )
+        feedback({
+          message:
+            "Share needs a direct click. Try Share PDF again, or Save PDF and attach the file.",
+          error: null,
+        })
         return
       }
-      setError(caught instanceof Error ? caught.message : "Could not share the PDF.")
+      feedback({
+        error: caught instanceof Error ? caught.message : "Could not share the PDF.",
+      })
     } finally {
-      setBusy(false)
+      setWorking(false)
     }
   }
 
@@ -466,61 +411,43 @@ export function FormEditor({
   }
 
   async function sendBoldSign() {
-    setError(null)
+    feedback({ error: null })
     const name = signerName.trim()
     const email = signerEmail.trim()
     if (!sendAllRequiredSigners && !name) {
-      setError("Signer name is required.")
+      feedback({ error: "Signer name is required." })
       return
     }
     if (!sendAllRequiredSigners && !isUsableSignerEmail(email)) {
-      setError("Please enter a valid signer email and try again.")
+      feedback({ error: "Please enter a valid signer email and try again." })
       return
     }
     const missing = validateFormValues(template, values)
     if (missing.length > 0) {
-      setError(`Still needed: ${missing.map((item) => item.label).join(", ")}`)
+      feedback({
+        error: `Still needed: ${missing.map((item) => item.label).join(", ")}`,
+      })
       return
     }
     setSendingSignature(true)
     try {
-      const result = await sendFormForSignatureAction(form.id, {
-        signerPersonId: selectedSigner?.personId ?? null,
-        signerRole: selectedSigner?.role ?? null,
-        signerName: name,
-        signerEmail: email,
-        fieldValues: values,
-        sections: composedSections(),
+      const result = await controller.dispatch({
+        operation: "formEditor.sendSignature",
+        payload: {
+          signerPersonId: selectedSigner?.personId ?? null,
+          signerRole: selectedSigner?.role ?? null,
+          signerName: name,
+          signerEmail: email,
+        },
       })
-      if (!result.ok) {
-        setError(
-          result.message ??
-            "Could not send document for signature. Please try again.",
-        )
-        return
-      }
-      setIssued({
-        documentId: result.data.documentId,
-        issuedVersion: result.data.issuedVersion,
-        checksum: issued?.checksum ?? "",
-        contentFingerprint: formContentFingerprint(values, composedSections()),
-      })
-      setSignatureState({
-        id: result.data.signatureRequestId,
-        status: result.data.status,
-      })
-      setSignerName(result.data.signerName)
-      setSignerEmail(result.data.signerEmail)
+      if (!result) return
+      setSignerName(result.signerName)
+      setSignerEmail(result.signerEmail)
       setShowSignPanel(false)
-      setMessage(
-        `Sent for signature · ${result.data.signerCount} external ` +
-          `part${result.data.signerCount === 1 ? 'y' : 'ies'} · ${result.data.signerName}` +
-          (result.data.signerEmail ? ` · ${result.data.signerEmail}` : ''),
-      )
     } catch {
-      setError(
-        "Could not send document for signature. Please try again.",
-      )
+      feedback({
+        error: "Could not send document for signature. Please try again.",
+      })
     } finally {
       setSendingSignature(false)
     }
@@ -630,28 +557,12 @@ export function FormEditor({
           <FormGrokHelper
             formTitle={template.displayName}
             busy={working}
-            onAsk={async (prompt) => {
-              const result = await grokFillFormAction({
-                formId: form.id,
-                prompt,
-                fieldValues: values,
-                detailsText,
+            onAsk={async (prompt) =>
+              controller.dispatch({
+                operation: "formEditor.grokFill",
+                payload: { prompt },
               })
-              if (!result.ok) {
-                throw new Error(result.message)
-              }
-              setValues(applyDateDefaults(template, result.data.fieldValues))
-              if (result.data.body) {
-                bodyTouched.current = true
-                setDetailsText(result.data.body)
-              } else if (!bodyTouched.current) {
-                setDetailsText(
-                  documentBodyText(template, result.data.fieldValues),
-                )
-              }
-              setMessage(result.data.note)
-              return result.data.note
-            }}
+            }
           />
         }
         status={
@@ -676,7 +587,6 @@ export function FormEditor({
                 disabled={working}
                 onClick={() => {
                   requestLeave(() => {
-                    setBusy(true)
                     void startNewForm(form.templateId)
                   })
                 }}
@@ -702,8 +612,8 @@ export function FormEditor({
                   const latest = savedForms.find(
                     (item) => item.templateId === nextTemplateId,
                   )
-                  setBusy(true)
                   if (latest) {
+                    setWorking(true)
                     router.push(`/portal/forms/${latest.id}`)
                     return
                   }
@@ -1029,8 +939,10 @@ export function FormEditor({
               value={detailsText}
               placeholder="Document text…"
               onChange={(event) => {
-                bodyTouched.current = true
-                setDetailsText(event.target.value)
+                void controller.dispatch({
+                  operation: "formEditor.detailsChanged",
+                  payload: { value: event.target.value },
+                })
               }}
               className="mt-2 block min-h-[16rem] w-full resize-y rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/80 px-3 py-2.5 font-serif text-[15px] font-light leading-7 text-black/80 outline-none focus:border-[var(--portal-navy-soft)] disabled:opacity-60"
             />
