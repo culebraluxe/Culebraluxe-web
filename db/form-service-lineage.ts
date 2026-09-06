@@ -59,6 +59,43 @@ export async function bindFormInstanceToDirectContext(
   }
 }
 
+/**
+ * V4 Listing client selection keeps legacy Deal/document lineage intact while
+ * explicitly changing the mutable draft's canonical Person/Property context.
+ * Issued/snapshotted Listing Agreements can never be rebound.
+ */
+export async function bindListingFormContext(
+  input: {
+    formInstanceId: string
+    personId: string
+    propertyId: string | null
+  },
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update document_form_instance f
+    set person_id = ${input.personId},
+        property_id = ${input.propertyId},
+        updated_at = now()
+    where f.id = ${input.formInstanceId}
+      and f.template_id = 'LISTING-01'
+      and f.status <> 'issued'
+      and not exists (
+        select 1
+        from transaction_document td
+        where td.form_instance_id = f.id
+          and td.source = 'generated'
+      )
+    returning f.id
+  `
+  if (!rows[0]) {
+    throw new Error(
+      'Listing Agreement is not a mutable draft or already has issued document history.',
+    )
+  }
+}
+
 export async function getFormShowingId(
   formInstanceId: string,
   execute?: QueryExecutor,
