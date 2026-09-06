@@ -5,8 +5,10 @@ import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { toPortalActorSnapshot } from "@/lib/auth/actor-snapshot"
 import { OperatingShell } from "@/components/portal/operating-shell"
-import { getClients } from "@/db/clients"
-import { getDeals } from "@/db/deals"
+import {
+  getPortalPaletteClients,
+  getPortalPaletteDeals,
+} from "@/db/portal-palette"
 
 export const dynamic = "force-dynamic"
 
@@ -30,21 +32,16 @@ export default async function PortalLayout({
 
   // Cosmetic UI projection only — hiding buttons is never the security boundary.
   const actor = toPortalActorSnapshot(result.actor)
-  const [clients, deals] = await Promise.all([getClients(), getDeals()])
+
+  // The shell command palette only needs lightweight labels/ids. Never hydrate
+  // full Client/Deal aggregates here: PortalLayout executes for every portal route.
+  const [clients, deals] = await Promise.all([
+    getPortalPaletteClients(),
+    getPortalPaletteDeals(),
+  ])
 
   return (
-    <OperatingShell
-      actor={actor}
-      clients={clients.map((client) => ({
-        id: client.id,
-        name: client.displayName,
-      }))}
-      deals={deals.map((deal) => ({
-        id: deal.id,
-        name: deal.propertyName,
-        client: deal.clientName,
-      }))}
-    >
+    <OperatingShell actor={actor} clients={clients} deals={deals}>
       {children}
     </OperatingShell>
   )
