@@ -1,6 +1,7 @@
 import type {
   TemplateDefinition,
   TemplateFieldValues,
+  TemplateSectionValues,
 } from './template-types'
 import { visibleTemplateSections } from './when'
 
@@ -80,30 +81,36 @@ export function interpolateSectionText(
 
 /**
  * Plain-text Word-like body from XML <section> copy with <value> filled in.
- * No XML tags. Used as the starting text of the freeform editor.
+ * An editable section's persisted value replaces its template prose when one
+ * exists. This preserves the original Offer Letter Special Terms behavior while
+ * keeping XML-owned boilerplate authoritative everywhere else.
  */
 export function documentBodyText(
   template: Pick<TemplateDefinition, 'sections' | 'fields'>,
   values: TemplateFieldValues,
+  sectionValues: TemplateSectionValues = {},
 ): string {
   return visibleTemplateSections(template.sections, values)
     .map((section) => {
-      const text = interpolateSectionText(
+      const defaultText = interpolateSectionText(
         section,
         values,
         formatFieldValue,
         template.fields,
       )
+      const editedSection = section.editable
+        ? (sectionValues[section.name] ?? '').trim()
+        : ''
+      const text = editedSection || defaultText
       return text ? `${section.label}\n${text}` : section.label
     })
     .join('\n\n')
 }
 
-
 /**
  * Use freeform document prose only after the operator explicitly edits it.
  * Legacy saved bodies had no marker and may contain stale interpolated fields,
- * so XML plus the current field values remains authoritative by default.
+ * so XML plus current field/section values remains authoritative by default.
  */
 export function resolveDocumentBody(
   template: Pick<TemplateDefinition, 'sections' | 'fields'>,
@@ -113,5 +120,5 @@ export function resolveDocumentBody(
   const editedBody = (sections.body ?? '').trim()
   return sections.bodyEdited === 'true' && editedBody
     ? editedBody
-    : documentBodyText(template, values)
+    : documentBodyText(template, values, sections)
 }
