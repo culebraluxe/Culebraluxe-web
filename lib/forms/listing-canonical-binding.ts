@@ -3,8 +3,8 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 
 import { sql } from '@/db/client'
+import { SqlListingPropertyRepository } from '@/db/listing-property-service-repository'
 import { SqlPersonRepository } from '@/db/person-service-repository'
-import { SqlPropertyRepository } from '@/db/property-service-repository'
 import { PERSON_OPERATIONS, PersonService } from '@/services/person'
 import {
   PROPERTY_OPERATIONS,
@@ -19,7 +19,7 @@ import type {
 } from './listing-field-binding'
 
 const personService = new PersonService(new SqlPersonRepository())
-const propertyService = new PropertyService(new SqlPropertyRepository())
+const propertyService = new PropertyService(new SqlListingPropertyRepository())
 
 type ListingFormEvidenceRow = {
   id: string
