@@ -2,16 +2,11 @@
 
 import { useEffect, useMemo } from "react"
 import {
-  Calendar,
   Home,
-  Mail,
   MapPin,
-  MessageSquare,
-  Phone,
-  Video,
-  type LucideIcon,
 } from "lucide-react"
 
+import { ContactHistory } from "@/components/portal/contact-history"
 import { Panel } from "@/components/portal/panel"
 import {
   CommandStatus,
@@ -30,24 +25,11 @@ import type { PropertyAddressDto } from "@/services/property"
 import {
   ClientLensController,
   HttpClientLensSource,
-  type ClientLensChannelModel,
   type ClientLensSource,
 } from "@/ui/client-lens"
 import { usePageController } from "@/ui/runtime"
 
 type ClientLensModel = Readonly<ReturnType<ClientLensController["snapshot"]>>
-
-function formatDateTime(value: string | null): string {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  })
-}
 
 function formatAddress(address: PropertyAddressDto): string {
   return [
@@ -59,53 +41,6 @@ function formatAddress(address: PropertyAddressDto): string {
   ]
     .filter((value): value is string => Boolean(value?.trim()))
     .join(", ") || "Address not available"
-}
-
-function channelIcon(slot: ClientLensChannelModel["slot"]): LucideIcon {
-  switch (slot) {
-    case "phone": return Phone
-    case "gmail": return Mail
-    case "facetime": return Video
-    case "calendar": return Calendar
-    default: return MessageSquare
-  }
-}
-
-function RelationshipChannelRow({ channel }: { channel: ClientLensChannelModel }) {
-  const Icon = channelIcon(channel.slot)
-  return (
-    <li className="border-b border-white/10 px-4 py-3 last:border-b-0">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5">
-          <Icon className="h-4 w-4 text-white/70" aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-medium text-white">{channel.label}</div>
-            <div className="text-[10px] font-light uppercase tracking-[0.12em] text-white/45">
-              {channel.connected ? `${channel.totalCount.toLocaleString()} observed` : "Not connected"}
-            </div>
-          </div>
-          {channel.connected ? (
-            <>
-              <div className="mt-1 text-[10px] font-light text-white/50">
-                {channel.inboundCount.toLocaleString()} in · {channel.outboundCount.toLocaleString()} out
-                {channel.twoWay ? " · two-way" : ""}
-              </div>
-              <div className="mt-1 text-[11px] font-light text-white/65">
-                Last: {formatDateTime(channel.lastContactAt)}
-              </div>
-              <div className="mt-1 truncate text-xs font-light text-white/85">
-                {channel.lastContext ?? "No recent context captured."}
-              </div>
-            </>
-          ) : (
-            <div className="mt-1 text-xs font-light text-white/40">No source evidence yet.</div>
-          )}
-        </div>
-      </div>
-    </li>
-  )
 }
 
 function DetailField({ label, value }: { label: string; value: string }) {
@@ -361,21 +296,9 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      <div className="flex items-center justify-between gap-4 px-1">
-        <div>
-          <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
-            Architecture Sidecar
-          </div>
-          <h1 className="mt-1 font-serif text-2xl font-light text-[var(--portal-navy)]">Client Lens</h1>
-        </div>
-        <div className="text-right text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
-          MVI/MVU · real CRM data
-        </div>
-      </div>
-
-      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 md:h-[calc(100dvh-8.5rem)] md:grid-cols-[200px_minmax(0,1fr)]">
         <aside className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
-          <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-3">
+          <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-2.5">
             <div className="mb-2 text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
               People · {model.total.toLocaleString()}
             </div>
@@ -389,7 +312,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                 })
               }}
               placeholder="Search…"
-              className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-2.5 py-2 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+              className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/40 px-2.5 py-1.5 text-sm font-light outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
             />
           </div>
 
@@ -412,13 +335,13 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                       })
                     }}
                     className={[
-                      "flex w-full items-start gap-2 border-b border-[var(--portal-panel-border)] px-3 py-2.5 text-left transition",
+                      "flex w-full items-center gap-2 border-b border-[var(--portal-panel-border)] px-2.5 py-2 text-left transition",
                       selected
-                        ? "border-l-2 border-l-[var(--portal-gold)] bg-white/45"
+                        ? "border-l-2 border-l-[var(--portal-gold)] bg-white/40"
                         : "border-l-2 border-l-transparent hover:bg-white/25",
                     ].join(" ")}
                   >
-                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(item.status)}`} />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(item.status)}`} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-medium text-[var(--portal-navy)]">
                         {item.nameResolved ? item.displayName : "Unknown contact"}
@@ -426,10 +349,12 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                       <div className="truncate text-[11px] font-light text-black/45">
                         {formatPhone(item.primaryPhone) ?? item.primaryEmail ?? roleLabel(item.role as ClientRole)}
                       </div>
-                      <div className="mt-0.5 truncate text-[10px] font-light text-black/35">
-                        {item.relationshipActivity.observedCommunicationCount.toLocaleString()} observed
-                        {item.relationshipActivity.twoWay ? " · two-way" : ""}
-                      </div>
+                      {item.relationshipActivity.observedCommunicationCount > 0 ? (
+                        <div className="truncate text-[10px] font-light text-black/35">
+                          {item.relationshipActivity.observedCommunicationCount.toLocaleString()} observed
+                          {item.relationshipActivity.twoWay ? " · two-way" : ""}
+                        </div>
+                      ) : null}
                     </div>
                   </button>
                 )
@@ -437,7 +362,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
             )}
           </div>
 
-          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--portal-panel-border)] px-2 py-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--portal-panel-border)] px-2 py-1.5">
             <button
               type="button"
               disabled={model.page <= 1}
@@ -458,7 +383,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
           </div>
         </aside>
 
-        <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
           <CommandStatusBand
             ratio="balanced"
             command={<ClientGrokPlaceholder clientName={client?.displayName ?? null} />}
@@ -469,7 +394,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
             }
           />
 
-          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
+          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2 lg:gap-4">
             <main className="min-h-0 overflow-y-auto">
               {!client ? (
                 <Panel compact heading={model.clientLoading ? "Loading client" : "Client"}>
@@ -541,30 +466,21 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
               )}
             </main>
 
-            <aside className="flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy-deep)] text-white shadow-sm">
-              <div className="shrink-0 border-b border-white/10 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">Relationship</div>
-                    <h2 className="mt-1 font-serif text-xl font-light">Six-channel lens</h2>
-                  </div>
-                  <div className="text-right text-[10px] font-light text-white/45">
-                    {model.channelsLoading ? "Loading…" : `${connectedSources} connected`}
-                  </div>
-                </div>
-              </div>
-              <ol className="min-h-0 flex-1 overflow-y-auto">
-                {model.channels.length > 0 ? (
-                  model.channels.map((channel) => <RelationshipChannelRow key={channel.slot} channel={channel} />)
-                ) : (
-                  <li className="px-4 py-6 text-sm font-light text-white/45">
-                    {model.channelsLoading
-                      ? "Loading relationship sources…"
-                      : model.channelsError ?? "Select a client."}
-                  </li>
-                )}
-              </ol>
-            </aside>
+            {client ? (
+              <ContactHistory
+                clientId={client.id}
+                clientName={client.displayName}
+                relationshipActivity={client.relationshipActivity}
+                email={client.email}
+                phone={client.phone}
+              />
+            ) : (
+              <Panel variant="feature" heading="Contact History" className="min-h-0">
+                <p className="px-4 py-6 text-sm font-light text-white/45">
+                  {model.clientLoading ? "Loading relationship history…" : "Select a client."}
+                </p>
+              </Panel>
+            )}
           </div>
         </div>
       </div>
