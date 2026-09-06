@@ -3,10 +3,15 @@ export type ServiceActor = {
   kind: 'user' | 'system' | 'agent'
 }
 
+/** Per-call metadata. Services are stateless/singleton-safe; call context travels with the invocation. */
 export type ServiceContext = {
   actor: ServiceActor
   correlationId: string
   causationId?: string
+}
+
+/** Infrastructure supplied once when the service is composed. */
+export type ServiceInfrastructure = {
   authorization?: AuthorizationPort
   audit?: AuditPort
   events?: DomainEventPort
@@ -48,9 +53,14 @@ export interface DomainEventPort {
   emit(event: ServiceDomainEvent): Promise<void>
 }
 
+export type ServiceOperationKind = 'query' | 'command'
+
 export type ServiceCapability = {
   name: string
+  kind: ServiceOperationKind
   description: string
+  authorization?: string
+  idempotent?: boolean
 }
 
 export type ServiceDescriptor = {
@@ -60,6 +70,13 @@ export type ServiceDescriptor = {
   capabilities: readonly ServiceCapability[]
   dependencies: readonly string[]
   invariants: readonly string[]
+}
+
+/** Transport-neutral service envelope: operation + simple DTO + per-call context. */
+export type ServiceEnvelope<TOperation extends string = string, TPayload = unknown> = {
+  operation: TOperation
+  payload: TPayload
+  context: ServiceContext
 }
 
 export type ServiceSuccess<T> = {
