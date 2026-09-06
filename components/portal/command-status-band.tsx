@@ -36,14 +36,16 @@ export type CommandStatusBandRatio =
 
 // Constrained layout presets. No arbitrary per-page CSS.
 const RATIO_GRID: Record<CommandStatusBandRatio, string> = {
-  "wide-command": "lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]", // ~65 / 35
+  // Forms uses a fixed navigator plus two equal working panes below. Reuse the
+  // exact same column boundaries here so Grok ends where the editor ends and
+  // Status begins exactly over the preview pane.
+  "wide-command": "lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]",
   balanced: "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]", // 50 / 50
   "wide-status": "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]", // ~40 / 60
   // 60 / 40 — aligns the Command | Status seam with a 20 / 40 / 40 lower pane
   // seam (Command spans Navigator + Task; Status aligns over Calendar).
   "command-6040": "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
-  // Exact Forms workspace geometry: fixed 220px navigator + two equal panes.
-  // Command spans navigator + editor; Status sits directly over preview.
+  // Explicit alias for surfaces that want the Forms geometry by name.
   "rail-equal-panes": "lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]",
 }
 
@@ -56,8 +58,11 @@ export function CommandStatusBand({
   command: ReactNode
   status: ReactNode
 }) {
-  const commandClass =
-    ratio === "rail-equal-panes" ? "min-w-0 lg:col-span-2" : "min-w-0"
+  const spansRailAndPrimaryPane =
+    ratio === "wide-command" || ratio === "rail-equal-panes"
+  const commandClass = spansRailAndPrimaryPane
+    ? "min-w-0 lg:col-span-2"
+    : "min-w-0"
 
   return (
     <div className={`grid grid-cols-1 gap-3 lg:gap-4 ${RATIO_GRID[ratio]}`}>
