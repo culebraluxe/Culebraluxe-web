@@ -6,6 +6,7 @@ import {
   issueFormAction,
   sendFormForSignatureAction,
   updateFormAction,
+  updateFormDraftAction,
 } from '@/app/portal/forms/actions'
 import type { ListingCanonicalSnapshot } from '@/lib/forms/listing-field-binding'
 import type {
@@ -41,6 +42,7 @@ export interface FormEditorSource {
     formId: string,
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
+    options?: { syncServices?: boolean },
   ): Promise<FormEditorSourceResult<FormEditorUpdateResult>>
   refreshListing(personId: string): Promise<FormEditorSourceResult<ListingCanonicalSnapshot>>
   selectListingClient(
@@ -77,8 +79,11 @@ export class ActionFormEditorSource implements FormEditorSource {
     formId: string,
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
+    options: { syncServices?: boolean } = {},
   ): Promise<FormEditorSourceResult<FormEditorUpdateResult>> {
-    const result = await updateFormAction(formId, fieldValues, sections)
+    const result = options.syncServices === false
+      ? await updateFormDraftAction(formId, fieldValues, sections)
+      : await updateFormAction(formId, fieldValues, sections)
     return result.ok ? result : normalizeFailure(result, 'Could not save.')
   }
 
@@ -158,6 +163,7 @@ export class InMemoryFormEditorSource implements FormEditorSource {
     formId: string
     fieldValues: Record<string, string>
     sections: Record<string, string>
+    syncServices: boolean
   }> = []
 
   constructor(
@@ -179,17 +185,20 @@ export class InMemoryFormEditorSource implements FormEditorSource {
     formId: string,
     fieldValues: Record<string, string>,
     sections: Record<string, string>,
+    options: { syncServices?: boolean } = {},
   ): Promise<FormEditorSourceResult<FormEditorUpdateResult>> {
+    const syncServices = options.syncServices !== false
     this.updates.push({
       formId,
       fieldValues: { ...fieldValues },
       sections: { ...sections },
+      syncServices,
     })
     return {
       ok: true,
       data: {
         updated: true,
-        canonicalUpdates: this.options.canonicalUpdates ?? [],
+        canonicalUpdates: syncServices ? this.options.canonicalUpdates ?? [] : [],
       },
     }
   }
