@@ -17,6 +17,7 @@ import {
   surfaceForPathname,
   surfaceHome,
 } from '@/lib/navigation'
+import { hasSecurityLevel } from '@/services/security/level'
 
 // ---------------------------------------------------------------------------
 // UI-01 — Operating shell: one application, five operating worlds, ONE
@@ -30,8 +31,9 @@ import {
 //            scrollable on narrow screens)
 //
 // The active surface is DERIVED from the current route (longest-prefix match),
-// so route changes never reset or corrupt navigation state. Cosmetic UI gating
-// only — the security boundary stays server-side (the portal layout guard).
+// so route changes never reset or corrupt navigation state. SecurityService
+// broad levels and legacy authority references only control UI visibility here;
+// the Portal layout guard remains the server-side boundary.
 // ---------------------------------------------------------------------------
 
 export function OperatingShell({
@@ -48,16 +50,18 @@ export function OperatingShell({
   const pathname = usePathname()
   const activeSurface = surfaceForPathname(pathname)
 
-  // Cosmetic filtering by the actor's existing authority codes (UI hiding is
-  // never the security boundary — the server-side guard enforces portal.read).
-  const visibleItems = navigationForSurface(activeSurface).filter(
-    (item) => !item.authority || actor.authorityCodes.includes(item.authority),
-  )
+  const visibleItems = navigationForSurface(activeSurface).filter((item) => {
+    const levelVisible =
+      !item.minSecurityLevel ||
+      hasSecurityLevel(actor.securityLevel, item.minSecurityLevel)
+    const authorityVisible =
+      !item.authority || actor.authorityCodes.includes(item.authority)
+    return levelVisible && authorityVisible
+  })
 
-  // Exact display order: CORE | OPPS | SUPPORT | TECH. A surface with an
-  // accessAuthority (e.g. TECH → tech.access) is hidden from the Tier-1 nav for
-  // actors lacking it. Cosmetic UI gating only — the security boundary stays the
-  // server-side guards.
+  // Broad SecurityService levels now have a first-class UI hook. Existing
+  // authority references remain as entitlement-compatible metadata until the
+  // dedicated entitlement story replaces their policy.
   const tier1Items: Array<{
     key: string
     label: string
@@ -73,7 +77,13 @@ export function OperatingShell({
     ...OPERATING_SURFACE_ORDER.filter((s) => {
       if (s === 'NEXUS') return false
       const def = OPERATING_SURFACES[s]
-      return !def.accessAuthority || actor.authorityCodes.includes(def.accessAuthority)
+      const levelVisible =
+        !def.minSecurityLevel ||
+        hasSecurityLevel(actor.securityLevel, def.minSecurityLevel)
+      const authorityVisible =
+        !def.accessAuthority ||
+        actor.authorityCodes.includes(def.accessAuthority)
+      return levelVisible && authorityVisible
     }).map((s) => ({
       key: s,
       label: OPERATING_SURFACES[s].label,

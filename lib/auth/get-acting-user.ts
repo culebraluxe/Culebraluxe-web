@@ -6,7 +6,6 @@
 
 import type { SessionAdapter } from './session-adapter'
 import type { ActingUser } from './types'
-import { resolveProviderSubject } from '@/db/auth-identity'
 import {
   InactiveAccountError,
   UnauthenticatedError,
@@ -14,6 +13,7 @@ import {
 } from './errors'
 import { isPortalAuthBypass, portalAuthBypassActor } from './dev-bypass'
 import { devAuthLog } from './dev-auth-log'
+import { resolveApplicationSecurityIdentity } from './security-runtime'
 
 export async function getActingUser(
   adapter: SessionAdapter,
@@ -29,15 +29,11 @@ export async function getActingUser(
     throw new UnauthenticatedError()
   }
 
-  // AUTH-08G — DEV flight markers around the canonical provider-subject →
-  // auth_identity → app_user mapping. Lookup start is logged BEFORE the DB
-  // projection; MAPPED is logged only when the subject resolves to a known
-  // application actor. Failures are surfaced by the caller's exact safe
-  // reason code (requirePortalAccess logs error.code, e.g. unmapped-identity /
-  // inactive-account). Authentication and authorization stay separate: Auth.js
-  // never touches this DB projection.
+  // SecurityService is now the canonical provider-subject -> application actor
+  // boundary. Auth.js proves the Google identity; Security maps it through the
+  // existing auth_identity -> app_user -> security_role projection.
   devAuthLog('AUTH_APP_IDENTITY_LOOKUP_STARTED')
-  const resolution = await resolveProviderSubject(
+  const resolution = await resolveApplicationSecurityIdentity(
     session.provider,
     session.providerSubject,
   )
@@ -50,5 +46,5 @@ export async function getActingUser(
   }
 
   devAuthLog('AUTH_APP_IDENTITY_MAPPED')
-  return resolution.actingUser
+  return resolution.principal.actingUser
 }

@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AuthorityCode } from '../auth/types'
+import type { SecurityLevel } from '@/services/security/level'
 
 /** The stable operating surfaces. */
 export type OperatingSurface =
@@ -24,9 +25,13 @@ export type SurfaceNavItem = {
   /** Existing application route (e.g. /portal/clients). */
   href: string
   /**
-   * Optional existing permission reference. Cosmetic UI gating only — the
-   * security boundary remains the server-side auth guards; navigation
-   * visibility is never security enforcement.
+   * Optional broad SecurityService level for UI visibility. This is deliberately
+   * not fine-grained entitlement enforcement.
+   */
+  minSecurityLevel?: SecurityLevel
+  /**
+   * Existing entitlement-compatible permission reference. Cosmetic UI gating
+   * only for now; server guards remain authoritative.
    */
   authority?: AuthorityCode
 }
@@ -38,10 +43,11 @@ export type OperatingSurfaceDefinition = {
   label: string
   /** One-line description of the operating world. */
   description: string
+  /** Optional broad SecurityService level required to see the surface. */
+  minSecurityLevel?: SecurityLevel
   /**
-   * Optional authority required to even SEE the Tier-1 surface capsule (e.g.
-   * TECH requires tech.access). Cosmetic UI gating only — the security boundary
-   * remains the server-side guards; hiding nav is never security enforcement.
+   * Existing entitlement-compatible permission reference. Kept for the later
+   * Entitlement service pass; hiding nav is never security enforcement.
    */
   accessAuthority?: AuthorityCode
   /** Landing destination when the surface is selected (portal.read reachable). */

@@ -4,6 +4,7 @@
 // the session) into client components purely so UI can hide controls. UI
 // hiding is cosmetic — every server boundary still re-checks authorities.
 
+import { resolveSecurityLevel } from '@/services/security/level'
 import type { ActingUser, PortalActorSnapshot } from './types'
 
 export function toPortalActorSnapshot(
@@ -12,6 +13,7 @@ export function toPortalActorSnapshot(
   return {
     displayName: actor.displayName,
     accountType: actor.accountType,
+    securityLevel: resolveSecurityLevel(actor.roleCodes),
     authorityCodes: actor.authorityCodes,
   }
 }

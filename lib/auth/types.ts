@@ -2,6 +2,8 @@
 // Narrow on purpose: only what authorization needs. No tokens, no connection
 // details, no provider credentials.
 
+import type { SecurityLevel } from '@/services/security/level'
+
 export type AccountType = 'internal' | 'external'
 
 export type RoleCode =
@@ -47,5 +49,6 @@ export type AuthenticatedIdentity = {
 export type PortalActorSnapshot = {
   displayName: string
   accountType: AccountType
+  securityLevel: SecurityLevel
   authorityCodes: string[]
 }

@@ -3,12 +3,15 @@ import { PersonService, type PersonRepository } from './person'
 import { FirmService, type FirmRepository } from './firm'
 import { PropertyService, type PropertyRepository } from './property'
 import { ContractService, type ContractRepository } from './contract'
+import { SecurityService, type SecurityRepository } from './security'
 
 export type CoreServiceRepositories = {
   person: PersonRepository
   firm: FirmRepository
   property: PropertyRepository
   contract: ContractRepository
+  /** Optional during migration; production composition supplies Security. */
+  security?: SecurityRepository
 }
 
 export type CoreServiceComposition = {
@@ -17,6 +20,7 @@ export type CoreServiceComposition = {
   firm: FirmService
   property: PropertyService
   contract: ContractService
+  security: SecurityService | null
 }
 
 /**
@@ -38,6 +42,9 @@ export function composeCoreServices(
   const firm = registry.register(new FirmService(repositories.firm, serviceInfrastructure))
   const property = registry.register(new PropertyService(repositories.property, serviceInfrastructure))
   const contract = registry.register(new ContractService(repositories.contract, serviceInfrastructure))
+  const security = repositories.security
+    ? registry.register(new SecurityService(repositories.security, serviceInfrastructure))
+    : null
 
-  return { registry, person, firm, property, contract }
+  return { registry, person, firm, property, contract, security }
 }

@@ -139,6 +139,7 @@ export const OPERATING_SURFACES: Record<
     label: 'TECH',
     description:
       'Engineering and platform capability — Forge, Story Board, workflow engineering, MQ/replay, integration checkpoints and engineering evidence.',
+    minSecurityLevel: 'ROOT',
     accessAuthority: 'tech.access',
     home: '/portal/tech',
     items: [
