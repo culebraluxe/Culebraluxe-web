@@ -16,10 +16,7 @@ export type PropertyAddressDto = {
   isoCountryCode: string | null
 }
 
-/**
- * Why a Property matters to a Person. The relationship supplies context;
- * Property remains the owner of the address/place truth.
- */
+/** Why a Property matters to a Person. Property still owns the place truth. */
 export type PersonPropertyRelation =
   | 'address'
   | 'legal_address'
@@ -35,7 +32,7 @@ export type PropertyDto = {
   /** Name appearing on title, e.g. a person, LLC, or trust. Not a Person identity. */
   legalOwnerName: string | null
   /** Existing Property title/listing identifier used by LISTING-01 as catastro. */
-  catastroNumber: string | null
+  catastroNumber?: string | null
   /** Compatibility aliases for the first service-core experiment. */
   addressLine1: string | null
   municipality: string | null
@@ -52,10 +49,7 @@ export type PropertyForPersonDto = {
   property: PropertyDto
 }
 
-/**
- * ODS evidence awaiting promotion into Property. This is provenance/input, not
- * a second canonical Address model. Apple Contacts is the first producer.
- */
+/** ODS evidence awaiting promotion into Property. Provenance/input, not a second Address model. */
 export type PropertyObservedAddressDto = {
   source: string
   sourceLabel: string | null

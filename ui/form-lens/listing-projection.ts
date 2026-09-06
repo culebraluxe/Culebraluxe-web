@@ -45,11 +45,10 @@ function chooseListingProperty(
     if (requested) return requested
   }
 
-  return (
-    properties.find((item) => item.relation === 'physical_property') ??
-    properties.find((item) => item.relation === 'interest') ??
-    null
-  )
+  // Do not guess that a buyer-interest Property is the thing being listed.
+  // A physical_property relationship is authoritative; otherwise the Listing
+  // evidence may create/link the correct Property, or the user can choose one.
+  return properties.find((item) => item.relation === 'physical_property') ?? null
 }
 
 function chooseResidenceProperty(
@@ -138,8 +137,8 @@ export function projectListingAgreement(
   })
 
   // LISTING-01 v4 predates the canonical legal-owner qualifier. The sidecar
-  // exposes it explicitly now so we can prove the Property binding before a
-  // later immutable template version adopts the field.
+  // exposes it now so the Property binding can settle before a new immutable
+  // template version adopts the field.
   if (!fields.some((field) => field.name === 'legalOwnerName')) {
     fields.push({
       name: 'legalOwnerName',
