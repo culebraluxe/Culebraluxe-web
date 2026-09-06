@@ -12,6 +12,11 @@ import {
   replayOutcome,
 } from './workflow-command-receipt'
 import { createTransactionDocument } from './transaction-document'
+import {
+  createContractIssuedEvidence,
+  getFormContractId,
+  getPriorContractIssuedDocument,
+} from './contract-issued-document'
 import { getFormInstance, updateFormInstance } from './document-form-instance'
 import { listFormSignerPeople } from './form-signer'
 import { canonicalizeExecutionParticipants } from '../lib/agreements/participants'
@@ -30,8 +35,9 @@ import { resolveBrokerSignatureForIssuance } from './broker-signature'
 //   insert a NEW `transaction_document` row with full issued evidence →
 //   mark the form instance 'issued' → finalize receipt.
 //
-// A second issuance from edited values creates v2; v1's row + media bytes
-// remain byte-for-byte unchanged (its state flips to 'superseded').
+// Canonical forms carry an explicit Contract FK and issue into Contract lineage.
+// Legacy Deal/Person issuance remains only as a compatibility seam for the
+// small set of real Listing agreements; Contract identity is never guessed.
 // ---------------------------------------------------------------------------
 
 export type IssueDocumentInput = {
@@ -116,14 +122,23 @@ export async function getIssuedDocumentForFormInstance(
 
 /** Preview must derive the same lineage version that issuance will use. */
 export async function getNextIssuedVersionForTemplate(
-  input: { dealId: string | null; templateId: string },
+  input: { contractId?: string | null; dealId?: string | null; templateId: string },
   execute?: QueryExecutor,
 ): Promise<number> {
   const q = execute ?? (await import('./client')).sql
+  if (input.contractId) {
+    const prior = await getPriorContractIssuedDocument(
+      { contractId: input.contractId, templateId: input.templateId },
+      q,
+    )
+    return (prior?.issuedVersion ?? 0) + 1
+  }
+
   const rows = await q`
     select issued_version
     from transaction_document
-    where deal_id is not distinct from ${input.dealId}
+    where deal_id is not distinct from ${input.dealId ?? null}
+      and contract_id is null
       and template_id = ${input.templateId}
       and source = 'generated'
       and issued_version is not null
@@ -169,9 +184,8 @@ async function resolvePartyPersonId(
   return row?.person_id ? String(row.person_id) : null
 }
 
-// __PART2__
 /**
- * Issue a form instance as an immutable canonical transaction document.
+ * Issue a form instance as immutable canonical evidence.
  * Claim-first receipt idempotency: the same commandId executes at most once;
  * a replayed caller observes the winner's stored result.
  */
@@ -244,21 +258,36 @@ export async function issueFormDocument(
       }
     }
 
-    // Lineage: next 1-based version within (deal, template) + supersession.
-    const priorRows = await tx`
-      select id, issued_version
-      from transaction_document
-      where deal_id is not distinct from ${form.dealId}
-        and template_id = ${form.templateId}
-        and source = 'generated'
-        and issued_version is not null
-      order by issued_version desc, created_at desc
-      limit 1
-    `
-    const prior = priorRows[0] as
-      | { id: string; issued_version: number }
-      | undefined
-    const issuedVersion = Number(prior?.issued_version ?? 0) + 1
+    const contractId = await getFormContractId(form.id, tx)
+
+    // Lineage is Contract-first. Only an explicitly unbound form can use the
+    // legacy Deal lineage; we never infer a Contract from Deal/Person/Property.
+    let prior: { id: string; issuedVersion: number } | null = null
+    if (contractId) {
+      prior = await getPriorContractIssuedDocument(
+        { contractId, templateId: form.templateId },
+        tx,
+      )
+    } else {
+      const priorRows = await tx`
+        select id, issued_version
+        from transaction_document
+        where deal_id is not distinct from ${form.dealId}
+          and contract_id is null
+          and template_id = ${form.templateId}
+          and source = 'generated'
+          and issued_version is not null
+        order by issued_version desc, created_at desc
+        limit 1
+      `
+      const legacyPrior = priorRows[0] as
+        | { id: string; issued_version: number }
+        | undefined
+      prior = legacyPrior
+        ? { id: legacyPrior.id, issuedVersion: Number(legacyPrior.issued_version ?? 0) }
+        : null
+    }
+    const issuedVersion = (prior?.issuedVersion ?? 0) + 1
     const supersedesId = prior?.id ?? null
 
     // PARTICIPANT CARDINALITY (CRM-27): resolve the immutable participant set
@@ -328,44 +357,66 @@ export async function issueFormDocument(
       `
     }
 
-    const partyPersonId =
-      form.personId ??
-      (form.dealId ? await resolvePartyPersonId(tx, form.dealId) : null)
-
-    const document = await createTransactionDocument(
-      {
-        dealId: form.dealId,
-        documentType: 'agreement',
-        documentTypeLabel: template.documentTypeLabel,
-        title: `${template.displayName} v${issuedVersion}`,
-        state: 'ready',
-        source: 'generated',
-        preparedByUserId: input.actorAppUserId ?? null,
-        partyPersonId,
-        mediaId,
-        supersedesDocumentId: supersedesId,
-        issuedChecksumSha256: checksum,
-        templateId: template.id,
-        templateVersion: template.version,
-        sourceSnapshot: {
-          templateId: template.id,
-          templateVersion: template.version,
-          fieldValues: form.fieldValues,
-          sections: form.sections,
-          issuedParticipants: issuedSlots,
-          signatureAnchors: rendered.signatureAnchors,
-          appliedSignatures: rendered.appliedSignatures,
-          pdfLayout: {
-            pageCount: rendered.pageCount,
-            pageSize: rendered.pageSize,
-            coordinateSpace: 'pdf-points-bottom-left',
-          },
-        },
-        issuedVersion,
-        formInstanceId: form.id,
+    const sourceSnapshot = {
+      contractId,
+      templateId: template.id,
+      templateVersion: template.version,
+      fieldValues: form.fieldValues,
+      sections: form.sections,
+      issuedParticipants: issuedSlots,
+      signatureAnchors: rendered.signatureAnchors,
+      appliedSignatures: rendered.appliedSignatures,
+      pdfLayout: {
+        pageCount: rendered.pageCount,
+        pageSize: rendered.pageSize,
+        coordinateSpace: 'pdf-points-bottom-left',
       },
-      tx,
-    )
+    }
+
+    const document = contractId
+      ? await createContractIssuedEvidence(
+          {
+            contractId,
+            documentTypeLabel: template.documentTypeLabel,
+            title: `${template.displayName} v${issuedVersion}`,
+            preparedByUserId: input.actorAppUserId ?? null,
+            mediaId,
+            supersedesDocumentId: supersedesId,
+            issuedChecksumSha256: checksum,
+            templateId: template.id,
+            templateVersion: template.version,
+            sourceSnapshot,
+            issuedVersion,
+            formInstanceId: form.id,
+          },
+          tx,
+        )
+      : await (async () => {
+          const partyPersonId =
+            form.personId ??
+            (form.dealId ? await resolvePartyPersonId(tx, form.dealId) : null)
+          return createTransactionDocument(
+            {
+              dealId: form.dealId,
+              documentType: 'agreement',
+              documentTypeLabel: template.documentTypeLabel,
+              title: `${template.displayName} v${issuedVersion}`,
+              state: 'ready',
+              source: 'generated',
+              preparedByUserId: input.actorAppUserId ?? null,
+              partyPersonId,
+              mediaId,
+              supersedesDocumentId: supersedesId,
+              issuedChecksumSha256: checksum,
+              templateId: template.id,
+              templateVersion: template.version,
+              sourceSnapshot,
+              issuedVersion,
+              formInstanceId: form.id,
+            },
+            tx,
+          )
+        })()
 
     await updateFormInstance(form.id, { status: 'issued' }, tx)
 
