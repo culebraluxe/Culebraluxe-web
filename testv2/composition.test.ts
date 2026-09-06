@@ -2,7 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { composeCoreServices, type CoreServiceRepositories } from '../services/composition'
 import type { FirmDto, FirmRepository } from '../services/firm'
-import type { PropertyDto, PropertyRepository } from '../services/property'
+import type {
+  PropertyDto,
+  PropertyForPersonDto,
+  PropertyRepository,
+  UpsertPropertyForPersonRequest,
+} from '../services/property'
 import type { ContractDto, ContractRepository } from '../services/contract'
 import { context, MemoryPersonRepository } from './test-support'
 
@@ -57,7 +62,7 @@ const propertyRepo: PropertyRepository = {
   async forPerson(personId: string) {
     return { personId, properties: [], observedAddresses: [] }
   },
-  async upsertForPerson(_r: unknown): Promise<PropertyDto> {
+  async upsertForPerson(_r: UpsertPropertyForPersonRequest): Promise<PropertyForPersonDto> {
     throw new Error('unused in composition test')
   },
   async setDisplayName(_r: unknown): Promise<PropertyDto> {
@@ -121,7 +126,10 @@ test('the composed registry routes a full person envelope to the seeded reposito
     context: actorContext,
   })
   assert.equal(res.ok, true)
-  if (res.ok) assert.equal(res.value?.displayName, 'Ana')
+  if (res.ok) {
+    const value = res.value as { displayName?: string } | null
+    assert.equal(value?.displayName, 'Ana')
+  }
 })
 
 test('the composed registry rejects envelopes for an unregistered domain', async () => {
@@ -151,7 +159,8 @@ test('contract.createFromForm resolves its property dependency through the route
   })
   assert.equal(res.ok, true)
   if (res.ok) {
-    assert.equal(res.value.status, 'draft')
-    assert.equal(res.value.propertyId, propertyId)
+    const value = res.value as ContractDto
+    assert.equal(value.status, 'draft')
+    assert.equal(value.propertyId, propertyId)
   }
 })
