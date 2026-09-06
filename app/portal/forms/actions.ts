@@ -67,7 +67,13 @@ export async function createFormAction(input: {
     }
     const result = await coreCreateFormAction(normalized)
     if (!result.ok) return result
-    await syncFormServiceBinding(result.data.formId)
+
+    // LISTING-01 creation is intentionally non-mutating. The canonical Person /
+    // Property values hydrate the working editor, and the first explicit Save
+    // is the review boundary that may synchronize those six owned fields.
+    if (normalized.templateId !== 'LISTING-01') {
+      await syncFormServiceBinding(result.data.formId)
+    }
     return result
   } catch (error) {
     console.error('Form service binding failed during create.', error)
