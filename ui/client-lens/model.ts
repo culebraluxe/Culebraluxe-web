@@ -4,7 +4,6 @@ import type {
   RelationshipActivity,
 } from '@/lib/portal/types'
 import type { PersonPropertyContextDto } from '@/services/property/types'
-import type { PageIntentMap } from '../runtime'
 
 export type ClientLensListItem = {
   id: string
@@ -114,6 +113,6 @@ export type ClientLensIntentMap = {
   'clientLens.loadPropertyContext': { request: { personId: string }; response: void }
   'clientLens.notesChanged': { request: { notes: string }; response: void }
   'clientLens.saveNotes': { request: EmptyPayload; response: void }
-} satisfies PageIntentMap
+}
 
 export type ClientLensRawChannels = readonly ClientRelationshipChannel[]

@@ -2,7 +2,6 @@ import type { ListingCanonicalSnapshot } from '@/lib/forms/listing-field-binding
 import type { Client } from '@/lib/portal/types'
 import type { TemplateFieldType } from '@/lib/forms/template-types'
 import type { PersonPropertyContextDto } from '@/services/property'
-import type { PageIntentMap } from '../runtime'
 
 export type FormLensListItem = {
   id: string
@@ -113,4 +112,4 @@ export type FormLensIntentMap = {
   'formLens.fieldChanged': { request: { name: string; value: string }; response: void }
   'formLens.resetDraft': { request: EmptyPayload; response: void }
   'formLens.promoteCanonical': { request: EmptyPayload; response: void }
-} satisfies PageIntentMap
+}
