@@ -20,6 +20,9 @@ type PropertyRow = {
   status: string
   archived_at: string | Date | null
   location: string | null
+  street_number: string | null
+  street_name: string | null
+  unit_number: string | null
   city: string | null
   state_or_province: string | null
   neighborhood: string | null
@@ -55,9 +58,30 @@ function toIso(value: string | Date | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? String(value) : date.toISOString()
 }
 
+function compact(value: string | null | undefined): string | null {
+  const next = value?.trim()
+  return next ? next : null
+}
+
+/**
+ * Canonical Property already has a real structured street seam. `location` is
+ * the old friendly/display location and must not be mistaken for the street
+ * address. Keep it only as a compatibility fallback for rows that have not yet
+ * been enriched into street_number / street_name / unit_number.
+ */
+function canonicalAddressLine(row: PropertyRow): string | null {
+  const street = [compact(row.street_number), compact(row.street_name)]
+    .filter((value): value is string => Boolean(value))
+    .join(' ')
+  const unit = compact(row.unit_number)
+
+  if (street) return unit ? `${street}, ${unit}` : street
+  return compact(row.location)
+}
+
 function canonicalAddress(row: PropertyRow): PropertyAddressDto {
   return {
-    addressLine1: row.location,
+    addressLine1: canonicalAddressLine(row),
     city: row.city,
     stateOrProvince: row.state_or_province,
     neighborhood: row.neighborhood,
@@ -139,7 +163,8 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
         to_jsonb(p)->>'country' as country,
         to_jsonb(p)->>'iso_country_code' as iso_country_code
       from property p
@@ -154,24 +179,32 @@ export class SqlPropertyRepository implements PropertyRepository {
     const municipality = request.municipality?.trim() || null
     const state = request.stateOrProvince?.trim() || null
     const postalCode = request.postalCode?.trim() || null
+
+    // Keep matching on the same canonical DTO composition we expose to callers.
+    // This avoids turning the old friendly `location` column back into address
+    // truth while still allowing it as a compatibility fallback for legacy rows.
     const rows = (await this.execute`
       select
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
         to_jsonb(p)->>'country' as country,
         to_jsonb(p)->>'iso_country_code' as iso_country_code
       from property p
       where p.archived_at is null
-        and lower(trim(coalesce(p.location, ''))) = lower(trim(${line}))
         and (${municipality}::text is null or lower(trim(coalesce(p.city, ''))) = lower(trim(${municipality})))
         and (${state}::text is null or lower(trim(coalesce(p.state_or_province, ''))) = lower(trim(${state})))
         and (${postalCode}::text is null or lower(trim(coalesce(p.postal_code, ''))) = lower(trim(${postalCode})))
       order by p.updated_at desc nulls last, p.id asc
-      limit 1
+      limit 250
     `) as PropertyRow[]
-    return rows[0] ? toProperty(rows[0]) : null
+
+    const match = rows.find((row) =>
+      normalized(canonicalAddressLine(row)) === normalized(line),
+    )
+    return match ? toProperty(match) : null
   }
 
   async forPerson(personId: string): Promise<PersonPropertyContextDto> {
@@ -187,7 +220,8 @@ export class SqlPropertyRepository implements PropertyRepository {
           p.id, p.name,
           to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
           p.status, p.archived_at,
-          p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+          p.location, p.street_number, p.street_name, p.unit_number,
+          p.city, p.state_or_province, p.neighborhood, p.postal_code,
           to_jsonb(p)->>'country' as country,
           to_jsonb(p)->>'iso_country_code' as iso_country_code,
           pp.relation_type,
@@ -206,7 +240,8 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
         to_jsonb(p)->>'country' as country,
         to_jsonb(p)->>'iso_country_code' as iso_country_code,
         'interest'::text as relation_type,
@@ -224,7 +259,8 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
         to_jsonb(p)->>'country' as country,
         to_jsonb(p)->>'iso_country_code' as iso_country_code,
         'physical_property'::text as relation_type,
@@ -318,7 +354,8 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
         to_jsonb(p)->>'country' as country,
         to_jsonb(p)->>'iso_country_code' as iso_country_code
     `) as PropertyRow[]
@@ -335,7 +372,8 @@ export class SqlPropertyRepository implements PropertyRepository {
         p.id, p.name,
         to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
         p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        p.location, p.street_number, p.street_name, p.unit_number,
+        p.city, p.state_or_province, p.neighborhood, p.postal_code,
         to_jsonb(p)->>'country' as country,
         to_jsonb(p)->>'iso_country_code' as iso_country_code
     `) as PropertyRow[]
