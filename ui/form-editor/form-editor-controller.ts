@@ -84,7 +84,25 @@ export class FormEditorController extends BasePageController<
               values,
               detailsText: model.bodyEdited
                 ? model.detailsText
-                : documentBodyText(this.template, values),
+                : documentBodyText(this.template, values, model.sections),
+              message: null,
+              error: null,
+            }
+          })
+        },
+      },
+      'formEditor.sectionChanged': {
+        description: 'Apply one editable XML-section intent and keep the generated document body aligned.',
+        execution: 'parallel',
+        handle: ({ name, value }, context) => {
+          context.update((model) => {
+            const sections = { ...model.sections, [name]: value }
+            return {
+              ...model,
+              sections,
+              detailsText: model.bodyEdited
+                ? model.detailsText
+                : documentBodyText(this.template, model.values, sections),
               message: null,
               error: null,
             }
@@ -166,7 +184,9 @@ export class FormEditorController extends BasePageController<
               ...model,
               values,
               detailsText: suppliedBody
-                ?? (model.bodyEdited ? model.detailsText : documentBodyText(this.template, values)),
+                ?? (model.bodyEdited
+                  ? model.detailsText
+                  : documentBodyText(this.template, values, model.sections)),
               bodyEdited: suppliedBody ? true : model.bodyEdited,
               message: result.data.note,
               error: null,
