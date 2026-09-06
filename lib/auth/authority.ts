@@ -1,15 +1,19 @@
-// AUTH-03 canonical authority helpers. Exact authority-code match, server-side,
-// deterministic. No wildcard owner bypass — owner succeeds only because the
-// owner role explicitly owns the seeded authorities. Inactive users/roles
-// never authorize (they are already excluded at projection time).
+// AUTH-03 canonical authority helpers.
+//
+// Legacy authority codes remain as a compatibility boundary for older Portal
+// routes while the service layer uses the skinny EntitlementService. ROOT is
+// the deliberate break-glass/operator level in the four-level SecurityService
+// model and therefore always passes these legacy guards.
 
 import type { ActingUser, AuthorityCode } from './types'
 import { MissingAuthorityError } from './errors'
+import { resolveSecurityLevel } from '@/services/security/level'
 
 export function hasAuthority(
   actor: ActingUser,
   authority: AuthorityCode,
 ): boolean {
+  if (resolveSecurityLevel(actor.roleCodes) === 'ROOT') return true
   return actor.authorityCodes.includes(authority)
 }
 
