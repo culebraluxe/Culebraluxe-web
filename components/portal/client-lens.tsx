@@ -14,6 +14,11 @@ import {
 
 import { Panel } from "@/components/portal/panel"
 import {
+  CommandStatus,
+  CommandStatusBand,
+  type CommandStatusTone,
+} from "@/components/portal/command-status-band"
+import {
   formatCurrency,
   formatPhone,
   roleLabel,
@@ -29,6 +34,8 @@ import {
   type ClientLensSource,
 } from "@/ui/client-lens"
 import { usePageController } from "@/ui/runtime"
+
+type ClientLensModel = Readonly<ReturnType<ClientLensController["snapshot"]>>
 
 function formatDateTime(value: string | null): string {
   if (!value) return "—"
@@ -110,10 +117,87 @@ function DetailField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function ClientGrokPlaceholder({ clientName }: { clientName: string | null }) {
+  return (
+    <section className="portal-glass-panel portal-glass-panel-lifted flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+      <div className="shrink-0 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
+        <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">
+          Grok
+        </p>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center gap-2 px-4 py-2.5">
+        <input
+          type="text"
+          disabled
+          placeholder={clientName ? `Ask Grok about ${clientName}…` : "Ask Grok about this client…"}
+          className="h-10 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/55 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35 disabled:cursor-not-allowed disabled:opacity-70"
+        />
+        <button
+          type="button"
+          disabled
+          className="inline-flex h-10 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          Go
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function clientLensStatus(
+  model: ClientLensModel,
+  notesDirty: boolean,
+): { tone: CommandStatusTone; text: string } {
+  const errors = [
+    model.listError ? `Client list: ${model.listError}` : null,
+    model.clientError ? `Client: ${model.clientError}` : null,
+    model.channelsError ? `Relationship: ${model.channelsError}` : null,
+    model.propertyError ? `Property: ${model.propertyError}` : null,
+  ].filter((value): value is string => Boolean(value))
+
+  if (errors.length > 0) {
+    return { tone: "danger", text: errors.join(" · ") }
+  }
+
+  if (model.notesSaving) {
+    return { tone: "neutral", text: "Saving client notes…" }
+  }
+
+  if (model.notesStatus) {
+    return model.notesStatus === "Saved"
+      ? { tone: "success", text: "Client notes saved." }
+      : { tone: "danger", text: `Notes: ${model.notesStatus}` }
+  }
+
+  if (notesDirty) {
+    return { tone: "warning", text: "Unsaved note changes." }
+  }
+
+  const loading = [
+    model.listLoading ? "client list" : null,
+    model.clientLoading ? "client" : null,
+    model.channelsLoading ? "relationship" : null,
+    model.propertyLoading ? "property context" : null,
+  ].filter((value): value is string => Boolean(value))
+
+  if (loading.length > 0) {
+    return { tone: "neutral", text: `Loading ${loading.join(", ")}…` }
+  }
+
+  if (model.client) {
+    return {
+      tone: "success",
+      text: `Ready · ${model.client.displayName}`,
+    }
+  }
+
+  return { tone: "neutral", text: "Ready." }
+}
+
 function PropertyContextPanel({
   model,
 }: {
-  model: Readonly<ReturnType<ClientLensController["snapshot"]>>
+  model: ClientLensModel
 }) {
   const context = model.propertyContext
   const canonicalCount = context?.properties.length ?? 0
@@ -263,6 +347,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
   const notesDirty = model.notesDraft !== model.notesSaved
   const observed = client?.relationshipActivity?.observedCommunicationCount ?? 0
   const connectedSources = model.channels.filter((channel) => channel.connected).length
+  const status = clientLensStatus(model, notesDirty)
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -278,7 +363,17 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(300px,0.8fr)]">
+      <CommandStatusBand
+        ratio="balanced"
+        command={<ClientGrokPlaceholder clientName={client?.displayName ?? null} />}
+        status={
+          <CommandStatus label="Status" tone={status.tone}>
+            {status.text}
+          </CommandStatus>
+        }
+      />
+
+      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-16rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(300px,0.8fr)]">
         <aside className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-3">
             <div className="mb-2 text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
