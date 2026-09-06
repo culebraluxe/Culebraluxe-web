@@ -70,9 +70,35 @@ export class ClientLensController extends BasePageController<
         },
       },
       'clientLens.selectClient': {
-        description: 'Select one client and load person detail plus six-channel rollup in parallel.',
+        description: 'Set selection, then fan out independent client-detail and relationship-channel lanes.',
+        execution: 'parallel',
+        handle: async ({ personId }, context) => {
+          context.update((model) => ({
+            ...model,
+            selectedClientId: personId,
+            client: null,
+            channels: [],
+            notesDraft: '',
+            notesSaved: '',
+            clientLoading: true,
+            channelsLoading: true,
+            clientError: null,
+            channelsError: null,
+            notesStatus: null,
+          }))
+          void this.dispatch({ operation: 'clientLens.loadClient', payload: { personId } })
+          void this.dispatch({ operation: 'clientLens.loadChannels', payload: { personId } })
+        },
+      },
+      'clientLens.loadClient': {
+        description: 'Load the selected canonical Person independently of relationship evidence.',
         execution: 'latest',
-        handle: async ({ personId }, context) => this.selectClient(personId, context),
+        handle: async ({ personId }, context) => this.loadClient(personId, context),
+      },
+      'clientLens.loadChannels': {
+        description: 'Load and project the six relationship channels independently of Person detail.',
+        execution: 'latest',
+        handle: async ({ personId }, context) => this.loadChannels(personId, context),
       },
       'clientLens.notesChanged': {
         description: 'Update the local selected-client notes draft only.',
@@ -152,38 +178,19 @@ export class ClientLensController extends BasePageController<
     }
   }
 
-  private async selectClient(
+  private async loadClient(
     personId: string,
     context: PageOperationContext<ClientLensPageModel>,
   ): Promise<void> {
-    context.update((model) => ({
-      ...model,
-      selectedClientId: personId,
-      client: null,
-      channels: [],
-      notesDraft: '',
-      notesSaved: '',
-      clientLoading: true,
-      channelsLoading: true,
-      clientError: null,
-      notesStatus: null,
-    }))
-
     try {
-      const [client, channels] = await Promise.all([
-        this.source.loadClient(personId, { signal: context.signal }),
-        this.source.loadChannels(personId, { signal: context.signal }),
-      ])
-
-      if (!context.isCurrent()) return
+      const client = await this.source.loadClient(personId, { signal: context.signal })
+      if (!context.isCurrent() || context.snapshot().selectedClientId !== personId) return
       context.update((model) => ({
         ...model,
         client,
-        channels: projectClientLensChannels(channels),
         notesDraft: client?.notes ?? '',
         notesSaved: client?.notes ?? '',
         clientLoading: false,
-        channelsLoading: false,
         clientError: client ? null : 'Client not found.',
       }))
     } catch (error) {
@@ -192,10 +199,33 @@ export class ClientLensController extends BasePageController<
       context.update((model) => ({
         ...model,
         client: null,
-        channels: projectClientLensChannels([]),
         clientLoading: false,
-        channelsLoading: false,
         clientError: message,
+      }))
+    }
+  }
+
+  private async loadChannels(
+    personId: string,
+    context: PageOperationContext<ClientLensPageModel>,
+  ): Promise<void> {
+    try {
+      const channels = await this.source.loadChannels(personId, { signal: context.signal })
+      if (!context.isCurrent() || context.snapshot().selectedClientId !== personId) return
+      context.update((model) => ({
+        ...model,
+        channels: projectClientLensChannels(channels),
+        channelsLoading: false,
+        channelsError: null,
+      }))
+    } catch (error) {
+      if (isAbortError(error) || context.signal.aborted) return
+      const message = error instanceof Error ? error.message : String(error)
+      context.update((model) => ({
+        ...model,
+        channels: projectClientLensChannels([]),
+        channelsLoading: false,
+        channelsError: message,
       }))
     }
   }
