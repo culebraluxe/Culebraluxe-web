@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OFFER-01 v2 — Contract-first Offer Letter.
+
+  Deal is no longer canonical input. A Deal may still launch creation long
+  enough to resolve an explicit Person + Property, but the saved v2 Form is
+  bound directly to those services and its offer economics become Contract
+  draft facts.
+-->
+<form
+  id="OFFER-01"
+  version="2"
+  title="OFFER LETTER"
+  presentation="letter"
+  documentType="Offer Letter"
+  issuer="CulebraLuxe Real Estate">
+
+  <participants>
+    <participant role="BUYER" label="Buyer" multiple="true"/>
+    <participant role="SELLER" label="Seller" multiple="true"/>
+    <participant role="BUYER_BROKER" label="Buyer's Broker"/>
+  </participants>
+
+  <field id="buyerName" label="Buyer / Client" type="text" required="true" source="person.displayName"/>
+  <field id="sellerName" label="Seller / Owner" type="text" required="true"/>
+  <field id="brokerName" label="Buyer's Broker" type="text" required="true"/>
+  <field id="property" label="Property" type="text" required="true" source="property.name"/>
+  <field id="offerAmount" label="Offer amount" type="money" required="true"/>
+  <field id="deposit" label="Deposit" type="money"/>
+  <field id="financing" label="Cash / Financing" type="select" required="true" options="Cash, Financed"/>
+  <field id="closingDate" label="Proposed closing date" type="date" required="true"/>
+  <field id="expiration" label="Offer expiration" type="date" required="true"/>
+  <field id="contingencies" label="Contingencies" type="textarea"/>
+
+  <section id="specialTerms" title="Special Terms" editable="true"/>
+
+  <signatures>
+    <signature-group role="BUYER" label="Buyer" field="buyerName" initials="true"/>
+    <signature-group role="SELLER" label="Seller / Owner" field="sellerName" initials="true"/>
+    <signature-group role="BUYER_BROKER" label="Buyer's Broker" field="brokerName" initials="true"/>
+  </signatures>
+
+</form>

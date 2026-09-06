@@ -22,6 +22,7 @@ export const SHOWING_REPORT_TEMPLATE_ID = 'SHOW-RPT'
 
 const TEMPLATE_FILES = [
   'OFFER-01.xml',
+  'OFFER-01.v2.xml',
   'PR-PNS.xml',
   'PR-PNS.v2.xml',
   'PR-PNS.v3.xml',
@@ -77,7 +78,7 @@ export function getLatestTemplate(id: string): TemplateDefinition | null {
 }
 
 export const ACTIVE_TEMPLATE_VERSIONS: Readonly<Record<string, number>> = {
-  [OFFER_LETTER_TEMPLATE_ID]: 1,
+  [OFFER_LETTER_TEMPLATE_ID]: 2,
   [PURCHASE_SALE_TEMPLATE_ID]: 3,
   [PURCHASE_SALE_AMENDMENT_TEMPLATE_ID]: 1,
   [LISTING_AGREEMENT_TEMPLATE_ID]: 4,
