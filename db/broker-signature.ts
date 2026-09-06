@@ -11,6 +11,7 @@ import type {
   TemplateDefinition,
   TemplateFieldValues,
 } from '../lib/forms/template-types'
+import { resolveSecurityLevel } from '../services/security/level'
 import type { QueryExecutor } from './query-executor'
 
 let defaultReadExecutor: QueryExecutor | null = null
@@ -212,6 +213,34 @@ async function resolveBrokerRows(
   }
 }
 
+/**
+ * ROOT is the deliberate break-glass/delegation level in the four-level
+ * CulebraLuxe security model. A ROOT actor may execute a broker-owned operation
+ * on Lisa's behalf. The command/audit receipt still records the real actor;
+ * the applied signature evidence still records Lisa as the signer identity.
+ */
+async function actorMayApplyBrokerSignature(
+  actorAppUserId: string,
+  brokerAppUserId: string,
+  execute: QueryExecutor,
+): Promise<boolean> {
+  if (actorAppUserId === brokerAppUserId) return true
+
+  const rows = await execute`
+    select r.code
+    from app_user u
+    join app_user_role aur on aur.app_user_id = u.id
+    join role r on r.id = aur.role_id and r.active = true
+    where u.id = ${actorAppUserId}
+      and u.active = true
+    order by r.code
+  `
+  const roleCodes = rows
+    .map((row) => String((row as { code?: unknown }).code ?? '').trim())
+    .filter(Boolean)
+  return resolveSecurityLevel(roleCodes) === 'ROOT'
+}
+
 async function loadProtectedSignatureAsset(
   mediaId: string,
   execute: QueryExecutor,
@@ -321,12 +350,18 @@ export async function resolveBrokerSignatureForIssuance(
 
   const resolved = await resolveBrokerRows(config, execute)
   if (typeof resolved === 'string') return invalidConfiguration(resolved)
-  if (input.actorAppUserId !== resolved.appUserId) {
+  if (
+    !(await actorMayApplyBrokerSignature(
+      input.actorAppUserId,
+      resolved.appUserId,
+      execute,
+    ))
+  ) {
     return {
       ok: false,
       outcome: 'unauthorized',
       message:
-        'document.issue failed: the authenticated actor is not the configured broker signature owner.',
+        'document.issue failed: the authenticated actor is neither the configured broker signature owner nor a ROOT delegate.',
     }
   }
 
