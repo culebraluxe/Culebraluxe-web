@@ -102,10 +102,22 @@ export function ListingV4Controls({
         payload: { personId: client.id },
       })
       if (!linked) return
+
+      // Persist the deliberate context switch before a hard refresh so the
+      // server recomputes signer candidates and Property context from the newly
+      // selected Person. This also avoids ever presenting a new seller with the
+      // old seller's BoldSign recipient state.
+      const saved = await controller.dispatch({
+        operation: 'formEditor.saveDraft',
+        payload: { quiet: true },
+      })
+      if (!saved) return
+
       setSelectedPersonId(client.id)
       setSelectedName(client.displayName)
       setPickerOpen(false)
       setQuery('')
+      window.location.reload()
     } finally {
       setActionBusy(false)
     }
