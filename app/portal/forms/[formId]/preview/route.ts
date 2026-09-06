@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 
 import { getFormInstance } from '@/db/document-form-instance'
 import { listFormSignerPeople } from '@/db/form-signer'
-import { getNextIssuedVersionForTemplate } from '@/db/issued-document'
 import { resolveBrokerSignatureForIssuance } from '@/db/broker-signature'
 import { sql } from '@/db/client'
 import { canonicalizeExecutionParticipants } from '@/lib/agreements/participants'
@@ -51,6 +50,29 @@ function previewValues(
   }
 }
 
+/**
+ * Preview must work while Contract lineage migration 121 is still rolling out.
+ * to_jsonb(row)->>'contract_id' safely reads as null when the physical column
+ * does not exist, while preserving the same legacy Deal-lineage rule once it does.
+ */
+async function previewIssuedVersion(
+  dealId: string | null,
+  templateId: string,
+): Promise<number> {
+  const rows = await sql`
+    select td.issued_version
+    from transaction_document td
+    where td.deal_id is not distinct from ${dealId}
+      and to_jsonb(td)->>'contract_id' is null
+      and td.template_id = ${templateId}
+      and td.source = 'generated'
+      and td.issued_version is not null
+    order by td.issued_version desc, td.created_at desc
+    limit 1
+  `
+  return Number((rows[0] as { issued_version?: unknown } | undefined)?.issued_version ?? 0) + 1
+}
+
 async function previewRenderContext(
   formId: string,
   dealId: string | null,
@@ -61,7 +83,7 @@ async function previewRenderContext(
   const values = previewValues(template, fieldValues)
   const [people, issuedVersion] = await Promise.all([
     listFormSignerPeople(formId),
-    getNextIssuedVersionForTemplate({ dealId, templateId: template.id }),
+    previewIssuedVersion(dealId, template.id),
   ])
   const canonicalParticipants = canonicalizeExecutionParticipants(people)
 
