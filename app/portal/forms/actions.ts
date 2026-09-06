@@ -1,10 +1,17 @@
 'use server'
 
+import {
+  getDealFormFacts,
+  getFormInstance,
+  updateFormInstance,
+} from '@/db/document-form-instance'
 import { resolveDealLaunchContext } from '@/db/form-service-lineage'
 import {
   isServiceBoundFormTemplate,
   syncFormServiceBinding,
 } from '@/lib/forms/form-service-binding'
+import { prefillFieldValues } from '@/lib/forms/offer-letter-data'
+import { getTemplate } from '@/lib/forms/template-registry'
 import {
   createFormAction as coreCreateFormAction,
   grokFillFormAction as coreGrokFillFormAction,
@@ -46,6 +53,33 @@ async function directCreateContext(input: {
   }
 }
 
+/**
+ * Deal may launch a service-owned form, but it must not remain the canonical
+ * owner afterward. Preserve the useful one-time Deal facts (offer amount,
+ * financing, closing date, etc.) in the new direct-context draft before the
+ * Showing/Contract service binding takes ownership.
+ */
+async function applyDealLaunchFacts(
+  formId: string,
+  dealId: string,
+): Promise<void> {
+  const [form, facts] = await Promise.all([
+    getFormInstance(formId),
+    getDealFormFacts(dealId),
+  ])
+  if (!form || !facts) return
+  const template = getTemplate(form.templateId, form.templateVersion)
+  if (!template) return
+
+  const launchValues = prefillFieldValues(template, facts)
+  const fieldValues = { ...form.fieldValues }
+  for (const field of template.fields) {
+    const value = launchValues[field.name]?.trim() ?? ''
+    if (value) fieldValues[field.name] = launchValues[field.name]
+  }
+  await updateFormInstance(form.id, { fieldValues })
+}
+
 export async function createOfferLetterFormAction(
   dealId: string,
 ): Promise<FormActionResult<{ formId: string }>> {
@@ -67,6 +101,13 @@ export async function createFormAction(input: {
     }
     const result = await coreCreateFormAction(normalized)
     if (!result.ok) return result
+
+    if (
+      isServiceBoundFormTemplate(normalized.templateId) &&
+      input.dealId?.trim()
+    ) {
+      await applyDealLaunchFacts(result.data.formId, input.dealId.trim())
+    }
 
     // LISTING-01 creation is intentionally non-mutating. The canonical Person /
     // Property values hydrate the working editor, and the first explicit Save
