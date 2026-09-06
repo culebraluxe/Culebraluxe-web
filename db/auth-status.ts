@@ -69,20 +69,20 @@ export async function getSecurityStatus(): Promise<SecurityStatus> {
         (
           select count(*)::int
           from app_user_role aur
-          join role r on r.id = aur.role_id
+          join security_role r on r.id = aur.role_id
           where r.code = 'owner'
         ) as owner_role_assignments,
         (
           select count(*)::int
           from app_user_role aur
           join app_user u on u.id = aur.app_user_id
-          join role r on r.id = aur.role_id
+          join security_role r on r.id = aur.role_id
           where u.active = false and r.active = true
         ) as inactive_users_with_active_role_mappings,
         (
           select count(*)::int
           from app_user_role aur
-          join role r on r.id = aur.role_id
+          join security_role r on r.id = aur.role_id
           join app_user u on u.id = aur.app_user_id
           where r.account_type <> u.account_type
         ) as account_type_mismatch_count

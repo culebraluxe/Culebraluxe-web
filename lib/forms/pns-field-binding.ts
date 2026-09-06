@@ -1,12 +1,12 @@
 import type { TemplateDefinition } from './template-types'
-import type { RelationScope } from '@/services/core/relation-role'
+import type { RoleScope } from '@/services/core/role'
 
 export type PnsFieldOwner = 'relation' | 'property' | 'contract'
 export type PnsBindingReadiness = 'clean' | 'projection_pressure' | 'adapter_gap'
 export type PnsRelationTarget = 'person' | 'firm' | 'property'
 
 export type PnsRelationOption = {
-  scope: RelationScope
+  scope: RoleScope
   roleCode: string
   target: PnsRelationTarget
 }
@@ -50,23 +50,23 @@ const contract = (
  * legacy bindings that need to be retired once Contract persistence is wired.
  */
 export const PNS_FIELD_BINDINGS: readonly PnsFieldBinding[] = [
-  relation('buyerName', 'Contract.participant(BUYER).displayName', [
+  relation('buyerName', 'Contract.role(BUYER).displayName', [
     { scope: 'contract_person', roleCode: 'BUYER', target: 'person' },
     { scope: 'contract_firm', roleCode: 'BUYER', target: 'firm' },
   ], 'Buyer is a Contract role; the legal party may be a Person or Firm.', 'projection_pressure'),
-  relation('sellerName', 'Contract.participant(SELLER).displayName', [
+  relation('sellerName', 'Contract.role(SELLER).displayName', [
     { scope: 'contract_person', roleCode: 'SELLER', target: 'person' },
     { scope: 'contract_firm', roleCode: 'SELLER', target: 'firm' },
   ], 'Seller is a Contract role; the legal party may be a Person or Firm.', 'projection_pressure'),
-  relation('buyerBrokerName', 'Contract.participant(BUYER_BROKER).displayName', [
+  relation('buyerBrokerName', 'Contract.role(BUYER_BROKER).displayName', [
     { scope: 'contract_person', roleCode: 'BUYER_BROKER', target: 'person' },
     { scope: 'contract_firm', roleCode: 'BUYER_BROKERAGE', target: 'firm' },
   ], 'One presentation field currently conflates the broker Person and brokerage Firm.', 'projection_pressure'),
-  relation('sellerBrokerName', 'Contract.participant(SELLER_BROKER).displayName', [
+  relation('sellerBrokerName', 'Contract.role(SELLER_BROKER).displayName', [
     { scope: 'contract_person', roleCode: 'SELLER_BROKER', target: 'person' },
     { scope: 'contract_firm', roleCode: 'SELLER_BROKERAGE', target: 'firm' },
   ], 'One presentation field currently conflates the broker Person and brokerage Firm.', 'projection_pressure'),
-  relation('spouseName', 'Contract.participant(SELLER_SPOUSE).displayName', [
+  relation('spouseName', 'Contract.role(SELLER_SPOUSE).displayName', [
     { scope: 'contract_person', roleCode: 'SELLER_SPOUSE', target: 'person' },
   ], 'Discovery may follow Person↔Person SPOUSE, but this field projects the spouse role on this Contract.'),
 
@@ -81,17 +81,17 @@ export const PNS_FIELD_BINDINGS: readonly PnsFieldBinding[] = [
   contract('deposit', 'Contract.terms.deposit'),
   contract('cashAtClosing', 'Contract.terms.cashAtClosing'),
   contract('closingDate', 'Contract.terms.closingDate'),
-  relation('escrowHolder', 'Contract.participant(ESCROW_HOLDER).displayName', [
+  relation('escrowHolder', 'Contract.role(ESCROW_HOLDER).displayName', [
     { scope: 'contract_firm', roleCode: 'ESCROW_HOLDER', target: 'firm' },
   ], 'The Contract must still snapshot the exact rendered name even when a Firm identity is resolved.', 'projection_pressure'),
-  relation('notaryName', 'Contract.participant(CLOSING_NOTARY).displayName', [
+  relation('notaryName', 'Contract.role(CLOSING_NOTARY).displayName', [
     { scope: 'contract_person', roleCode: 'CLOSING_NOTARY', target: 'person' },
   ], 'Notary is a Person identity with a Contract role; rendered name remains an immutable Contract snapshot.', 'projection_pressure'),
   contract('effectiveDate', 'Contract.terms.effectiveDate'),
 
   contract('financing', 'Contract.terms.financing', '"Show All" looks presentation-oriented and should not become a durable financing value without an explicit decision.', 'projection_pressure'),
   contract('financingDeadline', 'Contract.terms.financingDeadline'),
-  relation('lenderName', 'Contract.participant(LENDER).displayName', [
+  relation('lenderName', 'Contract.role(LENDER).displayName', [
     { scope: 'contract_firm', roleCode: 'LENDER', target: 'firm' },
   ], 'Lender is normally a Firm; the Contract snapshots the legal/rendered lender name.', 'projection_pressure'),
   contract('bankLoanAmount', 'Contract.terms.bankLoanAmount'),
@@ -102,11 +102,11 @@ export const PNS_FIELD_BINDINGS: readonly PnsFieldBinding[] = [
   contract('appraisalWaived', 'Contract.terms.appraisalWaived'),
   contract('surveyDeadline', 'Contract.terms.surveyDeadline'),
   contract('inspectionDeadline', 'Contract.terms.inspectionDeadline'),
-  contract('sellerCapacity', 'Contract.participant(SELLER).capacity', 'Capacity belongs to the Seller participation in this Contract, not to Person.'),
-  contract('entitySignerTitle', 'Contract.participant(SELLER).signerTitle', 'Signer title is contextual to the entity representation in this Contract.'),
-  contract('poderDate', 'Contract.participant(SELLER).powerOfAttorneyDate', 'Power-of-attorney evidence is a Contract-scoped assertion.'),
-  contract('sellerPRResident', 'Contract.participant(SELLER).prResidentAssertion', 'Legal/tax assertion made for this Contract; do not silently promote to Person truth.'),
-  contract('sellerFirptaForeign', 'Contract.participant(SELLER).firptaForeignAssertion', 'Legal/tax assertion made for this Contract; do not silently promote to Person truth.'),
+  contract('sellerCapacity', 'Contract.role(SELLER).capacity', 'Capacity belongs to the Seller role in this Contract, not to Person.'),
+  contract('entitySignerTitle', 'Contract.role(SELLER).signerTitle', 'Signer title is contextual to the entity representation in this Contract.'),
+  contract('poderDate', 'Contract.role(SELLER).powerOfAttorneyDate', 'Power-of-attorney evidence is a Contract-scoped assertion.'),
+  contract('sellerPRResident', 'Contract.role(SELLER).prResidentAssertion', 'Legal/tax assertion made for this Contract; do not silently promote to Person truth.'),
+  contract('sellerFirptaForeign', 'Contract.role(SELLER).firptaForeignAssertion', 'Legal/tax assertion made for this Contract; do not silently promote to Person truth.'),
   contract('brokerRepresentation', 'Contract.terms.brokerRepresentation'),
 ] as const
 

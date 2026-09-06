@@ -1,4 +1,4 @@
-export type RelationScope =
+export type RoleScope =
   | 'person_person'
   | 'person_firm'
   | 'person_property'
@@ -7,37 +7,37 @@ export type RelationScope =
   | 'contract_firm'
   | 'contract_property'
 
-export type RelationRoleDefinition = {
+export type RoleDefinition = {
   id?: string
-  scope: RelationScope
+  scope: RoleScope
   code: string
   name: string
   aliases?: readonly string[]
 }
 
-export type ResolvedRelationRole = {
-  scope: RelationScope
+export type ResolvedRole = {
+  scope: RoleScope
   code: string
   name: string
 }
 
-export function normalizeRelationRoleAlias(value: string): string {
+export function normalizeRoleAlias(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 /**
- * Small middle-tier primitive for canonical relationship vocabulary.
+ * Small middle-tier primitive for canonical business-role vocabulary.
  *
  * Role is data. This catalog resolves boundary language to one scoped code; it
  * does not own Person/Firm/Property/Contract truth and it is deliberately not a
- * public RelationService capable of bypassing owning-service invariants.
+ * public RoleService capable of bypassing owning-service invariants.
  */
-export class RelationRoleCatalog {
-  private readonly byScopeAndAlias = new Map<string, ResolvedRelationRole>()
+export class RoleCatalog {
+  private readonly byScopeAndAlias = new Map<string, ResolvedRole>()
 
-  constructor(definitions: readonly RelationRoleDefinition[]) {
+  constructor(definitions: readonly RoleDefinition[]) {
     for (const definition of definitions) {
-      const role: ResolvedRelationRole = {
+      const role: ResolvedRole = {
         scope: definition.scope,
         code: definition.code.trim().toUpperCase(),
         name: definition.name,
@@ -52,7 +52,7 @@ export class RelationRoleCatalog {
         const existing = this.byScopeAndAlias.get(key)
         if (existing && existing.code !== role.code) {
           throw new Error(
-            `Ambiguous relation role alias "${alias}" in ${definition.scope}: ${existing.code} vs ${role.code}`,
+            `Ambiguous role alias "${alias}" in ${definition.scope}: ${existing.code} vs ${role.code}`,
           )
         }
         this.byScopeAndAlias.set(key, role)
@@ -60,17 +60,17 @@ export class RelationRoleCatalog {
     }
   }
 
-  resolve(scope: RelationScope, input: string): ResolvedRelationRole | null {
+  resolve(scope: RoleScope, input: string): ResolvedRole | null {
     return this.byScopeAndAlias.get(this.key(scope, input)) ?? null
   }
 
-  require(scope: RelationScope, input: string): ResolvedRelationRole {
+  require(scope: RoleScope, input: string): ResolvedRole {
     const role = this.resolve(scope, input)
-    if (!role) throw new Error(`Unknown relation role "${input}" for scope ${scope}`)
+    if (!role) throw new Error(`Unknown role "${input}" for scope ${scope}`)
     return role
   }
 
-  private key(scope: RelationScope, input: string): string {
-    return `${scope}:${normalizeRelationRoleAlias(input)}`
+  private key(scope: RoleScope, input: string): string {
+    return `${scope}:${normalizeRoleAlias(input)}`
   }
 }

@@ -28,7 +28,7 @@ import {
 export class ContractService extends BaseService<ContractOperationMap> {
   readonly domain = 'contract'
   readonly version = '1'
-  readonly description = 'Owns Form-created contract instances, participants, facts, and execution state.'
+  readonly description = 'Owns Form-created contract instances, contextual roles, facts, and execution state.'
   protected readonly operations: ServiceOperationDefinitions<ContractOperationMap>
 
   constructor(
@@ -65,7 +65,11 @@ export class ContractService extends BaseService<ContractOperationMap> {
             this.fail('PROPERTY_NOT_FOUND', `Property not found: ${request.propertyId}`)
           }
 
-          const personIds = [...new Set(request.participants.map((participant) => participant.personId))]
+          // TypeScript narrows the union from `kind`. This is the same basic
+          // idea as visiting std::variant<PersonRole, FirmRole> in C++.
+          const personIds = [...new Set(
+            request.roles.flatMap((role) => role.kind === 'person' ? [role.personId] : []),
+          )]
           await Promise.all(
             personIds.map(async (personId) => {
               const person = await this.callService<
@@ -81,6 +85,9 @@ export class ContractService extends BaseService<ContractOperationMap> {
             }),
           )
 
+          // Firm roles are already strongly typed at the Contract seam. Firm
+          // owner-service validation is wired when FirmService joins the core
+          // composition; do not invent a direct Firm repository dependency here.
           const contract = await this.repository.createFromForm(request)
           await this.emit(
             {
@@ -91,7 +98,7 @@ export class ContractService extends BaseService<ContractOperationMap> {
                 contractType: contract.contractType,
                 formTemplateId: contract.formTemplateId,
                 propertyId: contract.propertyId,
-                participantCount: contract.participants.length,
+                roleCount: contract.roles.length,
               },
             },
             context,
@@ -139,8 +146,9 @@ export class ContractService extends BaseService<ContractOperationMap> {
   invariants() {
     return [
       'Every Form creates or changes a Contract; the Contract owns the scoped business facts defined by that Form.',
-      'Person and Property remain canonical independent entities referenced by Contract.',
-      'Contract roles such as buyer, seller, owner, and agent are contextual participant roles, not Person identities.',
+      'Person, Firm, and Property remain canonical independent entities referenced by Contract.',
+      'A Contract Role is a contextual position; Person and Firm identities are assigned to Roles and do not own those Roles intrinsically.',
+      'Role vocabulary is normalized data, not a garden of buyer/seller/lender/broker service methods.',
       'Workflow owns flow/lifecycle orchestration; Contract owns business truth.',
       'Cross-domain access occurs through the owning service contract, never another domain repository.',
       'Contract-chain effective state preserves lineage rather than duplicating truth into a separate Transaction domain.',

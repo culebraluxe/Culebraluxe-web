@@ -3,12 +3,12 @@ export { ServiceError } from './service-error'
 export { InMemoryServiceQueue } from './service-queue'
 export { ServiceRegistry } from './service-registry'
 export {
-  RelationRoleCatalog,
-  normalizeRelationRoleAlias,
-  type RelationRoleDefinition,
-  type RelationScope,
-  type ResolvedRelationRole,
-} from './relation-role'
+  RoleCatalog,
+  normalizeRoleAlias,
+  type RoleDefinition,
+  type RoleScope,
+  type ResolvedRole,
+} from './role'
 export type {
   AuditPort,
   AuthorizationPort,
