@@ -11,6 +11,7 @@ import { isExecutionEligibleTemplate } from "@/lib/agreements/execution"
 import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import { loadListingCanonicalSnapshot } from "@/lib/forms/listing-canonical-binding"
 import { LISTING_CANONICAL_FIELD_NAMES } from "@/lib/forms/listing-field-binding"
+import { hydrateServiceBoundForm } from "@/lib/forms/form-service-hydration"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
 /**
@@ -34,6 +35,7 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
   let editorPersonId = form.personId
   let editorPropertyId = form.propertyId
   let editorFieldValues = form.fieldValues
+  let editorSections = form.sections
 
   // LISTING-01 canonical composition belongs under the proven editor, not in a
   // duplicate screen. Never reinterpret an already-issued artifact: immutable
@@ -73,6 +75,39 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
       // proves the canonical binding before schema promotion.
       console.warn(
         "Listing canonical hydration unavailable; using saved form values.",
+        error instanceof Error ? error.message : error,
+      )
+    }
+  }
+
+  // SHOW-RPT and OFFER-01 use the same mature editor but read their canonical
+  // state back through ShowingService / ContractService. Deal is only allowed
+  // to resolve the explicit Person + Property launch context for older drafts;
+  // service lineage itself is never inferred on load.
+  if ((template.id === "SHOW-RPT" || template.id === "OFFER-01") && !issuedDocument) {
+    try {
+      if ((!editorPersonId || !editorPropertyId) && form.dealId) {
+        const launch = await resolveDealLaunchContext(form.dealId)
+        editorPersonId = editorPersonId ?? launch?.personId ?? null
+        editorPropertyId = editorPropertyId ?? launch?.propertyId ?? null
+      }
+
+      const hydrated = await hydrateServiceBoundForm(
+        {
+          ...form,
+          personId: editorPersonId,
+          propertyId: editorPropertyId,
+        },
+        editorFieldValues,
+        editorSections,
+      )
+      editorFieldValues = hydrated.fieldValues
+      editorSections = hydrated.sections
+    } catch (error) {
+      // Existing pre-refactor drafts remain usable if their canonical service
+      // lineage is absent or an environment is still behind the schema rollout.
+      console.warn(
+        `${template.id} service hydration unavailable; using saved form values.`,
         error instanceof Error ? error.message : error,
       )
     }
@@ -121,7 +156,7 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
         personId: editorPersonId,
         propertyId: editorPropertyId,
         fieldValues: editorFieldValues,
-        sections: form.sections,
+        sections: editorSections,
       }}
       template={template}
       templates={templates}
