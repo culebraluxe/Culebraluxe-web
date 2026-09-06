@@ -363,17 +363,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
         </div>
       </div>
 
-      <CommandStatusBand
-        ratio="balanced"
-        command={<ClientGrokPlaceholder clientName={client?.displayName ?? null} />}
-        status={
-          <CommandStatus label="Status" tone={status.tone}>
-            {status.text}
-          </CommandStatus>
-        }
-      />
-
-      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-16rem)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(300px,0.8fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="shrink-0 border-b border-[var(--portal-panel-border)] p-3">
             <div className="mb-2 text-[10px] font-light uppercase tracking-[0.16em] text-black/40">
@@ -458,101 +448,115 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
           </div>
         </aside>
 
-        <main className="min-h-0 overflow-y-auto">
-          {!client ? (
-            <Panel compact heading={model.clientLoading ? "Loading client" : "Client"}>
-              <p className="text-sm font-light text-black/45">
-                {model.clientLoading ? "Loading selected client…" : model.clientError ?? "Select a client."}
-              </p>
-            </Panel>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <Panel compact heading="Client">
-                <div className="flex items-start justify-between gap-3 border-b border-[var(--portal-panel-border)] pb-4">
-                  <div>
-                    <h2 className="font-serif text-2xl font-light text-[var(--portal-navy)]">{client.displayName}</h2>
-                    <div className="mt-1 flex items-center gap-2 text-xs font-light text-black/50">
-                      <span>{roleLabel(client.role)}</span>
-                      <span>·</span>
-                      <span>{statusLabel(client.status)}</span>
+        <div className="flex min-h-0 flex-col gap-3">
+          <CommandStatusBand
+            ratio="balanced"
+            command={<ClientGrokPlaceholder clientName={client?.displayName ?? null} />}
+            status={
+              <CommandStatus label="Status" tone={status.tone}>
+                {status.text}
+              </CommandStatus>
+            }
+          />
+
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.8fr)]">
+            <main className="min-h-0 overflow-y-auto">
+              {!client ? (
+                <Panel compact heading={model.clientLoading ? "Loading client" : "Client"}>
+                  <p className="text-sm font-light text-black/45">
+                    {model.clientLoading ? "Loading selected client…" : model.clientError ?? "Select a client."}
+                  </p>
+                </Panel>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <Panel compact heading="Client">
+                    <div className="flex items-start justify-between gap-3 border-b border-[var(--portal-panel-border)] pb-4">
+                      <div>
+                        <h2 className="font-serif text-2xl font-light text-[var(--portal-navy)]">{client.displayName}</h2>
+                        <div className="mt-1 flex items-center gap-2 text-xs font-light text-black/50">
+                          <span>{roleLabel(client.role)}</span>
+                          <span>·</span>
+                          <span>{statusLabel(client.status)}</span>
+                        </div>
+                      </div>
+                      <div className="text-right text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
+                        {observed.toLocaleString()} observed<br />
+                        {connectedSources} / 6 sources
+                      </div>
                     </div>
+
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <DetailField label="Phone" value={formatPhone(client.phone) ?? "—"} />
+                      <DetailField label="Email" value={client.email ?? "—"} />
+                      <DetailField label="Agent" value={client.assignedAgent ?? "—"} />
+                      <DetailField label="Timeline" value={client.timeline ?? "—"} />
+                      <DetailField
+                        label="Budget"
+                        value={
+                          client.budgetMin || client.budgetMax
+                            ? `${formatCurrency(client.budgetMin)} – ${formatCurrency(client.budgetMax)}`
+                            : "—"
+                        }
+                      />
+                    </div>
+                  </Panel>
+
+                  <PropertyContextPanel model={model} />
+
+                  <Panel compact heading="Notes" className="flex min-h-[14rem] flex-col">
+                    <textarea
+                      value={model.notesDraft}
+                      onChange={(event) => {
+                        void controller.dispatch({
+                          operation: "clientLens.notesChanged",
+                          payload: { notes: event.target.value },
+                        })
+                      }}
+                      placeholder="What do I want to remember about this client?"
+                      className="min-h-[9rem] w-full flex-1 resize-none rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 p-3 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
+                    />
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <span className="text-[10px] font-light text-black/45">{model.notesStatus ?? ""}</span>
+                      <button
+                        type="button"
+                        disabled={!notesDirty || model.notesSaving}
+                        onClick={() => void controller.dispatch({ operation: "clientLens.saveNotes", payload: {} })}
+                        className="inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-35"
+                      >
+                        {model.notesSaving ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                  </Panel>
+                </div>
+              )}
+            </main>
+
+            <aside className="min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy-deep)] text-white shadow-sm">
+              <div className="border-b border-white/10 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">Relationship</div>
+                    <h2 className="mt-1 font-serif text-xl font-light">Six-channel lens</h2>
                   </div>
-                  <div className="text-right text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
-                    {observed.toLocaleString()} observed<br />
-                    {connectedSources} / 6 sources
+                  <div className="text-right text-[10px] font-light text-white/45">
+                    {model.channelsLoading ? "Loading…" : `${connectedSources} connected`}
                   </div>
                 </div>
-
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <DetailField label="Phone" value={formatPhone(client.phone) ?? "—"} />
-                  <DetailField label="Email" value={client.email ?? "—"} />
-                  <DetailField label="Agent" value={client.assignedAgent ?? "—"} />
-                  <DetailField label="Timeline" value={client.timeline ?? "—"} />
-                  <DetailField
-                    label="Budget"
-                    value={
-                      client.budgetMin || client.budgetMax
-                        ? `${formatCurrency(client.budgetMin)} – ${formatCurrency(client.budgetMax)}`
-                        : "—"
-                    }
-                  />
-                </div>
-              </Panel>
-
-              <PropertyContextPanel model={model} />
-
-              <Panel compact heading="Notes" className="flex min-h-[14rem] flex-col">
-                <textarea
-                  value={model.notesDraft}
-                  onChange={(event) => {
-                    void controller.dispatch({
-                      operation: "clientLens.notesChanged",
-                      payload: { notes: event.target.value },
-                    })
-                  }}
-                  placeholder="What do I want to remember about this client?"
-                  className="min-h-[9rem] w-full flex-1 resize-none rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 p-3 font-serif text-[15px] font-light leading-6 text-[var(--portal-navy)] outline-none placeholder:text-black/35 focus:border-[var(--portal-navy)]"
-                />
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-light text-black/45">{model.notesStatus ?? ""}</span>
-                  <button
-                    type="button"
-                    disabled={!notesDirty || model.notesSaving}
-                    onClick={() => void controller.dispatch({ operation: "clientLens.saveNotes", payload: {} })}
-                    className="inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-35"
-                  >
-                    {model.notesSaving ? "Saving…" : "Save"}
-                  </button>
-                </div>
-              </Panel>
-            </div>
-          )}
-        </main>
-
-        <aside className="min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy-deep)] text-white shadow-sm">
-          <div className="border-b border-white/10 px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">Relationship</div>
-                <h2 className="mt-1 font-serif text-xl font-light">Six-channel lens</h2>
               </div>
-              <div className="text-right text-[10px] font-light text-white/45">
-                {model.channelsLoading ? "Loading…" : `${connectedSources} connected`}
-              </div>
-            </div>
+              <ol className="min-h-0 overflow-y-auto">
+                {model.channels.length > 0 ? (
+                  model.channels.map((channel) => <RelationshipChannelRow key={channel.slot} channel={channel} />)
+                ) : (
+                  <li className="px-4 py-6 text-sm font-light text-white/45">
+                    {model.channelsLoading
+                      ? "Loading relationship sources…"
+                      : model.channelsError ?? "Select a client."}
+                  </li>
+                )}
+              </ol>
+            </aside>
           </div>
-          <ol className="min-h-0 overflow-y-auto">
-            {model.channels.length > 0 ? (
-              model.channels.map((channel) => <RelationshipChannelRow key={channel.slot} channel={channel} />)
-            ) : (
-              <li className="px-4 py-6 text-sm font-light text-white/45">
-                {model.channelsLoading
-                  ? "Loading relationship sources…"
-                  : model.channelsError ?? "Select a client."}
-              </li>
-            )}
-          </ol>
-        </aside>
+        </div>
       </div>
     </div>
   )
