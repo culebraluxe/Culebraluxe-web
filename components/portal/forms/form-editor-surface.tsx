@@ -5,7 +5,11 @@ import { resolveDealLaunchContext } from "@/db/form-service-lineage"
 import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
 import { listSignatureRequestsByDocument } from "@/db/signature-request"
 import { listFormSignerPeople } from "@/db/form-signer"
-import { getTemplate, listPortalFormTypes } from "@/lib/forms/template-registry"
+import {
+  getActiveTemplate,
+  getTemplate,
+  listPortalFormTypes,
+} from "@/lib/forms/template-registry"
 import { pickFormSigners } from "@/lib/forms/signer-resolution"
 import { isExecutionEligibleTemplate } from "@/lib/agreements/execution"
 import { formContentFingerprint } from "@/lib/forms/artifact-identity"
@@ -14,6 +18,7 @@ import { LISTING_CANONICAL_FIELD_NAMES } from "@/lib/forms/listing-field-binding
 import { hydrateServiceBoundForm } from "@/lib/forms/form-service-hydration"
 import { applyTemplateFieldDefaults } from "@/lib/forms/offer-letter-data"
 import { FormEditor } from "@/components/portal/forms/form-editor"
+import { ListingV4Controls } from "@/components/portal/forms/listing-v4-controls"
 
 /**
  * Canonical Forms working surface loader.
@@ -29,6 +34,7 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
   // A saved form always opens against its exact stored immutable template version.
   const template = getTemplate(form.templateId, form.templateVersion)
   if (!template) notFound()
+  const activeTemplate = getActiveTemplate(template.id)
   const savedForms = await listFormInstances()
 
   const issuedDocument = await getIssuedDocumentForFormInstance(form.id)
@@ -39,16 +45,16 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
   let editorSections = form.sections
 
   // Human-approved template defaults belong to the mutable working draft only.
-  // This also repairs older unissued drafts that predate a default (for example
-  // OFFER-01 brokerName and SHOW-RPT agentName) without ever reinterpreting an
-  // already-issued source snapshot.
+  // This also repairs older unissued drafts that predate a default without ever
+  // reinterpreting an already-issued source snapshot.
   if (!issuedDocument) {
     editorFieldValues = applyTemplateFieldDefaults(template, editorFieldValues)
   }
 
   // LISTING-01 canonical composition belongs under the proven editor, not in a
-  // duplicate screen. Never reinterpret an already-issued artifact: immutable
-  // issued bytes and their stored source snapshot remain the historical truth.
+  // duplicate screen. V4 automatic hydration fills blanks only: a value already
+  // present in this working draft is treated as deliberate and never clobbered
+  // merely because Person/Property currently says something different.
   if (template.id === "LISTING-01" && !issuedDocument) {
     try {
       if ((!editorPersonId || !editorPropertyId) && form.dealId) {
@@ -66,11 +72,13 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
           if (!templateFieldNames.has(name)) continue
           const origin = canonical.origins[name]
           const value = canonical.fields[name]?.trim() ?? ""
+          const current = hydrated[name]?.trim() ?? ""
 
-          // Person/Property are canonical. Listing-form fallback evidence is
-          // deliberately NOT copied from some other saved form; the currently
-          // opened form already owns its own saved evidence.
-          if ((origin === "person" || origin === "property") && value) {
+          if (
+            (origin === "person" || origin === "property") &&
+            value &&
+            !current
+          ) {
             hydrated[name] = value
           }
         }
@@ -79,9 +87,8 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
         editorPropertyId = editorPropertyId ?? canonical.physicalPropertyId
       }
     } catch (error) {
-      // Rollout-safe: PROD may not have migrations 115/116 yet. Falling back to
-      // the saved form keeps the existing Forms workflow available while DEV
-      // proves the canonical binding before schema promotion.
+      // Rollout-safe: an environment behind canonical schema still gets the
+      // saved form rather than losing the proven Forms workflow.
       console.warn(
         "Listing canonical hydration unavailable; using saved form values.",
         error instanceof Error ? error.message : error,
@@ -113,8 +120,6 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
       editorFieldValues = applyTemplateFieldDefaults(template, hydrated.fieldValues)
       editorSections = hydrated.sections
     } catch (error) {
-      // Existing pre-refactor drafts remain usable if their canonical service
-      // lineage is absent or an environment is still behind the schema rollout.
       console.warn(
         `${template.id} service hydration unavailable; using saved form values.`,
         error instanceof Error ? error.message : error,
@@ -154,54 +159,87 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
     templates.unshift({ id: template.id, displayName: template.displayName })
   }
 
+  // Active-version drafts sort ahead of historical rows. We keep the proven
+  // Forms rail itself untouched and add version/history clarity to its existing
+  // subtitle so an old v1/v3 record cannot masquerade as the current template.
+  const orderedSavedForms = [...savedForms].sort((left, right) => {
+    if (left.templateId !== right.templateId) return 0
+    const activeVersion = getActiveTemplate(left.templateId)?.version ?? null
+    const leftActive = left.templateVersion === activeVersion
+    const rightActive = right.templateVersion === activeVersion
+    if (leftActive !== rightActive) return leftActive ? -1 : 1
+    return right.updatedAt.localeCompare(left.updatedAt)
+  })
+
   return (
-    <FormEditor
-      key={form.id}
-      form={{
-        id: form.id,
-        status: form.status,
-        templateId: form.templateId,
-        dealId: form.dealId,
-        personId: editorPersonId,
-        propertyId: editorPropertyId,
-        fieldValues: editorFieldValues,
-        sections: editorSections,
-      }}
-      template={template}
-      templates={templates}
-      savedForms={savedForms.map((item) => ({
-        id: item.id,
-        templateId: item.templateId,
-        status: item.status,
-        clientName: item.clientName,
-        propertyLabel: item.propertyLabel,
-        buyerName:
-          item.fieldValues.buyerName ??
-          item.fieldValues.visitorName ??
-          null,
-        sellerName: item.fieldValues.sellerName ?? null,
-        updatedAt: item.updatedAt,
-      }))}
-      issuedDocument={
-        issuedDocument
-          ? {
-              documentId: issuedDocument.documentId,
-              issuedVersion: issuedDocument.issuedVersion,
-              checksum: issuedDocument.checksum,
-              contentFingerprint: issuedContentFingerprint,
-            }
-          : null
-      }
-      signerCandidates={signerCandidates}
-      sendAllRequiredSigners={isExecutionEligibleTemplate(template.id)}
-      signatureRequest={
-        signatureRequest
-          ? {
-              id: signatureRequest.id,
-              status: signatureRequest.status,
-            }
-          : null
-      }
-    />
+    <div className="flex min-h-0 flex-col gap-3">
+      {template.id === "LISTING-01" ? (
+        <ListingV4Controls
+          formId={form.id}
+          personId={editorPersonId}
+          sellerName={editorFieldValues.sellerName ?? ""}
+          templateVersion={template.version}
+          activeTemplateVersion={activeTemplate?.version ?? template.version}
+          status={form.status}
+          issued={Boolean(issuedDocument)}
+        />
+      ) : null}
+
+      <FormEditor
+        key={form.id}
+        form={{
+          id: form.id,
+          status: form.status,
+          templateId: form.templateId,
+          dealId: form.dealId,
+          personId: editorPersonId,
+          propertyId: editorPropertyId,
+          fieldValues: editorFieldValues,
+          sections: editorSections,
+        }}
+        template={template}
+        templates={templates}
+        savedForms={orderedSavedForms.map((item) => {
+          const itemActiveVersion = getActiveTemplate(item.templateId)?.version ?? item.templateVersion
+          const history = item.templateVersion !== itemActiveVersion
+          const versionLabel = `v${item.templateVersion}${history ? " · history" : ""}`
+          return {
+            id: item.id,
+            templateId: item.templateId,
+            status: item.status,
+            clientName: item.clientName,
+            propertyLabel: [item.propertyLabel, versionLabel]
+              .filter(Boolean)
+              .join(" · "),
+            buyerName:
+              item.fieldValues.buyerName ??
+              item.fieldValues.visitorName ??
+              null,
+            sellerName: item.fieldValues.sellerName ?? null,
+            updatedAt: item.updatedAt,
+          }
+        })}
+        issuedDocument={
+          issuedDocument
+            ? {
+                documentId: issuedDocument.documentId,
+                issuedVersion: issuedDocument.issuedVersion,
+                checksum: issuedDocument.checksum,
+                contentFingerprint: issuedContentFingerprint,
+              }
+            : null
+        }
+        signerCandidates={signerCandidates}
+        sendAllRequiredSigners={isExecutionEligibleTemplate(template.id)}
+        signatureRequest={
+          signatureRequest
+            ? {
+                id: signatureRequest.id,
+                status: signatureRequest.status,
+              }
+            : null
+        }
+      />
+    </div>
   )
 }
