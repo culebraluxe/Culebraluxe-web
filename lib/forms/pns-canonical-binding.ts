@@ -12,11 +12,13 @@ import { CONTRACT_OPERATIONS, type ContractDto, type ContractRoleDto } from '@/s
 import { FIRM_OPERATIONS, type FirmDto } from '@/services/firm'
 import { PERSON_OPERATIONS } from '@/services/person'
 import { PROPERTY_OPERATIONS, type PropertyDto } from '@/services/property'
-import type {
-  PnsCanonicalFields,
-  PnsCanonicalSnapshot,
-  PnsFieldOrigin,
-  SavePnsCanonicalRequest,
+import {
+  toPnsCanonicalValue,
+  toPnsWorkingValue,
+  type PnsCanonicalFields,
+  type PnsCanonicalSnapshot,
+  type PnsFieldOrigin,
+  type SavePnsCanonicalRequest,
 } from './pns-canonical-types'
 
 const TEMPLATE_ID = 'PR-PNS'
@@ -280,7 +282,7 @@ export async function loadPnsCanonicalSnapshot(
 }
 
 async function findFirm(name: string): Promise<FirmDto | null> {
-  const clean = compact(name)
+  const clean = toPnsCanonicalValue(name)
   if (!clean) return null
   return serviceValue(
     core.firm.execute({
@@ -295,8 +297,8 @@ async function findFirm(name: string): Promise<FirmDto | null> {
 function keepExistingRole(role: ContractRoleDto, fields: PnsCanonicalFields): boolean {
   const field = roleField(role)
   if (!field) return true
-  const current = compact(fields[field])
-  const snapshot = compact(role.snapshotName)
+  const current = toPnsCanonicalValue(fields[field])
+  const snapshot = toPnsCanonicalValue(role.snapshotName)
   return Boolean(current && snapshot && normalized(snapshot) === normalized(current))
 }
 
@@ -313,19 +315,31 @@ function dedupeRoles(roles: readonly ContractRoleDto[]): ContractRoleDto[] {
   return result
 }
 
+function personSellerCapacity(value: string): boolean {
+  return value === 'Individual' || value === 'Married' || value === 'Attorney-in-fact'
+}
+
 export async function savePnsCanonicalFields(
   request: SavePnsCanonicalRequest,
   actorId: string | null,
 ): Promise<PnsCanonicalSnapshot> {
   const before = await loadPnsCanonicalSnapshot(request.personId, request.contractId)
+
+  // A working Contract draft never stores accidental blank/NaN/null-like holes.
+  // One explicit TBD survives until the broker resolves it on a later pass.
   const fields = Object.fromEntries(
-    Object.entries(request.fields).map(([name, value]) => [name, compact(value)]),
+    Object.entries(request.fields).map(([name, value]) => [name, toPnsWorkingValue(value)]),
   ) as Record<string, string>
+  const canonicalField = (name: string) => toPnsCanonicalValue(fields[name])
   const context = () => serviceContext(actorId)
 
-  const sellerName = compact(fields.sellerName)
-  const sellerCapacity = compact(fields.sellerCapacity)
-  if (sellerName && sellerCapacity !== 'Entity') {
+  const sellerName = canonicalField('sellerName')
+  const sellerCapacity = canonicalField('sellerCapacity')
+  const sellerIsPerson = personSellerCapacity(sellerCapacity)
+
+  // Do not promote an unresolved legal-party assumption into Person. A valid
+  // name can remain in Contract draft facts while capacity is still TBD.
+  if (sellerName && sellerIsPerson) {
     await serviceValue(
       core.person.execute({
         operation: PERSON_OPERATIONS.SET_DISPLAY_NAME,
@@ -336,14 +350,15 @@ export async function savePnsCanonicalFields(
     )
   }
 
-  const propertyHasData = [
-    fields.property,
-    fields.municipality,
-    fields.catastroNumber,
-    fields.registryEntry,
-    fields.fincaNumber,
-    fields.registrySection,
-  ].some((value) => compact(value))
+  const propertyFieldNames = [
+    'property',
+    'municipality',
+    'catastroNumber',
+    'registryEntry',
+    'fincaNumber',
+    'registrySection',
+  ] as const
+  const propertyHasData = propertyFieldNames.some((name) => canonicalField(name))
   let propertyId = compact(request.physicalPropertyId) || before.physicalPropertyId || null
   if (propertyHasData || propertyId) {
     const savedProperty = await serviceValue(
@@ -353,12 +368,12 @@ export async function savePnsCanonicalFields(
           personId: before.personId,
           relation: 'physical_property',
           propertyId: propertyId ?? undefined,
-          address: compact(fields.municipality) ? { city: compact(fields.municipality) } : undefined,
-          localName: compact(fields.property) || undefined,
-          catastroNumber: compact(fields.catastroNumber) || undefined,
-          registryEntry: compact(fields.registryEntry) || undefined,
-          fincaNumber: compact(fields.fincaNumber) || undefined,
-          registrySection: compact(fields.registrySection) || undefined,
+          address: canonicalField('municipality') ? { city: canonicalField('municipality') } : undefined,
+          localName: canonicalField('property') || undefined,
+          catastroNumber: canonicalField('catastroNumber') || undefined,
+          registryEntry: canonicalField('registryEntry') || undefined,
+          fincaNumber: canonicalField('fincaNumber') || undefined,
+          registrySection: canonicalField('registrySection') || undefined,
           sourceType: 'pns_form',
           sourceKey: before.formInstanceId,
         },
@@ -386,7 +401,8 @@ export async function savePnsCanonicalFields(
     .filter((role) => keepExistingRole(role, fields))
     .map((role) => {
       const field = roleField(role)
-      return field ? { ...role, snapshotName: compact(fields[field]) || role.snapshotName } : role
+      const snapshotName = field ? canonicalField(field) : ''
+      return field && snapshotName ? { ...role, snapshotName } : role
     })
 
   if (sellerName) {
@@ -407,27 +423,30 @@ export async function savePnsCanonicalFields(
         snapshotName: before.personDisplayName,
         attributes: {
           capacity: 'Entity',
-          signerTitle: compact(fields.entitySignerTitle) || null,
+          signerTitle: canonicalField('entitySignerTitle') || null,
         },
       })
-    } else {
+    } else if (sellerIsPerson) {
       roles.push({ kind: 'person', personId: before.personId, roleCode: 'SELLER', snapshotName: sellerName })
     }
   }
 
+  const buyerName = canonicalField('buyerName')
+  const lenderName = canonicalField('lenderName')
+  const escrowHolder = canonicalField('escrowHolder')
   const [buyerFirm, lenderFirm, escrowFirm] = await Promise.all([
-    findFirm(fields.buyerName ?? ''),
-    findFirm(fields.lenderName ?? ''),
-    findFirm(fields.escrowHolder ?? ''),
+    findFirm(buyerName),
+    findFirm(lenderName),
+    findFirm(escrowHolder),
   ])
-  if (buyerFirm && compact(fields.buyerName)) {
-    roles.push({ kind: 'firm', firmId: buyerFirm.id, roleCode: 'BUYER', snapshotName: compact(fields.buyerName) })
+  if (buyerFirm && buyerName) {
+    roles.push({ kind: 'firm', firmId: buyerFirm.id, roleCode: 'BUYER', snapshotName: buyerName })
   }
-  if (lenderFirm && compact(fields.lenderName)) {
-    roles.push({ kind: 'firm', firmId: lenderFirm.id, roleCode: 'LENDER', snapshotName: compact(fields.lenderName) })
+  if (lenderFirm && lenderName) {
+    roles.push({ kind: 'firm', firmId: lenderFirm.id, roleCode: 'LENDER', snapshotName: lenderName })
   }
-  if (escrowFirm && compact(fields.escrowHolder)) {
-    roles.push({ kind: 'firm', firmId: escrowFirm.id, roleCode: 'ESCROW_HOLDER', snapshotName: compact(fields.escrowHolder) })
+  if (escrowFirm && escrowHolder) {
+    roles.push({ kind: 'firm', firmId: escrowFirm.id, roleCode: 'ESCROW_HOLDER', snapshotName: escrowHolder })
   }
 
   const contractId = before.contractId ?? (compact(request.contractId) || randomUUID())
