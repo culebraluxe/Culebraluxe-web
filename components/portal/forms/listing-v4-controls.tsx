@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { updateFormAction } from '@/app/portal/forms/actions'
 import { getFormEditorController } from '@/ui/form-editor/runtime-bridge'
 
 type ClientResult = {
@@ -91,6 +92,53 @@ export function ListingV4Controls({
     }
   }
 
+  async function updateClientData() {
+    if (!selectedPersonId || actionBusy || locked) return
+    const controller = getFormEditorController(formId)
+    if (!controller) return
+    setActionBusy(true)
+    try {
+      // First flush the exact working JSON draft without touching services.
+      const draftSaved = await controller.dispatch({
+        operation: 'formEditor.saveDraft',
+        payload: { quiet: true },
+      })
+      if (!draftSaved) return
+
+      const model = controller.snapshot()
+      const result = await updateFormAction(
+        formId,
+        { ...model.values },
+        {
+          ...model.sections,
+          body: model.detailsText,
+          bodyEdited: model.bodyEdited ? 'true' : 'false',
+        },
+      )
+      if (!result.ok) {
+        await controller.dispatch({
+          operation: 'formEditor.feedback',
+          payload: { error: result.message },
+        })
+        return
+      }
+
+      const count = result.data.canonicalUpdates?.length ?? 0
+      await controller.dispatch({
+        operation: 'formEditor.feedback',
+        payload: {
+          message:
+            count > 0
+              ? `Client data updated · ${count} canonical fact${count === 1 ? '' : 's'}`
+              : 'Client data already current',
+          error: null,
+        },
+      })
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   async function selectClient(client: ClientResult) {
     if (actionBusy || locked) return
     const controller = getFormEditorController(formId)
@@ -105,8 +153,7 @@ export function ListingV4Controls({
 
       // Persist the deliberate context switch before a hard refresh so the
       // server recomputes signer candidates and Property context from the newly
-      // selected Person. This also avoids ever presenting a new seller with the
-      // old seller's BoldSign recipient state.
+      // selected Person. Autosave/draft save is deliberately non-canonical.
       const saved = await controller.dispatch({
         operation: 'formEditor.saveDraft',
         payload: { quiet: true },
@@ -156,7 +203,15 @@ export function ListingV4Controls({
             onClick={() => void refreshData()}
             className="inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
           >
-            {actionBusy ? 'Working…' : 'Refresh Data'}
+            Refresh Data
+          </button>
+          <button
+            type="button"
+            disabled={locked || actionBusy || !selectedPersonId}
+            onClick={() => void updateClientData()}
+            className="inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-gold)]/60 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)] transition hover:border-[var(--portal-gold)] disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            {actionBusy ? 'Working…' : 'Update Client'}
           </button>
           <button
             type="button"
