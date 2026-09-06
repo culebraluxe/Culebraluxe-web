@@ -14,6 +14,7 @@ import {
 } from "@/lib/forms/signer-resolution"
 import type { TemplateDefinition } from "@/lib/forms/template-types"
 import { FormGrokHelper } from "@/components/portal/forms/form-grok-helper"
+import { ListingV4Controls } from "@/components/portal/forms/listing-v4-controls"
 import { PdfPreview } from "@/components/portal/forms/pdf-preview"
 import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import {
@@ -115,6 +116,7 @@ function isUserCancel(error: unknown) {
 export function FormEditor({
   form,
   template,
+  activeTemplateVersion,
   templates,
   savedForms = [],
   issuedDocument = null,
@@ -133,6 +135,7 @@ export function FormEditor({
     sections: Record<string, string>
   }
   template: TemplateDefinition
+  activeTemplateVersion?: number | null
   templates: { id: string; displayName: string }[]
   savedForms?: {
     id: string
@@ -226,6 +229,15 @@ export function FormEditor({
         : form.status === "issued"
           ? "Issued"
           : "Draft"
+  const isListing = template.id === "LISTING-01"
+  const currentActiveTemplateVersion = activeTemplateVersion ?? template.version
+  const listingIsActive = template.version === currentActiveTemplateVersion
+  const listingLocked = Boolean(issuedDocument) || form.status === "issued"
+  const listingState = isListing
+    ? `v${template.version} ${listingIsActive ? "active" : "history"} · ${
+        form.personId ? "Client linked" : "Client not linked"
+      }${listingLocked ? " · issued snapshot" : " · auto-hydrated"}`
+    : null
 
   function feedback(next: { message?: string | null; error?: string | null }) {
     void controller.dispatch({ operation: "formEditor.feedback", payload: next })
@@ -570,7 +582,14 @@ export function FormEditor({
             label="Status"
             tone={error ? "danger" : message ? "success" : "neutral"}
           >
-            {error ?? message ?? statusCue}
+            <div>
+              <div>{error ?? message ?? statusCue}</div>
+              {listingState ? (
+                <div className="mt-0.5 text-[10px] font-light text-black/40">
+                  {listingState}
+                </div>
+              ) : null}
+            </div>
           </CommandStatus>
         }
       />
@@ -694,9 +713,21 @@ export function FormEditor({
         <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--portal-panel-border)] px-4 py-2.5">
             <div className="min-w-0">
-              <h2 className="truncate font-serif text-lg font-light text-[var(--portal-navy)]">
-                {template.displayName}
-              </h2>
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate font-serif text-lg font-light text-[var(--portal-navy)]">
+                  {template.displayName}{isListing ? ` · v${template.version}` : ""}
+                </h2>
+                {isListing ? (
+                  <span className={[
+                    "shrink-0 rounded-full border px-2 py-0.5 text-[8px] font-medium uppercase tracking-[0.13em]",
+                    listingIsActive
+                      ? "border-[var(--portal-gold)]/55 text-[var(--portal-navy)]"
+                      : "border-black/15 text-black/40",
+                  ].join(" ")}>
+                    {listingIsActive ? "Active" : "History"}
+                  </span>
+                ) : null}
+              </div>
               {askLeave ? (
                 <p className="text-[11px] font-light text-black/45">
                   Unsaved changes
@@ -862,6 +893,18 @@ export function FormEditor({
             </p>
           ) : null}
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {isListing ? (
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-light text-black/40">
+                {form.personId ? "Seller linked to Client" : "Select the seller Client"}
+              </span>
+              <ListingV4Controls
+                formId={form.id}
+                personId={form.personId}
+                locked={listingLocked}
+              />
+            </div>
+          ) : null}
           <div className="grid grid-cols-6 items-end gap-x-3 gap-y-3.5">
             {template.fields.map((field) => (
               <label
