@@ -3,6 +3,7 @@ import type {
   ServiceContext,
   ServiceDescriptor,
   ServiceDomainEvent,
+  ServiceInfrastructure,
   ServiceResult,
 } from './types'
 import { ServiceError } from './service-error'
@@ -10,16 +11,16 @@ import { ServiceError } from './service-error'
 /**
  * Shared mechanics for CulebraLuxe domain services.
  *
- * Business APIs stay on concrete services. This class owns only mechanics that
- * should behave consistently across every service: execution envelope,
- * authorization, audit, events, errors, correlation, and discovery metadata.
+ * Service instances are stateless with respect to actor/correlation context.
+ * Per-call context travels with the invocation (an envelope today, another
+ * transport tomorrow). The constructor only receives long-lived infrastructure.
  */
 export abstract class BaseService {
   abstract readonly domain: string
   abstract readonly version: string
   abstract readonly description: string
 
-  protected constructor(protected readonly context: ServiceContext) {}
+  protected constructor(protected readonly infrastructure: ServiceInfrastructure = {}) {}
 
   abstract capabilities(): readonly ServiceCapability[]
 
@@ -42,40 +43,48 @@ export abstract class BaseService {
     }
   }
 
-  protected async execute<T>(operation: string, work: () => Promise<T>): Promise<ServiceResult<T>> {
+  /** Common execution shell used by either envelope-style or method-style services. */
+  protected async run<T>(
+    operation: string,
+    context: ServiceContext,
+    work: () => Promise<T>,
+  ): Promise<ServiceResult<T>> {
     try {
       const value = await work()
-      await this.audit(operation, 'success')
-      return { ok: true, value, correlationId: this.context.correlationId }
+      await this.audit(operation, context, 'success')
+      return { ok: true, value, correlationId: context.correlationId }
     } catch (cause) {
       const error = ServiceError.from(cause)
-      await this.audit(operation, 'failure', error.code)
+      await this.audit(operation, context, 'failure', error.code)
       return {
         ok: false,
         error: error.toShape(),
-        correlationId: this.context.correlationId,
+        correlationId: context.correlationId,
       }
     }
   }
 
-  protected async authorize(action: string): Promise<void> {
-    if (!this.context.authorization) return
-    const allowed = await this.context.authorization.authorize({
+  protected async authorize(action: string, context: ServiceContext): Promise<void> {
+    if (!this.infrastructure.authorization) return
+    const allowed = await this.infrastructure.authorization.authorize({
       domain: this.domain,
       action,
-      actor: this.context.actor,
+      actor: context.actor,
     })
     if (!allowed) {
       throw new ServiceError('FORBIDDEN', `${this.domain}.${action} is not authorized`, false)
     }
   }
 
-  protected async emit(event: Omit<ServiceDomainEvent, 'correlationId' | 'causationId'>): Promise<void> {
-    if (!this.context.events) return
-    await this.context.events.emit({
+  protected async emit(
+    event: Omit<ServiceDomainEvent, 'correlationId' | 'causationId'>,
+    context: ServiceContext,
+  ): Promise<void> {
+    if (!this.infrastructure.events) return
+    await this.infrastructure.events.emit({
       ...event,
-      correlationId: this.context.correlationId,
-      causationId: this.context.causationId,
+      correlationId: context.correlationId,
+      causationId: context.causationId,
     })
   }
 
@@ -85,16 +94,17 @@ export abstract class BaseService {
 
   private async audit(
     operation: string,
+    context: ServiceContext,
     outcome: 'success' | 'failure',
     errorCode?: string,
   ): Promise<void> {
-    if (!this.context.audit) return
-    await this.context.audit.record({
+    if (!this.infrastructure.audit) return
+    await this.infrastructure.audit.record({
       domain: this.domain,
       operation,
-      actor: this.context.actor,
-      correlationId: this.context.correlationId,
-      causationId: this.context.causationId,
+      actor: context.actor,
+      correlationId: context.correlationId,
+      causationId: context.causationId,
       outcome,
       errorCode,
     })
