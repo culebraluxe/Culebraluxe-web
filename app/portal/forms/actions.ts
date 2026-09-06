@@ -55,9 +55,12 @@ async function directCreateContext(input: {
 
 /**
  * Deal may launch a service-owned form, but it must not remain the canonical
- * owner afterward. Preserve the useful one-time Deal facts (offer amount,
- * financing, closing date, etc.) in the new direct-context draft before the
- * Showing/Contract service binding takes ownership.
+ * owner afterward. Preserve useful one-time Deal facts in the new direct-
+ * context draft before Showing/Contract service binding takes ownership.
+ *
+ * OFFER-01 v2 intentionally removed Deal bindings from the template itself, so
+ * its economics are copied here explicitly as launch evidence rather than
+ * re-introducing Deal as a canonical source.
  */
 async function applyDealLaunchFacts(
   formId: string,
@@ -77,6 +80,13 @@ async function applyDealLaunchFacts(
     const value = launchValues[field.name]?.trim() ?? ''
     if (value) fieldValues[field.name] = launchValues[field.name]
   }
+
+  if (form.templateId === 'OFFER-01') {
+    if (facts.offerAmount?.trim()) fieldValues.offerAmount = facts.offerAmount
+    if (facts.financingType?.trim()) fieldValues.financing = facts.financingType
+    if (facts.closingDate?.trim()) fieldValues.closingDate = facts.closingDate
+  }
+
   await updateFormInstance(form.id, { fieldValues })
 }
 
