@@ -11,6 +11,7 @@ import {
 } from './listing-canonical-binding'
 import {
   LISTING_CANONICAL_FIELD_NAMES,
+  type ListingCanonicalFieldName,
   type ListingCanonicalFields,
 } from './listing-field-binding'
 import { syncOfferContractForm } from './offer-contract-binding'
@@ -61,7 +62,12 @@ export type FormServiceBindingOverrides = {
 
 export type FormServiceBindingResult =
   | { kind: 'none' }
-  | { kind: 'listing'; personId: string; physicalPropertyId: string | null }
+  | {
+      kind: 'listing'
+      personId: string
+      physicalPropertyId: string | null
+      updatedFields: ListingCanonicalFieldName[]
+    }
   | { kind: 'showing'; showingId: string }
   | { kind: 'contract'; contractId: string }
 
@@ -130,6 +136,11 @@ async function syncListingForm(
     }),
   ) as ListingCanonicalFields
 
+  const updatedFields = LISTING_CANONICAL_FIELD_NAMES.filter((name) => {
+    const next = fields[name].trim()
+    return Boolean(next) && next !== before.fields[name].trim()
+  })
+
   // Preserve hidden canonical qualifiers (for example legalOwnerName on the
   // immutable LISTING-01 v4 template) instead of clearing them simply because
   // the production editor does not render a field that the template does not own.
@@ -144,6 +155,7 @@ async function syncListingForm(
     kind: 'listing',
     personId,
     physicalPropertyId: result.physicalPropertyId,
+    updatedFields: [...updatedFields],
   }
 }
 
