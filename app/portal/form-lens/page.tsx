@@ -14,21 +14,29 @@ export const dynamic = "force-dynamic"
  * Forms architecture sidecar.
  *
  * Visual/interaction parity is intentionally delegated to the canonical
- * production FormEditor surface. The Form Lens controller/service experiment
- * remains available as the empty-state proving ground instead of maintaining a
- * second editor UI that can drift from production.
+ * production FormEditor surface. V4 deliberately prefers the active template's
+ * mutable draft so opening the sidecar cannot silently drop the operator into a
+ * historical Listing Agreement simply because that row was edited more recently.
  */
 export default async function FormLensPage() {
   const instances = await listFormInstances()
-  const latestListing = instances.find(
-    (item) => item.templateId === LISTING_AGREEMENT_TEMPLATE_ID,
-  )
-
-  if (latestListing) {
-    return <FormEditorSurface formId={latestListing.id} />
-  }
-
   const template = getActiveTemplate(LISTING_AGREEMENT_TEMPLATE_ID)
   if (!template) notFound()
+
+  const listings = instances.filter(
+    (item) => item.templateId === LISTING_AGREEMENT_TEMPLATE_ID,
+  )
+  const preferred =
+    listings.find(
+      (item) =>
+        item.templateVersion === template.version && item.status !== "issued",
+    ) ??
+    listings.find((item) => item.templateVersion === template.version) ??
+    listings[0]
+
+  if (preferred) {
+    return <FormEditorSurface formId={preferred.id} />
+  }
+
   return <FormLens template={template} />
 }
