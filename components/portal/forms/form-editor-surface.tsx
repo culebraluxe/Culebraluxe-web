@@ -12,6 +12,7 @@ import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import { loadListingCanonicalSnapshot } from "@/lib/forms/listing-canonical-binding"
 import { LISTING_CANONICAL_FIELD_NAMES } from "@/lib/forms/listing-field-binding"
 import { hydrateServiceBoundForm } from "@/lib/forms/form-service-hydration"
+import { applyTemplateFieldDefaults } from "@/lib/forms/offer-letter-data"
 import { FormEditor } from "@/components/portal/forms/form-editor"
 
 /**
@@ -37,6 +38,14 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
   let editorFieldValues = form.fieldValues
   let editorSections = form.sections
 
+  // Human-approved template defaults belong to the mutable working draft only.
+  // This also repairs older unissued drafts that predate a default (for example
+  // OFFER-01 brokerName and SHOW-RPT agentName) without ever reinterpreting an
+  // already-issued source snapshot.
+  if (!issuedDocument) {
+    editorFieldValues = applyTemplateFieldDefaults(template, editorFieldValues)
+  }
+
   // LISTING-01 canonical composition belongs under the proven editor, not in a
   // duplicate screen. Never reinterpret an already-issued artifact: immutable
   // issued bytes and their stored source snapshot remain the historical truth.
@@ -51,7 +60,7 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
       if (editorPersonId) {
         const canonical = await loadListingCanonicalSnapshot(editorPersonId)
         const templateFieldNames = new Set(template.fields.map((field) => field.name))
-        const hydrated = { ...form.fieldValues }
+        const hydrated = { ...editorFieldValues }
 
         for (const name of LISTING_CANONICAL_FIELD_NAMES) {
           if (!templateFieldNames.has(name)) continue
@@ -101,7 +110,7 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
         editorFieldValues,
         editorSections,
       )
-      editorFieldValues = hydrated.fieldValues
+      editorFieldValues = applyTemplateFieldDefaults(template, hydrated.fieldValues)
       editorSections = hydrated.sections
     } catch (error) {
       // Existing pre-refactor drafts remain usable if their canonical service
