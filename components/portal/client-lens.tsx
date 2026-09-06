@@ -226,7 +226,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
 
   useEffect(() => {
     void controller.dispatch({ operation: "clientLens.load", payload: {} })
-    return () => controller.dispose()
+    // Keep the memoized controller alive through React StrictMode cleanup/setup.
   }, [controller])
 
   useEffect(() => {
