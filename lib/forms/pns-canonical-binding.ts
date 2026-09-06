@@ -35,9 +35,7 @@ type PnsFormEvidenceRow = {
   field_values: unknown
   updated_at: string | Date
 }
-
 type ContractIdRow = { id: string }
-
 type FormEvidence = {
   id: string
   propertyId: string | null
@@ -111,7 +109,6 @@ async function latestPnsEvidence(personId: string): Promise<FormEvidence | null>
     order by f.updated_at desc, f.id desc
     limit 1
   `) as PnsFormEvidenceRow[]
-
   const row = rows[0]
   if (!row) return null
   return {
@@ -122,10 +119,7 @@ async function latestPnsEvidence(personId: string): Promise<FormEvidence | null>
   }
 }
 
-async function findDraftContractId(
-  personId: string,
-  evidenceId: string | null,
-): Promise<string | null> {
+async function findDraftContractId(personId: string, evidenceId: string | null): Promise<string | null> {
   const rows = (await sql`
     select distinct c.id
     from contract c
@@ -222,8 +216,8 @@ export async function loadPnsCanonicalSnapshot(
   ])
   if (!person) throw new Error(`Person not found: ${cleanPersonId}`)
 
-  const contractId = compact(requestedContractId)
-    || await findDraftContractId(cleanPersonId, evidence?.id ?? null)
+  const requestedId = compact(requestedContractId)
+  const contractId = requestedId || await findDraftContractId(cleanPersonId, evidence?.id ?? null)
   const contract = contractId
     ? await serviceValue(
         core.contract.execute({
@@ -261,7 +255,6 @@ export async function loadPnsCanonicalSnapshot(
     const field = roleField(role)
     if (field) put(fields, origins, field, role.snapshotName, role.kind === 'firm' ? 'firm' : 'role', false)
   }
-
   for (const [name, raw] of Object.entries(contract?.facts ?? {})) {
     if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
       put(fields, origins, name, String(raw), 'contract', true)
@@ -299,9 +292,8 @@ function keepExistingRole(role: ContractRoleDto, fields: PnsCanonicalFields): bo
   const field = roleField(role)
   if (!field) return true
   const current = compact(fields[field])
-  if (!current) return false
   const snapshot = compact(role.snapshotName)
-  return Boolean(snapshot) && normalized(snapshot) === normalized(current)
+  return Boolean(current && snapshot && normalized(snapshot) === normalized(current))
 }
 
 function dedupeRoles(roles: readonly ContractRoleDto[]): ContractRoleDto[] {
@@ -423,7 +415,7 @@ export async function savePnsCanonicalFields(
     roles.push({ kind: 'firm', firmId: escrowFirm.id, roleCode: 'ESCROW_HOLDER', snapshotName: compact(fields.escrowHolder) })
   }
 
-  const contractId = before.contractId ?? compact(request.contractId) || randomUUID()
+  const contractId = before.contractId ?? (compact(request.contractId) || randomUUID())
   const saved = await serviceValue(
     core.contract.execute({
       operation: CONTRACT_OPERATIONS.SAVE_DRAFT,
