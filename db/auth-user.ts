@@ -4,10 +4,10 @@ import type { ActingUser } from '@/lib/auth/types'
 // AUTH-02 canonical security read service.
 //
 // Resolves an app_user id to its effective security principal:
-//   app_user → active security roles → active role authorities
+//   app_user → active roles → active role authorities
 //
 // - inactive app_user is NOT an acting principal (returns null)
-// - inactive security roles do not grant authorities
+// - inactive roles do not grant authorities
 // - authority codes are deduplicated and deterministically ordered
 // - no business-domain reads are mixed in here
 
@@ -36,7 +36,7 @@ export async function getSecurityPrincipal(
         from (
           select distinct r.code
           from app_user_role aur
-          join security_role r
+          join role r
             on r.id = aur.role_id
             and r.active = true
           where aur.app_user_id = u.id
@@ -47,7 +47,7 @@ export async function getSecurityPrincipal(
         from (
           select distinct a.code
           from app_user_role aur
-          join security_role r
+          join role r
             on r.id = aur.role_id
             and r.active = true
           join role_authority ra
