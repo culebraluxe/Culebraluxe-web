@@ -1,5 +1,4 @@
-export { PersonEnvelopeService } from './person-service-envelope'
-export { PersonMethodService } from './person-service-methods'
+export { PersonService } from './person-service'
 export type { PersonRepository } from './repository'
 export {
   PERSON_OPERATIONS,
@@ -9,9 +8,7 @@ export {
   type PersonDto,
   type PersonEnvelope,
   type PersonIdentityDto,
+  type PersonOperationMap,
   type PersonOperationName,
-  type PersonRequestByOperation,
-  type PersonResponse,
-  type PersonResponseByOperation,
   type SetPersonDisplayNameRequest,
 } from './types'
