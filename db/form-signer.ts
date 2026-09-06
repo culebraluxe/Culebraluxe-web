@@ -35,7 +35,7 @@ export async function listFormSignerPeople(
   const people: FormSignerPerson[] = []
 
   const formRows = await q`
-    select f.person_id, f.deal_id, f.template_id,
+    select f.person_id, f.deal_id, f.template_id, f.status,
       person.display_name as person_name,
       person.id as resolved_person_id
     from document_form_instance f
@@ -48,12 +48,17 @@ export async function listFormSignerPeople(
         person_id?: string | null
         deal_id?: string | null
         template_id?: string | null
+        status?: string | null
         person_name?: string | null
         resolved_person_id?: string | null
       }
     | undefined
   if (!formRow) return []
   const templateId = String(formRow.template_id ?? "")
+  const listingDirectDraft =
+    templateId === LISTING_TEMPLATE_ID &&
+    String(formRow.status ?? "") !== "issued" &&
+    Boolean(formRow.resolved_person_id)
 
   if (formRow.resolved_person_id) {
     const emailRows = await q`
@@ -70,11 +75,15 @@ export async function listFormSignerPeople(
       email: emailRows[0]?.identity_value
         ? String(emailRows[0].identity_value)
         : null,
-      role: "CLIENT",
+      role: listingDirectDraft ? "SELLER" : "CLIENT",
     })
   }
 
-  if (formRow.deal_id) {
+  // Once a mutable Listing has an explicit V4 Person context, that Person is
+  // the seller source of truth. Do not also surface stale legacy Deal seller
+  // candidates from the prior context. Issued/historical Listings retain their
+  // original participant-resolution behavior unchanged.
+  if (formRow.deal_id && !listingDirectDraft) {
     const clientRows = await q`
       select p.id, p.display_name,
         (
