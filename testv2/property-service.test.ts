@@ -1,7 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { PropertyService } from '../services/property'
-import type { PropertyDto, PropertyRepository } from '../services/property'
+import type {
+  PropertyDto,
+  PropertyForPersonDto,
+  PropertyRepository,
+  UpsertPropertyForPersonRequest,
+} from '../services/property'
 import { capturingInfrastructure, context } from './test-support'
 
 // ---------------------------------------------------------------------------
@@ -48,9 +53,9 @@ class MemoryPropertyRepository implements PropertyRepository {
   async forPerson(personId: string) {
     return { personId, properties: [], observedAddresses: [] }
   }
-  async upsertForPerson(request: { personId: string; relation: string }): Promise<{ relation: string; relationStatus: null; property: PropertyDto }> {
+  async upsertForPerson(request: UpsertPropertyForPersonRequest): Promise<PropertyForPersonDto> {
     const property = [...this.map.values()][0] ?? prop()
-    return { relation: request.relation, relationStatus: null, property }
+    return { relation: request.relation, relationStatus: request.relationStatus ?? null, property }
   }
   async setDisplayName(request: { propertyId: string; displayName: string }): Promise<PropertyDto> {
     const existing = this.map.get(request.propertyId)
