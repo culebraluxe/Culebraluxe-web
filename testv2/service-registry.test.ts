@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ServiceRegistry } from './service-registry'
-import type { ServiceDescriptor, ServiceEndpoint, ServiceEnvelope, ServiceResult } from './types'
+import { ServiceRegistry } from '../services/core/service-registry'
+import type { ServiceDescriptor, ServiceEndpoint, ServiceEnvelope, ServiceResult } from '../services/core/types'
 
 // ---------------------------------------------------------------------------
-// ServiceRegistry (the ServiceRouter): registration, discovery, and envelope
-// dispatch routing. Tests are DB-free; a stub ServiceEndpoint stands in.
+// TESTV2 — ServiceRegistry (the ServiceRouter): registration, discovery, and
+// envelope dispatch routing. DB-free; a stub ServiceEndpoint stands in.
 // ---------------------------------------------------------------------------
 
 function stubEndpoint(domain: string, value: unknown = { n: 1 }): ServiceEndpoint {
@@ -29,7 +29,7 @@ function stubEndpoint(domain: string, value: unknown = { n: 1 }): ServiceEndpoin
 
 const env = { context: { actor: { id: 'sys', kind: 'system' as const }, correlationId: 'c' } }
 
-test('register/get/require expose a service under its domain', async () => {
+test('register/get/require expose a service under its domain', () => {
   const registry = new ServiceRegistry()
   const person = stubEndpoint('person')
   registry.register(person)
@@ -52,8 +52,7 @@ test('list() returns descriptors sorted by domain', () => {
   const registry = new ServiceRegistry()
   registry.register(stubEndpoint('firm'))
   registry.register(stubEndpoint('person'))
-  const list = registry.list()
-  assert.deepEqual(list.map((d) => d.domain), ['firm', 'person'])
+  assert.deepEqual(registry.list().map((d) => d.domain), ['firm', 'person'])
 })
 
 test('dispatch routes an envelope to the owning service and echoes correlationId', async () => {

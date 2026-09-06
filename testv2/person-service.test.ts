@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makePersonHarness, newContext } from '../test-support'
-import type { PersonDto } from './types'
+import { makePersonHarness, newContext } from './test-support'
+import type { PersonDto } from '../services/person/types'
 
 // ---------------------------------------------------------------------------
-// CORE service envelope tests (Person domain). Proves the typed envelope
-// boundary: queries, commands, events, authorization, audit, and errors all
-// flow through BaseService's single ingress without a database.
+// TESTV2 — CORE service envelope tests (Person domain). Proves the typed
+// envelope boundary: queries, commands, events, authorization, audit, and
+// errors all flow through BaseService's single ingress without a database.
 // ---------------------------------------------------------------------------
 
 const actor = { id: 'u-1', kind: 'user' as const }
@@ -15,22 +15,14 @@ const person: PersonDto = { id: 'p1', displayName: 'Dana', status: 'active', arc
 test('person.get returns the canonical DTO for a known id', async () => {
   const { service, repository } = makePersonHarness()
   repository.seed(person)
-  const res = await service.execute({
-    operation: 'person.get',
-    payload: { personId: 'p1' },
-    context: newContext(actor),
-  })
+  const res = await service.execute({ operation: 'person.get', payload: { personId: 'p1' }, context: newContext(actor) })
   assert.equal(res.ok, true)
   if (res.ok) assert.deepEqual(res.value, person)
 })
 
 test('person.get for an unknown id returns ok:true, value:null', async () => {
   const { service } = makePersonHarness()
-  const res = await service.execute({
-    operation: 'person.get',
-    payload: { personId: 'missing' },
-    context: newContext(actor),
-  })
+  const res = await service.execute({ operation: 'person.get', payload: { personId: 'missing' }, context: newContext(actor) })
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value, null)
 })
@@ -46,10 +38,7 @@ test('person.setDisplayName is a command that updates + emits a domain event', a
   assert.equal(res.ok, true)
   assert.equal(res.ok && res.correlationId, 'corr-x')
   if (res.ok) assert.equal(res.value.displayName, 'Dana R.')
-  assert.ok(
-    infra.events.some((e) => e.type === 'person.display_name_changed' && e.aggregateId === 'p1'),
-    'a display_name_changed event was emitted',
-  )
+  assert.ok(infra.events.some((e) => e.type === 'person.display_name_changed' && e.aggregateId === 'p1'))
   assert.ok(infra.audits.some((a) => a.operation === 'person.setDisplayName' && a.outcome === 'success'))
 })
 

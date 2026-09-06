@@ -1,10 +1,11 @@
 // ---------------------------------------------------------------------------
-// Test support for the services architecture (CORE).
+// TESTV2 silo — shared service-tier test support.
 //
-// Provides an in-memory PersonRepository and capturing infrastructure fakes
-// (events / audit / authorization / correlation) so service behavior can be
-// tested deterministically at the envelope boundary without a database. New
-// domain tests can share this harness and add their own repository fakes.
+// Provides an in-memory PersonRepository and capturing infrastructure fakes so
+// service behavior can be tested deterministically at the envelope boundary
+// without a database. New domain tests in this silo add their own repo fakes
+// and reuse these captures. The silo imports the REAL services/ source by
+// relative path; it never ships with the app.
 // ---------------------------------------------------------------------------
 
 import type {
@@ -14,15 +15,15 @@ import type {
   ServiceContext,
   ServiceDomainEvent,
   ServiceInfrastructure,
-} from './core'
-import { PersonService, type PersonRepository } from './person'
+} from '../services/core'
+import { PersonService, type PersonRepository } from '../services/person'
 import type {
   AttachPersonIdentityRequest,
   FindPersonByIdentityRequest,
   PersonDto,
   PersonIdentityDto,
   SetPersonDisplayNameRequest,
-} from './person'
+} from '../services/person'
 
 export type TestActor = ServiceActor
 
@@ -65,7 +66,7 @@ export function capturingInfrastructure(): CapturingInfrastructure {
   }
 }
 
-/** Deterministic in-memory PersonRepository with identity lookup. */
+/** Deterministic in-memory PersonRepository with identity lookup + ownership. */
 export class MemoryPersonRepository implements PersonRepository {
   private readonly persons = new Map<string, PersonDto>()
   private readonly identityOwner = new Map<string, string>() // identityKey -> personId
