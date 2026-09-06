@@ -136,12 +136,19 @@ export async function updateFormAction(
   formId: string,
   fieldValues: Record<string, string>,
   sections: Record<string, string>,
-): Promise<FormActionResult<{ updated: boolean }>> {
+): Promise<FormActionResult<{ updated: boolean; canonicalUpdates?: string[] }>> {
   const result = await coreUpdateFormAction(formId, fieldValues, sections)
   if (!result.ok) return result
   try {
-    await syncFormServiceBinding(formId)
-    return result
+    const binding = await syncFormServiceBinding(formId)
+    return {
+      ok: true,
+      data: {
+        updated: true,
+        canonicalUpdates:
+          binding.kind === 'listing' ? [...binding.updatedFields] : [],
+      },
+    }
   } catch (error) {
     console.error('Form service binding failed during save.', error)
     return bindingFail('The form was saved, but its service-side draft could not be synchronized.')
