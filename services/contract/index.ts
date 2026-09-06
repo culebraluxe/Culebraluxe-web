@@ -12,6 +12,7 @@ export {
   type ContractRoleAttributes,
   type ContractRoleDto,
   type CreateContractFromFormRequest,
+  type SaveContractDraftRequest,
   type ExecuteContractRequest,
   type GetContractEffectiveStateRequest,
   type GetContractRequest,
