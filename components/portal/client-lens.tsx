@@ -109,10 +109,20 @@ function RelationshipChannelRow({ channel }: { channel: ClientLensChannelModel }
 }
 
 function DetailField({ label, value }: { label: string; value: string }) {
+  const populated = value !== "—"
   return (
     <div>
       <div className="text-[10px] font-light uppercase tracking-[0.16em] text-black/35">{label}</div>
-      <div className="mt-1 break-words text-sm font-light leading-5 text-black/70">{value}</div>
+      <div className="mt-1 flex items-start gap-2 text-sm font-light leading-5 text-black/70">
+        <span
+          aria-hidden
+          className={[
+            "mt-1.5 h-2 w-2 shrink-0 rounded-full ring-1 ring-black/35",
+            populated ? "bg-[var(--portal-gold)]" : "bg-transparent",
+          ].join(" ")}
+        />
+        <span className="min-w-0 break-words">{value}</span>
+      </div>
     </div>
   )
 }
@@ -531,8 +541,8 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
               )}
             </main>
 
-            <aside className="min-h-0 overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy-deep)] text-white shadow-sm">
-              <div className="border-b border-white/10 px-4 py-3">
+            <aside className="flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)] bg-[var(--portal-navy-deep)] text-white shadow-sm">
+              <div className="shrink-0 border-b border-white/10 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">Relationship</div>
@@ -543,7 +553,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                   </div>
                 </div>
               </div>
-              <ol className="min-h-0 overflow-y-auto">
+              <ol className="min-h-0 flex-1 overflow-y-auto">
                 {model.channels.length > 0 ? (
                   model.channels.map((channel) => <RelationshipChannelRow key={channel.slot} channel={channel} />)
                 ) : (
