@@ -3,6 +3,7 @@ import type { QueryExecutor } from './query-executor'
 import type {
   FindPropertyByAddressRequest,
   PersonPropertyContextDto,
+  PersonPropertyRelation,
   PropertyAddressDto,
   PropertyDto,
   PropertyForPersonDto,
@@ -14,16 +15,21 @@ import type {
 
 type PropertyRow = {
   id: string
-  name: string
+  name: string | null
+  legal_owner_name: string | null
   status: string
   archived_at: string | Date | null
   location: string | null
   city: string | null
   state_or_province: string | null
   neighborhood: string | null
+  postal_code: string | null
+  country: string | null
+  iso_country_code: string | null
 }
 
 type PropertyForPersonRow = PropertyRow & {
+  relation_type: PersonPropertyRelation
   relation_status: string | null
 }
 
@@ -41,6 +47,8 @@ type ObservedAddressRow = {
   ordinal: number
 }
 
+type RelationTableRow = { table_name: string | null }
+
 function toIso(value: string | Date | null | undefined): string | null {
   if (value == null) return null
   const date = value instanceof Date ? value : new Date(value)
@@ -53,9 +61,9 @@ function canonicalAddress(row: PropertyRow): PropertyAddressDto {
     city: row.city,
     stateOrProvince: row.state_or_province,
     neighborhood: row.neighborhood,
-    postalCode: null,
-    country: null,
-    isoCountryCode: null,
+    postalCode: row.postal_code,
+    country: row.country,
+    isoCountryCode: row.iso_country_code,
   }
 }
 
@@ -71,12 +79,28 @@ function observedAddress(row: ObservedAddressRow): PropertyAddressDto {
   }
 }
 
+function addressLabel(address: PropertyAddressDto): string {
+  return [
+    address.addressLine1,
+    address.neighborhood,
+    address.city,
+    [address.stateOrProvince, address.postalCode].filter(Boolean).join(' ') || null,
+    address.country,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(', ') || 'Property'
+}
+
 function toProperty(row: PropertyRow): PropertyDto {
   const address = canonicalAddress(row)
+  const localName = row.name?.trim() || null
   return {
     id: row.id,
-    displayName: row.name,
-    // Compatibility aliases while V1 callers move onto structured address.
+    // Existing callers can keep rendering displayName while the domain contract
+    // exposes the real optional qualifier as localName.
+    displayName: localName ?? addressLabel(address),
+    localName,
+    legalOwnerName: row.legal_owner_name?.trim() || null,
     addressLine1: address.addressLine1,
     municipality: address.city,
     address,
@@ -89,21 +113,37 @@ function normalized(value: string | null | undefined): string {
   return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+function relationRank(relation: PersonPropertyRelation): number {
+  switch (relation) {
+    case 'legal_address': return 0
+    case 'physical_property': return 1
+    case 'address': return 2
+    case 'interest': return 3
+  }
+}
+
 /**
  * Production adapter behind PropertyService.
  *
- * It deliberately owns both canonical Property reads and the Apple-address
- * evidence projection used to propose/match Property context for a Person.
- * UI and Forms consume the Property service contract, never l_person_address.
+ * Canonical address/place truth lives in Property. person_property supplies the
+ * contextual Person -> Property relationship. Legacy property_interest and
+ * seller_person_id are read as compatibility seams while the new relation is
+ * rolled out. Apple Contacts remains provenance/evidence until promoted.
  */
 export class SqlPropertyRepository implements PropertyRepository {
   constructor(private readonly execute: QueryExecutor = sql) {}
 
   async get(propertyId: string): Promise<PropertyDto | null> {
     const rows = (await this.execute`
-      select id, name, status, archived_at, location, city, state_or_province, neighborhood
-      from property
-      where id = ${propertyId}
+      select
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.status, p.archived_at,
+        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
+      from property p
+      where p.id = ${propertyId}
       limit 1
     `) as PropertyRow[]
     return rows[0] ? toProperty(rows[0]) : null
@@ -113,31 +153,104 @@ export class SqlPropertyRepository implements PropertyRepository {
     const line = request.addressLine1.trim()
     const municipality = request.municipality?.trim() || null
     const state = request.stateOrProvince?.trim() || null
+    const postalCode = request.postalCode?.trim() || null
     const rows = (await this.execute`
-      select id, name, status, archived_at, location, city, state_or_province, neighborhood
-      from property
-      where archived_at is null
-        and lower(trim(coalesce(location, ''))) = lower(trim(${line}))
-        and (${municipality}::text is null or lower(trim(coalesce(city, ''))) = lower(trim(${municipality})))
-        and (${state}::text is null or lower(trim(coalesce(state_or_province, ''))) = lower(trim(${state})))
-      order by updated_at desc nulls last, id asc
+      select
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.status, p.archived_at,
+        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
+      from property p
+      where p.archived_at is null
+        and lower(trim(coalesce(p.location, ''))) = lower(trim(${line}))
+        and (${municipality}::text is null or lower(trim(coalesce(p.city, ''))) = lower(trim(${municipality})))
+        and (${state}::text is null or lower(trim(coalesce(p.state_or_province, ''))) = lower(trim(${state})))
+        and (${postalCode}::text is null or lower(trim(coalesce(p.postal_code, ''))) = lower(trim(${postalCode})))
+      order by p.updated_at desc nulls last, p.id asc
       limit 1
     `) as PropertyRow[]
     return rows[0] ? toProperty(rows[0]) : null
   }
 
   async forPerson(personId: string): Promise<PersonPropertyContextDto> {
-    const canonicalRows = (await this.execute`
+    const relationTable = (await this.execute`
+      select to_regclass('public.person_property')::text as table_name
+    `) as RelationTableRow[]
+
+    const canonicalRows: PropertyForPersonRow[] = []
+
+    if (relationTable[0]?.table_name) {
+      const rows = (await this.execute`
+        select distinct
+          p.id, p.name,
+          to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+          p.status, p.archived_at,
+          p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+          to_jsonb(p)->>'country' as country,
+          to_jsonb(p)->>'iso_country_code' as iso_country_code,
+          pp.relation_type,
+          pp.relation_status
+        from person_property pp
+        join property p on p.id = pp.property_id
+        where pp.person_id = ${personId}
+          and p.archived_at is null
+      `) as PropertyForPersonRow[]
+      canonicalRows.push(...rows)
+    }
+
+    // Compatibility: existing buyer-interest relationships remain visible.
+    const legacyInterestRows = (await this.execute`
       select distinct
-        p.id, p.name, p.status, p.archived_at,
-        p.location, p.city, p.state_or_province, p.neighborhood,
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.status, p.archived_at,
+        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code,
+        'interest'::text as relation_type,
         pi.status as relation_status
       from property_interest pi
       join property p on p.id = pi.property_id
       where pi.person_id = ${personId}
         and p.archived_at is null
-      order by p.name asc, p.id asc
     `) as PropertyForPersonRow[]
+    canonicalRows.push(...legacyInterestRows)
+
+    // Compatibility: old listings encoded seller directly on Property.
+    const legacySellerRows = (await this.execute`
+      select distinct
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.status, p.archived_at,
+        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code,
+        'physical_property'::text as relation_type,
+        null::text as relation_status
+      from property p
+      where p.seller_person_id = ${personId}
+        and p.archived_at is null
+    `) as PropertyForPersonRow[]
+    canonicalRows.push(...legacySellerRows)
+
+    const properties: PropertyForPersonDto[] = []
+    const seenRelations = new Set<string>()
+    for (const row of canonicalRows) {
+      const key = `${row.id}:${row.relation_type}`
+      if (seenRelations.has(key)) continue
+      seenRelations.add(key)
+      properties.push({
+        relation: row.relation_type,
+        relationStatus: row.relation_status,
+        property: toProperty(row),
+      })
+    }
+    properties.sort((a, b) =>
+      relationRank(a.relation) - relationRank(b.relation) ||
+      a.property.displayName.localeCompare(b.property.displayName),
+    )
 
     const observedRows = (await this.execute`
       select
@@ -162,12 +275,6 @@ export class SqlPropertyRepository implements PropertyRepository {
         and lp.source = 'apple_contacts'
       order by lp.source_contact_id asc, a.ordinal asc
     `) as ObservedAddressRow[]
-
-    const properties: PropertyForPersonDto[] = canonicalRows.map((row) => ({
-      relation: 'interest',
-      relationStatus: row.relation_status,
-      property: toProperty(row),
-    }))
 
     const observedAddresses: PropertyObservedAddressDto[] = []
     for (const row of observedRows) {
@@ -204,10 +311,16 @@ export class SqlPropertyRepository implements PropertyRepository {
 
   async setDisplayName(request: SetPropertyDisplayNameRequest): Promise<PropertyDto> {
     const rows = (await this.execute`
-      update property
+      update property p
       set name = ${request.displayName}, updated_at = now()
-      where id = ${request.propertyId}
-      returning id, name, status, archived_at, location, city, state_or_province, neighborhood
+      where p.id = ${request.propertyId}
+      returning
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.status, p.archived_at,
+        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
     `) as PropertyRow[]
     if (!rows[0]) throw new Error(`Property not found: ${request.propertyId}`)
     return toProperty(rows[0])
@@ -215,10 +328,16 @@ export class SqlPropertyRepository implements PropertyRepository {
 
   async setStatus(request: SetPropertyStatusRequest): Promise<PropertyDto> {
     const rows = (await this.execute`
-      update property
+      update property p
       set status = ${request.status}, updated_at = now()
-      where id = ${request.propertyId}
-      returning id, name, status, archived_at, location, city, state_or_province, neighborhood
+      where p.id = ${request.propertyId}
+      returning
+        p.id, p.name,
+        to_jsonb(p)->>'legal_owner_name' as legal_owner_name,
+        p.status, p.archived_at,
+        p.location, p.city, p.state_or_province, p.neighborhood, p.postal_code,
+        to_jsonb(p)->>'country' as country,
+        to_jsonb(p)->>'iso_country_code' as iso_country_code
     `) as PropertyRow[]
     if (!rows[0]) throw new Error(`Property not found: ${request.propertyId}`)
     return toProperty(rows[0])

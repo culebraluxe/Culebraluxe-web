@@ -1,11 +1,10 @@
 import type { ServiceEnvelopeFor, ServiceOperationName } from '../core'
 
 /**
- * Canonical reusable physical-address DTO.
+ * Canonical reusable address/place DTO.
  *
- * This is intentionally transport/form friendly: Apple Contacts can supply the
- * same shape as Property, and Forms can hydrate from Property without learning
- * anything about Apple ODS or Property persistence.
+ * Address-shaped facts live in Property. Apple Contacts, Forms, Client Lens,
+ * and Contracts can all use this shape without learning one another's storage.
  */
 export type PropertyAddressDto = {
   addressLine1: string | null
@@ -17,9 +16,27 @@ export type PropertyAddressDto = {
   isoCountryCode: string | null
 }
 
+/**
+ * Why a Property matters to a Person. The relationship supplies context;
+ * Property remains the owner of the address/place truth.
+ */
+export type PersonPropertyRelation =
+  | 'address'
+  | 'legal_address'
+  | 'physical_property'
+  | 'interest'
+
 export type PropertyDto = {
   id: string
+  /**
+   * Presentation fallback retained for existing callers. Canonical local name
+   * is optional; when absent this may be derived from the address.
+   */
   displayName: string
+  /** Human/local name for the place, e.g. "Casa Luar" or "Sea to Soul". */
+  localName: string | null
+  /** Name appearing on title, e.g. a person, LLC, or trust. Not a Person identity. */
+  legalOwnerName: string | null
   /** Compatibility aliases for the first service-core experiment. */
   addressLine1: string | null
   municipality: string | null
@@ -31,15 +48,14 @@ export type PropertyDto = {
 
 /** Contextual relationship to a canonical Property; Property identity stays independent. */
 export type PropertyForPersonDto = {
-  relation: 'interest'
+  relation: PersonPropertyRelation
   relationStatus: string | null
   property: PropertyDto
 }
 
 /**
- * Structured address evidence observed outside canonical Property state.
- * Apple Contacts is the first producer. Matching is advisory until a canonical
- * Property is explicitly selected/created.
+ * ODS evidence awaiting promotion into Property. This is provenance/input, not
+ * a second canonical Address model. Apple Contacts is the first producer.
  */
 export type PropertyObservedAddressDto = {
   source: string

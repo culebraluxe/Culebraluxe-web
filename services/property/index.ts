@@ -6,6 +6,7 @@ export {
   type GetPropertiesForPersonRequest,
   type GetPropertyRequest,
   type PersonPropertyContextDto,
+  type PersonPropertyRelation,
   type PropertyAddressDto,
   type PropertyDto,
   type PropertyEnvelope,

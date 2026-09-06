@@ -13,7 +13,7 @@ import {
 export class PropertyService extends BaseService<PropertyOperationMap> {
   readonly domain = 'property'
   readonly version = '1'
-  readonly description = 'Owns canonical property identity, structured address, and property state.'
+  readonly description = 'Owns canonical address/place identity, structured address, and Property qualifiers.'
   protected readonly operations: ServiceOperationDefinitions<PropertyOperationMap>
 
   constructor(
@@ -25,7 +25,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
     this.operations = {
       [PROPERTY_OPERATIONS.GET]: {
         kind: 'query',
-        description: 'Return one canonical property by id, including reusable structured address.',
+        description: 'Return one canonical Property by id, including reusable structured address and qualifiers.',
         authorization: 'property.read',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -33,7 +33,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.FIND_BY_ADDRESS]: {
         kind: 'query',
-        description: 'Resolve a canonical property by normalized structured-address input.',
+        description: 'Resolve a canonical Property by normalized structured-address input.',
         authorization: 'property.read',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -41,7 +41,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.FOR_PERSON]: {
         kind: 'query',
-        description: 'Return canonical Property relationships plus observed address candidates for one Person.',
+        description: 'Return canonical Person-to-Property relationships plus unpromoted address evidence.',
         authorization: 'property.read',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -49,7 +49,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.SET_DISPLAY_NAME]: {
         kind: 'command',
-        description: 'Change the canonical display name for a property.',
+        description: 'Compatibility command for changing the optional local/property name.',
         authorization: 'property.write',
         execution: { mode: 'ordered', partitionBy: 'propertyId' },
         handle: async (request, context) => {
@@ -67,7 +67,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.SET_STATUS]: {
         kind: 'command',
-        description: 'Change canonical property status.',
+        description: 'Change canonical Property status.',
         authorization: 'property.write',
         execution: { mode: 'ordered', partitionBy: 'propertyId' },
         handle: async (request, context) => {
@@ -88,10 +88,11 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
 
   invariants() {
     return [
-      'Property owns canonical property identity, structured physical address, and property facts independent of any Contract.',
-      'External address observations such as Apple Contacts remain evidence until matched or promoted to canonical Property.',
-      'Person may reference Property context, but Person does not own canonical property-address truth.',
-      'Listing, buyer, seller, and deal-specific semantics do not belong in Property.',
+      'Property is the canonical home for address/place truth; Person does not own address fields.',
+      'Person-to-Property relationships supply context such as legal_address, physical_property, address, or interest.',
+      'localName and legalOwnerName are optional Property qualifiers, not separate entities and never surrogate Persons.',
+      'External address observations such as Apple Contacts remain provenance until matched or promoted to canonical Property.',
+      'Contract-specific terms do not belong in Property; issued Contracts snapshot the Property facts they used.',
       'Property persistence is reachable only through the Property repository boundary.',
     ] as const
   }
