@@ -18,7 +18,6 @@ import { LISTING_CANONICAL_FIELD_NAMES } from "@/lib/forms/listing-field-binding
 import { hydrateServiceBoundForm } from "@/lib/forms/form-service-hydration"
 import { applyTemplateFieldDefaults } from "@/lib/forms/offer-letter-data"
 import { FormEditor } from "@/components/portal/forms/form-editor"
-import { ListingV4Controls } from "@/components/portal/forms/listing-v4-controls"
 
 /**
  * Canonical Forms working surface loader.
@@ -174,74 +173,61 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
   })
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
-      {template.id === "LISTING-01" ? (
-        <ListingV4Controls
-          formId={form.id}
-          personId={editorPersonId}
-          sellerName={editorFieldValues.sellerName ?? ""}
-          templateVersion={template.version}
-          activeTemplateVersion={activeTemplate?.version ?? template.version}
-          status={form.status}
-          issued={Boolean(issuedDocument)}
-        />
-      ) : null}
-
-      <FormEditor
-        key={form.id}
-        form={{
-          id: form.id,
-          status: form.status,
-          templateId: form.templateId,
-          dealId: form.dealId,
-          personId: editorPersonId,
-          propertyId: editorPropertyId,
-          fieldValues: editorFieldValues,
-          sections: editorSections,
-        }}
-        template={template}
-        templates={templates}
-        savedForms={orderedSavedForms.map((item) => {
-          const itemActiveVersion = getActiveTemplate(item.templateId)?.version ?? item.templateVersion
-          const history = item.templateVersion !== itemActiveVersion
-          const versionLabel = `v${item.templateVersion}${history ? " · history" : ""}`
-          return {
-            id: item.id,
-            templateId: item.templateId,
-            status: item.status,
-            clientName: item.clientName,
-            propertyLabel: [item.propertyLabel, versionLabel]
-              .filter(Boolean)
-              .join(" · "),
-            buyerName:
-              item.fieldValues.buyerName ??
-              item.fieldValues.visitorName ??
-              null,
-            sellerName: item.fieldValues.sellerName ?? null,
-            updatedAt: item.updatedAt,
-          }
-        })}
-        issuedDocument={
-          issuedDocument
-            ? {
-                documentId: issuedDocument.documentId,
-                issuedVersion: issuedDocument.issuedVersion,
-                checksum: issuedDocument.checksum,
-                contentFingerprint: issuedContentFingerprint,
-              }
-            : null
+    <FormEditor
+      key={form.id}
+      form={{
+        id: form.id,
+        status: form.status,
+        templateId: form.templateId,
+        dealId: form.dealId,
+        personId: editorPersonId,
+        propertyId: editorPropertyId,
+        fieldValues: editorFieldValues,
+        sections: editorSections,
+      }}
+      template={template}
+      activeTemplateVersion={activeTemplate?.version ?? template.version}
+      templates={templates}
+      savedForms={orderedSavedForms.map((item) => {
+        const itemActiveVersion = getActiveTemplate(item.templateId)?.version ?? item.templateVersion
+        const history = item.templateVersion !== itemActiveVersion
+        const versionLabel = `v${item.templateVersion}${history ? " · history" : ""}`
+        return {
+          id: item.id,
+          templateId: item.templateId,
+          status: item.status,
+          clientName: item.clientName,
+          propertyLabel: [item.propertyLabel, versionLabel]
+            .filter(Boolean)
+            .join(" · "),
+          buyerName:
+            item.fieldValues.buyerName ??
+            item.fieldValues.visitorName ??
+            null,
+          sellerName: item.fieldValues.sellerName ?? null,
+          updatedAt: item.updatedAt,
         }
-        signerCandidates={signerCandidates}
-        sendAllRequiredSigners={isExecutionEligibleTemplate(template.id)}
-        signatureRequest={
-          signatureRequest
-            ? {
-                id: signatureRequest.id,
-                status: signatureRequest.status,
-              }
-            : null
-        }
-      />
-    </div>
+      })}
+      issuedDocument={
+        issuedDocument
+          ? {
+              documentId: issuedDocument.documentId,
+              issuedVersion: issuedDocument.issuedVersion,
+              checksum: issuedDocument.checksum,
+              contentFingerprint: issuedContentFingerprint,
+            }
+          : null
+      }
+      signerCandidates={signerCandidates}
+      sendAllRequiredSigners={isExecutionEligibleTemplate(template.id)}
+      signatureRequest={
+        signatureRequest
+          ? {
+              id: signatureRequest.id,
+              status: signatureRequest.status,
+            }
+          : null
+      }
+    />
   )
 }
