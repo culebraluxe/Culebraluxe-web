@@ -121,6 +121,78 @@ export class ContractService extends BaseService<ContractOperationMap> {
           return contract
         },
       },
+      [CONTRACT_OPERATIONS.SAVE_DRAFT]: {
+        kind: 'command',
+        description: 'Create or replace mutable Contract draft truth from current Form working state.',
+        authorization: 'contract.write',
+        execution: { mode: 'ordered', partitionBy: 'contractId' },
+        handle: async (request, context) => {
+          const property = await this.callService<
+            PropertyOperationMap,
+            typeof PROPERTY_OPERATIONS.GET
+          >(
+            'property',
+            PROPERTY_OPERATIONS.GET,
+            { propertyId: request.propertyId },
+            context,
+          )
+          if (!property) this.fail('PROPERTY_NOT_FOUND', `Property not found: ${request.propertyId}`)
+
+          const invalidRole = request.roles.find((role) => !role.roleCode.trim())
+          if (invalidRole) this.fail('ROLE_REQUIRED', 'Every Contract identity mapping requires a Role code.')
+
+          const personIds = [...new Set(
+            request.roles.flatMap((role) => role.kind === 'person' ? [role.personId] : []),
+          )]
+          const firmIds = [...new Set(
+            request.roles.flatMap((role) => role.kind === 'firm' ? [role.firmId] : []),
+          )]
+
+          await Promise.all([
+            ...personIds.map(async (personId) => {
+              const person = await this.callService<
+                PersonOperationMap,
+                typeof PERSON_OPERATIONS.GET
+              >('person', PERSON_OPERATIONS.GET, { personId }, context)
+              if (!person) this.fail('PERSON_NOT_FOUND', `Person not found: ${personId}`)
+            }),
+            ...firmIds.map(async (firmId) => {
+              const firm = await this.callService<
+                FirmOperationMap,
+                typeof FIRM_OPERATIONS.GET
+              >('firm', FIRM_OPERATIONS.GET, { firmId }, context)
+              if (!firm) this.fail('FIRM_NOT_FOUND', `Firm not found: ${firmId}`)
+            }),
+          ])
+
+          if (request.predecessorContractId) {
+            const predecessor = await this.repository.get(request.predecessorContractId)
+            if (!predecessor) {
+              this.fail(
+                'PREDECESSOR_CONTRACT_NOT_FOUND',
+                `Predecessor Contract not found: ${request.predecessorContractId}`,
+              )
+            }
+          }
+
+          const contract = await this.repository.saveDraft(request)
+          await this.emit(
+            {
+              type: 'contract.draft_saved',
+              aggregateId: contract.id,
+              payload: {
+                contractId: contract.id,
+                contractType: contract.contractType,
+                formTemplateId: contract.formTemplateId,
+                propertyId: contract.propertyId,
+                roleCount: contract.roles.length,
+              },
+            },
+            context,
+          )
+          return contract
+        },
+      },
       [CONTRACT_OPERATIONS.GET_EFFECTIVE_STATE]: {
         kind: 'query',
         description: 'Project the effective facts for a Contract chain without creating duplicate business truth.',
@@ -165,6 +237,7 @@ export class ContractService extends BaseService<ContractOperationMap> {
       'A Contract Role is a contextual position; Person and Firm identities map to Roles and do not own those Roles intrinsically.',
       'Role vocabulary is normalized data, not a garden of buyer/seller/lender/broker service methods.',
       'Contract role attributes hold agreement-specific capacity/assertions; they are not silently promoted to Person or Firm truth.',
+      'Draft Contract truth is mutable; executed/issued Contract truth is not rewritten through draft save.',
       'Workflow owns flow/lifecycle orchestration; Contract owns business truth.',
       'Cross-domain access occurs through the owning service contract, never another domain repository.',
       'Contract-chain effective state preserves lineage rather than duplicating truth into a separate Transaction domain.',
