@@ -60,6 +60,13 @@ export type CreateContractFromFormRequest = {
   facts: Readonly<Record<string, unknown>>
 }
 
+/**
+ * Mutable working-state save used by Forms before a Contract is issued/executed.
+ * Same semantic shape as creation: the complete draft replaces the prior draft
+ * projection. Executed/non-draft Contracts are immutable through this command.
+ */
+export type SaveContractDraftRequest = CreateContractFromFormRequest
+
 export type GetContractEffectiveStateRequest = { contractId: string }
 
 export type ExecuteContractRequest = {
@@ -70,6 +77,7 @@ export type ExecuteContractRequest = {
 export const CONTRACT_OPERATIONS = {
   GET: 'contract.get',
   CREATE_FROM_FORM: 'contract.createFromForm',
+  SAVE_DRAFT: 'contract.saveDraft',
   GET_EFFECTIVE_STATE: 'contract.getEffectiveState',
   EXECUTE: 'contract.execute',
 } as const
@@ -77,6 +85,7 @@ export const CONTRACT_OPERATIONS = {
 export type ContractOperationMap = {
   'contract.get': { request: GetContractRequest; response: ContractDto | null }
   'contract.createFromForm': { request: CreateContractFromFormRequest; response: ContractDto }
+  'contract.saveDraft': { request: SaveContractDraftRequest; response: ContractDto }
   'contract.getEffectiveState': {
     request: GetContractEffectiveStateRequest
     response: ContractEffectiveStateDto | null
