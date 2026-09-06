@@ -47,6 +47,7 @@ export type AggregateType =
   | 'deal_participant'
   | 'property'
   | 'person'
+  | 'contract'
   // DOC-03 — canonical signature_request aggregate (provider-free).
   | 'signature_request'
   // DOC-06 — canonical issued transaction document aggregate.
@@ -131,7 +132,7 @@ export type ConflictReason =
 // Workflow subject contract (Story 55)
 // ---------------------------------------------------------------------------
 
-export type WorkflowSubjectType = 'deal' | 'property' | 'person'
+export type WorkflowSubjectType = 'deal' | 'property' | 'person' | 'contract'
 
 export type WorkflowSubject = {
   subjectType: WorkflowSubjectType
