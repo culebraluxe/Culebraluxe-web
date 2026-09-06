@@ -68,6 +68,7 @@ export type ClientLensPageModel = {
   notesSaving: boolean
   listError: string | null
   clientError: string | null
+  channelsError: string | null
   notesStatus: string | null
 }
 
@@ -89,6 +90,7 @@ export const INITIAL_CLIENT_LENS_MODEL: ClientLensPageModel = {
   notesSaving: false,
   listError: null,
   clientError: null,
+  channelsError: null,
   notesStatus: null,
 }
 
@@ -100,6 +102,8 @@ export type ClientLensIntentMap = {
   'clientLens.previousPage': { request: EmptyPayload; response: void }
   'clientLens.nextPage': { request: EmptyPayload; response: void }
   'clientLens.selectClient': { request: { personId: string }; response: void }
+  'clientLens.loadClient': { request: { personId: string }; response: void }
+  'clientLens.loadChannels': { request: { personId: string }; response: void }
   'clientLens.notesChanged': { request: { notes: string }; response: void }
   'clientLens.saveNotes': { request: EmptyPayload; response: void }
 } satisfies PageIntentMap
