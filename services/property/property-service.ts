@@ -13,7 +13,7 @@ import {
 export class PropertyService extends BaseService<PropertyOperationMap> {
   readonly domain = 'property'
   readonly version = '1'
-  readonly description = 'Owns canonical property identity and property state.'
+  readonly description = 'Owns canonical property identity, structured address, and property state.'
   protected readonly operations: ServiceOperationDefinitions<PropertyOperationMap>
 
   constructor(
@@ -25,7 +25,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
     this.operations = {
       [PROPERTY_OPERATIONS.GET]: {
         kind: 'query',
-        description: 'Return one canonical property by id.',
+        description: 'Return one canonical property by id, including reusable structured address.',
         authorization: 'property.read',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -33,11 +33,19 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.FIND_BY_ADDRESS]: {
         kind: 'query',
-        description: 'Resolve a canonical property by normalized address input.',
+        description: 'Resolve a canonical property by normalized structured-address input.',
         authorization: 'property.read',
         idempotent: true,
         execution: { mode: 'inline' },
         handle: async (request) => this.repository.findByAddress(request),
+      },
+      [PROPERTY_OPERATIONS.FOR_PERSON]: {
+        kind: 'query',
+        description: 'Return canonical Property relationships plus observed address candidates for one Person.',
+        authorization: 'property.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.forPerson(request.personId),
       },
       [PROPERTY_OPERATIONS.SET_DISPLAY_NAME]: {
         kind: 'command',
@@ -80,7 +88,9 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
 
   invariants() {
     return [
-      'Property owns canonical property identity and property facts independent of any Contract.',
+      'Property owns canonical property identity, structured physical address, and property facts independent of any Contract.',
+      'External address observations such as Apple Contacts remain evidence until matched or promoted to canonical Property.',
+      'Person may reference Property context, but Person does not own canonical property-address truth.',
       'Listing, buyer, seller, and deal-specific semantics do not belong in Property.',
       'Property persistence is reachable only through the Property repository boundary.',
     ] as const
