@@ -143,7 +143,7 @@ export function createAgentRuntimeForgeRoleRunner(
       storyRunId: finishedItem?.storyRunId ?? null,
       status: /pass|success|complete/i.test(result.evidence.resultStatus)
         ? 'completed'
-        : 'error',
+        : 'failed',
     })
     return {
       transitionName: 'complete',
