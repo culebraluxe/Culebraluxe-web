@@ -118,12 +118,16 @@ async function syncListingForm(
   const before = await loadListingCanonicalSnapshot(personId)
   const values = overrides.fieldValues ?? stored.fieldValues
   const fields = Object.fromEntries(
-    LISTING_CANONICAL_FIELD_NAMES.map((name) => [
-      name,
-      Object.prototype.hasOwnProperty.call(values, name)
-        ? values[name] ?? ''
-        : before.fields[name] ?? '',
-    ]),
+    LISTING_CANONICAL_FIELD_NAMES.map((name) => {
+      const reviewed = Object.prototype.hasOwnProperty.call(values, name)
+        ? values[name]?.trim() ?? ''
+        : ''
+
+      // Blank form input is not an instruction to erase canonical truth. The
+      // Listing editor may promote a reviewed non-empty fact, while an omitted
+      // or blank value leaves the existing Person/Property value untouched.
+      return [name, reviewed || before.fields[name] || '']
+    }),
   ) as ListingCanonicalFields
 
   // Preserve hidden canonical qualifiers (for example legalOwnerName on the
