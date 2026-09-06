@@ -81,6 +81,10 @@ export type FormEditorIntentMap = {
     request: { personId: string }
     response: number
   }
+  'formEditor.selectListingClient': {
+    request: { personId: string }
+    response: string | null
+  }
   'formEditor.saveDraft': {
     request: { quiet?: boolean }
     response: boolean
