@@ -29,7 +29,14 @@ export function PdfPreview({
         signal: controller.signal,
       })
         .then(async (response) => {
-          if (!response.ok) throw new Error("Preview could not be rendered.")
+          if (!response.ok) {
+            const detail = (await response.text()).replace(/\s+/g, " ").trim()
+            throw new Error(
+              detail && detail.length <= 240
+                ? detail
+                : `Preview could not be rendered (HTTP ${response.status}).`,
+            )
+          }
           const blob = await response.blob()
           if (blob.type !== "application/pdf") {
             throw new Error("Preview did not return a PDF.")
