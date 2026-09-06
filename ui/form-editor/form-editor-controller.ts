@@ -15,6 +15,7 @@ import {
   type FormEditorPageModel,
   type FormEditorSignatureState,
 } from './model'
+import { registerFormEditorController } from './runtime-bridge'
 import type { FormEditorSource } from './source'
 
 function initialDetailsText(
@@ -72,6 +73,8 @@ export class FormEditorController extends BasePageController<
       busy: false,
       draftSaving: false,
     })
+
+    registerFormEditorController(formId, this)
 
     this.operations = {
       'formEditor.fieldChanged': {
@@ -158,6 +161,42 @@ export class FormEditorController extends BasePageController<
             error: null,
           }))
           return filled
+        },
+      },
+      'formEditor.selectListingClient': {
+        description: 'Bind a mutable Listing draft to an explicit Person and load only that client’s canonical Listing-owned fields.',
+        execution: 'serial',
+        handle: async ({ personId }, context) => {
+          const result = await this.source.selectListingClient(this.formId, personId)
+          if (!result.ok) {
+            context.update((model) => ({ ...model, error: result.message }))
+            return null
+          }
+
+          const before = context.snapshot()
+          const values = { ...before.values }
+          let loaded = 0
+          for (const name of LISTING_CANONICAL_FIELD_NAMES) {
+            const value = result.data.fields[name]?.trim() ?? ''
+            if ((values[name] ?? '').trim() !== value) loaded += 1
+            // Explicit client selection is a deliberate context switch. Replace
+            // only canonical-owned Listing fields; price/dates/commission and
+            // all other form-owned terms remain untouched.
+            values[name] = value
+          }
+
+          context.update((model) => ({
+            ...model,
+            values,
+            detailsText: model.bodyEdited
+              ? model.detailsText
+              : documentBodyText(this.template, values, model.sections),
+            message:
+              `Client linked · ${result.data.personDisplayName}` +
+              (loaded > 0 ? ` · ${loaded} fields loaded` : ''),
+            error: null,
+          }))
+          return result.data.personId
         },
       },
       'formEditor.saveDraft': {
@@ -326,17 +365,21 @@ export class FormEditorController extends BasePageController<
         return false
       }
 
+      const canonicalUpdates = result.data.canonicalUpdates ?? []
       context.update((model) => {
         const stillSame =
           JSON.stringify(model.values) === JSON.stringify(values) &&
           model.detailsText === detailsText
+        const savedMessage = canonicalUpdates.length > 0
+          ? `Saved · ${canonicalUpdates.length} canonical fact${canonicalUpdates.length === 1 ? '' : 's'} updated`
+          : 'Saved'
         return {
           ...model,
           sections,
           saved: stillSame
             ? { values, sections, detailsText }
             : model.saved,
-          message: quiet ? model.message : 'Saved',
+          message: quiet ? model.message : savedMessage,
           error: null,
           draftSaving: false,
         }
