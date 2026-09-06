@@ -34,6 +34,13 @@ export class ClientLensController extends BasePageController<
       ...initialModel,
       list: [...initialModel.list],
       channels: [...initialModel.channels],
+      propertyContext: initialModel.propertyContext
+        ? {
+            ...initialModel.propertyContext,
+            properties: [...initialModel.propertyContext.properties],
+            observedAddresses: [...initialModel.propertyContext.observedAddresses],
+          }
+        : null,
     })
 
     this.operations = {
@@ -70,7 +77,7 @@ export class ClientLensController extends BasePageController<
         },
       },
       'clientLens.selectClient': {
-        description: 'Set selection, then fan out independent client-detail and relationship-channel lanes.',
+        description: 'Set selection, then fan out independent Person, Property, and relationship lanes.',
         execution: 'parallel',
         handle: async ({ personId }, context) => {
           context.update((model) => ({
@@ -78,27 +85,36 @@ export class ClientLensController extends BasePageController<
             selectedClientId: personId,
             client: null,
             channels: [],
+            propertyContext: null,
             notesDraft: '',
             notesSaved: '',
             clientLoading: true,
             channelsLoading: true,
+            propertyLoading: true,
             clientError: null,
             channelsError: null,
+            propertyError: null,
             notesStatus: null,
           }))
           void this.dispatch({ operation: 'clientLens.loadClient', payload: { personId } })
           void this.dispatch({ operation: 'clientLens.loadChannels', payload: { personId } })
+          void this.dispatch({ operation: 'clientLens.loadPropertyContext', payload: { personId } })
         },
       },
       'clientLens.loadClient': {
-        description: 'Load the selected canonical Person independently of relationship evidence.',
+        description: 'Load the selected canonical Person independently of Property and relationship evidence.',
         execution: 'latest',
         handle: async ({ personId }, context) => this.loadClient(personId, context),
       },
       'clientLens.loadChannels': {
-        description: 'Load and project the six relationship channels independently of Person detail.',
+        description: 'Load and project the six relationship channels independently of Person and Property.',
         execution: 'latest',
         handle: async ({ personId }, context) => this.loadChannels(personId, context),
+      },
+      'clientLens.loadPropertyContext': {
+        description: 'Load canonical Property relationships and Apple address evidence independently of Person detail.',
+        execution: 'latest',
+        handle: async ({ personId }, context) => this.loadPropertyContext(personId, context),
       },
       'clientLens.notesChanged': {
         description: 'Update the local selected-client notes draft only.',
@@ -226,6 +242,33 @@ export class ClientLensController extends BasePageController<
         channels: projectClientLensChannels([]),
         channelsLoading: false,
         channelsError: message,
+      }))
+    }
+  }
+
+  private async loadPropertyContext(
+    personId: string,
+    context: PageOperationContext<ClientLensPageModel>,
+  ): Promise<void> {
+    try {
+      const propertyContext = await this.source.loadPropertyContext(personId, {
+        signal: context.signal,
+      })
+      if (!context.isCurrent() || context.snapshot().selectedClientId !== personId) return
+      context.update((model) => ({
+        ...model,
+        propertyContext,
+        propertyLoading: false,
+        propertyError: null,
+      }))
+    } catch (error) {
+      if (isAbortError(error) || context.signal.aborted) return
+      const message = error instanceof Error ? error.message : String(error)
+      context.update((model) => ({
+        ...model,
+        propertyContext: null,
+        propertyLoading: false,
+        propertyError: message,
       }))
     }
   }
