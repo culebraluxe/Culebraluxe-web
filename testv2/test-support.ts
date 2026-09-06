@@ -47,10 +47,20 @@ export function capturingInfrastructure(): CapturingInfrastructure {
   const events: ServiceDomainEvent[] = []
   const audits: Array<{ domain: string; operation: string; outcome: string; errorCode?: string }> = []
   let allow = true
-  const eventsPort: DomainEventPort = { emit: async (event) => events.push(event) }
+  const eventsPort: DomainEventPort = {
+    emit: async (event) => {
+      events.push(event)
+    },
+  }
   const auditPort: AuditPort = {
-    record: async (a) =>
-      audits.push({ domain: a.domain, operation: a.operation, outcome: a.outcome, errorCode: a.errorCode }),
+    record: async (a) => {
+      audits.push({
+        domain: a.domain,
+        operation: a.operation,
+        outcome: a.outcome,
+        errorCode: a.errorCode,
+      })
+    },
   }
   return {
     infrastructure: {
@@ -89,33 +99,45 @@ export class MemoryPersonRepository implements PersonRepository {
     return owner ? this.persons.get(owner) ?? null : null
   }
 
-  async setDisplayName(request: SetPersonDisplayNameRequest): Promise<PersonDto> {
-    const existing = this.persons.get(request.personId)
-    if (!existing) throw new Error(`Person not found: ${request.personId}`)
-    const updated: PersonDto = { ...existing, displayName: request.displayName }
-    this.persons.set(request.personId, updated)
-    return updated
+  async setDisplayName(request: SetPersonDisplayNameRequest): Promise<PersonDto | null> {
+    const person = this.persons.get(request.personId)
+    if (!person) return null
+    const next = { ...person, displayName: request.displayName }
+    this.persons.set(request.personId, next)
+    return next
   }
 
-  async attachIdentity(request: AttachPersonIdentityRequest): Promise<PersonIdentityDto> {
+  async attachIdentity(request: AttachPersonIdentityRequest): Promise<PersonDto | null> {
+    const person = this.persons.get(request.personId)
+    if (!person) return null
     const key = MemoryPersonRepository.identityKey(request.identity)
-    const existing = this.identityOwner.get(key)
-    if (existing && existing !== request.personId) {
-      throw new Error('identity already owned by another Person')
+    const owner = this.identityOwner.get(key)
+    if (owner && owner !== request.personId) {
+      throw new Error(`identity already belongs to ${owner}`)
     }
     this.identityOwner.set(key, request.personId)
-    return { ...request.identity }
+    const exists = person.identities.some(
+      (identity) => MemoryPersonRepository.identityKey(identity) === key,
+    )
+    const next = exists
+      ? person
+      : { ...person, identities: [...person.identities, request.identity] }
+    this.persons.set(request.personId, next)
+    return next
   }
 }
 
-/** Build a PersonService wired to a memory repo + capturing infrastructure. */
-export function makePersonHarness() {
-  const repository = new MemoryPersonRepository()
-  const infra = capturingInfrastructure()
-  const service = new PersonService(repository, infra.infrastructure)
-  return { repository, service, infra }
-}
-
-export function newContext(actor?: ServiceActor): ServiceContext {
-  return context({ actor: actor ?? { id: 'u-1', kind: 'user' } })
+export function personService(
+  repo: PersonRepository = new MemoryPersonRepository(),
+  infrastructure = capturingInfrastructure(),
+): {
+  service: PersonService
+  repo: PersonRepository
+  capture: CapturingInfrastructure
+} {
+  return {
+    service: new PersonService(repo, infrastructure.infrastructure),
+    repo,
+    capture: infrastructure,
+  }
 }
