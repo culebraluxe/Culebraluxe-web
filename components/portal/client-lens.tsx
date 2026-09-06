@@ -3,7 +3,9 @@
 import { useEffect, useMemo } from "react"
 import {
   Calendar,
+  Home,
   Mail,
+  MapPin,
   MessageSquare,
   Phone,
   Video,
@@ -19,6 +21,7 @@ import {
   statusLabel,
 } from "@/components/portal/client-display"
 import type { ClientRole } from "@/lib/portal/types"
+import type { PropertyAddressDto } from "@/services/property"
 import {
   ClientLensController,
   HttpClientLensSource,
@@ -37,6 +40,18 @@ function formatDateTime(value: string | null): string {
     hour: "numeric",
     minute: "2-digit",
   })
+}
+
+function formatAddress(address: PropertyAddressDto): string {
+  return [
+    address.addressLine1,
+    address.neighborhood,
+    address.city,
+    [address.stateOrProvince, address.postalCode].filter(Boolean).join(" ") || null,
+    address.country,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(", ") || "Address not available"
 }
 
 function channelIcon(slot: ClientLensChannelModel["slot"]): LucideIcon {
@@ -92,6 +107,113 @@ function DetailField({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] font-light uppercase tracking-[0.16em] text-black/35">{label}</div>
       <div className="mt-1 break-words text-sm font-light leading-5 text-black/70">{value}</div>
     </div>
+  )
+}
+
+function PropertyContextPanel({
+  model,
+}: {
+  model: Readonly<ReturnType<ClientLensController["snapshot"]>>
+}) {
+  const context = model.propertyContext
+  const canonicalCount = context?.properties.length ?? 0
+  const observedCount = context?.observedAddresses.length ?? 0
+
+  return (
+    <Panel
+      compact
+      heading="Property Context"
+      action={
+        <span className="text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
+          {model.propertyLoading
+            ? "Loading…"
+            : `${canonicalCount} properties · ${observedCount} address observations`}
+        </span>
+      }
+    >
+      {model.propertyLoading ? (
+        <p className="text-sm font-light text-black/45">Loading Property service…</p>
+      ) : model.propertyError ? (
+        <p className="text-sm font-light text-[var(--portal-archive)]">
+          Property context unavailable · {model.propertyError}
+        </p>
+      ) : !context || (canonicalCount === 0 && observedCount === 0) ? (
+        <p className="text-sm font-light text-black/45">
+          No Property relationship or structured address evidence yet.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {canonicalCount > 0 ? (
+            <section>
+              <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
+                Canonical Property
+              </div>
+              <div className="space-y-2">
+                {context.properties.map(({ property, relationStatus }) => (
+                  <div
+                    key={property.id}
+                    className="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 py-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Home className="h-3.5 w-3.5 shrink-0 text-[var(--portal-navy-soft)]" aria-hidden />
+                          <div className="truncate font-serif text-base font-light text-[var(--portal-navy)]">
+                            {property.displayName}
+                          </div>
+                        </div>
+                        <div className="mt-1 pl-5 text-xs font-light leading-5 text-black/55">
+                          {formatAddress(property.address)}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-[var(--portal-blue-pale)] px-2 py-1 text-[9px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+                        {relationStatus ?? "linked"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {observedCount > 0 ? (
+            <section>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
+                  Structured Address Evidence
+                </div>
+                <span className="text-[9px] font-light uppercase tracking-[0.1em] text-black/35">
+                  Apple Contacts
+                </span>
+              </div>
+              <div className="space-y-2">
+                {context.observedAddresses.map((observation) => (
+                  <div
+                    key={observation.sourceKey}
+                    className="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 px-3 py-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-xs font-medium text-[var(--portal-navy)]">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-[var(--portal-gold-muted)]" aria-hidden />
+                          {observation.sourceLabel || "Contact address"}
+                        </div>
+                        <div className="mt-1 pl-5 text-xs font-light leading-5 text-black/60">
+                          {formatAddress(observation.address)}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[9px] font-light uppercase tracking-[0.1em] text-black/40">
+                        {observation.matchedPropertyId ? "Matched" : "Candidate"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      )}
+    </Panel>
   )
 }
 
@@ -269,8 +391,8 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <DetailField label="Phone" value={formatPhone(client.phone) ?? "—"} />
                   <DetailField label="Email" value={client.email ?? "—"} />
-                  <DetailField label="Location" value={client.location ?? "—"} />
                   <DetailField label="Agent" value={client.assignedAgent ?? "—"} />
+                  <DetailField label="Timeline" value={client.timeline ?? "—"} />
                   <DetailField
                     label="Budget"
                     value={
@@ -279,9 +401,10 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                         : "—"
                     }
                   />
-                  <DetailField label="Timeline" value={client.timeline ?? "—"} />
                 </div>
               </Panel>
+
+              <PropertyContextPanel model={model} />
 
               <Panel compact heading="Notes" className="flex min-h-[14rem] flex-col">
                 <textarea
@@ -328,7 +451,9 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
               model.channels.map((channel) => <RelationshipChannelRow key={channel.slot} channel={channel} />)
             ) : (
               <li className="px-4 py-6 text-sm font-light text-white/45">
-                {model.channelsLoading ? "Loading relationship sources…" : "Select a client."}
+                {model.channelsLoading
+                  ? "Loading relationship sources…"
+                  : model.channelsError ?? "Select a client."}
               </li>
             )}
           </ol>
