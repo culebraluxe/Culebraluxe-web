@@ -145,12 +145,13 @@ export function ListingV4Controls({
       const target = event.target
       if (!(target instanceof HTMLInputElement)) return
 
-      // ListingV4Controls is rendered immediately above the form grid. Identify
-      // the existing proven Seller field by its own label instead of adding a
-      // second input or a permanent client-picker UI.
+      // Reuse the existing proven Seller input; do not introduce a second
+      // client-picker field. The exact label check avoids treating Seller
+      // Residence Address (or any future Seller-* field) as the lookup trigger.
       const label = target.closest('label')
       const heading = label?.querySelector('span')?.textContent?.trim() ?? ''
-      if (!/^seller\b/i.test(heading)) return
+      const fieldLabel = heading.replace(/\s*\*\s*$/, '').trim().toLocaleLowerCase()
+      if (fieldLabel !== 'seller') return
 
       event.preventDefault()
       event.stopPropagation()
@@ -162,7 +163,7 @@ export function ListingV4Controls({
   }, [actionBusy, formId, locked])
 
   return (
-    <div className="relative flex items-center justify-end">
+    <div className="relative order-first flex items-center">
       <button
         type="button"
         disabled={locked || actionBusy}
@@ -174,7 +175,7 @@ export function ListingV4Controls({
       </button>
 
       {matches.length > 0 ? (
-        <div className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white shadow-lg">
+        <div className="absolute left-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white shadow-lg">
           {matches.map((client) => (
             <button
               key={client.id}
