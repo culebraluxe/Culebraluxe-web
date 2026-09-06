@@ -226,15 +226,29 @@ async function actorMayApplyBrokerSignature(
 ): Promise<boolean> {
   if (actorAppUserId === brokerAppUserId) return true
 
-  const rows = await execute`
-    select r.code
-    from app_user u
-    join app_user_role aur on aur.app_user_id = u.id
-    join role r on r.id = aur.role_id and r.active = true
-    where u.id = ${actorAppUserId}
-      and u.active = true
-    order by r.code
+  const tableRows = await execute`
+    select to_regclass('public.security_role')::text as security_role
   `
+  const usesSecurityRole = Boolean(tableRows[0]?.security_role)
+  const rows = usesSecurityRole
+    ? await execute`
+        select r.code
+        from app_user u
+        join app_user_role aur on aur.app_user_id = u.id
+        join security_role r on r.id = aur.role_id and r.active = true
+        where u.id = ${actorAppUserId}
+          and u.active = true
+        order by r.code
+      `
+    : await execute`
+        select r.code
+        from app_user u
+        join app_user_role aur on aur.app_user_id = u.id
+        join role r on r.id = aur.role_id and r.active = true
+        where u.id = ${actorAppUserId}
+          and u.active = true
+        order by r.code
+      `
   const roleCodes = rows
     .map((row) => String((row as { code?: unknown }).code ?? '').trim())
     .filter(Boolean)
