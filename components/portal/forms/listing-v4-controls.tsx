@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 
-import { updateFormAction } from '@/app/portal/forms/actions'
 import { getFormEditorController } from '@/ui/form-editor/runtime-bridge'
 
 type ClientResult = {
@@ -16,32 +15,27 @@ type DirectoryResponse = {
   rows?: ClientResult[]
 }
 
+/**
+ * Compact Listing V4 client-context control.
+ *
+ * Canonical hydration is automatic on server load/reload. Canonical write-back
+ * happens through the existing Save/Send boundary. The only extra operator
+ * action needed in the form is changing which Client owns the Listing draft.
+ */
 export function ListingV4Controls({
   formId,
   personId,
-  sellerName,
-  templateVersion,
-  activeTemplateVersion,
-  status,
-  issued,
+  locked,
 }: {
   formId: string
   personId: string | null
-  sellerName: string
-  templateVersion: number
-  activeTemplateVersion: number
-  status: string
-  issued: boolean
+  locked: boolean
 }) {
-  const [selectedPersonId, setSelectedPersonId] = useState(personId)
-  const [selectedName, setSelectedName] = useState(sellerName)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ClientResult[]>([])
   const [searching, setSearching] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
-  const isActive = templateVersion === activeTemplateVersion
-  const locked = issued || status === 'issued'
 
   useEffect(() => {
     if (!pickerOpen) return
@@ -77,68 +71,6 @@ export function ListingV4Controls({
     }
   }, [pickerOpen, query])
 
-  async function refreshData() {
-    if (!selectedPersonId || actionBusy || locked) return
-    const controller = getFormEditorController(formId)
-    if (!controller) return
-    setActionBusy(true)
-    try {
-      await controller.dispatch({
-        operation: 'formEditor.refreshListing',
-        payload: { personId: selectedPersonId },
-      })
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
-  async function updateClientData() {
-    if (!selectedPersonId || actionBusy || locked) return
-    const controller = getFormEditorController(formId)
-    if (!controller) return
-    setActionBusy(true)
-    try {
-      // First flush the exact working JSON draft without touching services.
-      const draftSaved = await controller.dispatch({
-        operation: 'formEditor.saveDraft',
-        payload: { quiet: true },
-      })
-      if (!draftSaved) return
-
-      const model = controller.snapshot()
-      const result = await updateFormAction(
-        formId,
-        { ...model.values },
-        {
-          ...model.sections,
-          body: model.detailsText,
-          bodyEdited: model.bodyEdited ? 'true' : 'false',
-        },
-      )
-      if (!result.ok) {
-        await controller.dispatch({
-          operation: 'formEditor.feedback',
-          payload: { error: result.message },
-        })
-        return
-      }
-
-      const count = result.data.canonicalUpdates?.length ?? 0
-      await controller.dispatch({
-        operation: 'formEditor.feedback',
-        payload: {
-          message:
-            count > 0
-              ? `Client data updated · ${count} canonical fact${count === 1 ? '' : 's'}`
-              : 'Client data already current',
-          error: null,
-        },
-      })
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
   async function selectClient(client: ClientResult) {
     if (actionBusy || locked) return
     const controller = getFormEditorController(formId)
@@ -151,17 +83,15 @@ export function ListingV4Controls({
       })
       if (!linked) return
 
-      // Persist the deliberate context switch before a hard refresh so the
-      // server recomputes signer candidates and Property context from the newly
-      // selected Person. Autosave/draft save is deliberately non-canonical.
+      // Persist the deliberate context switch as working-draft state only.
+      // Reload then performs the normal automatic canonical hydration and
+      // rebuilds signer candidates from the newly selected Person.
       const saved = await controller.dispatch({
         operation: 'formEditor.saveDraft',
         payload: { quiet: true },
       })
       if (!saved) return
 
-      setSelectedPersonId(client.id)
-      setSelectedName(client.displayName)
       setPickerOpen(false)
       setQuery('')
       window.location.reload()
@@ -171,70 +101,27 @@ export function ListingV4Controls({
   }
 
   return (
-    <section className="portal-glass-panel rounded-[var(--portal-panel-radius)] px-3 py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-serif text-base font-light text-[var(--portal-navy)]">
-              Listing Agreement · Template v{templateVersion}
-            </span>
-            <span className={[
-              'rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em]',
-              isActive
-                ? 'border-[var(--portal-gold)]/50 text-[var(--portal-navy)]'
-                : 'border-black/15 text-black/40',
-            ].join(' ')}>
-              {isActive ? 'Active' : 'History'}
-            </span>
-            <span className="text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
-              {locked ? 'Issued snapshot' : status}
-            </span>
-          </div>
-          <p className="mt-0.5 text-xs font-light text-black/50">
-            Seller · {selectedName || 'Not linked'}
-            {selectedPersonId ? ' · linked to Client' : ' · select a Client to hydrate'}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={locked || actionBusy || !selectedPersonId}
-            onClick={() => void refreshData()}
-            className="inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            Refresh Data
-          </button>
-          <button
-            type="button"
-            disabled={locked || actionBusy || !selectedPersonId}
-            onClick={() => void updateClientData()}
-            className="inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-gold)]/60 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)] transition hover:border-[var(--portal-gold)] disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            {actionBusy ? 'Working…' : 'Update Client'}
-          </button>
-          <button
-            type="button"
-            disabled={locked || actionBusy}
-            onClick={() => setPickerOpen((open) => !open)}
-            className="inline-flex min-h-8 items-center justify-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            {selectedPersonId ? 'Change Client' : 'Select Client'}
-          </button>
-        </div>
-      </div>
+    <div className="relative">
+      <button
+        type="button"
+        disabled={locked || actionBusy}
+        onClick={() => setPickerOpen((open) => !open)}
+        className="inline-flex min-h-7 items-center justify-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] transition hover:border-[var(--portal-navy)] hover:text-[var(--portal-navy)] disabled:cursor-not-allowed disabled:opacity-35"
+      >
+        {actionBusy ? 'Working…' : personId ? 'Change Client' : 'Select Client'}
+      </button>
 
       {pickerOpen && !locked ? (
-        <div className="mt-2 border-t border-[var(--portal-panel-border)] pt-2">
+        <div className="absolute left-0 top-full z-30 mt-1 w-[min(28rem,75vw)] rounded-[var(--portal-panel-radius)] border border-[var(--portal-panel-border)] bg-white/95 p-2 shadow-lg backdrop-blur">
           <input
             autoFocus
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search clients by name, email, or phone…"
-            className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-3 py-2 text-sm font-light outline-none placeholder:text-black/30 focus:border-[var(--portal-navy)]"
+            className="w-full rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-3 py-2 text-sm font-light outline-none placeholder:text-black/30 focus:border-[var(--portal-navy)]"
           />
-          <div className="mt-1 max-h-48 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70">
+          <div className="mt-1 max-h-48 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white">
             {searching ? (
               <p className="px-3 py-2 text-xs font-light text-black/40">Searching…</p>
             ) : results.length === 0 ? (
@@ -245,7 +132,7 @@ export function ListingV4Controls({
                   key={client.id}
                   type="button"
                   onClick={() => void selectClient(client)}
-                  className="flex w-full items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2 text-left last:border-b-0 hover:bg-white"
+                  className="flex w-full items-center justify-between gap-3 border-b border-[var(--portal-panel-border)] px-3 py-2 text-left last:border-b-0 hover:bg-black/[0.025]"
                 >
                   <span className="text-sm font-medium text-[var(--portal-navy)]">
                     {client.displayName}
@@ -259,6 +146,6 @@ export function ListingV4Controls({
           </div>
         </div>
       ) : null}
-    </section>
+    </div>
   )
 }
