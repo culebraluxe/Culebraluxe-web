@@ -12,8 +12,11 @@ export type {
   ServiceContext,
   ServiceDescriptor,
   ServiceDomainEvent,
+  ServiceEnvelope,
   ServiceErrorShape,
   ServiceFailure,
+  ServiceInfrastructure,
+  ServiceOperationKind,
   ServiceResult,
   ServiceSuccess,
 } from './types'
