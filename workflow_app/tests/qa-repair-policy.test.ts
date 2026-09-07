@@ -75,3 +75,15 @@ test('decision depends only on the supplied durable state (restart/recovery neut
   const rebuilt = route('FAIL', 'REPAIR', { repairAttempts: 1, replanAttempts: 0 })
   assert.deepEqual(rebuilt, a)
 })
+
+test('Scope B: no-progress forces HOLD and never auto-launches another repair', () => {
+  // Even a legal REPAIR disposition IN budget is overridden by NO_PROGRESS.
+  const r = routeQaResult({
+    verdict: 'FAIL',
+    disposition: 'REPAIR',
+    state: { repairAttempts: 1, replanAttempts: 0 },
+    noProgress: true,
+  })
+  assert.equal(r.action, 'hold')
+  assert.ok(r.reason?.includes('NO_PROGRESS'))
+})

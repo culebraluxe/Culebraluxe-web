@@ -63,11 +63,25 @@ export function routeQaResult(input: {
   disposition: QaDisposition | null | undefined
   state: RepairAttemptState
   budget?: RepairBudget
+  /** Scope B no-progress: same SHA re-failed same machine class with no new candidate. */
+  noProgress?: boolean
 }): RepairRouting {
   const budget = input.budget ?? DEFAULT_REPAIR_BUDGET
 
   if (input.verdict === 'PASS') {
     return { action: 'pass' }
+  }
+
+  // Scope B no-progress guard: the machine has already failed this exact
+  // candidate with the same classification. Never auto-launch another model
+  // repair cycle — route to a durable NO_PROGRESS HOLD for the operator.
+  if (input.noProgress === true) {
+    return {
+      action: 'hold',
+      reason:
+        'NO_PROGRESS: the same candidate SHA re-failed the same machine classification ' +
+        'with no new candidate in between — do not auto-launch another repair cycle.',
+    }
   }
 
   // A FAIL MUST carry an explicit, legal disposition. Without one the engine
