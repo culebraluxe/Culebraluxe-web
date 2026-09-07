@@ -143,11 +143,23 @@ export function createAgentRuntimeForgeRoleRunner(
       throw new Error(`Forge engine task ${task.taskId} could not claim agent work item ${queued.id}`)
     }
 
+    // A claim transition may return a deliberately narrow projection of the
+    // work row. Runtime launch guards, however, require the COMPLETE durable
+    // execution contract (notably execution_environment / execution_policy).
+    // Re-read the just-claimed item from canonical storage before launch so the
+    // runtime never executes from a partial SQL RETURNING projection.
+    const durableClaim = await work.get(queued.id)
+    if (!durableClaim) {
+      throw new Error(
+        `Forge engine task ${task.taskId} claimed agent work item ${queued.id}, but the durable row could not be reloaded`,
+      )
+    }
+
     let result
     try {
       result = await executeClaimedAgentCommand(
         options.workerId,
-        { workItem: claimed, story: resolvedStory },
+        { workItem: durableClaim, story: resolvedStory },
         {
           work,
           runs,
