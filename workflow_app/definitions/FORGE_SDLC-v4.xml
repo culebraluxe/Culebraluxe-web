@@ -88,8 +88,68 @@
     <transition name="hotfix" to="hotfix_architecture_check"/>
     <transition name="research" to="research_scout"/>
     <transition name="migration" to="architect"/>
-    <transition name="fast" to="lead_pre"/>
+    <transition name="fast" to="fast_lane_entry"/>
     <transition name="unknown" to="hold"/>
+  </decision>
+
+  <!-- FAST lane (Scope C): bounded, pre-shaped work -> Smith -> deterministic QA
+       -> publish -> complete. No Architect/Lead/DEV_OPS model runs; deterministic
+       QA is NEVER skipped; any release obligation fails FAST closed to HOLD. -->
+  <decision id="fast_lane_entry" label="FAST Lane Entry" refresh-facts="true"
+    description="FAST is eligible only for pre-shaped bounded work with no release obligation.">
+    <on condition="fastEligible == true" transition="fast"/>
+    <on condition="fastEligible == false" transition="hold"/>
+    <transition name="fast" to="fast_smith"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <task-node id="fast_smith" label="FAST — Smith" responsibility="smith" form-key="forge.smith"
+    description="Implement the frozen FAST contract and produce one exact candidate commit.">
+    <transition name="complete" to="fast_qa_verify"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <task-node id="fast_qa_verify" label="FAST — Deterministic QA" responsibility="qa" form-key="forge.qa_verify"
+    description="Run the packet's deterministic tests/type-checks against the exact FAST candidate SHA. Never skipped.">
+    <transition name="complete" to="fast_qa_result"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <decision id="fast_qa_result" label="FAST QA Result" refresh-facts="true"
+    description="Only an exact-candidate deterministic PASS may publish.">
+    <on condition="qaPassed == true" transition="pass"/>
+    <on condition="qaPassed == false" transition="fail"/>
+    <transition name="pass" to="fast_publish"/>
+    <transition name="fail" to="fast_qa_route"/>
+  </decision>
+
+  <decision id="fast_qa_route" label="FAST QA Failure Route" refresh-facts="true"
+    description="Implementation repair stays in the same execution/workspace; a replan/architecture defect ends FAST.">
+    <on condition="qaRepairEligible == true" transition="smith"/>
+    <on condition="qaReplanEligible == true" transition="hold"/>
+    <transition name="smith" to="fast_repair_smith"/>
+    <transition name="hold" to="hold"/>
+  </decision>
+
+  <task-node id="fast_repair_smith" label="FAST — Repair Smith" responsibility="smith" form-key="forge.repair_smith"
+    description="Repair the failed FAST candidate in the SAME execution/workspace, then re-run deterministic QA.">
+    <transition name="complete" to="fast_qa_verify"/>
+    <transition name="hold" to="hold"/>
+  </task-node>
+
+  <command-node id="fast_publish" label="FAST — Publish Candidate" responsibility="dev_ops"
+    command-type="forge.publish_candidate" transition="complete"
+    description="Deterministically publish the exact QA-approved FAST candidate. No migration/deployment is implied or permitted.">
+    <transition name="complete" to="fast_publish_result"/>
+    <transition name="hold" to="hold"/>
+  </command-node>
+
+  <decision id="fast_publish_result" label="FAST Publish Result" refresh-facts="true"
+    description="FAST completes only when the exact candidate published; a conflict parks for the operator (no hidden release work).">
+    <on condition="publishSucceeded == true" transition="complete"/>
+    <on condition="publishSucceeded == false" transition="hold"/>
+    <transition name="complete" to="complete"/>
+    <transition name="hold" to="hold"/>
   </decision>
 
   <task-node id="research_scout" label="Research Scout" responsibility="scout" form-key="forge.research_scout"
