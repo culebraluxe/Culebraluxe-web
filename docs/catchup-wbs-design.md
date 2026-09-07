@@ -31,11 +31,11 @@ It must reuse the Portal design language and keep a working calendar.
 - Follow the existing Portal visual system (Panel / glass, Command+Status band, navy/gold).
 
 ## New architecture (matches Clients/Forms we already did)
-1. **`services/work` domain** (repository port + in-memory + sql adapters):
-   - queries: `queue.due`, `work.tree`, `work.get`, `project.get`
-   - commands: `work.create`, `work.save`, `work.complete`, `project.create`
+1. **`services/wbs` domain** (repository port + in-memory + sql adapters):
+   - queries: `queue.due`, `wbs.tree`, `wbs.get`, `project.get`
+   - commands: `wbs.create`, `wbs.save`, `wbs.complete`, `project.create`
    - authorizes via the enforced resolver; returns ServiceResult; normalizes at repo.
-2. **`ui/work-lens`** MVI controller (mirrors client-lens) + `InMemory`/`Http` sources.
+2. **`ui/wbs-lens`** MVI controller (mirrors client-lens) + `InMemory`/`Http` sources.
 3. Server page becomes a thin loader; client View binds the controller; legacy component
    stays as reference; rollback = git revert.
 
@@ -49,4 +49,4 @@ It must reuse the Portal design language and keep a working calendar.
 ## Success bar
 - A `work` service with a few operations is silo-testable (DB-free).
 - Catch-Up screen shows the daily queue grouped by category, with the calendar, in the
-  Portal design language, built on `services/work` + an MVI controller.
+  Portal design language, built on `services/wbs` + an MVI controller.
