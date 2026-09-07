@@ -47,16 +47,22 @@ export function architectContractFromNotes(notes: string | null | undefined): Fo
   }
 }
 
+function scopePathMatches(normalizedPath: string, scopeEntry: string): boolean {
+  const entry = scopeEntry.trim().replace(/\/+$/, '')
+  if (entry === '') return false
+  return normalizedPath === entry || normalizedPath.startsWith(`${entry}/`)
+}
+
 export function pathViolatesArchitectContract(
   filePath: string,
   contract: ForgeArchitectContract,
 ): boolean {
   const normalized = filePath.trim().replace(/^\.\//, '')
-  if (contract.filesOutOfScope.some((p) => normalized === p || normalized.startsWith(`${p}/`))) {
+  if (contract.filesOutOfScope.some((p) => scopePathMatches(normalized, p))) {
     return true
   }
   if (contract.filesInScope.length === 0) return false
-  return !contract.filesInScope.some((p) => normalized === p || normalized.startsWith(`${p}/`))
+  return !contract.filesInScope.some((p) => scopePathMatches(normalized, p))
 }
 
 export function architectContractViolations(
