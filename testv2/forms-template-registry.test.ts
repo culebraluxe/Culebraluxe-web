@@ -25,7 +25,7 @@ const PORTAL_FORM_IDS = [
   LISTING_AGREEMENT_TEMPLATE_ID,
 ]
 
-test('the Forms screen offers exactly the four canonical form types', () => {
+test('the portal form-type catalog lists exactly the four legal forms', () => {
   const types = listPortalFormTypes()
   assert.deepEqual(
     types.map((t) => t.id),
@@ -58,7 +58,7 @@ test('each portal template parses XML into typed form fields (the surface the hy
   }
 })
 
-test('P&S is one of the four selections (not a separate screen)', () => {
+test('P&S is one of the four portal legal forms', () => {
   const types = listPortalFormTypes()
   assert.ok(types.some((t) => t.id === PURCHASE_SALE_TEMPLATE_ID), 'P&S must be a portal form type')
   assert.equal(listPortalFormTypes().length, 4)
