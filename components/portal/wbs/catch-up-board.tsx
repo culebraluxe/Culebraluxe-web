@@ -35,6 +35,7 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
   const [filter, setFilter] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newCategory, setNewCategory] = useState<WbsCategoryId>(WBS_CATEGORIES[0].id)
+  const [askText, setAskText] = useState('')
 
   function addFollowUp() {
     const title = newTitle.trim()
@@ -42,6 +43,16 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
     startTransition(async () => {
       const res = await createWbsItemAction({ title, category: newCategory })
       if (res.ok) setNewTitle('')
+      router.refresh()
+    })
+  }
+
+  function askFollowUp() {
+    const text = askText.trim()
+    if (!text || isPending) return
+    startTransition(async () => {
+      const res = await createWbsItemAction({ title: text, category: 'management' })
+      if (res.ok) setAskText('')
       router.refresh()
     })
   }
@@ -91,8 +102,15 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
           </p>
         </div>
         <div className="portal-glass-panel portal-glass-panel-lifted flex min-h-[4.5rem] min-w-[16rem] items-center gap-2 rounded-[var(--portal-panel-radius)] px-3">
-          <input type="text" placeholder="Ask WBS what needs doing…" className="h-10 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/60 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35" />
-          <button type="button" disabled className="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-45">Go</button>
+          <input
+            type="text"
+            value={askText}
+            onChange={(e) => setAskText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') askFollowUp() }}
+            placeholder="Ask WBS what needs doing…"
+            className="h-10 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/60 px-3 font-serif text-[15px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35"
+          />
+          <button type="button" disabled={!askText.trim() || isPending} onClick={askFollowUp} className="inline-flex h-10 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-45">Go</button>
         </div>
       </div>
 
