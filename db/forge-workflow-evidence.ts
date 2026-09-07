@@ -1,4 +1,5 @@
 import type { ForgeGateEvidence } from '../workflow_app/forge/forge-facts'
+import type { ArchitectFinding } from '../workflow_app/forge/forge-shaping'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
 let defaultExecutor: QueryExecutor | null = null
@@ -27,6 +28,43 @@ const stringArray = (row: EvidenceRow, key: string): string[] | undefined => {
     : undefined
 }
 
+const findingsArray = (row: EvidenceRow, key: string): ArchitectFinding[] | undefined => {
+  const current = row[key]
+  if (current === null || current === undefined) return undefined
+  let parsed: unknown = current
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return undefined
+    }
+  }
+  if (!Array.isArray(parsed)) return undefined
+  const out: ArchitectFinding[] = []
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') continue
+    const f = item as Record<string, unknown>
+    const id = String(f.id ?? '').trim()
+    const summary = String(f.summary ?? '').trim()
+    if (!id || !summary) continue
+    const seams = Array.isArray(f.seams)
+      ? f.seams.filter((s): s is string => typeof s === 'string').map((s) => s.trim()).filter(Boolean)
+      : []
+    const hint = String(f.hint ?? '').toUpperCase()
+    const hintValue = (['SAME_UNIT', 'SPLIT_CHILD', 'FOLLOW_UP_STORY', 'NOTE', 'HOLD'] as const).find(
+      (h) => h === hint,
+    )
+    out.push({
+      id,
+      summary,
+      required: f.required === true,
+      seams,
+      hint: hintValue,
+    })
+  }
+  return out
+}
+
 export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
   return {
     workType: value(row, 'work_type'),
@@ -37,6 +75,7 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     architectureSuspect: value(row, 'architecture_suspect'),
     leadDecision: value(row, 'lead_decision'),
     splitCount: value(row, 'split_count'),
+    findings: findingsArray(row, 'findings'),
     qaReviewRequired: value(row, 'qa_review_required'),
     qaReviewPassed: value(row, 'qa_review_passed'),
     qaPassed: value(row, 'qa_passed'),
@@ -86,7 +125,7 @@ export async function mergeForgeWorkflowEvidence(
       derived_models, derived_refresh_succeeded, derived_refresh_verified,
       deployment_required, deployment_succeeded, deployment_receipt,
       production_verified, production_verification_receipt, resume_target, candidate_sha, qa_verified_sha,
-      published_sha, deployed_sha, production_verified_sha
+      published_sha, deployed_sha, production_verified_sha, findings
     ) values (
       ${processInstanceId}, ${storyId}, ${evidence.workType ?? null},
       ${evidence.researchDisposition ?? null}, ${evidence.scoutRequired ?? null},
@@ -107,7 +146,8 @@ export async function mergeForgeWorkflowEvidence(
       ${evidence.productionVerificationReceipt ?? null}, ${evidence.resumeTarget ?? null},
       ${evidence.candidateSha ?? null}, ${evidence.qaVerifiedSha ?? null},
       ${evidence.publishedSha ?? null}, ${evidence.deployedSha ?? null},
-      ${evidence.productionVerifiedSha ?? null}
+      ${evidence.productionVerifiedSha ?? null},
+      ${evidence.findings === undefined ? null : JSON.stringify(evidence.findings)}::jsonb
     )
     on conflict (process_instance_id) do update set
       work_type = coalesce(excluded.work_type, forge_workflow_evidence.work_type),
@@ -145,6 +185,7 @@ export async function mergeForgeWorkflowEvidence(
       published_sha = coalesce(excluded.published_sha, forge_workflow_evidence.published_sha),
       deployed_sha = coalesce(excluded.deployed_sha, forge_workflow_evidence.deployed_sha),
       production_verified_sha = coalesce(excluded.production_verified_sha, forge_workflow_evidence.production_verified_sha),
+      findings = coalesce(excluded.findings, forge_workflow_evidence.findings),
       updated_at = now()
   `
 }

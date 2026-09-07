@@ -38,6 +38,10 @@ import {
   forgeRoleNodePlan,
 } from './forge-role-mapping'
 import {
+  findingsFromArchitectEvidence,
+  validateLeadShapeChoice,
+} from './forge-shaping'
+import {
   readLegacyMarkerGateEvidence,
   readTypedGateEvidence,
 } from './forge-typed-evidence'
@@ -218,6 +222,32 @@ export function createAgentRuntimeForgeRoleRunner(
     })
     const marked = readLegacyMarkerGateEvidence(result.evidence)
     const evidence: ForgeGateEvidence = { ...mapped, ...marked, ...(typed ?? {}) }
+
+    // ENG-FORGE-SHAPE-01: persist Architect findings durably (so Lead can gate on
+    // the REAL Architect output), then enforce the shaping gate at Lead completion.
+    const isArchitectNode =
+      nodeId === 'architect' || nodeId === 'repair_architect' || nodeId === 'research_architect'
+    if (isArchitectNode) {
+      const parsedFindings = findingsFromArchitectEvidence(
+        [result.evidence.notes, result.evidence.testsSummary].filter(Boolean).join('\n'),
+      )
+      if (parsedFindings.length > 0) evidence.findings = parsedFindings
+    } else if (nodeId === 'lead_pre' && evidence.leadDecision) {
+      const findings = current.findings ?? []
+      if (findings.length > 0) {
+        const verdict = validateLeadShapeChoice({
+          findings,
+          choice: evidence.leadDecision,
+          splitCount: evidence.splitCount,
+        })
+        if (!verdict.ok) {
+          // Authoritative override: e.g. Lead said single SMITH over independent
+          // seams -> route the engine to the bounded SPLIT the findings demand.
+          evidence.leadDecision = verdict.authoritative.decision
+          evidence.splitCount = verdict.authoritative.splitCount ?? evidence.splitCount
+        }
+      }
+    }
 
     await finishForgeEngineTaskExecution(task.taskId, {
       storyRunId: finishedItem?.storyRunId ?? null,

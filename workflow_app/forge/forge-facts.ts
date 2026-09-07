@@ -1,5 +1,6 @@
 import type { ApplicationFacts } from '../../workflow_engine/lib/workflow/types'
 import { routeQaResult } from './qa-repair-policy'
+import type { ArchitectFinding } from './forge-shaping'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V10 — Forge decision-gate facts projection.
@@ -33,6 +34,8 @@ export type ForgeGateEvidence = {
   /** execution_shape */
   leadDecision?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
   splitCount?: number
+  /** ENG-FORGE-SHAPE-01 — durable Architect findings snapshot (Lead shaping gate). */
+  findings?: ArchitectFinding[]
   /** qa_policy */
   qaReviewRequired?: boolean
   /** qa_review_result */

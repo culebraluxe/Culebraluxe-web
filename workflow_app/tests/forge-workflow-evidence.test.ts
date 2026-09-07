@@ -35,3 +35,19 @@ test('ENG-FORGE-V10: null database values remain unknown rather than fabricated 
   assert.equal(evidence.qaPassed, undefined)
   assert.equal(projectForgeGateFacts(evidence).qaPassed, false)
 })
+
+test('ENG-FORGE-SHAPE-01: findings JSONB normalizes into the durable Architect snapshot', () => {
+  const raw = [
+    { id: 'forge', summary: 'forge seam', required: true, seams: ['workflow_app/forge/'], hint: 'SAME_UNIT' },
+    { id: 'adj', summary: 'adjacent TECH', required: false, seams: ['app/tech/'], hint: 'FOLLOW_UP_STORY' },
+  ]
+  const fromArray = mapForgeWorkflowEvidence({ lead_decision: 'SMITH', findings: raw })
+  assert.equal(fromArray.findings?.length, 2)
+  assert.equal(fromArray.findings?.[0].id, 'forge')
+  assert.equal(fromArray.findings?.[0].required, true)
+  assert.deepEqual(fromArray.findings?.[0].seams, ['workflow_app/forge/'])
+  // Postgres returns jsonb as an object; a JSON-string column value is tolerated too.
+  const fromString = mapForgeWorkflowEvidence({ findings: JSON.stringify(raw) })
+  assert.equal(fromString.findings?.length, 2)
+  assert.equal(fromString.findings?.[1].hint, 'FOLLOW_UP_STORY')
+})

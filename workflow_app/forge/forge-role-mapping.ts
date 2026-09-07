@@ -31,7 +31,8 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
       return {
         lane: 'architect',
         evidenceInstruction:
-          `${STRUCTURED_PREFIX} {"migrationRequired":false,"migrationFiles":[],"derivedRefreshRequired":false,"derivedModels":[],"deploymentRequired":true} (declare actual release obligations)`,
+          `${STRUCTURED_PREFIX} {"migrationRequired":false,"migrationFiles":[],"derivedRefreshRequired":false,"derivedModels":[],"deploymentRequired":true} (declare actual release obligations) ` +
+          `FORGE_FINDINGS_JSON: [{"id":"<stable-key>","summary":"one distinct finding","required":true|false,"seams":["path/prefix",...],"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}] (list EVERY distinct finding; required=true only when it must land to satisfy the ORIGINAL story)`,
       }
     case 'lead_pre':
       return { lane: 'lead', leadPhase: 'pre' }
@@ -76,6 +77,7 @@ const allowedEvidenceKeys = new Set<keyof ForgeGateEvidence>([
   'architectureSuspect',
   'leadDecision',
   'splitCount',
+  'findings',
   'qaReviewRequired',
   'qaReviewPassed',
   'qaPassed',
