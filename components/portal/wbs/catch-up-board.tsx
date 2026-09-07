@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { WbsCategoryId, WbsItem, WbsProject } from '@/services/wbs'
 import { WBS_CATEGORIES } from '@/services/wbs'
+import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidate'
+import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
 import {
   completeWbsItemAction,
   createWbsItemAction,
@@ -89,6 +91,25 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
   }, [items])
 
   const visible = filter ? items.filter((i) => i.category === filter) : items
+
+  const calendarEvents = useMemo<CatchUpCalendarEvent[]>(
+    () =>
+      items
+        .filter((i) => i.dueAt)
+        .map((i) => ({
+          id: `wbs-${i.id}`,
+          title: i.title,
+          startAt: i.dueAt as string,
+          endAt: null,
+          allDay: true,
+          personId: null,
+          personName: null,
+          propertyName: i.entity && i.entity.type === 'property' ? i.entity.id : null,
+          kind: 'other' as const,
+          source: 'wbs',
+        })),
+    [items],
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -205,22 +226,8 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
         </section>
 
 
-        {/* RIGHT — calendar region (hosts the full calendar widget) */}
-        <section className="portal-glass-panel portal-glass-panel-lifted flex min-h-[60vh] flex-col rounded-[var(--portal-panel-radius)] p-4">
-          <p className="text-[10px] font-light uppercase tracking-[0.14em] text-black/40">Calendar</p>
-          <div className="mt-3 space-y-2">
-            {[...items]
-              .filter((i) => i.dueAt)
-              .sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt ?? '')))
-              .slice(0, 8)
-              .map((item) => (
-                <div key={item.id} className="rounded-[var(--portal-tab-radius)] bg-white/55 px-3 py-2">
-                  <p className="text-[13px] font-light leading-5 text-black/70">{item.title}</p>
-                  <p className="text-[10px] font-light text-black/40">{dueLabel(item)}</p>
-                </div>
-              ))}
-          </div>
-        </section>
+        {/* RIGHT — full calendar widget (the one we grabbed) */}
+        <FullCalendarCandidate events={calendarEvents} heading="Calendar" />
       </div>
     </div>
   )
