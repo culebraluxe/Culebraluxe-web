@@ -606,7 +606,7 @@ export function FormEditor({
                 disabled={working}
                 onClick={() => {
                   requestLeave(() => {
-                    void startNewForm(form.templateId)
+                    router.push("/portal/forms?new=1")
                   })
                 }}
                 className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white transition hover:bg-[var(--portal-navy-soft)] disabled:opacity-40"
