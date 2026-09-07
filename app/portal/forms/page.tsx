@@ -10,15 +10,24 @@ import {
 
 export const dynamic = "force-dynamic"
 
-// Forms — canonical landing. Promoted from the sidecar FormLens: open the
-// active template's mutable draft when one exists, otherwise offer the FormLens
-// picker. Legacy auto-create launcher + /portal/form-lens sidecar remain as an
-// emergency reference; rollback is one git revert of this file.
-export default async function FormsPage() {
-  const instances = await listFormInstances()
+// Forms — canonical landing. Existing work opens in the mature editor; an
+// explicit new-form launch opens the canonical Person ↔ Property picker first.
+// A new form must never silently inherit the Person/Property context of the
+// form that happened to be open when the operator clicked New.
+export default async function FormsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>
+}) {
+  const params = await searchParams
   const template = getActiveTemplate(LISTING_AGREEMENT_TEMPLATE_ID)
   if (!template) notFound()
 
+  if (params.new === "1") {
+    return <FormLens template={template} />
+  }
+
+  const instances = await listFormInstances()
   const listings = instances.filter(
     (item) => item.templateId === LISTING_AGREEMENT_TEMPLATE_ID,
   )
