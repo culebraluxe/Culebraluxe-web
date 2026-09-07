@@ -1,37 +1,38 @@
-import { redirect } from "next/navigation"
+import { notFound } from "next/navigation"
 
-import { getDeals } from "@/db/deals"
-import { getClients } from "@/db/clients"
-import { getProperties } from "@/db/properties"
+import { FormEditorSurface } from "@/components/portal/forms/form-editor-surface"
+import { FormLens } from "@/components/portal/form-lens"
 import { listFormInstances } from "@/db/document-form-instance"
-import { listPortalFormTypes } from "@/lib/forms/template-registry"
-import { createFormAction } from "@/app/portal/forms/actions"
+import {
+  getActiveTemplate,
+  LISTING_AGREEMENT_TEMPLATE_ID,
+} from "@/lib/forms/template-registry"
 
 export const dynamic = "force-dynamic"
 
+// Forms — canonical landing. Promoted from the sidecar FormLens: open the
+// active template's mutable draft when one exists, otherwise offer the FormLens
+// picker. Legacy auto-create launcher + /portal/form-lens sidecar remain as an
+// emergency reference; rollback is one git revert of this file.
 export default async function FormsPage() {
   const instances = await listFormInstances()
-  const latest = instances[0]
-  if (latest) redirect(`/portal/forms/${latest.id}`)
+  const template = getActiveTemplate(LISTING_AGREEMENT_TEMPLATE_ID)
+  if (!template) notFound()
 
-  const templates = listPortalFormTypes()
-  const [deals, clients, propertiesResult] = await Promise.all([
-    getDeals(),
-    getClients(),
-    getProperties(),
-  ])
-  const properties = propertiesResult.ok ? propertiesResult.data : []
-  const result = await createFormAction({
-    templateId: templates[0]?.id ?? "",
-    dealId: deals[0]?.id,
-    personId: deals[0] ? undefined : clients[0]?.id,
-    propertyId: deals[0] || clients[0] ? undefined : properties[0]?.id,
-  })
-  if (result.ok) redirect(`/portal/forms/${result.data.formId}`)
-
-  return (
-    <p className="font-serif text-lg font-light text-[var(--portal-navy)]">
-      Add a deal, client, or property first, then open Forms.
-    </p>
+  const listings = instances.filter(
+    (item) => item.templateId === LISTING_AGREEMENT_TEMPLATE_ID,
   )
+  const preferred =
+    listings.find(
+      (item) =>
+        item.templateVersion === template.version && item.status !== "issued",
+    ) ??
+    listings.find((item) => item.templateVersion === template.version) ??
+    listings[0]
+
+  if (preferred) {
+    return <FormEditorSurface formId={preferred.id} />
+  }
+
+  return <FormLens template={template} />
 }
