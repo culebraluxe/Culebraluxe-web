@@ -1,8 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import type { WbsItem, WbsProject } from '@/services/wbs'
+import { useMemo, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import type { WbsCategoryId, WbsItem, WbsProject } from '@/services/wbs'
 import { WBS_CATEGORIES } from '@/services/wbs'
+import {
+  completeWbsItemAction,
+  createWbsItemAction,
+  dismissWbsItemAction,
+} from '@/app/portal/wbs/actions'
 
 const nav =
   'inline-flex items-center rounded-full px-3 py-1 text-[10px] font-light uppercase tracking-[0.14em]'
@@ -24,7 +30,28 @@ function dueLabel(item: WbsItem): string {
 }
 
 export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: WbsProject[] }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
   const [filter, setFilter] = useState<string | null>(null)
+  const [newTitle, setNewTitle] = useState('')
+  const [newCategory, setNewCategory] = useState<WbsCategoryId>(WBS_CATEGORIES[0].id)
+
+  function addFollowUp() {
+    const title = newTitle.trim()
+    if (!title || isPending) return
+    startTransition(async () => {
+      const res = await createWbsItemAction({ title, category: newCategory })
+      if (res.ok) setNewTitle('')
+      router.refresh()
+    })
+  }
+
+  function runTransition(fn: () => Promise<unknown>) {
+    startTransition(async () => {
+      await fn()
+      router.refresh()
+    })
+  }
 
   const counts = useMemo(() => {
     const map = new Map<string, number>()
@@ -85,6 +112,34 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
           <p className="text-[10px] font-light uppercase tracking-[0.14em] text-black/40">
             {filter ? `Follow-ups · ${WBS_CATEGORIES.find((c) => c.id === filter)?.label ?? filter}` : 'Follow-ups'}
           </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addFollowUp() }}
+              placeholder="New follow-up…"
+              className="h-9 min-w-0 flex-1 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/70 px-2.5 text-[13px] font-light text-black/70 outline-none focus:border-[var(--portal-navy)]"
+            />
+            <select
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value as WbsCategoryId)}
+              className="h-9 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white px-1.5 text-[11px] font-light text-black/60 outline-none"
+            >
+              {WBS_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!newTitle.trim() || isPending}
+              onClick={addFollowUp}
+              className="inline-flex h-9 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+
           {visible.length === 0 ? (
             <p className="text-sm font-light text-black/40">Nothing due here — all clear.</p>
           ) : (
@@ -98,12 +153,30 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
                       {item.owner ? ` · ${item.owner}` : ''}
                     </p>
                   </div>
-                  <span className="shrink-0 rounded-full bg-[var(--portal-gold)]/15 px-2 py-0.5 text-[9px] font-light uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">open</span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => runTransition(() => completeWbsItemAction(item.id))}
+                      className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-gold)] px-2 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)] disabled:opacity-40"
+                    >
+                      Complete
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => runTransition(() => dismissWbsItemAction(item.id))}
+                      className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2 text-[9px] font-light uppercase tracking-[0.12em] text-black/40 hover:text-[var(--portal-archive)] disabled:opacity-40"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </section>
+
 
         {/* RIGHT — calendar region (hosts the full calendar widget) */}
         <section className="portal-glass-panel portal-glass-panel-lifted flex min-h-[60vh] flex-col rounded-[var(--portal-panel-radius)] p-4">
