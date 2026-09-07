@@ -11,6 +11,7 @@ import type {
 import type { ContractDto, ContractRepository } from '../services/contract'
 import type { SecurityRepository } from '../services/security'
 import type { ShowingDto, ShowingRepository } from '../services/showing'
+import type { WbsRepository } from '../services/wbs'
 import { context, MemoryPersonRepository, principal } from './test-support'
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,36 @@ const securityRepo: SecurityRepository = {
   },
 }
 
+const wbsRepo: WbsRepository = {
+  async get() {
+    return null
+  },
+  async listDue() {
+    return []
+  },
+  async create(request) {
+    return { id: request.id, title: request.title, notes: '', category: request.category, status: 'open', projectId: null, parentId: null, dueAt: null, owner: null, order: null, entity: null, createdAt: null, updatedAt: null }
+  },
+  async save(request) {
+    return { id: request.id, title: request.title, notes: '', category: request.category, status: 'open', projectId: null, parentId: null, dueAt: null, owner: null, order: null, entity: null, createdAt: null, updatedAt: null }
+  },
+  async complete(request) {
+    return { id: request.id, title: '', notes: '', category: 'clients', status: 'done', projectId: null, parentId: null, dueAt: null, owner: null, order: null, entity: null, createdAt: null, updatedAt: null }
+  },
+  async dismiss(request) {
+    return { id: request.id, title: '', notes: '', category: 'clients', status: 'dismissed', projectId: null, parentId: null, dueAt: null, owner: null, order: null, entity: null, createdAt: null, updatedAt: null }
+  },
+  async createProject() {
+    return { id: '', name: '', owner: null, status: 'open', createdAt: null, updatedAt: null }
+  },
+  async getProject() {
+    return null
+  },
+  async listProjects() {
+    return []
+  },
+}
+
 const showingRepo: ShowingRepository = {
   async get(showingId: string): Promise<ShowingDto | null> {
     return showingId === 'sh1' ? showingDto('sh1') : null
@@ -145,6 +176,7 @@ const repositories: CoreServiceRepositories = {
   contract: contractRepo,
   showing: showingRepo,
   security: securityRepo,
+  wbs: wbsRepo,
 }
 
 const actorContext = context({ actor, principal: principal('USER') })
@@ -160,6 +192,7 @@ test('composeCoreServices registers every core domain sorted and always builds s
     'property',
     'security',
     'showing',
+    'wbs',
   ])
 })
 

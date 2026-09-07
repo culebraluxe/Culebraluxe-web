@@ -6,6 +6,7 @@ import { SqlPersonRepository } from '@/db/person-service-repository'
 import { SqlPropertyRepository } from '@/db/property-service-repository'
 import { SqlSecurityRepository } from '@/db/security-service-repository'
 import { SqlShowingRepository } from '@/db/showing-service-repository'
+import { SqlWbsRepository } from '@/db/wbs-service-repository'
 import { composeCoreServices } from '@/services/composition'
 import { AuthorizationService } from '@/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/services/entitlement/db-authorization-policy-provider'
@@ -29,6 +30,7 @@ export const applicationSecurityService = composeCoreServices(
     contract: new SqlContractRepository(),
     showing: new SqlShowingRepository(),
     security: new SqlSecurityRepository(),
+    wbs: new SqlWbsRepository(),
   },
   { authorization: authEntitlements },
 ).security
