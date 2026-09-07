@@ -6,6 +6,10 @@ import { FakeSql } from '../../testv2/engine_tests/fake-sql'
 import { stubEvaluator } from '../../testv2/engine_tests/fixtures'
 import { parseForgeSdlc } from '../definitions/forge-sdlc'
 import { projectForgeGateFacts, type ForgeGateEvidence } from '../forge/forge-facts'
+import {
+  authoritativeLeadDecision,
+  type ArchitectFinding,
+} from '../forge/forge-shaping'
 
 const A = 'a'.repeat(40)
 const B = 'b'.repeat(40)
@@ -264,4 +268,31 @@ test('ENG-FORGE-V10: HOLD remains a durable human gate and never completes', asy
   assert.equal(result.humanNode, 'hold')
   const instance = result.fake.store.processInstances.find((row) => row.id === result.processInstanceId)!
   assert.equal(instance.status, 'active')
+})
+
+test('SHAPE: multi-seam Architect result is shaped to SPLIT(2) before Smith; no single Smith launches', async () => {
+  // The dogfood failure: one Architect packet carried two independent required
+  // seams but Lead chose a single SMITH. The authoritative shaping gate must
+  // route a multi-seam packet to bounded split children instead.
+  const findings: ArchitectFinding[] = [
+    { id: 'forge-seam', summary: 'forge gate fix', required: true, seams: ['workflow_app/forge/'] },
+    { id: 'harness-seam', summary: 'harness fix', required: true, seams: ['agent-runtime/opencode/'] },
+    { id: 'adjacent', summary: 'adjacent TECH finding', required: false, seams: ['app/tech/'] },
+  ]
+  const authoritative = authoritativeLeadDecision(findings)
+  assert.equal(authoritative.decision, 'SPLIT')
+  assert.equal(authoritative.splitCount, 2)
+  // Adjacent discovery stays out: exactly 2 bounded units.
+  assert.equal(authoritative.unitsCount, 2)
+
+  const result = await runScenario({
+    initial: { workType: 'FEATURE', scoutRequired: false, splitCount: 2 },
+    task: (node, _visit, evidence) =>
+      node === 'lead_pre'
+        ? { leadDecision: 'SPLIT', splitCount: 2 }
+        : defaultTaskEvidence(node, evidence),
+  })
+  // No single Smith may launch under a SPLIT shape; exactly two bounded children run.
+  assert.equal(result.steps.filter((step) => step === 'smith').length, 0)
+  assert.equal(result.steps.filter((step) => step === 'smith_split_work').length, 2)
 })

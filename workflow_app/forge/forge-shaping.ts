@@ -271,3 +271,78 @@ export function smithScopeForUnit(decision: WorkShapeDecision, unitId: string, f
   return unit.seams.length > 0 ? unit.seams : [...fallback]
 }
 
+// -- Authoritative shaping gate (the dogfood anti-pattern, in code) -----------
+// ENG-FORGE-SHAPE-01 authoritative decisions. Lead PRE is the judgment layer:
+// single-Smith over an Architect packet that contains multiple independent
+// required seams is refused here — a deterministic rule, not a model habit.
+
+export type AuthoritativeLeadDecision = LeadShapePlan & { mode: WorkShapeMode }
+
+export function authoritativeLeadDecision(findings: ArchitectFinding[]): AuthoritativeLeadDecision {
+  const shape = shapeArchitectFindings({ findings })
+  const plan = leadShapePlan(shape)
+  return { decision: plan.decision, splitCount: plan.splitCount, mode: shape.mode, unitsCount: shape.units.length }
+}
+
+export type ShapeChoice = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
+
+/**
+ * Validate the shape a Lead emits against the deterministic authoritative shape
+ * derived from the Architect findings. Adjacent/non-blocking findings never
+ * change the authoritative shape (they are quarantined to follow-ups), so this
+ * check is stable regardless of how much discovery Architect produced.
+ */
+export function validateLeadShapeChoice(input: {
+  findings: ArchitectFinding[]
+  choice: ShapeChoice
+  splitCount?: number | null
+}): { ok: boolean; errors: string[]; authoritative: AuthoritativeLeadDecision } {
+  const authoritative = authoritativeLeadDecision(input.findings)
+  const errors: string[] = []
+  if (input.choice === 'SPLIT') {
+    if (authoritative.decision !== 'SPLIT') {
+      errors.push(`SPLIT chosen but authoritative shape is ${authoritative.decision}`)
+    } else if ((input.splitCount ?? null) !== authoritative.splitCount) {
+      errors.push(`SPLIT count ${String(input.splitCount)} does not match ${authoritative.splitCount} bounded units`)
+    }
+  } else if (input.choice === 'SMITH' || input.choice === 'SOLO') {
+    if (authoritative.decision === 'SPLIT') {
+      errors.push(
+        `single ${input.choice} chosen over ${authoritative.unitsCount} independent required seams -> must SPLIT:${authoritative.unitsCount}`,
+      )
+    }
+    if (authoritative.decision === 'HOLD') {
+      errors.push('cannot execute: the required work is HOLD (ambiguous/unsafe)')
+    }
+    if (input.splitCount != null) errors.push(`${input.choice} must not carry a splitCount`)
+  }
+  return { ok: errors.length === 0, errors, authoritative }
+}
+
+/**
+ * Bind a single Smith node to exactly one bounded unit — before it launches.
+ * A plain `smith`/`repair_smith` may only run when the shape is a SINGLE unit;
+ * a `smith_split_work` child may only run when the shape is SPLIT and its index
+ * addresses a real unit. Anything else fails closed (never launches unbounded).
+ */
+export function smithUnitForNode(
+  decision: WorkShapeDecision,
+  nodeId: string,
+  splitIndex?: number | null,
+): { unit: ShapeUnit | null; error: string | null } {
+  if (nodeId === 'smith_split_work') {
+    if (decision.mode !== 'SPLIT') {
+      return { unit: null, error: `smith_split_work launched but authoritative shape is ${decision.mode}` }
+    }
+    const i = splitIndex ?? 0
+    if (!Number.isInteger(i) || i < 0 || i >= decision.units.length) {
+      return { unit: null, error: `split index ${String(i)} is outside ${decision.units.length} bounded units` }
+    }
+    return { unit: decision.units[i], error: null }
+  }
+  if (decision.mode !== 'SINGLE' || decision.units.length !== 1) {
+    return { unit: null, error: `single ${nodeId} launched but authoritative shape is ${decision.mode}` }
+  }
+  return { unit: decision.units[0], error: null }
+}
+

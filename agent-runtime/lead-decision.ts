@@ -80,6 +80,7 @@ export function leadPhaseInstructions(phase: LeadRunPhase): string {
       [
         'Lead PRE gate. Validate the frozen Architect contract against repository reality before implementation.',
         'You may STOP when scope, architecture, dependencies, acceptance criteria, Assay plan, or execution assumptions are wrong. Do not silently rewrite the Architect contract.',
+        'Shape the Architect findings before choosing: one bounded implementation unit -> SMITH/SOLO; MULTIPLE independent required seams -> SPLIT:n (n = number of independent units). Never collapse N independent seams into a single SMITH — the shaping gate refuses that. Architect discovery beyond the current story is follow-up material, never current Smith scope.',
         'Choose the cheapest sound execution shape. Default to NOT splitting. SOLO when this is small enough for Lead to implement directly. SMITH for one coherent implementation assignment. SPLIT:n is currently DISABLED (single-active work queue; multi-worker decomposition is not yet activated): do NOT emit SPLIT:n — choosing it only pauses the story on Hold for human decomposition. Prefer SOLO or SMITH.',
         ...renderModelCostLines(),
         'Name the grade tradeoff in LEAD_REASON (e.g. "SOLO on flash: trivial edit, no Smith spend" or "SMITH upgrade to pro: cross-file refactor repays 10x").',
