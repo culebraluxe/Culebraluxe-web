@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { EntitlementService } from '../../services/entitlement'
+import { AuthorizationService, StaticAuthorizationPolicyProvider } from '../../services/entitlement'
 import {
   SECURITY_OPERATIONS,
   SecurityService,
@@ -69,7 +69,7 @@ test('SECURITY-CORE-01: SecurityService resolves exact mapped identity and level
   }
 
   const service = new SecurityService(repository, {
-    authorization: new EntitlementService(),
+    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
   })
 
   const resolved = await service.execute({
@@ -106,7 +106,7 @@ test('SECURITY-CORE-01: unmapped identity stays unmapped', async () => {
   }
 
   const service = new SecurityService(repository, {
-    authorization: new EntitlementService(),
+    authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
   })
   const result = await service.execute({
     operation: SECURITY_OPERATIONS.RESOLVE_IDENTITY,
@@ -120,15 +120,49 @@ test('SECURITY-CORE-01: unmapped identity stays unmapped', async () => {
   )
 })
 
-test('SECURITY-CORE-01: entitlement stub is explicitly open until policy is defined', async () => {
-  const entitlements = new EntitlementService()
-  assert.equal(entitlements.mode, 'open-stub')
-  assert.equal(
-    await entitlements.authorize({
-      domain: 'contract',
-      action: 'contract.execute',
-      actor: context.actor,
-    }),
-    true,
-  )
+test('SECURITY-CORE-01: authorization resolver enforces GUEST reads and the contract.execute rule', async () => {
+  const entitlements = new AuthorizationService(new StaticAuthorizationPolicyProvider())
+  assert.equal(entitlements.mode, 'enforced')
+
+  const base = { domain: 'contract', actor: context.actor }
+
+  const guestCommand = await entitlements.authorize({
+    ...base,
+    action: 'contract.write',
+    operation: 'contract.createFromForm',
+    kind: 'command',
+  })
+  assert.equal(guestCommand.allowed, false, 'GUEST (missing principal) command denied under the resolver')
+  assert.equal(guestCommand.policyId, 'default:guest.command-deny')
+
+  const guestQuery = await entitlements.authorize({
+    ...base,
+    action: 'contract.read',
+    operation: 'contract.get',
+    kind: 'query',
+  })
+  assert.equal(guestQuery.allowed, true, 'GUEST query allowed under the resolver')
+
+  const userExecute = await entitlements.authorize({
+    ...base,
+    action: 'contract.execute',
+    operation: 'contract.execute',
+    kind: 'command',
+    principal: { appUserId: 'user-1', level: 'USER', roleCodes: ['user'] },
+  })
+  assert.equal(userExecute.allowed, false, 'contract.execute denied for USER')
+  assert.equal(userExecute.mode, 'enforced')
+
+  const bpuExecute = await entitlements.authorize({
+    ...base,
+    action: 'contract.execute',
+    operation: 'contract.execute',
+    kind: 'command',
+    principal: {
+      appUserId: 'user-1',
+      level: 'BUSINESS_POWER_USER',
+      roleCodes: ['business_power'],
+    },
+  })
+  assert.equal(bpuExecute.allowed, true, 'contract.execute allowed for BUSINESS_POWER_USER')
 })

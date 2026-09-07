@@ -8,6 +8,7 @@ import type {
   UpsertPropertyForPersonRequest,
 } from '../services/property'
 import { capturingInfrastructure, context } from './test-support'
+import { EntitlementService } from '../services/entitlement'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — Property service envelope tests (address/place canonical DTO).
@@ -104,4 +105,23 @@ test('property.forPerson returns an empty context when nothing is linked', async
   const res = await service.execute({ operation: 'property.forPerson', payload: { personId: 'p9' }, context: context({ actor }) })
   assert.equal(res.ok, true)
   if (res.ok) assert.deepEqual(res.value.properties, [])
+})
+
+test('an unknown operation on property returns UNKNOWN_OPERATION', async () => {
+  const service = new PropertyService(new MemoryPropertyRepository(), capturingInfrastructure().infrastructure)
+  const res = await service.execute({ operation: 'property.nope', payload: {}, context: context({ actor }) } as never)
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'UNKNOWN_OPERATION')
+})
+
+test('GUEST cannot run a property command (FORBIDDEN under the entitlement stub)', async () => {
+  const repo = new MemoryPropertyRepository().seed(prop())
+  const service = new PropertyService(repo, { authorization: new EntitlementService() })
+  const res = await service.execute({
+    operation: 'property.setStatus',
+    payload: { propertyId: 'pr1', status: 'archived' },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'FORBIDDEN')
 })

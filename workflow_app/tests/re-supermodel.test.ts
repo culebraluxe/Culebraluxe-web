@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { WorkflowEngine } from '../../workflow_engine/lib/workflow/engine'
 import { WorkflowConflictError } from '../../workflow_engine/lib/workflow/errors'
-import { FakeSql } from '../../workflow_engine/tests/fake-sql'
-import { stubEvaluator, makeApp } from '../../workflow_engine/tests/fixtures'
+import { FakeSql } from '../../testv2/engine_tests/fake-sql'
+import { stubEvaluator, makeApp } from '../../testv2/engine_tests/fixtures'
 import {
   parseReSupermodel,
   RE_SUPERMODEL_KEY,

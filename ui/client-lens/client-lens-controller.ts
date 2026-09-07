@@ -174,7 +174,11 @@ export class ClientLensController extends BasePageController<
         listError: null,
       }))
 
-      if (nextSelectedId && nextSelectedId !== selectedClientId) {
+      if (
+        context.isCurrent() &&
+        nextSelectedId &&
+        nextSelectedId !== selectedClientId
+      ) {
         void this.dispatch({
           operation: 'clientLens.selectClient',
           payload: { personId: nextSelectedId },

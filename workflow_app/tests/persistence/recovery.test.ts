@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { interactiveSql } from '../../../lib/neon-interactive'
-import { assertEngineSchema, PersistenceFixture } from '../../../workflow_engine/tests/persistence/harness'
+import { assertEngineSchema, PersistenceFixture } from '../../../testv2/engine_tests/persistence/harness'
 import { reconcileInstanceCore, runRecoveryPassCore } from '../../recovery'
 
 // start -> tA (task) -> end

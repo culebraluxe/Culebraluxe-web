@@ -63,6 +63,21 @@ export class PersonService extends BaseService<PersonOperationMap> {
         authorization: 'person.write',
         execution: { mode: 'ordered', partitionBy: 'personId' },
         handle: async (request, context) => {
+          // Identity is owned: it must never silently transfer to another Person.
+          const owner = await this.repository.findByIdentity({
+            identity: request.identity,
+          })
+          if (owner && owner.id !== request.personId) {
+            this.fail(
+              'IDENTITY_OWNED',
+              `Identity ${request.identity.kind}:${request.identity.value} is already owned by another Person.`,
+            )
+          }
+          // Same-Person re-attach is idempotent: no duplicate attach, no event.
+          if (owner && owner.id === request.personId) {
+            return { ...request.identity }
+          }
+
           const identity = await this.repository.attachIdentity(request)
           await this.emit(
             {

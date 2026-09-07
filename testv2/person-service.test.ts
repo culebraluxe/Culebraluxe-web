@@ -82,3 +82,46 @@ test('an unknown operation returns UNKNOWN_OPERATION failure', async () => {
   assert.equal(res.ok, false)
   if (!res.ok) assert.equal(res.error.code, 'UNKNOWN_OPERATION')
 })
+
+
+test('person.attachIdentity refuses an identity already owned by another Person (IDENTITY_OWNED)', async () => {
+  const { service, repository } = makePersonHarness()
+  repository.seed(person).seed({ id: 'p2', displayName: 'Bea', status: 'active', archivedAt: null })
+  const attachP2 = await service.execute({
+    operation: 'person.attachIdentity',
+    payload: { personId: 'p2', identity: { kind: 'email', value: 'shared@culebraluxe.com', isPrimary: true } },
+    context: newContext(actor),
+  })
+  assert.equal(attachP2.ok, true)
+  const res = await service.execute({
+    operation: 'person.attachIdentity',
+    payload: { personId: 'p1', identity: { kind: 'email', value: 'shared@culebraluxe.com', isPrimary: true } },
+    context: newContext(actor),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'IDENTITY_OWNED')
+})
+
+test('re-attaching the same identity on the same Person is idempotent and emits no duplicate event', async () => {
+  const { service, repository, infra } = makePersonHarness()
+  repository.seed(person)
+  const first = await service.execute({
+    operation: 'person.attachIdentity',
+    payload: { personId: 'p1', identity: { kind: 'email', value: 'dana@culebraluxe.com', isPrimary: true } },
+    context: newContext(actor),
+  })
+  assert.equal(first.ok, true)
+  const before = infra.events.filter((e) => e.type === 'person.identity_attached').length
+
+  const second = await service.execute({
+    operation: 'person.attachIdentity',
+    payload: { personId: 'p1', identity: { kind: 'email', value: 'dana@culebraluxe.com', isPrimary: true } },
+    context: newContext(actor),
+  })
+  assert.equal(second.ok, true)
+  assert.equal(
+    infra.events.filter((e) => e.type === 'person.identity_attached').length,
+    before,
+    'no duplicate identity_attached event for an idempotent re-attach',
+  )
+})

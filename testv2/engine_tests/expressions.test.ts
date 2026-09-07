@@ -4,7 +4,7 @@ import {
   evaluateCondition,
   isSupportedExpression,
   ExpressionError,
-} from '../lib/workflow/expressions'
+} from '../../workflow_engine/lib/workflow/expressions'
 
 // ---------------------------------------------------------------------------
 // Story 187 — no silent-false. Supported expressions evaluate deterministically;

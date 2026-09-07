@@ -140,7 +140,7 @@ test('ENG-20A: SCOPED guard detects full-regression aliases, not targeted single
   assert.ok(detectFullRegressionAttempt('verified with pnpm test:persistence'))
   assert.ok(detectFullRegressionAttempt('npm test completed'))
   assert.ok(detectFullRegressionAttempt('pnpm run test:app'))
-  assert.ok(detectFullRegressionAttempt('tsx --test workflow_engine/tests/*.test.ts'))
+  assert.ok(detectFullRegressionAttempt('tsx --test testv2/engine_tests/*.test.ts'))
   assert.equal(
     detectFullRegressionAttempt('ran tsx --test workflow_app/tests/persistence/cleanse.test.ts'),
     null,

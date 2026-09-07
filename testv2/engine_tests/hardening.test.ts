@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { WorkflowEngine } from '../lib/workflow/engine';
-import { StaleTokenError, WorkflowConflictError } from '../lib/workflow/errors';
+import { WorkflowEngine } from '../../workflow_engine/lib/workflow/engine';
+import { StaleTokenError, WorkflowConflictError } from '../../workflow_engine/lib/workflow/errors';
 import { FakeSql } from './fake-sql';
 import { stubEvaluator, makeApp } from './fixtures';
 

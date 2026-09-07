@@ -2,7 +2,7 @@ import type {
   ApplicationPort,
   ApplicationCommandResult,
   ApplicationFacts,
-} from '../lib/workflow/types';
+} from '../../workflow_engine/lib/workflow/types';
 
 // Minimal deterministic condition evaluator for tests (the engine default is
 // expr-eval; tests inject this stub so no package is required).

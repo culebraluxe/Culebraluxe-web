@@ -1,6 +1,7 @@
 import { ServiceError } from './service-error'
 import { InMemoryServiceQueue } from './service-queue'
 import type {
+  AuthorizationDecision,
   ServiceCapability,
   ServiceContext,
   ServiceDescriptor,
@@ -98,19 +99,7 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
         execution,
         partitionKey,
       },
-      () =>
-        this.run(envelope.operation, envelope.context, async () => {
-          if (!definition) {
-            this.fail('UNKNOWN_OPERATION', `Unknown ${this.domain} operation: ${envelope.operation}`)
-          }
-
-          await this.authorize(
-            definition.authorization ?? envelope.operation,
-            envelope.context,
-          )
-
-          return definition.handle(envelope.payload, envelope.context)
-        }),
+      () => this.runAuthorized(definition, envelope),
     )
   }
 
@@ -148,7 +137,6 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
         result.error.code,
         `${domain}.${operation}: ${result.error.message}`,
         result.error.retryable,
-        result.error.cause,
       )
     }
 
@@ -171,18 +159,33 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
     throw new ServiceError(code, message, retryable, cause)
   }
 
-  private async run<T>(
-    operation: string,
-    context: ServiceContext,
-    work: () => Promise<T>,
-  ): Promise<ServiceResult<T>> {
+  private async runAuthorized(
+    definition: ServiceOperationDefinition<unknown, unknown> | undefined,
+    envelope: ServiceEnvelope,
+  ): Promise<ServiceResult<unknown>> {
+    const operation = envelope.operation
+    const context = envelope.context
+    let decision: AuthorizationDecision | undefined
+
     try {
-      const value = await work()
-      await this.audit(operation, context, 'success')
+      if (!definition) {
+        throw new ServiceError(
+          'UNKNOWN_OPERATION',
+          `Unknown ${this.domain} operation: ${operation}`,
+        )
+      }
+
+      decision = await this.authorize(definition, operation, context)
+      const value = await definition.handle(envelope.payload, context)
+      await this.audit(operation, context, 'success', undefined, decision)
       return { ok: true, value, correlationId: context.correlationId }
     } catch (cause) {
       const error = ServiceError.from(cause)
-      await this.audit(operation, context, 'failure', error.code)
+      const stamp =
+        error instanceof ServiceError
+          ? (error.authorization ?? decision)
+          : decision
+      await this.audit(operation, context, 'failure', error.code, stamp)
       return {
         ok: false,
         error: error.toShape(),
@@ -191,16 +194,43 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
     }
   }
 
-  private async authorize(action: string, context: ServiceContext): Promise<void> {
-    if (!this.infrastructure.authorization) return
-    const allowed = await this.infrastructure.authorization.authorize({
-      domain: this.domain,
-      action,
-      actor: context.actor,
-    })
-    if (!allowed) {
-      throw new ServiceError('FORBIDDEN', `${this.domain}.${action} is not authorized`, false)
+  /**
+   * Authorization always runs for a known operation. A missing authorization
+   * port is a boot-configuration error, never a silent allow.
+   */
+  private async authorize(
+    definition: ServiceOperationDefinition<unknown, unknown>,
+    operation: string,
+    context: ServiceContext,
+  ): Promise<AuthorizationDecision> {
+    const port = this.infrastructure.authorization
+    if (!port) {
+      throw new ServiceError(
+        'AUTHORIZATION_UNAVAILABLE',
+        `${this.domain}.${operation} requires an authorization port; none is configured.`,
+        false,
+      )
     }
+
+    const decision = await port.authorize({
+      domain: this.domain,
+      action: definition.authorization ?? operation,
+      operation,
+      kind: definition.kind ?? 'command',
+      actor: context.actor,
+      principal: context.principal,
+    })
+
+    if (!decision.allowed) {
+      throw new ServiceError(
+        'FORBIDDEN',
+        `${this.domain}.${operation} is not authorized: ${decision.reason}`,
+        false,
+        undefined,
+        decision,
+      )
+    }
+    return decision
   }
 
   private async audit(
@@ -208,6 +238,7 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
     context: ServiceContext,
     outcome: 'success' | 'failure',
     errorCode?: string,
+    authorization?: AuthorizationDecision,
   ): Promise<void> {
     if (!this.infrastructure.audit) return
     await this.infrastructure.audit.record({
@@ -218,6 +249,7 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
       causationId: context.causationId,
       outcome,
       errorCode,
+      authorization,
     })
   }
 

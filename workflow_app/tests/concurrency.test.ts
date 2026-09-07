@@ -197,4 +197,4 @@ test('rolled-back attempt does not poison a future retry', async () => {
 // NOTE (CRM-14B): the previous in-memory join-concurrency proof using an
 // invented join_state/token model was invalid and has been removed. The real
 // exactly-once join release proof against overlapping PostgreSQL transactions
-// lives in workflow_engine/tests/persistence/join-concurrency.test.ts.
+// lives in testv2/engine_tests/persistence/join-concurrency.test.ts.

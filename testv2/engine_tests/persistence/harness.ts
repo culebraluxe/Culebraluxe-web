@@ -15,8 +15,8 @@
 import { randomUUID } from 'node:crypto'
 
 import { interactiveSql } from '../../../lib/neon-interactive'
-import { WorkflowEngine } from '../../lib/workflow/engine'
-import type { ProcessGraph } from '../../lib/workflow/types'
+import { WorkflowEngine } from '../../../workflow_engine/lib/workflow/engine'
+import type { ProcessGraph } from '../../../workflow_engine/lib/workflow/types'
 import { stubEvaluator, makeApp } from '../fixtures'
 
 export type { ProcessGraph }

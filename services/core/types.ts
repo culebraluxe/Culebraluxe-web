@@ -1,6 +1,15 @@
+import type { SecurityLevel } from '../security/level'
+
 export type ServiceActor = {
   id: string | null
   kind: 'user' | 'system' | 'agent'
+}
+
+/** Canonical application principal a service call is acting as (edge-resolved). */
+export type ServicePrincipal = {
+  appUserId: string
+  level: SecurityLevel
+  roleCodes: readonly string[]
 }
 
 /** Per-call metadata. Service instances stay stateless/singleton-safe. */
@@ -8,6 +17,8 @@ export type ServiceContext = {
   actor: ServiceActor
   correlationId: string
   causationId?: string
+  /** Resolved at the HTTP/MVI edge; services pass it through to the port. */
+  principal?: ServicePrincipal
 }
 
 export type ServiceOperationKind = 'query' | 'command'
@@ -96,17 +107,35 @@ export type ServiceErrorShape = {
   code: string
   message: string
   retryable: boolean
-  cause?: unknown
+}
+
+export type ServiceResourceContext = {
+  type: string
+  id: string
+  propertyId?: string
+  personId?: string
+  firmId?: string
 }
 
 export type AuthorizationRequest = {
   domain: string
   action: string
+  operation: string
+  kind: ServiceOperationKind
   actor: ServiceActor
+  principal?: ServicePrincipal
+  resource?: ServiceResourceContext
+}
+
+export type AuthorizationDecision = {
+  allowed: boolean
+  reason: string
+  policyId: string
+  mode: 'enforced' | 'open-stub'
 }
 
 export interface AuthorizationPort {
-  authorize(request: AuthorizationRequest): Promise<boolean>
+  authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>
 }
 
 export type ServiceAuditEvent = {
@@ -117,6 +146,7 @@ export type ServiceAuditEvent = {
   causationId?: string
   outcome: 'success' | 'failure'
   errorCode?: string
+  authorization?: AuthorizationDecision
 }
 
 export interface AuditPort {

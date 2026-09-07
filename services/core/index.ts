@@ -11,6 +11,7 @@ export {
 } from './role'
 export type {
   AuditPort,
+  AuthorizationDecision,
   AuthorizationPort,
   AuthorizationRequest,
   DomainEventPort,
@@ -36,8 +37,10 @@ export type {
   ServiceOperationName,
   ServiceOperationRequest,
   ServiceOperationResponse,
+  ServicePrincipal,
   ServiceQueue,
   ServiceQueueItem,
+  ServiceResourceContext,
   ServiceResult,
   ServiceRouter,
   ServiceSuccess,

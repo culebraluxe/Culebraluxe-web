@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WorkflowEngine } from '../lib/workflow/engine';
+import { WorkflowEngine } from '../../workflow_engine/lib/workflow/engine';
 import { FakeSql } from './fake-sql';
 import { stubEvaluator } from './fixtures';
 

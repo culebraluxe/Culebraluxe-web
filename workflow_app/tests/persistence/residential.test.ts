@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   assertEngineSchema,
   PersistenceFixture,
-} from '../../../workflow_engine/tests/persistence/harness'
+} from '../../../testv2/engine_tests/persistence/harness'
 import { parseReSupermodel } from '../../definitions/re-supermodel'
 
 // Real residential XML (RE_supermodel-v1.xml) driven against the DEV database:

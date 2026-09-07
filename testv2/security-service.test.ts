@@ -124,3 +124,10 @@ test('hasSecurityLevel allows equal or higher actual levels', () => {
   assert.ok(all.every(({ required, actual }) => hasSecurityLevel(actual, required)))
   assert.equal(hasSecurityLevel('GUEST', 'USER'), false)
 })
+
+test('an unknown operation on security returns UNKNOWN_OPERATION', async () => {
+  const service = new SecurityService(new MemorySecurityRepository(), capturingInfrastructure().infrastructure)
+  const res = await service.execute({ operation: 'security.nope', payload: {}, context: context({ actor }) } as never)
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'UNKNOWN_OPERATION')
+})

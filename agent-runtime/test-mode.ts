@@ -89,9 +89,10 @@ export const FULL_REGRESSION_PATTERNS: RegExp[] = [
   /\bpnpm\s+run\s+test:engine\b/,
   /\bpnpm\s+test:app\b/,
   /\bpnpm\s+run\s+test:app\b/,
-  /tsx\s+--test\s+workflow_engine\/tests\/\*\.test\.ts/,
+  /tsx\s+--test\s+testv2\/engine_tests\/\*\.test\.ts/,
+  /tsx\s+--test\s+testv2\/\*\.test\.ts/,
   /tsx\s+--test\s+workflow_app\/tests\/\*\.test\.ts/,
-  /node\s+--import\s+tsx\s+--test-concurrency=[0-9]+\s+--test\s+workflow_engine\/tests\/persistence/,
+  /node\s+--import\s+tsx\s+--test-concurrency=[0-9]+\s+--test\s+testv2\/engine_tests\/persistence/,
 ]
 
 /** Return the matched forbidden command when `text` mentions a FULL invocation. */

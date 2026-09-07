@@ -7,6 +7,8 @@ import { SqlContractRepository } from '@/db/contract-service-repository'
 import { SqlFirmRepository } from '@/db/firm-service-repository'
 import { SqlPersonRepository } from '@/db/person-service-repository'
 import { SqlPropertyRepository } from '@/db/property-service-repository'
+import { SqlSecurityRepository } from '@/db/security-service-repository'
+import { SqlShowingRepository } from '@/db/showing-service-repository'
 import { composeCoreServices } from '@/services/composition'
 import { CONTRACT_OPERATIONS, type ContractDto, type ContractRoleDto } from '@/services/contract'
 import { FIRM_OPERATIONS, type FirmDto } from '@/services/firm'
@@ -29,6 +31,8 @@ const core = composeCoreServices({
   firm: new SqlFirmRepository(),
   property: new SqlPropertyRepository(),
   contract: new SqlContractRepository(),
+  showing: new SqlShowingRepository(),
+  security: new SqlSecurityRepository(),
 })
 
 type PnsFormEvidenceRow = {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { FirmService } from '../services/firm'
 import type { FirmDto, FirmRepository } from '../services/firm'
 import { capturingInfrastructure, context } from './test-support'
+import { EntitlementService } from '../services/entitlement'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — Firm service envelope tests.
@@ -84,4 +85,44 @@ test('firm.get for an unknown id is ok:true, value:null', async () => {
   const res = await service.execute({ operation: 'firm.get', payload: { firmId: 'nope' }, context: context({ actor }) })
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value, null)
+})
+
+
+test('firm.upsert rejects an empty name with FIRM_NAME_REQUIRED', async () => {
+  const repo = new MemoryFirmRepository()
+  const service = new FirmService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({ operation: 'firm.upsert', payload: { name: '   ' }, context: context({ actor }) })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'FIRM_NAME_REQUIRED')
+})
+
+test('firm.upsert with an explicit firmId still works and stays keyed by firm', async () => {
+  const repo = new MemoryFirmRepository()
+  const service = new FirmService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({
+    operation: 'firm.upsert',
+    payload: { firmId: 'fx-1', name: 'Anchor Brokerage' },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, true)
+  if (res.ok) assert.equal(res.value.id, 'fx-1')
+})
+
+test('an unknown operation on firm returns UNKNOWN_OPERATION', async () => {
+  const service = new FirmService(new MemoryFirmRepository(), capturingInfrastructure().infrastructure)
+  const res = await service.execute({ operation: 'firm.nope', payload: {}, context: context({ actor }) } as never)
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'UNKNOWN_OPERATION')
+})
+
+test('GUEST cannot run a firm command (FORBIDDEN under the entitlement stub)', async () => {
+  const repo = new MemoryFirmRepository()
+  const service = new FirmService(repo, { authorization: new EntitlementService() })
+  const res = await service.execute({
+    operation: 'firm.upsert',
+    payload: { name: 'Coastal LLC' },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'FORBIDDEN')
 })

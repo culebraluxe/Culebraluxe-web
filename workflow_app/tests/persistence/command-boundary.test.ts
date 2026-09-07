@@ -12,7 +12,7 @@ import {
   assertEngineSchema,
   ensureCommandEffectTable,
   PersistenceFixture,
-} from '../../../workflow_engine/tests/persistence/harness'
+} from '../../../testv2/engine_tests/persistence/harness'
 
 // start -> approve (human task) -> do (application command) -> end
 const COMMAND_LINE = {

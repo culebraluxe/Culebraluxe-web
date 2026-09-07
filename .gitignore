@@ -38,3 +38,4 @@ culebraluxe-calendar*.json
 # Repository uses pnpm; reject accidental npm lockfiles and generated TS state
 package-lock.json
 *.tsbuildinfo
+.ripwire-output/

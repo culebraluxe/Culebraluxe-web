@@ -1,4 +1,4 @@
-import type { ServiceErrorShape } from './types'
+import type { AuthorizationDecision, ServiceErrorShape } from './types'
 
 export class ServiceError extends Error {
   constructor(
@@ -6,6 +6,8 @@ export class ServiceError extends Error {
     message: string,
     readonly retryable = false,
     readonly cause?: unknown,
+    /** Authorization decision that produced this denial (stamped on FORBIDDEN). */
+    readonly authorization?: AuthorizationDecision,
   ) {
     super(message)
     this.name = 'ServiceError'
@@ -19,12 +21,12 @@ export class ServiceError extends Error {
     return new ServiceError('UNEXPECTED', 'Unexpected service failure', false, cause)
   }
 
+  /** Wire shape. Raw `cause` is intentionally NOT serialized — class-only. */
   toShape(): ServiceErrorShape {
     return {
       code: this.code,
       message: this.message,
       retryable: this.retryable,
-      cause: this.cause,
     }
   }
 }

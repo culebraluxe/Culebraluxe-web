@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { assertEngineSchema, PersistenceFixture } from './harness'
-import type { WorkflowTraceRecord } from '../../lib/workflow/types'
+import type { WorkflowTraceRecord } from '../../../workflow_engine/lib/workflow/types'
 
 // ---------------------------------------------------------------------------
 // V2 — Workflow Engine → Flight Recorder lifecycle instrumentation.

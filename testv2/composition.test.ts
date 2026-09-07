@@ -9,7 +9,9 @@ import type {
   UpsertPropertyForPersonRequest,
 } from '../services/property'
 import type { ContractDto, ContractRepository } from '../services/contract'
-import { context, MemoryPersonRepository } from './test-support'
+import type { SecurityRepository } from '../services/security'
+import type { ShowingDto, ShowingRepository } from '../services/showing'
+import { context, MemoryPersonRepository, principal } from './test-support'
 
 // ---------------------------------------------------------------------------
 // TESTV2 — Composition / cross-service wiring through composeCoreServices.
@@ -102,20 +104,63 @@ const contractRepo: ContractRepository = {
   },
 }
 
+const securityRepo: SecurityRepository = {
+  async resolveProviderSubject() {
+    return { kind: 'unmapped' }
+  },
+  async getPrincipal() {
+    return null
+  },
+}
+
+const showingRepo: ShowingRepository = {
+  async get(showingId: string): Promise<ShowingDto | null> {
+    return showingId === 'sh1' ? showingDto('sh1') : null
+  },
+  async saveReport(request: { showingId: string }): Promise<ShowingDto> {
+    return showingDto(request.showingId)
+  },
+}
+
+function showingDto(id: string): ShowingDto {
+  return {
+    id,
+    personId: 'p1',
+    propertyId,
+    status: 'pending',
+    showingDate: null,
+    duration: null,
+    outcome: null,
+    interestScore: null,
+    feedback: null,
+    followUp: null,
+    completedAt: null,
+  }
+}
+
 const repositories: CoreServiceRepositories = {
   person: new MemoryPersonRepository().seed({ id: 'p1', displayName: 'Ana', status: 'active', archivedAt: null }),
   firm: firmRepo,
   property: propertyRepo,
   contract: contractRepo,
-  // security intentionally omitted here to mirror the optional migration seam.
+  showing: showingRepo,
+  security: securityRepo,
 }
 
-const actorContext = context({ actor })
+const actorContext = context({ actor, principal: principal('USER') })
 
-test('composeCoreServices wires every core domain and registers a sorted router', async () => {
-  const { registry, security } = composeCoreServices(repositories)
-  assert.equal(security, null, 'optional security stays null when not supplied')
-  assert.deepEqual(registry.list().map((s) => s.domain), ['contract', 'firm', 'person', 'property'])
+test('composeCoreServices registers every core domain sorted and always builds security + showing', async () => {
+  const { registry, security, showing } = composeCoreServices(repositories)
+  assert.ok(security, 'security is never null in a full composition')
+  assert.ok(showing, 'showing is a first-class composed domain')
+  assert.deepEqual(registry.list().map((s) => s.domain), [
+    'contract',
+    'firm',
+    'person',
+    'property',
+    'security',
+    'showing',
+  ])
 })
 
 test('the composed registry routes a full person envelope to the seeded repository', async () => {

@@ -96,3 +96,58 @@ test('contract.getEffectiveState returns the facts for a draft', async () => {
   assert.equal(res.ok, true)
   if (res.ok) assert.deepEqual(res.value?.facts, { term: '90' })
 })
+
+test('contract.execute on a missing contract returns CONTRACT_NOT_FOUND', async () => {
+  const repo = new MemoryContractRepository()
+  const service = new ContractService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({
+    operation: 'contract.execute',
+    payload: { contractId: 'ghost' },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'CONTRACT_NOT_FOUND')
+})
+
+test('contract.execute on an already-executed contract returns CONTRACT_ALREADY_EXECUTED', async () => {
+  const repo = new MemoryContractRepository().seed(contractDto('c1', 'executed'))
+  const service = new ContractService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({
+    operation: 'contract.execute',
+    payload: { contractId: 'c1' },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'CONTRACT_ALREADY_EXECUTED')
+})
+
+test('contract.saveDraft on an executed (non-draft) contract is CONTRACT_IMMUTABLE and does not save', async () => {
+  const repo = new MemoryContractRepository().seed({ ...contractDto('c1', 'executed'), executedAt: '2026-01-01T00:00:00Z' })
+  const service = new ContractService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({
+    operation: 'contract.saveDraft',
+    payload: { contractId: 'c1', contractType: 'listing', formTemplateId: 'LISTING-01', propertyId: 'pr1', roles: [], facts: {} },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'CONTRACT_IMMUTABLE')
+})
+
+test('contract.saveDraft with an unknown role code returns ROLE_UNKNOWN', async () => {
+  const repo = new MemoryContractRepository()
+  const service = new ContractService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({
+    operation: 'contract.saveDraft',
+    payload: {
+      contractId: 'c1',
+      contractType: 'listing',
+      formTemplateId: 'LISTING-01',
+      propertyId: 'pr1',
+      roles: [{ kind: 'person', personId: 'p1', roleCode: 'NOT_A_ROLE' }],
+      facts: {},
+    },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'ROLE_UNKNOWN')
+})

@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { WorkflowEngine } from '../../workflow_engine/lib/workflow/engine'
-import { FakeSql } from '../../workflow_engine/tests/fake-sql'
-import { stubEvaluator } from '../../workflow_engine/tests/fixtures'
+import { FakeSql } from '../../testv2/engine_tests/fake-sql'
+import { stubEvaluator } from '../../testv2/engine_tests/fixtures'
 import type { NodeDefinition, ProcessGraph } from '../../workflow_engine/lib/workflow/types'
 
 // ---------------------------------------------------------------------------

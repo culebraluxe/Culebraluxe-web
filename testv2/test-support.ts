@@ -15,6 +15,7 @@ import type {
   ServiceContext,
   ServiceDomainEvent,
   ServiceInfrastructure,
+  ServicePrincipal,
 } from '../services/core'
 import { PersonService, type PersonRepository } from '../services/person'
 import type {
@@ -33,6 +34,15 @@ export function context(over: Partial<ServiceContext> = {}): ServiceContext {
     correlationId: 'corr-1',
     ...over,
   }
+}
+
+/** Canonical test principal at a given broad security level. */
+export function principal(
+  level: ServicePrincipal['level'],
+  appUserId = 'u-1',
+  roleCodes: readonly string[] = [level.toLowerCase()],
+): ServicePrincipal {
+  return { appUserId, level, roleCodes }
 }
 
 /** Captures events/audits and can toggle authorization decisions. */
@@ -66,7 +76,14 @@ export function capturingInfrastructure(): CapturingInfrastructure {
     infrastructure: {
       events: eventsPort,
       audit: auditPort,
-      authorization: { authorize: async () => allow },
+      authorization: {
+        authorize: async () => ({
+          allowed: allow,
+          reason: 'test-authorization',
+          policyId: 'test:authorization',
+          mode: 'open-stub' as const,
+        }),
+      },
     },
     events,
     audits,

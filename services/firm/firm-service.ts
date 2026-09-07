@@ -40,8 +40,13 @@ export class FirmService extends BaseService<FirmOperationMap> {
         kind: 'command',
         description: 'Create or enrich a canonical Firm without assigning Contract roles intrinsically.',
         authorization: 'firm.write',
-        execution: { mode: 'ordered', partitionBy: 'name' },
+        // Ordered by firmId when one is supplied; a name-only upsert has no
+        // stable identity key and must not claim ordered-by-name as safety.
+        execution: { mode: 'ordered', partitionBy: 'firmId' },
         handle: async (request, context) => {
+          if (!request.name?.trim()) {
+            this.fail('FIRM_NAME_REQUIRED', 'A Firm requires a non-empty name.')
+          }
           const firm = await this.repository.upsert(request)
           await this.emit(
             {
