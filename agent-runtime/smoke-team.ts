@@ -8,9 +8,8 @@ import {
 /**
  * Cheap plumbing/smoke roster.
  *
- * Every model-backed role uses DeepSeek Flash while preserving its harness
- * (Smith/night stay on OpenCode; judgment/ops lanes stay forge-native).
- * Deterministic Assay/QA is deliberately unchanged and model-free.
+ * Every model-backed role uses DeepSeek Flash through the proven OpenCode
+ * harness. Deterministic Assay/QA is deliberately unchanged and model-free.
  *
  * This is intentionally a team-map change only: lane behavior, routing,
  * permissions, worktree isolation and QA arithmetic do not change.
@@ -21,6 +20,7 @@ export function buildForgeSmokeFlashTeam(
   const cheap = (variant: ForgeAssignmentVariant): ForgeAssignmentVariant => ({
     ...variant,
     playerId: 'deepseek-flash',
+    harnessId: 'opencode',
     lineage: 'deepseek-volume',
   })
 
