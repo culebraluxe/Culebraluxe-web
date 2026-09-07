@@ -29,5 +29,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "workflow_engine", "workflow_app/tests", "grok", "whatsapp"]
+  "exclude": ["node_modules", "workflow_engine", "workflow_app/tests", "grok", "whatsapp", "testv2"]
 }
