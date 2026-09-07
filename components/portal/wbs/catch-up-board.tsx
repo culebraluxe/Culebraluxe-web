@@ -53,6 +53,24 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
     })
   }
 
+  function itemRow(item: WbsItem) {
+    return (
+      <li key={item.id} className="flex items-center justify-between gap-3 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate font-serif text-[15px] font-light text-[var(--portal-navy)]">{item.title}</p>
+          <p className="text-[10px] font-light uppercase tracking-[0.12em] text-black/40">
+            {item.category} · {dueLabel(item)}
+            {item.owner ? ` · ${item.owner}` : ''}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button type="button" disabled={isPending} onClick={() => runTransition(() => completeWbsItemAction(item.id))} className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-gold)] px-2 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)] disabled:opacity-40">Complete</button>
+          <button type="button" disabled={isPending} onClick={() => runTransition(() => dismissWbsItemAction(item.id))} className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2 text-[9px] font-light uppercase tracking-[0.12em] text-black/40 hover:text-[var(--portal-archive)] disabled:opacity-40">Dismiss</button>
+        </div>
+      </li>
+    )
+  }
+
   const counts = useMemo(() => {
     const map = new Map<string, number>()
     for (const item of items) map.set(item.category, (map.get(item.category) ?? 0) + 1)
@@ -143,37 +161,28 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
           {visible.length === 0 ? (
             <p className="text-sm font-light text-black/40">Nothing due here — all clear.</p>
           ) : (
-            <ul className="divide-y divide-[var(--portal-panel-border)]">
-              {visible.map((item) => (
-                <li key={item.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate font-serif text-[15px] font-light text-[var(--portal-navy)]">{item.title}</p>
-                    <p className="text-[10px] font-light uppercase tracking-[0.12em] text-black/40">
-                      {item.category} · {dueLabel(item)}
-                      {item.owner ? ` · ${item.owner}` : ''}
+            <div className="space-y-3">
+              {projects
+                .filter((p) => visible.some((i) => i.projectId === p.id))
+                .map((project) => (
+                  <div key={project.id}>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">
+                      {project.name}
                     </p>
+                    <ul className="divide-y divide-[var(--portal-panel-border)]">
+                      {visible.filter((i) => i.projectId === project.id).map(itemRow)}
+                    </ul>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={isPending}
-                      onClick={() => runTransition(() => completeWbsItemAction(item.id))}
-                      className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-gold)] px-2 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)] disabled:opacity-40"
-                    >
-                      Complete
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isPending}
-                      onClick={() => runTransition(() => dismissWbsItemAction(item.id))}
-                      className="inline-flex min-h-7 items-center rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] px-2 text-[9px] font-light uppercase tracking-[0.12em] text-black/40 hover:text-[var(--portal-archive)] disabled:opacity-40"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                ))}
+              {visible.some((i) => !i.projectId) ? (
+                <div>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-black/40">Ad-hoc</p>
+                  <ul className="divide-y divide-[var(--portal-panel-border)]">
+                    {visible.filter((i) => !i.projectId).map(itemRow)}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
           )}
         </section>
 
