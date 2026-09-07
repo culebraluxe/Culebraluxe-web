@@ -5,6 +5,7 @@ import {
   buildRepoContextQuery,
   latestScoutResearch,
   runRepoContextTaskPacket,
+  withRepoContextPacket,
   withScoutResearch,
 } from './repo-context'
 import type { StoryRun } from '../db/storyboard'
@@ -83,6 +84,14 @@ test('repo context query is story-shaped and bounded', () => {
   assert.match(query, /^ENG-2: Scout repository context/)
   assert.match(query, /Goal: Find the real seams/)
   assert.match(query, /Scope: Forge only/)
+})
+
+test('Scout packet preserves lane instructions and requires durable synthesis', () => {
+  const value = withRepoContextPacket('Lane=scout', '<ctx>ranked symbols</ctx>')
+  assert.match(value ?? '', /^Lane=scout/)
+  assert.match(value ?? '', /Ripwire structural evidence/)
+  assert.match(value ?? '', /SCOUT_RESEARCH:/)
+  assert.match(value ?? '', /persisted to the Story Run in Neon/)
 })
 
 test('latest Scout research prefers structured research section', () => {
