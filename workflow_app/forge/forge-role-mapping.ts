@@ -50,9 +50,13 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
     case 'smith':
     case 'smith_split_work':
     case 'repair_smith':
+    case 'fast_smith':
+    case 'fast_repair_smith':
       return { lane: 'smith' }
     case 'qa_review':
       return { lane: 'inspector' }
+    case 'fast_qa_verify':
+      return { lane: 'assay' }
     case 'qa_verify':
       return {
         lane: 'assay',
@@ -233,7 +237,8 @@ export function forgeEvidenceFromAgentResult(input: {
     }
     case 'qa_review':
       return { ...marked, qaReviewPassed: clean }
-    case 'qa_verify': {
+    case 'qa_verify':
+    case 'fast_qa_verify': {
       const candidate = commitSha(current.candidateSha)
       const verified = commitSha(result.assayEvidence?.verifiedSha)
       const exact = Boolean(

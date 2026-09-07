@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  forgeFastEligibility,
   forgeLineageError,
   projectForgeGateFacts,
   type ForgeGateEvidence,
@@ -82,4 +83,17 @@ test('ENG-FORGE-V9: splitCount and hold resume target project', () => {
   const facts = projectForgeGateFacts(ev)
   assert.equal(facts.leadDecision, 'SPLIT')
   assert.equal(facts.splitCount, 3)
+})
+
+test('Scope C: FAST eligibility fails closed when any release obligation appears', () => {
+  assert.equal(forgeFastEligibility({ workType: 'FAST' }), true)
+  assert.equal(projectForgeGateFacts({ workType: 'FAST' }).fastEligible, true)
+  // Any release/schema obligation makes FAST ineligible (never a hidden release).
+  assert.equal(forgeFastEligibility({ workType: 'FAST', migrationRequired: true }), false)
+  assert.equal(forgeFastEligibility({ workType: 'FAST', derivedRefreshRequired: true }), false)
+  assert.equal(forgeFastEligibility({ workType: 'FAST', deploymentRequired: true }), false)
+  assert.equal(forgeFastEligibility({ workType: 'FAST', architectureSuspect: true }), false)
+  assert.equal(forgeFastEligibility({ workType: 'FAST', leadDecision: 'SPLIT' }), false)
+  // Non-FAST work is never FAST-eligible.
+  assert.equal(forgeFastEligibility({ workType: 'FEATURE' }), false)
 })

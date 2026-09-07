@@ -169,6 +169,21 @@ export function forgeLineageError(
 }
 
 /** Booleans default to false; omitted when absent. */
+/**
+ * FAST eligibility (Scope C) — a FAST story is executable only when it carries
+ * no release/schema/decomposition obligation that would silently grow FAST into
+ * a release workflow. Computed from gate evidence; fails closed.
+ */
+export function forgeFastEligibility(evidence: ForgeGateEvidence): boolean {
+  if (evidence.workType !== 'FAST') return false
+  if (evidence.migrationRequired === true) return false
+  if (evidence.derivedRefreshRequired === true) return false
+  if (evidence.deploymentRequired === true) return false
+  if (evidence.architectureSuspect === true) return false
+  if (evidence.leadDecision === 'SPLIT') return false
+  return true
+}
+
 export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationFacts {
   const facts: ApplicationFacts = {}
 
@@ -239,5 +254,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
   for (const [key, value] of Object.entries(boolFacts)) {
     facts[key] = value ?? false
   }
+  // Scope C: derived FAST eligibility (fails closed; never silently grows into a release).
+  facts.fastEligible = forgeFastEligibility(evidence)
   return facts
 }

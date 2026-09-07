@@ -42,8 +42,11 @@ test('ENG-FORGE-V10: every executable XML task node maps to an existing runtime 
     smith: 'smith',
     smith_split_work: 'smith',
     repair_smith: 'smith',
+    fast_smith: 'smith',
+    fast_repair_smith: 'smith',
     qa_review: 'inspector',
     qa_verify: 'assay',
+    fast_qa_verify: 'assay',
     repair_devops: 'dev_ops',
     deploy: 'dev_ops',
     production_smoke: 'dev_ops',
@@ -112,6 +115,29 @@ test('ENG-FORGE-V10: QA pass requires structured verification of the exact candi
   })
   assert.equal(pass.qaPassed, true)
   assert.equal(pass.qaVerifiedSha, SHA)
+
+  // Scope C: the FAST lane's deterministic QA node derives the same evidence.
+  const fast = forgeEvidenceFromAgentResult({
+    nodeId: 'fast_qa_verify',
+    result: result({
+      assayEvidence: {
+        version: 1,
+        verdict: 'PASS',
+        failureCode: null,
+        failureDetail: null,
+        candidateSha: SHA,
+        verifiedSha: SHA,
+        requiredCommands: ['node --test'],
+        commandResults: [],
+        policyViolations: [],
+        startedAt: new Date(0).toISOString(),
+        endedAt: new Date(1).toISOString(),
+      },
+    }),
+    current: { candidateSha: SHA },
+  })
+  assert.equal(fast.qaPassed, true)
+  assert.equal(fast.qaVerifiedSha, SHA)
 
   const mismatch = forgeEvidenceFromAgentResult({
     nodeId: 'qa_verify',
