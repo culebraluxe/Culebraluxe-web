@@ -5,6 +5,13 @@ import {
   executeClaimedAgentCommand,
 } from '../../agent-runtime/invoker'
 import {
+  buildRepoContextQuery,
+  latestScoutResearch,
+  runRepoContextTaskPacket,
+  withRepoContextPacket,
+  withScoutResearch,
+} from '../../agent-runtime/repo-context'
+import {
   SqlAgentRunRepository,
   SqlAgentWorkRepository,
 } from '../../agent-runtime/repositories'
@@ -33,6 +40,8 @@ export type AgentRuntimeForgeRunnerOptions = {
   workerId: string
   executionEnvironment?: string | null
 }
+
+const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
 
 export function createAgentRuntimeForgeRoleRunner(
   options: AgentRuntimeForgeRunnerOptions,
@@ -64,7 +73,38 @@ export function createAgentRuntimeForgeRoleRunner(
     const identityInstruction =
       `Forge engine task=${task.taskId}; process=${task.processInstanceId}; node=${nodeId}. ` +
       'Execute this responsibility only. The XML engine owns all next-step routing.'
-    const extraInstructions = [identityInstruction, branchInstruction, plan.evidenceInstruction]
+
+    // REPO_CONTEXT — Scout gets a deterministic structural map before it burns
+    // model tokens grepping/opening files. Ripwire failure is fail-soft: the
+    // Scout still runs and must produce its durable research handoff.
+    const repoContextInstruction =
+      plan.lane === 'scout'
+        ? withRepoContextPacket(
+            null,
+            runRepoContextTaskPacket({
+              workspace: process.cwd(),
+              task: buildRepoContextQuery(resolvedStory),
+            }),
+          )
+        : null
+
+    // Scout output is already durable Story Run evidence in Neon. Feed the
+    // latest synthesis forward to judgment/build lanes as evidence, never as
+    // authority. Assay intentionally does NOT consume model prose.
+    const priorScoutInstruction = SCOUT_RESEARCH_CONSUMERS.has(plan.lane)
+      ? withScoutResearch(
+          null,
+          latestScoutResearch(await runs.listForStory(resolvedStory.id)),
+        )
+      : null
+
+    const extraInstructions = [
+      identityInstruction,
+      branchInstruction,
+      plan.evidenceInstruction,
+      repoContextInstruction,
+      priorScoutInstruction,
+    ]
       .filter(Boolean)
       .join('\n\n')
     const lane = buildLaneEnqueue({
