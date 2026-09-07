@@ -12,6 +12,7 @@ import type { ContractDto, ContractRepository } from '../services/contract'
 import type { SecurityRepository } from '../services/security'
 import type { ShowingDto, ShowingRepository } from '../services/showing'
 import type { WbsRepository } from '../services/wbs'
+import type { ProjectRepository } from '../services/project'
 import { context, MemoryPersonRepository, principal } from './test-support'
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,24 @@ function showingDto(id: string): ShowingDto {
   }
 }
 
+const projectRepo: ProjectRepository = {
+  async get() {
+    return null
+  },
+  async list() {
+    return []
+  },
+  async create(request) {
+    return { id: request.id, name: request.name, owner: null, status: 'open', description: '', areas: [], startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
+  },
+  async update(request) {
+    return { id: request.id, name: request.name ?? '', owner: null, status: 'open', description: '', areas: [], startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
+  },
+  async complete(request) {
+    return { id: request.id, name: '', owner: null, status: 'done', description: '', areas: [], startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
+  },
+}
+
 const repositories: CoreServiceRepositories = {
   person: new MemoryPersonRepository().seed({ id: 'p1', displayName: 'Ana', status: 'active', archivedAt: null }),
   firm: firmRepo,
@@ -177,6 +196,7 @@ const repositories: CoreServiceRepositories = {
   showing: showingRepo,
   security: securityRepo,
   wbs: wbsRepo,
+  project: projectRepo,
 }
 
 const actorContext = context({ actor, principal: principal('USER') })
@@ -189,6 +209,7 @@ test('composeCoreServices registers every core domain sorted and always builds s
     'contract',
     'firm',
     'person',
+    'project',
     'property',
     'security',
     'showing',

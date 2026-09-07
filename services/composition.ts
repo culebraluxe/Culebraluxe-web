@@ -13,6 +13,7 @@ import { ContractService, type ContractRepository } from './contract'
 import { SecurityService, type SecurityRepository } from './security'
 import { ShowingService, type ShowingRepository } from './showing'
 import { WbsService, type WbsRepository } from './wbs'
+import { ProjectService, type ProjectRepository } from './project'
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
@@ -30,6 +31,7 @@ export type CoreServiceRepositories = {
   showing: ShowingRepository
   security: SecurityRepository
   wbs: WbsRepository
+  project: ProjectRepository
 }
 
 export type CoreServiceComposition = {
@@ -41,6 +43,7 @@ export type CoreServiceComposition = {
   showing: ShowingService
   security: SecurityService
   wbs: WbsService
+  project: ProjectService
 }
 
 /**
@@ -100,6 +103,7 @@ export function composeCoreServices(
   const security = registry.register(new SecurityService(repositories.security, serviceInfrastructure))
   const showing = registry.register(new ShowingService(repositories.showing, serviceInfrastructure))
   const wbs = registry.register(new WbsService(repositories.wbs, serviceInfrastructure))
+  const project = registry.register(new ProjectService(repositories.project, serviceInfrastructure))
 
-  return { registry, person, firm, property, contract, showing, security, wbs }
+  return { registry, person, firm, property, contract, showing, security, wbs, project }
 }

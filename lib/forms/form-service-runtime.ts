@@ -7,6 +7,7 @@ import { SqlPropertyRepository } from '@/db/property-service-repository'
 import { SqlSecurityRepository } from '@/db/security-service-repository'
 import { SqlShowingRepository } from '@/db/showing-service-repository'
 import { SqlWbsRepository } from '@/db/wbs-service-repository'
+import { SqlProjectRepository } from '@/db/project-service-repository'
 import { composeCoreServices } from '@/services/composition'
 import { AuthorizationService } from '@/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/services/entitlement/db-authorization-policy-provider'
@@ -28,6 +29,7 @@ export const formCoreServices = composeCoreServices(
     showing: new SqlShowingRepository(),
     security: new SqlSecurityRepository(),
     wbs: new SqlWbsRepository(),
+    project: new SqlProjectRepository(),
   },
   { authorization: formEntitlements },
 )
