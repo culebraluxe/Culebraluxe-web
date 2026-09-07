@@ -26,4 +26,4 @@ Default production brain stays `reducer`. `engine` is DEV-only until one FEATURE
 - [x] Stale claim policy is deterministic.
 - [x] Receipt helper is provider-neutral.
 - [x] Spend cap HOLDs over budget.
-- [ ] Operator: targeted tests + tsc --noEmit.
+- [x] Operator: targeted tests + tsc --noEmit.
