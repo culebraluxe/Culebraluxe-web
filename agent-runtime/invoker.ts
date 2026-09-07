@@ -45,6 +45,8 @@ export type InvokerResult = {
 
 export interface AgentInvokerWorkspaces {
   workerId: string
+  /** Stable for one Forge engine invocation. Serial roles share this workspace lineage. */
+  executionId: string
   baseRef: string
   worktreesRoot?: string
   provision: (spec: WorkerWorkspaceSpec) => Promise<WorkerWorkspace>
@@ -59,6 +61,22 @@ export interface AgentInvokerDeps {
   enforceExecutionContract?: boolean
 }
 
+/**
+ * Normal Forge execution owns one writable workspace for the whole serial
+ * lifecycle. A future explicit SPLIT may pass a child id to allocate a
+ * separate Smith workspace; ordinary role/work-item ids must never fan out
+ * worktrees by themselves.
+ */
+export function resolveWorkspaceRunId(
+  executionId: string,
+  splitChildId?: string | null,
+): string {
+  const execution = executionId.trim()
+  if (!execution) throw new Error('Forge workspace executionId is required')
+  const split = (splitChildId ?? '').trim()
+  return split ? `${execution}-split-${split}` : execution
+}
+
 export function buildAgentInvokerWorkspaces(
   workerId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -68,6 +86,7 @@ export function buildAgentInvokerWorkspaces(
   const worktreesRoot = (env.AGENT_WORKSPACE_WORKTREES_ROOT ?? '').trim() || undefined
   return {
     workerId,
+    executionId: resolveWorkspaceRunId(workerId),
     baseRef,
     ...(worktreesRoot ? { worktreesRoot } : {}),
     provision: provisionOrRecoverWorkerWorkspace,
@@ -205,7 +224,11 @@ export async function executeClaimedAgentCommand(
       storyId: workItem.storyId,
       workerId: deps.workspaces.workerId,
       baseRef,
-      runId: workItem.id,
+      // One Forge engine invocation owns one serial story workspace. The old
+      // workItem.id key created a new branch/worktree for every role transition.
+      // SPLIT is currently disabled; when activated, only the explicit split
+      // path may call resolveWorkspaceRunId(executionId, splitChildId).
+      runId: resolveWorkspaceRunId(deps.workspaces.executionId),
       ...(deps.workspaces.worktreesRoot
         ? { worktreesRoot: deps.workspaces.worktreesRoot }
         : {}),
