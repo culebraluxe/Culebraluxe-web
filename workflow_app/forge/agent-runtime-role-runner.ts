@@ -19,6 +19,7 @@ import {
   SqlAgentRunRepository,
   SqlAgentWorkRepository,
 } from '../../agent-runtime/repositories'
+import { buildForgeSmokeFlashTeam } from '../../agent-runtime/smoke-team'
 import { getAgentWorkItem } from '../../db/agent-work'
 import {
   finishForgeEngineTaskExecution,
@@ -53,9 +54,13 @@ export function createAgentRuntimeForgeRoleRunner(
   const work = new SqlAgentWorkRepository(async () => interactiveSql as never)
   const runs = new SqlAgentRunRepository(async () => interactiveSql as never)
   const registry = createAgentRuntimeRegistry({
-    // Keep the normal Forge-native roles fully configured. The builder override
-    // only changes the Smith/night harness selection; it must not replace the
-    // DeepSeek config object that Architect/Lead/Inspector/DEV_OPS still use.
+    // Smoke/dogfood economy mode: every model-backed role uses DeepSeek Flash.
+    // Harnesses remain role-specific (Smith/night can still be OpenCode) and
+    // deterministic Assay/QA remains model-free and unchanged.
+    team: buildForgeSmokeFlashTeam(),
+    // Keep the Forge-native roles fully configured. The builder override only
+    // changes Smith/night harness selection; it must not replace the DeepSeek
+    // config object used by the other model-backed lanes.
     deepseek: defaultDeepSeekConfig(),
     builderFlashOverride: parseBuilderFlashOverride(
       process.env.FORGE_PROVIDER_BUILDER_FLASH ?? null,
