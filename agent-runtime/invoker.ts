@@ -45,7 +45,10 @@ export type InvokerResult = {
 
 export interface AgentInvokerWorkspaces {
   workerId: string
-  /** Stable for one Forge engine invocation. Serial roles share this workspace lineage. */
+  /**
+   * WORKSPACE-01 canonical serial workspace lineage = processInstanceId +
+   * execution generation (or an explicit split child of it). Never a worker id.
+   */
   executionId: string
   baseRef: string
   worktreesRoot?: string
@@ -77,16 +80,52 @@ export function resolveWorkspaceRunId(
   return split ? `${execution}-split-${split}` : execution
 }
 
+function sanitizeExecutionSegment(input: string): string {
+  return input
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * ENG-FORGE-WORKSPACE-01 — canonical Git lineage.
+ *
+ * workerId is the executor/claim identity ONLY; it must not define Git lineage.
+ * The serial workspace key derives from the Forge processInstanceId plus the
+ * execution generation (<processInstanceId>-e<replanAttempts>). REPLAN advances
+ * the generation (replanAttempts increments -> -e1), which yields a NEW clean
+ * workspace. Repair stays in the same generation/workspace. Only an explicit
+ * SPLIT child appends a bounded child id to fan out a writable workspace.
+ */
+export function forgeExecutionGenerationKey(processInstanceId: string, replanAttempts: number): string {
+  const pid = sanitizeExecutionSegment(processInstanceId)
+  if (!pid) throw new Error('Forge processInstanceId is required for workspace lineage')
+  const gen = Math.max(0, Number.isFinite(replanAttempts) ? Math.trunc(replanAttempts) : 0)
+  return `${pid}-e${gen}`
+}
+
+export function resolveForgeExecutionRunId(
+  processInstanceId: string,
+  replanAttempts: number,
+  splitChildId?: string | null,
+): string {
+  return resolveWorkspaceRunId(forgeExecutionGenerationKey(processInstanceId, replanAttempts), splitChildId)
+}
+
 export function buildAgentInvokerWorkspaces(
   workerId: string,
   env: NodeJS.ProcessEnv = process.env,
+  executionIdOverride?: string,
 ): AgentInvokerWorkspaces | undefined {
   if ((env.AGENT_WORKSPACE_DISABLED ?? '0').trim() === '1') return undefined
   const baseRef = resolveApprovedBaseRef(env)
   const worktreesRoot = (env.AGENT_WORKSPACE_WORKTREES_ROOT ?? '').trim() || undefined
+  const executionId = executionIdOverride?.trim()
+    ? executionIdOverride.trim()
+    : resolveWorkspaceRunId(workerId)
   return {
     workerId,
-    executionId: resolveWorkspaceRunId(workerId),
+    executionId,
     baseRef,
     ...(worktreesRoot ? { worktreesRoot } : {}),
     provision: provisionOrRecoverWorkerWorkspace,

@@ -7,6 +7,7 @@ import {
 import {
   buildAgentInvokerWorkspaces,
   executeClaimedAgentCommand,
+  resolveForgeExecutionRunId,
 } from '../../agent-runtime/invoker'
 import {
   buildRepoContextQuery,
@@ -26,6 +27,7 @@ import {
   linkForgeEngineTaskExecution,
 } from '../../db/forge-engine-task-execution'
 import { getForgeLeadRunRecord } from '../../db/forge-run'
+import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
@@ -64,7 +66,6 @@ export function createAgentRuntimeForgeRoleRunner(
       process.env.FORGE_PROVIDER_BUILDER_FLASH ?? null,
     ),
   })
-  const workspaces = buildAgentInvokerWorkspaces(options.workerId)
 
   return async (nodeId, task) => {
     const subjectRows = await interactiveSql`
@@ -154,6 +155,21 @@ export function createAgentRuntimeForgeRoleRunner(
         `Forge engine task ${task.taskId} claimed agent work item ${queued.id}, but the durable row could not be reloaded`,
       )
     }
+
+    // WORKSPACE-01: canonical Git lineage = processInstanceId + execution
+    // generation (durable replan attempts). Resolved at EXECUTION time from the
+    // engine task — never frozen from options.workerId at runner build time.
+    // All serial roles reuse this generation key; only smith_split_work fans
+    // out a bounded child workspace (splitBranchIndex), and a REPLAN advances
+    // the generation, giving the next generation a clean workspace.
+    const ledger = await readForgeRepairLedger(resolvedStory.id, interactiveSql as never)
+    const replanAttempts = ledger?.replanAttempts ?? 0
+    const splitChild =
+      nodeId === 'smith_split_work'
+        ? String(task.formData.splitBranchIndex ?? task.formData.splitIndex ?? 0)
+        : null
+    const executionId = resolveForgeExecutionRunId(task.processInstanceId, replanAttempts, splitChild)
+    const workspaces = buildAgentInvokerWorkspaces(options.workerId, undefined, executionId)
 
     let result
     try {
