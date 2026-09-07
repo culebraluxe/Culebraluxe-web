@@ -8,6 +8,8 @@ import type { StoryRun } from '../db/storyboard'
 const DEFAULT_MAX_OUTPUT_CHARS = 32_000
 const DEFAULT_TIMEOUT_MS = 20_000
 const SCOUT_RESEARCH_MAX_CHARS = 8_000
+const SCOUT_RESEARCH_CONTRACT =
+  'SCOUT RESEARCH CONTRACT: end your final report with a section beginning exactly "SCOUT_RESEARCH:". Keep it concise and factual. Include the likely owning symbols/files, important callers/blast radius, relevant tests, uncertainties, and your recommended next lane/action. This final section is durable handoff evidence and will be persisted to the Story Run in Neon.'
 
 type ExecFileLike = (
   file: string,
@@ -99,13 +101,13 @@ export function withRepoContextPacket(
 ): string | null {
   const base = (instructions ?? '').trim()
   const context = (packet ?? '').trim()
-  if (!context) return base || null
-
   return [
     base || null,
-    'Repository context (Ripwire structural evidence; use it to orient, then verify important conclusions in source):',
-    context,
-    'SCOUT RESEARCH CONTRACT: end your final report with a section beginning exactly "SCOUT_RESEARCH:". Keep it concise and factual. Include the likely owning symbols/files, important callers/blast radius, relevant tests, uncertainties, and your recommended next lane/action. This final section is durable handoff evidence and will be persisted to the Story Run in Neon.',
+    context
+      ? 'Repository context (Ripwire structural evidence; use it to orient, then verify important conclusions in source):'
+      : 'Repository context note: Ripwire did not return a packet for this run. Investigate with normal repository tools; Scout research is still required.',
+    context || null,
+    SCOUT_RESEARCH_CONTRACT,
   ]
     .filter(Boolean)
     .join('\n\n')
