@@ -1,10 +1,8 @@
-import { ClientLens } from "@/components/portal/client-lens"
+import { ClientLens as ClientsWorkspace } from "@/components/portal/clients-workspace"
 
 export const dynamic = "force-dynamic"
 
-// CORE Clients — canonical relationship working surface (new MVI ClientLens).
-// Legacy ClientManager + the /portal/client-lens sidecar route remain as an
-// emergency reference; rollback is one git revert of this file.
+// CORE Clients — canonical relationship working surface.
 export default function ClientsPage() {
-  return <ClientLens />
+  return <ClientsWorkspace />
 }

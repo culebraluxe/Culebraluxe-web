@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation"
 
 import { FormEditorSurface } from "@/components/portal/forms/form-editor-surface"
-import { FormLens } from "@/components/portal/form-lens"
 import { listFormInstances } from "@/db/document-form-instance"
 import {
   getActiveTemplate,
@@ -10,9 +9,7 @@ import {
 
 export const dynamic = "force-dynamic"
 
-// Forms — canonical landing. Open the active template's mutable draft in the
-// mature Forms editor. FormLens remains only as the empty-state fallback; it is
-// not the normal New-form workflow.
+// Forms — canonical landing. The mature FormEditor is the only Forms surface.
 export default async function FormsPage() {
   const instances = await listFormInstances()
   const template = getActiveTemplate(LISTING_AGREEMENT_TEMPLATE_ID)
@@ -33,5 +30,9 @@ export default async function FormsPage() {
     return <FormEditorSurface formId={preferred.id} />
   }
 
-  return <FormLens template={template} />
+  return (
+    <p className="font-serif text-lg font-light text-[var(--portal-navy)]">
+      No saved forms yet.
+    </p>
+  )
 }
