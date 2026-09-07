@@ -11,6 +11,7 @@ export * from './person'
 export * from './firm'
 export * from './property'
 export * from './contract'
+export * from './wbs'
 export {
   composeCoreServices,
   type CoreServiceComposition,

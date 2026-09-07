@@ -151,3 +151,15 @@ test('contract.saveDraft with an unknown role code returns ROLE_UNKNOWN', async 
   assert.equal(res.ok, false)
   if (!res.ok) assert.equal(res.error.code, 'ROLE_UNKNOWN')
 })
+
+test('contract.execute rejects a non-draft, non-executed status with CONTRACT_NOT_EXECUTABLE', async () => {
+  const repo = new MemoryContractRepository().seed({ ...contractDto('c1', 'issued'), executedAt: null })
+  const service = new ContractService(repo, capturingInfrastructure().infrastructure)
+  const res = await service.execute({
+    operation: 'contract.execute',
+    payload: { contractId: 'c1' },
+    context: context({ actor }),
+  })
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.error.code, 'CONTRACT_NOT_EXECUTABLE')
+})

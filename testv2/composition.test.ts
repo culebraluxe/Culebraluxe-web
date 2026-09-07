@@ -24,7 +24,7 @@ const propertyId = 'pr1'
 function propertyDto(): PropertyDto {
   return {
     id: propertyId,
-    displayName: 'Casa Luar',
+    displayName: 'Ocean View Home',
     localName: null,
     legalOwnerName: null,
     addressLine1: null,

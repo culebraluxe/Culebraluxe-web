@@ -162,6 +162,12 @@ export class ContractService extends BaseService<ContractOperationMap> {
               `Contract ${request.contractId} is already executed.`,
             )
           }
+          if (existing.status !== 'draft') {
+            this.fail(
+              'CONTRACT_NOT_EXECUTABLE',
+              `Contract ${request.contractId} is ${existing.status}; only a draft can be executed.`,
+            )
+          }
           const contract = await this.repository.execute(request)
           await this.emit(
             {
