@@ -48,6 +48,9 @@ export type CreateWbsItemRequest = {
 }
 export type SaveWbsItemRequest = CreateWbsItemRequest & { status?: WbsStatus }
 export type CompleteWbsItemRequest = { id: string }
+export type DismissWbsItemRequest = { id: string }
+export type GetProjectRequest = { id: string }
+export type ListProjectsRequest = Record<string, never>
 export type ListWbsDueRequest = { category?: WbsCategoryId }
 export type CreateWbsProjectRequest = { id: string; name: string; owner?: string | null }
 
@@ -57,7 +60,10 @@ export const WBS_OPERATIONS = {
   CREATE: 'wbs.create',
   SAVE: 'wbs.save',
   COMPLETE: 'wbs.complete',
+  DISMISS: 'wbs.dismiss',
   CREATE_PROJECT: 'project.create',
+  GET_PROJECT: 'project.get',
+  LIST_PROJECTS: 'project.list',
 } as const
 
 export type WbsOperationMap = {
@@ -66,7 +72,10 @@ export type WbsOperationMap = {
   'wbs.create': { request: CreateWbsItemRequest; response: WbsItem }
   'wbs.save': { request: SaveWbsItemRequest; response: WbsItem }
   'wbs.complete': { request: CompleteWbsItemRequest; response: WbsItem }
+  'wbs.dismiss': { request: DismissWbsItemRequest; response: WbsItem }
   'project.create': { request: CreateWbsProjectRequest; response: WbsProject }
+  'project.get': { request: GetProjectRequest; response: WbsProject | null }
+  'project.list': { request: ListProjectsRequest; response: WbsProject[] }
 }
 
 export type WbsOperationName = ServiceOperationName<WbsOperationMap>

@@ -94,6 +94,40 @@ export class WbsService extends BaseService<WbsOperationMap> {
           return item
         },
       },
+      [WBS_OPERATIONS.DISMISS]: {
+        kind: 'command',
+        description: 'Dismiss a work item (set aside explicitly, not done).',
+        authorization: 'wbs.write',
+        execution: { mode: 'ordered', partitionBy: 'id' },
+        handle: async (request, context) => {
+          const item = await this.repository.dismiss(request)
+          await this.emit(
+            {
+              type: 'wbs.dismissed',
+              aggregateId: item.id,
+              payload: { id: item.id, category: item.category },
+            },
+            context,
+          )
+          return item
+        },
+      },
+      [WBS_OPERATIONS.GET_PROJECT]: {
+        kind: 'query',
+        description: 'Return one lightweight project by id.',
+        authorization: 'wbs.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.getProject(request.id),
+      },
+      [WBS_OPERATIONS.LIST_PROJECTS]: {
+        kind: 'query',
+        description: 'List projects (newest first) for the projects view.',
+        authorization: 'wbs.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async () => this.repository.listProjects(),
+      },
       [WBS_OPERATIONS.CREATE_PROJECT]: {
         kind: 'command',
         description: 'Create a lightweight project (a WBS root).',

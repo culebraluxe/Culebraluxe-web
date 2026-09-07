@@ -2,6 +2,7 @@ import type {
   CompleteWbsItemRequest,
   CreateWbsItemRequest,
   CreateWbsProjectRequest,
+  DismissWbsItemRequest,
   ListWbsDueRequest,
   SaveWbsItemRequest,
   WbsItem,
@@ -15,5 +16,8 @@ export interface WbsRepository {
   create(request: CreateWbsItemRequest): Promise<WbsItem>
   save(request: SaveWbsItemRequest): Promise<WbsItem>
   complete(request: CompleteWbsItemRequest): Promise<WbsItem>
+  dismiss(request: DismissWbsItemRequest): Promise<WbsItem>
   createProject(request: CreateWbsProjectRequest): Promise<WbsProject>
+  getProject(id: string): Promise<WbsProject | null>
+  listProjects(): Promise<WbsProject[]>
 }

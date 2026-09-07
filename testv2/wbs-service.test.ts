@@ -76,6 +76,19 @@ class MemoryWbsRepository implements WbsRepository {
     this.items.set(request.id, updated)
     return updated
   }
+  async dismiss(request: { id: string }): Promise<WbsItem> {
+    const existing = this.items.get(request.id)
+    if (!existing) throw new Error(`WBS item not found: ${request.id}`)
+    const updated = { ...existing, status: 'dismissed' as const, updatedAt: '2026-02-03T00:00:00.000Z' }
+    this.items.set(request.id, updated)
+    return updated
+  }
+  async getProject(id: string): Promise<WbsProject | null> {
+    return this.projects.get(id) ?? null
+  }
+  async listProjects(): Promise<WbsProject[]> {
+    return [...this.projects.values()]
+  }
   async createProject(request: { id: string; name: string }): Promise<WbsProject> {
     const project: WbsProject = {
       id: request.id,
@@ -190,4 +203,37 @@ test('project.create creates a lightweight project root', async () => {
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value.name, 'Onboard Ana')
   assert.ok(infra.events.some((e) => e.type === 'project.created'))
+})
+
+test('wbs.dismiss sets an item aside (dismissed) and emits wbs.dismissed', async () => {
+  const repo = new MemoryWbsRepository().seed(baseItem('w1'))
+  const infra = capturingInfrastructure()
+  const service = new WbsService(repo, infra.infrastructure)
+  const res = await service.execute({ operation: 'wbs.dismiss', payload: { id: 'w1' }, context: context({ actor }) })
+  assert.equal(res.ok, true)
+  if (res.ok) assert.equal(res.value.status, 'dismissed')
+  assert.ok(infra.events.some((e) => e.type === 'wbs.dismissed'))
+})
+
+test('project.get and project.list return created projects', async () => {
+  const repo = new MemoryWbsRepository()
+  const service = new WbsService(repo, capturingInfrastructure().infrastructure)
+  await service.execute({
+    operation: 'project.create',
+    payload: { id: 'prj-1', name: 'Onboard Ana' },
+    context: context({ actor }),
+  })
+  await service.execute({
+    operation: 'project.create',
+    payload: { id: 'prj-2', name: 'List Casa 3' },
+    context: context({ actor }),
+  })
+
+  const got = await service.execute({ operation: 'project.get', payload: { id: 'prj-1' }, context: context({ actor }) })
+  assert.equal(got.ok, true)
+  if (got.ok) assert.equal(got.value?.name, 'Onboard Ana')
+
+  const list = await service.execute({ operation: 'project.list', payload: {}, context: context({ actor }) })
+  assert.equal(list.ok, true)
+  if (list.ok) assert.equal(list.value.length, 2)
 })
