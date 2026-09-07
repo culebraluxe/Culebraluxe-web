@@ -46,6 +46,18 @@ test('each portal form type has an active (openable) template', () => {
   }
 })
 
+test('each portal template parses XML into typed form fields (the surface the hydrate button fills)', () => {
+  for (const id of PORTAL_FORM_IDS) {
+    const template = getActiveTemplate(id)
+    assert.ok(Array.isArray(template.fields), `${id} must expose parsed fields`)
+    assert.ok(template.fields.length > 0, `${id} must parse a non-empty field set`)
+    for (const field of template.fields) {
+      assert.ok(field.name, `${id}: every field needs a name`)
+      assert.equal(typeof field.type, 'string', `${id}:${field.name} needs a type`)
+    }
+  }
+})
+
 test('P&S is one of the four selections (not a separate screen)', () => {
   const types = listPortalFormTypes()
   assert.ok(types.some((t) => t.id === PURCHASE_SALE_TEMPLATE_ID), 'P&S must be a portal form type')
