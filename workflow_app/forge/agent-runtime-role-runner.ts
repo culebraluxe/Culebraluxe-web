@@ -1,5 +1,9 @@
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
-import { createAgentRuntimeRegistry, parseBuilderFlashOverride } from '../../agent-runtime/factory'
+import {
+  createAgentRuntimeRegistry,
+  defaultDeepSeekConfig,
+  parseBuilderFlashOverride,
+} from '../../agent-runtime/factory'
 import {
   buildAgentInvokerWorkspaces,
   executeClaimedAgentCommand,
@@ -49,6 +53,10 @@ export function createAgentRuntimeForgeRoleRunner(
   const work = new SqlAgentWorkRepository(async () => interactiveSql as never)
   const runs = new SqlAgentRunRepository(async () => interactiveSql as never)
   const registry = createAgentRuntimeRegistry({
+    // Keep the normal Forge-native roles fully configured. The builder override
+    // only changes the Smith/night harness selection; it must not replace the
+    // DeepSeek config object that Architect/Lead/Inspector/DEV_OPS still use.
+    deepseek: defaultDeepSeekConfig(),
     builderFlashOverride: parseBuilderFlashOverride(
       process.env.FORGE_PROVIDER_BUILDER_FLASH ?? null,
     ),
