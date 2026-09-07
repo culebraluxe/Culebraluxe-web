@@ -93,6 +93,24 @@ export function runRepoContextTaskPacket(input: {
   }
 }
 
+export function withRepoContextPacket(
+  instructions: string | null | undefined,
+  packet: string | null | undefined,
+): string | null {
+  const base = (instructions ?? '').trim()
+  const context = (packet ?? '').trim()
+  if (!context) return base || null
+
+  return [
+    base || null,
+    'Repository context (Ripwire structural evidence; use it to orient, then verify important conclusions in source):',
+    context,
+    'SCOUT RESEARCH CONTRACT: end your final report with a section beginning exactly "SCOUT_RESEARCH:". Keep it concise and factual. Include the likely owning symbols/files, important callers/blast radius, relevant tests, uncertainties, and your recommended next lane/action. This final section is durable handoff evidence and will be persisted to the Story Run in Neon.',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 /** Latest durable Scout synthesis for downstream lanes. */
 export function latestScoutResearch(runs: readonly StoryRun[]): string | null {
   const run = runs.find(
