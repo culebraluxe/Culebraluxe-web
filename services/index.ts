@@ -12,6 +12,7 @@ export * from './firm'
 export * from './property'
 export * from './contract'
 export * from './wbs'
+export * from './project'
 export {
   composeCoreServices,
   type CoreServiceComposition,
