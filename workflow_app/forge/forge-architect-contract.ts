@@ -10,11 +10,15 @@ export type ForgeArchitectContract = {
 
 const LEAD_HINTS: ReadonlySet<string> = new Set(['SOLO', 'SMITH', 'SPLIT', 'HOLD'])
 
+function normalizeContractPath(path: string): string {
+  return path.trim().replace(/^\.\//, '').replace(/\/+$/, '')
+}
+
 function cleanPaths(paths: unknown): string[] {
   if (!Array.isArray(paths)) return []
   return paths
     .filter((p): p is string => typeof p === 'string')
-    .map((p) => p.trim().replace(/^\.\//, ''))
+    .map(normalizeContractPath)
     .filter(Boolean)
 }
 
@@ -51,12 +55,18 @@ export function pathViolatesArchitectContract(
   filePath: string,
   contract: ForgeArchitectContract,
 ): boolean {
-  const normalized = filePath.trim().replace(/^\.\//, '')
-  if (contract.filesOutOfScope.some((p) => normalized === p || normalized.startsWith(`${p}/`))) {
+  const normalized = normalizeContractPath(filePath)
+  if (contract.filesOutOfScope.some((raw) => {
+    const p = normalizeContractPath(raw)
+    return normalized === p || normalized.startsWith(`${p}/`)
+  })) {
     return true
   }
   if (contract.filesInScope.length === 0) return false
-  return !contract.filesInScope.some((p) => normalized === p || normalized.startsWith(`${p}/`))
+  return !contract.filesInScope.some((raw) => {
+    const p = normalizeContractPath(raw)
+    return normalized === p || normalized.startsWith(`${p}/`)
+  })
 }
 
 export function architectContractViolations(
