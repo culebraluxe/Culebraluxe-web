@@ -48,19 +48,17 @@ export type AgentRuntimeForgeRunnerOptions = {
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
 
+function runtimeInterrupted(resultStatus: string, completion: number): boolean {
+  return completion < 100 || /interrupted|error|cancelled/i.test(resultStatus)
+}
+
 export function createAgentRuntimeForgeRoleRunner(
   options: AgentRuntimeForgeRunnerOptions,
 ): ForgeRoleRunner {
   const work = new SqlAgentWorkRepository(async () => interactiveSql as never)
   const runs = new SqlAgentRunRepository(async () => interactiveSql as never)
   const registry = createAgentRuntimeRegistry({
-    // Smoke/dogfood economy mode: every model-backed role uses DeepSeek Flash.
-    // Harnesses remain role-specific (Smith/night can still be OpenCode) and
-    // deterministic Assay/QA remains model-free and unchanged.
     team: buildForgeSmokeFlashTeam(),
-    // Keep the Forge-native roles fully configured. The builder override only
-    // changes Smith/night harness selection; it must not replace the DeepSeek
-    // config object used by the other model-backed lanes.
     deepseek: defaultDeepSeekConfig(),
     builderFlashOverride: parseBuilderFlashOverride(
       process.env.FORGE_PROVIDER_BUILDER_FLASH ?? null,
@@ -87,9 +85,6 @@ export function createAgentRuntimeForgeRoleRunner(
       `Forge engine task=${task.taskId}; process=${task.processInstanceId}; node=${nodeId}. ` +
       'Execute this responsibility only. The XML engine owns all next-step routing.'
 
-    // REPO_CONTEXT — Scout gets a deterministic structural map before it burns
-    // model tokens grepping/opening files. Ripwire failure is fail-soft: the
-    // Scout still runs and must produce its durable research handoff.
     const repoContextInstruction =
       plan.lane === 'scout'
         ? withRepoContextPacket(
@@ -101,9 +96,6 @@ export function createAgentRuntimeForgeRoleRunner(
           )
         : null
 
-    // Scout output is already durable Story Run evidence in Neon. Feed the
-    // latest synthesis forward to judgment/build lanes as evidence, never as
-    // authority. Assay intentionally does NOT consume model prose.
     const priorScoutInstruction = SCOUT_RESEARCH_CONSUMERS.has(plan.lane)
       ? withScoutResearch(
           null,
@@ -156,11 +148,6 @@ export function createAgentRuntimeForgeRoleRunner(
       throw new Error(`Forge engine task ${task.taskId} could not claim agent work item ${queued.id}`)
     }
 
-    // A claim transition may return a deliberately narrow projection of the
-    // work row. Runtime launch guards, however, require the COMPLETE durable
-    // execution contract (notably execution_environment / execution_policy).
-    // Re-read the just-claimed item from canonical storage before launch so the
-    // runtime never executes from a partial SQL RETURNING projection.
     const durableClaim = await work.get(queued.id)
     if (!durableClaim) {
       throw new Error(
@@ -188,6 +175,18 @@ export function createAgentRuntimeForgeRoleRunner(
       })
       throw error
     }
+
+    if (runtimeInterrupted(result.evidence.resultStatus, result.evidence.completion)) {
+      const reason =
+        `Forge ${nodeId} runtime did not complete cleanly: ` +
+        `${result.evidence.resultStatus} (${result.evidence.completion}%)`
+      await finishForgeEngineTaskExecution(task.taskId, {
+        status: 'interrupted',
+        error: reason,
+      })
+      throw new Error(reason)
+    }
+
     const current = await readForgeWorkflowEvidence(resolvedStory.id)
     const finishedItem = await getAgentWorkItem(result.workItemId)
     const leadDecision = finishedItem?.storyRunId
