@@ -42,6 +42,16 @@ test('missingDeliverables flags a scout with no findings/packet', () => {
   assert.ok(missing.includes('scout-packet'))
 })
 
+test('storyDeliverable centralizes the write-on-exit story field', () => {
+  const scout = new ForgePhaseAgent('research_scout')
+  const arch = new ForgePhaseAgent('research_architect')
+  const smith = forgeAgentFor('smith') as SmithAgent
+  assert.equal(scout.storyDeliverable('raw output')?.field, 'context_refs')
+  assert.equal(arch.storyDeliverable('raw output')?.field, 'architect_brief')
+  assert.equal(scout.storyDeliverable('') , null)
+  assert.equal(smith.storyDeliverable('raw'), null)
+})
+
 test('forgeAgentFor resolves concrete role subclasses by lane', () => {
   assert.ok(forgeAgentFor('research_scout') instanceof ScoutAgent)
   assert.ok(forgeAgentFor('research_architect') instanceof ArchitectAgent)

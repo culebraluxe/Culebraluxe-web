@@ -235,28 +235,24 @@ export function createAgentRuntimeForgeRoleRunner(
     agent.applyLeadShape(evidence, current.findings)
 
     // Write-on-exit to Neon from the role's ACTUAL output (never gated on a model
-    // self-format marker): Scout -> story.context_refs packet; Architect ->
-    // story.architect_brief plan. These are the durable forward handoffs the next
-    // lane's gate requires (hasScoutPacket / hasArchitectBrief).
+    // self-format marker). Centralized: the agent declares its Story-field
+    // deliverable (Scout -> context_refs packet; Architect -> architect_brief
+    // plan) and we persist it generically. These are the durable forward handoffs
+    // the next lane's gate requires.
     const successful = /pass|success|complete/i.test(result.evidence.resultStatus)
     let scoutDelivered = false
     let architectDelivered = false
-    if (successful && agent.plan.lane === 'scout') {
-      const packet = agent.scoutPacket(raw)
-      if (packet) {
+    if (successful) {
+      const deliverable = agent.storyDeliverable(raw)
+      if (deliverable) {
         try {
-          scoutDelivered = await setStoryScoutPacket(resolvedStory.id, packet)
+          if (deliverable.field === 'context_refs') {
+            scoutDelivered = await setStoryScoutPacket(resolvedStory.id, deliverable.text)
+          } else {
+            architectDelivered = await setStoryArchitectBrief(resolvedStory.id, deliverable.text)
+          }
         } catch {
-          /* a failed packet write must not fail the engine task (DB failures captured at gateway) */
-        }
-      }
-    } else if (successful && agent.plan.lane === 'architect') {
-      const brief = agent.architectBrief(raw)
-      if (brief) {
-        try {
-          architectDelivered = await setStoryArchitectBrief(resolvedStory.id, brief)
-        } catch {
-          /* a failed brief write must not fail the engine task (DB failures captured at gateway) */
+          /* a failed deliverable write must not fail the engine task (DB failures captured at gateway) */
         }
       }
     }

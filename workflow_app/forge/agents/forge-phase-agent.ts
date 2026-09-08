@@ -113,6 +113,25 @@ export class ForgePhaseAgent {
     )
   }
 
+  /** The Story field this role's durable deliverable writes to on exit (or null).
+   * Centralizes write-on-exit: a role declares its Story-field deliverable here
+   * and the runner persists it generically — no per-role if/else, no reliance on
+   * the model self-formatting a marker. New roles that hand off free text add one
+   * field here. */
+  storyDeliverable(
+    raw: string,
+  ): { field: 'context_refs' | 'architect_brief'; text: string } | null {
+    if (this.isScout) {
+      const packet = this.scoutPacket(raw)
+      return packet ? { field: 'context_refs', text: packet } : null
+    }
+    if (this.isArchitect) {
+      const brief = this.architectBrief(raw)
+      return brief ? { field: 'architect_brief', text: brief } : null
+    }
+    return null
+  }
+
   /**
    * Enforced deliverable gate (the point of the abstraction). Returns the list of
    * missing deliverables per role flavor. Callers may HOLD/retry when non-empty.
