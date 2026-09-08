@@ -67,15 +67,24 @@ function formatAddress(address: PropertyAddressDto | null | undefined): string {
     .join(', ')
 }
 
-function observedAddressByAppleLabel(
-  rows: PropertyObservedAddressDto[],
-  label: 'home' | 'work',
-): PropertyObservedAddressDto | null {
-  return rows.find((row) => {
-    if (row.source !== 'apple_contacts') return false
-    const sourceLabel = row.sourceLabel?.toLocaleLowerCase() ?? ''
-    return sourceLabel.includes(label)
-  }) ?? null
+/**
+ * LISTING-01 owns the business meaning of the two observed address slots.
+ * Apple labels are provenance only; they are not the canonical relationship.
+ * The loader preserves source order, so the legal form contract is:
+ *   slot 1 -> seller legal/residence address
+ *   slot 2 -> listed physical property address
+ */
+function listingObservedAddressSlots(rows: PropertyObservedAddressDto[]): {
+  legalAddress: PropertyObservedAddressDto | null
+  physicalProperty: PropertyObservedAddressDto | null
+} {
+  const appleAddresses = rows.filter(
+    (row) => row.source === 'apple_contacts' && Boolean(formatAddress(row.address)),
+  )
+  return {
+    legalAddress: appleAddresses[0] ?? null,
+    physicalProperty: appleAddresses[1] ?? null,
+  }
 }
 
 async function latestListingEvidence(personId: string): Promise<FormEvidence | null> {
@@ -166,17 +175,12 @@ export async function loadListingCanonicalSnapshot(
 
   if (!person) throw new Error(`Person not found: ${cleanPersonId}`)
 
-  // Typed canonical relationships remain authoritative. During Apple-contact
-  // promotion, however, a Person can legitimately have the address Properties
-  // while they still carry the generic `address` relation. Preserve the source
-  // labels as a read-time bridge so a Listing can hydrate immediately:
-  //   Apple Home -> Seller Residence Address
-  //   Apple Work -> Property Location
-  // This does not mutate/reclassify canonical data. Later form save/promotion
-  // can attach the stronger legal_address/physical_property relationship to the
-  // already-matched Property ID rather than creating duplicate places.
-  const observedHome = observedAddressByAppleLabel(propertyContext.observedAddresses, 'home')
-  const observedWork = observedAddressByAppleLabel(propertyContext.observedAddresses, 'work')
+  // Strong canonical relationships win whenever they already exist. For the
+  // first end-to-end Apple -> ODS -> Person/Property -> Listing bridge, the
+  // observed two-address sequence supplies the domain roles until those generic
+  // address relationships are promoted: first is legal/residence, second is
+  // the listed physical property. Apple naming is not part of this contract.
+  const observedSlots = listingObservedAddressSlots(propertyContext.observedAddresses)
 
   const legalAddress = propertyContext.properties.find((row) => row.relation === 'legal_address') ?? null
   let physical = propertyContext.properties.find((row) => row.relation === 'physical_property') ?? null
@@ -199,8 +203,8 @@ export async function loadListingCanonicalSnapshot(
     sellerResidenceAddress: choose(
       legalAddress
         ? formatAddress(legalAddress.property.address)
-        : observedHome
-          ? formatAddress(observedHome.address)
+        : observedSlots.legalAddress
+          ? formatAddress(observedSlots.legalAddress.address)
           : null,
       'property',
       form.sellerResidenceAddress,
@@ -209,8 +213,8 @@ export async function loadListingCanonicalSnapshot(
     propertyLocation: choose(
       physical
         ? formatAddress(physical.property.address)
-        : observedWork
-          ? formatAddress(observedWork.address)
+        : observedSlots.physicalProperty
+          ? formatAddress(observedSlots.physicalProperty.address)
           : null,
       'property',
       form.propertyLocation,
@@ -231,8 +235,8 @@ export async function loadListingCanonicalSnapshot(
     personDisplayName: person.displayName,
     formInstanceId: evidence?.id ?? null,
     formUpdatedAt: evidence?.updatedAt ?? null,
-    legalAddressPropertyId: legalAddress?.property.id ?? observedHome?.matchedPropertyId ?? null,
-    physicalPropertyId: physical?.property.id ?? observedWork?.matchedPropertyId ?? evidence?.propertyId ?? null,
+    legalAddressPropertyId: legalAddress?.property.id ?? observedSlots.legalAddress?.matchedPropertyId ?? null,
+    physicalPropertyId: physical?.property.id ?? observedSlots.physicalProperty?.matchedPropertyId ?? evidence?.propertyId ?? null,
     fields,
     origins,
   }
