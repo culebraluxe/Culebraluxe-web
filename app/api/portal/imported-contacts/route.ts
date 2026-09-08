@@ -8,15 +8,15 @@ import { withApiHandler } from "@/lib/error-capture-seam"
 // 2,573-row payload. These are LOAD rows, never canonical Clients.
 // ---------------------------------------------------------------------------
 
-export const GET = withApiHandler({
-  label: "api:imported-contacts",
-  route: "/api/portal/imported-contacts",
-})(async (req: NextRequest) => {
-  const params = req.nextUrl.searchParams
-  const search = params.get("search") ?? ""
-  const page = Math.max(1, parseInt(params.get("page") ?? "1", 10) || 1)
-  const pageSize = Math.max(1, Math.min(50, parseInt(params.get("pageSize") ?? "25", 10) || 25))
+export const GET = withApiHandler(
+  { label: "api:imported-contacts", route: "/api/portal/imported-contacts" },
+  async (req: NextRequest) => {
+    const params = req.nextUrl.searchParams
+    const search = params.get("search") ?? ""
+    const page = Math.max(1, parseInt(params.get("page") ?? "1", 10) || 1)
+    const pageSize = Math.max(1, Math.min(50, parseInt(params.get("pageSize") ?? "25", 10) || 25))
 
-  const result = await getImportedContacts({ search, page, pageSize })
-  return NextResponse.json(result)
-})
+    const result = await getImportedContacts({ search, page, pageSize })
+    return NextResponse.json(result)
+  },
+)

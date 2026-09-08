@@ -56,25 +56,27 @@ export function withServerErrorCapture<TArgs extends unknown[], TResult>(
 }
 
 /** Wrap a Next route handler: capture durably on throw, return a 500 Response. */
-export function withApiHandler<A extends unknown[]>(opts: { label: string; route?: string | null }) {
-  return (handler: (...args: A) => Promise<Response>) =>
-    async (...args: A): Promise<Response> => {
-      try {
-        return await handler(...args)
-      } catch (err) {
-        const level = levelOf(err)
-        captureError({
-          kind: err instanceof Error ? err.name || 'Error' : 'Error',
-          operation: opts.label,
-          message: messageOf(err, opts.label),
-          stack: err instanceof Error ? err.stack ?? null : null,
-          route: opts.route ?? null,
-          level,
-        })
-        return new Response(
-          JSON.stringify({ ok: false, error: 'internal_error' }),
-          { status: 500, headers: { 'content-type': 'application/json' } },
-        )
-      }
+export function withApiHandler<A extends unknown[]>(
+  opts: { label: string; route?: string | null },
+  handler: (...args: A) => Promise<Response>,
+): (...args: A) => Promise<Response> {
+  return async (...args: A): Promise<Response> => {
+    try {
+      return await handler(...args)
+    } catch (err) {
+      const level = levelOf(err)
+      captureError({
+        kind: err instanceof Error ? err.name || 'Error' : 'Error',
+        operation: opts.label,
+        message: messageOf(err, opts.label),
+        stack: err instanceof Error ? err.stack ?? null : null,
+        route: opts.route ?? null,
+        level,
+      })
+      return new Response(
+        JSON.stringify({ ok: false, error: 'internal_error' }),
+        { status: 500, headers: { 'content-type': 'application/json' } },
+      )
     }
+  }
 }
