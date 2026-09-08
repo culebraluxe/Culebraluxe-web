@@ -386,8 +386,12 @@ export const db = new DatabaseGateway()
 // Give the app_error writer its executor BY INJECTION (the gateway owns the real
 // sql executor). app_error must NOT import this module back — that import formed
 // the gateway -> app-error -> client -> gateway cycle the dependency gate flags.
-// app_error depends only on the QueryExecutor type; db internals stay acyclic.
-setErrorExecutor(sql)
+// Crucially it must ALSO not write through the CAPTURING path: if app_error used
+// `sql` (which routes db.query -> logFailure), a DB outage would recurse
+// logFailure -> captureError -> sql -> logFailure ... The writer uses
+// sqlNoCapture so "the logger can fail, but the logger cannot log the failure of
+// the logger."
+setErrorExecutor(sqlNoCapture)
 
 // ---------- contained backward-compat tagged executor ----------
 /**
@@ -415,6 +419,25 @@ export async function sql(
   const result = await db.query(strings, ...params)
   if (!result.ok) throw new DbFailureError(result.error)
   return result.data as QueryRow[]
+}
+
+/**
+ * NO-CAPTURE diagnostic executor used by the app_error writer. Runs the SAME
+ * underlying executor as the gateway but deliberately does NOT route through
+ * db.query/logFailure — so a failed diagnostic write (e.g. during a real DB
+ * outage) can never re-enter logFailure -> captureError -> ... recursion. A
+ * capture failure is simply allowed to surface/thrown and is swallowed by the
+ * best-effort captureError caller.
+ */
+export async function sqlNoCapture(
+  strings: TemplateStringsArray,
+  ...params: unknown[]
+): Promise<QueryRow[]> {
+  const exec = getExecutor()
+  if (!exec) throw new DbConfigError(appEnvLabel())
+  const query = flattenSqlTemplate(strings, params)
+  const rows = await exec(query.strings, ...query.values)
+  return rows as QueryRow[]
 }
 
 /**

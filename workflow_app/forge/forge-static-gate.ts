@@ -25,9 +25,11 @@ export type StaticGateResult = {
 
 const DEFAULT_ROOTS = ['workflow_app', 'agent-runtime', 'db', 'services', 'app', 'components', 'ui', 'lib', 'workflow_engine']
 
-function spawn(cmd: string, args: string[], cwd: string, timeoutMs: number): { status: number | null; out: string } {
+function spawn(cmd: string, args: string[], cwd: string, timeoutMs: number): { status: number | null; out: string; stdout: string; stderr: string } {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 })
-  return { status: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') }
+  const stdout = r.stdout ?? ''
+  const stderr = r.stderr ?? ''
+  return { status: r.status, out: stdout + stderr, stdout, stderr }
 }
 
 function runDepcruise(input: {
@@ -39,7 +41,7 @@ function runDepcruise(input: {
 }): { ok: boolean; errors: string[] } {
   const bin = input.depcruiseBin
   const args = bin
-    ? [input.config.includes('=') ? input.config : input.config, ...input.roots] // explicit binary path mode
+    ? ['--config', input.config, ...input.roots] // explicit binary path mode
     : ['exec', 'depcruise', ...input.roots, '--config', input.config, '--output-type', 'err']
   const r = spawn(bin ?? 'pnpm', args, input.workspace, input.timeoutMs)
   const errors = r.out
@@ -55,7 +57,34 @@ function runSemgrep(input: { workspace: string; roots: string[]; configDir: stri
 } {
   if (!existsSync(join(input.workspace, input.configDir))) return { ran: false, findings: [] }
   const r = spawn(input.semgrepBin ?? 'semgrep', ['scan', '--config', input.configDir, '--json', ...input.roots], input.workspace, input.timeoutMs)
-  return { ran: true, findings: r.status !== 0 && !/no findings/i.test(r.out) ? [r.out.slice(0, 400)] : [] }
+  const findings: string[] = []
+  if (r.status === 0) return { ran: true, findings }
+  // semgrep --json writes structured results to stdout; parse them so the
+  // artifact carries rule id / path / line / severity / message (not a raw blob).
+  try {
+    const json = JSON.parse(r.stdout) as { results?: Array<{
+      check_id?: string
+      path?: string
+      start?: { line?: number }
+      extra?: { message?: string; severity?: string }
+    }> }
+    const results = Array.isArray(json.results) ? json.results : []
+    for (const hit of results.slice(0, 100)) {
+      const rule = hit.check_id ?? 'semgrep'
+      const path = hit.path ?? '?'
+      const line = hit.start?.line ?? 0
+      const severity = hit.extra?.severity ?? 'WARNING'
+      const message = (hit.extra?.message ?? '').replace(/\s+/g, ' ').trim()
+      findings.push(`${severity} ${rule} ${path}:${line}${message ? ` — ${message.slice(0, 200)}` : ''}`)
+    }
+    if (findings.length === 0) {
+      findings.push(`semgrep exited ${r.status} but returned no structured results`)
+    }
+  } catch {
+    // Not JSON (or unexpected shape) — keep a bounded raw snippet as a fallback.
+    findings.push(r.out.slice(0, 400))
+  }
+  return { ran: true, findings }
 }
 
 /**
