@@ -18,4 +18,5 @@ Short facts that are expensive to rediscover. Not the current story — that is 
 - Code + DEV schema + PROD schema + verification = done for schema stories.
 - Do not reset PROD or copy DEV over PROD to fix drift.
 - Google Maps is the production map. Never use the Demo key in production.
+- Errors are captured durably, never silently: DB (gateway) + service kernel (`ServiceErrorSink` via `composeCoreServices`/`appServiceErrorSink`) + route/action seams (`withApiHandler`/`withServerErrorCapture`/`captureServerError`). Expected business outcomes (validation, FORBIDDEN, not-found) are audited control flow, never error rows. See AGENTS.md "Error Capture Obligation". New code that fails without the framework is a review reject.
 - FORGE_ROUTING_BRAIN defaults to reducer. engine mode skips hydrate/follow/publish and drives FORGE_SDLC. Never dual-write.

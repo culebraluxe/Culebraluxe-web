@@ -13,6 +13,7 @@ Always
 - Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL.
 - Report exact files changed and the tests that ran.
 - Commit on the worker branch only when the role is Builder.
+- Route every failure that reaches a seam through the durable error-capture framework (see "Error Capture Obligation"). Never let an exception vanish as a silent 500/fallback or only a console.error.
 
 Ask first
 
@@ -185,6 +186,25 @@ Known issues:
 - Does not silently fix findings unless explicitly instructed.
 
 Forge maps Lead → Architect/Inspector (git), Builder → Smith, Reviewer/QA → Assay. See `docs/FORGE-V2.md`.
+
+## Error Capture Obligation
+
+New server code that can fail MUST route its failures through the durable capture framework. Do not add a bare `try/catch` that swallows, do not only `console.error`, and do not let a throw escape a route/action/edge uncaptured.
+
+Canonical seams — reuse these; do not invent parallel capture:
+- **DB**: `DatabaseGateway` captures normalized DB failures automatically.
+- **Service kernel**: `BaseService` + `ServiceErrorSink` (`ServiceInfrastructure.errors`, bound via `composeCoreServices`/`appServiceErrorSink`) — captures unhandled (non-domain) exceptions with domain/operation/correlationId.
+- **Route handlers that throw**: `withApiHandler({ label, route })(handler)` (`lib/error-capture-seam.ts`) — captures and returns a 500. When a handler catches-and-returns an error body instead of throwing, call `captureServerError` in the non-auth catch (pattern: `app/api/portal/form-sidecar/*`).
+- **Server actions / async fns**: `withServerErrorCapture(label)(fn)`, or `captureServerError`/`captureServerLog` in the catch.
+- **Low-level entry**: `recordError`/`captureError` (`db/app-error.ts`), severity `info`/`warn`/`error`/`fatal`.
+
+Severity conveys intent: `info` observed · `warn` soft · `error` recoverable · `fatal` cannot continue. Expected business outcomes (validation failures, authorization denials/FORBIDDEN, "not found") are **audited control flow**, not error rows — never capture them as error noise.
+
+Verify captured rows in `app_error` or the TECH view `/portal/tech/app-errors`. End-to-end probe: `node --env-file=.env.local --import tsx scripts/probe-error-capture.ts`.
+
+Key references: `lib/server-error-capture.ts`, `lib/error-capture-seam.ts`, `lib/service-error-sink.ts`, `db/app-error.ts`, `services/core/base-service.ts`.
+
+Human gate: new code that fails and does NOT use this framework is a review reject.
 
 ## Production Release State
 
