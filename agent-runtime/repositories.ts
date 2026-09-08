@@ -183,6 +183,8 @@ export interface AgentWorkRepository {
       commitHash: string | null
       testsSummary: string | null
       assayEvidence?: AssayEvidence | null
+      /** Harness-observed model identity (drives cost widgets + spend vision). */
+      modelUsed?: string | null
     },
   ): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }>
   fail(workItemId: string, errorText: string): Promise<AgentWorkItem>
@@ -320,6 +322,12 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       modelUsed: normalized.modelUsed ?? input.modelUsed ?? null,
     }
 
+    if (item?.storyRunId) {
+      // Record machine evidence (incl. model_used) BEFORE the story-run finalize
+      // (finishStoryRun) so its cost-widget derivation can read model_used.
+      await recordForgeRunMachineEvidence(item.storyRunId, machineEvidence, q)
+    }
+
     const finished = await finishAgentWork(
       workItemId,
       {
@@ -333,8 +341,6 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     )
 
     if (item?.storyRunId) {
-      await recordForgeRunMachineEvidence(item.storyRunId, machineEvidence, q)
-
       if (item.role === 'lead') {
         const phase = leadRunPhaseFromInstructions(item.specialInstructions)
         if (phase === 'pre' || phase === 'post') {

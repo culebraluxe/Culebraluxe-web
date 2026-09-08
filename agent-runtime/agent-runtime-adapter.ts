@@ -246,6 +246,7 @@ export abstract class AgentRuntimeAdapter {
       commitHash: result!.commitHash,
       testsSummary: result!.testsSummary,
       assayEvidence: result!.assayEvidence ?? null,
+      modelUsed: result!.modelUsed ?? null,
     })
     return {
       ...this.normalizeEvidence(finished.run as any, command),
