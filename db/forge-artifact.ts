@@ -79,3 +79,43 @@ export async function listToolArtifactsForRun(
   `
   return rows as ForgeToolArtifact[]
 }
+
+/** Persist a static-gate verdict (from runStaticGate) as a child artifact. */
+export async function recordStaticGateArtifact(
+  input: {
+    storyId: string
+    storyRunId?: string | null
+    sha?: string | null
+    archOk: boolean
+    archErrorCount: number
+    semgrepRan: boolean
+    semgrepFindingCount: number
+    workspace?: string | null
+  },
+  execute?: QueryExecutor,
+): Promise<ForgeToolArtifact> {
+  const summary =
+    `${input.archOk ? 'architecture clean' : `${input.archErrorCount} architecture violation(s)`}` +
+    (input.semgrepRan
+      ? `; semgrep ${input.semgrepFindingCount === 0 ? 'clean' : `${input.semgrepFindingCount} finding(s)`}`
+      : '')
+  return recordToolArtifact(
+    {
+      storyId: input.storyId,
+      storyRunId: input.storyRunId ?? null,
+      tool: 'static-gate',
+      kind: 'architecture-security',
+      verdict: input.archOk ? 'PASS' : 'FAIL',
+      summary,
+      detail: {
+        archOk: input.archOk,
+        archErrorCount: input.archErrorCount,
+        semgrepRan: input.semgrepRan,
+        semgrepFindingCount: input.semgrepFindingCount,
+        workspace: input.workspace ?? null,
+      },
+      sha: input.sha ?? null,
+    },
+    execute,
+  )
+}
