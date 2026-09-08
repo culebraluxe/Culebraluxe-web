@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation"
 
 import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
+import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { GatewayControl } from "@/components/portal/tech/gateway-control"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
+import { listForgeConvergence } from "@/db/forge-convergence"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { DEFAULT_FORGE_TEAM, listForgeTeamAssignments } from "@/agent-runtime/team"
@@ -48,6 +50,7 @@ export default async function TechPage({
   const model = buildStoryBoardModel(withExecution)
   const cockpit = buildStoryBoardCockpit(model)
   const activeQueue = await listActiveWork()
+  const convergence = await listForgeConvergence()
 
   const validId =
     selectedId && withExecution.some((s) => s.id === selectedId) ? selectedId : null
@@ -82,6 +85,7 @@ export default async function TechPage({
         runs={runs}
         freshness={freshness}
       />
+      <ForgeConvergenceView items={convergence} />
     </>
   )
 }
