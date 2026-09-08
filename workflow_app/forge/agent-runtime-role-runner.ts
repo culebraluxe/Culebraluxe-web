@@ -34,7 +34,8 @@ import { getStoryboardStory, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
-import { ForgePhaseAgent, rawRoleOutput } from './agents/forge-phase-agent'
+import { rawRoleOutput } from './agents/forge-phase-agent'
+import { forgeAgentFor } from './agents/role-agents'
 import {
   forgeEvidenceFromAgentResult,
   forgeRoleNodePlan,
@@ -228,7 +229,7 @@ export function createAgentRuntimeForgeRoleRunner(
     // ForgePhaseAgent for this node (findings parse for Scout/Architect, Lead
     // PRE shape override, Scout packet). This replaces the scattered
     // isArchitectNode/isScoutNode/lead_pre conditionals with a role contract.
-    const agent = new ForgePhaseAgent(nodeId)
+    const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
     agent.marshalFindings(evidence, raw)
     agent.applyLeadShape(evidence, current.findings)
@@ -245,6 +246,18 @@ export function createAgentRuntimeForgeRoleRunner(
         } catch {
           /* a failed packet write must not fail the engine task (DB failures captured at gateway) */
         }
+      }
+    }
+
+    // ENG-FORGE-PHASE-AGENT Phase 3 — enforced deliverable gate. When
+    // FORGE_ENFORCE_DELIVERABLES=1, a role that reports success but did NOT
+    // produce its declared deliverable is HOLDed (thrown -> forge-executor
+    // releases the task for retry) instead of silently advancing. OFF by default
+    // so existing model-flaky runs keep current behavior until proven live.
+    if (process.env.FORGE_ENFORCE_DELIVERABLES === '1' && /pass|success|complete/i.test(result.evidence.resultStatus)) {
+      const missing = agent.missingDeliverables(evidence, raw, false)
+      if (missing.length > 0) {
+        throw new Error(`Forge ${nodeId} HOLD: role did not deliver ${missing.join(', ')}`)
       }
     }
 

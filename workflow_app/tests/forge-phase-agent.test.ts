@@ -1,6 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ForgePhaseAgent } from '../forge/agents/forge-phase-agent'
+import {
+  ArchitectAgent,
+  ScoutAgent,
+  forgeAgentFor,
+} from '../forge/agents/role-agents'
 
 const FINDINGS_NOTES =
   'research notes\n' +
@@ -31,4 +36,9 @@ test('missingDeliverables flags a scout with no findings/packet', () => {
   const agent = new ForgePhaseAgent('research_scout')
   const missing = agent.missingDeliverables({} as never, '', false)
   assert.ok(missing.includes('scout-packet'))
+})
+
+test('forgeAgentFor resolves concrete role subclasses by lane', () => {
+  assert.ok(forgeAgentFor('research_scout') instanceof ScoutAgent)
+  assert.ok(forgeAgentFor('research_architect') instanceof ArchitectAgent)
 })
