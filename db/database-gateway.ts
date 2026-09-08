@@ -144,6 +144,23 @@ function logFailure(failure: DbFailure): void {
   if (failure.detail) fields.push(`detail=${failure.detail}`)
   if (failure.retryable) fields.push('retryable=true')
   console.error(fields.join(' '))
+  // Durable structured capture (Log4j-style table). Fire-and-forget; a capture
+  // failure must never break the operation being recorded. Never logs secrets.
+  import('./app-error')
+    .then(({ captureError }) =>
+      captureError({
+        kind: failure.kind,
+        operation: failure.operation,
+        incidentId: failure.incidentId,
+        code: failure.code ?? null,
+        message: failure.detail ?? null,
+        retryable: failure.retryable ?? null,
+        meta: { env: appEnvLabel() },
+      }),
+    )
+    .catch(() => {
+      /* capture never breaks the operation it observes */
+    })
 }
 
 /** Safe, coarse operation label derived from the SQL keyword ONLY (never raw
