@@ -2,6 +2,7 @@ import { sql } from './client'
 import type { QueryExecutor } from './query-executor'
 import { SqlPropertyRepository } from './property-service-repository'
 import type {
+  PersonPropertyContextDto,
   PropertyAddressDto,
   PropertyForPersonDto,
   UpsertPropertyForPersonRequest,
@@ -51,6 +52,36 @@ function mergeAddress(
 export class SqlListingPropertyRepository extends SqlPropertyRepository {
   constructor(private readonly listingExecute: QueryExecutor = sql) {
     super(listingExecute)
+  }
+
+  /**
+   * Bridge ordered contact-address evidence into the domain relationships that
+   * LISTING-01 already understands, without changing the form or rewriting the
+   * canonical rows. Strong typed relations always win. If mastering left the
+   * matched Property rows as generic `address`, slot 0 is the seller's legal
+   * address and slot 1 is the physical listing Property.
+   */
+  override async forPerson(personId: string): Promise<PersonPropertyContextDto> {
+    const context = await super.forPerson(personId)
+    const properties = context.properties.map((row) => ({ ...row }))
+
+    const promoteObservedSlot = (
+      index: number,
+      relation: 'legal_address' | 'physical_property',
+    ) => {
+      if (properties.some((row) => row.relation === relation)) return
+      const matchedPropertyId = context.observedAddresses[index]?.matchedPropertyId
+      if (!matchedPropertyId) return
+      const generic = properties.find(
+        (row) => row.relation === 'address' && row.property.id === matchedPropertyId,
+      )
+      if (generic) generic.relation = relation
+    }
+
+    promoteObservedSlot(0, 'legal_address')
+    promoteObservedSlot(1, 'physical_property')
+
+    return { ...context, properties }
   }
 
   private async registryColumnsReady(): Promise<boolean> {
