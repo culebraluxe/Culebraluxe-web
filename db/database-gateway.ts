@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { neon } from '@neondatabase/serverless'
 import type { QueryExecutor, QueryRow } from './query-executor'
+import { captureError, setErrorExecutor } from './app-error'
 
 // ---------------------------------------------------------------------------
 // DB-HARDEN-01 — Single application Database Gateway.
@@ -146,21 +147,19 @@ function logFailure(failure: DbFailure): void {
   console.error(fields.join(' '))
   // Durable structured capture (Log4j-style table). Fire-and-forget; a capture
   // failure must never break the operation being recorded. Never logs secrets.
-  import('./app-error')
-    .then(({ captureError }) =>
-      captureError({
-        kind: failure.kind,
-        operation: failure.operation,
-        incidentId: failure.incidentId,
-        code: failure.code ?? null,
-        message: failure.detail ?? null,
-        retryable: failure.retryable ?? null,
-        meta: { env: appEnvLabel() },
-      }),
-    )
-    .catch(() => {
-      /* capture never breaks the operation it observes */
+  try {
+    captureError({
+      kind: failure.kind,
+      operation: failure.operation,
+      incidentId: failure.incidentId,
+      code: failure.code ?? null,
+      message: failure.detail ?? null,
+      retryable: failure.retryable ?? null,
+      meta: { env: appEnvLabel() },
     })
+  } catch {
+    /* capture never breaks the operation it observes */
+  }
 }
 
 /** Safe, coarse operation label derived from the SQL keyword ONLY (never raw
@@ -383,6 +382,12 @@ export class DatabaseGateway {
 
 /** Application singleton gateway. */
 export const db = new DatabaseGateway()
+
+// Give the app_error writer its executor BY INJECTION (the gateway owns the real
+// sql executor). app_error must NOT import this module back — that import formed
+// the gateway -> app-error -> client -> gateway cycle the dependency gate flags.
+// app_error depends only on the QueryExecutor type; db internals stay acyclic.
+setErrorExecutor(sql)
 
 // ---------- contained backward-compat tagged executor ----------
 /**

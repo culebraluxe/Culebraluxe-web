@@ -7,6 +7,7 @@
 //
 // The printed MARKER can be pasted into the TECH view (or a SQL filter) to confirm
 // the row landed. Uses level 'warn' so it doesn't pollute the error/fatal stream.
+import '../db/client' // registers the gateway's sql executor for app_error
 import { recordError, listRecentErrors } from '../db/app-error'
 
 const MARKER = `PROBE-${Date.now()}`

@@ -1,13 +1,24 @@
 import type { QueryExecutor, QueryRow } from './query-executor'
 
+// The app_error writer must NOT import the db/client facade (which re-exports the
+// gateway), or it forms a cycle: gateway -> app-error (logFailure capture) and
+// app-error -> client/gateway (executor). Instead the executor is INJECTED: the
+// db/client facade registers its sql executor here once. App-error depends only
+// on the QueryExecutor type — no runtime import back into the gateway.
 let defaultExecutor: QueryExecutor | null = null
 
-async function executor(): Promise<QueryExecutor> {
-  if (!defaultExecutor) {
-    const client = await import('./client')
-    defaultExecutor = client.sql
-  }
-  return defaultExecutor
+/** Register the executor app_error should use for writes (called by db/client). */
+export function setErrorExecutor(execute: QueryExecutor | null): void {
+  defaultExecutor = execute
+}
+
+/** Resolve the executor for a call: the injected one, else the registered default. */
+function resolveExecutor(execute?: QueryExecutor): QueryExecutor {
+  if (execute) return execute
+  if (defaultExecutor) return defaultExecutor
+  throw new Error(
+    'app_error executor is not configured; register it via setErrorExecutor(db.sql) or pass execute explicitly.',
+  )
 }
 
 export type ErrorLevel = 'info' | 'warn' | 'error' | 'fatal'
@@ -46,7 +57,7 @@ export async function recordError(
   input: RecordErrorInput,
   execute?: QueryExecutor,
 ): Promise<AppErrorRow> {
-  const q = execute ?? (await executor())
+  const q = resolveExecutor(execute)
   const rows = await q`
     insert into app_error (kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, meta)
     values (
@@ -72,7 +83,7 @@ export async function listRecentErrors(
   level?: ErrorLevel,
   execute?: QueryExecutor,
 ): Promise<AppErrorRow[]> {
-  const q = execute ?? (await executor())
+  const q = resolveExecutor(execute)
   const rows = level
     ? await q`
         select id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, created_at
