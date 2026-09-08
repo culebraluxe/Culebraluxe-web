@@ -104,3 +104,25 @@ export function ratesFromActuals(actuals: WorkActual[], fallback?: UnitRates): U
     slocPerPoint: (fallback ?? DEFAULT_UNIT_RATES.flash).slocPerPoint,
   }
 }
+
+// -- Cost widgets: stable, model-relative cost units (NOT real money). --------
+// The vendor invoices a day late; we instead record widgets now so calibration
+// has fuel: widgets = model_weight x elapsed minutes.
+
+/** Relative weight for a model id. Deterministic Assay is free. Unknown -> null. */
+export function modelWidgetWeight(model: string | null | undefined): number | null {
+  const key = (model ?? '').trim().toLowerCase()
+  if (!key) return null
+  if (key.includes('deterministic-assay')) return 0
+  if (key.includes('flash')) return 1
+  if (key.includes('pro') || key.includes('reasoner')) return 10
+  if (key.includes('chat')) return 4
+  return null
+}
+
+/** Widgets burned by one run = model weight x elapsed minutes. Unknown model -> null. */
+export function costWidgets(model: string | null | undefined, elapsedMinutes: number): number | null {
+  const weight = modelWidgetWeight(model)
+  if (weight === null || !Number.isFinite(elapsedMinutes) || elapsedMinutes < 0) return null
+  return Math.round(weight * elapsedMinutes * 100) / 100
+}

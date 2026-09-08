@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   DEFAULT_UNIT_RATES,
+  costWidgets,
   estimateWork,
   estimatedRisk,
+  modelWidgetWeight,
   ratesFromActuals,
   workPoints,
   type WorkEstimateFactors,
@@ -54,4 +56,14 @@ test('estimator: recalibrating from real actuals corrects the unit cost rate', (
   assert.ok(est.estimatedCostUsd > estimateWork(factors({})).estimatedCostUsd)
   // Empty actuals fall back to defaults.
   assert.equal(ratesFromActuals([]).costPerPoint, DEFAULT_UNIT_RATES.flash.costPerPoint)
+})
+
+test('cost widgets: model weight x elapsed minutes; assay is free; unknown is null', () => {
+  assert.equal(modelWidgetWeight('deepseek/deepseek-v4-flash'), 1)
+  assert.equal(modelWidgetWeight('deepseek/deepseek-chat'), 4)
+  assert.equal(modelWidgetWeight('forge/deterministic-assay'), 0)
+  assert.equal(costWidgets('deepseek/deepseek-v4-flash', 30), 30) // 1 x 30m
+  assert.equal(costWidgets('forge/deterministic-assay', 30), 0)
+  assert.equal(costWidgets('some-unknown-model', 30), null)
+  assert.equal(costWidgets(null, 30), null)
 })

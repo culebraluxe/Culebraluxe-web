@@ -1,4 +1,5 @@
 import { PortalWriteError } from '../lib/portal-write-error'
+import { costWidgets } from '../workflow_app/forge/forge-estimator'
 import type {
   StoryPriority,
   StoryStatus,
@@ -985,6 +986,19 @@ export async function finishStoryRun(
     throw new PortalWriteError('not-found', `Run "${runId}" was not found.`)
   }
   const run = mapRun(runRow)
+
+  // ENG estimator: persist cost widgets (model weight x elapsed minutes) when a
+  // finished run carried no real cost, so calibration has fuel now instead of
+  // waiting for the vendor's delayed invoice.
+  const elapsedMinutes =
+    run.startedAt && run.endedAt
+      ? (new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime()) / 60000
+      : 0
+  const widgets = run.costUsd == null ? costWidgets(run.modelUsed, elapsedMinutes) : null
+  if (widgets !== null) {
+    await q`update storyboard_story_run set cost_usd = ${widgets}, updated_at = now() where id = ${runId}`
+    run.costUsd = widgets
+  }
 
   const completion =
     input.resultStatus === 'Complete' ? 100 : input.completion
