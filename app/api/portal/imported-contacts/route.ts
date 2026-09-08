@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getImportedContacts } from "@/db/imported-contacts"
+import { withApiHandler } from "@/lib/error-capture-seam"
 
 // ---------------------------------------------------------------------------
 // SUPPORT-2 — Imported Contacts (Apple Contacts load projection) search/pages.
@@ -7,7 +8,10 @@ import { getImportedContacts } from "@/db/imported-contacts"
 // 2,573-row payload. These are LOAD rows, never canonical Clients.
 // ---------------------------------------------------------------------------
 
-export async function GET(req: NextRequest) {
+export const GET = withApiHandler({
+  label: "api:imported-contacts",
+  route: "/api/portal/imported-contacts",
+})(async (req: NextRequest) => {
   const params = req.nextUrl.searchParams
   const search = params.get("search") ?? ""
   const page = Math.max(1, parseInt(params.get("page") ?? "1", 10) || 1)
@@ -15,4 +19,4 @@ export async function GET(req: NextRequest) {
 
   const result = await getImportedContacts({ search, page, pageSize })
   return NextResponse.json(result)
-}
+})
