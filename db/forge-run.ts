@@ -197,7 +197,7 @@ export async function recordForgeRunMachineEvidence(
         tokens_input = coalesce(${evidence.tokensInput ?? null}, tokens_input),
         tokens_output = coalesce(${evidence.tokensOutput ?? null}, tokens_output),
         cost_usd = coalesce(${evidence.costUsd ?? null}, cost_usd),
-        cost_source = case when ${evidence.costUsd ?? null} is not null then 'vendor' else cost_source end,
+        cost_source = case when (${evidence.costUsd ?? null})::numeric is not null then 'vendor' else cost_source end,
         evidence_detail = case
           when ${detail}::text is null then evidence_detail
           when evidence_detail is null or evidence_detail = '' then ${detail}
