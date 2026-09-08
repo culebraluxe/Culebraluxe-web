@@ -69,14 +69,23 @@ export function captureError(input: RecordErrorInput): void {
 
 export async function listRecentErrors(
   limit = 25,
+  level?: ErrorLevel,
   execute?: QueryExecutor,
 ): Promise<AppErrorRow[]> {
   const q = execute ?? (await executor())
-  const rows = await q`
-    select id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, created_at
-    from app_error
-    order by created_at desc
-    limit ${Math.max(1, Math.min(limit, 200))}
-  `
+  const rows = level
+    ? await q`
+        select id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, created_at
+        from app_error
+        where level = ${level}
+        order by created_at desc
+        limit ${Math.max(1, Math.min(limit, 200))}
+      `
+    : await q`
+        select id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, created_at
+        from app_error
+        order by created_at desc
+        limit ${Math.max(1, Math.min(limit, 200))}
+      `
   return rows as AppErrorRow[]
 }

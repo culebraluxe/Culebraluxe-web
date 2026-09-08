@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
@@ -76,6 +77,14 @@ export default async function TechPage({
 
   return (
     <>
+      <div className="flex justify-end px-4 pt-3 lg:px-6">
+        <Link
+          href="/portal/tech/app-errors"
+          className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
+        >
+          App Error Capture →
+        </Link>
+      </div>
       <GatewayControl teamName={DEFAULT_FORGE_TEAM.name} routes={routes} />
       <EngineeringCockpit
         cockpit={cockpit}
