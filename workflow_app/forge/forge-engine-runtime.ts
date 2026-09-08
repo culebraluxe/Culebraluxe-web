@@ -98,6 +98,13 @@ export async function startForgeWorkflow(
       })
       const { markForgeStoryInProgress } = await import('../../db/forge-story-state')
       await markForgeStoryInProgress(id)
+      // V1 estimator: seed one idempotent forecast per story so real (coarse)
+      // rows start accumulating for later calibration. Never blocks story start.
+      try {
+        await (await import('../../db/forge-estimator')).seedForecastForStory(id)
+      } catch {
+        // non-fatal
+      }
       return processInstanceId
     },
   })

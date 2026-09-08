@@ -11,6 +11,7 @@ import {
   surfaceMultiplier,
 } from '../workflow_app/forge/forge-ripwire-surface'
 import type { QueryExecutor, QueryRow } from './query-executor'
+import { getStoryboardStory } from './storyboard'
 
 let defaultExecutor: QueryExecutor | null = null
 
@@ -120,4 +121,48 @@ export async function runActualTotalsForStory(
   const row = rows[0] as { tokens: number; cost_usd: number; minutes: number } | undefined
   if (!row) return null
   return { tokens: Number(row.tokens), costUsd: Number(row.cost_usd), minutes: Number(row.minutes) }
+}
+
+/** Count acceptance criteria lines from the story's acceptance_criteria text. */
+export function countAcceptanceLines(text: string | null | undefined): number {
+  if (!text || !text.trim()) return 1
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean)
+  return Math.max(1, lines.length)
+}
+
+/**
+ * Idempotently seed a V1 forecast for a story the first time it enters the Forge
+ * engine. Factors we can derive come from the story; complexity/toolkit default
+ * to medium/brownfield and seams to 1 (V1 coarseness — real factors arrive with
+ * Lead/ripwire later; V3 recalibrates). Non-fatal: a forecast failure never
+ * blocks story start.
+ */
+export async function seedForecastForStory(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const existing = await q`select id from work_estimate where story_id = ${storyId} limit 1`
+  if ((existing as Array<{ id: unknown }>)[0]) return false
+
+  const story = await getStoryboardStory(storyId, q)
+  if (!story) return false
+
+  await createWorkEstimate(
+    {
+      storyId,
+      estimatorRole: 'auto',
+      modelGrade: 'flash',
+      workstream: story.workstream ?? 'ENG',
+      complexity: 'medium',
+      toolkit: 'brownfield',
+      seamsCount: 1,
+      acceptanceCount: countAcceptanceLines(story.acceptanceCriteria ?? ''),
+    },
+    q,
+  )
+  return true
 }
