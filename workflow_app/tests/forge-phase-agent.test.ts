@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import { ForgePhaseAgent } from '../forge/agents/forge-phase-agent'
 import {
   ArchitectAgent,
+  DevOpsAgent,
+  LeadAgent,
+  QAAgent,
   ScoutAgent,
+  SmithAgent,
   forgeAgentFor,
 } from '../forge/agents/role-agents'
 
@@ -41,4 +45,34 @@ test('missingDeliverables flags a scout with no findings/packet', () => {
 test('forgeAgentFor resolves concrete role subclasses by lane', () => {
   assert.ok(forgeAgentFor('research_scout') instanceof ScoutAgent)
   assert.ok(forgeAgentFor('research_architect') instanceof ArchitectAgent)
+})
+
+const ev = (x: unknown) => x as never
+
+test('lead flavor requires a decision', () => {
+  const lead = forgeAgentFor('lead_pre') as LeadAgent
+  assert.deepEqual(lead.missingDeliverables(ev({}) as never, '', false), ['lead-decision'])
+  assert.deepEqual(lead.missingDeliverables(ev({ leadDecision: 'SMITH' }) as never, '', false), [])
+})
+
+test('smith flavor requires a candidate SHA', () => {
+  const smith = forgeAgentFor('smith') as SmithAgent
+  assert.deepEqual(smith.missingDeliverables(ev({}) as never, '', false), ['smith-candidate'])
+  assert.deepEqual(smith.missingDeliverables(ev({ candidateSha: 'abc123' }) as never, '', false), [])
+})
+
+test('qa flavor treats PASS and FAIL both as a verdict', () => {
+  const qa = forgeAgentFor('qa_verify') as QAAgent
+  assert.deepEqual(qa.missingDeliverables(ev({}) as never, '', false), ['qa-verdict'])
+  assert.deepEqual(qa.missingDeliverables(ev({ qaPassed: false }) as never, '', false), [])
+  assert.deepEqual(qa.missingDeliverables(ev({ qaPassed: true }) as never, '', false), [])
+})
+
+test('dev_ops flavor requires a release/production receipt', () => {
+  const ops = forgeAgentFor('production_smoke') as DevOpsAgent
+  assert.deepEqual(ops.missingDeliverables(ev({}) as never, '', false), ['devops-receipt'])
+  assert.deepEqual(
+    ops.missingDeliverables(ev({ productionVerificationReceipt: 'r-1' }) as never, '', false),
+    [],
+  )
 })

@@ -104,14 +104,47 @@ export class ForgePhaseAgent {
 
   /**
    * Enforced deliverable gate (the point of the abstraction). Returns the list of
-   * missing deliverables. Callers may HOLD/retry when non-empty. Not thrown here
-   * so enforcement policy (env-gated) stays in the caller.
+   * missing deliverables per role flavor. Callers may HOLD/retry when non-empty.
+   * Not thrown here so enforcement policy (env-gated) stays in the caller.
+   *
+   * Each flavor declares what it must hand off on exit:
+   *   scout     -> a packet (context_refs) for the next role
+   *   architect -> a research disposition OR findings (a plan)
+   *   lead      -> a decision (with split when SPLIT)
+   *   smith     -> a frozen candidate SHA (it wrote code)
+   *   qa/assay  -> an exact verdict (PASS or FAIL both count as a verdict)
+   *   dev_ops   -> a release/production receipt
    */
   missingDeliverables(evidence: ForgeGateEvidence, raw: string, scoutContextRefsSet: boolean): string[] {
     const kind = this.deliverableKind()
     const missing: string[] = []
-    if (kind === 'scout-packet' && !scoutContextRefsSet && !this.scoutPacket(raw)) missing.push('scout-packet')
-    if (kind === 'architect-plan' && (evidence.researchDisposition ?? evidence.findings) == null) missing.push('architect-plan')
+    switch (kind) {
+      case 'scout-packet':
+        if (!scoutContextRefsSet && !this.scoutPacket(raw)) missing.push('scout-packet')
+        break
+      case 'architect-plan':
+        if (evidence.researchDisposition == null && !(evidence.findings && evidence.findings.length > 0)) {
+          missing.push('architect-plan')
+        }
+        break
+      case 'lead-decision':
+        if (evidence.leadDecision == null) missing.push('lead-decision')
+        break
+      case 'smith-candidate':
+        if (evidence.candidateSha == null) missing.push('smith-candidate')
+        break
+      case 'qa-verdict':
+        // PASS or FAIL are both a verdict; only an absent verdict is a miss.
+        if (evidence.qaPassed === undefined) missing.push('qa-verdict')
+        break
+      case 'devops-receipt':
+        if (evidence.deploymentReceipt == null && evidence.productionVerificationReceipt == null) {
+          missing.push('devops-receipt')
+        }
+        break
+      default:
+        break
+    }
     return missing
   }
 }
