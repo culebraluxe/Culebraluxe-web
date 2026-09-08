@@ -11,6 +11,7 @@ import { SqlProjectRepository } from '@/db/project-service-repository'
 import { composeCoreServices } from '@/services/composition'
 import { AuthorizationService } from '@/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/services/entitlement/db-authorization-policy-provider'
+import { appServiceErrorSink } from '@/lib/service-error-sink'
 
 /**
  * Explicit entitlement port for the service kernel. It is deliberately open in
@@ -31,7 +32,7 @@ export const formCoreServices = composeCoreServices(
     wbs: new SqlWbsRepository(),
     project: new SqlProjectRepository(),
   },
-  { authorization: formEntitlements },
+  { authorization: formEntitlements, errors: appServiceErrorSink() },
 )
 
 /** Showing is a first-class composed domain now (kept as a stable alias). */

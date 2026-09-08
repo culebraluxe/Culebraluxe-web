@@ -5,6 +5,8 @@ import {
   type ServiceInfrastructure,
   type ServiceAuditEvent,
   type ServiceDomainEvent,
+  type ServiceErrorRecord,
+  type ServiceErrorSink,
 } from './core'
 import { PersonService, type PersonRepository } from './person'
 import { FirmService, type FirmRepository } from './firm'
@@ -70,6 +72,16 @@ function defaultEventPort(): DomainEventPort {
   }
 }
 
+/** Default ServiceErrorSink used when the caller omits one (in-memory capture). */
+function defaultErrorSink(): ServiceErrorSink {
+  const captured: ServiceErrorRecord[] = []
+  return {
+    record: async (failure) => {
+      captured.push(failure)
+    },
+  }
+}
+
 /**
  * Composition root for the CulebraLuxe business-service kernel — the single
  * place the kernel is built. Envelope-only write path: new business writes for
@@ -90,6 +102,7 @@ export function composeCoreServices(
     router: registry,
     audit: infrastructure.audit ?? defaultAuditPort(),
     events: infrastructure.events ?? defaultEventPort(),
+    errors: infrastructure.errors ?? defaultErrorSink(),
     // Entitlement is required infrastructure: an enforced resolver by default so
     // a kernel is never built without an authorization decision source.
     authorization:

@@ -44,4 +44,6 @@ export type {
   ServiceResult,
   ServiceRouter,
   ServiceSuccess,
+  ServiceErrorRecord,
+  ServiceErrorSink,
 } from './types'

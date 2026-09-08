@@ -16,6 +16,7 @@ import { CONTRACT_OPERATIONS, type ContractDto, type ContractRoleDto } from '@/s
 import { FIRM_OPERATIONS, type FirmDto } from '@/services/firm'
 import { PERSON_OPERATIONS } from '@/services/person'
 import { PROPERTY_OPERATIONS, type PropertyDto } from '@/services/property'
+import { appServiceErrorSink } from '@/lib/service-error-sink'
 import {
   toPnsCanonicalValue,
   toPnsWorkingValue,
@@ -28,16 +29,19 @@ import {
 const TEMPLATE_ID = 'PR-PNS'
 const CONTRACT_TYPE = 'purchase_sale'
 
-const core = composeCoreServices({
-  person: new SqlPersonRepository(),
-  firm: new SqlFirmRepository(),
-  property: new SqlPropertyRepository(),
-  contract: new SqlContractRepository(),
-  showing: new SqlShowingRepository(),
-  security: new SqlSecurityRepository(),
-  wbs: new SqlWbsRepository(),
-  project: new SqlProjectRepository(),
-})
+const core = composeCoreServices(
+  {
+    person: new SqlPersonRepository(),
+    firm: new SqlFirmRepository(),
+    property: new SqlPropertyRepository(),
+    contract: new SqlContractRepository(),
+    showing: new SqlShowingRepository(),
+    security: new SqlSecurityRepository(),
+    wbs: new SqlWbsRepository(),
+    project: new SqlProjectRepository(),
+  },
+  { errors: appServiceErrorSink() },
+)
 
 type PnsFormEvidenceRow = {
   id: string

@@ -165,6 +165,23 @@ export interface DomainEventPort {
   emit(event: ServiceDomainEvent): Promise<void>
 }
 
+/** Structured failure record emitted by BaseService for *unhandled* exceptions. */
+export type ServiceErrorRecord = {
+  domain: string
+  operation: string
+  code: string
+  message: string
+  retryable: boolean
+  stack: string | null
+  correlationId: string
+}
+
+/** Durable-error sink (the observability seam). Mirrors AuditPort: injected via
+ * ServiceInfrastructure so the domain layer never imports Neon/capture code. */
+export interface ServiceErrorSink {
+  record(failure: ServiceErrorRecord): Promise<void>
+}
+
 export type ServiceQueueItem = {
   domain: string
   envelope: ServiceEnvelope
@@ -190,6 +207,8 @@ export type ServiceInfrastructure = {
   authorization?: AuthorizationPort
   audit?: AuditPort
   events?: DomainEventPort
+  /** Durable-error sink for *unhandled* service exceptions (observability). */
+  errors?: ServiceErrorSink
   queue?: ServiceQueue
   router?: ServiceRouter
 }

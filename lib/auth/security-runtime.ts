@@ -12,6 +12,7 @@ import { composeCoreServices } from '@/services/composition'
 import { AuthorizationService } from '@/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/services/entitlement/db-authorization-policy-provider'
 import { SECURITY_OPERATIONS, type SecurityIdentityResolution } from '@/services/security'
+import { appServiceErrorSink } from '@/lib/service-error-sink'
 
 const authEntitlements = new AuthorizationService(new SqlAuthorizationPolicyProvider())
 
@@ -34,7 +35,7 @@ export const applicationSecurityService = composeCoreServices(
     wbs: new SqlWbsRepository(),
     project: new SqlProjectRepository(),
   },
-  { authorization: authEntitlements },
+  { authorization: authEntitlements, errors: appServiceErrorSink() },
 ).security
 
 export async function resolveApplicationSecurityIdentity(

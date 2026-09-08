@@ -186,11 +186,42 @@ export abstract class BaseService<TMap extends ServiceOperationMap>
           ? (error.authorization ?? decision)
           : decision
       await this.audit(operation, context, 'failure', error.code, stamp)
+      // Unhandled (non-domain) exceptions are bugs/outages worth durable capture.
+      // Intended ServiceError control flow (fail()/authorization) is audited only,
+      // never surfaced as error noise.
+      if (!(cause instanceof ServiceError)) {
+        await this.captureUnhandled(operation, context, cause)
+      }
       return {
         ok: false,
         error: error.toShape(),
         correlationId: context.correlationId,
       }
+    }
+  }
+
+  /** Best-effort durable capture of an unhandled exception. Never alters the
+   * service result and never throws (a capture failure must not fail the call). */
+  private async captureUnhandled(
+    operation: string,
+    context: ServiceContext,
+    cause: unknown,
+  ): Promise<void> {
+    const sink = this.infrastructure.errors
+    if (!sink) return
+    try {
+      const error = ServiceError.from(cause)
+      await sink.record({
+        domain: this.domain,
+        operation,
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+        stack: error.stack ?? null,
+        correlationId: context.correlationId,
+      })
+    } catch {
+      // capture is best-effort
     }
   }
 
