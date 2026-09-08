@@ -540,6 +540,10 @@ export type StoryRun = {
   tokensInput?: number | null
   tokensOutput?: number | null
   costUsd?: number | null
+  /** Forge standardized widget unit (migration 133) — the calibration outcome. */
+  costWidgets?: number | null
+  /** 'widgets' | 'vendor' — which quantity the cost columns carry. */
+  costSource?: string | null
   createdAt: string
   /** Last activity on the run (progress updates, terminal writes). */
   updatedAt: string
@@ -598,6 +602,8 @@ type RunRow = QueryRow & {
   tokens_input?: number | null
   tokens_output?: number | null
   cost_usd?: number | string | null
+  cost_widgets?: number | string | null
+  cost_source?: string | null
   created_at: string
   updated_at: string
 }
@@ -645,6 +651,8 @@ function mapRun(row: RunRow): StoryRun {
     tokensInput: row.tokens_input ?? null,
     tokensOutput: row.tokens_output ?? null,
     costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
+    costWidgets: row.cost_widgets === null || row.cost_widgets === undefined ? null : Number(row.cost_widgets),
+    costSource: row.cost_source ?? null,
     createdAt: dateOrNull(row.created_at) ?? '',
     updatedAt: dateOrNull(row.updated_at) ?? '',
   }
@@ -989,15 +997,25 @@ export async function finishStoryRun(
 
   // ENG estimator: persist cost widgets (model weight x elapsed minutes) when a
   // finished run carried no real cost, so calibration has fuel now instead of
-  // waiting for the vendor's delayed invoice.
+  // waiting for the vendor's delayed invoice. Widgets live in cost_widgets —
+  // cost_usd is reserved for actual vendor USD only (migration 133).
   const elapsedMinutes =
     run.startedAt && run.endedAt
       ? (new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime()) / 60000
       : 0
-  const widgets = run.costUsd == null ? costWidgets(run.modelUsed, elapsedMinutes) : null
+  const widgets =
+    run.costUsd == null && run.costWidgets == null
+      ? costWidgets(run.modelUsed, elapsedMinutes)
+      : null
   if (widgets !== null) {
-    await q`update storyboard_story_run set cost_usd = ${widgets}, updated_at = now() where id = ${runId}`
-    run.costUsd = widgets
+    await q`
+      update storyboard_story_run
+      set cost_widgets = ${widgets},
+          cost_source = coalesce(cost_source, 'widgets'),
+          updated_at = now()
+      where id = ${runId}`
+    run.costWidgets = widgets
+    if (run.costSource == null) run.costSource = 'widgets'
   }
 
   const completion =
