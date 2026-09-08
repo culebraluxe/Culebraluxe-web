@@ -16,7 +16,6 @@ import type { TemplateDefinition } from "@/lib/forms/template-types"
 import { FormGrokHelper } from "@/components/portal/forms/form-grok-helper"
 import { ListingV4Controls } from "@/components/portal/forms/listing-v4-controls"
 import { PdfPreview } from "@/components/portal/forms/pdf-preview"
-import { formContentFingerprint } from "@/lib/forms/artifact-identity"
 import {
   CommandStatus,
   CommandStatusBand,
@@ -348,6 +347,21 @@ export function FormEditor({
     return fileFromPdfBytes(await response.arrayBuffer(), pdfFilename())
   }
 
+  async function livePdfFile() {
+    const response = await fetch(`/portal/forms/${form.id}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fieldValues: values,
+        sections: composedSections(),
+      }),
+    })
+    if (!response.ok) {
+      throw new Error("Could not build the PDF.")
+    }
+    return fileFromPdfBytes(await response.arrayBuffer(), pdfFilename())
+  }
+
   async function savePdf() {
     try {
       await savePdfToVault()
@@ -364,27 +378,23 @@ export function FormEditor({
     if (typeof navigator.share !== "function") {
       feedback({
         message:
-          "This browser can't attach a PDF from the page. Save PDF, then attach that exact vault file in Mail or Messages.",
+          "This browser can't attach a PDF from the page. Save PDF, then attach that file in Mail or Messages.",
       })
       return
     }
-    setWorking(true)
     try {
-      // Sharing is an issued-document action: dirty drafts are issued first;
-      // a clean current version reuses its immutable vault bytes. Never share
-      // a newly regenerated "similar" preview PDF.
-      const currentFingerprint = formContentFingerprint(
-        values,
-        composedSections(),
-      )
-      const document =
-        !issued || issued.contentFingerprint !== currentFingerprint
-          ? await savePdfToVault()
-          : issued
-      // issue() owns its own busy lifecycle; native sharing remains busy after
-      // it returns so the view cannot launch a second browser share concurrently.
-      setWorking(true)
-      const file = await issuedPdfFile(document.documentId)
+      // Keep native Apple Share on the immediate click path. Waiting on issue /
+      // vault persistence first loses Safari's transient user activation and
+      // prevents the Mail / Messages share sheet from opening.
+      const file = await livePdfFile()
+      if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+        feedback({
+          message:
+            "This browser can't attach a PDF from the page. Save PDF, then attach that file in Mail or Messages.",
+          error: null,
+        })
+        return
+      }
       await navigator.share({
         title: "CulebraLuxe Document",
         text: "CulebraLuxe transaction document",
@@ -397,7 +407,7 @@ export function FormEditor({
       if (name === "NotAllowedError" || name === "TypeError") {
         feedback({
           message:
-            "Share needs a direct click. Try Share PDF again, or Save PDF and attach the file.",
+            "Share needs a direct click. Try Share again, or Save PDF and attach the file.",
           error: null,
         })
         return
@@ -405,8 +415,6 @@ export function FormEditor({
       feedback({
         error: caught instanceof Error ? caught.message : "Could not share the PDF.",
       })
-    } finally {
-      setWorking(false)
     }
   }
 
@@ -772,7 +780,7 @@ export function FormEditor({
                     }}
                     className={ghostBtn}
                   >
-                    Share PDF
+                    Share
                   </button>
                   {canSign ? (
                     <button
