@@ -3,8 +3,8 @@ module.exports = {
   forbidden: [
     {
       name: 'no-circular',
-      severity: 'info',
-      comment: 'Architecture signal: report circular dependencies (fix incrementally; surfaced for review, not a hard fail yet).',
+      severity: 'error',
+      comment: 'Architecture gate: no circular dependencies (lazy cycles fixed; this is a hard fail).',
       from: {},
       to: { circular: true },
     },

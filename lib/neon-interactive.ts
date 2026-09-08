@@ -20,8 +20,22 @@ function getPool(): Promise<any> {
   if (!poolPromise) {
     poolPromise = (async () => {
       const { Pool } = await import('@neondatabase/serverless')
-      const { getDatabaseUrl } = await import('../db/client')
-      return new Pool({ connectionString: getDatabaseUrl() })
+      // Resolve the connection URL here rather than importing db/ — a db import
+      // would create a database-gateway <-> neon-interactive dependency cycle
+      // (the gateway lazily delegates transactions here). Keep in sync with
+      // db/database-gateway.getDatabaseUrl / resolveDbTarget.
+      const vercelEnv = process.env.VERCEL_ENV
+      const target =
+        vercelEnv === 'production'
+          ? 'prod'
+          : vercelEnv === 'preview' || vercelEnv === 'development'
+            ? 'dev'
+            : (process.env.APP_ENV ?? 'development') === 'production'
+              ? 'prod'
+              : 'dev'
+      const url = target === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
+      if (!url) throw new Error(`neon-interactive: DATABASE_URL_${target.toUpperCase()} not configured`)
+      return new Pool({ connectionString: url })
     })()
   }
   return poolPromise
