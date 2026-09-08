@@ -364,6 +364,28 @@ export async function updateStoryboardStory(
 }
 
 /**
+ * Persist the durable Scout research packet to the Story. context_refs present
+ * => lane session hasScoutPacket true, which is the gate Architect's lane policy
+ * enforces ("Scout must produce a packet first"). The packet is the bounded
+ * forward handoff; the full output stays in the scout story run notes.
+ */
+export async function setStoryScoutPacket(
+  storyId: string,
+  packet: string | null,
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update storyboard_story
+    set context_refs = ${packet},
+        updated_at = now()
+    where id = ${storyId}
+    returning id
+  `
+  return rows.length > 0
+}
+
+/**
  * ENG-FORGE-V5-03R: Persist durable executable contract facts into Neon so
  * subsequent execution lanes do not depend on reading local git packets.
  */

@@ -30,7 +30,7 @@ import {
 import { getForgeLeadRunRecord } from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
-import { getStoryboardStory } from '../../db/storyboard'
+import { getStoryboardStory, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
@@ -259,6 +259,27 @@ export function createAgentRuntimeForgeRoleRunner(
           evidence.leadDecision = verdict.authoritative.decision
           evidence.splitCount = verdict.authoritative.splitCount ?? evidence.splitCount
         }
+      }
+    }
+
+    // Scout -> Architect handoff: persist a bounded Scout packet to the Story's
+    // context_refs on a successful Scout completion. Architect's lane gate
+    // requires hasScoutPacket (present(contextRefs)); the packet is the forward
+    // "information" handoff (full raw output stays in the scout story run notes).
+    if (plan.lane === 'scout' && /pass|success|complete/i.test(result.evidence.resultStatus)) {
+      const raw = [result.evidence.notes, result.evidence.testsSummary]
+        .filter(Boolean)
+        .join('\n')
+        .trim()
+      const cap = 5000
+      const packet =
+        `Scout research packet (engine node ${nodeId}):\n` +
+        raw.slice(0, cap) +
+        (raw.length > cap ? '\n[Scout packet truncated; full output in scout story run notes]' : '')
+      try {
+        await setStoryScoutPacket(resolvedStory.id, packet)
+      } catch {
+        /* a failed packet write must not fail the engine task (DB failures captured at gateway) */
       }
     }
 
