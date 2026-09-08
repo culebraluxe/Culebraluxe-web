@@ -59,6 +59,7 @@ export function surfaceMultiplier(surface: RipwireSurface): number {
     return 1 // no surface evidence -> unchanged prior (identity, like V3)
   }
   const raw =
+    0.5 +
     surface.files * SURFACE_RATES.filesWeight +
     surface.ccxTotal * SURFACE_RATES.ccxWeight +
     surface.callers * SURFACE_RATES.callersWeight
