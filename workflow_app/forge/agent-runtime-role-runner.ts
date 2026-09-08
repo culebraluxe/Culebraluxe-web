@@ -27,7 +27,6 @@ import {
   finishForgeEngineTaskExecution,
   linkForgeEngineTaskExecution,
 } from '../../db/forge-engine-task-execution'
-import { recordPhaseArtifact } from '../../db/forge-phase-artifact'
 import { getForgeLeadRunRecord } from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
@@ -261,31 +260,6 @@ export function createAgentRuntimeForgeRoleRunner(
           evidence.splitCount = verdict.authoritative.splitCount ?? evidence.splitCount
         }
       }
-    }
-
-    // Neon phase ledger: persist this completed role node's full output so a
-    // future run/reviewer (OpenAI/DeepSeek/Cline) can re-read it instead of
-    // re-running the model (ROI on token spend + cross-run context). Best-effort:
-    // a failed artifact write must never fail the engine task (DB failures are
-    // already captured at the gateway).
-    try {
-      await recordPhaseArtifact({
-        storyId: resolvedStory.id,
-        storyRunId: finishedItem?.storyRunId ?? null,
-        processInstanceId: task.processInstanceId ?? null,
-        nodeId,
-        role: plan.lane,
-        phase: plan.leadPhase ?? nodeId,
-        sha: result.evidence.commitHash ?? evidence.candidateSha ?? null,
-        model: result.evidence.modelProfile ?? null,
-        verdict: result.evidence.resultStatus ?? null,
-        rawOutput: [result.evidence.notes, result.evidence.testsSummary]
-          .filter(Boolean)
-          .join('\n') || null,
-        structured: { findings: evidence.findings ?? null },
-      })
-    } catch {
-      /* best-effort; artifact ledger is an observer */
     }
 
     await finishForgeEngineTaskExecution(task.taskId, {
