@@ -3,11 +3,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'
+import { captureServerError } from '@/lib/server-error-capture'
 import {
   loadListingCanonicalSnapshot,
   saveListingCanonicalFields,
 } from '@/lib/forms/listing-canonical-binding'
 import type { SaveListingCanonicalFieldsRequest } from '@/lib/forms/listing-field-binding'
+
+const ROUTE = '/api/portal/form-sidecar/listing'
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : 'Listing canonical binding failed.'
@@ -29,6 +32,9 @@ export async function GET(request: NextRequest) {
     )
   } catch (error) {
     const status = error instanceof AuthError ? 403 : 500
+    if (!(error instanceof AuthError)) {
+      captureServerError('api:form-sidecar-listing', error, { route: ROUTE })
+    }
     return NextResponse.json({ error: message(error) }, { status })
   }
 }
@@ -57,6 +63,9 @@ export async function POST(request: NextRequest) {
     )
   } catch (error) {
     const status = error instanceof AuthError ? 403 : 500
+    if (!(error instanceof AuthError)) {
+      captureServerError('api:form-sidecar-listing', error, { route: ROUTE })
+    }
     return NextResponse.json({ error: message(error) }, { status })
   }
 }

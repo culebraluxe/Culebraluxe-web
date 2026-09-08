@@ -3,11 +3,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'
+import { captureServerError } from '@/lib/server-error-capture'
 import {
   loadPnsCanonicalSnapshot,
   savePnsCanonicalFields,
 } from '@/lib/forms/pns-canonical-binding'
 import type { SavePnsCanonicalRequest } from '@/lib/forms/pns-canonical-types'
+
+const ROUTE = '/api/portal/form-sidecar/pns'
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : 'P&S canonical binding failed.'
@@ -30,6 +33,9 @@ export async function GET(request: NextRequest) {
     )
   } catch (error) {
     const status = error instanceof AuthError ? 403 : 500
+    if (!(error instanceof AuthError)) {
+      captureServerError('api:form-sidecar-pns', error, { route: ROUTE })
+    }
     return NextResponse.json({ error: message(error) }, { status })
   }
 }
@@ -63,6 +69,9 @@ export async function POST(request: NextRequest) {
     )
   } catch (error) {
     const status = error instanceof AuthError ? 403 : 500
+    if (!(error instanceof AuthError)) {
+      captureServerError('api:form-sidecar-pns', error, { route: ROUTE })
+    }
     return NextResponse.json({ error: message(error) }, { status })
   }
 }

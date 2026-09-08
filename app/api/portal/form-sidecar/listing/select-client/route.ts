@@ -5,7 +5,10 @@ import { bindListingFormContext } from '@/db/form-service-lineage'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'
+import { captureServerError } from '@/lib/server-error-capture'
 import { loadListingCanonicalSnapshot } from '@/lib/forms/listing-canonical-binding'
+
+const ROUTE = '/api/portal/form-sidecar/listing/select-client'
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : 'Could not select the Listing client.'
@@ -54,7 +57,12 @@ export async function POST(request: NextRequest) {
       },
     )
   } catch (error) {
-    const status = error instanceof AuthError ? 403 : 409
+    // A non-Auth throw here is a genuine server failure, not a client conflict:
+    // surface it as 500 (not 409) and capture it durably.
+    const status = error instanceof AuthError ? 403 : 500
+    if (!(error instanceof AuthError)) {
+      captureServerError('api:form-sidecar-select-client', error, { route: ROUTE })
+    }
     return NextResponse.json({ error: message(error) }, { status })
   }
 }
