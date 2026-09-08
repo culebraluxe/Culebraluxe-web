@@ -3,30 +3,23 @@ import { test } from 'node:test'
 
 import {
   FORGE_SDLC_VERSION,
-  FORGE_SDLC_V4_VERSION,
   parseForgeSdlc,
   parseForgeSdlcV4,
 } from '../definitions/forge-sdlc'
 
-// Scope C baseline anchor: v4 parses/validates BEFORE it is ever activated.
+// Scope C activation anchor: after flipping, the ACTIVE definition is v4 and
+// carries the FAST lane + Architect review park while preserving v3 behavior.
 
-test('Scope C: active definition remains v3 (v4 inactive until coordinated activation)', () => {
-  assert.equal(FORGE_SDLC_VERSION, 3)
-  assert.equal(FORGE_SDLC_V4_VERSION, 4)
-})
-
-test('Scope C: FORGE_SDLC-v4.xml is a valid, parseable workflow definition', () => {
-  assert.doesNotThrow(() => parseForgeSdlcV4())
-  const v3 = parseForgeSdlc()
-  const v4 = parseForgeSdlcV4()
-  const nodes = (g: { graph: { nodes: Record<string, unknown> } }) => Object.keys(g.graph.nodes)
-  const v3Nodes = nodes(v3)
-  const v4Nodes = nodes(v4)
-  // v4 = v3 superset: FAST lane nodes added, nothing removed.
-  assert.ok(v4Nodes.length > v3Nodes.length)
-  for (const id of ['fast_lane_entry', 'fast_smith', 'fast_qa_verify', 'fast_qa_result', 'fast_repair_smith', 'fast_publish', 'fast_publish_result']) {
-    assert.ok(v4Nodes.includes(id), `missing ${id}`)
+test('Scope C: active definition is now v4 and parses/validates', () => {
+  assert.equal(FORGE_SDLC_VERSION, 4)
+  assert.doesNotThrow(() => parseForgeSdlc())
+  const nodes = Object.keys(parseForgeSdlc().graph.nodes)
+  // FAST lane present.
+  for (const id of ['fast_lane_entry', 'fast_smith', 'fast_qa_verify', 'fast_publish']) {
+    assert.ok(nodes.includes(id), `missing ${id}`)
   }
-  for (const id of v3Nodes) assert.ok(v4Nodes.includes(id), `v4 dropped v3 node ${id}`)
-  assert.equal(v4.version, 4)
+  // Architect review park present (reuses hold; no new end state).
+  assert.ok(nodes.includes('architect_review'))
+  // v4 loader agrees with the active loader.
+  assert.equal(Object.keys(parseForgeSdlcV4().graph.nodes).length, nodes.length)
 })

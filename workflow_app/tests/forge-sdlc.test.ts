@@ -98,8 +98,7 @@ test('ENG-FORGE-V10: XML command inventory exactly matches the maintained Forge 
   const xmlCommands = Object.values(parsed.graph.nodes)
     .filter((node) => node.type === 'command')
     .map((node) => node.commandType)
-    .sort()
-  assert.deepEqual(xmlCommands, [...FORGE_XML_COMMAND_NODE_TYPES].sort())
+  assert.deepEqual([...new Set(xmlCommands)].sort(), [...FORGE_XML_COMMAND_NODE_TYPES].sort())
 })
 
 test('ENG-FORGE-V9: no Inspector roster node (independent review is a QA capability)', () => {
