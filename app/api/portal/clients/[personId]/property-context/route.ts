@@ -6,12 +6,20 @@ import {
   PROPERTY_OPERATIONS,
   PropertyService,
 } from '@/services/property'
+import {
+  AuthorizationService,
+  StaticAuthorizationPolicyProvider,
+} from '@/services/entitlement'
+import { appServiceErrorSink } from '@/lib/service-error-sink'
 
 // Sidecar composition root for the new service architecture. The route owns
 // transport only; PropertyService owns the operation contract and repository
 // boundary. Forms can consume the same Property DTOs without depending on this
 // HTTP adapter.
-const propertyService = new PropertyService(new SqlPropertyRepository())
+const propertyService = new PropertyService(new SqlPropertyRepository(), {
+  authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+  errors: appServiceErrorSink(),
+})
 
 export async function GET(
   _request: NextRequest,

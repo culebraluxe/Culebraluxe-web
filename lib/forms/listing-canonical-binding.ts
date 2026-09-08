@@ -17,9 +17,13 @@ import type {
   ListingCanonicalSnapshot,
   ListingFieldOrigin,
 } from './listing-field-binding'
+import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { formEntitlements } from './form-service-runtime'
 
-const serviceInfrastructure = { authorization: formEntitlements }
+const serviceInfrastructure = {
+  authorization: formEntitlements,
+  errors: appServiceErrorSink(),
+}
 const personService = new PersonService(new SqlPersonRepository(), serviceInfrastructure)
 const propertyService = new PropertyService(new SqlListingPropertyRepository(), serviceInfrastructure)
 

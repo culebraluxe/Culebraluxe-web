@@ -8,6 +8,7 @@ import { SqlWbsRepository } from "@/db/wbs-service-repository"
 import { resolveSecurityLevel } from "@/services/security"
 import { WbsService } from "@/services/wbs"
 import type { WbsCategoryId } from "@/services/wbs"
+import { appServiceErrorSink } from "@/lib/service-error-sink"
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
@@ -21,6 +22,7 @@ export type WbsActionResult =
 function wbsService(): WbsService {
   return new WbsService(new SqlWbsRepository(), {
     authorization: new AuthorizationService(new StaticAuthorizationPolicyProvider()),
+    errors: appServiceErrorSink(),
   })
 }
 
