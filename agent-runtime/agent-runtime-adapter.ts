@@ -37,6 +37,17 @@ import {
  * persist immediately regardless of this interval. */
 export const HEARTBEAT_MIN_INTERVAL_MS = 5000
 
+/** Default single-run wall-clock hard limit. A wandering role run dies here,
+ * never burning credits indefinitely. Override via FORGE_RUN_MAX_MS. */
+export const DEFAULT_RUN_WALL_CLOCK_MS = 45 * 60_000
+
+/** Parse the per-run wall-clock budget (ms) from env, falling back to default. */
+export function runWallClockBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = (env.FORGE_RUN_MAX_MS ?? '').trim()
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_RUN_WALL_CLOCK_MS
+}
+
 export type AdapterLifecycle =
   | 'not_started'
   | 'starting'
@@ -164,6 +175,8 @@ export abstract class AgentRuntimeAdapter {
 
     const started = await this.startExternal(ctxWithRun)
     this.externalRunId = started.externalRunId
+    const runStartedAtMs = Date.now()
+    const runBudgetMs = runWallClockBudgetMs()
     await this.deps.work.setRuntime(command.workItemId, {
       runtimeAdapter: this.runtimeAdapterId,
       externalRunId: this.externalRunId,
@@ -187,6 +200,12 @@ export abstract class AgentRuntimeAdapter {
     while (status.lifecycle === 'running') {
       const prog = this.progressFromStatus(status, command)
       const now = Date.now()
+      // Wall-clock hard limit: a wandering run is cancelled (SIGTERM) so the
+      // terminalize path records it as interrupted -> engine HOLD, never success.
+      if (now - runStartedAtMs >= runBudgetMs) {
+        this.externalErrorText = `RUN_BUDGET: exceeded ${Math.round(runBudgetMs / 60000)}m wall-clock hard limit; run cancelled.`
+        await this.cancelExternal(command, ctxWithRun)
+      }
       const changed = Boolean(prog?.note) || Boolean(prog?.step) || prog?.completion != null
       if (changed || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS) {
         lastHeartbeatAt = now
