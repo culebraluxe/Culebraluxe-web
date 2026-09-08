@@ -17,9 +17,11 @@ import type {
   ListingCanonicalSnapshot,
   ListingFieldOrigin,
 } from './listing-field-binding'
+import { formEntitlements } from './form-service-runtime'
 
-const personService = new PersonService(new SqlPersonRepository())
-const propertyService = new PropertyService(new SqlListingPropertyRepository())
+const serviceInfrastructure = { authorization: formEntitlements }
+const personService = new PersonService(new SqlPersonRepository(), serviceInfrastructure)
+const propertyService = new PropertyService(new SqlListingPropertyRepository(), serviceInfrastructure)
 
 type ListingFormEvidenceRow = {
   id: string
