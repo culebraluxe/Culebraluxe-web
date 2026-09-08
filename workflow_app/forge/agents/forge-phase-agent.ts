@@ -102,6 +102,17 @@ export class ForgePhaseAgent {
     )
   }
 
+  /** Build a bounded Architect plan for the Story architect_brief handoff (or null). */
+  architectBrief(raw: string): string | null {
+    if (!this.isArchitect || !raw) return null
+    const cap = 5000
+    return (
+      `Architect plan (engine node ${this.nodeId}):\n` +
+      raw.slice(0, cap) +
+      (raw.length > cap ? '\n[Architect plan truncated; full output in architect story run notes]' : '')
+    )
+  }
+
   /**
    * Enforced deliverable gate (the point of the abstraction). Returns the list of
    * missing deliverables per role flavor. Callers may HOLD/retry when non-empty.
@@ -115,7 +126,12 @@ export class ForgePhaseAgent {
    *   qa/assay  -> an exact verdict (PASS or FAIL both count as a verdict)
    *   dev_ops   -> a release/production receipt
    */
-  missingDeliverables(evidence: ForgeGateEvidence, raw: string, scoutContextRefsSet: boolean): string[] {
+  missingDeliverables(
+    evidence: ForgeGateEvidence,
+    raw: string,
+    scoutContextRefsSet: boolean,
+    architectBriefSet = false,
+  ): string[] {
     const kind = this.deliverableKind()
     const missing: string[] = []
     switch (kind) {
@@ -123,7 +139,14 @@ export class ForgePhaseAgent {
         if (!scoutContextRefsSet && !this.scoutPacket(raw)) missing.push('scout-packet')
         break
       case 'architect-plan':
-        if (evidence.researchDisposition == null && !(evidence.findings && evidence.findings.length > 0)) {
+        // Delivered = the plan was PERSISTED to the Story architect_brief from the
+        // architect's actual output (write-on-exit), OR the model emitted a
+        // structured disposition/findings. Never requires the marker alone.
+        if (
+          !architectBriefSet &&
+          evidence.researchDisposition == null &&
+          !(evidence.findings && evidence.findings.length > 0)
+        ) {
           missing.push('architect-plan')
         }
         break

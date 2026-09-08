@@ -30,7 +30,7 @@ import {
 import { getForgeLeadRunRecord } from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
-import { getStoryboardStory, setStoryScoutPacket } from '../../db/storyboard'
+import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
@@ -234,17 +234,29 @@ export function createAgentRuntimeForgeRoleRunner(
     agent.marshalFindings(evidence, raw)
     agent.applyLeadShape(evidence, current.findings)
 
-    // Scout -> Architect handoff: persist a bounded Scout packet to the Story's
-    // context_refs on a successful Scout completion. Architect's lane gate
-    // requires hasScoutPacket (present(contextRefs)); the packet is the forward
-    // "information" handoff (full raw output stays in the scout story run notes).
-    if (agent.plan.lane === 'scout' && /pass|success|complete/i.test(result.evidence.resultStatus)) {
+    // Write-on-exit to Neon from the role's ACTUAL output (never gated on a model
+    // self-format marker): Scout -> story.context_refs packet; Architect ->
+    // story.architect_brief plan. These are the durable forward handoffs the next
+    // lane's gate requires (hasScoutPacket / hasArchitectBrief).
+    const successful = /pass|success|complete/i.test(result.evidence.resultStatus)
+    let scoutDelivered = false
+    let architectDelivered = false
+    if (successful && agent.plan.lane === 'scout') {
       const packet = agent.scoutPacket(raw)
       if (packet) {
         try {
-          await setStoryScoutPacket(resolvedStory.id, packet)
+          scoutDelivered = await setStoryScoutPacket(resolvedStory.id, packet)
         } catch {
           /* a failed packet write must not fail the engine task (DB failures captured at gateway) */
+        }
+      }
+    } else if (successful && agent.plan.lane === 'architect') {
+      const brief = agent.architectBrief(raw)
+      if (brief) {
+        try {
+          architectDelivered = await setStoryArchitectBrief(resolvedStory.id, brief)
+        } catch {
+          /* a failed brief write must not fail the engine task (DB failures captured at gateway) */
         }
       }
     }
@@ -254,8 +266,8 @@ export function createAgentRuntimeForgeRoleRunner(
     // produce its declared deliverable is HOLDed (thrown -> forge-executor
     // releases the task for retry) instead of silently advancing. OFF by default
     // so existing model-flaky runs keep current behavior until proven live.
-    if (process.env.FORGE_ENFORCE_DELIVERABLES === '1' && /pass|success|complete/i.test(result.evidence.resultStatus)) {
-      const missing = agent.missingDeliverables(evidence, raw, false)
+    if (process.env.FORGE_ENFORCE_DELIVERABLES === '1' && successful) {
+      const missing = agent.missingDeliverables(evidence, raw, scoutDelivered, architectDelivered)
       if (missing.length > 0) {
         throw new Error(`Forge ${nodeId} HOLD: role did not deliver ${missing.join(', ')}`)
       }

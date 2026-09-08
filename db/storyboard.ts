@@ -386,6 +386,28 @@ export async function setStoryScoutPacket(
 }
 
 /**
+ * Persist the durable Architect plan to the Story. architect_brief present
+ * => lane session hasArchitectBrief true, the gate Lead/Smith enforce. Written
+ * from the Architect's ACTUAL output on exit (never gated on a model self-format
+ * marker) so the produced plan reliably reaches Neon.
+ */
+export async function setStoryArchitectBrief(
+  storyId: string,
+  brief: string | null,
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update storyboard_story
+    set architect_brief = ${brief},
+        updated_at = now()
+    where id = ${storyId}
+    returning id
+  `
+  return rows.length > 0
+}
+
+/**
  * ENG-FORGE-V5-03R: Persist durable executable contract facts into Neon so
  * subsequent execution lanes do not depend on reading local git packets.
  */
