@@ -759,7 +759,7 @@ export async function listStoryboardRuns(
         base_commit_hash, commands_total, commands_passed, commands_failed,
         tests_total, tests_passed, tests_failed, policy_violation_count,
         failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
-        model_used, tokens_input, tokens_output, cost_usd,
+        model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source,
         created_at,
         updated_at
       from storyboard_story_run
@@ -800,7 +800,7 @@ export async function listStoryRuns(
         base_commit_hash, commands_total, commands_passed, commands_failed,
         tests_total, tests_passed, tests_failed, policy_violation_count,
         failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
-        model_used, tokens_input, tokens_output, cost_usd,
+        model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source,
         created_at,
         updated_at
       from storyboard_story_run
@@ -889,7 +889,7 @@ export async function startStoryRun(
       base_commit_hash, commands_total, commands_passed, commands_failed,
       tests_total, tests_passed, tests_failed, policy_violation_count,
       failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
-      model_used, tokens_input, tokens_output, cost_usd,
+      model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source,
       created_at,
       updated_at
   `,
@@ -962,7 +962,7 @@ export async function finishStoryRun(
       base_commit_hash, commands_total, commands_passed, commands_failed,
       tests_total, tests_passed, tests_failed, policy_violation_count,
       failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
-      model_used, tokens_input, tokens_output, cost_usd,
+      model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source,
       created_at,
       updated_at
   `,
@@ -1100,7 +1100,7 @@ export async function updateStoryRunProgress(
       base_commit_hash, commands_total, commands_passed, commands_failed,
       tests_total, tests_passed, tests_failed, policy_violation_count,
       failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
-      model_used, tokens_input, tokens_output, cost_usd,
+      model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source,
       created_at, updated_at
   `,
     () => q`
@@ -1181,7 +1181,7 @@ export async function terminateStoryRun(
       base_commit_hash, commands_total, commands_passed, commands_failed,
       tests_total, tests_passed, tests_failed, policy_violation_count,
       failure_code, evidence_detail, run_phase, lead_decision, lead_split_count,
-      model_used, tokens_input, tokens_output, cost_usd,
+      model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source,
       created_at, updated_at
   `,
     () => q`

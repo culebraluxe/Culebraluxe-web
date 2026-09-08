@@ -35,7 +35,7 @@ test('estimator: pro costs far more per run but is faster per point (the tradeof
   const flash = estimateWork(base)
   const pro = estimateWork({ ...base, modelGrade: 'pro' })
   assert.equal(flash.points, pro.points) // same work, same points
-  assert.ok(pro.estimatedCostUsd > flash.estimatedCostUsd)
+  assert.ok(pro.estimatedWidgets > flash.estimatedWidgets)
   assert.ok(pro.estimatedMinutes < flash.estimatedMinutes)
 })
 
@@ -47,15 +47,15 @@ test('estimator: risk flags greenfield+medium and high complexity', () => {
 
 test('estimator: recalibrating from real actuals corrects the unit cost rate', () => {
   const actuals = [
-    { points: 10, tokens: 20_000, costUsd: 1.5, minutes: 30 },
-    { points: 10, tokens: 24_000, costUsd: 2.1, minutes: 36 },
+    { points: 10, tokens: 20_000, costWidgets: 1.5, minutes: 30 },
+    { points: 10, tokens: 24_000, costWidgets: 2.1, minutes: 36 },
   ]
   const r = ratesFromActuals(actuals)
-  assert.ok(r.costPerPoint > DEFAULT_UNIT_RATES.flash.costPerPoint)
+  assert.ok(r.widgetsPerPoint > DEFAULT_UNIT_RATES.flash.widgetsPerPoint)
   const est = estimateWork(factors({}), r)
-  assert.ok(est.estimatedCostUsd > estimateWork(factors({})).estimatedCostUsd)
+  assert.ok(est.estimatedWidgets > estimateWork(factors({})).estimatedWidgets)
   // Empty actuals fall back to defaults.
-  assert.equal(ratesFromActuals([]).costPerPoint, DEFAULT_UNIT_RATES.flash.costPerPoint)
+  assert.equal(ratesFromActuals([]).widgetsPerPoint, DEFAULT_UNIT_RATES.flash.widgetsPerPoint)
 })
 
 test('cost widgets: model weight x elapsed minutes; assay is free; unknown is null', () => {

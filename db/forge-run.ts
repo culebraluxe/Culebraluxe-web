@@ -197,6 +197,7 @@ export async function recordForgeRunMachineEvidence(
         tokens_input = coalesce(${evidence.tokensInput ?? null}, tokens_input),
         tokens_output = coalesce(${evidence.tokensOutput ?? null}, tokens_output),
         cost_usd = coalesce(${evidence.costUsd ?? null}, cost_usd),
+        cost_source = case when ${evidence.costUsd ?? null} is not null then 'vendor' else cost_source end,
         evidence_detail = case
           when ${detail}::text is null then evidence_detail
           when evidence_detail is null or evidence_detail = '' then ${detail}
@@ -244,6 +245,9 @@ type EvidenceRow = QueryRow & {
   tokens_input?: number | null
   tokens_output?: number | null
   cost_usd?: number | string | null
+  // Widgets split (migration 133).
+  cost_widgets?: number | string | null
+  cost_source?: string | null
 }
 
 export async function getForgeRunMachineEvidence(
@@ -259,7 +263,7 @@ export async function getForgeRunMachineEvidence(
     select base_commit_hash, commands_total, commands_passed, commands_failed,
       tests_total, tests_passed, tests_failed, policy_violation_count,
       failure_code, evidence_detail,
-      model_used, tokens_input, tokens_output, cost_usd
+      model_used, tokens_input, tokens_output, cost_usd, cost_widgets, cost_source
     from storyboard_story_run
     where id = ${runId}
   `
@@ -287,6 +291,8 @@ export async function getForgeRunMachineEvidence(
     tokensInput: row.tokens_input ?? null,
     tokensOutput: row.tokens_output ?? null,
     costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
+    costWidgets: row.cost_widgets === null || row.cost_widgets === undefined ? null : Number(row.cost_widgets),
+    costSource: row.cost_source ?? null,
   }
 }
 

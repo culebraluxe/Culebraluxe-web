@@ -26,8 +26,12 @@ export type RunMachineEvidence = {
   tokensInput?: number | null
   tokensOutput?: number | null
   /** Computed cost in USD; null = unpriced. Set by the recorder from the
-   * price table, never by the model. */
+   * price table, never by the model. Reserves cost_usd for vendor USD. */
   costUsd?: number | null
+  /** Forge widget units (migration 133) — the calibration outcome. */
+  costWidgets?: number | null
+  /** 'widgets' | 'vendor' — which quantity the run's cost columns carry. */
+  costSource?: string | null
 }
 
 export function hasStructuredRunMachineEvidence(

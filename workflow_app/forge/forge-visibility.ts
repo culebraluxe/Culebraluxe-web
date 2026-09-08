@@ -31,7 +31,7 @@ export type ForgeVisibilitySnapshot = {
     count: number | null
     status: string
     storyRunId: string | null
-    costUsd: number | null
+    costWidgets: number | null
   }>
   holds: unknown[]
   divergenceWarning: string | null
@@ -167,7 +167,7 @@ export async function forgeVisibilitySnapshot(
         status: r.status,
         storyRunId:
           execution.find((row) => row.nodeId === 'smith_split_work')?.storyRunId ?? null,
-        costUsd: null,
+        costWidgets: null,
       }))
   }
 

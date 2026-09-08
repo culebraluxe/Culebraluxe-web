@@ -68,14 +68,14 @@ export function surfaceMultiplier(surface: RipwireSurface): number {
 }
 
 /** Adjust a prior forecast by the ripwire surface multiplier. */
-export function applySurfaceMultiplier<T extends { estimatedTokens: number; estimatedCostUsd: number; estimatedMinutes: number; estimatedSloc: number }>(
+export function applySurfaceMultiplier<T extends { estimatedTokens: number; estimatedWidgets: number; estimatedMinutes: number; estimatedSloc: number }>(
   forecast: T,
   multiplier: number,
 ): T {
   return {
     ...forecast,
     estimatedTokens: Math.round(forecast.estimatedTokens * multiplier),
-    estimatedCostUsd: Math.round(forecast.estimatedCostUsd * multiplier * 100) / 100,
+    estimatedWidgets: Math.round(forecast.estimatedWidgets * multiplier * 100) / 100,
     estimatedMinutes: Math.round(forecast.estimatedMinutes * multiplier),
     estimatedSloc: Math.round(forecast.estimatedSloc * multiplier),
   }

@@ -25,16 +25,17 @@ export type WorkEstimateFactors = {
 
 export type UnitRates = {
   tokensPerPoint: number
-  costPerPoint: number
+  widgetsPerPoint: number
   minutesPerPoint: number
   slocPerPoint: number
 }
 
-/** Default per-grade rates. Pro costs far more per point but is more effective
- * per point (fewer minutes) — the tradeoff the estimator should expose. */
+/** Default per-grade rates. Widgets per point reflects relative model weight/effect
+ *  (Pro burns far more widgets/point but is more effective per point — fewer
+ *  minutes). Rates are operator-set seeds; calibration refits them from actuals. */
 export const DEFAULT_UNIT_RATES: Record<ModelGrade, UnitRates> = {
-  flash: { tokensPerPoint: 1200, costPerPoint: 0.02, minutesPerPoint: 3, slocPerPoint: 22 },
-  pro: { tokensPerPoint: 1100, costPerPoint: 0.25, minutesPerPoint: 1.2, slocPerPoint: 18 },
+  flash: { tokensPerPoint: 1200, widgetsPerPoint: 0.02, minutesPerPoint: 3, slocPerPoint: 22 },
+  pro: { tokensPerPoint: 1100, widgetsPerPoint: 0.25, minutesPerPoint: 1.2, slocPerPoint: 18 },
 }
 
 const COMPLEXITY_SCORE: Record<WorkComplexity, number> = { low: 1, medium: 3, high: 8 }
@@ -62,7 +63,7 @@ export function estimatedRisk(f: WorkEstimateFactors): WorkRisk {
 export type WorkForecast = {
   points: number
   estimatedTokens: number
-  estimatedCostUsd: number
+  estimatedWidgets: number
   estimatedMinutes: number
   estimatedSloc: number
   risk: WorkRisk
@@ -77,14 +78,14 @@ export function estimateWork(
   return {
     points,
     estimatedTokens: Math.round(points * r.tokensPerPoint),
-    estimatedCostUsd: Math.round(points * r.costPerPoint * 100) / 100,
+    estimatedWidgets: Math.round(points * r.widgetsPerPoint * 100) / 100,
     estimatedMinutes: Math.round(points * r.minutesPerPoint),
     estimatedSloc: Math.round(points * r.slocPerPoint),
     risk: estimatedRisk(f),
   }
 }
 
-export type WorkActual = { points: number; tokens: number; costUsd: number; minutes: number }
+export type WorkActual = { points: number; tokens: number; costWidgets: number; minutes: number }
 
 /** Recalibrate unit rates from real actuals (the "5 years / 2 promotions" bit,
  * made measurable). Empty input returns the defaults. */
@@ -93,13 +94,13 @@ export function ratesFromActuals(actuals: WorkActual[], fallback?: UnitRates): U
     return fallback ?? DEFAULT_UNIT_RATES.flash
   }
   const total = actuals.reduce(
-    (a, b) => ({ points: a.points + b.points, tokens: a.tokens + b.tokens, costUsd: a.costUsd + b.costUsd, minutes: a.minutes + b.minutes }),
-    { points: 0, tokens: 0, costUsd: 0, minutes: 0 },
+    (a, b) => ({ points: a.points + b.points, tokens: a.tokens + b.tokens, costWidgets: a.costWidgets + b.costWidgets, minutes: a.minutes + b.minutes }),
+    { points: 0, tokens: 0, costWidgets: 0, minutes: 0 },
   )
   const pts = Math.max(total.points, 1)
   return {
     tokensPerPoint: total.tokens / pts,
-    costPerPoint: total.costUsd / pts,
+    widgetsPerPoint: total.costWidgets / pts,
     minutesPerPoint: total.minutes / pts,
     slocPerPoint: (fallback ?? DEFAULT_UNIT_RATES.flash).slocPerPoint,
   }

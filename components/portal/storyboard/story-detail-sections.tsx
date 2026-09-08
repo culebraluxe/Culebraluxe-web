@@ -171,15 +171,17 @@ function RunContractPanel({ story, run }: { story: StoryboardStory; run: StoryRu
         <span className="font-mono">{run.modelUsed ?? '—'}</span>
         {(run.tokensInput !== null && run.tokensInput !== undefined) ||
         (run.tokensOutput !== null && run.tokensOutput !== undefined) ||
-        (run.costUsd !== null && run.costUsd !== undefined) ? (
+        (run.costWidgets !== null && run.costWidgets !== undefined) ? (
           <>
             <span className="text-black/40">Tokens in/out</span>
             <span className="font-mono">
               {run.tokensInput ?? '—'} / {run.tokensOutput ?? '—'}
             </span>
-            <span className="text-black/40">Cost (USD)</span>
+            <span className="text-black/40">Widgets</span>
             <span className="font-mono">
-              {run.costUsd !== null && run.costUsd !== undefined ? `$${Number(run.costUsd).toFixed(4)}` : '—'}
+              {run.costWidgets !== null && run.costWidgets !== undefined
+                ? Number(run.costWidgets).toFixed(2)
+                : '—'}
             </span>
           </>
         ) : null}
