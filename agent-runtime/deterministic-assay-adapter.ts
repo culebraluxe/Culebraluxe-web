@@ -23,6 +23,8 @@ import {
 } from './assay-evidence'
 import { planAssay } from './assay-plan'
 import { detectFullRegressionAttempt } from './test-mode'
+import { recordStaticGateArtifact } from '../db/forge-artifact'
+import { runStaticGate } from '../workflow_app/forge/forge-static-gate'
 import {
   assertExecutionTargetSafe,
   buildChildProcessEnv,
@@ -327,6 +329,43 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     }
 
     if (this.cancelled) policyViolations.push('Assay cancelled by operator.')
+
+    // Static gate (architecture + security) on the exact candidate: runs AFTER the
+    // targeted commands pass so we gate on a coherent tree. Architecture is the
+    // hard gate; a clean result (or any arch violation) is recorded durably as a
+    // forge_tool_artifact child under the story run. Semgrep reports informationally.
+    const allCommandsPassed =
+      policyViolations.length === 0 &&
+      commandResults.length === requiredCommands.length &&
+      commandResults.every((r) => r.exitCode === 0)
+    if (workspace && allCommandsPassed && !this.cancelled) {
+      try {
+        const gate = runStaticGate({ workspace, config: '.dependency-cruiser.js' })
+        if (!gate.archOk) {
+          for (const error of gate.archErrors.slice(0, 8)) {
+            policyViolations.push(`Static gate (dependency-cruiser): ${error}`)
+          }
+        }
+        // Durable evidence BEFORE QA evidence finalizes (observer; a failed write
+        // must never break QA — DB failures are already captured at the gateway).
+        await recordStaticGateArtifact({
+          storyId: context.story.id,
+          storyRunId: context.storyRunId,
+          sha: candidateSha ?? verifiedSha ?? null,
+          archOk: gate.archOk,
+          archErrorCount: gate.archErrors.length,
+          semgrepRan: gate.semgrepRan,
+          semgrepFindingCount: gate.semgrepFindings.length,
+          workspace,
+        }).catch(() => {
+          /* artifact write is best-effort; QA verdict stands on the tree */
+        })
+      } catch (error) {
+        policyViolations.push(
+          `Static gate runtime error: ${String((error as Error)?.message ?? error)}`,
+        )
+      }
+    }
 
     this.evidence = finalizeAssayEvidence({
       version: 1,

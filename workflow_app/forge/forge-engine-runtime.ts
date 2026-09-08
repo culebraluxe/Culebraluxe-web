@@ -3,6 +3,7 @@ import { FORGE_SDLC_KEY, FORGE_SDLC_VERSION } from '../definitions/forge-sdlc'
 import { engineConfigured, engineSql } from '../engine-client'
 import { startWorkflowCore } from '../start-core'
 import { createForgeApplicationPort } from './application-port'
+import { captureServerError } from '../../lib/server-error-capture'
 import type { ForgeGateEvidence } from './forge-facts'
 
 async function createDurableForgeApplicationPort() {
@@ -99,11 +100,12 @@ export async function startForgeWorkflow(
       const { markForgeStoryInProgress } = await import('../../db/forge-story-state')
       await markForgeStoryInProgress(id)
       // V1 estimator: seed one idempotent forecast per story so real (coarse)
-      // rows start accumulating for later calibration. Never blocks story start.
+      // Rows start accumulating for later calibration. Never blocks story start,
+      // but a failure is captured durably (WARN) — it is real, not a silent catch.
       try {
         await (await import('../../db/forge-estimator')).seedForecastForStory(id)
-      } catch {
-        // non-fatal
+      } catch (error) {
+        captureServerError('forge:seed-forecast', error, { level: 'warn' })
       }
       return processInstanceId
     },
