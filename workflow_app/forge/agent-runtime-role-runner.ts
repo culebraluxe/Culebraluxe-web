@@ -264,6 +264,11 @@ export function createAgentRuntimeForgeRoleRunner(
     // so existing model-flaky runs keep current behavior until proven live.
     if (process.env.FORGE_ENFORCE_DELIVERABLES === '1' && successful) {
       const missing = agent.missingDeliverables(evidence, raw, scoutDelivered, architectDelivered)
+      // Routing-decision validation: even a phase whose WORK persisted must leave a
+      // usable engine routing decision (research_architect -> research_disposition;
+      // lead -> lead_decision). A null/invalid decision is a HOLD, not a pass.
+      const routeMiss = agent.routingDecisionMissing(evidence)
+      if (routeMiss) missing.push(`routing:${routeMiss}`)
       if (missing.length > 0) {
         throw new Error(`Forge ${nodeId} HOLD: role did not deliver ${missing.join(', ')}`)
       }

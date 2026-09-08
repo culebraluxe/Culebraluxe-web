@@ -25,7 +25,8 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
     case 'research_architect':
       return {
         lane: 'architect',
-        evidenceInstruction: `${STRUCTURED_PREFIX} {"researchDisposition":"IMPLEMENT|ARCHIVE|HOLD"}`,
+        evidenceInstruction: `${STRUCTURED_PREFIX} {"researchDisposition":"IMPLEMENT|ARCHIVE|HOLD"}` +
+          ' (REQUIRED — end your reply with this routing decision. research_disposition decides whether research becomes implementation (IMPLEMENT) or closes (ARCHIVE). Without a valid disposition the engine cannot route and this phase is HELD.)',
       }
     case 'architect':
     case 'repair_architect':
@@ -36,7 +37,13 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
           `FORGE_FINDINGS_JSON: [{"id":"<stable-key>","summary":"one distinct finding","required":true|false,"seams":["path/prefix",...],"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}] (list EVERY distinct finding; required=true only when it must land to satisfy the ORIGINAL story)`,
       }
     case 'lead_pre':
-      return { lane: 'lead', leadPhase: 'pre' }
+      return {
+        lane: 'lead',
+        leadPhase: 'pre',
+        evidenceInstruction:
+          `${STRUCTURED_PREFIX} {"leadDecision":"SMITH|SPLIT|HOLD|SOLO","splitCount":0,"leadReason":"..."}` +
+          ' (REQUIRED routing decision — SMITH = implement in one smith lane, SPLIT = parallelize into splitCount child lanes, SOLO = lead implements solo, HOLD = cannot proceed. When SPLIT, splitCount must be > 1. Without a valid leadDecision the engine cannot route and this phase is HELD.)',
+      }
     case 'lead_solo_implement':
       return { lane: 'lead', leadPhase: 'implement' }
     case 'lead_post':

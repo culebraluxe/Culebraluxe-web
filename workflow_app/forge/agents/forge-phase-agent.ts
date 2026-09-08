@@ -27,6 +27,9 @@ import {
 const SCOUT_NODES = new Set(['research_scout', 'feature_scout', 'diagnose_scout', 'repair_scout'])
 const ARCHITECT_NODES = new Set(['architect', 'repair_architect', 'research_architect'])
 
+const RESEARCH_DISPOSITIONS = new Set(['IMPLEMENT', 'ARCHIVE', 'HOLD'])
+const LEAD_DECISIONS = new Set(['SMITH', 'SPLIT', 'HOLD', 'SOLO'])
+
 export type PhaseDeliverableKind = 'scout-packet' | 'architect-plan' | 'lead-decision' | 'smith-candidate' | 'qa-verdict' | 'devops-receipt' | 'none'
 
 /** Raw role output = model notes + tests summary (what a deliverable is built from). */
@@ -188,5 +191,29 @@ export class ForgePhaseAgent {
         break
     }
     return missing
+  }
+
+  /**
+   * Routing-decision validation. Separate from the deliverable gate: a phase may
+   * persist its work (plan persisted to architect_brief, notes captured) yet STILL
+   * leave the engine without a usable routing decision (does this RESEARCH get
+   * implemented or archived? does this LEAD hand off to smith, split, or hold?).
+   * Only roles whose engine node routes on a decision return a requirement here.
+   * A null/absent or invalid decision is returned as the missing routing field;
+   * otherwise null means the routing decision is present and valid.
+   */
+  routingDecisionMissing(evidence: ForgeGateEvidence): string | null {
+    if (this.nodeId === 'research_architect') {
+      return RESEARCH_DISPOSITIONS.has(String(evidence.researchDisposition ?? ''))
+        ? null
+        : 'research_disposition'
+    }
+    if (this.plan.lane === 'lead') {
+      const d = String(evidence.leadDecision ?? '')
+      if (!LEAD_DECISIONS.has(d)) return 'lead_decision'
+      if (d === 'SPLIT' && !(Number(evidence.splitCount) > 0)) return 'lead_decision.splitCount'
+      return null
+    }
+    return null
   }
 }

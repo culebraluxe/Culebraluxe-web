@@ -86,3 +86,28 @@ test('dev_ops flavor requires a release/production receipt', () => {
     [],
   )
 })
+
+test('routingDecisionMissing: research_architect requires a valid research_disposition', () => {
+  const arch = forgeAgentFor('research_architect') as ArchitectAgent
+  assert.equal(arch.routingDecisionMissing(ev({}) as never), 'research_disposition')
+  assert.equal(arch.routingDecisionMissing(ev({ researchDisposition: 'BOGUS' }) as never), 'research_disposition')
+  assert.equal(arch.routingDecisionMissing(ev({ researchDisposition: 'IMPLEMENT' }) as never), null)
+  assert.equal(arch.routingDecisionMissing(ev({ researchDisposition: 'ARCHIVE' }) as never), null)
+})
+
+test('routingDecisionMissing: lead requires a valid lead_decision (+splitCount when SPLIT)', () => {
+  const lead = forgeAgentFor('lead_pre') as LeadAgent
+  assert.equal(lead.routingDecisionMissing(ev({}) as never), 'lead_decision')
+  assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SHRED' }) as never), 'lead_decision')
+  assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SPLIT' }) as never), 'lead_decision.splitCount')
+  assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SPLIT', splitCount: 3 }) as never), null)
+  assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SMITH' }) as never), null)
+  assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SOLO' }) as never), null)
+})
+
+test('routingDecisionMissing: non-routing nodes have no requirement', () => {
+  const scout = new ForgePhaseAgent('research_scout')
+  const smith = forgeAgentFor('smith') as SmithAgent
+  assert.equal(scout.routingDecisionMissing(ev({}) as never), null)
+  assert.equal(smith.routingDecisionMissing(ev({}) as never), null)
+})
