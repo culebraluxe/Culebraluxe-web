@@ -69,12 +69,21 @@ async function instanceStatus(instanceId: string): Promise<string | null> {
   return (rows[0]?.status as string | undefined) ?? null
 }
 
+export type ForgeStopRole = 'scout' | 'architect' | 'lead'
+
+export type ForgeStopTarget =
+  | { role: ForgeStopRole }
+  | { node: string }
+
 export type DriveForgeStoryOptions = {
   start?: ForgeStartFacts
   runner?: ForgeRoleRunner
   maxSteps?: number
   workerId?: string
   splitConcurrency?: number
+  /** Park the driver the moment a task in this role's terminal set completes —
+   * run exactly one role (e.g. just Scout) instead of chaining the whole SDLC. */
+  stopAfter?: ForgeStopTarget
 }
 
 export type DriveForgeStoryResult = {
@@ -83,6 +92,8 @@ export type DriveForgeStoryResult = {
   steps: string[]
   exhausted: boolean
   needsHuman: boolean
+  /** The node the driver parked at (set when stopAfter was honored), else null. */
+  stoppedAfter: string | null
 }
 
 /** Only true human stops. Architect/Inspector auto-run so Smith can write code overnight. */
@@ -93,6 +104,21 @@ export const FORGE_HUMAN_GATE_NODES: ReadonlySet<string> = new Set([
   // the operator runs the QA loop manually before approving/cancelling.
   'fast_confirmation',
 ])
+
+/** Terminal node(s) per stop-after role — the driver parks the moment one of
+ * these completes, so a run stays inside exactly one role's wave. */
+export const FORGE_ROLE_STOP_NODES: Readonly<Record<ForgeStopRole, ReadonlySet<string>>> = {
+  scout: new Set(['feature_scout', 'research_scout', 'diagnose_scout', 'repair_scout']),
+  architect: new Set(['architect', 'research_architect', 'repair_architect']),
+  lead: new Set(['lead_pre']),
+}
+
+export function resolveForgeStopTarget(stopAfter?: ForgeStopTarget): ReadonlySet<string> | undefined {
+  if (!stopAfter) return undefined
+  if ('node' in stopAfter) return new Set([stopAfter.node])
+  if ('role' in stopAfter) return FORGE_ROLE_STOP_NODES[stopAfter.role]
+  return undefined
+}
 
 function isAdvanceConflict(err: unknown): boolean {
   const m = err instanceof Error ? err.message : String(err)
@@ -114,6 +140,8 @@ export async function driveForgeStory(
   const maxSteps = opts.maxSteps ?? 40
   const workerId = opts.workerId?.trim() || `forge-engine-${process.pid}`
   const steps: string[] = []
+  const stopTarget = resolveForgeStopTarget(opts.stopAfter)
+  let stoppedAfter: string | null = null
 
   let instanceId = await findActiveForgeInstance(storyId)
   if (!instanceId) {
@@ -134,6 +162,7 @@ export async function driveForgeStory(
         steps,
         exhausted: false,
         needsHuman: true,
+        stoppedAfter,
       }
     }
 
@@ -144,6 +173,7 @@ export async function driveForgeStory(
         steps,
         exhausted: true,
         needsHuman: false,
+        stoppedAfter,
       }
     }
 
@@ -213,6 +243,9 @@ export async function driveForgeStory(
       }
       steps.push(task.nodeId)
       await syncForgeStoryboardState(storyId, instanceId)
+      if (stopTarget && stopTarget.has(task.nodeId)) {
+        stoppedAfter = task.nodeId
+      }
     }
 
     const ready = tasks.filter((t) => t.status === 'ready')
@@ -228,6 +261,9 @@ export async function driveForgeStory(
       }
     }
     await Promise.all(Array.from({ length: Math.max(cap, 0) }, () => pump()))
+    // Single-role park: a stopAfter role completed this wave — do NOT advance to
+    // the next role. Leave the engine parked for a human to inspect/approve.
+    if (stoppedAfter) break
   }
 
   const status = await instanceStatus(instanceId)
@@ -239,5 +275,6 @@ export async function driveForgeStory(
     steps,
     exhausted: tasks.length > 0,
     needsHuman: tasks.some((t) => FORGE_HUMAN_GATE_NODES.has(t.nodeId)),
+    stoppedAfter,
   }
 }

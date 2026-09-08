@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { driveForgeStory, type ForgeRoleRunner } from '../../forge/forge-executor'
+import { driveForgeStory, FORGE_ROLE_STOP_NODES, type ForgeRoleRunner } from '../../forge/forge-executor'
 import type { ForgeGateEvidence } from '../../forge/forge-facts'
 import { engineSql } from '../../engine-client'
 
@@ -219,6 +219,38 @@ test('ENG-FORGE-V9 smoke: SPLIT fan-out rejoins before QA and completes', async 
     assert.equal(splitSteps, 2, 'both SPLIT branches must run as Smith-split tasks')
     assert.ok(res.steps.includes('lead_post'), 'join must release Lead POST after fan-out')
     assert.ok(res.steps.includes('qa_verify'), 'QA verify after the join')
+  } finally {
+    if (instanceId) await cleanup(story, instanceId)
+  }
+})
+
+test('ENG-FORGE-V10 smoke: stopAfter=scout parks after Scout and never advances to Architect', async () => {
+  process.env.APP_ENV = DEV
+  const story = 'SMOKE-SCOUT-ONLY-' + Date.now()
+  await createStory(story)
+  let instanceId = ''
+  try {
+    // RESEARCH is a scout-bearing flow (research_scout -> research_architect),
+    // unlike FEATURE which has no Scout node at all.
+    const res = await driveForgeStory(story, {
+      start: { workType: 'RESEARCH' },
+      runner: chainRunner({ research_architect: { researchDisposition: 'ARCHIVE' } }),
+      stopAfter: { role: 'scout' },
+    })
+    instanceId = res.instanceId
+    assert.ok(res.stoppedAfter, 'driver must report it parked at a scout node')
+    assert.ok(
+      FORGE_ROLE_STOP_NODES.scout.has(res.stoppedAfter!),
+      `parked node must be a scout node (got ${res.stoppedAfter})`,
+    )
+    assert.ok(res.steps.length >= 1, 'Scout must have run before parking')
+    assert.ok(
+      res.steps.every((s) => FORGE_ROLE_STOP_NODES.scout.has(s)),
+      `only scout steps may run before the park (got ${res.steps.join(',')})`,
+    )
+    assert.ok(!res.steps.includes('research_architect'), 'park must happen BEFORE the Architect role runs')
+    assert.equal(res.needsHuman, false)
+    assert.equal(res.status, 'active', 'a parked instance stays active (not completed)')
   } finally {
     if (instanceId) await cleanup(story, instanceId)
   }

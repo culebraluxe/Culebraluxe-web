@@ -12,12 +12,20 @@ const value = (flag: string): string | undefined => {
   return index >= 0 ? args[index + 1] : undefined
 }
 
+/** Map a --until value to a ForgeStopTarget: named role, or an exact engine node. */
+function parseUntil(raw: string | undefined): { role: 'scout' | 'architect' | 'lead' } | { node: string } | undefined {
+  if (!raw) return undefined
+  if (raw === 'scout' || raw === 'architect' || raw === 'lead') return { role: raw }
+  if (raw.startsWith('node:')) return { node: raw.slice(5) }
+  return { node: raw }
+}
+
 async function main(): Promise<void> {
   const storyId = value('--story')
   const workType = value('--work-type') ?? 'FEATURE'
   if (!storyId) {
     throw new Error(
-      'usage: forge-engine-worker --story <story-id> [--work-type FEATURE|BUG|HOTFIX|RESEARCH|MIGRATION]',
+      'usage: forge-engine-worker --story <story-id> [--work-type FEATURE|BUG|HOTFIX|RESEARCH|MIGRATION] [--until scout|architect|lead|node:<engine-node-id>]',
     )
   }
   if (!['FEATURE', 'BUG', 'HOTFIX', 'RESEARCH', 'MIGRATION'].includes(workType)) {
@@ -36,6 +44,7 @@ async function main(): Promise<void> {
   }
 
   const workerId = process.env.AGENT_WORKER_ID?.trim() || `forge-engine-${process.pid}`
+  const stopAfter = parseUntil(value('--until'))
   const result = await driveForgeStory(storyId, {
     start: { workType: workType as 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' },
     runner: createAgentRuntimeForgeRoleRunner({
@@ -44,9 +53,10 @@ async function main(): Promise<void> {
     }),
     workerId,
     splitConcurrency: 1,
+    ...(stopAfter ? { stopAfter } : {}),
   })
   console.log(JSON.stringify({ brain, ...result }, null, 2))
-  if (result.exhausted) process.exitCode = 2
+  if (result.exhausted && !result.stoppedAfter) process.exitCode = 2
 }
 
 main().catch((error) => {
