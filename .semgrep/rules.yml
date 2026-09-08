@@ -1,0 +1,13 @@
+rules:
+  - id: ts-no-eval
+    languages: [typescript, javascript]
+    message: Avoid eval (indirect code execution risk)
+    severity: WARNING
+    pattern: eval(...)
+  - id: ts-no-inner-html
+    languages: [typescript, javascript]
+    message: Avoid innerHTML (XSS risk); build DOM safely
+    severity: WARNING
+    pattern-either:
+      - pattern: $X.innerHTML = ...
+      - pattern: $X.outerHTML = ...
