@@ -75,10 +75,29 @@ export type EstimateWithInterval = {
 }
 
 /**
- * Minimum labeled samples before any fit is reported. Below this, return null
- * and let the point estimate + declared-wide prior stand.
+ * Minimum labeled samples before any fit is reported. Below this, the identity
+ * factor (1.0) stands in and no learned adjustment is applied.
  */
 export const MIN_FIT_SAMPLES = 10
+
+/**
+ * The confidence/calibration FACTOR the estimate formula multiplies by today.
+ *
+ * Returns exactly 1.0 (identity) so the estimator's path is UNCHANGED until V3
+ * is turned on with real data. The intended behavior is documented here and in
+ * the module header; nothing below runs until fitCalibratedModel returns a model.
+ *
+ * TODO (V3, once actuals accumulate via the telemetry fix):
+ *   - the formula stays `forecast = prior_forecast * estimateConfidenceFactor()`,
+ *     so call sites never change;
+ *   - at small n this stays ~1.0 (honest wide prior) and only departs toward a
+ *     learned per-segment factor as samples grow;
+ *   - swap this body for a real prediction interval / residual-bias correction
+ *     produced by the fitted model, widening/tightening by sampleCount.
+ */
+export function estimateConfidenceFactor(): number {
+  return 1.0
+}
 
 /**
  * V3 — fit a calibrated model from real actuals.
@@ -92,7 +111,8 @@ export const MIN_FIT_SAMPLES = 10
  *     shrink prior->learned weights toward the prior until samples are adequate;
  *   - compute R^2 / adjusted R^2 and residual bias (are we systematically over-
  *     or under-estimating? adjust the intercept).
- * Returns null until >= MIN_FIT_SAMPLES and telemetry is verified.
+ * Returns null until >= MIN_FIT_SAMPLES and telemetry is verified. The estimate
+ * formula keeps multiplying by estimateConfidenceFactor() (=1) until then.
  */
 export function fitCalibratedModel(
   samples: CalibrationSample[],
@@ -103,7 +123,8 @@ export function fitCalibratedModel(
 }
 
 /**
- * V3 — produce an estimate with a confidence interval from a fitted model.
+ * V3 — (future) replace the identity factor with an estimate plus a confidence
+ * interval from a fitted model.
  *
  * TODO (turn on once fitCalibratedModel returns a model):
  *   - combine prior points x surface weight -> point estimate;

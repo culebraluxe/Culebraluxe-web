@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   MIN_FIT_SAMPLES,
+  estimateConfidenceFactor,
   fitCalibratedModel,
   predictWithInterval,
   type CalibrationSample,
 } from '../forge/forge-calibration'
 
-// V3 stub contract: NOT active until real actuals exist. Must return null and
-// never throw — safe to import today.
+// V3 stub contract: NOT active until real actuals exist. The estimate formula
+// multiplies by an IDENTITY factor (1.0) so the path is unchanged until V3 is on.
 
 function sample(i: number): CalibrationSample {
   return {
@@ -19,9 +20,12 @@ function sample(i: number): CalibrationSample {
   }
 }
 
-test('V3 calibration is a stub: no model until MIN_FIT_SAMPLES, returns null', () => {
+test('V3 calibration: identity confidence factor leaves the estimate path unchanged', () => {
+  assert.equal(estimateConfidenceFactor(), 1.0)
+})
+
+test('V3 calibration: no learned model until implemented with real data (returns null)', () => {
   assert.equal(MIN_FIT_SAMPLES, 10)
-  // Even above the threshold, no model until the body is implemented with real data.
   assert.equal(fitCalibratedModel(Array.from({ length: 20 }, (_, i) => sample(i))), null)
   assert.equal(predictWithInterval({ segments: [], rSquared: null, residualBias: null, sampleCount: 0 }, sample(0).features), null)
 })
