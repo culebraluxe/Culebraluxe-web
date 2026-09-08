@@ -16,10 +16,13 @@ export async function getFormContractId(
   execute?: QueryExecutor,
 ): Promise<string | null> {
   const q = execute ?? (await executor())
+  // Migration 121 is still rolling through environments. Reading through
+  // to_jsonb keeps legacy Listing forms usable when the physical contract_id
+  // column is not present yet, while returning the real value once it is.
   const rows = await q`
-    select contract_id
-    from document_form_instance
-    where id = ${formInstanceId}
+    select to_jsonb(f)->>'contract_id' as contract_id
+    from document_form_instance f
+    where f.id = ${formInstanceId}
     limit 1
   `
   const row = rows[0] as { contract_id?: unknown } | undefined
@@ -62,13 +65,13 @@ export async function getPriorContractIssuedDocument(
 ): Promise<ContractIssuedLineage | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select id, issued_version
-    from transaction_document
-    where contract_id = ${input.contractId}
-      and template_id = ${input.templateId}
-      and source = 'generated'
-      and issued_version is not null
-    order by issued_version desc, created_at desc
+    select td.id, td.issued_version
+    from transaction_document td
+    where to_jsonb(td)->>'contract_id' = ${input.contractId}
+      and td.template_id = ${input.templateId}
+      and td.source = 'generated'
+      and td.issued_version is not null
+    order by td.issued_version desc, td.created_at desc
     limit 1
   `
   const row = rows[0] as { id?: unknown; issued_version?: unknown } | undefined
