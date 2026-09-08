@@ -10,7 +10,6 @@ import {
   PROPERTY_OPERATIONS,
   PropertyService,
   type PropertyAddressDto,
-  type PropertyObservedAddressDto,
 } from '@/services/property'
 import type {
   ListingCanonicalFieldName,
@@ -65,26 +64,6 @@ function formatAddress(address: PropertyAddressDto | null | undefined): string {
   ]
     .filter((value): value is string => Boolean(value))
     .join(', ')
-}
-
-/**
- * LISTING-01 owns the business meaning of the two observed address slots.
- * Apple labels are provenance only; they are not the canonical relationship.
- * The loader preserves source order, so the legal form contract is:
- *   slot 1 -> seller legal/residence address
- *   slot 2 -> listed physical property address
- */
-function listingObservedAddressSlots(rows: PropertyObservedAddressDto[]): {
-  legalAddress: PropertyObservedAddressDto | null
-  physicalProperty: PropertyObservedAddressDto | null
-} {
-  const appleAddresses = rows.filter(
-    (row) => row.source === 'apple_contacts' && Boolean(formatAddress(row.address)),
-  )
-  return {
-    legalAddress: appleAddresses[0] ?? null,
-    physicalProperty: appleAddresses[1] ?? null,
-  }
 }
 
 async function latestListingEvidence(personId: string): Promise<FormEvidence | null> {
@@ -175,13 +154,6 @@ export async function loadListingCanonicalSnapshot(
 
   if (!person) throw new Error(`Person not found: ${cleanPersonId}`)
 
-  // Strong canonical relationships win whenever they already exist. For the
-  // first end-to-end Apple -> ODS -> Person/Property -> Listing bridge, the
-  // observed two-address sequence supplies the domain roles until those generic
-  // address relationships are promoted: first is legal/residence, second is
-  // the listed physical property. Apple naming is not part of this contract.
-  const observedSlots = listingObservedAddressSlots(propertyContext.observedAddresses)
-
   const legalAddress = propertyContext.properties.find((row) => row.relation === 'legal_address') ?? null
   let physical = propertyContext.properties.find((row) => row.relation === 'physical_property') ?? null
 
@@ -201,21 +173,13 @@ export async function loadListingCanonicalSnapshot(
   const resolved: Record<ListingCanonicalFieldName, { value: string; origin: ListingFieldOrigin }> = {
     sellerName: choose(person.displayName, 'person', form.sellerName),
     sellerResidenceAddress: choose(
-      legalAddress
-        ? formatAddress(legalAddress.property.address)
-        : observedSlots.legalAddress
-          ? formatAddress(observedSlots.legalAddress.address)
-          : null,
+      legalAddress ? formatAddress(legalAddress.property.address) : null,
       'property',
       form.sellerResidenceAddress,
     ),
     property: choose(physical?.property.localName, 'property', form.property),
     propertyLocation: choose(
-      physical
-        ? formatAddress(physical.property.address)
-        : observedSlots.physicalProperty
-          ? formatAddress(observedSlots.physicalProperty.address)
-          : null,
+      physical ? formatAddress(physical.property.address) : null,
       'property',
       form.propertyLocation,
     ),
@@ -235,8 +199,8 @@ export async function loadListingCanonicalSnapshot(
     personDisplayName: person.displayName,
     formInstanceId: evidence?.id ?? null,
     formUpdatedAt: evidence?.updatedAt ?? null,
-    legalAddressPropertyId: legalAddress?.property.id ?? observedSlots.legalAddress?.matchedPropertyId ?? null,
-    physicalPropertyId: physical?.property.id ?? observedSlots.physicalProperty?.matchedPropertyId ?? evidence?.propertyId ?? null,
+    legalAddressPropertyId: legalAddress?.property.id ?? null,
+    physicalPropertyId: physical?.property.id ?? evidence?.propertyId ?? null,
     fields,
     origins,
   }
