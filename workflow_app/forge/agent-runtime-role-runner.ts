@@ -34,14 +34,11 @@ import { getStoryboardStory, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
+import { ForgePhaseAgent, rawRoleOutput } from './agents/forge-phase-agent'
 import {
   forgeEvidenceFromAgentResult,
   forgeRoleNodePlan,
 } from './forge-role-mapping'
-import {
-  findingsFromArchitectEvidence,
-  validateLeadShapeChoice,
-} from './forge-shaping'
 import {
   readLegacyMarkerGateEvidence,
   readTypedGateEvidence,
@@ -227,59 +224,27 @@ export function createAgentRuntimeForgeRoleRunner(
     const marked = readLegacyMarkerGateEvidence(result.evidence)
     const evidence: ForgeGateEvidence = { ...mapped, ...marked, ...(typed ?? {}) }
 
-    // ENG-FORGE-SHAPE-01: persist Architect findings durably (so Lead can gate on
-    // the REAL Architect output), then enforce the shaping gate at Lead completion.
-    const isArchitectNode =
-      nodeId === 'architect' || nodeId === 'repair_architect' || nodeId === 'research_architect'
-    // Scout is the FIRST model that learns the real repo surface. Its research
-    // findings must land in forge_workflow_evidence.findings (NOT just the notes
-    // blob) or Architect inherits GIGO. Parse the same FORGE_FINDINGS_JSON marker
-    // the evidenceInstruction asks scout to emit.
-    const isScoutNode =
-      nodeId === 'research_scout' ||
-      nodeId === 'feature_scout' ||
-      nodeId === 'diagnose_scout' ||
-      nodeId === 'repair_scout'
-    if (isArchitectNode || isScoutNode) {
-      const parsedFindings = findingsFromArchitectEvidence(
-        [result.evidence.notes, result.evidence.testsSummary].filter(Boolean).join('\n'),
-      )
-      if (parsedFindings.length > 0) evidence.findings = parsedFindings
-    } else if (nodeId === 'lead_pre' && evidence.leadDecision) {
-      const findings = current.findings ?? []
-      if (findings.length > 0) {
-        const verdict = validateLeadShapeChoice({
-          findings,
-          choice: evidence.leadDecision,
-          splitCount: evidence.splitCount,
-        })
-        if (!verdict.ok) {
-          // Authoritative override: e.g. Lead said single SMITH over independent
-          // seams -> route the engine to the bounded SPLIT the findings demand.
-          evidence.leadDecision = verdict.authoritative.decision
-          evidence.splitCount = verdict.authoritative.splitCount ?? evidence.splitCount
-        }
-      }
-    }
+    // ENG-FORGE-PHASE-AGENT: the marshaling/deliverable tail is owned by a
+    // ForgePhaseAgent for this node (findings parse for Scout/Architect, Lead
+    // PRE shape override, Scout packet). This replaces the scattered
+    // isArchitectNode/isScoutNode/lead_pre conditionals with a role contract.
+    const agent = new ForgePhaseAgent(nodeId)
+    const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
+    agent.marshalFindings(evidence, raw)
+    agent.applyLeadShape(evidence, current.findings)
 
     // Scout -> Architect handoff: persist a bounded Scout packet to the Story's
     // context_refs on a successful Scout completion. Architect's lane gate
     // requires hasScoutPacket (present(contextRefs)); the packet is the forward
     // "information" handoff (full raw output stays in the scout story run notes).
-    if (plan.lane === 'scout' && /pass|success|complete/i.test(result.evidence.resultStatus)) {
-      const raw = [result.evidence.notes, result.evidence.testsSummary]
-        .filter(Boolean)
-        .join('\n')
-        .trim()
-      const cap = 5000
-      const packet =
-        `Scout research packet (engine node ${nodeId}):\n` +
-        raw.slice(0, cap) +
-        (raw.length > cap ? '\n[Scout packet truncated; full output in scout story run notes]' : '')
-      try {
-        await setStoryScoutPacket(resolvedStory.id, packet)
-      } catch {
-        /* a failed packet write must not fail the engine task (DB failures captured at gateway) */
+    if (agent.plan.lane === 'scout' && /pass|success|complete/i.test(result.evidence.resultStatus)) {
+      const packet = agent.scoutPacket(raw)
+      if (packet) {
+        try {
+          await setStoryScoutPacket(resolvedStory.id, packet)
+        } catch {
+          /* a failed packet write must not fail the engine task (DB failures captured at gateway) */
+        }
       }
     }
 

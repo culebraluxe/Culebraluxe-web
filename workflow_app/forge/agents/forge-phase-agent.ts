@@ -1,0 +1,117 @@
+import type { ForgeGateEvidence } from '../forge-facts'
+import {
+  forgeRoleNodePlan,
+  type ForgeRoleNodePlan,
+} from '../forge-role-mapping'
+import {
+  findingsFromArchitectEvidence,
+  validateLeadShapeChoice,
+} from '../forge-shaping'
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-PHASE-AGENT — the role/phase contract layer. A ForgePhaseAgent owns
+// the marshal/deliverable concern for ONE engine role node. The parent provides
+// the shared behavior every role inherits (raw text, findings parse, lead shape
+// override, deliverable spec); the role's node id selects its deliverable.
+//
+// This is layered over (NOT a replacement for) the execution machinery: the
+// harness AgentRuntimeAdapter still runs the model; forge-executor still drives
+// the engine. This layer makes "a role must deliver its output" a declared,
+// inspectable contract instead of scattered `if`-branches in the role-runner.
+//
+// Enforcement (assertDeliverable throwing) is OFF by default so existing flaky
+// runs keep their current behavior; enable the hard gate with
+// FORGE_ENFORCE_DELIVERABLES=1 once role outputs are reliable.
+// ---------------------------------------------------------------------------
+
+const SCOUT_NODES = new Set(['research_scout', 'feature_scout', 'diagnose_scout', 'repair_scout'])
+const ARCHITECT_NODES = new Set(['architect', 'repair_architect', 'research_architect'])
+
+export type PhaseDeliverableKind = 'scout-packet' | 'architect-plan' | 'lead-decision' | 'smith-candidate' | 'qa-verdict' | 'devops-receipt' | 'none'
+
+/** Raw role output = model notes + tests summary (what a deliverable is built from). */
+export function rawRoleOutput(notes?: string | null, testsSummary?: string | null): string {
+  return [notes, testsSummary].filter(Boolean).join('\n').trim()
+}
+
+export class ForgePhaseAgent {
+  readonly nodeId: string
+  readonly plan: ForgeRoleNodePlan
+  readonly isScout: boolean
+  readonly isArchitect: boolean
+
+  constructor(nodeId: string) {
+    this.nodeId = nodeId
+    this.plan = forgeRoleNodePlan(nodeId)
+    this.isScout = SCOUT_NODES.has(nodeId)
+    this.isArchitect = ARCHITECT_NODES.has(nodeId)
+  }
+
+  /** The durable deliverable this phase is contractually expected to produce. */
+  deliverableKind(): PhaseDeliverableKind {
+    if (this.isScout) return 'scout-packet'
+    if (this.isArchitect) return 'architect-plan'
+    if (this.plan.lane === 'lead') return 'lead-decision'
+    if (this.plan.lane === 'smith') return 'smith-candidate'
+    if (this.plan.lane === 'assay') return 'qa-verdict'
+    if (this.plan.lane === 'dev_ops') return 'devops-receipt'
+    return 'none'
+  }
+
+  /**
+   * Parse FORGE_FINDINGS_JSON from raw role output into evidence.findings.
+   * Shared by Scout (repo research) and Architect (plan findings) — the 
+   * generalization of the isScoutNode/isArchitectNode branches.
+   */
+  marshalFindings(evidence: ForgeGateEvidence, raw: string): ForgeGateEvidence {
+    if (!this.isScout && !this.isArchitect) return evidence
+    const parsed = findingsFromArchitectEvidence(raw)
+    if (parsed.length > 0) evidence.findings = parsed
+    return evidence
+  }
+
+  /**
+   * Lead PRE shape override: when Lead's decision conflicts with what the
+   * Architect findings demand, route to the bounded SPLIT. Shared + authoritative.
+   */
+  applyLeadShape(evidence: ForgeGateEvidence, currentFindings: ForgeGateEvidence['findings']): ForgeGateEvidence {
+    if (this.nodeId !== 'lead_pre' || !evidence.leadDecision) return evidence
+    const findings = currentFindings ?? []
+    if (findings.length > 0) {
+      const verdict = validateLeadShapeChoice({
+        findings,
+        choice: evidence.leadDecision,
+        splitCount: evidence.splitCount,
+      })
+      if (!verdict.ok) {
+        evidence.leadDecision = verdict.authoritative.decision
+        evidence.splitCount = verdict.authoritative.splitCount ?? evidence.splitCount
+      }
+    }
+    return evidence
+  }
+
+  /** Build a bounded Scout packet for the Story context_refs handoff (or null). */
+  scoutPacket(raw: string): string | null {
+    if (!this.isScout || !raw) return null
+    const cap = 5000
+    return (
+      `Scout research packet (engine node ${this.nodeId}):\n` +
+      raw.slice(0, cap) +
+      (raw.length > cap ? '\n[Scout packet truncated; full output in scout story run notes]' : '')
+    )
+  }
+
+  /**
+   * Enforced deliverable gate (the point of the abstraction). Returns the list of
+   * missing deliverables. Callers may HOLD/retry when non-empty. Not thrown here
+   * so enforcement policy (env-gated) stays in the caller.
+   */
+  missingDeliverables(evidence: ForgeGateEvidence, raw: string, scoutContextRefsSet: boolean): string[] {
+    const kind = this.deliverableKind()
+    const missing: string[] = []
+    if (kind === 'scout-packet' && !scoutContextRefsSet && !this.scoutPacket(raw)) missing.push('scout-packet')
+    if (kind === 'architect-plan' && (evidence.researchDisposition ?? evidence.findings) == null) missing.push('architect-plan')
+    return missing
+  }
+}
