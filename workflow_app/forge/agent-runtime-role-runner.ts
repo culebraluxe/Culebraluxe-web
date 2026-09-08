@@ -231,7 +231,16 @@ export function createAgentRuntimeForgeRoleRunner(
     // the REAL Architect output), then enforce the shaping gate at Lead completion.
     const isArchitectNode =
       nodeId === 'architect' || nodeId === 'repair_architect' || nodeId === 'research_architect'
-    if (isArchitectNode) {
+    // Scout is the FIRST model that learns the real repo surface. Its research
+    // findings must land in forge_workflow_evidence.findings (NOT just the notes
+    // blob) or Architect inherits GIGO. Parse the same FORGE_FINDINGS_JSON marker
+    // the evidenceInstruction asks scout to emit.
+    const isScoutNode =
+      nodeId === 'research_scout' ||
+      nodeId === 'feature_scout' ||
+      nodeId === 'diagnose_scout' ||
+      nodeId === 'repair_scout'
+    if (isArchitectNode || isScoutNode) {
       const parsedFindings = findingsFromArchitectEvidence(
         [result.evidence.notes, result.evidence.testsSummary].filter(Boolean).join('\n'),
       )

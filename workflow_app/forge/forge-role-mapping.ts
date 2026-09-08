@@ -19,7 +19,8 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
       return {
         lane: 'scout',
         evidenceInstruction:
-          `${STRUCTURED_PREFIX} {"rootCauseKnown":true,"diagnosisBlocked":false} (include only facts this run actually established)`,
+          `${STRUCTURED_PREFIX} {"rootCauseKnown":true,"diagnosisBlocked":false} (include only facts this run actually established)\n` +
+          `FORGE_FINDINGS_JSON: [{"id":"<stable-key>","summary":"one distinct finding about the real repo surface","required":false,"seams":["path/prefix",...],"hint":"FOLLOW_UP_STORY|NOTE|HOLD"}] (emit the distinct findings your repo research established — files/surfaces + why each matters — so Architect inherits real intel, not garbage)`,
       }
     case 'research_architect':
       return {
