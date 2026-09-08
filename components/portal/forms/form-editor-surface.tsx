@@ -192,18 +192,23 @@ export async function FormEditorSurface({ formId }: { formId: string }) {
         const itemActiveVersion = getActiveTemplate(item.templateId)?.version ?? item.templateVersion
         const history = item.templateVersion !== itemActiveVersion
         const versionLabel = `v${item.templateVersion}${history ? " · history" : ""}`
+        const listingSingleParty = item.templateId === "LISTING-01"
         return {
           id: item.id,
           templateId: item.templateId,
           status: item.status,
-          clientName: item.clientName,
+          // A Listing has one seller party. Ignore any legacy Deal client that
+          // may still be attached to an old form row; sellerName is authoritative.
+          clientName: listingSingleParty ? null : item.clientName,
           propertyLabel: [item.propertyLabel, versionLabel]
             .filter(Boolean)
             .join(" · "),
           buyerName:
-            item.fieldValues.buyerName ??
-            item.fieldValues.visitorName ??
-            null,
+            listingSingleParty
+              ? null
+              : item.fieldValues.buyerName ??
+                item.fieldValues.visitorName ??
+                null,
           sellerName: item.fieldValues.sellerName ?? null,
           updatedAt: item.updatedAt,
         }
