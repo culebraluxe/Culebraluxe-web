@@ -143,19 +143,22 @@ test('Scope C FAST: a release obligation fails FAST closed to HOLD (no hidden re
   assert.ok(!r.steps.includes('forge.publish_candidate'))
 })
 
-test('Scope C FAST: a QA REPLAN-classified failure ends FAST at HOLD rather than auto-replying', async () => {
+test('Scope C review park: SCOUT->ARCHITECT can STOP at hold for human review (reuses hold, no new state)', async () => {
+  // FEATURE path with a scout-optional, then architect parks for review.
   const r = await runFast({
-    vars: { workType: 'FAST' },
-    task: (node, _v, evidence) => {
-      if (node === 'fast_smith') return { candidateSha: A }
-      if (node === 'fast_qa_verify') {
-        return { qaPassed: false, disposition: 'REPLAN', failureClass: 'ARCHITECTURE_GAP', replanAttempts: 0 }
-      }
-      return {}
-    },
+    vars: { workType: 'FEATURE', scoutRequired: false },
+    task: (node) => (node === 'architect' ? { architectureReviewRequired: true } : {}),
   })
-  // fast_qa_route: qaRepairEligible false, qaReplanEligible true -> hold.
+  assert.ok(r.steps.includes('architect'))
   assert.equal(r.humanNode, 'hold')
-  assert.ok(!r.steps.includes('forge.publish_candidate'))
-  assert.ok(!r.steps.includes('fast_repair_smith'))
+  assert.ok(!r.steps.includes('lead_pre'), 'architect review must park BEFORE Lead')
+})
+
+test('Scope C review park: Architect without a review request proceeds to Lead (default-off)', async () => {
+  const r = await runFast({
+    vars: { workType: 'FEATURE', scoutRequired: false },
+    task: (node) => (node === 'architect' ? { architectureReviewRequired: false } : {}),
+  })
+  assert.ok(r.steps.includes('architect'))
+  assert.ok(r.steps.includes('lead_pre'))
 })

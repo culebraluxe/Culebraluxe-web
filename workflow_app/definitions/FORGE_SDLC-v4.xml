@@ -225,10 +225,18 @@
 
   <task-node id="architect" label="Architect" responsibility="architect" form-key="forge.architect"
     description="Produce or validate the frozen implementation contract, boundaries, invariants, acceptance criteria, and QA plan.">
-    <transition name="complete" to="lead_pre"/>
+    <transition name="complete" to="architect_review"/>
     <transition name="research" to="research_scout"/>
     <transition name="hold" to="hold"/>
   </task-node>
+
+  <decision id="architect_review" label="Architect Review Gate" refresh-facts="true"
+    description="Architect completion may STOP for human review before implementation, reusing the existing `hold` wait (no new end state). Resume returns to Lead.">
+    <on condition="architectureReviewRequired == true" transition="review"/>
+    <on condition="architectureReviewRequired == false" transition="proceed"/>
+    <transition name="review" to="hold"/>
+    <transition name="proceed" to="lead_pre"/>
+  </decision>
 
   <task-node id="lead_pre" label="Lead — Execution Plan" responsibility="lead" form-key="forge.lead_pre"
     description="Validate the architecture contract and choose the cheapest sound execution strategy.">

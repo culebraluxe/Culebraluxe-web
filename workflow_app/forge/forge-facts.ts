@@ -31,6 +31,8 @@ export type ForgeGateEvidence = {
   rootCauseKnown?: boolean
   diagnosisBlocked?: boolean
   architectureSuspect?: boolean
+  /** Scope C review park — Architect completion may STOP at `hold` for human review. */
+  architectureReviewRequired?: boolean
   /** execution_shape */
   leadDecision?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
   splitCount?: number
@@ -230,6 +232,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     rootCauseKnown: evidence.rootCauseKnown,
     diagnosisBlocked: evidence.diagnosisBlocked,
     architectureSuspect: evidence.architectureSuspect,
+    architectureReviewRequired: evidence.architectureReviewRequired,
     qaReviewRequired: evidence.qaReviewRequired,
     qaReviewPassed: evidence.qaReviewPassed,
     qaPassed: evidence.qaPassed === true && forgeLineageError(evidence, 'qa') === null,

@@ -73,6 +73,7 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     rootCauseKnown: value(row, 'root_cause_known'),
     diagnosisBlocked: value(row, 'diagnosis_blocked'),
     architectureSuspect: value(row, 'architecture_suspect'),
+    architectureReviewRequired: value(row, 'architecture_review_required'),
     leadDecision: value(row, 'lead_decision'),
     splitCount: value(row, 'split_count'),
     findings: findingsArray(row, 'findings'),
@@ -117,7 +118,7 @@ export async function mergeForgeWorkflowEvidence(
   await q`
     insert into forge_workflow_evidence (
       process_instance_id, story_id, work_type, research_disposition,
-      scout_required, root_cause_known, diagnosis_blocked, architecture_suspect,
+      scout_required, root_cause_known, diagnosis_blocked, architecture_suspect, architecture_review_required,
       lead_decision, split_count, qa_review_required, qa_review_passed, qa_passed,
       failure_class, failed_release_stage, publish_succeeded, migration_required,
       migration_files, dev_migration_applied, dev_migration_verified,
@@ -130,7 +131,7 @@ export async function mergeForgeWorkflowEvidence(
       ${processInstanceId}, ${storyId}, ${evidence.workType ?? null},
       ${evidence.researchDisposition ?? null}, ${evidence.scoutRequired ?? null},
       ${evidence.rootCauseKnown ?? null}, ${evidence.diagnosisBlocked ?? null},
-      ${evidence.architectureSuspect ?? null}, ${evidence.leadDecision ?? null},
+      ${evidence.architectureSuspect ?? null}, ${evidence.architectureReviewRequired ?? null}, ${evidence.leadDecision ?? null},
       ${evidence.splitCount ?? null}, ${evidence.qaReviewRequired ?? null},
       ${evidence.qaReviewPassed ?? null}, ${evidence.qaPassed ?? null},
       ${evidence.failureClass ?? null}, ${evidence.failedReleaseStage ?? null},
@@ -156,6 +157,7 @@ export async function mergeForgeWorkflowEvidence(
       root_cause_known = coalesce(excluded.root_cause_known, forge_workflow_evidence.root_cause_known),
       diagnosis_blocked = coalesce(excluded.diagnosis_blocked, forge_workflow_evidence.diagnosis_blocked),
       architecture_suspect = coalesce(excluded.architecture_suspect, forge_workflow_evidence.architecture_suspect),
+      architecture_review_required = coalesce(excluded.architecture_review_required, forge_workflow_evidence.architecture_review_required),
       lead_decision = coalesce(excluded.lead_decision, forge_workflow_evidence.lead_decision),
       split_count = coalesce(excluded.split_count, forge_workflow_evidence.split_count),
       qa_review_required = coalesce(excluded.qa_review_required, forge_workflow_evidence.qa_review_required),

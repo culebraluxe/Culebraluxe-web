@@ -79,6 +79,7 @@ const allowedEvidenceKeys = new Set<keyof ForgeGateEvidence>([
   'rootCauseKnown',
   'diagnosisBlocked',
   'architectureSuspect',
+  'architectureReviewRequired',
   'leadDecision',
   'splitCount',
   'findings',
