@@ -4,7 +4,13 @@ import {
   DEFAULT_RUN_WALL_CLOCK_MS,
   runWallClockBudgetMs,
 } from './agent-runtime-adapter'
-import { buildRunGuardrailsDirective, buildRunPassDirective, parseRunPassStop, runPassBudget } from './run-guardrails'
+import {
+  buildGroundingDirective,
+  buildRunGuardrailsDirective,
+  buildRunPassDirective,
+  parseRunPassStop,
+  runPassBudget,
+} from './run-guardrails'
 
 test('run budget: env override wins; missing falls back to the default', () => {
   assert.equal(runWallClockBudgetMs({ ...process.env, FORGE_RUN_MAX_MS: '1200000' }), 1_200_000)
@@ -31,4 +37,11 @@ test('bounded autonomy: a run stop disposition is machine-parseable', () => {
   assert.equal(parseRunPassStop('Some prose\nFORGE_PASS_STOP: NEEDS_REVIEW'), 'NEEDS_REVIEW')
   assert.equal(parseRunPassStop('FORGE_PASS_STOP: COMPLETE'), 'COMPLETE')
   assert.equal(parseRunPassStop('no disposition here'), null)
+})
+
+test('grounding: judgment roles must answer from context, never repo turn-search', () => {
+  const d = buildGroundingDirective()
+  assert.ok(d.includes('JUDGMENT role'))
+  assert.ok(d.includes('Do NOT run repo scans, broad searches, or exploratory tool turns'))
+  assert.ok(d.includes('HOLD/STOP'))
 })

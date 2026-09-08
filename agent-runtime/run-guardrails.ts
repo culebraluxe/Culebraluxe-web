@@ -52,3 +52,17 @@ export function buildRunPassDirective(env: NodeJS.ProcessEnv = process.env): str
     'End your run with exactly one machine line: FORGE_PASS_STOP: COMPLETE | NEEDS_REVIEW | NEEDS_MORE_PASSES',
   ].join('\n')
 }
+
+/**
+ * Grounding directive for JUDGMENT roles (architect/lead). The exact burn we saw
+ * was ungrounded judgment turning into repo-search loops. Scout is the searcher;
+ * architect/lead must answer from the provided context ONLY, and STOP if the
+ * grounding is insufficient — never go turn-search the repository.
+ */
+export function buildGroundingDirective(): string {
+  return [
+    'You are a JUDGMENT role (architect/lead). Answer from the PROVIDED context only: the scout research, story packet, and repo-context handed to you.',
+    'Do NOT run repo scans, broad searches, or exploratory tool turns to go find the answer. Grounding is a Scout responsibility, not yours.',
+    'If the provided grounding is insufficient to decide soundly, do NOT go searching. State that the grounding is insufficient and choose the HOLD/STOP disposition so a human/Scout can complete it.',
+  ].join('\n')
+}
