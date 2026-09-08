@@ -135,14 +135,14 @@ export async function getNextIssuedVersionForTemplate(
   }
 
   const rows = await q`
-    select issued_version
-    from transaction_document
-    where deal_id is not distinct from ${input.dealId ?? null}
-      and contract_id is null
-      and template_id = ${input.templateId}
-      and source = 'generated'
-      and issued_version is not null
-    order by issued_version desc, created_at desc
+    select td.issued_version
+    from transaction_document td
+    where td.deal_id is not distinct from ${input.dealId ?? null}
+      and to_jsonb(td)->>'contract_id' is null
+      and td.template_id = ${input.templateId}
+      and td.source = 'generated'
+      and td.issued_version is not null
+    order by td.issued_version desc, td.created_at desc
     limit 1
   `
   return Number((rows[0] as { issued_version?: unknown } | undefined)?.issued_version ?? 0) + 1
@@ -270,14 +270,14 @@ export async function issueFormDocument(
       )
     } else {
       const priorRows = await tx`
-        select id, issued_version
-        from transaction_document
-        where deal_id is not distinct from ${form.dealId}
-          and contract_id is null
-          and template_id = ${form.templateId}
-          and source = 'generated'
-          and issued_version is not null
-        order by issued_version desc, created_at desc
+        select td.id, td.issued_version
+        from transaction_document td
+        where td.deal_id is not distinct from ${form.dealId}
+          and to_jsonb(td)->>'contract_id' is null
+          and td.template_id = ${form.templateId}
+          and td.source = 'generated'
+          and td.issued_version is not null
+        order by td.issued_version desc, td.created_at desc
         limit 1
       `
       const legacyPrior = priorRows[0] as
