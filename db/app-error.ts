@@ -10,6 +10,8 @@ async function executor(): Promise<QueryExecutor> {
   return defaultExecutor
 }
 
+export type ErrorLevel = 'info' | 'warn' | 'error' | 'fatal'
+
 export type AppErrorRow = QueryRow & {
   id: string
   kind: string
@@ -21,6 +23,7 @@ export type AppErrorRow = QueryRow & {
   stack: string | null
   story_id: string | null
   route: string | null
+  level: string
   created_at: unknown
 }
 
@@ -34,6 +37,7 @@ export type RecordErrorInput = {
   stack?: string | null
   storyId?: string | null
   route?: string | null
+  level?: ErrorLevel
   meta?: Record<string, unknown> | null
 }
 
@@ -44,14 +48,14 @@ export async function recordError(
 ): Promise<AppErrorRow> {
   const q = execute ?? (await executor())
   const rows = await q`
-    insert into app_error (kind, operation, incident_id, code, message, retryable, stack, story_id, route, meta)
+    insert into app_error (kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, meta)
     values (
       ${input.kind}, ${input.operation ?? null}, ${input.incidentId ?? null}, ${input.code ?? null},
       ${input.message ?? null}, ${input.retryable ?? null}, ${input.stack ?? null},
-      ${input.storyId ?? null}, ${input.route ?? null},
+      ${input.storyId ?? null}, ${input.route ?? null}, ${input.level ?? 'error'},
       ${input.meta ? JSON.stringify(input.meta) : null}::jsonb
     )
-    returning id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, created_at
+    returning id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, created_at
   `
   return rows[0] as AppErrorRow
 }
@@ -69,7 +73,7 @@ export async function listRecentErrors(
 ): Promise<AppErrorRow[]> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, created_at
+    select id, kind, operation, incident_id, code, message, retryable, stack, story_id, route, level, created_at
     from app_error
     order by created_at desc
     limit ${Math.max(1, Math.min(limit, 200))}
