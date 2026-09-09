@@ -65,11 +65,30 @@ export function routeQaResult(input: {
   budget?: RepairBudget
   /** Scope B no-progress: same SHA re-failed same machine class with no new candidate. */
   noProgress?: boolean
+  /**
+   * Verification/config gap (claude-orchestrate): the failure is NOT a candidate
+   * defect — Assay could not form/run a valid command plan (missing ## Assay
+   * commands, no frozen plan). Repairing or upgrading the model cannot help, so
+   * this must route to a durable HOLD, never to smith/architect. This is what
+   * stops the "assay can never pass -> repair forever" deadlock.
+   */
+  verificationGap?: boolean
 }): RepairRouting {
   const budget = input.budget ?? DEFAULT_REPAIR_BUDGET
 
   if (input.verdict === 'PASS') {
     return { action: 'pass' }
+  }
+
+  // Verification/config gap: no candidate defect to fix. A stronger model or a
+  // repair cycle buys another equally-unverifiable attempt -> terminal HOLD.
+  if (input.verificationGap === true) {
+    return {
+      action: 'hold',
+      reason:
+        'VERIFICATION GAP: QA could not form/run a valid assay command plan (missing ## Assay commands or no frozen plan). ' +
+        'Repair cannot help; fix the packet/config, then re-dispatch.',
+    }
   }
 
   // Scope B no-progress guard: the machine has already failed this exact
