@@ -65,13 +65,16 @@ test('lead handoff gate: a HOLD verdict on a Smith dispatch actually blocks the 
   assert.ok(leadPreDispatchHoldReasons('SPLIT', FOUR_CHUNK).length > 0)
 })
 
-test('lead handoff gate: sound plans, non-dispatch decisions, and NO_PLAN never hold', () => {
+test('lead handoff gate: NO_PLAN on a SMITH/SPLIT dispatch now HOLDS (authoritative pre-Smith fuse)', () => {
   // Sound in-bounds plan on a SMITH dispatch => no hold.
   assert.deepEqual(leadPreDispatchHoldReasons('SMITH', VALID_2), [])
   // Decisions that do not dispatch (SOLO/HOLD) are not gated even with a plan present.
   assert.deepEqual(leadPreDispatchHoldReasons('SOLO', FOUR_CHUNK), [])
   assert.deepEqual(leadPreDispatchHoldReasons('HOLD', FOUR_CHUNK), [])
   assert.deepEqual(leadPreDispatchHoldReasons(undefined, FOUR_CHUNK), [])
-  // No LEAD_PLAN emitted on a SMITH dispatch => NO_PLAN => no hold (additive contract).
-  assert.deepEqual(leadPreDispatchHoldReasons('SMITH', 'decision only'), [])
+  // A dispatch with NO assessable LEAD_PLAN must HOLD back to Lead (not start Smith).
+  const noPlanSmith = leadPreDispatchHoldReasons('SMITH', 'decision only')
+  assert.ok(noPlanSmith.length > 0, 'SMITH with no LEAD_PLAN must hold pre-Smith')
+  assert.ok(noPlanSmith[0]!.includes('lead-plan:missing'))
+  assert.ok(leadPreDispatchHoldReasons('SPLIT', 'decision only').length > 0)
 })

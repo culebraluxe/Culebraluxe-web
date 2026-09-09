@@ -18,10 +18,10 @@
 //   }
 //
 // When present and valid it yields a full SmithExecutionPlan the gate can
-// assess PRE-Smith. Absent or malformed is NO_PLAN (NOT a HOLD): this is
-// behavior-preserving — real runs keep today's path until the contract is
-// proven reliably emitted by dogfood, at which point the enqueue seam can be
-// made authoritative (HOLD on absent plan when warranted).
+// assess PRE-Smith. Absent is NO_PLAN. AUTHORITATIVE: for a Lead that decided
+// to dispatch to Smith (SMITH/SPLIT), NO_PLAN is itself a HOLD back to Lead —
+// the pre-Smith fuse must never be silently skipped because Lead emitted no
+// plan.
 //
 // Pure, DB-free, unit-testable.
 // ---------------------------------------------------------------------------
@@ -131,16 +131,21 @@ export type LeadDispatchDecision = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
 
 /** The running handoff gate for lead_pre: does this Lead handoff that decided to
  *  dispatch to Smith (SMITH/SPLIT) have to be HELD BEFORE any Smith lane starts?
- *  Returns hold reasons ([] = safe to hand off). Lead decisions that do NOT
- *  dispatch (SOLO/HOLD) and NO_PLAN (Lead emitted no LEAD_PLAN) never hold — the
- *  structured-plan contract is additive until dogfood proves Lead emits it
- *  reliably, at which point absent-plan policy can be tightened separately. */
+ *  Returns hold reasons ([] = safe to hand off).
+ *
+ *  AUTHORITATIVE: a SMITH/SPLIT dispatch may NOT start Smith unless Lead emitted
+ *  an assessable LEAD_PLAN. Missing plan (NO_PLAN) is itself a HOLD back to Lead
+ *  — the pre-Smith fuse must not be silently skipped just because Lead did not
+ *  produce a plan. Decisions that do NOT dispatch (SOLO/HOLD) are not gated. */
 export function leadPreDispatchHoldReasons(
   leadDecision: LeadDispatchDecision | undefined,
   notes: string | null | undefined,
 ): string[] {
   if (leadDecision !== 'SMITH' && leadDecision !== 'SPLIT') return []
   const gate = assessLeadPreDispatch(notes)
-  if (gate.verdict !== 'HOLD') return []
-  return gate.reasons.map((r) => `lead-plan:${r}`)
+  if (gate.verdict === 'HOLD') return gate.reasons.map((r) => `lead-plan:${r}`)
+  if (gate.verdict === 'NO_PLAN') {
+    return ['lead-plan:missing (SMITH/SPLIT requires an assessable LEAD_PLAN before Smith starts)']
+  }
+  return []
 }

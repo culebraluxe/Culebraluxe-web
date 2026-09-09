@@ -48,9 +48,10 @@ test('V11 legacy marker path remains available so overnight can advance', () => 
   assert.equal(marked.scoutRequired, true)
 })
 
-test('V11 routing brain defaults to reducer and detects dual-write', () => {
-  assert.equal(parseForgeRoutingBrain(undefined), 'reducer')
+test('V11 routing brain defaults to engine (canonical) and detects dual-write', () => {
+  assert.equal(parseForgeRoutingBrain(undefined), 'engine')
   assert.equal(parseForgeRoutingBrain('engine'), 'engine')
+  assert.equal(parseForgeRoutingBrain('reducer'), 'reducer') // only when explicit
   assert.equal(forgeRoutingBrainShouldFollowReducer('reducer'), true)
   assert.equal(
     detectForgeDualWrite({
