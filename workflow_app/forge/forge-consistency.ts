@@ -29,6 +29,10 @@ export const SCOUT_NODES: ReadonlySet<string> = new Set([
 export type StoryConsistencySnapshot = {
   storyId: string
   storyStatus: string
+  /** V1 (pre-V2-standards) closed stories are "done done" and exempt from
+   *  Forge consistency audits — they were built under older rules, not the
+   *  engine. When true the janitor skips the story entirely. */
+  v1Legacy?: boolean
   /** Durable workflow evidence for the story's latest Forge instance, if any. */
   evidence: {
     candidateSha: string | null
@@ -65,6 +69,19 @@ function isStoryTerminal(s: string): boolean {
   return terminalStoryStatuses.has(s.toLowerCase())
 }
 
+/** Story statuses that mean work is actually in flight right now (as opposed to
+ *  backlog/passive states like Planned/Deferred/Hold/Ready, where having no open
+ *  task is expected). */
+function isStoryActive(s: string): boolean {
+  const x = s.toLowerCase()
+  return (
+    x.includes('in progress') ||
+    x.includes('in_progress') ||
+    x === 'active' ||
+    x.includes('running')
+  )
+}
+
 /** I1 — a story marked "Complete" that the Forge engine processed (it has
  *  durable evidence) yet completed with no build behind it — no candidate, no
  *  verified/passed QA (scout-only or empty build evidence). Legacy stories that
@@ -85,21 +102,20 @@ function completeWithOnlyScoutEvidence(s: StoryConsistencySnapshot): Consistency
   }
 }
 
-/** I2 — a story that STARTED (it has run/engine evidence) but is not terminal
- *  and has no open task and no candidate: a started run parked/abandoned without
- *  reaching a terminal. Backlog stories that have never run (no evidence) are not
- *  violations — having no open task before a story is picked up is expected. */
+/** I2 — a story whose work is genuinely IN FLIGHT (active/in-progress status)
+ *  but that has no open task and no candidate: stuck/parked mid-flight.
+ *  Terminal and passive/backlog states (Planned, Deferred, Hold, Ready) are not
+ *  violations — having no open task there is expected, not a stuck run. */
 function inProgressNoActionableWork(s: StoryConsistencySnapshot): ConsistencyViolation | null {
   if (isStoryTerminal(s.storyStatus)) return null
-  const started = Boolean(s.evidence) || Boolean(s.run?.resultStatus)
-  if (!started) return null
+  if (!isStoryActive(s.storyStatus)) return null
   if (s.openTaskCount > 0) return null
   if (s.evidence?.candidateSha) return null
   return {
     storyId: s.storyId,
     kind: 'in-progress-no-actionable-work',
     severity: 'warn',
-    detail: `story '${s.storyStatus}' started but has no open task and no candidate (openTaskCount=0)`,
+    detail: `story '${s.storyStatus}' is in flight but has no open task and no candidate (openTaskCount=0)`,
   }
 }
 
@@ -162,6 +178,7 @@ function terminalDisagreement(s: StoryConsistencySnapshot): ConsistencyViolation
 export function auditStoryConsistency(
   snapshot: StoryConsistencySnapshot,
 ): ConsistencyViolation[] {
+  if (snapshot.v1Legacy) return []
   const out: ConsistencyViolation[] = []
   const detectors = [
     completeWithOnlyScoutEvidence,

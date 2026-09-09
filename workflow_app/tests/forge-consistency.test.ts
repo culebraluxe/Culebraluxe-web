@@ -15,6 +15,16 @@ const base = (over: Partial<StoryConsistencySnapshot>): StoryConsistencySnapshot
   ...over,
 })
 
+test('V1-exempt: a legacy story is skipped entirely even when it would otherwise fire', () => {
+  const v = auditStoryConsistency(
+    base({
+      v1Legacy: true,
+      evidence: { candidateSha: 'x'.repeat(40), qaPassed: null, qaVerifiedSha: null, publishedSha: null, deployedSha: null },
+    }),
+  )
+  assert.deepEqual(v, [])
+})
+
 test('consistency: a clean complete story (candidate + assay + publish) has no violations', () => {
   const v = auditStoryConsistency(
     base({
@@ -54,26 +64,27 @@ test('I1: Complete with a real candidate is NOT scout-only', () => {
   assert.ok(!v.some((x) => x.kind === 'complete-with-only-scout-evidence'))
 })
 
-test('I2: a story that STARTED (has run/evidence) but is stuck with no task is flagged', () => {
+test('I2: an actively in-flight story stuck with no open task is flagged', () => {
   const v = auditStoryConsistency(
     base({
-      storyStatus: 'Planned',
+      storyStatus: 'In Progress',
       run: { resultStatus: 'Partial' },
-      evidence: { candidateSha: null, qaPassed: null, qaVerifiedSha: null, publishedSha: null, deployedSha: null },
       openTaskCount: 0,
     }),
   )
   assert.ok(v.some((x) => x.kind === 'in-progress-no-actionable-work'))
 })
 
-test('I2: an open task means there IS actionable work', () => {
-  const v = auditStoryConsistency(base({ storyStatus: 'Planned', run: { resultStatus: 'Partial' }, openTaskCount: 1 }))
+test('I2: an in-flight story WITH an open task has actionable work', () => {
+  const v = auditStoryConsistency(base({ storyStatus: 'In Progress', openTaskCount: 1 }))
   assert.ok(!v.some((x) => x.kind === 'in-progress-no-actionable-work'))
 })
 
-test('I2: a backlog story that never started (no run/evidence) is NOT flagged', () => {
-  const v = auditStoryConsistency(base({ storyStatus: 'Planned' }))
-  assert.ok(!v.some((x) => x.kind === 'in-progress-no-actionable-work'))
+test('I2: backlog/passive stories (Planned/Deferred/Hold) are NOT flagged even with an old run', () => {
+  for (const status of ['Planned', 'Deferred', 'Hold', 'Ready']) {
+    const v = auditStoryConsistency(base({ storyStatus: status, run: { resultStatus: 'Failed' } }))
+    assert.ok(!v.some((x) => x.kind === 'in-progress-no-actionable-work'), `${status} should not fire I2`)
+  }
 })
 
 test('I3: a candidate with no Assay result is flagged', () => {

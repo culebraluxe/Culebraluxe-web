@@ -21,6 +21,18 @@ const asJson = args.includes('--json')
 async function main() {
   const stories = await listStoryboardStories()
   if (!stories) throw new Error('storyboard unavailable')
+  // V1 (pre-V2) legacy-closed stories are exempt from Forge consistency audits.
+  const v1LegacyById = new Map<string, boolean>()
+  try {
+    const { sql } = await import('../db/client')
+    const rows = (await sql`select id, forge_v1_legacy from storyboard_story`) as Array<{
+      id: string
+      forge_v1_legacy: boolean
+    }>
+    for (const r of rows) v1LegacyById.set(r.id, r.forge_v1_legacy === true)
+  } catch {
+    /* table/column unavailable in this env -> no exemptions (audits everything) */
+  }
   const runByStory = new Map<string, string | null>()
   try {
     const summaries = await listStoryExecutionSummaries()
@@ -59,6 +71,7 @@ async function main() {
     const snapshot: StoryConsistencySnapshot = {
       storyId: story.id,
       storyStatus: story.status ?? '',
+      v1Legacy: v1LegacyById.get(story.id) ?? false,
       evidence,
       run: { resultStatus: runByStory.get(story.id) ?? null },
       engineNodesCompleted: [],
