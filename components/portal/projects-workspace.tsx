@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   AlertCircle,
@@ -32,6 +32,14 @@ import {
   ProjectsWorkspaceController,
 } from "@/ui/projects"
 import { usePageController } from "@/ui/runtime"
+import { Tree } from "react-arborist"
+import type { NodeApi, NodeRendererProps } from "react-arborist"
+import {
+  buildProjectTree,
+  openAncestorsForSelected,
+  selectedTreeNodeId,
+  type ProjectTreeNode,
+} from "@/ui/projects/tree-projection"
 
 const DOMAIN_ICON: Record<ProjectDomainKey, LucideIcon> = {
   properties: Home,
@@ -163,14 +171,26 @@ function DomainRail({ domains, active, onSelect }: DomainRailProps) {
   )
 }
 
-type NodeRowProps = {
-  node: ProjectWorkNode
-  depth: number
-  selectedNodeId: string | null
-  onSelectNode: (id: string | null) => void
+function useMeasuredHeight() {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [height, setHeight] = useState(560)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => setHeight(Math.max(200, el.clientHeight))
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, height] as const
 }
 
-function nodeDotNavy(status: ProjectWorkStatus) {
+function treeRowHeight(node: NodeApi<ProjectTreeNode>): number {
+  return node.data.kind === "pole" ? 56 : node.data.kind === "project" ? 40 : 32
+}
+
+function navyWorkDot(status?: ProjectWorkStatus): string {
   if (status === "complete") return "bg-[var(--portal-success)]"
   if (status === "waiting") return "bg-[var(--portal-gold)]"
   if (status === "blocked") return "bg-[var(--portal-archive)]"
@@ -178,104 +198,70 @@ function nodeDotNavy(status: ProjectWorkStatus) {
   return "bg-white/30"
 }
 
-function NodeRow({ node, depth, selectedNodeId, onSelectNode }: NodeRowProps) {
-  const selected = node.id === selectedNodeId
+function ToggleButton({ node }: { node: NodeApi<ProjectTreeNode> }) {
+  if (node.isLeaf) return <span className="w-4 shrink-0" aria-hidden />
   return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onSelectNode(selected ? null : node.id)}
-        className={`flex w-full items-center gap-2 rounded-[var(--portal-tab-radius)] px-2 py-1.5 text-left transition ${selected ? "bg-white/15 ring-1 ring-inset ring-white/25" : "hover:bg-white/10"}`}
-        style={{ paddingLeft: `${10 + depth * 14}px` }}
-      >
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${nodeDotNavy(node.status)}`} />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-light text-white/85">{node.title}</span>
-        {node.children?.length ? <ChevronRight className="h-3 w-3 shrink-0 text-white/40" aria-hidden /> : null}
-      </button>
-      {node.children?.length ? (
-        <ul>
-          {node.children.map((child) => (
-            <NodeRow key={child.id} node={child} depth={depth + 1} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
-          ))}
-        </ul>
-      ) : null}
-    </li>
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        node.toggle()
+      }}
+      aria-label={node.isOpen ? "Collapse" : "Expand"}
+      className="flex h-6 w-4 shrink-0 items-center justify-center rounded text-white/55 transition hover:text-white"
+    >
+      <ChevronDown className={`h-3.5 w-3.5 transition ${node.isOpen ? "" : "-rotate-90"}`} aria-hidden />
+    </button>
   )
 }
 
-type NavigatorProps = {
-  poles: ProjectPole[]
-  expanded: string[]
-  selectedPoleId: string | null
-  selectedProjectId: string | null
-  selectedNodeId: string | null
-  onTogglePole: (poleId: string) => void
-  onSelectProject: (poleId: string, projectId: string) => void
-  onSelectNode: (nodeId: string | null) => void
-}
+function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>) {
+  const d = node.data
+  const selected = node.isSelected
+  const focus = node.isFocused ? "ring-1 ring-inset ring-white/25" : ""
 
-function Navigator({ poles, expanded, selectedPoleId, selectedProjectId, selectedNodeId, onTogglePole, onSelectProject, onSelectNode }: NavigatorProps) {
-  if (poles.length === 0) {
-    return <p className="px-3 py-6 text-center text-sm font-light text-white/60">No matches in this domain.</p>
+  if (d.kind === "pole") {
+    const Icon = DOMAIN_ICON[d.domain ?? "properties"]
+    return (
+      <div style={style} className={`flex items-center gap-2 rounded-xl px-1 ${selected ? "bg-white/10 shadow-[0_2px_12px_rgba(0,0,0,0.16)]" : ""} ${focus}`}>
+        <ToggleButton node={node} />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15">
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-serif text-[16px] font-light leading-tight text-white/95">{d.label}</span>
+          {d.subtitle ? <span className="block truncate text-[10.5px] font-light text-white/55">{d.subtitle}</span> : null}
+        </span>
+        {typeof d.progress === "number" ? (
+          <span className="flex shrink-0 items-center gap-1.5 pr-1">
+            <Progress value={d.progress} className="w-11" />
+            <span className="text-[9px] font-light text-white/50">{d.progress}%</span>
+          </span>
+        ) : null}
+      </div>
+    )
   }
-  return (
-    <ul className="space-y-1 px-1.5 pb-2">
-      {poles.map((pole) => {
-        const isExpanded = expanded.includes(pole.id)
-        const poleActive = pole.id === selectedPoleId
-        const Icon = DOMAIN_ICON[pole.domain]
-        return (
-          <li key={pole.id}>
-            <div className={`rounded-[var(--portal-tab-radius)] transition ${poleActive ? "bg-white/10 shadow-[0_2px_12px_rgba(0,0,0,0.16)] ring-1 ring-inset ring-white/20" : "hover:bg-white/5"}`}>
-              <button type="button" onClick={() => onTogglePole(pole.id)} className="flex w-full items-start gap-2.5 px-2 py-2 text-left">
-                <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] shadow-sm ${poleActive ? "bg-[var(--portal-gold)] text-[#07152e] shadow-md" : "bg-white/10 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15"}`}>
-                  <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-white/50 transition ${isExpanded ? "" : "-rotate-90"}`} aria-hidden />
-                    <span className="truncate font-serif text-[17px] font-light leading-tight text-white/95">{pole.label}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate pl-[18px] text-[10.5px] font-light text-white/55">{pole.subtitle}</span>
-                  <span className="mt-1.5 flex items-center gap-2 pl-[18px]">
-                    <Progress value={pole.progress} className="max-w-[64px] opacity-90" />
-                    <span className="text-[9px] font-light uppercase tracking-[0.1em] text-white/50">{pole.progress}%</span>
-                  </span>
-                </span>
-              </button>
 
-              {isExpanded && pole.projects.length > 0 ? (
-                <div className="pb-1.5 pl-[13px]">
-                  {pole.projects.map((project) => {
-                    const projectActive = pole.id === selectedPoleId && project.id === selectedProjectId
-                    return (
-                      <div key={project.id} className="mb-0.5 border-l border-white/15 pl-2.5">
-                        <button
-                          type="button"
-                          onClick={() => onSelectProject(pole.id, project.id)}
-                          className={`mt-1 flex w-full items-center gap-1.5 rounded-[var(--portal-tab-radius)] px-2 py-1.5 text-left transition ${projectActive ? "bg-white/10 ring-1 ring-inset ring-white/15" : "hover:bg-white/5"}`}
-                        >
-                          <span className="text-[8.5px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold)]">{project.kind}</span>
-                          <span className="min-w-0 flex-1 truncate text-[13.5px] text-white/85">{project.title}</span>
-                          <span className="text-[9px] font-light text-white/45">{project.progress}%</span>
-                        </button>
-                        {projectActive ? (
-                          <ul className="mt-0.5 space-y-px">
-                            {project.workNodes.map((node) => (
-                              <NodeRow key={node.id} node={node} depth={1} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : null}
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+  if (d.kind === "project") {
+    const kind = (d.meta ?? "").split(" · ")[0] ?? ""
+    return (
+      <div style={style} className={`flex items-center gap-1.5 rounded-lg px-1 ${selected ? "bg-white/10" : ""} ${focus}`}>
+        <ToggleButton node={node} />
+        {kind ? <span className="shrink-0 text-[8px] font-medium uppercase tracking-[0.1em] text-[var(--portal-gold)]">{kind}</span> : null}
+        <span className="min-w-0 flex-1 truncate text-[13px] text-white/90">{d.label}</span>
+        {typeof d.progress === "number" ? <span className="shrink-0 pr-1 text-[9px] font-light text-white/45">{d.progress}%</span> : null}
+      </div>
+    )
+  }
+
+  const parts = (d.meta ?? "").split(" · ")
+  return (
+    <div style={style} className={`flex items-center gap-2 rounded-md px-1 ${selected ? "bg-white/15 ring-1 ring-inset ring-white/25" : ""} ${focus}`}>
+      <ToggleButton node={node} />
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${navyWorkDot(d.status)}`} />
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-white/90">{d.label}</span>
+      {parts[0] ? <span className="shrink-0 text-[8.5px] font-medium uppercase tracking-[0.06em] text-[var(--portal-gold)]">{parts[0]}</span> : null}
+    </div>
   )
 }
 
@@ -283,21 +269,34 @@ type PaneOneProps = {
   domains: ReadonlyArray<{ key: ProjectDomainKey; label: string; shortLabel: string }>
   activeDomain: ProjectDomainKey
   query: string
-  poles: ProjectPole[]
-  expanded: string[]
-  selectedPoleId: string | null
-  selectedProjectId: string | null
-  selectedNodeId: string | null
+  treeData: ProjectTreeNode[]
+  selectedCompositeId: string | null
   onSelectDomain: (d: ProjectDomainKey) => void
   onQuery: (q: string) => void
-  onTogglePole: (id: string) => void
-  onSelectProject: (poleId: string, projectId: string) => void
-  onSelectNode: (id: string | null) => void
+  onSelectData: (node: ProjectTreeNode | null) => void
+  onActivateData?: (node: ProjectTreeNode) => void
 }
 
-/** Pane 1 — ONE glass object: vertical domain tabs fused with the Pole→Project→WBS tree. */
+/** Pane 1 — ONE glass object: vertical domain tabs fused with the arborist tree. */
 function PaneOne(props: PaneOneProps) {
   const activeLabel = props.domains.find((d) => d.key === props.activeDomain)?.label ?? ""
+  const [treeWrapRef, height] = useMeasuredHeight()
+  const initialOpen = useMemo(
+    () => openAncestorsForSelected(props.treeData, props.selectedCompositeId),
+    [props.treeData, props.selectedCompositeId],
+  )
+  const searchMatch = useCallback(
+    (node: NodeApi<ProjectTreeNode>, term: string) =>
+      term.trim() ? node.data.searchText.includes(term.trim().toLowerCase()) : true,
+    [],
+  )
+  const handleSelect = useCallback(
+    (nodes: NodeApi<ProjectTreeNode>[]) => {
+      const first = nodes[0]
+      if (first) props.onSelectData(first.data)
+    },
+    [props],
+  )
   return (
     <section
       className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
@@ -318,17 +317,32 @@ function PaneOne(props: PaneOneProps) {
               />
             </label>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto py-1.5">
-            <Navigator
-              poles={props.poles}
-              expanded={props.expanded}
-              selectedPoleId={props.selectedPoleId}
-              selectedProjectId={props.selectedProjectId}
-              selectedNodeId={props.selectedNodeId}
-              onTogglePole={props.onTogglePole}
-              onSelectProject={props.onSelectProject}
-              onSelectNode={props.onSelectNode}
-            />
+          <div ref={treeWrapRef} className="min-h-0 flex-1 overflow-hidden px-1 pt-1.5">
+            <Tree<ProjectTreeNode>
+              key={props.activeDomain}
+              data={props.treeData}
+              selection={props.selectedCompositeId ?? undefined}
+              initialOpenState={initialOpen}
+              openByDefault={false}
+              searchTerm={props.query}
+              searchMatch={searchMatch}
+              width="100%"
+              height={height}
+              indent={14}
+              rowHeight={treeRowHeight}
+              overscanCount={6}
+              disableDrag
+              disableDrop
+              disableEdit
+              disableMultiSelection
+              onSelect={handleSelect}
+              onActivate={(node) => {
+                if (props.onActivateData) props.onActivateData(node.data)
+                if (!node.isLeaf) node.toggle()
+              }}
+            >
+              {ProjectTreeNodeView}
+            </Tree>
           </div>
         </div>
       </div>
@@ -588,12 +602,41 @@ export function ProjectsWorkspace() {
   }, [controller])
 
   const domains = model.data?.domains ?? []
-  const poles = (model.data?.poles ?? [])
-    .filter((pole) => pole.domain === model.activeDomain)
-    .filter((pole) => poleMatches(pole, model.query))
+  const domainPoles = (model.data?.poles ?? []).filter((pole) => pole.domain === model.activeDomain)
+  const treeData = useMemo(() => buildProjectTree(domainPoles), [domainPoles])
+  const selectedCompositeId = useMemo(
+    () =>
+      selectedTreeNodeId(treeData, {
+        poleId: model.selectedPoleId,
+        projectId: model.selectedProjectId,
+        nodeId: model.selectedNodeId,
+      }),
+    [treeData, model.selectedPoleId, model.selectedProjectId, model.selectedNodeId],
+  )
   const selectedPole = (model.data?.poles ?? []).find((p) => p.id === model.selectedPoleId) ?? null
   const selectedProject = selectedPole?.projects.find((p) => p.id === model.selectedProjectId) ?? null
   const selectedNode = findWorkNode(selectedProject, model.selectedNodeId)
+
+  const handleTreeSelect = useCallback(
+    (node: ProjectTreeNode | null) => {
+      if (!node) return
+      if (node.kind === "pole") {
+        void controller.dispatch({ operation: "projects.selectPole", payload: { poleId: node.poleId } })
+      } else if (node.kind === "project") {
+        void controller.dispatch({
+          operation: "projects.selectProject",
+          payload: { poleId: node.poleId, projectId: node.projectId ?? "" },
+        })
+      } else {
+        void controller.dispatch({
+          operation: "projects.selectProject",
+          payload: { poleId: node.poleId, projectId: node.projectId ?? "" },
+        })
+        void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId: node.workNodeId ?? null } })
+      }
+    },
+    [controller],
+  )
 
   if (model.error) {
     return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">Could not load the Projects workspace: {model.error}</p>
@@ -608,18 +651,11 @@ export function ProjectsWorkspace() {
         domains={domains}
         activeDomain={model.activeDomain}
         query={model.query}
-        poles={poles}
-        expanded={model.expandedPoleIds}
-        selectedPoleId={model.selectedPoleId}
-        selectedProjectId={model.selectedProjectId}
-        selectedNodeId={model.selectedNodeId}
+        treeData={treeData}
+        selectedCompositeId={selectedCompositeId}
         onSelectDomain={(domain) => void controller.dispatch({ operation: "projects.selectDomain", payload: { domain } })}
         onQuery={(query) => void controller.dispatch({ operation: "projects.queryChanged", payload: { query } })}
-        onTogglePole={(poleId) => void controller.dispatch({ operation: "projects.togglePole", payload: { poleId } })}
-        onSelectProject={(poleId, projectId) =>
-          void controller.dispatch({ operation: "projects.selectProject", payload: { poleId, projectId } })
-        }
-        onSelectNode={(nodeId) => void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId } })}
+        onSelectData={handleTreeSelect}
       />
       <PaneTwo
         pole={selectedPole}
