@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ForgePhaseAgent } from '../forge/agents/forge-phase-agent'
+import {
+  ForgePhaseAgent,
+  buildSelfHealDirective,
+  parseDeliverableRepromptBudget,
+} from '../forge/agents/forge-phase-agent'
 import {
   ArchitectAgent,
   DevOpsAgent,
@@ -110,4 +114,20 @@ test('routingDecisionMissing: non-routing nodes have no requirement', () => {
   const smith = forgeAgentFor('smith') as SmithAgent
   assert.equal(scout.routingDecisionMissing(ev({}) as never), null)
   assert.equal(smith.routingDecisionMissing(ev({}) as never), null)
+})
+
+test('parseDeliverableRepromptBudget bounds the self-heal reprompts', () => {
+  assert.equal(parseDeliverableRepromptBudget(undefined), 1)
+  assert.equal(parseDeliverableRepromptBudget('2'), 2)
+  assert.equal(parseDeliverableRepromptBudget('0'), 0)
+  assert.equal(parseDeliverableRepromptBudget('-3'), 1)
+  assert.equal(parseDeliverableRepromptBudget('garbage'), 1)
+})
+
+test('buildSelfHealDirective names the missing fields and restates required output', () => {
+  const d = buildSelfHealDirective('research_architect', ['routing:research_disposition'], 'SOME_INSTRUCTION')
+  assert.ok(d.startsWith('SELF-HEAL REPROMPT (node research_architect):'))
+  assert.ok(d.includes('routing:research_disposition'))
+  assert.ok(d.includes('SOME_INSTRUCTION'))
+  assert.ok(buildSelfHealDirective('lead_pre', ['lead_decision'], null).includes('lead_decision'))
 })

@@ -34,7 +34,11 @@ import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from 
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
-import { rawRoleOutput } from './agents/forge-phase-agent'
+import {
+  buildSelfHealDirective,
+  parseDeliverableRepromptBudget,
+  rawRoleOutput,
+} from './agents/forge-phase-agent'
 import { forgeAgentFor } from './agents/role-agents'
 import {
   forgeEvidenceFromAgentResult,
@@ -80,6 +84,19 @@ export function createAgentRuntimeForgeRoleRunner(
     const resolvedStory = await getStoryboardStory(String(subjectRows[0]?.subject_id ?? ''))
     if (!resolvedStory) throw new Error(`Forge engine task ${task.taskId} has no Storyboard story`)
 
+    // Bounded self-heal. When the enforced gate (FORGE_ENFORCE_DELIVERABLES=1)
+    // HOLDs a *successful* run for a missing deliverable / routing decision, we
+    // re-run the role up to `totalAttempts` times (1 initial + the
+    // FORGE_DELIVERABLE_RETRIES budget), feeding each corrective re-run a
+    // directive that names exactly what was missing. Only a fixable miss on an
+    // otherwise-successful run triggers a reprompt; hard runtime failures below
+    // still throw immediately. On the final attempt a miss is a real HOLD.
+    const enforceDeliverables = process.env.FORGE_ENFORCE_DELIVERABLES === '1'
+    const totalAttempts = enforceDeliverables
+      ? Math.max(1, parseDeliverableRepromptBudget(process.env.FORGE_DELIVERABLE_RETRIES) + 1)
+      : 1
+    let correctiveNote = ''
+    for (let attempt = 0; attempt < totalAttempts; attempt++) {
     const plan = forgeRoleNodePlan(nodeId)
     const branchInstruction =
       nodeId === 'smith_split_work'
@@ -108,6 +125,7 @@ export function createAgentRuntimeForgeRoleRunner(
       : null
 
     const extraInstructions = [
+      correctiveNote,
       identityInstruction,
       branchInstruction,
       plan.evidenceInstruction,
@@ -141,15 +159,17 @@ export function createAgentRuntimeForgeRoleRunner(
       executionEnvironment: target,
       executionPolicy: 'Unattended OK',
     })
-    await linkForgeEngineTaskExecution({
-      taskId: task.taskId,
-      processInstanceId: task.processInstanceId,
-      tokenId: task.tokenId,
-      storyId: resolvedStory.id,
-      nodeId,
-      workItemId: queued.id,
-      workerId: options.workerId,
-    })
+    if (attempt === 0) {
+      await linkForgeEngineTaskExecution({
+        taskId: task.taskId,
+        processInstanceId: task.processInstanceId,
+        tokenId: task.tokenId,
+        storyId: resolvedStory.id,
+        nodeId,
+        workItemId: queued.id,
+        workerId: options.workerId,
+      })
+    }
     const claimed = await work.claimSpecific(queued.id, options.workerId)
     if (!claimed) {
       throw new Error(`Forge engine task ${task.taskId} could not claim agent work item ${queued.id}`)
@@ -259,30 +279,43 @@ export function createAgentRuntimeForgeRoleRunner(
 
     // ENG-FORGE-PHASE-AGENT Phase 3 — enforced deliverable gate. When
     // FORGE_ENFORCE_DELIVERABLES=1, a role that reports success but did NOT
-    // produce its declared deliverable is HOLDed (thrown -> forge-executor
-    // releases the task for retry) instead of silently advancing. OFF by default
-    // so existing model-flaky runs keep current behavior until proven live.
-    if (process.env.FORGE_ENFORCE_DELIVERABLES === '1' && successful) {
+    // produce its declared deliverable or a valid routing decision is HOLDed
+    // (thrown -> forge-executor releases the task) instead of silently advancing.
+    // OFF by default so existing model-flaky runs keep current behavior.
+    const miss: string[] = []
+    if (enforceDeliverables && successful) {
       const missing = agent.missingDeliverables(evidence, raw, scoutDelivered, architectDelivered)
       // Routing-decision validation: even a phase whose WORK persisted must leave a
       // usable engine routing decision (research_architect -> research_disposition;
       // lead -> lead_decision). A null/invalid decision is a HOLD, not a pass.
       const routeMiss = agent.routingDecisionMissing(evidence)
       if (routeMiss) missing.push(`routing:${routeMiss}`)
-      if (missing.length > 0) {
-        throw new Error(`Forge ${nodeId} HOLD: role did not deliver ${missing.join(', ')}`)
+      miss.push(...missing)
+    }
+
+    if (miss.length === 0) {
+      await finishForgeEngineTaskExecution(task.taskId, {
+        storyRunId: finishedItem?.storyRunId ?? null,
+        status: successful ? 'completed' : 'failed',
+      })
+      return {
+        transitionName: 'complete',
+        evidence,
       }
     }
 
-    await finishForgeEngineTaskExecution(task.taskId, {
-      storyRunId: finishedItem?.storyRunId ?? null,
-      status: /pass|success|complete/i.test(result.evidence.resultStatus)
-        ? 'completed'
-        : 'failed',
-    })
-    return {
-      transitionName: 'complete',
-      evidence,
+    // Bounded self-heal: an otherwise-successful run that missed a deliverable or
+    // routing decision is re-run with a corrective directive naming what was
+    // missing. Only when the reprompt budget is exhausted do we throw the HOLD.
+    if (attempt + 1 < totalAttempts) {
+      correctiveNote = buildSelfHealDirective(nodeId, miss, plan.evidenceInstruction)
+      continue
     }
+    throw new Error(
+      `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}`,
+    )
+    }
+    // Unreachable: the loop always returns (pass) or throws (final HOLD).
+    throw new Error(`Forge ${nodeId} exhausted reprompt attempts without a verdict`)
   }
 }

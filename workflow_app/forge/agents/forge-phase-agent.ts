@@ -37,6 +37,33 @@ export function rawRoleOutput(notes?: string | null, testsSummary?: string | nul
   return [notes, testsSummary].filter(Boolean).join('\n').trim()
 }
 
+/** Number of corrective re-runs allowed after the first model run, from
+ * FORGE_DELIVERABLE_RETRIES (default 1). A clean, parseable non-negative int wins;
+ * anything unset/invalid falls back to 1. Only meaningful when the enforced gate
+ * is ON — otherwise there is never a HOLD to self-heal. */
+export function parseDeliverableRepromptBudget(raw: string | undefined): number {
+  const n = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(n) && n >= 0 ? n : 1
+}
+
+/** Bounded self-heal directive for a successful-but-HOLDed role run: tells the
+ * model, on a corrective re-run, exactly which deliverable / routing field was
+ * missing and restates the required structured output. */
+export function buildSelfHealDirective(
+  nodeId: string,
+  missing: readonly string[],
+  evidenceInstruction: string | null | undefined,
+): string {
+  const fields = missing.length > 0 ? missing.join(', ') : '(unreported)'
+  return (
+    `SELF-HEAL REPROMPT (node ${nodeId}): this run was HELD because it did not deliver: ${fields}.\n` +
+    (evidenceInstruction
+      ? `The role's required structured output is: ${evidenceInstruction}\n`
+      : '') +
+    'Re-run this role. You MUST end your reply by emitting the required structured evidence so those fields are present and valid.'
+  )
+}
+
 export class ForgePhaseAgent {
   readonly nodeId: string
   readonly plan: ForgeRoleNodePlan
