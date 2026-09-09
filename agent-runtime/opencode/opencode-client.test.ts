@@ -53,6 +53,24 @@ test('command construction includes --auto (safe only inside the isolated Forge 
   assert.ok(args.includes('--auto'))
 })
 
+test('command construction resumes a prior session via --session or --continue (V5-21)', () => {
+  const withSession = buildOpenCodeRunArgs({
+    model: OPENCODE_PINNED_MODEL,
+    task: TASK,
+    session: 'ses_probe123',
+  })
+  assert.deepEqual(withSession, ['run', '--model', OPENCODE_PINNED_MODEL, '--session', 'ses_probe123', '--auto', TASK])
+  const withContinue = buildOpenCodeRunArgs({
+    model: OPENCODE_PINNED_MODEL,
+    task: TASK,
+    continueSession: true,
+  })
+  assert.ok(withContinue.includes('--continue'))
+  assert.ok(!withContinue.includes('--session'), 'session and continue are not combined')
+  const plain = buildOpenCodeRunArgs({ model: OPENCODE_PINNED_MODEL, task: TASK })
+  assert.ok(!plain.includes('--session') && !plain.includes('--continue'), 'fresh run by default')
+})
+
 test('client spawns in the exact supplied cwd and maps exit 0 to success', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'opencode-cwd-'))
   try {

@@ -178,6 +178,33 @@ Phase 0 next step = prove, via the server API: create session → Flash turn →
 with Pro → prior info recalled; then READ→WRITE→READ permission recompute; then restart
 recovery. Only wire Forge after that server-API proof passes.
 
+## Phase 0 follow-up (2026-09-09) — arithmetic-accumulator probes + the model-switch question
+
+Refined the detector (user idea): instead of a nonce, use a **running total** across turns —
+turn N can only answer correctly if the session actually carried prior state (hard,
+un-fakeable). Resumed via `opencode run --continue` (no session-id derivation needed).
+
+- **Same-model (flash→flash→flash): PASS.** One session, totals 10→20→30 (all three turns
+  share one `ses_...` id). opencode carries real state across separate `--continue`
+  invocations in one project.
+- **Cross-model (flash→pro→flash): session SURVIVES the switch.** All three turns share one
+  session id and accumulate monotonically through the Pro turn and back to Flash (20→30→40;
+  turn 1 was a flash miscount of "0+10" as 20 — model arithmetic variance, not a break).
+  The decisive signal: **Flash's turn 3 returned 40 from Pro's 30**, which Flash could only
+  know if the session carried Pro's turn. This **disproves the "Flash and Pro are different
+  products that cannot share a session" theory** — context persists across the model switch.
+
+**Architecture implication:** you do NOT have to drop Pro to get continuity. Pro judgment
+(Architect/Lead) and live session continuity across grades can coexist in one opencode
+session — so the "run everything on Flash to buy a continuous session" tradeoff is
+unnecessary. V5-21 keeps: Pro for judgment, persisted handoff (context_refs/architect_brief,
+already built) as the durable primitive, and an optional shared live session layered on top.
+
+Still to prove before wiring Forge: (1) real session-id source (server API or reliable
+`--continue` binding) since the CLI does not print the id; (2) READ→WRITE→READ permission
+recompute across resumed turns; (3) restart recovery of a persisted binding.
+Reusable Phase 0 harness: `scripts/oc-probe3.ts`.
+
 ## Delivery
 
 Return: exact files changed; migration if any; installed OpenCode version proven;

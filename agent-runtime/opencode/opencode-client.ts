@@ -50,6 +50,11 @@ export type OpenCodeStartOptions = {
    *  its isolated worker worktree; default true per the ENG-FORGE-V5-01
    *  contract (the adapter guarantees isolation before starting). */
   autoApprove?: boolean
+  /** Resume this existing top-level session id (`--session <id>`). */
+  session?: string
+  /** Continue this project's last session (`--continue`), so a caller can resume
+   *  without knowing the session id. Mutually exclusive with `session`. */
+  continueSession?: boolean
 }
 
 export type OpenCodeHandle = {
@@ -78,12 +83,16 @@ export function buildOpenCodeRunArgs(input: {
   model: string
   task: string
   autoApprove?: boolean
+  session?: string
+  continueSession?: boolean
 }): string[] {
   const autoApprove = input.autoApprove ?? true
   return [
     'run',
     '--model',
     input.model,
+    ...(input.session ? ['--session', input.session] : []),
+    ...(input.continueSession ? ['--continue'] : []),
     ...(autoApprove ? ['--auto'] : []),
     input.task,
   ]
@@ -109,6 +118,8 @@ export function startOpenCodeRun(opts: OpenCodeStartOptions): OpenCodeHandle {
       model: opts.model,
       task: opts.task,
       autoApprove: opts.autoApprove ?? true,
+      session: opts.session,
+      continueSession: opts.continueSession,
     }),
     {
       cwd: opts.cwd,
