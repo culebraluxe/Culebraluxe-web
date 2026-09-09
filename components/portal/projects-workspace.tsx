@@ -310,7 +310,7 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
     <div style={style} className={`flex items-center gap-2 rounded-md px-1 ${selected ? "bg-white/15 ring-1 ring-inset ring-white/25" : ""} ${focus}`}>
       <ToggleButton node={node} />
       <NodeGlyph icon={workTypeIcon(parts[0] ?? "", d.label)} className={statusGlyphColor(d.status)} />
-      <span className="min-w-0 flex-1 truncate text-[20px] font-light leading-tight text-white/95">{d.label}</span>
+      <span className="min-w-0 flex-1 truncate text-[17px] font-light leading-tight text-white/95">{d.label}</span>
     </div>
   )
 }
