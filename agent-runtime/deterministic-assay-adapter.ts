@@ -90,6 +90,10 @@ export async function runAssayCommand(input: {
         env: input.env as NodeJS.ProcessEnv,
         shell: process.env.FORGE_ASSAY_SHELL ?? process.env.SHELL ?? true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // Own process group so a timeout can kill the WHOLE tree, not just the
+        // shell. A shell child (the actual test process) that survives would keep
+        // the pipes open and prevent 'close' - hanging QA past the timeout.
+        detached: process.platform !== 'win32',
       })
       input.onProcess?.(proc)
     } catch (error) {
@@ -136,14 +140,46 @@ export async function runAssayCommand(input: {
       })
     })
 
+    // Hard termination guarantee: a command must NEVER leave QA hanging. On
+    // timeout, SIGTERM the whole process group, then SIGKILL and force a timed-
+    // out terminal result shortly after - so even a child that ignores SIGTERM
+    // or keeps a pipe open cannot stall QA past the grace window.
+    let bail: NodeJS.Timeout | null = null
+    const killTree = (signal: NodeJS.Signals): void => {
+      if (!proc || proc.pid == null) return
+      try {
+        process.kill(-proc.pid, signal)
+      } catch {
+        /* group already gone */
+      }
+      try {
+        proc.kill(signal)
+      } catch {
+        /* ignore */
+      }
+    }
     const timeout = setTimeout(() => {
       if (settled || !proc) return
       timedOut = true
-      proc.kill('SIGTERM')
+      killTree('SIGTERM')
+      bail = setTimeout(() => {
+        killTree('SIGKILL')
+        finish({
+          command: input.command,
+          exitCode: null,
+          signal: 'SIGTERM',
+          timedOut: true,
+          stdoutTail,
+          stderrTail,
+        })
+      }, 5000)
     }, input.timeoutMs)
-    timeout.unref?.()
-    proc.once('close', () => clearTimeout(timeout))
-    proc.once('error', () => clearTimeout(timeout))
+    const clearTimers = (): void => {
+      clearTimeout(timeout)
+      if (bail) clearTimeout(bail)
+    }
+    proc.once('close', clearTimers)
+    proc.once('error', clearTimers)
   })
 }
 

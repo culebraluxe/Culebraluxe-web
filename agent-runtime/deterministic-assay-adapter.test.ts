@@ -7,6 +7,7 @@ import { join } from 'node:path'
 
 import {
   DeterministicAssayAdapter,
+  runAssayCommand,
   type AssayCommandRunner,
 } from './deterministic-assay-adapter'
 import {
@@ -197,6 +198,25 @@ test('deterministic Assay stops at first failed frozen Run command and returns H
     assert.equal(evidence?.resultStatus, 'Hold')
     assert.equal(evidence?.assayEvidence?.verdict, 'FAIL')
     assert.equal(evidence?.assayEvidence?.failureCode, 'ASSAY_TEST_FAILED')
+  } finally {
+    w.cleanup()
+  }
+})
+
+test('deterministic Assay: a stalled command times out and terminalizes (never hangs QA)', async () => {
+  const w = workspace()
+  try {
+    const started = Date.now()
+    const res = await runAssayCommand({
+      command: 'sleep 30',
+      cwd: w.cwd,
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+      timeoutMs: 600,
+    })
+    const elapsed = Date.now() - started
+    assert.equal(res.command, 'sleep 30')
+    assert.equal(res.timedOut, true, 'a command past its timeout must be marked timed out')
+    assert.ok(elapsed < 8000, `timed-out command must return promptly, took ${elapsed}ms`)
   } finally {
     w.cleanup()
   }
