@@ -126,3 +126,21 @@ export function assessLeadPreDispatch(
   const full = assessSmithDispatch(plan)
   return { planPresent: true, plan, verdict: full.verdict, reasons: full.reasons, full }
 }
+
+export type LeadDispatchDecision = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
+
+/** The running handoff gate for lead_pre: does this Lead handoff that decided to
+ *  dispatch to Smith (SMITH/SPLIT) have to be HELD BEFORE any Smith lane starts?
+ *  Returns hold reasons ([] = safe to hand off). Lead decisions that do NOT
+ *  dispatch (SOLO/HOLD) and NO_PLAN (Lead emitted no LEAD_PLAN) never hold — the
+ *  structured-plan contract is additive until dogfood proves Lead emits it
+ *  reliably, at which point absent-plan policy can be tightened separately. */
+export function leadPreDispatchHoldReasons(
+  leadDecision: LeadDispatchDecision | undefined,
+  notes: string | null | undefined,
+): string[] {
+  if (leadDecision !== 'SMITH' && leadDecision !== 'SPLIT') return []
+  const gate = assessLeadPreDispatch(notes)
+  if (gate.verdict !== 'HOLD') return []
+  return gate.reasons.map((r) => `lead-plan:${r}`)
+}

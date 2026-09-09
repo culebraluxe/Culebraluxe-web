@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { assessLeadPreDispatch, parseLeadPlan } from '../forge/forge-lead-plan'
+import {
+  assessLeadPreDispatch,
+  leadPreDispatchHoldReasons,
+  parseLeadPlan,
+} from '../forge/forge-lead-plan'
 
 const VALID_2 = 'LEAD_PLAN: {"size":"MEDIUM","chunks":[{"id":1,"outcome":"add mapper","surface":["a/m.ts"],"invariant":"m maps","proof":"pnpm exec tsx --test a/m.test.ts"},{"id":2,"outcome":"wire route","surface":["a/r.ts"],"invariant":"r serves","proof":"pnpm exec tsx --test a/r.test.ts","dependsOn":[1]}]}'
 const VALID_3 = 'LEAD_PLAN: {"size":"LARGE","chunks":[{"id":1,"outcome":"c1","surface":["f1.ts"],"invariant":"i1","proof":"p1"},{"id":2,"outcome":"c2","surface":["f2.ts"],"invariant":"i2","proof":"p2"},{"id":3,"outcome":"c3","surface":["f3.ts"],"invariant":"i3","proof":"p3"}]}'
@@ -51,4 +55,23 @@ test('lead pre-dispatch: a 4-chunk plan HOLDs (a 4th chunk is not keep working)'
   assert.equal(a.planPresent, true)
   assert.equal(a.verdict, 'HOLD')
   assert.ok(a.reasons.join(' ').includes('4th chunk is HOLD'))
+})
+
+test('lead handoff gate: a HOLD verdict on a Smith dispatch actually blocks the handoff', () => {
+  const holds = leadPreDispatchHoldReasons('SMITH', FOUR_CHUNK)
+  assert.ok(holds.length > 0, 'SMITH dispatch with an oversized LEAD_PLAN must hold pre-Smith')
+  assert.ok(holds[0]!.startsWith('lead-plan:'))
+  // SPLIT dispatches gate identically.
+  assert.ok(leadPreDispatchHoldReasons('SPLIT', FOUR_CHUNK).length > 0)
+})
+
+test('lead handoff gate: sound plans, non-dispatch decisions, and NO_PLAN never hold', () => {
+  // Sound in-bounds plan on a SMITH dispatch => no hold.
+  assert.deepEqual(leadPreDispatchHoldReasons('SMITH', VALID_2), [])
+  // Decisions that do not dispatch (SOLO/HOLD) are not gated even with a plan present.
+  assert.deepEqual(leadPreDispatchHoldReasons('SOLO', FOUR_CHUNK), [])
+  assert.deepEqual(leadPreDispatchHoldReasons('HOLD', FOUR_CHUNK), [])
+  assert.deepEqual(leadPreDispatchHoldReasons(undefined, FOUR_CHUNK), [])
+  // No LEAD_PLAN emitted on a SMITH dispatch => NO_PLAN => no hold (additive contract).
+  assert.deepEqual(leadPreDispatchHoldReasons('SMITH', 'decision only'), [])
 })
