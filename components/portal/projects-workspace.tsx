@@ -486,90 +486,98 @@ type InspectorProps = {
 }
 
 /** Pane 3 — persistent selected-WorkNode inspector. */
-function PaneThree({ pole, project, node }: InspectorProps) {
-  const context =
-    node?.relations && node.relations.length > 0
-      ? node.relations
-      : node?.relatedLabel
-        ? [node.relatedLabel]
-        : []
+function PaneThreeHead() {
   return (
-    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
-      <div className="border-b border-[var(--portal-panel-border)] px-3 py-2.5">
-        <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">Selected work</p>
-      </div>
-      {!node ? (
+    <div className="border-b border-[var(--portal-panel-border)] px-3 py-2.5">
+      <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">Selected work</p>
+    </div>
+  )
+}
+
+function PaneThree({ pole, project, node }: InspectorProps) {
+  if (!node) {
+    return (
+      <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+        <PaneThreeHead />
         <div className="flex flex-1 items-center justify-center px-5 text-center text-sm font-light text-black/45">
           Select a work item to inspect it.
         </div>
-      ) : (
+      </section>
+    )
+  }
+  const related = node.inspector?.relatedItems ?? []
+  const summary = node.inspector?.summary ?? node.note
+  return (
+    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+      <PaneThreeHead />
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-[10px] font-light uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">{node.type}</p>
-              <h3 className="mt-0.5 font-serif text-lg font-light leading-tight text-[var(--portal-navy)]">{node.title}</h3>
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">{node.type}</p>
+              <h3 className="mt-1 font-serif text-[19px] font-light leading-tight text-[var(--portal-navy)]">{node.title}</h3>
             </div>
-            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
-              <StatusDot status={node.status} /> {STATUS_LABEL[node.status]}
-            </span>
           </div>
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+            <StatusDot status={node.status} /> {STATUS_LABEL[node.status]}
+          </span>
 
           {pole && project ? (
-            <p className="mt-1.5 text-[10px] font-light text-black/40">
+            <p className="mt-2 text-[10px] font-light text-black/40">
               {pole.label} <ChevronRight className="inline h-2.5 w-2.5" aria-hidden /> {project.title}
             </p>
           ) : null}
 
-          {node.note ? <p className="mt-3 text-[12.5px] font-light leading-relaxed text-[var(--portal-navy)]">{node.note}</p> : null}
+          {summary ? <p className="mt-3 text-[12px] font-light leading-relaxed text-[var(--portal-navy)]">{summary}</p> : null}
 
-          <dl className="mt-3 space-y-2 border-t border-[var(--portal-panel-border)] pt-2 text-[12.5px] font-light">
+          <dl className="mt-3 space-y-1.5 border-y border-[var(--portal-panel-border)] py-2.5 text-[12px] font-light">
             {node.dueLabel ? (
               <div className="flex justify-between gap-2">
                 <dt className="text-black/40">Due</dt>
-                <dd className="text-right text-[var(--portal-navy)]">{node.dueLabel}</dd>
+                <dd className="text-right font-normal text-[var(--portal-navy)]">{node.dueLabel}</dd>
               </div>
             ) : null}
             {node.owner ? (
               <div className="flex justify-between gap-2">
-                <dt className="text-black/40">Owner</dt>
-                <dd className="text-right text-[var(--portal-navy)]">{node.owner}</dd>
+                <dt className="text-black/40">Assignee</dt>
+                <dd className="text-right font-normal text-[var(--portal-navy)]">{node.owner}</dd>
               </div>
             ) : null}
           </dl>
 
-          {context.length > 0 ? (
+          {related.length > 0 ? (
             <div className="mt-3">
-              <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">Related to</p>
-              <ul className="mt-1.5 space-y-1">
-                {context.map((rel) => (
-                  <li key={rel} className="flex items-start gap-1.5 text-[11.5px] font-light text-[var(--portal-navy)]">
-                    <FileText className="mt-0.5 h-3 w-3 shrink-0 text-black/30" aria-hidden />
-                    {rel}
+              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Related to</p>
+              <ul className="mt-1 divide-y divide-[var(--portal-panel-border)]/70">
+                {related.map((item) => (
+                  <li key={item.label} className="flex items-baseline justify-between gap-2 py-1.5">
+                    <span className="min-w-0 truncate text-[12px] font-light text-[var(--portal-navy)]">{item.label}</span>
+                    {item.caption ? <span className="shrink-0 text-[10px] font-light text-black/40">{item.caption}</span> : null}
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
-
-          {node.actions && node.actions.length > 0 ? (
-            <div className="mt-4 flex flex-wrap gap-1.5 border-t border-[var(--portal-panel-border)] pt-3">
-              {node.actions.map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  className="rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 py-1.5 text-[11px] font-medium text-white transition hover:opacity-90"
-                >
-                  {action}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </div>
-      )}
+
+        {node.actions && node.actions.length > 0 ? (
+          <div className="flex flex-col gap-1.5 border-t border-[var(--portal-panel-border)] px-3 py-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Actions</p>
+            {node.actions.map((action) => (
+              <button
+                key={action}
+                type="button"
+                className="w-full rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 py-2 text-left text-[12px] font-medium text-white transition hover:opacity-90"
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }
-
 export function ProjectsWorkspace() {
   const source = useMemo(() => new InMemoryProjectsWorkspaceSource(), [])
   const controller = useMemo(() => new ProjectsWorkspaceController(source), [source])

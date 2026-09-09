@@ -36,8 +36,15 @@ export type ProjectWorkNode = {
   note?: string
   relatedLabel?: string
   children?: ProjectWorkNode[]
-  /** Selected-work-inspector context: related people/property/document labels. */
-  relations?: string[]
+  /**
+   * Selected-work-inspector content (Pane 3). Kept on the WorkNode so the
+   * inspector is driven by the model/fixture, never by JSX, and a real source
+   * can supply it later without rewriting the view.
+   */
+  inspector?: {
+    summary?: string
+    relatedItems?: Array<{ label: string; caption?: string }>
+  }
   /** Selected-work-inspector actions, surfaced as buttons. */
   actions?: string[]
 }

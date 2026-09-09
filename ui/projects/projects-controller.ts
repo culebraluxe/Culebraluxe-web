@@ -9,7 +9,24 @@ import {
   type ProjectsWorkspaceIntentMap,
   type ProjectsWorkspacePageModel,
 } from "./model"
+import type { ProjectWorkNode } from "./model"
 import type { ProjectsWorkspaceSource } from "./source"
+
+/** Prefer the deepest actionable WorkNode (a waiting/in-progress descendant) so
+ *  opening a project lands on its current gate, not just the first row. */
+function focusNodeId(nodes: ProjectWorkNode[] | undefined | null): string | null {
+  const list = nodes ?? []
+  for (const node of list) {
+    const deep = focusNodeId(node.children)
+    if (deep) return deep
+    if (node.status === "waiting" || node.status === "in-progress") return node.id
+  }
+  return null
+}
+
+function defaultFocus(project: { workNodes: ProjectWorkNode[] } | null | undefined): string | null {
+  return focusNodeId(project?.workNodes) ?? project?.workNodes[0]?.id ?? null
+}
 
 export class ProjectsWorkspaceController extends BasePageController<
   ProjectsWorkspacePageModel,
@@ -52,7 +69,7 @@ export class ProjectsWorkspaceController extends BasePageController<
             selectedPoleId: firstPole?.id ?? null,
             expandedPoleIds: firstPole ? [firstPole.id] : [],
             selectedProjectId: firstProject?.id ?? null,
-            selectedNodeId: firstProject?.workNodes[0]?.id ?? null,
+            selectedNodeId: defaultFocus(firstProject),
             activeView: "work-plan",
           }))
         },
@@ -87,7 +104,7 @@ export class ProjectsWorkspaceController extends BasePageController<
               ? model.expandedPoleIds
               : [...model.expandedPoleIds, poleId],
             selectedProjectId: project?.id ?? null,
-            selectedNodeId: project?.workNodes[0]?.id ?? null,
+            selectedNodeId: defaultFocus(project),
             activeView: "work-plan",
           }))
         },
@@ -107,7 +124,7 @@ export class ProjectsWorkspaceController extends BasePageController<
               ? model.expandedPoleIds
               : [...model.expandedPoleIds, poleId],
             selectedProjectId: projectId,
-            selectedNodeId: project?.workNodes[0]?.id ?? null,
+            selectedNodeId: defaultFocus(project),
             activeView: "work-plan",
           }))
         },
@@ -146,7 +163,7 @@ export class ProjectsWorkspaceController extends BasePageController<
         selectedPoleId: firstPole?.id ?? null,
         expandedPoleIds: firstPole ? [firstPole.id] : [],
         selectedProjectId: firstProject?.id ?? null,
-        selectedNodeId: firstProject?.workNodes[0]?.id ?? null,
+        selectedNodeId: defaultFocus(firstProject),
         loading: false,
         error: null,
       }))

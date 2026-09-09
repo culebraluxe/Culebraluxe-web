@@ -70,12 +70,15 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               dueLabel: "Sep 3",
               owner: "Lisa Penfield",
               note: "Seller identity and contact details confirmed.",
-              relations: [
-                "Jessica Iverson (Seller)",
-                "Sea to Soul · Playa Sardinas II",
-                "Seller identity and contact confirmed",
-              ],
-              actions: ["Open Contact", "View Seller Profile"],
+              inspector: {
+                summary: "Seller identity and contact confirmed.",
+                relatedItems: [
+                  { label: "Jessica Iverson", caption: "Seller" },
+                  { label: "Sea to Soul", caption: "Property" },
+                  { label: "Contact / identity", caption: "Confirmed" },
+                ],
+              },
+              actions: ["Open Client", "View Client Profile"],
             },
             {
               id: "property",
@@ -85,12 +88,15 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               dueLabel: "Sep 4",
               owner: "Lisa Penfield",
               note: "Property and ownership context confirmed.",
-              relations: [
-                "Sea to Soul · Playa Sardinas II",
-                "Jessica Iverson (legal owner)",
-                "Ownership / title context",
-              ],
-              actions: ["View Property"],
+              inspector: {
+                summary: "Property and ownership context confirmed.",
+                relatedItems: [
+                  { label: "Sea to Soul", caption: "Property" },
+                  { label: "Playa Sardinas II", caption: "Location" },
+                  { label: "Jessica Iverson", caption: "Seller / owner" },
+                ],
+              },
+              actions: ["Open Property", "View Property Context"],
             },
             {
               id: "listing-agreement",
@@ -100,7 +106,16 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               dueLabel: "Sep 10",
               owner: "Lisa",
               note: "LISTING-01 v4 prepared; waiting for seller execution.",
-              relatedLabel: "LISTING-01 v4",
+              inspector: {
+                summary: "Agreement ready for execution; awaiting the seller gate.",
+                relatedItems: [
+                  { label: "LISTING-01 v4", caption: "Contract" },
+                  { label: "Jessica Iverson", caption: "Seller" },
+                  { label: "Sea to Soul", caption: "Property" },
+                  { label: "Draft Listing Agreement.pdf", caption: "Document" },
+                ],
+              },
+              actions: ["Open Contract", "View Document", "View Activity"],
               children: [
                 {
                   id: "seller-signature",
@@ -110,13 +125,15 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
                   dueLabel: "Tomorrow",
                   owner: "Lisa Penfield",
                   note: "Jessica Iverson signature is the current gate.",
-                  relatedLabel: "Signature request",
-                  relations: [
-                    "Listing Agreement / LISTING-01 v4",
-                    "Jessica Iverson (Seller)",
-                    "Sea to Soul property",
-                    "Draft Listing Agreement.pdf",
-                  ],
+                  inspector: {
+                    summary: "Jessica Iverson signature is the current gate.",
+                    relatedItems: [
+                      { label: "Listing Agreement", caption: "LISTING-01 v4" },
+                      { label: "Jessica Iverson", caption: "Seller / Client" },
+                      { label: "Sea to Soul", caption: "Property" },
+                      { label: "Draft Listing Agreement.pdf", caption: "Document" },
+                    ],
+                  },
                   actions: ["Open Contract", "Send Reminder", "View Activity"],
                 },
               ],
@@ -129,12 +146,15 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               dueLabel: "Sep 12",
               owner: "Lisa Penfield",
               note: "Photography scheduled; cabinet intake open.",
-              relations: [
-                "Photography brief",
-                "Cabinet intake",
-                "Sea to Soul · Playa Sardinas II",
-              ],
-              actions: ["Add Media", "View Media"],
+              inspector: {
+                summary: "Photography scheduled; cabinet intake open.",
+                relatedItems: [
+                  { label: "Photography brief", caption: "Scheduled" },
+                  { label: "Cabinet intake", caption: "Open" },
+                  { label: "Sea to Soul", caption: "Property" },
+                ],
+              },
+              actions: ["Open Media", "View Cabinet", "View Activity"],
             },
             {
               id: "marketing",
@@ -144,6 +164,14 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               dueLabel: "Sep 14",
               owner: "Lisa",
               note: "Launch waits on agreement and first media package.",
+              inspector: {
+                summary: "Launch waits on the signed agreement and first media package.",
+                relatedItems: [
+                  { label: "Listing Agreement", caption: "Gate" },
+                  { label: "Media package", caption: "Dependency" },
+                ],
+              },
+              actions: ["Open Marketing", "View Activity"],
             },
             {
               id: "accounting",
@@ -153,6 +181,14 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               dueLabel: "Sep 15",
               owner: "Lisa",
               note: "Commission schedule and receivable setup.",
+              inspector: {
+                summary: "Commission schedule and receivable setup for the listing.",
+                relatedItems: [
+                  { label: "Commission schedule", caption: "Setup" },
+                  { label: "Receivables", caption: "Setup" },
+                ],
+              },
+              actions: ["Open Accounting", "View Activity"],
             },
           ],
         },
