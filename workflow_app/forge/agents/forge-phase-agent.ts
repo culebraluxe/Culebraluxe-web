@@ -93,7 +93,10 @@ export class ForgePhaseAgent {
   deliverableKind(): PhaseDeliverableKind {
     if (this.isScout) return 'scout-packet'
     if (this.isArchitect) return 'architect-plan'
-    if (this.plan.lane === 'lead') return 'lead-decision'
+    // Only lead_pre is an execution-shape decision node. lead_solo_implement and
+    // lead_post emit no decision deliverable (their deliverable is the candidate
+    // / the post-integration evidence, owned elsewhere).
+    if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre') return 'lead-decision'
     if (this.plan.lane === 'smith') return 'smith-candidate'
     if (this.plan.lane === 'assay') return 'qa-verdict'
     if (this.plan.lane === 'dev_ops') return 'devops-receipt'
