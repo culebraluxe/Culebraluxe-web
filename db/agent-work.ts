@@ -478,31 +478,82 @@ export async function enqueueAgentWorkCommand(
   // "Queue command" action UPSERTS that row with the command envelope rather
   // than creating a second queue row. Duplicate protection (one active per
   // story) is preserved.
-  const rows = await q`
-    insert into agent_work_item (
-      story_id, state, priority, role, model_profile, special_instructions,
-      max_attempts, execution_policy, execution_environment
-    ) values (
-      ${input.storyId}, 'Ready', ${input.priority ?? 0},
-      ${input.role ?? null}, ${input.modelProfile ?? null},
-      ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3},
-      ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null}
-    )
-    on conflict (story_id) where state in ('Ready', 'Claimed', 'Running')
-    do update set
-      role = coalesce(excluded.role, agent_work_item.role),
-      model_profile = coalesce(excluded.model_profile, agent_work_item.model_profile),
-      special_instructions = coalesce(excluded.special_instructions, agent_work_item.special_instructions),
-      max_attempts = excluded.max_attempts,
-      execution_policy = excluded.execution_policy,
-      execution_environment = coalesce(excluded.execution_environment, agent_work_item.execution_environment),
-      updated_at = now()
-    returning id, story_id, state, priority, queued_at, claimed_at,
-      claimed_by, started_at, finished_at, story_run_id, error_text,
-      role, model_profile, special_instructions, runtime_adapter,
-      external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
+  // Schema-agnostic upsert. DEV enforces one-active-per-story via the partial
+  // unique index `agent_work_item_one_active_per_story` on (story_id) WHERE
+  // state in (Ready,Claimed,Running); PROD has evolved to a parallel/serial
+  // model whose unique indexes carry different predicates. `on conflict (story_id)
+  // where ...` only infers against an EXACT index match, so it fails on one of
+  // the two schemas. Instead: read the active row, update it if present,
+  // otherwise insert; a unique violation (a dispatch trigger raced us) falls
+  // back to the update.
+  const existing = await q`
+    select id from agent_work_item
+    where story_id = ${input.storyId}
+      and state in ('Ready', 'Claimed', 'Running')
+    order by created_at asc
+    limit 1
   `
-  const row = rows[0] as AgentWorkRow | undefined
+  const existingId = (existing[0]?.id as string | undefined) ?? null
+
+  const updateActive = async (id: string): Promise<AgentWorkRow | undefined> => {
+    const rows = await q`
+      update agent_work_item
+      set role = coalesce(${input.role ?? null}, role),
+          model_profile = coalesce(${input.modelProfile ?? null}, model_profile),
+          special_instructions = coalesce(${input.specialInstructions ?? null}, special_instructions),
+          max_attempts = ${input.maxAttempts ?? 3},
+          execution_policy = ${input.executionPolicy ?? 'Unattended OK'},
+          execution_environment = coalesce(${input.executionEnvironment ?? null}, execution_environment),
+          updated_at = now()
+      where id = ${id}
+      returning id, story_id, state, priority, queued_at, claimed_at,
+        claimed_by, started_at, finished_at, story_run_id, error_text,
+        role, model_profile, special_instructions, runtime_adapter,
+        external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
+    `
+    return rows[0] as AgentWorkRow | undefined
+  }
+
+  let row: AgentWorkRow | undefined
+  if (existingId) {
+    row = await updateActive(existingId)
+  } else {
+    try {
+      const rows = await q`
+        insert into agent_work_item (
+          story_id, state, priority, role, model_profile, special_instructions,
+          max_attempts, execution_policy, execution_environment
+        ) values (
+          ${input.storyId}, 'Ready', ${input.priority ?? 0},
+          ${input.role ?? null}, ${input.modelProfile ?? null},
+          ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3},
+          ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null}
+        )
+        returning id, story_id, state, priority, queued_at, claimed_at,
+          claimed_by, started_at, finished_at, story_run_id, error_text,
+          role, model_profile, special_instructions, runtime_adapter,
+          external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
+      `
+      row = rows[0] as AgentWorkRow | undefined
+    } catch (error) {
+      // A dispatch trigger (migration 025) may have just created the active row;
+      // that unique race falls back to the update instead of failing the insert.
+      if ((error as { code?: string })?.code === '23505') {
+        const raced = await q`
+          select id from agent_work_item
+          where story_id = ${input.storyId}
+            and state in ('Ready', 'Claimed', 'Running')
+          order by created_at asc
+          limit 1
+        `
+        const racedId = (raced[0]?.id as string | undefined) ?? null
+        if (racedId) row = await updateActive(racedId)
+        else throw error
+      } else {
+        throw error
+      }
+    }
+  }
   if (!row) {
     throw new PortalWriteError('conflict', `Unable to enqueue work for story "${input.storyId}".`)
   }
