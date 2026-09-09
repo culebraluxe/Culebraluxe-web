@@ -6,15 +6,21 @@ import {
   AlertCircle,
   Banknote,
   Building2,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Circle,
   Clock3,
   FileText,
+  Flag,
+  GitBranch,
   Handshake,
   Home,
+  Image,
+  KeyRound,
   Megaphone,
+  PenLine,
   Search,
   Users,
 } from "lucide-react"
@@ -48,6 +54,38 @@ const DOMAIN_ICON: Record<ProjectDomainKey, LucideIcon> = {
   firm: Building2,
   marketing: Megaphone,
   accounting: Banknote,
+}
+
+const PROJECT_KIND_ICON: Record<string, LucideIcon> = {
+  LISTING: KeyRound,
+  MARKETING: Megaphone,
+  CLOSING: Handshake,
+  DEAL: Handshake,
+  CLIENT: Users,
+  BUYER_REP: Users,
+  FIRM: Building2,
+  ACCOUNTING: Banknote,
+}
+const WORK_TYPE_ICON: Record<string, LucideIcon> = {
+  contract: FileText,
+  approval: PenLine,
+  media: Image,
+  accounting: Banknote,
+  marketing: Megaphone,
+  workflow: GitBranch,
+  task: CheckCircle2,
+  milestone: Flag,
+  document: FileText,
+  appointment: CalendarDays,
+}
+function workTypeIcon(type: string, label: string): LucideIcon {
+  const found = WORK_TYPE_ICON[type]
+  if (found) return found
+  if (type === "group") return /client|parties|people|person|seller/i.test(label) ? Users : Home
+  return FileText
+}
+function projectKindIcon(kind: string): LucideIcon {
+  return PROJECT_KIND_ICON[kind] ?? FileText
 }
 
 const STATUS_LABEL: Record<ProjectWorkStatus, string> = {
@@ -198,6 +236,19 @@ function navyWorkDot(status?: ProjectWorkStatus): string {
   return "bg-white/30"
 }
 
+function statusGlyphColor(status?: ProjectWorkStatus): string {
+  if (status === "complete") return "text-[var(--portal-success)]"
+  if (status === "blocked") return "text-[var(--portal-archive)]"
+  if (status === "waiting") return "text-[var(--portal-gold)]"
+  if (status === "in-progress") return "text-[var(--portal-gold)]/80"
+  return "text-white/55"
+}
+
+function NodeGlyph({ icon, className }: { icon: LucideIcon; className?: string }) {
+  const Icon = icon
+  return <Icon className={`h-[18px] w-[18px] shrink-0 ${className ?? "text-[var(--portal-gold)]"}`} strokeWidth={1.6} aria-hidden />
+}
+
 function ToggleButton({ node }: { node: NodeApi<ProjectTreeNode> }) {
   if (node.isLeaf) return <span className="w-4 shrink-0" aria-hidden />
   return (
@@ -245,9 +296,9 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
   if (d.kind === "project") {
     const kind = (d.meta ?? "").split(" · ")[0] ?? ""
     return (
-      <div style={style} className={`flex items-center gap-1.5 rounded-lg px-1 ${selected ? "bg-white/10" : ""} ${focus}`}>
+      <div style={style} className={`flex items-center gap-2 rounded-lg px-1 ${selected ? "bg-white/10" : ""} ${focus}`}>
         <ToggleButton node={node} />
-        {kind ? <span className="shrink-0 text-[13px] font-medium uppercase tracking-[0.08em] text-[var(--portal-gold)]">{kind}</span> : null}
+        {kind ? <NodeGlyph icon={projectKindIcon(kind)} /> : null}
         <span className="min-w-0 flex-1 truncate text-[18px] font-light leading-tight text-white/95">{d.label}</span>
         {typeof d.progress === "number" ? <span className="shrink-0 pr-1 text-[14px] font-light text-white/55">{d.progress}%</span> : null}
       </div>
@@ -258,9 +309,8 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
   return (
     <div style={style} className={`flex items-center gap-2 rounded-md px-1 ${selected ? "bg-white/15 ring-1 ring-inset ring-white/25" : ""} ${focus}`}>
       <ToggleButton node={node} />
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${navyWorkDot(d.status)}`} />
+      <NodeGlyph icon={workTypeIcon(parts[0] ?? "", d.label)} className={statusGlyphColor(d.status)} />
       <span className="min-w-0 flex-1 truncate text-[18px] font-light leading-tight text-white/95">{d.label}</span>
-      {parts[0] ? <span className="shrink-0 text-[14px] font-medium uppercase tracking-[0.05em] text-[var(--portal-gold)]">{parts[0]}</span> : null}
     </div>
   )
 }
