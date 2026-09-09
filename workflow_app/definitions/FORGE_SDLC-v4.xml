@@ -553,11 +553,11 @@
   </decision>
 
   <decision id="deploy_required" label="Deployment Required?"
-    description="Some Forge work may be repository-only; production-changing work requires deployment." refresh-facts="true">
+    description="Repository-only work (code published to main; production delivery is CI's job) COMPLETES here. Only work that deploys IN-CHAIN (deploymentRequired == true) runs deploy + production verification." refresh-facts="true">
     <on condition="deploymentRequired == true" transition="deploy"/>
-    <on condition="deploymentRequired == false" transition="smoke"/>
+    <on condition="deploymentRequired == false" transition="complete"/>
     <transition name="deploy" to="deploy"/>
-    <transition name="smoke" to="production_smoke"/>
+    <transition name="complete" to="complete"/>
   </decision>
 
   <task-node id="deploy" label="Deploy" responsibility="dev_ops" form-key="forge.deploy"

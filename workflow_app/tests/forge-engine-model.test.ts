@@ -141,7 +141,10 @@ test('ENG-FORGE-V10: FEATURE SMITH path completes with exact release lineage', a
   assert.equal(result.evidence.candidateSha, B)
   assert.equal(result.evidence.qaVerifiedSha, B)
   assert.equal(result.evidence.publishedSha, B)
-  assert.equal(result.evidence.productionVerifiedSha, B)
+  // No-deploy (CI-delivered) story: DEV_OPS completes at publish-to-main; the
+  // candidate is QA-verified and on main, and production verification is
+  // deferred to CI (no headless production_smoke / live-prod receipt required).
+  assert.equal(result.evidence.productionVerifiedSha, undefined)
 })
 
 test('ENG-FORGE-V10: BUG/HOTFIX/RESEARCH entry routing remains XML-owned', async () => {

@@ -88,7 +88,13 @@ test('ENG-FORGE-V9 smoke: architect -> smith -> QA basic path completes', async 
     assert.ok(res.steps.includes('smith'), 'smith step required (NOT solo)')
     assert.ok(!res.steps.includes('lead_solo_implement'), 'SMITH path must not run solo')
     assert.ok(res.steps.includes('qa_verify'), 'QA verify step required')
-    assert.ok(res.steps.includes('production_smoke'), 'production smoke step required')
+    // Minimal DEV_OPS: no-deploy (CI-delivered) work completes at publish — it
+    // must NOT block on a headless production_smoke that cannot produce a live
+    // prod receipt.
+    assert.ok(
+      !res.steps.includes('production_smoke'),
+      'no-deploy (CI) work must not block on production_smoke',
+    )
   } finally {
     if (instanceId) await cleanup(story, instanceId)
   }
