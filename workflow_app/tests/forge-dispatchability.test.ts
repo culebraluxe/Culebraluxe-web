@@ -57,6 +57,27 @@ test('dispatchability: out-of-range residual risk => NOT_DISPATCHABLE (worker se
   assert.ok(r.reasons.join(' ').includes('uncertainty'))
 })
 
+test('dispatchability: yesterday-style 6 independent hardening surfaces => NOT_DISPATCHABLE', () => {
+  // Yesterday's failure: Architect produced ~6 independent hardening stories and
+  // Lead handed all of them to one Smith (no chunking). Modeled faithfully: 6
+  // independent subsystem responsibilities, deep dependency chain, many proof
+  // boundaries -> the shaper must refuse to dispatch to a single Smith.
+  const r = dispatchabilityFor(
+    make({
+      semanticSurface: 6,
+      dependencyDepth: 4,
+      uncertainty: 3,
+      proofBurden: 4,
+      coupling: 3,
+    }),
+  )
+  assert.equal(r.verdict, 'NOT_DISPATCHABLE')
+  assert.equal(r.chunks, 0)
+  assert.ok(!isDispatchable(r))
+  const reason = r.reasons.join(' ')
+  assert.ok(reason.includes('> 3 independent subsystem responsibilities') || reason.includes('dependency-depth 4'))
+})
+
 test('dispatchability: anti-token-fire budgets are the hard ceiling', () => {
   assert.equal(MAX_CHUNKS_PER_STORY, 3)
   assert.equal(ANTI_TOKEN_FIRE.MAX_CHUNKS_PER_STORY, 3)
@@ -64,3 +85,4 @@ test('dispatchability: anti-token-fire budgets are the hard ceiling', () => {
   assert.equal(ANTI_TOKEN_FIRE.MAX_REPAIR_PER_CHUNK, 1)
   assert.equal(ANTI_TOKEN_FIRE.MAX_MODEL_ESCALATION, 1)
 })
+
