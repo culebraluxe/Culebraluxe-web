@@ -229,6 +229,14 @@ savings (architect ≈ scout) — continuity pays off when a later role would ot
 re-derive the same code (a WRITE/implement chain), and we still need the authoritative
 session-id source to PROVE same-session reuse rather than infer it from the marker.
 
+**Same-session reuse PROVEN (post-run log correlation):** each role boots its own opencode
+process with a distinct `run=<uuid>`; the shared opencode log shows all three CONT-RUN-01
+roles (scout `c87b8816`, architect `d80df3d1`, lead `654fc87f`) logged the SAME session id
+`ses_f7bf39f2dffelsglcBv9a3sy0l`. Scout created it; Architect and Lead RESUMED it. So the
+marker→`--continue` wiring genuinely attaches one live session across a real Forge role chain
+(not just the isolated probes). The only remaining production gap is a trustworthy session-id
+SOURCE for robustness/concurrency, not whether reuse happens.
+
 ## Delivery
 
 Return: exact files changed; migration if any; installed OpenCode version proven;
