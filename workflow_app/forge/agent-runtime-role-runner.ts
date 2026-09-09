@@ -33,7 +33,7 @@ import {
   finishForgeEngineTaskExecution,
   linkForgeEngineTaskExecution,
 } from '../../db/forge-engine-task-execution'
-import { getForgeLeadRunRecord } from '../../db/forge-run'
+import { appendForgeRunDetail, getForgeLeadRunRecord } from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
@@ -329,14 +329,25 @@ export function createAgentRuntimeForgeRoleRunner(
         if (smithWork.verdict === 'HOLD') missing.push(...smithWork.reasons)
       }
       // Pre-Smith handoff gate (LEAD_PLAN contract): a successful Lead that
-      // decided to dispatch to Smith (SMITH/SPLIT) and emitted a LEAD_PLAN the
-      // KRAKEN gate HOLDs must NOT hand off. The HOLD reason flows into the same
-      // bounded self-heal path as every other deliverable miss, so lead_pre does
-      // not complete and the engine never starts a Smith lane. NO_PLAN (Lead
-      // emitted no LEAD_PLAN) is not gated — the contract is optional until
-      // dogfood proves Lead emits it reliably.
+      // decided to dispatch to Smith (SMITH/SPLIT) MUST have emitted an
+      // assessable LEAD_PLAN the KRAKEN gate accepts — otherwise it HOLDS and
+      // never hands off, so the engine never starts a Smith lane. Absent plan
+      // (NO_PLAN) IS gated (authoritative pre-Smith fuse). The gate decision is
+      // persisted durably on the story run so audits and future gates read it
+      // without parsing thrown errors.
       if (nodeId === 'lead_pre') {
         const leadHolds = leadPreDispatchHoldReasons(evidence.leadDecision, raw)
+        const storyRunId = finishedItem?.storyRunId ?? null
+        if (storyRunId) {
+          await appendForgeRunDetail(
+            storyRunId,
+            `dispatch gate node=lead_pre decision=${evidence.leadDecision ?? '(none)'} ` +
+              `verdict=${leadHolds.length > 0 ? 'HOLD' : 'GO'} ` +
+              `reasons=${leadHolds.length > 0 ? leadHolds.join(' | ') : 'none'}`,
+          ).catch(() => {
+            /* run-detail append is observer-only; the gate verdict stands on the HOLD/GO above */
+          })
+        }
         if (leadHolds.length > 0) missing.push(...leadHolds)
       }
       miss.push(...missing)
