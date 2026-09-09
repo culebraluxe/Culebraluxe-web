@@ -47,6 +47,16 @@ class MemoryWbsRepository implements WbsRepository {
       .filter((i) => !request.category || i.category === request.category)
       .sort((a, b) => (a.dueAt ?? '9999').localeCompare(b.dueAt ?? '9999'))
   }
+  async listProjectItems() {
+    return [...this.items.values()]
+      .filter((i) => i.projectId !== null)
+      .sort((a, b) => {
+        const project = (a.projectId ?? '').localeCompare(b.projectId ?? '')
+        if (project) return project
+        const order = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)
+        return order || a.id.localeCompare(b.id)
+      })
+  }
   async create(request: { id: string; title: string; category: string; projectId?: string | null }): Promise<WbsItem> {
     const item = baseItem(request.id, {
       title: request.title,
@@ -189,6 +199,30 @@ test('wbs.listDue returns only open/doing items, filterable by category', async 
   })
   assert.equal(clients.ok, true)
   if (clients.ok) assert.deepEqual(clients.value.map((i) => i.id), ['open-client'])
+})
+
+test('wbs.listProjectItems returns the complete project plan, including terminal rows', async () => {
+  const repo = new MemoryWbsRepository()
+    .seed(baseItem('open-project', { projectId: 'p1', status: 'open' }))
+    .seed(baseItem('done-project', { projectId: 'p1', status: 'done' }))
+    .seed(baseItem('dismissed-project', { projectId: 'p1', status: 'dismissed' }))
+    .seed(baseItem('standalone', { projectId: null, status: 'open' }))
+  const service = new WbsService(repo, capturingInfrastructure().infrastructure)
+
+  const result = await service.execute({
+    operation: 'wbs.listProjectItems',
+    payload: {},
+    context: context({ actor }),
+  })
+
+  assert.equal(result.ok, true)
+  if (result.ok) {
+    assert.deepEqual(result.value.map((item) => item.id), [
+      'dismissed-project',
+      'done-project',
+      'open-project',
+    ])
+  }
 })
 
 test('project.create creates a lightweight project root', async () => {

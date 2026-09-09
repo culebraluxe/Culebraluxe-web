@@ -95,6 +95,7 @@ const STATUS_LABEL: Record<ProjectWorkStatus, string> = {
   "in-progress": "In progress",
   "not-started": "Not started",
   blocked: "Blocked",
+  dismissed: "Dismissed",
 }
 
 const STATUS_BAR: Record<ProjectWorkStatus, string> = {
@@ -103,6 +104,7 @@ const STATUS_BAR: Record<ProjectWorkStatus, string> = {
   "in-progress": "bg-[var(--portal-blue-gray)]",
   "not-started": "bg-black/20",
   blocked: "bg-[var(--portal-archive)]",
+  dismissed: "bg-black/35",
 }
 
 const VIEW_LABEL: Record<ProjectWorkspaceView, string> = {
@@ -124,6 +126,7 @@ function StatusIcon({ status }: { status: ProjectWorkStatus }) {
   if (status === "waiting") return <Clock3 className="h-3.5 w-3.5 shrink-0 text-[var(--portal-gold)]" aria-hidden />
   if (status === "blocked") return <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[var(--portal-archive)]" aria-hidden />
   if (status === "in-progress") return <Circle className="h-3.5 w-3.5 shrink-0 text-[var(--portal-blue-gray)]" aria-hidden />
+  if (status === "dismissed") return <Circle className="h-3.5 w-3.5 shrink-0 text-black/35" aria-hidden />
   return <Circle className="h-3.5 w-3.5 shrink-0 text-black/25" aria-hidden />
 }
 
@@ -234,6 +237,7 @@ function navyWorkDot(status?: ProjectWorkStatus): string {
   if (status === "waiting") return "bg-[var(--portal-gold)]"
   if (status === "blocked") return "bg-[var(--portal-archive)]"
   if (status === "in-progress") return "bg-[var(--portal-gold)]/70"
+  if (status === "dismissed") return "bg-white/20"
   return "bg-white/30"
 }
 
@@ -242,6 +246,7 @@ function statusGlyphColor(status?: ProjectWorkStatus): string {
   if (status === "blocked") return "text-[var(--portal-archive)]"
   if (status === "waiting") return "text-[var(--portal-gold)]"
   if (status === "in-progress") return "text-[var(--portal-gold)]/80"
+  if (status === "dismissed") return "text-white/35"
   return "text-white/55"
 }
 
@@ -639,9 +644,15 @@ function PaneThree({ pole, project, node }: InspectorProps) {
     </section>
   )
 }
-export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorkspaceData }) {
+export function ProjectsWorkspace({
+  initialData,
+  loadError,
+}: {
+  initialData: ProjectsWorkspaceData | null
+  loadError?: string | null
+}) {
   const source = useMemo(
-    () => new InMemoryProjectsWorkspaceSource(initialData),
+    () => new InMemoryProjectsWorkspaceSource(initialData ?? { domains: [], poles: [] }),
     [initialData],
   )
   const controller = useMemo(() => new ProjectsWorkspaceController(source), [source])
@@ -688,6 +699,9 @@ export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorks
     [controller],
   )
 
+  if (loadError) {
+    return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">{loadError}</p>
+  }
   if (model.error) {
     return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">Could not load the Projects workspace: {model.error}</p>
   }

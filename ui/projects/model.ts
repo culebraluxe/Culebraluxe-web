@@ -12,7 +12,7 @@ export type ProjectDomain = {
   shortLabel: string
 }
 
-export type ProjectWorkStatus = "complete" | "waiting" | "in-progress" | "not-started" | "blocked"
+export type ProjectWorkStatus = "complete" | "waiting" | "in-progress" | "not-started" | "blocked" | "dismissed"
 
 export type ProjectWorkNodeType =
   | "group"
@@ -53,7 +53,7 @@ export type ProjectPlan = {
   id: string
   title: string
   kind: string
-  status: "active" | "planning" | "hold" | "complete"
+  status: "active" | "planning" | "hold" | "complete" | "archived"
   progress: number
   phaseLabel: string
   nextAction?: string

@@ -52,11 +52,13 @@ export type DismissWbsItemRequest = { id: string }
 export type GetProjectRequest = { id: string }
 export type ListProjectsRequest = Record<string, never>
 export type ListWbsDueRequest = { category?: WbsCategoryId }
+export type ListProjectWbsItemsRequest = Record<string, never>
 export type CreateWbsProjectRequest = { id: string; name: string; owner?: string | null }
 
 export const WBS_OPERATIONS = {
   GET: 'wbs.get',
   LIST_DUE: 'wbs.listDue',
+  LIST_PROJECT_ITEMS: 'wbs.listProjectItems',
   CREATE: 'wbs.create',
   SAVE: 'wbs.save',
   COMPLETE: 'wbs.complete',
@@ -69,6 +71,7 @@ export const WBS_OPERATIONS = {
 export type WbsOperationMap = {
   'wbs.get': { request: GetWbsItemRequest; response: WbsItem | null }
   'wbs.listDue': { request: ListWbsDueRequest; response: WbsItem[] }
+  'wbs.listProjectItems': { request: ListProjectWbsItemsRequest; response: WbsItem[] }
   'wbs.create': { request: CreateWbsItemRequest; response: WbsItem }
   'wbs.save': { request: SaveWbsItemRequest; response: WbsItem }
   'wbs.complete': { request: CompleteWbsItemRequest; response: WbsItem }

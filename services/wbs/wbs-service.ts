@@ -38,6 +38,14 @@ export class WbsService extends BaseService<WbsOperationMap> {
         execution: { mode: 'inline' },
         handle: async (request) => this.repository.listDue(request),
       },
+      [WBS_OPERATIONS.LIST_PROJECT_ITEMS]: {
+        kind: 'query',
+        description: 'List the complete persisted WBS for Projects, including terminal rows.',
+        authorization: 'wbs.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.listProjectItems(request),
+      },
       [WBS_OPERATIONS.CREATE]: {
         kind: 'command',
         description: 'Create a work item (standalone follow-up or under a project).',

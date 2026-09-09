@@ -7,6 +7,7 @@ import type {
   CreateWbsProjectRequest,
   DismissWbsItemRequest,
   ListWbsDueRequest,
+  ListProjectWbsItemsRequest,
   SaveWbsItemRequest,
   WbsItem,
   WbsProject,
@@ -118,6 +119,21 @@ export class SqlWbsRepository implements WbsRepository {
     return rows.map(toItem)
   }
 
+  async listProjectItems(_request: ListProjectWbsItemsRequest): Promise<WbsItem[]> {
+    const rows = (await this.execute`
+      select id, project_id, parent_id, title, notes, category, status,
+             due_at, owner, sort_order, entity_type, entity_id, created_at, updated_at
+      from wbs_item
+      where project_id is not null
+      order by project_id,
+               parent_id nulls first,
+               sort_order nulls last,
+               due_at nulls last,
+               id
+    `) as unknown as WbsItemRow[]
+    return rows.map(toItem)
+  }
+
   async create(request: CreateWbsItemRequest): Promise<WbsItem> {
     const rows = (await this.execute`
       insert into wbs_item (id, project_id, parent_id, title, notes, category, status,
@@ -206,4 +222,3 @@ export class SqlWbsRepository implements WbsRepository {
     return rows.map(toProject)
   }
 }
-
