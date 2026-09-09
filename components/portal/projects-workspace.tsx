@@ -280,7 +280,7 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
           <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-serif text-[21px] font-bold leading-tight text-white/95">{d.label}</span>
+          <span className="block truncate font-serif text-[23px] font-bold leading-tight text-white/95">{d.label}</span>
           {d.subtitle ? <span className="mt-0.5 block truncate text-[15px] font-light leading-snug text-white/60">{d.subtitle}</span> : null}
         </span>
         {typeof d.progress === "number" ? (
