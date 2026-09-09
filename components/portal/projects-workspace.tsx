@@ -134,7 +134,7 @@ type DomainRailProps = {
 /** Vertical domain tabs that live INSIDE Pane 1 — not global navigation. */
 function DomainRail({ domains, active, onSelect }: DomainRailProps) {
   return (
-    <div className="flex w-[72px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project domain">
+    <div className="flex w-[86px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project domain">
       {domains.map((domain) => {
         const Icon = DOMAIN_ICON[domain.key]
         const isActive = domain.key === active
@@ -158,11 +158,11 @@ function DomainRail({ domains, active, onSelect }: DomainRailProps) {
               <Icon className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
             </span>
             <span
-              className={`max-w-[60px] text-center text-[10px] font-medium uppercase leading-none tracking-[0.06em] ${
-                isActive ? "text-white" : "text-white/65 group-hover:text-white/90"
+              className={`text-center text-[14px] font-medium uppercase leading-tight tracking-[0.02em] ${
+                isActive ? "text-white" : "text-white/70 group-hover:text-white/95"
               }`}
             >
-              {domain.shortLabel.slice(0, 10)}
+              {domain.shortLabel.slice(0, 12)}
             </span>
           </button>
         )
@@ -187,7 +187,7 @@ function useMeasuredHeight() {
 }
 
 function treeRowHeight(node: NodeApi<ProjectTreeNode>): number {
-  return node.data.kind === "pole" ? 56 : node.data.kind === "project" ? 40 : 32
+  return node.data.kind === "pole" ? 70 : node.data.kind === "project" ? 50 : 46
 }
 
 function navyWorkDot(status?: ProjectWorkStatus): string {
@@ -229,13 +229,13 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
           <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-serif text-[16px] font-light leading-tight text-white/95">{d.label}</span>
-          {d.subtitle ? <span className="block truncate text-[10.5px] font-light text-white/55">{d.subtitle}</span> : null}
+          <span className="block truncate font-serif text-[19px] font-light leading-tight text-white/95">{d.label}</span>
+          {d.subtitle ? <span className="mt-0.5 block truncate text-[15px] font-light leading-snug text-white/60">{d.subtitle}</span> : null}
         </span>
         {typeof d.progress === "number" ? (
           <span className="flex shrink-0 items-center gap-1.5 pr-1">
             <Progress value={d.progress} className="w-11" />
-            <span className="text-[9px] font-light text-white/50">{d.progress}%</span>
+            <span className="text-[14px] font-light text-white/55">{d.progress}%</span>
           </span>
         ) : null}
       </div>
@@ -247,9 +247,9 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
     return (
       <div style={style} className={`flex items-center gap-1.5 rounded-lg px-1 ${selected ? "bg-white/10" : ""} ${focus}`}>
         <ToggleButton node={node} />
-        {kind ? <span className="shrink-0 text-[8px] font-medium uppercase tracking-[0.1em] text-[var(--portal-gold)]">{kind}</span> : null}
-        <span className="min-w-0 flex-1 truncate text-[13px] text-white/90">{d.label}</span>
-        {typeof d.progress === "number" ? <span className="shrink-0 pr-1 text-[9px] font-light text-white/45">{d.progress}%</span> : null}
+        {kind ? <span className="shrink-0 text-[13px] font-medium uppercase tracking-[0.08em] text-[var(--portal-gold)]">{kind}</span> : null}
+        <span className="min-w-0 flex-1 truncate text-[18px] font-light leading-tight text-white/95">{d.label}</span>
+        {typeof d.progress === "number" ? <span className="shrink-0 pr-1 text-[14px] font-light text-white/55">{d.progress}%</span> : null}
       </div>
     )
   }
@@ -259,8 +259,8 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
     <div style={style} className={`flex items-center gap-2 rounded-md px-1 ${selected ? "bg-white/15 ring-1 ring-inset ring-white/25" : ""} ${focus}`}>
       <ToggleButton node={node} />
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${navyWorkDot(d.status)}`} />
-      <span className="min-w-0 flex-1 truncate text-[12.5px] text-white/90">{d.label}</span>
-      {parts[0] ? <span className="shrink-0 text-[8.5px] font-medium uppercase tracking-[0.06em] text-[var(--portal-gold)]">{parts[0]}</span> : null}
+      <span className="min-w-0 flex-1 truncate text-[18px] font-light leading-tight text-white/95">{d.label}</span>
+      {parts[0] ? <span className="shrink-0 text-[14px] font-medium uppercase tracking-[0.05em] text-[var(--portal-gold)]">{parts[0]}</span> : null}
     </div>
   )
 }
@@ -306,14 +306,14 @@ function PaneOne(props: PaneOneProps) {
         <DomainRail domains={props.domains} active={props.activeDomain} onSelect={props.onSelectDomain} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="border-b border-white/10 px-3 pb-2 pt-3">
-            <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{activeLabel}</p>
-            <label className="mt-2 flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-2.5">
-              <Search className="h-3.5 w-3.5 shrink-0 text-white/50" aria-hidden />
+            <p className="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{activeLabel}</p>
+            <label className="mt-2 flex h-11 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-3">
+              <Search className="h-4 w-4 shrink-0 text-white/50" aria-hidden />
               <input
                 value={props.query}
                 onChange={(e) => props.onQuery(e.target.value)}
                 placeholder="Find work…"
-                className="min-w-0 flex-1 bg-transparent text-[12.5px] font-light text-white outline-none placeholder:text-white/45"
+                className="min-w-0 flex-1 bg-transparent text-[16px] font-light text-white outline-none placeholder:text-white/55"
               />
             </label>
           </div>
@@ -499,21 +499,21 @@ type InspectorProps = {
   node: ProjectWorkNode | null
 }
 
-/** Pane 3 — persistent selected-WorkNode inspector. */
 function PaneThreeHead() {
   return (
-    <div className="border-b border-[var(--portal-panel-border)] px-3 py-2.5">
-      <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">Selected work</p>
+    <div className="border-b border-[var(--portal-panel-border)] px-3 py-3">
+      <p className="text-[14px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">Selected work</p>
     </div>
   )
 }
 
+/** Pane 3 — persistent selected-WorkNode inspector (readable type sizes). */
 function PaneThree({ pole, project, node }: InspectorProps) {
   if (!node) {
     return (
       <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
         <PaneThreeHead />
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-sm font-light text-black/45">
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-[16px] font-light text-black/45">
           Select a work item to inspect it.
         </div>
       </section>
@@ -525,26 +525,22 @@ function PaneThree({ pole, project, node }: InspectorProps) {
     <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
       <PaneThreeHead />
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">{node.type}</p>
-              <h3 className="mt-1 font-serif text-[19px] font-light leading-tight text-[var(--portal-navy)]">{node.title}</h3>
-            </div>
-          </div>
-          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <p className="text-[15px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{node.type}</p>
+          <h3 className="mt-1 font-serif text-[22px] font-light leading-tight text-[var(--portal-navy)]">{node.title}</h3>
+          <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/50 px-3 py-1 text-[15px] font-medium text-[var(--portal-navy-soft)]">
             <StatusDot status={node.status} /> {STATUS_LABEL[node.status]}
           </span>
 
           {pole && project ? (
-            <p className="mt-2 text-[10px] font-light text-black/40">
-              {pole.label} <ChevronRight className="inline h-2.5 w-2.5" aria-hidden /> {project.title}
+            <p className="mt-2.5 text-[15px] font-light text-black/45">
+              {pole.label} <ChevronRight className="inline h-3.5 w-3.5" aria-hidden /> {project.title}
             </p>
           ) : null}
 
-          {summary ? <p className="mt-3 text-[12px] font-light leading-relaxed text-[var(--portal-navy)]">{summary}</p> : null}
+          {summary ? <p className="mt-3 text-[16px] font-light leading-relaxed text-[var(--portal-navy)]">{summary}</p> : null}
 
-          <dl className="mt-3 space-y-1.5 border-y border-[var(--portal-panel-border)] py-2.5 text-[12px] font-light">
+          <dl className="mt-3 space-y-2 border-y border-[var(--portal-panel-border)] py-3 text-[16px] font-light">
             {node.dueLabel ? (
               <div className="flex justify-between gap-2">
                 <dt className="text-black/40">Due</dt>
@@ -561,12 +557,12 @@ function PaneThree({ pole, project, node }: InspectorProps) {
 
           {related.length > 0 ? (
             <div className="mt-3">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Related to</p>
+              <p className="text-[14px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">Related to</p>
               <ul className="mt-1 divide-y divide-[var(--portal-panel-border)]/70">
                 {related.map((item) => (
-                  <li key={item.label} className="flex items-baseline justify-between gap-2 py-1.5">
-                    <span className="min-w-0 truncate text-[12px] font-light text-[var(--portal-navy)]">{item.label}</span>
-                    {item.caption ? <span className="shrink-0 text-[10px] font-light text-black/40">{item.caption}</span> : null}
+                  <li key={item.label} className="flex items-baseline justify-between gap-3 py-2">
+                    <span className="min-w-0 truncate text-[16px] font-light text-[var(--portal-navy)]">{item.label}</span>
+                    {item.caption ? <span className="shrink-0 text-[15px] font-light text-black/40">{item.caption}</span> : null}
                   </li>
                 ))}
               </ul>
@@ -575,13 +571,13 @@ function PaneThree({ pole, project, node }: InspectorProps) {
         </div>
 
         {node.actions && node.actions.length > 0 ? (
-          <div className="flex flex-col gap-1.5 border-t border-[var(--portal-panel-border)] px-3 py-2.5">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--portal-blue-gray)]">Actions</p>
+          <div className="flex flex-col gap-2 border-t border-[var(--portal-panel-border)] px-4 py-3">
+            <p className="text-[14px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">Actions</p>
             {node.actions.map((action) => (
               <button
                 key={action}
                 type="button"
-                className="w-full rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 py-2 text-left text-[12px] font-medium text-white transition hover:opacity-90"
+                className="w-full rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 py-2.5 text-left text-[16px] font-medium text-white transition hover:opacity-90"
               >
                 {action}
               </button>
