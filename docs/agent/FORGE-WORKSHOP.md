@@ -264,6 +264,10 @@ This is a **snapshot, not authority**. Verify newer truth in Git + Neon before a
 - Real isolated write candidate creation: **PROVEN** on the SOLO dogfood; later QA/Assay completion must be verified from current Neon/Git evidence before claiming full end-to-end victory.
 - `assessSmithDispatch(...)` consolidated policy seam: **BUILT / tested as a library**.
 - Smith Oversized/>3-chunk inner fuse: **WIRED in the running role gate** (`4c808e7`).
+- QA verification/config-gap anti-deadlock guard: **ADDED in the QA policy router** (`f447d93`) — a QA gap (no valid assay command plan) HOLDs and never routes to smith. NOTE: the ENGINE's evidence/graph routing does not yet SET/consume this fact; the "## Assay commands packet required for QA to run" config half is still open.
+- lead_post / lead_solo_implement no longer demand an execution-shape decision (`2b25b4f`, `0935ddc` — caught by the FINAL-02 full-chain run).
+- plan->difficulty bridge (`f959f21`) + consolidated forge-dispatch-gate (`8572b3a`): BUILT as a tested library.
+- Full-chain FINAL-02 (real WRITE): Smith produced a real candidate (helper + test); real enforcement bugs caught + fixed; QA deadlocked on a missing `## Assay commands` packet (not a candidate defect). **Lesson: a FEATURE/RESEARCH story given to QA MUST carry a `## Assay commands:` section in its packet or Assay deterministically HOLDs.**
 - Authoritative pre-Smith use of the consolidated Kraken gate: **DO NOT ASSUME — verify current hot path**.
 - Full resident-Smith WRITE -> fresh QA -> Assay dogfood: **NOT YET ESTABLISHED by this snapshot**.
 
