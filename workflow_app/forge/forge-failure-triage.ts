@@ -121,3 +121,41 @@ export function evidenceGatedPass(passed: boolean, evidence: string | null | und
   return Boolean(evidence && String(evidence).trim().length > 0)
 }
 
+
+// ---------------------------------------------------------------------------
+// Two retry shapes (claude-orchestrate, CHANGELOG + SKILL.md). There is NOT one
+// kind of retry:
+//   (a) attempt failure with no verified progress -> RESET to the chunk baseline,
+//       fresh attempt (the default; no contamination between attempts).
+//   (b) a verifier-found gap in otherwise-PASSED work -> INCREMENTAL repair on the
+//       SAME branch, ON TOP of the passing commits, then a scoped re-verify that
+//       names ONLY the open items (pinned to lastPassedSha..HEAD). Resetting
+//       verified work buys no integrity.
+// Both shapes count against the SAME 3-dispatch budget. In Forge, either shape
+// preserves the resident Smith session/understanding; only CODE state resets.
+// ---------------------------------------------------------------------------
+
+export type RetryShape = 'reset-to-baseline' | 'incremental-repair'
+
+/** Choose the retry shape for a failed unit. A specific gap in otherwise-passing
+ *  work is an incremental repair on top of the passing commits; anything else
+ *  (attempt produced no verified progress) resets to baseline for a clean retry. */
+export function retryShapeFor(
+  failureClass: ChunkFailureClass,
+  partialProgressVerified: boolean,
+): RetryShape {
+  // Only a concrete verifier-found gap on top of otherwise-PASSED work repairs
+  // incrementally. A CAPABILITY/SPEC/ENV attempt that never verified progress
+  // resets to baseline. A SCOPE_EXPANSION / VERIFICATION_GAP never retries (hold).
+  if (partialProgressVerified && failureClass === 'ENV') return 'incremental-repair'
+  return 'reset-to-baseline'
+}
+
+/** Directive for the scoped re-verify after an incremental repair: name only the
+ *  open items and pin the diff to lastPassedSha..HEAD; do NOT re-litigate PASSed
+ *  items. */
+export function scopedReverifyDirective(lastPassedSha: string, openItems: string[]): string {
+  const items = openItems.length > 0 ? openItems.join('; ') : '(open items)'
+  return `Scoped re-verify ONLY the open items: ${items}. Diff is pinned to ${lastPassedSha}..HEAD. Do NOT re-litigate already-PASSed items. A PASS requires cited evidence.`
+}
+
