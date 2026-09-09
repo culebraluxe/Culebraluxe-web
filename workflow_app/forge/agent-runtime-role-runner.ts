@@ -39,6 +39,7 @@ import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork } from './forge-dispatch-seam'
+import { leadPreDispatchHoldReasons } from './forge-lead-plan'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -326,6 +327,17 @@ export function createAgentRuntimeForgeRoleRunner(
       if (plan.lane === 'smith') {
         const smithWork = assessSmithWork(raw)
         if (smithWork.verdict === 'HOLD') missing.push(...smithWork.reasons)
+      }
+      // Pre-Smith handoff gate (LEAD_PLAN contract): a successful Lead that
+      // decided to dispatch to Smith (SMITH/SPLIT) and emitted a LEAD_PLAN the
+      // KRAKEN gate HOLDs must NOT hand off. The HOLD reason flows into the same
+      // bounded self-heal path as every other deliverable miss, so lead_pre does
+      // not complete and the engine never starts a Smith lane. NO_PLAN (Lead
+      // emitted no LEAD_PLAN) is not gated — the contract is optional until
+      // dogfood proves Lead emits it reliably.
+      if (nodeId === 'lead_pre') {
+        const leadHolds = leadPreDispatchHoldReasons(evidence.leadDecision, raw)
+        if (leadHolds.length > 0) missing.push(...leadHolds)
       }
       miss.push(...missing)
     }
