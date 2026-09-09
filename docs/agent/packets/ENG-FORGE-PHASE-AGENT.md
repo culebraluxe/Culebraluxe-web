@@ -1,92 +1,97 @@
 # ENG-FORGE-PHASE-AGENT — Role/Phase Agent abstraction
 
-**Status:** DESIGN (parked until the current runtime pass stabilizes). Captured
-2026-09-08 after three evidence-marshaling defects traced to a single scatter:
-scout forgetting its packet, architect forgetting its disposition, findings
-parsed only for architect. The common root was that per-role marshal logic lives
-as conditionals inside one big `createAgentRuntimeForgeRoleRunner`, so each role's
-"deliverable" was not a declared, enforced invariant.
+**Status:** IMPLEMENTED + live-validated (2026-09-08/09). The role/phase lifecycle,
+deliverable gate, routing-decision validation, and bounded self-heal now live in
+the abstract `ForgePhaseAgent` instead of scattered conditionals in one big
+role-runner. Built in four commits:
+`704e177` write-on-exit persistence · `8892b6c` routing decisions ·
+`ac31d11` self-heal · `847aa21` enforcement ON by default.
 
 ## Why
 
-Today a role node executes through `forge-executor` → the role-runner → a harness
-adapter. Deliverables are bolted on as `if`-branches:
-- scout must write a packet to `story.context_refs` (else Architect's gate blocks)
-- architect must emit `research_disposition` (else the engine can't route)
-- findings must be parsed for architect **and** scout (else GIGO)
+A role node executes through `forge-executor` → the role-runner → a harness
+adapter. Deliverables used to be bolted on as `if`-branches (scout packet,
+architect disposition, findings parse), each added reactively after a defect.
+The parent abstraction makes a role's durable deliverable a **declared invariant
+every role inherits** instead of a remembered conditional.
 
-These were each added reactively. A parent abstraction makes the deliverable a
-**declared invariant every role inherits** instead of a remembered conditional.
+## Files (current truth)
 
-## Layering (do NOT collapse existing seams)
+- `workflow_app/forge/agents/forge-phase-agent.ts` — abstract parent +
+  pure policy/directive helpers.
+- `workflow_app/forge/agents/role-agents.ts` — concrete subclasses
+  (Scout/Architect/Lead/Smith/QA/DevOps) + `forgeAgentFor(nodeId)` factory.
+- `workflow_app/forge/agent-runtime-role-runner.ts` — the real runner routes the
+  marshal/deliverable/self-heal tail through the agent.
+- Tests: `workflow_app/tests/forge-phase-agent.test.ts`,
+  `workflow_app/tests/forge-evidence-roundtrip.test.ts` (DB-backed).
 
-```
-forge-executor (engine driver)
-  └─ ForgePhaseAgent (NEW abstract — owns phase lifecycle + deliverable gate)
-       ├─ AgentRuntimeAdapter  (EXISTING — execution: begin/heartbeat/terminal,
-       │    evidence normalization, cost/model recording, escalation)
-       └─ role subclasses (ScoutAgent, ArchitectAgent, LeadAgent, SmithAgent,
-            QAAgent, DevOpsAgent)
-```
+## The contract the parent owns
 
-`AgentRuntimeAdapter` already IS the execution base (harness run, run row, cost,
-heartbeat). The new parent is the **phase contract layer on top of it** — it does
-NOT duplicate execution. It owns role plan + context + prompt + marshal + gate +
-persist + finish.
-
-## Parent lifecycle (abstract methods in {braces})
-
-```
-ForgePhaseAgent.execute(node, task)
-  buildPlan()                      → role, phase, permissions, evidenceInstruction
-  gatherPriorContext()             → prior run/packet (the Scout→Arch handoff),
-                                     V5-21 resident session when it lands
-  promptAndExecute()               → via harness AgentRuntimeAdapter
-  marshalEvidence()                → normalize + parse structured markers (JSON/legacy)
-  assertDeliverable()  [abstract]  → THE GATE: throw/HOLD if deliverable absent
-  persistRunAndDeliverable()       → run row + cost + the phase's durable output
-  finish()
-```
-
-`assertDeliverable` is the enforcement that fixes today's flakiness: a role cannot
-report Complete without its required output (else the engine HOLDs / retries). It
-is the generalization of "scout must produce a packet" / "architect must produce a
-disposition" / "smith must produce a candidate SHA".
-
-## Subclasses declare their contract
-
-| Agent | deliverable (assertDeliverable) | persisted to |
+| Concern | Member | Behavior |
 |---|---|---|
-| ScoutAgent | non-empty research packet | `story.context_refs` (+ run notes) |
-| ArchitectAgent | valid `research_disposition`/plan | `forge_workflow_evidence` |
-| LeadAgent | decision + split count | `forge_workflow_evidence` |
+| Raw output | `rawRoleOutput(notes, testsSummary)` | notes + tests summary = what a deliverable is built from |
+| Deliverable kind | `deliverableKind()` | scout-packet / architect-plan / lead-decision / smith-candidate / qa-verdict / devops-receipt |
+| Findings parse | `marshalFindings()` | `FORGE_FINDINGS_JSON` → evidence.findings (Scout + Architect) |
+| Lead shape override | `applyLeadShape()` | validateLeadShapeChoice / findings-driven lead shape |
+| **Write-on-exit** | `storyDeliverable(raw)` | centralizes the durable Story field a role writes on exit — Scout → `context_refs`, Architect → `architect_brief`. The runner persists it generically; **never gated on a model self-formatting a marker**. New roles that hand off free text add one field here. |
+| Deliverable gate | `missingDeliverables(evidence, raw, scoutSet, architectSet)` | real presence check per flavor |
+| **Routing decision** | `routingDecisionMissing(evidence)` | research_architect must emit valid `research_disposition` (IMPLEMENT\|ARCHIVE\|HOLD); lead must emit valid `lead_decision` (SMITH\|SPLIT\|HOLD\|SOLO, `splitCount>1` when SPLIT). A persisted plan is NOT enough to route — this is the decision gate. |
+| Self-heal | `buildSelfHealDirective` / `parseDeliverableRepromptBudget` | corrective re-prompt text + attempt budget |
+| Enforcement policy | `deliverableEnforcementEnabled(env)` | **ON by default**; disable with `FORGE_ENFORCE_DELIVERABLES=0` |
+
+## Execution flow in the runner
+
+```
+enforceDeliverables = deliverableEnforcementEnabled(env)   // default ON
+totalAttempts = enforce ? 1 + FORGE_DELIVERABLE_RETRIES : 1  // default 1 retry
+for attempt in 0..totalAttempts-1:
+  build plan/prompt (+ correctiveNote if self-heal)  →  enqueue+claim+execute
+  marshal evidence, agent.marshalFindings + applyLeadShape
+  successful?  → write-on-exit storyDeliverable → context_refs / architect_brief
+  miss = agent.missingDeliverables(...) + routingDecisionMissing(...)
+  miss empty                    → finish task + Complete
+  attempt < totalAttempts - 1   → correctiveNote = selfHeal; continue (reprompt)
+  else                          → throw real HOLD (engine releases)
+```
+
+Hard runtime failures / interruptions **throw immediately** (never reprompted —
+not a fixable miss). Only an otherwise-successful run that missed a deliverable or
+decision self-heals.
+
+## Enforcement policy
+
+- **Default ON.** A successful role that reports without its deliverable or a
+  valid routing decision is re-run up to `FORGE_DELIVERABLE_RETRIES` (default 1)
+  times with a corrective directive, then HOLDed.
+- Disable leniently: `FORGE_ENFORCE_DELIVERABLES=0` (or `false`/`off`).
+- Budget: `FORGE_DELIVERABLE_RETRIES` (default 1 → max 2 model runs per phase).
+
+## Deliverables vs. persistence
+
+| Agent | deliverable | persisted to |
+|---|---|---|
+| ScoutAgent | non-empty research packet | `story.context_refs` (write-on-exit) |
+| ArchitectAgent | valid `research_disposition` + plan | `story.architect_brief` (write-on-exit) + disposition in `forge_workflow_evidence` |
+| LeadAgent | valid decision + split count | `forge_workflow_evidence` |
 | SmithAgent | candidate SHA | run `commit_hash` / `candidate_sha` |
 | QAAgent | exact-SHA PASS/FAIL | assay evidence / `qa_passed` |
 | DevOpsAgent | release/prod receipt | `forge_workflow_evidence` |
 
-Each subclass keeps its specific permissions + model grade (flash/pro), but the
-lifecycle + marshal + persist + capture are shared and correct-by-construction.
+Subclasses keep their specific permissions + model grade (flash/pro); lifecycle,
+marshal, persist, and self-heal are shared and correct-by-construction.
 
-## What it buys
+## Live proof (SIMPLE-RUN-03, cleaned up, ~6.4 widgets)
 
-1. **Enforced deliverables** — the three marshaling bugs become impossible to
-   reintroduce (a subclass that forgets to declare its deliverable fails loudly).
-2. **One canonical evidence/run/capture path** — every phase routes through the
-   error-capture framework (AGENTS "Error Capture Obligation"), no bespoke
-   try/catch per role.
-3. **A home for V5-21** — `gatherPriorContext()` is where the story-resident
-   OpenCode session (context persists; authority does not) plugs in.
-4. **Cleaner role-runner** — the ~conditional-soup collapses into ~6 small
-   subclass files + one shared parent.
+Scout → Architect → Lead with enforcement ON + self-heal:
+Scout packet persisted (context_refs 5115). **Architect #1** persisted the plan
+(architect_brief 5118) but omitted `research_disposition` → self-heal reprompted
+**Architect #2**, which delivered `IMPLEMENT` → gate passed → advanced. Lead made a
+valid `HOLD` → correctly parked at the human gate. No operator needed for the
+Architect miss.
 
-## Suggested surface (inspect before assuming every file changes)
-`workflow_app/forge/agent-runtime-role-runner.ts` (becomes thin factory over
-`ForgePhaseAgent` subclasses), `forge-role-mapping.ts` (plan stays), new
-`workflow_app/forge/agents/*.ts`. Do not invent a second router.
+## Future home
 
-## Acceptance (targeted)
-- Scout without a packet ⇒ phase HOLDs (never silently proceeds).
-- Architect without a disposition ⇒ phase HOLDs.
-- Each phase still records run row + cost + prior-phase handoff.
-- Existing single-role drive (`--until role`), scout-findings test, and the
-  exact-candidate Assay all still pass.
+`ForgePhaseAgent.gatherPriorContext()` is where V5-21 story-resident OpenCode
+session continuity ("context persists; authority does not") plugs in — still
+parked (see `ENG-FORGE-V5-21.md`).
