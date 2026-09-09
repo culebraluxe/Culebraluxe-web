@@ -124,18 +124,18 @@ export interface NodeDefinition {
   /** Present on `decision` nodes — refresh application facts before evaluating. */
   refreshFacts?: boolean;
   /**
-   * Present on `dynamic-fork` nodes — data-driven N-way fan-out (ENG-FORGE-V10).
-   * The engine reads the branch count from the process variable named by
-   * `countVariable` (clamped to minimum..maximum), fans out that many branch
-   * tokens, executes `branchCommandType` per branch, and rejoins at the node
-   * id in `join` (fork-parent token correlation). `planVariable` is optional
-   * structured per-branch intent produced by the caller (e.g. Lead's split plan).
+   * Present on `dynamic-fork` nodes — data-driven N-way fan-out. The engine
+   * reads the branch count from the process variable named by `countVariable`
+   * (clamped to minimum..maximum), fans out that many branch tokens, executes
+   * `branchCommandType` per branch, and rejoins at the node id in `join`
+   * (fork-parent token correlation). `planVariable` is optional structured
+   * per-branch intent supplied by the caller.
    */
   countVariable?: string;
   planVariable?: string | null;
   branchCommandType?: string;
-  /** Optional per-branch runnable node (e.g. a Smith-split task-node) the
-   *  dynamic-fork's child tokens arrive at instead of the join directly. */
+  /** Optional per-branch runnable node the dynamic-fork's child tokens arrive
+   *  at instead of the join directly. */
   branchNode?: string;
   join?: string;
   minimum?: number;

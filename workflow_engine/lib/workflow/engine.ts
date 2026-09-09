@@ -1875,13 +1875,13 @@ export class WorkflowEngine {
     actor: string,
     variables: Record<string, any>,
   ) {
-    // ENG-FORGE-V10 — durable N-way fan-out primitive. The process variable
-    // named by node.countVariable holds the requested branch count; it is
-    // clamped to node.minimum..node.maximum. The parent token completes and N
-    // child tokens are created at the join target so the existing join (by
-    // fork-parent token correlation) releases exactly once when all N arrive.
-    // Async agent fan-out (enqueue + resume) is layered on top by the Forge
-    // execution integration; this is the engine-native synchronous primitive.
+    // Durable N-way fan-out primitive. The process variable named by
+    // node.countVariable holds the requested branch count; it is clamped to
+    // node.minimum..node.maximum. The parent token completes and N child tokens
+    // are created at the join target so the existing join (by fork-parent token
+    // correlation) releases exactly once when all N arrive. This is the
+    // engine-native synchronous primitive; asynchronous caller fan-out
+    // (enqueue + resume) layers on top outside this kernel.
     await this._completeToken(tx, parentToken, actor, 'completed');
 
     const minimum = node.minimum ?? 2;
