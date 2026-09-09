@@ -126,7 +126,7 @@ type DomainRailProps = {
 /** Vertical domain tabs that live INSIDE Pane 1 — not global navigation. */
 function DomainRail({ domains, active, onSelect }: DomainRailProps) {
   return (
-    <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-white/15 bg-white/10 py-2" aria-label="Project domain">
+    <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-white/10 bg-black/10 py-2" aria-label="Project domain">
       {domains.map((domain) => {
         const Icon = DOMAIN_ICON[domain.key]
         const isActive = domain.key === active
@@ -137,13 +137,13 @@ function DomainRail({ domains, active, onSelect }: DomainRailProps) {
             onClick={() => onSelect(domain.key)}
             title={domain.shortLabel}
             aria-current={isActive ? "true" : undefined}
-            className={`group relative flex w-full flex-col items-center gap-1.5 py-2 transition ${isActive ? "text-white" : "text-[var(--portal-blue-gray)] hover:text-[var(--portal-navy)]"}`}
+            className={`group relative flex w-full flex-col items-center gap-1.5 py-2 transition ${isActive ? "text-white" : "text-white/70 hover:text-white"}`}
           >
-            <span className={`absolute inset-y-1 left-0 w-0.5 rounded-r-full transition ${isActive ? "bg-[var(--portal-gold)]" : "bg-transparent group-hover:bg-[var(--portal-gold)]/40"}`} />
-            <span className={`flex h-8 w-8 items-center justify-center rounded-[var(--portal-tab-radius)] transition ${isActive ? "bg-[var(--portal-navy)]/85 text-[var(--portal-gold-soft)] shadow-sm" : "bg-white/[0.08] text-current group-hover:bg-white/25"}`}>
+            <span className={`absolute inset-y-1 left-0 w-0.5 rounded-r-full transition ${isActive ? "bg-[var(--portal-gold)]" : "bg-transparent group-hover:bg-white/30"}`} />
+            <span className={`flex h-8 w-8 items-center justify-center rounded-[var(--portal-tab-radius)] transition ${isActive ? "bg-black/25 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15 shadow-sm" : "bg-white/[0.09] text-white/80 group-hover:bg-white/[0.16] group-hover:text-white"}`}>
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.6} aria-hidden />
             </span>
-            <span className="max-w-[44px] text-center text-[7px] font-medium uppercase leading-none tracking-[0.06em]">{domain.shortLabel.slice(0, 9)}</span>
+            <span className={`max-w-[44px] text-center text-[7px] font-medium uppercase leading-none tracking-[0.06em] ${isActive ? "text-white" : "text-white/55 group-hover:text-white/80"}`}>{domain.shortLabel.slice(0, 9)}</span>
           </button>
         )
       })}
@@ -158,6 +158,14 @@ type NodeRowProps = {
   onSelectNode: (id: string | null) => void
 }
 
+function nodeDotNavy(status: ProjectWorkStatus) {
+  if (status === "complete") return "bg-[var(--portal-success)]"
+  if (status === "waiting") return "bg-[var(--portal-gold)]"
+  if (status === "blocked") return "bg-[var(--portal-archive)]"
+  if (status === "in-progress") return "bg-[var(--portal-gold)]/70"
+  return "bg-white/30"
+}
+
 function NodeRow({ node, depth, selectedNodeId, onSelectNode }: NodeRowProps) {
   const selected = node.id === selectedNodeId
   return (
@@ -165,12 +173,12 @@ function NodeRow({ node, depth, selectedNodeId, onSelectNode }: NodeRowProps) {
       <button
         type="button"
         onClick={() => onSelectNode(selected ? null : node.id)}
-        className={`flex w-full items-center gap-2 rounded-[var(--portal-tab-radius)] px-2 py-1.5 text-left transition ${selected ? "bg-[var(--portal-navy)]/5 ring-1 ring-inset ring-[var(--portal-navy)]/10" : "hover:bg-white/40"}`}
+        className={`flex w-full items-center gap-2 rounded-[var(--portal-tab-radius)] px-2 py-1.5 text-left transition ${selected ? "bg-white/15 ring-1 ring-inset ring-white/25" : "hover:bg-white/10"}`}
         style={{ paddingLeft: `${10 + depth * 14}px` }}
       >
-        <StatusDot status={node.status} />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-light text-[var(--portal-navy)]">{node.title}</span>
-        {node.children?.length ? <ChevronRight className="h-3 w-3 shrink-0 text-black/25" aria-hidden /> : null}
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${nodeDotNavy(node.status)}`} />
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-light text-white/85">{node.title}</span>
+        {node.children?.length ? <ChevronRight className="h-3 w-3 shrink-0 text-white/40" aria-hidden /> : null}
       </button>
       {node.children?.length ? (
         <ul>
@@ -196,7 +204,7 @@ type NavigatorProps = {
 
 function Navigator({ poles, expanded, selectedPoleId, selectedProjectId, selectedNodeId, onTogglePole, onSelectProject, onSelectNode }: NavigatorProps) {
   if (poles.length === 0) {
-    return <p className="px-3 py-6 text-center text-sm font-light text-black/45">No matches in this domain.</p>
+    return <p className="px-3 py-6 text-center text-sm font-light text-white/60">No matches in this domain.</p>
   }
   return (
     <ul className="space-y-1 px-1.5 pb-2">
@@ -206,20 +214,20 @@ function Navigator({ poles, expanded, selectedPoleId, selectedProjectId, selecte
         const Icon = DOMAIN_ICON[pole.domain]
         return (
           <li key={pole.id}>
-            <div className={`rounded-[var(--portal-tab-radius)] transition ${poleActive ? "bg-white/55 shadow-[0_1px_8px_rgba(3,15,35,0.06)] ring-1 ring-inset ring-[var(--portal-navy)]/8" : "hover:bg-white/40"}`}>
+            <div className={`rounded-[var(--portal-tab-radius)] transition ${poleActive ? "bg-white/10 shadow-[0_2px_12px_rgba(0,0,0,0.16)] ring-1 ring-inset ring-white/20" : "hover:bg-white/5"}`}>
               <button type="button" onClick={() => onTogglePole(pole.id)} className="flex w-full items-start gap-2.5 px-2 py-2 text-left">
-                <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] shadow-sm ${poleActive ? "bg-[var(--portal-navy)] text-[var(--portal-gold-soft)]" : "bg-white/50 text-[var(--portal-navy)] ring-1 ring-inset ring-[var(--portal-navy)]/10"}`}>
+                <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] shadow-sm ${poleActive ? "bg-[var(--portal-gold)] text-[#07152e] shadow-md" : "bg-white/10 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15"}`}>
                   <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-black/35 transition ${isExpanded ? "" : "-rotate-90"}`} aria-hidden />
-                    <span className="truncate font-serif text-[17px] font-light leading-tight text-[var(--portal-navy)]">{pole.label}</span>
+                    <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-white/50 transition ${isExpanded ? "" : "-rotate-90"}`} aria-hidden />
+                    <span className="truncate font-serif text-[17px] font-light leading-tight text-white/95">{pole.label}</span>
                   </span>
-                  <span className="mt-0.5 block truncate pl-[18px] text-[10.5px] font-light text-black/45">{pole.subtitle}</span>
+                  <span className="mt-0.5 block truncate pl-[18px] text-[10.5px] font-light text-white/55">{pole.subtitle}</span>
                   <span className="mt-1.5 flex items-center gap-2 pl-[18px]">
-                    <Progress value={pole.progress} className="max-w-[64px]" />
-                    <span className="text-[9px] font-light uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">{pole.progress}%</span>
+                    <Progress value={pole.progress} className="max-w-[64px] opacity-90" />
+                    <span className="text-[9px] font-light uppercase tracking-[0.1em] text-white/50">{pole.progress}%</span>
                   </span>
                 </span>
               </button>
@@ -229,15 +237,15 @@ function Navigator({ poles, expanded, selectedPoleId, selectedProjectId, selecte
                   {pole.projects.map((project) => {
                     const projectActive = pole.id === selectedPoleId && project.id === selectedProjectId
                     return (
-                      <div key={project.id} className="mb-0.5 border-l border-[var(--portal-mist-3)]/80 pl-2.5">
+                      <div key={project.id} className="mb-0.5 border-l border-white/15 pl-2.5">
                         <button
                           type="button"
                           onClick={() => onSelectProject(pole.id, project.id)}
-                          className={`mt-1 flex w-full items-center gap-1.5 rounded-[var(--portal-tab-radius)] px-2 py-1.5 text-left transition ${projectActive ? "bg-[var(--portal-navy)]/5" : "hover:bg-white/40"}`}
+                          className={`mt-1 flex w-full items-center gap-1.5 rounded-[var(--portal-tab-radius)] px-2 py-1.5 text-left transition ${projectActive ? "bg-white/10 ring-1 ring-inset ring-white/15" : "hover:bg-white/5"}`}
                         >
-                          <span className="text-[8.5px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">{project.kind}</span>
-                          <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--portal-navy)]">{project.title}</span>
-                          <span className="text-[9px] font-light text-black/35">{project.progress}%</span>
+                          <span className="text-[8.5px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold)]">{project.kind}</span>
+                          <span className="min-w-0 flex-1 truncate text-[13.5px] text-white/85">{project.title}</span>
+                          <span className="text-[9px] font-light text-white/45">{project.progress}%</span>
                         </button>
                         {projectActive ? (
                           <ul className="mt-0.5 space-y-px">
@@ -279,19 +287,19 @@ type PaneOneProps = {
 function PaneOne(props: PaneOneProps) {
   const activeLabel = props.domains.find((d) => d.key === props.activeDomain)?.label ?? ""
   return (
-    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section className="portal-glass-panel portal-glass-panel-feature flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="flex min-h-0 flex-1">
         <DomainRail domains={props.domains} active={props.activeDomain} onSelect={props.onSelectDomain} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="border-b border-[var(--portal-panel-border)] px-3 pb-2 pt-3">
-            <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">{activeLabel}</p>
-            <label className="mt-2 flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 px-2.5">
-              <Search className="h-3.5 w-3.5 shrink-0 text-black/35" aria-hidden />
+          <div className="border-b border-white/10 px-3 pb-2 pt-3">
+            <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold)]">{activeLabel}</p>
+            <label className="mt-2 flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-2.5">
+              <Search className="h-3.5 w-3.5 shrink-0 text-white/50" aria-hidden />
               <input
                 value={props.query}
                 onChange={(e) => props.onQuery(e.target.value)}
                 placeholder="Find work…"
-                className="min-w-0 flex-1 bg-transparent text-[12.5px] font-light text-[var(--portal-navy)] outline-none placeholder:text-black/35"
+                className="min-w-0 flex-1 bg-transparent text-[12.5px] font-light text-white outline-none placeholder:text-white/45"
               />
             </label>
           </div>
