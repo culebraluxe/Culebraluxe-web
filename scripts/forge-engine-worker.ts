@@ -5,6 +5,9 @@ import {
   parseForgeRoutingBrain,
 } from '../workflow_app/forge/forge-routing-brain'
 import { findActiveForgeInstance } from '../workflow_app/forge/forge-engine-runtime'
+import { getStoryboardStory } from '../db/storyboard'
+import { markForgeStoryHumanHold } from '../db/forge-story-state'
+import { storyReadyToRunReasons } from '../workflow_app/forge/forge-ready-gate'
 
 const args = process.argv.slice(2)
 const value = (flag: string): string | undefined => {
@@ -41,6 +44,26 @@ async function main(): Promise<void> {
   })
   if (!dual.ok) {
     throw new Error(`Forge dual-write refused for story ${storyId}`)
+  }
+
+  // Ready gate: a QA-applicable story must NOT leave Planned (start a fresh
+  // engine instance and burn Scout/Architect/Lead/Smith) when its packet cannot
+  // be assayed. Resume of an already-active instance is never blocked.
+  if (!engineActive && workType !== 'RESEARCH' && workType !== 'MIGRATION') {
+    const story = await getStoryboardStory(storyId)
+    const reasons = storyReadyToRunReasons({
+      workType,
+      acceptanceCriteria: story?.acceptanceCriteria ?? null,
+      assayCommands: story?.assayCommands ?? null,
+    })
+    if (reasons.length > 0) {
+      await markForgeStoryHumanHold(
+        storyId,
+        `ready-gate: story must not start without an assayable contract: ${reasons.join('; ')}`,
+      )
+      console.log(JSON.stringify({ brain, readyGate: 'HOLD', storyId, reasons }, null, 2))
+      return
+    }
   }
 
   const workerId = process.env.AGENT_WORKER_ID?.trim() || `forge-engine-${process.pid}`
