@@ -39,3 +39,8 @@ culebraluxe-calendar*.json
 package-lock.json
 *.tsbuildinfo
 .ripwire-output/
+
+# Nested research/reference clones — never part of the Culebraluxe app.
+praxis/
+claude-orchestrate/
+
