@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
-import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective, buildSmithWorkDecompositionDirective, parseSmithPlan, smithPlanExceedsBounds } from '../../agent-runtime/run-guardrails'
+import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective, buildSmithWorkDecompositionDirective } from '../../agent-runtime/run-guardrails'
 import {
   FileContextLessonStore,
   buildContextLessonDirective,
@@ -38,6 +38,7 @@ import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
+import { assessSmithWork } from './forge-dispatch-seam'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -318,14 +319,13 @@ export function createAgentRuntimeForgeRoleRunner(
       if (routeMiss) missing.push(`routing:${routeMiss}`)
       // Anti-token-fire (Smith decomposition): a successful Smith that self-sizes
       // OVERSIZED or >3 chunks is a scope violation -> HOLD. A 4th chunk is not
-      // "keep working". Uses the machine SMITH_PLAN line if the Smith emitted one.
+      // "keep working". Adjudicated by the dispatch seam (the running enforcement
+      // seat of the KRAKEN gate), which uses the machine SMITH_PLAN line if the
+      // Smith emitted one, and upgrades to the full gate when a structured plan
+      // is ever captured.
       if (plan.lane === 'smith') {
-        const smithPlan = parseSmithPlan(raw)
-        if (smithPlanExceedsBounds(smithPlan)) {
-          missing.push(
-            `smith-plan:oversized (size=${smithPlan?.size ?? '?'} chunks=${smithPlan?.chunks ?? '?'}; >3 is a HOLD, not keep working)`,
-          )
-        }
+        const smithWork = assessSmithWork(raw)
+        if (smithWork.verdict === 'HOLD') missing.push(...smithWork.reasons)
       }
       miss.push(...missing)
     }
