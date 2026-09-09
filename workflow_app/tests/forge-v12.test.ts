@@ -21,7 +21,7 @@ test('V12 night driver: engine skips reducer hydrate/follow/publish', () => {
   assert.equal(engine.follow, false)
   assert.equal(engine.publish, false)
   assert.equal(engine.driveEngine, true)
-  assert.equal(planForgeNight(undefined).brain, 'reducer')
+  assert.equal(planForgeNight(undefined).brain, 'engine') // ENGINE is canonical
 })
 
 test('V12 architect contract binds Smith scope', () => {

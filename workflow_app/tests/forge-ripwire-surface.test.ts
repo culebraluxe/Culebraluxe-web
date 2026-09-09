@@ -32,11 +32,20 @@ test('V2: a broad pack measures a larger surface than a narrow one', () => {
 })
 
 test('V2: the surface multiplier scales the prior forecast', () => {
-  const base = { estimatedTokens: 1000, estimatedCostUsd: 1.0, estimatedMinutes: 20, estimatedSloc: 150 }
+  const base = {
+    estimatedTokens: 1000,
+    estimatedWidgets: 20,
+    estimatedCostUsd: 1.0,
+    estimatedMinutes: 20,
+    estimatedSloc: 150,
+  }
   const mult = 1.5
   const out = applySurfaceMultiplier(base, mult)
-  assert.equal(out.estimatedMinutes, 30)
-  assert.equal(out.estimatedCostUsd, 1.5)
   assert.equal(out.estimatedTokens, 1500)
+  assert.equal(out.estimatedWidgets, 30)
+  assert.equal(out.estimatedMinutes, 30)
   assert.equal(out.estimatedSloc, 225)
+  // Cost is NOT scaled here: it is derived from the scaled token/widget counts
+  // at the unit rate elsewhere (the multiplier never multiplies money directly).
+  assert.equal(out.estimatedCostUsd, 1.0)
 })
