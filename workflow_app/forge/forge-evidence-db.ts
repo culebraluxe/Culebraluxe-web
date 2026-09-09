@@ -28,10 +28,16 @@ function isClean(status: string | null | undefined): boolean {
   return /complete|success|pass/i.test(status ?? '')
 }
 
+/** Assay failure codes that mean a CONFIG/verification gap, NOT a candidate defect
+ * (assay-evidence.ts evaluateAssayEvidence). A gap can never be fixed by repairing
+ * the candidate -> it must route to HOLD, not smith (the FINAL-02 deadlock). */
+const QA_VERIFICATION_GAP_CODES = new Set(['MISSING_ASSAY_PLAN', 'ASSAY_POLICY_FAILED'])
+
 export type ForgeRunRowShape = {
   run_type: string | null
   result_status: string | null
   commit_hash: string | null
+  failure_code?: string | null
 }
 
 /** Pure mapping of run-table rows -> gate evidence (unit-testable, DB-free). */
@@ -50,6 +56,9 @@ export function mapRunsToGateEvidence(rows: ForgeRunRowShape[]): ForgeGateEviden
     if (rt.includes('qa') || rt.includes('assay')) {
       sawQa = true
       if (clean) evidence.qaPassed = true
+      else if (r.failure_code && QA_VERIFICATION_GAP_CODES.has(r.failure_code.toUpperCase())) {
+        evidence.verificationGap = true
+      }
     } else if (rt.includes('publish')) {
       sawPublish = true
       if (clean) evidence.publishSucceeded = true
@@ -78,7 +87,7 @@ export async function readStoryGateEvidence(
   storyId: string,
 ): Promise<ForgeGateEvidence> {
   const rows = (await engineSql()`
-    select run_type, result_status, commit_hash
+    select run_type, result_status, commit_hash, failure_code
     from storyboard_story_run
     where story_id = ${storyId}
     order by started_at desc nulls last, created_at desc
