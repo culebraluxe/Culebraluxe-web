@@ -3,9 +3,12 @@
 // instance and burn Scout/Architect/Lead/Smith) when its packet cannot be
 // assayed. FINAL-02 lesson: a FEATURE with no assay recipe used to HOLD forever
 // only AFTER roles had already run. Fail closed at start instead: no acceptance
-// criteria or no assay commands on a QA-applicable story => keep it out of the
-// run lane. Non-QA work types (RESEARCH, MIGRATION) are not gated here.
+// criteria or no assay recipe on a QA-applicable story => keep it out of the
+// run lane. An assay recipe that parses to zero commands counts as missing.
+// Non-QA work types (RESEARCH, MIGRATION) are not gated here.
 // ---------------------------------------------------------------------------
+
+import { parseAssayCommands } from '../../agent-runtime/assay-plan'
 
 export const QA_APPLICABLE_WORK_TYPES: ReadonlySet<string> = new Set([
   'FEATURE',
@@ -31,6 +34,7 @@ export function storyReadyToRunReasons(facts: StoryReadyToRunFacts): ReadyGateRe
   if (!QA_APPLICABLE_WORK_TYPES.has(facts.workType)) return []
   const reasons: ReadyGateReason[] = []
   if (!facts.acceptanceCriteria?.trim()) reasons.push('ready-gate:missing-acceptance')
-  if (!facts.assayCommands?.trim()) reasons.push('ready-gate:missing-assay-plan')
+  if (parseAssayCommands(facts.assayCommands).length === 0)
+    reasons.push('ready-gate:missing-assay-plan')
   return reasons
 }

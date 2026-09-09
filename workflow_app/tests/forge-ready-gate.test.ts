@@ -32,6 +32,10 @@ test('Ready gate: missing acceptance OR assay plan holds a QA-applicable story a
   assert.deepEqual(storyReadyToRunReasons(facts({ assayCommands: null })), [
     'ready-gate:missing-assay-plan',
   ])
+  assert.deepEqual(
+    storyReadyToRunReasons(facts({ assayCommands: '# placeholder' })),
+    ['ready-gate:missing-assay-plan'],
+  )
   const both = storyReadyToRunReasons(
     facts({ acceptanceCriteria: null, assayCommands: '   ' }),
   )
