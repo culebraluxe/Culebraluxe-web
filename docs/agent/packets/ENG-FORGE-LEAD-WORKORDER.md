@@ -60,6 +60,27 @@ Each chunk = a work order the operator already uses:
 - implicit **stop clause**: if the acceptance genuinely can't be met, report +
   HOLD — do not fake a pass.
 
+### Emit-time requirements (the input Lead must have, and the rules it must obey)
+
+Before Lead writes the plan, its context MUST contain the frozen ground truth —
+inject it, don't assume:
+- story **goal** + **final acceptance criteria**
+- **Architect brief** (authoritative)
+- **Scout surfaces** (3–7 must-reads)
+- the **base SHA** of what it is planning against
+
+Hard rules Lead must obey while emitting (lines, not style):
+1. **Scope granularity = symbol/function level** within a file, plus an explicit
+   out-of-bounds "do not touch" list. "File X" alone is not a scope.
+2. **Proof convention:** each chunk's acceptance is a NEW targeted test written
+   first (red → green), unless it explicitly reuses an existing one — state which.
+3. **Never** invent acceptance beyond the story's; never add scope; never emit a
+   chunk whose acceptance isn't a runnable command; never fake a proof.
+4. **Size labels carry a cost anchor:** SMALL ≈ one file + one new test; MEDIUM ≈
+   a few files / 2–3 tests; LARGE = likely not a single chunk — reconsider.
+5. If the story cannot become ≤3 honest, runnable chunks, **STOP and report why**
+   (HOLD) rather than forcing a bad plan.
+
 ## Phase 1 — Required, validated emission
 
 1. Flip `forge-role-mapping.ts` Lead PRE instruction from optional to REQUIRED for
