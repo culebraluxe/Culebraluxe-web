@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
-import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective, buildSmithWorkDecompositionDirective } from '../../agent-runtime/run-guardrails'
+import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective, buildSmithWorkDecompositionDirective, parseSmithPlan, smithPlanExceedsBounds } from '../../agent-runtime/run-guardrails'
 import {
   FileContextLessonStore,
   buildContextLessonDirective,
@@ -316,6 +316,17 @@ export function createAgentRuntimeForgeRoleRunner(
       // lead -> lead_decision). A null/invalid decision is a HOLD, not a pass.
       const routeMiss = agent.routingDecisionMissing(evidence)
       if (routeMiss) missing.push(`routing:${routeMiss}`)
+      // Anti-token-fire (Smith decomposition): a successful Smith that self-sizes
+      // OVERSIZED or >3 chunks is a scope violation -> HOLD. A 4th chunk is not
+      // "keep working". Uses the machine SMITH_PLAN line if the Smith emitted one.
+      if (plan.lane === 'smith') {
+        const smithPlan = parseSmithPlan(raw)
+        if (smithPlanExceedsBounds(smithPlan)) {
+          missing.push(
+            `smith-plan:oversized (size=${smithPlan?.size ?? '?'} chunks=${smithPlan?.chunks ?? '?'}; >3 is a HOLD, not keep working)`,
+          )
+        }
+      }
       miss.push(...missing)
     }
 
