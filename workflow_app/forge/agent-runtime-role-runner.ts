@@ -1,5 +1,11 @@
+import { resolve } from 'node:path'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
 import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective, buildSmithWorkDecompositionDirective } from '../../agent-runtime/run-guardrails'
+import {
+  FileContextLessonStore,
+  buildContextLessonDirective,
+  lessonsForArea,
+} from './forge-context-lessons'
 import {
   createAgentRuntimeRegistry,
   defaultDeepSeekConfig,
@@ -128,6 +134,19 @@ export function createAgentRuntimeForgeRoleRunner(
         )
       : null
 
+    // #8 context-lesson feedback loop: inject known context gaps for this node/lane
+    // so a fact that was once missing is never missing twice. Null when no lessons
+    // match, so a clean run pays nothing for the store.
+    const contextLessonsDirective = buildContextLessonDirective(
+      lessonsForArea(
+        new FileContextLessonStore(
+          process.env.FORGE_CONTEXT_LESSONS_FILE ??
+            resolve(process.cwd(), '.forge-context', 'lessons.json'),
+        ).list(),
+        [nodeId, plan.lane],
+      ),
+    )
+
     const extraInstructions = [
       correctiveNote,
       identityInstruction,
@@ -135,6 +154,7 @@ export function createAgentRuntimeForgeRoleRunner(
       plan.evidenceInstruction,
       repoContextInstruction,
       priorScoutInstruction,
+      contextLessonsDirective,
       buildRunGuardrailsDirective(),
       buildRunPassDirective(),
       buildRtkCompressionDirective(),
