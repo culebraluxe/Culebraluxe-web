@@ -42,7 +42,8 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
         leadPhase: 'pre',
         evidenceInstruction:
           `${STRUCTURED_PREFIX} {"leadDecision":"SMITH|SPLIT|HOLD|SOLO","splitCount":0,"leadReason":"..."}` +
-          ' (REQUIRED routing decision — SMITH = implement in one smith lane, SPLIT = parallelize into splitCount child lanes, SOLO = lead implements solo, HOLD = cannot proceed. When SPLIT, splitCount must be > 1. Without a valid leadDecision the engine cannot route and this phase is HELD.)',
+          ' (REQUIRED routing decision — SMITH = implement in one smith lane, SPLIT = parallelize into splitCount child lanes, SOLO = lead implements solo, HOLD = cannot proceed. When SPLIT, splitCount must be > 1. Without a valid leadDecision the engine cannot route and this phase is HELD.) ' +
+          'In leadReason, capture your EXECUTION-SHAPE reasoning as structured, auditable lines. When you choose SPLIT you MUST include, one per split lane: `Split lane N scope: <the single bounded unit of work that lane N owns, no more>` and a `Merge gate: <the concrete check (files converge, exact tests pass) that proves lane N is done and the split can rejoin>`.',
       }
     case 'lead_solo_implement':
       return { lane: 'lead', leadPhase: 'implement' }

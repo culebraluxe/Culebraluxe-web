@@ -110,6 +110,13 @@ test('routingDecisionMissing: lead requires a valid lead_decision (+splitCount w
   assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SOLO' }) as never), null)
 })
 
+test('lead_pre requires auditable split-lane scope + merge gate on SPLIT', () => {
+  const lead = forgeAgentFor('lead_pre') as LeadAgent
+  assert.ok(lead.plan.evidenceInstruction?.includes('Split lane N scope'))
+  assert.ok(lead.plan.evidenceInstruction?.includes('Merge gate'))
+  assert.ok(lead.plan.evidenceInstruction?.includes('REQUIRED routing decision'))
+})
+
 test('routingDecisionMissing: non-routing nodes have no requirement', () => {
   const scout = new ForgePhaseAgent('research_scout')
   const smith = forgeAgentFor('smith') as SmithAgent
