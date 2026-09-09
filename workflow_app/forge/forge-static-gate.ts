@@ -107,15 +107,27 @@ export function runStaticGate(input: {
   const config = input.config ?? '.dependency-cruiser.js'
   const timeoutMs = input.timeoutMs ?? 180_000
 
-  // dependency-cruiser validates a JS/TS module graph. A workspace without a
-  // package manifest (a non-package tree or a bare unit harness) has no graph
-  // to cruise and no pnpm root to resolve the tool — skip it rather than fail
-  // the hard gate on tooling. Real candidate workspaces (this JS repo) always
-  // carry package.json, so production arch gating is unchanged.
+  // dependency-cruiser validates a JS/TS module graph. It can only run when the
+  // tool actually resolves in this workspace: an explicit binary path, or a
+  // locally installed depcruise (node_modules/.bin). A candidate worktree has
+  // package.json but usually no node_modules, and a bare unit harness has no
+  // package at all — in both cases there is nothing to cruise, so skip rather
+  // than fail the hard gate on missing tooling. QA must not FAIL (and recall
+  // Smith) just because an optional deep check cannot run.
   const hasManifest = existsSync(join(workspace, 'package.json'))
-  const arch = hasManifest
-    ? runDepcruise({ workspace, roots, config, depcruiseBin: input.depcruiseBin, timeoutMs })
-    : { ok: true, errors: [] }
+  const hasDepcruiseBin =
+    Boolean(input.depcruiseBin) ||
+    existsSync(join(workspace, 'node_modules', '.bin', 'depcruise'))
+  const arch =
+    hasManifest && hasDepcruiseBin
+      ? runDepcruise({
+          workspace,
+          roots,
+          config,
+          depcruiseBin: input.depcruiseBin,
+          timeoutMs,
+        })
+      : { ok: true, errors: [] }
   const sec = runSemgrep({ workspace, roots, configDir: '.semgrep', semgrepBin: input.semgrepBin, timeoutMs })
 
   return {
