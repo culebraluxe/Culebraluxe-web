@@ -25,6 +25,13 @@ import type { ForgeGateEvidence } from '../forge/forge-facts'
 
 const DEV = 'development'
 
+// DB-backed test: skip (not fail) when no database is configured, so the
+// DB-free forge suite (pnpm test:forge:engine) stays green. It still runs on
+// demand with the env file: APP_ENV=development node --env-file=.env.local ...
+const dbConfigured = Boolean(
+  process.env.DATABASE_URL_DEV || process.env.DATABASE_URL,
+)
+
 /** Minimal but valid parent rows the evidence FK requires. */
 async function scaffold(story: string, processInstance: string): Promise<void> {
   const defs = await sql`select id from process_definitions where name = 'Forge Software Delivery Lifecycle' limit 1`
@@ -53,7 +60,10 @@ async function teardown(story: string, processInstance: string): Promise<void> {
   }
 }
 
-test('forge_workflow_evidence round-trips real driver shapes losslessly', async () => {
+test(
+  'forge_workflow_evidence round-trips real driver shapes losslessly',
+  { skip: dbConfigured ? false : 'DB not configured (run with .env.local on demand)' },
+  async () => {
   process.env.APP_ENV = DEV
   const suffix = Date.now()
   const story = `EVIDENCE-RT-${suffix}`
