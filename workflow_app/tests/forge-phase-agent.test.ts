@@ -110,6 +110,14 @@ test('routingDecisionMissing: lead requires a valid lead_decision (+splitCount w
   assert.equal(lead.routingDecisionMissing(ev({ leadDecision: 'SOLO' }) as never), null)
 })
 
+test('routingDecisionMissing: only lead_pre requires a decision (not lead_post / solo)', () => {
+  const pre = forgeAgentFor('lead_pre') as LeadAgent
+  assert.equal(pre.routingDecisionMissing(ev({}) as never), 'lead_decision')
+  // lead_post and lead_solo_implement are NOT execution-shape decision nodes.
+  assert.equal(forgeAgentFor('lead_post').routingDecisionMissing(ev({}) as never), null)
+  assert.equal(forgeAgentFor('lead_solo_implement').routingDecisionMissing(ev({}) as never), null)
+})
+
 test('lead_pre requires auditable split-lane scope + merge gate on SPLIT', () => {
   const lead = forgeAgentFor('lead_pre') as LeadAgent
   assert.ok(lead.plan.evidenceInstruction?.includes('Split lane N scope'))

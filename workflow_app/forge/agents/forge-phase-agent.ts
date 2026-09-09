@@ -247,7 +247,11 @@ export class ForgePhaseAgent {
         ? null
         : 'research_disposition'
     }
-    if (this.plan.lane === 'lead') {
+    // Only lead_pre is an EXECUTION-SHAPE decision node. lead_solo_implement and
+    // lead_post do NOT emit a routing lead_decision (they have no decision
+    // instruction) - requiring one there would wrongly HOLD the post-implement
+    // merge/integration node.
+    if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre') {
       const d = String(evidence.leadDecision ?? '')
       if (!LEAD_DECISIONS.has(d)) return 'lead_decision'
       if (d === 'SPLIT' && !(Number(evidence.splitCount) > 0)) return 'lead_decision.splitCount'
