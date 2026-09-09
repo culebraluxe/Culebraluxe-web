@@ -153,10 +153,34 @@ bounded change. Then switch to a read-only phase and prove an attempted edit is
 denied. Terminate the Forge process between two phases and prove the session recovers
 from its persisted id. Freeze candidate and prove independent QA has fresh context.
 
+## Phase 0 live findings (2026-09-09 — bounded real probes on opencode 1.18.28)
+
+Ran cheap real turns against `deepseek/deepseek-v4-flash` / `deepseek/deepseek-v4-pro` to
+qualify the CLI path before building anything.
+
+- **One-shot `opencode run --model <id> --auto "<task>"` is clean and non-interactive.**
+  exit 0, stdout = assistant text, nonce recalled verbatim. Validates the existing
+  harness path (nothing wrong with the current adapter for fresh sessions).
+- **The CLI does NOT print the session id on stdout/stderr.** `session.id=ses_...` only
+  appears in the shared `~/.local/share/opencode/log/opencode.log`.
+- **Deriving a specific run's session id from that shared log is unreliable** under
+  concurrent/background opencode server activity (a watcher/server logs into the same
+  file), so the id we passed to `--session` was unverified.
+- **CLI resume attempts did NOT carry context.** Resuming `--session <id> --model <other>`
+  (and even `--model` the SAME model) produced a NEW session id and no recall. Because the
+  id source was unverified this is INCONCLUSIVE as a "CLI resume is broken" verdict — but it
+  does confirm the CLI is not a trustworthy session-continuity surface for a controlled proof.
+
+**Conclusion / recommendation:** continuation should NOT rely on the CLI + log parsing.
+Qualify the **opencode server/SDK session API** next (`opencode serve` + `/doc` or the SDK):
+the server returns the created session id in the API response, so identity is authoritative.
+Phase 0 next step = prove, via the server API: create session → Flash turn → resume SAME id
+with Pro → prior info recalled; then READ→WRITE→READ permission recompute; then restart
+recovery. Only wire Forge after that server-API proof passes.
+
 ## Delivery
 
 Return: exact files changed; migration if any; installed OpenCode version proven;
 exact OpenCode session API used; permission mapping; model-switch proof;
 session/restart proof; QA context-wall proof; targeted test output; dogfood
 evidence; commit SHA. Do not claim success if any of those are simulated.
-
