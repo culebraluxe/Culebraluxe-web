@@ -126,7 +126,7 @@ type DomainRailProps = {
 /** Vertical domain tabs that live INSIDE Pane 1 — not global navigation. */
 function DomainRail({ domains, active, onSelect }: DomainRailProps) {
   return (
-    <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-white/10 bg-black/10 py-2" aria-label="Project domain">
+    <div className="flex w-[72px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project domain">
       {domains.map((domain) => {
         const Icon = DOMAIN_ICON[domain.key]
         const isActive = domain.key === active
@@ -137,13 +137,25 @@ function DomainRail({ domains, active, onSelect }: DomainRailProps) {
             onClick={() => onSelect(domain.key)}
             title={domain.shortLabel}
             aria-current={isActive ? "true" : undefined}
-            className={`group relative flex w-full flex-col items-center gap-1.5 py-2 transition ${isActive ? "text-white" : "text-white/70 hover:text-white"}`}
+            className={`group relative flex w-full flex-col items-center gap-1.5 py-2.5 transition ${isActive ? "" : "opacity-95 hover:opacity-100"}`}
           >
-            <span className={`absolute inset-y-1 left-0 w-0.5 rounded-r-full transition ${isActive ? "bg-[var(--portal-gold)]" : "bg-transparent group-hover:bg-white/30"}`} />
-            <span className={`flex h-8 w-8 items-center justify-center rounded-[var(--portal-tab-radius)] transition ${isActive ? "bg-black/25 text-[var(--portal-gold)] ring-1 ring-inset ring-white/15 shadow-sm" : "bg-white/[0.09] text-white/80 group-hover:bg-white/[0.16] group-hover:text-white"}`}>
-              <Icon className="h-[18px] w-[18px]" strokeWidth={1.6} aria-hidden />
+            <span className={`absolute inset-y-2 left-0 w-[3px] rounded-r-full transition ${isActive ? "bg-[var(--portal-gold)]" : "bg-transparent group-hover:bg-white/30"}`} />
+            <span
+              className={`flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                isActive
+                  ? "bg-black/25 text-[var(--portal-gold)] shadow-sm ring-1 ring-inset ring-white/25"
+                  : "bg-white/[0.07] text-white/85 group-hover:bg-white/[0.16] group-hover:text-white"
+              }`}
+            >
+              <Icon className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
             </span>
-            <span className={`max-w-[44px] text-center text-[7px] font-medium uppercase leading-none tracking-[0.06em] ${isActive ? "text-white" : "text-white/55 group-hover:text-white/80"}`}>{domain.shortLabel.slice(0, 9)}</span>
+            <span
+              className={`max-w-[60px] text-center text-[10px] font-medium uppercase leading-none tracking-[0.06em] ${
+                isActive ? "text-white" : "text-white/65 group-hover:text-white/90"
+              }`}
+            >
+              {domain.shortLabel.slice(0, 10)}
+            </span>
           </button>
         )
       })}
@@ -287,7 +299,10 @@ type PaneOneProps = {
 function PaneOne(props: PaneOneProps) {
   const activeLabel = props.domains.find((d) => d.key === props.activeDomain)?.label ?? ""
   return (
-    <section className="portal-glass-panel portal-glass-panel-feature flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section
+      className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
+      style={{ backgroundColor: "color-mix(in srgb, var(--portal-navy) 90%, transparent)" }}
+    >
       <div className="flex min-h-0 flex-1">
         <DomainRail domains={props.domains} active={props.activeDomain} onSelect={props.onSelectDomain} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
