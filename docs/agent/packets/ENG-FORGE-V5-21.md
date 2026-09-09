@@ -205,6 +205,30 @@ Still to prove before wiring Forge: (1) real session-id source (server API or re
 recompute across resumed turns; (3) restart recovery of a persisted binding.
 Reusable Phase 0 harness: `scripts/oc-probe3.ts`.
 
+## Phase 0 live dogfood measurement (2026-09-09) — wiring slice 1, env-gated
+
+First real wiring slice committed (`4c97867`, default OFF via
+`FORGE_SESSION_CONTINUITY=1`): the opencode harness adapter passes `--continue` when a
+worktree-local marker (`.forge-session.continue`) exists from a prior role run in the same
+isolated worktree, and writes the marker on success. Fresh worktree => no marker => no leak.
+
+Live run `CONT-RUN-01` (tiny RESEARCH, all roles on the opencode flash team, continuity ON,
+enforcement ON; cleaned up after):
+
+| role | status | widgets | elapsed |
+|---|---|---|---|
+| research_scout | Complete | 1.27 | 74.8s |
+| research_architect | Complete | 1.26 | 74.9s |
+| lead_pre | Complete | 0.49 | 28.5s |
+
+Chain Scout→Architect→Lead reached Lead cleanly (research_disposition=IMPLEMENT,
+lead_decision=SOLO — both valid routing decisions passed the enforcement gate). Total ~3
+widgets, ~5 min wall (model time ~178s). The continuity marker WAS written by Scout and read
+by the next roles (wiring engaged). NOTE: this read-only RESEARCH chain showed no big time
+savings (architect ≈ scout) — continuity pays off when a later role would otherwise re-read /
+re-derive the same code (a WRITE/implement chain), and we still need the authoritative
+session-id source to PROVE same-session reuse rather than infer it from the marker.
+
 ## Delivery
 
 Return: exact files changed; migration if any; installed OpenCode version proven;
