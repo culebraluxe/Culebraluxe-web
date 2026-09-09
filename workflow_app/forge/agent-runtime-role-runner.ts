@@ -36,6 +36,7 @@ import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
   buildSelfHealDirective,
+  deliverableEnforcementEnabled,
   parseDeliverableRepromptBudget,
   rawRoleOutput,
 } from './agents/forge-phase-agent'
@@ -84,14 +85,17 @@ export function createAgentRuntimeForgeRoleRunner(
     const resolvedStory = await getStoryboardStory(String(subjectRows[0]?.subject_id ?? ''))
     if (!resolvedStory) throw new Error(`Forge engine task ${task.taskId} has no Storyboard story`)
 
-    // Bounded self-heal. When the enforced gate (FORGE_ENFORCE_DELIVERABLES=1)
-    // HOLDs a *successful* run for a missing deliverable / routing decision, we
+    // Bounded self-heal. When the enforced gate (default ON; disable with
+    // FORGE_ENFORCE_DELIVERABLES=0) HOLDs a *successful* run for a missing
+    // deliverable / routing decision, we
     // re-run the role up to `totalAttempts` times (1 initial + the
     // FORGE_DELIVERABLE_RETRIES budget), feeding each corrective re-run a
     // directive that names exactly what was missing. Only a fixable miss on an
     // otherwise-successful run triggers a reprompt; hard runtime failures below
     // still throw immediately. On the final attempt a miss is a real HOLD.
-    const enforceDeliverables = process.env.FORGE_ENFORCE_DELIVERABLES === '1'
+    const enforceDeliverables = deliverableEnforcementEnabled(
+      process.env.FORGE_ENFORCE_DELIVERABLES,
+    )
     const totalAttempts = enforceDeliverables
       ? Math.max(1, parseDeliverableRepromptBudget(process.env.FORGE_DELIVERABLE_RETRIES) + 1)
       : 1
@@ -277,11 +281,11 @@ export function createAgentRuntimeForgeRoleRunner(
       }
     }
 
-    // ENG-FORGE-PHASE-AGENT Phase 3 — enforced deliverable gate. When
-    // FORGE_ENFORCE_DELIVERABLES=1, a role that reports success but did NOT
-    // produce its declared deliverable or a valid routing decision is HOLDed
-    // (thrown -> forge-executor releases the task) instead of silently advancing.
-    // OFF by default so existing model-flaky runs keep current behavior.
+    // ENG-FORGE-PHASE-AGENT Phase 3 — enforced deliverable gate. ON by default
+    // (disable with FORGE_ENFORCE_DELIVERABLES=0): a role that reports success
+    // but did NOT produce its declared deliverable or a valid routing decision is
+    // HOLDed (thrown -> forge-executor releases the task) after the bounded
+    // self-heal budget, instead of silently advancing.
     const miss: string[] = []
     if (enforceDeliverables && successful) {
       const missing = agent.missingDeliverables(evidence, raw, scoutDelivered, architectDelivered)

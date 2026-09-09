@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   ForgePhaseAgent,
   buildSelfHealDirective,
+  deliverableEnforcementEnabled,
   parseDeliverableRepromptBudget,
 } from '../forge/agents/forge-phase-agent'
 import {
@@ -114,6 +115,15 @@ test('routingDecisionMissing: non-routing nodes have no requirement', () => {
   const smith = forgeAgentFor('smith') as SmithAgent
   assert.equal(scout.routingDecisionMissing(ev({}) as never), null)
   assert.equal(smith.routingDecisionMissing(ev({}) as never), null)
+})
+
+test('deliverableEnforcementEnabled is ON by default, OFF only when explicitly disabled', () => {
+  assert.equal(deliverableEnforcementEnabled(undefined), true)
+  assert.equal(deliverableEnforcementEnabled('1'), true)
+  assert.equal(deliverableEnforcementEnabled('true'), true)
+  assert.equal(deliverableEnforcementEnabled('0'), false)
+  assert.equal(deliverableEnforcementEnabled('false'), false)
+  assert.equal(deliverableEnforcementEnabled('OFF'), false)
 })
 
 test('parseDeliverableRepromptBudget bounds the self-heal reprompts', () => {

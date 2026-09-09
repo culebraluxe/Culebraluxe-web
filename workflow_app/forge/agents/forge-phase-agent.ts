@@ -19,9 +19,11 @@ import {
 // the engine. This layer makes "a role must deliver its output" a declared,
 // inspectable contract instead of scattered `if`-branches in the role-runner.
 //
-// Enforcement (assertDeliverable throwing) is OFF by default so existing flaky
-// runs keep their current behavior; enable the hard gate with
-// FORGE_ENFORCE_DELIVERABLES=1 once role outputs are reliable.
+// Enforcement (deliverable + routing-decision gate, with bounded self-heal) is
+// ON by default now that role outputs are reliable. A successful role that
+// misses its deliverable/decision is re-run up to FORGE_DELIVERABLE_RETRIES
+// times before HOLDing. Explicitly disable with FORGE_ENFORCE_DELIVERABLES=0 if
+// a run needs the old lenient behavior.
 // ---------------------------------------------------------------------------
 
 const SCOUT_NODES = new Set(['research_scout', 'feature_scout', 'diagnose_scout', 'repair_scout'])
@@ -44,6 +46,16 @@ export function rawRoleOutput(notes?: string | null, testsSummary?: string | nul
 export function parseDeliverableRepromptBudget(raw: string | undefined): number {
   const n = Number.parseInt(raw ?? '', 10)
   return Number.isFinite(n) && n >= 0 ? n : 1
+}
+
+/** Deliverable/routing enforcement is ON by default now that role outputs are
+ * reliable (write-on-exit persistence + routing-decision validation + bounded
+ * self-heal, all proven live). Explicitly disable with FORGE_ENFORCE_DELIVERABLES=0
+ * (or "false"/"off") if a run needs the old lenient behavior. */
+export function deliverableEnforcementEnabled(raw: string | undefined): boolean {
+  if (raw == null) return true
+  const v = raw.trim().toLowerCase()
+  return v !== '0' && v !== 'false' && v !== 'off'
 }
 
 /** Bounded self-heal directive for a successful-but-HOLDed role run: tells the
