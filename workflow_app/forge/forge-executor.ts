@@ -69,6 +69,23 @@ async function instanceStatus(instanceId: string): Promise<string | null> {
   return (rows[0]?.status as string | undefined) ?? null
 }
 
+/** Compact, live one-liner of the routing facts a completed node produced. */
+function progressSummary(nodeId: string, evidence: ForgeGateEvidence): string {
+  const picks: Array<[string, unknown]> = [
+    ['qaPassed', evidence.qaPassed],
+    ['candidateSha', evidence.candidateSha],
+    ['leadDecision', evidence.leadDecision],
+    ['publishSucceeded', evidence.publishSucceeded],
+    ['failureClass', evidence.failureClass],
+    ['researchDisposition', evidence.researchDisposition],
+    ['verificationGap', evidence.verificationGap],
+    ['repairAttempts', evidence.repairAttempts],
+  ]
+  const fields = picks.filter(([, v]) => v !== undefined && v !== null)
+  const detail = fields.length > 0 ? ` ${JSON.stringify(Object.fromEntries(fields))}` : ''
+  return `\u2192 node ${nodeId}: done${detail}`
+}
+
 export type ForgeStopRole = 'scout' | 'architect' | 'lead'
 
 export type ForgeStopTarget =
@@ -81,6 +98,9 @@ export type DriveForgeStoryOptions = {
   maxSteps?: number
   workerId?: string
   splitConcurrency?: number
+  /** Live CLI telemetry: called as each engine role node is claimed / completes,
+   *  so an operator sees progress instead of digging in the DB. */
+  onProgress?: (message: string) => void
   /** Park the driver the moment a task in this role's terminal set completes —
    * run exactly one role (e.g. just Scout) instead of chaining the whole SDLC. */
   stopAfter?: ForgeStopTarget
@@ -137,6 +157,7 @@ export async function driveForgeStory(
     )
   }
   const runner = opts.runner
+  const onProgress = opts.onProgress
   const maxSteps = opts.maxSteps ?? 40
   const workerId = opts.workerId?.trim() || `forge-engine-${process.pid}`
   const steps: string[] = []
@@ -155,6 +176,7 @@ export async function driveForgeStory(
 
     const humanGate = tasks.find((t) => FORGE_HUMAN_GATE_NODES.has(t.nodeId))
     if (humanGate) {
+      onProgress?.(`\u23f8 human gate at ${humanGate.nodeId} — parking for operator`)
       await syncForgeStoryboardState(storyId, instanceId, { humanHold: true })
       return {
         instanceId,
@@ -195,6 +217,7 @@ export async function driveForgeStory(
       }
 
       let outcome: ForgeRoleOutcome
+      onProgress?.(`\u2192 ${task.nodeId}: running (claimed by ${actor})`)
       try {
         outcome = await runner(task.nodeId, task)
         // V11-S1: record the QA disposition durably BEFORE the engine advances
@@ -242,6 +265,7 @@ export async function driveForgeStory(
         throw err
       }
       steps.push(task.nodeId)
+      onProgress?.(progressSummary(task.nodeId, outcome.evidence))
       await syncForgeStoryboardState(storyId, instanceId)
       if (stopTarget && stopTarget.has(task.nodeId)) {
         stoppedAfter = task.nodeId

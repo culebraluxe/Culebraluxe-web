@@ -68,6 +68,7 @@ async function main(): Promise<void> {
 
   const workerId = process.env.AGENT_WORKER_ID?.trim() || `forge-engine-${process.pid}`
   const stopAfter = parseUntil(value('--until'))
+  const stamp = (): string => new Date().toISOString().slice(11, 19)
   const result = await driveForgeStory(storyId, {
     start: { workType: workType as 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' },
     runner: createAgentRuntimeForgeRoleRunner({
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
     }),
     workerId,
     splitConcurrency: 1,
+    onProgress: (message) => console.log(`[${stamp()}] ${message}`),
     ...(stopAfter ? { stopAfter } : {}),
   })
   console.log(JSON.stringify({ brain, ...result }, null, 2))
