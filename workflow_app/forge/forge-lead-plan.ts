@@ -160,3 +160,36 @@ export function leadPreDispatchHoldReasons(
   }
   return []
 }
+
+/** Render Lead's plan as explicit per-chunk WORK ORDERS for Smith (Phase 3).
+ *  Smith executes these verbatim — it does NOT re-plan or enlarge scope. */
+export function renderSmithWorkOrders(plan: LeadPlan): string {
+  const lines = [
+    'WORK ORDERS from Lead (execute these chunks serially in order; do NOT re-plan and do NOT enlarge scope):',
+  ]
+  for (const chunk of plan.chunks) {
+    lines.push(`Chunk ${chunk.id}:`)
+    lines.push(`  Scope: ${chunk.surface.join(', ')}`)
+    if (chunk.dependsOn && chunk.dependsOn.length > 0) {
+      lines.push(`  Preconditions: depends on chunk ${chunk.dependsOn.join(', ')}`)
+    }
+    lines.push(`  Acceptance (runnable, write the test first unless it reuses an existing one): ${chunk.proof}`)
+    lines.push(`  Postcondition (must still hold after): ${chunk.invariant}`)
+  }
+  return lines.join('\n')
+}
+
+/** Find the latest Lead-pre plan in a story run list (falls back over older runs). */
+export function findLatestLeadPlan(
+  runs: Array<{ runType?: string | null; notes?: string | null }> | null | undefined,
+): LeadPlan | null {
+  if (!runs || runs.length === 0) return null
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i]
+    if (run.runType === 'lead' && (run.notes ?? '').includes('LEAD_PLAN')) {
+      const plan = parseLeadPlan(run.notes)
+      if (plan) return plan
+    }
+  }
+  return null
+}

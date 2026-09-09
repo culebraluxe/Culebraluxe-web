@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   assessLeadPreDispatch,
+  findLatestLeadPlan,
   leadPreDispatchHoldReasons,
   parseLeadPlan,
+  renderSmithWorkOrders,
 } from '../forge/forge-lead-plan'
 
 const VALID_2 = 'LEAD_PLAN: {"size":"MEDIUM","chunks":[{"id":1,"outcome":"add mapper","surface":["a/m.ts"],"invariant":"m maps","proof":"pnpm exec tsx --test a/m.test.ts"},{"id":2,"outcome":"wire route","surface":["a/r.ts"],"invariant":"r serves","proof":"pnpm exec tsx --test a/r.test.ts","dependsOn":[1]}]}'
@@ -48,6 +50,27 @@ test('lead plan: parses the work-order vocabulary (scope/acceptance/postconditio
   ])
   assert.equal(p!.chunks[0].proof, 'pnpm exec tsx --test workflow_app/tests/forge-ready-gate.test.ts')
   assert.ok(p!.chunks[0].invariant.includes('zero-command'))
+})
+
+test('smith work orders: renders each chunk and finds the latest lead plan in runs', () => {
+  const plan = parseLeadPlan(VALID_2)
+  assert.ok(plan)
+  const rendered = renderSmithWorkOrders(plan!)
+  assert.match(rendered, /Chunk 1:/)
+  assert.match(rendered, /Scope: a\/m.ts/)
+  assert.match(rendered, /Acceptance .*: pnpm exec tsx --test a\/m.test.ts/)
+  assert.match(rendered, /Chunk 2:/)
+  assert.match(rendered, /Preconditions: depends on chunk 1/)
+  // latest-lead-plan finder: prefers the LAST lead run carrying a LEAD_PLAN.
+  const found = findLatestLeadPlan([
+    { runType: 'architect', notes: 'nope' },
+    { runType: 'lead', notes: 'earlier no plan' },
+    { runType: 'lead', notes: `prose\n${VALID_2}` },
+  ])
+  assert.ok(found)
+  assert.equal(found!.chunks.length, 2)
+  assert.equal(findLatestLeadPlan([{ runType: 'smith', notes: VALID_2 }]), null)
+  assert.equal(findLatestLeadPlan(null), null)
 })
 
 test('lead pre-dispatch: no plan is NO_PLAN, not a HOLD (behavior-preserving)', () => {

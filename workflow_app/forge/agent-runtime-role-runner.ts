@@ -39,7 +39,7 @@ import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork } from './forge-dispatch-seam'
-import { leadPreDispatchHoldReasons } from './forge-lead-plan'
+import { findLatestLeadPlan, leadPreDispatchHoldReasons, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -149,6 +149,14 @@ export function createAgentRuntimeForgeRoleRunner(
       ),
     )
 
+    // Phase 3 (ENG-FORGE-LEAD-WORKORDER): a serial Smith lane executes Lead's
+    // persisted WORK ORDERS verbatim instead of re-deriving them. SPLIT child
+    // lanes (smith_split_work) get their branch assignment and are not fed the
+    // whole serial plan here.
+    const smithLeadPlan =
+      plan.lane === 'smith' && nodeId !== 'smith_split_work'
+        ? findLatestLeadPlan(await runs.listForStory(resolvedStory.id))
+        : null
     const extraInstructions = [
       correctiveNote,
       identityInstruction,
@@ -160,7 +168,11 @@ export function createAgentRuntimeForgeRoleRunner(
       buildRunGuardrailsDirective(),
       buildRunPassDirective(),
       buildRtkCompressionDirective(),
-      plan.lane === 'smith' ? buildSmithWorkDecompositionDirective() : null,
+      plan.lane === 'smith'
+        ? smithLeadPlan
+          ? renderSmithWorkOrders(smithLeadPlan)
+          : buildSmithWorkDecompositionDirective()
+        : null,
       plan.lane === 'architect' || plan.lane === 'lead' ? buildGroundingDirective() : null,
     ]
       .filter(Boolean)
@@ -355,6 +367,18 @@ export function createAgentRuntimeForgeRoleRunner(
           ).catch(() => {
             /* run-detail append is observer-only; the gate verdict stands on the HOLD/GO above */
           })
+          // Phase 2 (ENG-FORGE-LEAD-WORKORDER): persist the parsed plan durably
+          // (work orders -> Smith) so a later Smith reads the SAME structured plan
+          // Lead wrote, never a re-derivation from a notes blob.
+          const plan = parseLeadPlan(raw)
+          if (plan) {
+            await appendForgeRunDetail(
+              storyRunId,
+              `lead-plan:${JSON.stringify(plan)}`,
+            ).catch(() => {
+              /* observer-only */
+            })
+          }
         }
         if (leadHolds.length > 0) missing.push(...leadHolds)
       }
