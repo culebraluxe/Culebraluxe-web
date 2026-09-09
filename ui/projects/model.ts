@@ -36,6 +36,10 @@ export type ProjectWorkNode = {
   note?: string
   relatedLabel?: string
   children?: ProjectWorkNode[]
+  /** Selected-work-inspector context: related people/property/document labels. */
+  relations?: string[]
+  /** Selected-work-inspector actions, surfaced as buttons. */
+  actions?: string[]
 }
 
 export type ProjectPlan = {
