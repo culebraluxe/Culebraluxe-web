@@ -9,10 +9,13 @@ import {
   buildRtkCompressionDirective,
   buildRunGuardrailsDirective,
   buildRunPassDirective,
+  buildSmithWorkDecompositionDirective,
+  parseSmithPlan,
   parseRunPassStop,
   resolveRtkBin,
   rtkAvailable,
   runPassBudget,
+  smithPlanExceedsBounds,
 } from './run-guardrails'
 
 test('run budget: env override wins; missing falls back to the default', () => {
@@ -65,4 +68,26 @@ test('rtk: the compression directive appears only when rtk is available', () => 
   assert.ok(d?.includes('context compressor'))
   assert.ok(d?.includes('rtk test'))
   assert.ok(d?.includes('Never dump a large raw command transcript'))
+})
+
+test('smith decomposition: directive encodes size-by-boundaries and <=3 serial chunks', () => {
+  const d = buildSmithWorkDecompositionDirective()
+  assert.ok(d.includes('COUPLING'))
+  assert.ok(d.includes('NEVER by file count or LOC alone'))
+  assert.ok(d.includes('SMITH_PLAN:'))
+  assert.ok(d.includes('<=3 coherent chunks'))
+  assert.ok(d.includes('STOP and HOLD'))
+})
+
+test('smith decomposition: SMITH_PLAN parses for the data lake; oversize is detectable', () => {
+  const medium = parseSmithPlan('planning\nSMITH_PLAN: {"size":"MEDIUM","chunks":2,"proofs":["persistence test","workflow test"]}\ndone')
+  assert.equal(medium?.size, 'MEDIUM')
+  assert.equal(medium?.chunks, 2)
+  assert.deepEqual(medium?.proofs, ['persistence test', 'workflow test'])
+  assert.equal(smithPlanExceedsBounds(medium), false)
+  const bad = parseSmithPlan('SMITH_PLAN: {"size":"OVERSIZED","chunks":5}')
+  assert.equal(smithPlanExceedsBounds(bad), true)
+  const noPlan = parseSmithPlan('no structured plan here')
+  assert.equal(noPlan, null)
+  assert.equal(smithPlanExceedsBounds(noPlan), false)
 })

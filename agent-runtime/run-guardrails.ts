@@ -69,6 +69,77 @@ export function buildGroundingDirective(): string {
   ].join('\n')
 }
 
+/**
+ * SMITH WORK DECOMPOSITION — the bounded anti-token-burn contract. Injected into
+ * every Smith run so it sizes the Architect assignment by COUPLING, UNCERTAINTY,
+ * CHANGE SURFACE, and PROOF BURDEN (never file count / LOC), emits a <=3 serial
+ * chunk plan with a targeted proof per chunk, and HOLDs instead of disappearing
+ * when the work genuinely exceeds 3 chunks or the scope expands. This recreates a
+ * human lead's stopping points automatically: chunk-complete -> proof -> scope
+ * still bounded? -> continue | HOLD.
+ */
+export function buildSmithWorkDecompositionDirective(): string {
+  return [
+    'SMITH WORK DECOMPOSITION - size the Architect assignment BEFORE editing code.',
+    'Size by COUPLING (what must be correct together), UNCERTAINTY (what you must still discover), CHANGE SURFACE (distinct architectural areas), and PROOF BURDEN (independent behaviors to verify). NEVER by file count or LOC alone.',
+    'Classify: SMALL = 1 coherent path + 1 proof boundary. MEDIUM = 2 meaningful dependency/proof boundaries. LARGE = 3 boundaries. OVERSIZED = cannot be expressed as <=3 coherent chunks, or contains multiple independent business outcomes.',
+    'Before editing, emit exactly one machine line: SMITH_PLAN: {"size":"SMALL|MEDIUM|LARGE","chunks":1|2|3,"proofs":["<chunk1 one-line proof>",...]}.',
+    'Execute chunks SERIALLY in this same session and same authoritative worktree. Preserve accumulated investigation context between chunks - do not re-derive.',
+    'A valid chunk has ONE clear outcome, a reason it occurs at that point in dependency order, an identifiable code/symbol surface, one invariant it establishes, and a targeted proof.',
+    'After EACH chunk: (1) run its targeted proof, (2) record what you learned, (3) reassess remaining chunks against actual repo facts, (4) continue only if the original story is still bounded.',
+    'If the work cannot be expressed as <=3 coherent chunks, or implementing reveals material scope expansion (a 4th chunk, a new independent outcome, or an Architect-contract change): STOP and HOLD with your proposed story decomposition. Do NOT burn tokens expanding the assignment.',
+    'Chunks need not be equal. Prefer risk-first / dependency-first. The goal is the FEWEST safe proof boundaries that complete the story without losing control of scope.',
+  ].join('\n')
+}
+
+/** Machine line Smith emits before editing, so its size/chunk claim is capturable
+ * for the empirical threshold-learning data lake (never the enforcement gate). */
+export const SMITH_PLAN_PATTERN = /SMITH_PLAN:\s*\{[^}]*\}/im
+
+export type SmithPlanSize = 'SMALL' | 'MEDIUM' | 'LARGE' | 'OVERSIZED'
+
+export type SmithPlan = {
+  size: SmithPlanSize
+  chunks: number
+  proofs: string[]
+}
+
+/** Parse Smith's emitted SMITH_PLAN line (data capture for later threshold
+ * learning, not a gate). Returns null when absent or malformed. */
+export function parseSmithPlan(notes: string | null | undefined): SmithPlan | null {
+  if (!notes) return null
+  const m = notes.match(SMITH_PLAN_PATTERN)
+  if (!m) return null
+  try {
+    const raw = JSON.parse(m[0].replace(/^SMITH_PLAN:\s*/, '')) as {
+      size?: unknown
+      chunks?: unknown
+      proofs?: unknown
+    }
+    const size = String(raw.size ?? '').toUpperCase()
+    if (!['SMALL', 'MEDIUM', 'LARGE', 'OVERSIZED'].includes(size)) return null
+    const chunks = Number(raw.chunks)
+    const proofs = Array.isArray(raw.proofs)
+      ? raw.proofs.filter((p): p is string => typeof p === 'string')
+      : []
+    return {
+      size: size as SmithPlanSize,
+      chunks: Number.isInteger(chunks) ? chunks : 0,
+      proofs,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** True when a Smith plan is OVERSIZED or claims more than 3 chunks — the
+ * bounded fail-fast signal that the story belongs back with Lead, not ground in
+ * Smith. Pure advisory for data + instruction; not a gate. */
+export function smithPlanExceedsBounds(plan: SmithPlan | null): boolean {
+  if (!plan) return false
+  return plan.size === 'OVERSIZED' || plan.chunks > 3
+}
+
 /** Resolve the `rtk` context-compressor binary from env (override RTK_BIN wins,
  * else a PATH scan). Returns null when it is not installed — callers must never
  * claim rtk ran when it is absent. */
