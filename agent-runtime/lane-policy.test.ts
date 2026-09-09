@@ -132,6 +132,16 @@ test('architect refuses to tool without a scout packet when session says so', ()
   if (!d.ok) assert.equal(d.code, 'missing-scout-packet')
 })
 
+test('architect may proceed without a scout packet when the engine waived scout', () => {
+  const d = resolveLane({
+    lane: 'architect',
+    session: { hasScoutPacket: false, scoutWaived: true },
+    registry: registered,
+  })
+  assert.equal(d.ok, true)
+  if (d.ok) assert.equal(d.launch.toolPolicy, 'plan-only')
+})
+
 test('architect launches plan-only after scout packet', () => {
   const d = resolveLane({
     lane: 'architect',

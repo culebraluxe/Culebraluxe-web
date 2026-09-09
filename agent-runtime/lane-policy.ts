@@ -24,6 +24,14 @@ export interface LaneSession {
   hasScoutPacket?: boolean
   hasArchitectBrief?: boolean
   hasAssayPlan?: boolean
+  /**
+   * Engine-only signal: the FORGE_SDLC engine already decided Scout is NOT
+   * needed for this node (FEATURE feature_scout_needed -> architect skip). When
+   * true, architect may proceed without a Scout packet - it stays plan-only and
+   * grounds on the story spec. Research/repair architect nodes never set this,
+   * so their Scout packet requirement is unchanged (fail-closed by default).
+   */
+  scoutWaived?: boolean
 }
 
 export interface LaneLaunch {
@@ -170,7 +178,12 @@ export function resolveLane(input: ResolveLaneInput): LaneDecision {
     }
   }
 
-  if (input.lane === 'architect' && input.session && input.session.hasScoutPacket === false) {
+  if (
+    input.lane === 'architect' &&
+    input.session &&
+    input.session.hasScoutPacket === false &&
+    !input.session.scoutWaived
+  ) {
     return {
       ok: false,
       code: 'missing-scout-packet',

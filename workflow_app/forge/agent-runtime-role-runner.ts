@@ -171,6 +171,14 @@ export function createAgentRuntimeForgeRoleRunner(
       registry,
       leadPhase: plan.leadPhase,
       extraInstructions,
+      // FEATURE path: the engine already decided Scout is not needed for this
+      // architect node (feature_scout_needed -> architect). Waive the Scout
+      // packet requirement here ONLY for the feature architect; research and
+      // repair architect nodes keep their Scout-packet gate.
+      session:
+        plan.lane === 'architect' && nodeId === 'architect'
+          ? { scoutWaived: true }
+          : undefined,
     })
     if (!lane.ok) {
       throw new Error(`Forge ${nodeId} execution contract rejected: ${lane.reason}`)
