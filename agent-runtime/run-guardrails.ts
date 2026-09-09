@@ -6,6 +6,8 @@
 // control is a hard stop: a one-shot headless run must know it has a budget,
 // must not brute-force, and must STOP to HOLD when a job is ambiguous/oversized.
 // -----------------------------------------------------------------------------
+import { accessSync, constants } from 'node:fs'
+import { join } from 'node:path'
 import { runWallClockBudgetMs } from './agent-runtime-adapter'
 import { renderModelCostLines } from './model-prices'
 
@@ -64,5 +66,47 @@ export function buildGroundingDirective(): string {
     'You are a JUDGMENT role (architect/lead). Answer from the PROVIDED context only: the scout research, story packet, and repo-context handed to you.',
     'Do NOT run repo scans, broad searches, or exploratory tool turns to go find the answer. Grounding is a Scout responsibility, not yours.',
     'If the provided grounding is insufficient to decide soundly, do NOT go searching. State that the grounding is insufficient and choose the HOLD/STOP disposition so a human/Scout can complete it.',
+  ].join('\n')
+}
+
+/** Resolve the `rtk` context-compressor binary from env (override RTK_BIN wins,
+ * else a PATH scan). Returns null when it is not installed — callers must never
+ * claim rtk ran when it is absent. */
+export function resolveRtkBin(env: NodeJS.ProcessEnv = process.env): string | null {
+  const override = (env.RTK_BIN ?? '').trim()
+  if (override) return override
+  const pathDirs = (env.PATH ?? '').split(':').filter(Boolean)
+  for (const dir of pathDirs) {
+    const candidate = join(dir, 'rtk')
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {
+      /* not here */
+    }
+  }
+  return null
+}
+
+/** Whether a context compressor is available to this run. */
+export function rtkAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveRtkBin(env) !== null
+}
+
+/**
+ * Context-compression directive. When `rtk` is installed it is injected into the
+ * run so every role routes LARGE command output through it and keeps its context
+ * bounded (the lever that decides how much a lane can carry). Returns null when
+ * rtk is absent so the run never claims a compressor that is not there.
+ */
+export function buildRtkCompressionDirective(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const bin = resolveRtkBin(env)
+  if (!bin) return null
+  return [
+    `A context compressor (\`rtk\` at ${bin}) is available in this run.`,
+    'Route LARGE command output through it so your context stays bounded: `rtk read <file>`, `rtk tree`/`rtk ls`, `rtk git`/`rtk diff`/`rtk log`, `rtk test` (failures only), `rtk build`, `rtk json`, `rtk deps`, `rtk err <cmd>` (errors/warnings only).',
+    'Never dump a large raw command transcript into context when the `rtk` variant returns the compact slice.',
   ].join('\n')
 }

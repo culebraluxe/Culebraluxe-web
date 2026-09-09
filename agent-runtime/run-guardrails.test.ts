@@ -6,9 +6,12 @@ import {
 } from './agent-runtime-adapter'
 import {
   buildGroundingDirective,
+  buildRtkCompressionDirective,
   buildRunGuardrailsDirective,
   buildRunPassDirective,
   parseRunPassStop,
+  resolveRtkBin,
+  rtkAvailable,
   runPassBudget,
 } from './run-guardrails'
 
@@ -44,4 +47,22 @@ test('grounding: judgment roles must answer from context, never repo turn-search
   assert.ok(d.includes('JUDGMENT role'))
   assert.ok(d.includes('Do NOT run repo scans, broad searches, or exploratory tool turns'))
   assert.ok(d.includes('HOLD/STOP'))
+})
+
+test('rtk: resolved only when the binary exists; RTK_BIN override wins', () => {
+  const env = (x: Record<string, string>): NodeJS.ProcessEnv => x as unknown as NodeJS.ProcessEnv
+  assert.equal(resolveRtkBin(env({ PATH: '/usr/bin:/bin:/nonexistent' })), null, 'no rtk on that PATH')
+  // Override must be honored even when PATH cannot satisfy it.
+  assert.equal(resolveRtkBin(env({ PATH: '/usr/bin', RTK_BIN: '/opt/tools/rtk' })), '/opt/tools/rtk')
+  assert.equal(rtkAvailable(env({ PATH: '/usr/bin', RTK_BIN: '/opt/tools/rtk' })), true)
+  assert.equal(rtkAvailable(env({ PATH: '/usr/bin' })), false)
+})
+
+test('rtk: the compression directive appears only when rtk is available', () => {
+  const env = (x: Record<string, string>): NodeJS.ProcessEnv => x as unknown as NodeJS.ProcessEnv
+  assert.equal(buildRtkCompressionDirective(env({ PATH: '/usr/bin' })), null, 'no directive without rtk')
+  const d = buildRtkCompressionDirective(env({ PATH: '/usr/bin', RTK_BIN: '/opt/tools/rtk' }))
+  assert.ok(d?.includes('context compressor'))
+  assert.ok(d?.includes('rtk test'))
+  assert.ok(d?.includes('Never dump a large raw command transcript'))
 })

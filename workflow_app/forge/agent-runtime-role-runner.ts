@@ -1,5 +1,5 @@
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
-import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective } from '../../agent-runtime/run-guardrails'
+import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective } from '../../agent-runtime/run-guardrails'
 import {
   createAgentRuntimeRegistry,
   defaultDeepSeekConfig,
@@ -137,6 +137,7 @@ export function createAgentRuntimeForgeRoleRunner(
       priorScoutInstruction,
       buildRunGuardrailsDirective(),
       buildRunPassDirective(),
+      buildRtkCompressionDirective(),
       plan.lane === 'architect' || plan.lane === 'lead' ? buildGroundingDirective() : null,
     ]
       .filter(Boolean)
