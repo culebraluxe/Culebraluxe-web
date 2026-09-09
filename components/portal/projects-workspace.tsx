@@ -126,7 +126,7 @@ type DomainRailProps = {
 /** Vertical domain tabs that live INSIDE Pane 1 — not global navigation. */
 function DomainRail({ domains, active, onSelect }: DomainRailProps) {
   return (
-    <div className="flex w-11 shrink-0 flex-col items-center border-r border-white/10 bg-white/[0.03] py-2" aria-label="Project domain">
+    <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-white/15 bg-white/10 py-2" aria-label="Project domain">
       {domains.map((domain) => {
         const Icon = DOMAIN_ICON[domain.key]
         const isActive = domain.key === active
@@ -137,15 +137,13 @@ function DomainRail({ domains, active, onSelect }: DomainRailProps) {
             onClick={() => onSelect(domain.key)}
             title={domain.shortLabel}
             aria-current={isActive ? "true" : undefined}
-            className={`group relative flex w-full flex-col items-center gap-1 py-2 transition ${isActive ? "text-[var(--portal-navy)]" : "text-[var(--portal-blue-gray)] hover:text-[var(--portal-navy)]"}`}
+            className={`group relative flex w-full flex-col items-center gap-1.5 py-2 transition ${isActive ? "text-white" : "text-[var(--portal-blue-gray)] hover:text-[var(--portal-navy)]"}`}
           >
             <span className={`absolute inset-y-1 left-0 w-0.5 rounded-r-full transition ${isActive ? "bg-[var(--portal-gold)]" : "bg-transparent group-hover:bg-[var(--portal-gold)]/40"}`} />
-            <span className={`flex h-8 w-8 items-center justify-center rounded-[var(--portal-tab-radius)] ${isActive ? "bg-[var(--portal-navy)] text-[var(--portal-gold-soft)] shadow-sm" : "bg-white/30 text-[var(--portal-navy-soft)]"}`}>
+            <span className={`flex h-8 w-8 items-center justify-center rounded-[var(--portal-tab-radius)] transition ${isActive ? "bg-[var(--portal-navy)]/85 text-[var(--portal-gold-soft)] shadow-sm" : "bg-white/[0.08] text-current group-hover:bg-white/25"}`}>
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.6} aria-hidden />
             </span>
-            <span className="max-w-[40px] text-center text-[7px] font-medium uppercase leading-none tracking-[0.08em]">
-              {domain.shortLabel.slice(0, 9)}
-            </span>
+            <span className="max-w-[44px] text-center text-[7px] font-medium uppercase leading-none tracking-[0.06em]">{domain.shortLabel.slice(0, 9)}</span>
           </button>
         )
       })}
@@ -281,7 +279,7 @@ type PaneOneProps = {
 function PaneOne(props: PaneOneProps) {
   const activeLabel = props.domains.find((d) => d.key === props.activeDomain)?.label ?? ""
   return (
-    <section className="portal-glass-panel portal-glass-panel-feature flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="flex min-h-0 flex-1">
         <DomainRail domains={props.domains} active={props.activeDomain} onSelect={props.onSelectDomain} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -353,7 +351,7 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
 
 function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/25 px-1.5 py-1">
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 px-1.5 py-1">
       <ul className="space-y-0.5">
         {project.workNodes.map((node) => (
           <WorkPlanNode key={node.id} node={node} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
@@ -417,7 +415,7 @@ type PaneTwoProps = {
 /** Pane 2 — the dominant working surface. */
 function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSelectNode }: PaneTwoProps) {
   return (
-    <section className="portal-glass-panel portal-glass-panel-feature flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
       {!pole || !project ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-light text-black/45">
           Choose a Pole and Project from the navigator.
@@ -473,7 +471,7 @@ function PaneThree({ pole, project, node }: InspectorProps) {
         ? [node.relatedLabel]
         : []
   return (
-    <section className="portal-glass-panel portal-glass-panel-lifted flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="border-b border-[var(--portal-panel-border)] px-3 py-2.5">
         <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--portal-gold-muted)]">Selected work</p>
       </div>
@@ -574,7 +572,7 @@ export function ProjectsWorkspace() {
   }
 
   return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[minmax(420px,470px)_minmax(0,1fr)_minmax(300px,330px)]">
+    <div className="grid min-h-0 flex-1 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[minmax(350px,375px)_minmax(0,1fr)_minmax(295px,315px)]">
       <PaneOne
         domains={domains}
         activeDomain={model.activeDomain}

@@ -68,8 +68,14 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               type: "group",
               status: "complete",
               dueLabel: "Sep 3",
-              owner: "Lisa",
+              owner: "Lisa Penfield",
               note: "Seller identity and contact details confirmed.",
+              relations: [
+                "Jessica Iverson (Seller)",
+                "Sea to Soul · Playa Sardinas II",
+                "Seller identity and contact confirmed",
+              ],
+              actions: ["Open Contact", "View Seller Profile"],
             },
             {
               id: "property",
@@ -77,8 +83,14 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               type: "group",
               status: "complete",
               dueLabel: "Sep 4",
-              owner: "Lisa",
+              owner: "Lisa Penfield",
               note: "Property and ownership context confirmed.",
+              relations: [
+                "Sea to Soul · Playa Sardinas II",
+                "Jessica Iverson (legal owner)",
+                "Ownership / title context",
+              ],
+              actions: ["View Property"],
             },
             {
               id: "listing-agreement",
@@ -115,8 +127,14 @@ export const PROJECTS_WORKSPACE_FIXTURE: ProjectsWorkspaceData = {
               type: "media",
               status: "in-progress",
               dueLabel: "Sep 12",
-              owner: "Lisa",
+              owner: "Lisa Penfield",
               note: "Photography scheduled; cabinet intake open.",
+              relations: [
+                "Photography brief",
+                "Cabinet intake",
+                "Sea to Soul · Playa Sardinas II",
+              ],
+              actions: ["Add Media", "View Media"],
             },
             {
               id: "marketing",
