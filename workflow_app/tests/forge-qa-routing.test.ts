@@ -76,3 +76,12 @@ test('VERIFICATION GAP never routes to repair (the anti-deadlock rule)', () => {
   })
   assert.equal(normal.action, 'smith')
 })
+
+test('VERIFICATION GAP through the engine facts projection is never repair/replan eligible', () => {
+  const gap = facts({ qaPassed: false, disposition: 'REPAIR', verificationGap: true, repairAttempts: 0, replanAttempts: 0 })
+  assert.equal(gap.qaRepairEligible, false)
+  assert.equal(gap.qaReplanEligible, false)
+  // Additive: the same FAIL without a gap still repairs (behavior preserved).
+  const noGap = facts({ qaPassed: false, disposition: 'REPAIR', repairAttempts: 0, replanAttempts: 0 })
+  assert.equal(noGap.qaRepairEligible, true)
+})

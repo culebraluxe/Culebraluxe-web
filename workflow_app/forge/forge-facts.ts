@@ -46,6 +46,13 @@ export type ForgeGateEvidence = {
   qaPassed?: boolean
   /** qa_failure_route (V11-S1): the QA-supplied disposition + durable observers */
   disposition?: 'REPAIR' | 'REPLAN' | 'ESCALATE'
+  /**
+   * Verification/config gap (NOT a candidate defect): QA could not form/run a
+   * valid assay command plan. When set with qaPassed=false, repair is NOT
+   * eligible -> the graph routes to a durable HOLD instead of looping to smith
+   * (the FINAL-02 deadlock). Additive: absent/undefined preserves current routing.
+   */
+  verificationGap?: boolean
   repairAttempts?: number
   replanAttempts?: number
   failedCriteria?: string[]
@@ -223,6 +230,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
             repairAttempts: evidence.repairAttempts ?? 0,
             replanAttempts: evidence.replanAttempts ?? 0,
           },
+          verificationGap: evidence.verificationGap,
         })
       : null
 
