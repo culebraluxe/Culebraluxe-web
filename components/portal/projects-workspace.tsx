@@ -328,7 +328,7 @@ function PaneOne(props: PaneOneProps) {
               searchMatch={searchMatch}
               width="100%"
               height={height}
-              indent={14}
+              indent={7}
               rowHeight={treeRowHeight}
               overscanCount={6}
               disableDrag
