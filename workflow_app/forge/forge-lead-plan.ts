@@ -74,12 +74,23 @@ export function parseLeadPlan(notes: string | null | undefined): LeadPlan | null
     for (const entry of raw.chunks) {
       const c = entry as Record<string, unknown>
       const id = Number(c.id)
-      const outcome = typeof c.outcome === 'string' ? c.outcome.trim() : ''
-      const surface = Array.isArray(c.surface)
-        ? c.surface.filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+      // Canonical work-order vocabulary (scope/acceptance/preconditions/
+      // postconditions) with fallback to the original keys (outcome/surface/
+      // invariant/proof). The operator-facing work order maps onto the plan:
+      //   scope -> surface | acceptance -> proof | postconditions -> invariant
+      const outcome =
+        (typeof c.outcome === 'string' ? c.outcome.trim() : '') ||
+        (typeof c.postconditions === 'string' ? c.postconditions.trim() : '')
+      const rawSurface = Array.isArray(c.surface) ? c.surface : c.scope
+      const surface = Array.isArray(rawSurface)
+        ? rawSurface.filter((s): s is string => typeof s === 'string' && s.trim() !== '')
         : []
-      const invariant = typeof c.invariant === 'string' ? c.invariant.trim() : ''
-      const proof = typeof c.proof === 'string' ? c.proof.trim() : ''
+      const invariant =
+        (typeof c.invariant === 'string' ? c.invariant.trim() : '') ||
+        (typeof c.postconditions === 'string' ? c.postconditions.trim() : '')
+      const proof =
+        (typeof c.proof === 'string' ? c.proof.trim() : '') ||
+        (typeof c.acceptance === 'string' ? c.acceptance.trim() : '')
       if (!Number.isInteger(id) || id < 1 || !outcome || surface.length === 0 || !invariant || !proof) {
         return null
       }

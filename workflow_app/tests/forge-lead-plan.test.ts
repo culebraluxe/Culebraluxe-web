@@ -36,6 +36,20 @@ test('lead plan: malformed / incomplete / invalid-size plans return null', () =>
   assert.equal(parseLeadPlan(WRONG_SIZE), null)
 })
 
+test('lead plan: parses the work-order vocabulary (scope/acceptance/postconditions)', () => {
+  const wo =
+    'LEAD_PLAN: {"size":"SMALL","chunks":[{"id":1,"scope":["workflow_app/forge/forge-ready-gate.ts#storyReadyToRunReasons"],"acceptance":"pnpm exec tsx --test workflow_app/tests/forge-ready-gate.test.ts","preconditions":[],"postconditions":"zero-command recipe -> missing-assay-plan"}]}'
+  const p = parseLeadPlan(wo)
+  assert.ok(p, 'work-order vocabulary plan must parse')
+  assert.equal(p!.size, 'SMALL')
+  assert.equal(p!.chunks.length, 1)
+  assert.deepEqual(p!.chunks[0].surface, [
+    'workflow_app/forge/forge-ready-gate.ts#storyReadyToRunReasons',
+  ])
+  assert.equal(p!.chunks[0].proof, 'pnpm exec tsx --test workflow_app/tests/forge-ready-gate.test.ts')
+  assert.ok(p!.chunks[0].invariant.includes('zero-command'))
+})
+
 test('lead pre-dispatch: no plan is NO_PLAN, not a HOLD (behavior-preserving)', () => {
   const a = assessLeadPreDispatch('decision only, no LEAD_PLAN')
   assert.equal(a.planPresent, false)
