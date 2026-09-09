@@ -13,7 +13,8 @@
 // the names. Projects with no person/property anchor fall back to a
 // category-collection pole so nothing is lost.
 // ---------------------------------------------------------------------------
-import type { WbsItem, WbsProject } from "@/services/wbs"
+import type { WbsItem } from "@/services/wbs"
+import type { Project } from "@/services/project"
 import type { ProjectWorkStatus } from "./model"
 
 import type {
@@ -108,7 +109,7 @@ function dominantCategory(items: WbsItem[], fallback: string): string {
 }
 
 export function mapRealProjectsToWorkspace(
-  projects: WbsProject[],
+  projects: Project[],
   items: WbsItem[],
   identityNames: Record<string, string> = {},
 ): ProjectsWorkspaceData {
@@ -130,7 +131,7 @@ export function mapRealProjectsToWorkspace(
     const plan: ProjectPlan = {
       id: project.id,
       title: project.name,
-      kind: dominantCategory(projectItems, "WORK").toUpperCase(),
+      kind: String(project.areas?.[0] ?? "WORK").toUpperCase(),
       status: "active",
       progress: projectItems.length ? Math.round((done / projectItems.length) * 100) : 0,
       phaseLabel: project.status,
@@ -155,7 +156,7 @@ export function mapRealProjectsToWorkspace(
         else anchored.set(key, { type: anchor.type, id: anchor.id, domain, plans: [plan] })
       }
     } else {
-      const domain = categoryToDomain(dominantCategory(projectItems, "management"))
+      const domain = categoryToDomain(String(project.areas?.[0] ?? "management"))
       fallbackByDomain.set(domain, [...(fallbackByDomain.get(domain) ?? []), plan])
     }
   }
