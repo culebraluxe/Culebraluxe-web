@@ -14,14 +14,22 @@ export const dynamic = "force-dynamic"
  *  to their id until the person/contract name seam is wired. */
 async function resolveIdentityNames(items: WbsItem[]): Promise<Record<string, string>> {
   const names: Record<string, string> = {}
-  const propertyIds = Array.from(
-    new Set(items.map((i) => (i.entity?.type === "property" ? i.entity.id : "")).filter(Boolean)),
-  )
-  for (const id of propertyIds) {
+  const idsFor = (type: string) =>
+    Array.from(new Set(items.map((i) => (i.entity?.type === type ? i.entity.id : "")).filter(Boolean)))
+  for (const id of idsFor("property")) {
     try {
       const rows = await sql`select name from property where id = ${id} limit 1`
       const name = rows[0]?.name as string | undefined
       if (name) names[`property:${id}`] = name
+    } catch {
+      /* unresolved anchor -> id fallback in the projection */
+    }
+  }
+  for (const id of idsFor("person")) {
+    try {
+      const rows = await sql`select display_name from mv_client_directory where person_id = ${id} limit 1`
+      const name = rows[0]?.display_name as string | undefined
+      if (name) names[`person:${id}`] = name
     } catch {
       /* unresolved anchor -> id fallback in the projection */
     }
