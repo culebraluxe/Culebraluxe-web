@@ -28,8 +28,12 @@
 //     Assay, publish, story state, or Neon state: Forge provisions the branch
 //     and worktree, reads/creates the candidate commit through the existing
 //     harness-owned commit path, and owns Assay + publish unchanged.
-//   - No OpenCode server mode, ACP, MCP, subagents, sessions, TUI automation,
-//     swarm, or provider orchestration is added here.
+//   - No OpenCode server mode, ACP, MCP, subagents, TUI automation,
+//     swarm, or provider orchestration is added here. The one deliberate,
+//     env-gated exception is V5-21 session continuity (FORGE_SESSION_CONTINUITY=1,
+//     default OFF): successive roles of one isolated worktree resume the same
+//     session via `--continue`. Off by default, so the session-free contract holds
+//     unless an operator opts in.
 //
 // NO OpenCode nouns leak upward: the command model, Story Board, invoker, and
 // canonical statuses stay generic. Evidence records factual run metadata
@@ -68,7 +72,8 @@ import {
   verifyWorkspaceEnvFile,
 } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
-import { resolve } from 'node:path'
+import { existsSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 /**
  * The single model this adapter is allowed to pin. ENG-FORGE-V5-01 pins the
@@ -107,6 +112,36 @@ export function openCodeExecutionIdentity(): OpenCodeExecutionIdentity {
     runtimeAdapter: OPENCODE_HARNESS_ADAPTER_ID,
     model: OPENCODE_PINNED_MODEL,
   }
+}
+
+// ---------------------------------------------------------------------------
+// V5-21 session continuity (ENV-GATED, default OFF). When enabled, successive
+// model roles of ONE story's execution generation resume the SAME opencode
+// session in the SAME isolated worktree (context persists; authority does not).
+//
+// The adapter stays session-free by default: nothing changes unless the operator
+// sets FORGE_SESSION_CONTINUITY=1. The gate is a worktree-local marker file: the
+// FIRST role to run (no marker) starts a fresh session, then writes the marker on
+// success; the NEXT role sees the marker and passes --continue, inheriting the
+// prior role's context. A fresh worktree (new story/generation) has no marker, so
+// sessions can never leak across stories or worktrees. The candidate-freeze
+// context wall is preserved because QA/Assay/DevOps do not run this harness.
+// ---------------------------------------------------------------------------
+
+/** Env gate for V5-21 session continuity (default OFF). */
+export const SESSION_CONTINUITY_ENV = 'FORGE_SESSION_CONTINUITY'
+
+/** Marker filename placed in the isolated worktree after a role run succeeds. */
+export const SESSION_MARKER_FILENAME = '.forge-session.continue'
+
+/** True only when the operator opted into V5-21 session continuity. */
+export function forgeSessionContinuityEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[SESSION_CONTINUITY_ENV] === '1'
+}
+
+/** The worktree-local marker path that records "a prior role already ran here". */
+export function forgeSessionMarkerPath(workspace: string): string {
+  return join(workspace, SESSION_MARKER_FILENAME)
 }
 
 const OPENCODE_CAPABILITIES: AgentCapability[] = [
@@ -255,6 +290,12 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     const task = this.taskBuilder(context.command, context)
 
     const startRun = this.config.startRun ?? startOpenCodeRun
+    // V5-21 (env-gated, default OFF): resume the same session when a prior role
+    // already succeeded in this isolated worktree (marker present). The first
+    // role of a fresh generation runs fresh; later roles inherit its context.
+    const continuityEnabled = forgeSessionContinuityEnabled(process.env)
+    const markerPath = forgeSessionMarkerPath(workspace)
+    const continueSession = continuityEnabled && existsSync(markerPath)
     // DEV safety: the spawned harness (and any test process it spawns) must
     // NOT inherit an APP_ENV/DATABASE_URL set that resolves to the production
     // application database.
@@ -265,6 +306,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       cwd: workspace,
       model,
       task,
+      continueSession,
       env: { ...childEnv, ...(this.config.env ?? {}) },
     })
     this.externalRunId = `opencode-${Date.now()}`
@@ -345,6 +387,19 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       // startExternal already refused to run without an isolated workspace;
       // this is defense-in-depth for direct hook misuse.
       return null
+    }
+
+    // V5-21 (env-gated, default OFF): on success, record that a role completed in
+    // this isolated worktree so the NEXT role of the generation resumes the same
+    // opencode session via --continue. Marker write is best-effort — it must not
+    // fail a successful run. A fresh worktree has no marker, so sessions can never
+    // leak across stories/generations.
+    if (forgeSessionContinuityEnabled(process.env)) {
+      try {
+        writeFileSync(forgeSessionMarkerPath(workspace), '1')
+      } catch {
+        /* best-effort */
+      }
     }
 
     // ENG-FORGE-V5-01 / AC5: Forge, not OpenCode, owns the candidate commit

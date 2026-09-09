@@ -33,12 +33,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  forgeSessionContinuityEnabled,
+  forgeSessionMarkerPath,
   OPENCODE_HARNESS_ADAPTER_ID,
   OpenCodeHarnessAdapter,
   OPENCODE_PINNED_MODEL,
   openCodeExecutionIdentity,
   openCodeModelBlocker,
   resolveOpenCodeModel,
+  SESSION_CONTINUITY_ENV,
 } from './opencode-harness-adapter'
 import type { OpenCodeHandle, OpenCodeRunResult } from './opencode-client'
 import type {
@@ -454,3 +457,16 @@ test('failed result maps to null (shared base terminalizes as failure)', async (
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+
+test('V5-21 session continuity is OFF by default and only on under the env gate', () => {
+  const env = (x: Record<string, string>): NodeJS.ProcessEnv => x as unknown as NodeJS.ProcessEnv
+  assert.equal(forgeSessionContinuityEnabled(env({})), false, 'must be default OFF')
+  assert.equal(forgeSessionContinuityEnabled(env({ FORGE_SESSION_CONTINUITY: '0' })), false)
+  assert.equal(forgeSessionContinuityEnabled(env({ FORGE_SESSION_CONTINUITY: '1' })), true)
+  assert.equal(SESSION_CONTINUITY_ENV, 'FORGE_SESSION_CONTINUITY')
+})
+
+test('V5-21 marker path is worktree-local so sessions cannot leak across worktrees', () => {
+  assert.equal(forgeSessionMarkerPath('/w/a'), '/w/a/.forge-session.continue')
+  assert.equal(forgeSessionMarkerPath('/w/b'), '/w/b/.forge-session.continue')
+})
