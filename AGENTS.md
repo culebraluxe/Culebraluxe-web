@@ -187,6 +187,13 @@ Known issues:
 
 Forge maps Lead → Architect/Inspector (git), Builder → Smith, Reviewer/QA → Assay. See `docs/FORGE-V2.md`.
 
+> Superseded: the Forge control plane has since grown past the V2 three-role map.
+> The authoritative role model is the six-role FORGE_SDLC engine
+> (Scout → Architect → Lead → Smith → QA/Inspector → DEV_OPS), where **Inspector
+> is a QA capability**, not a separate git role. Live topology: the engine XML +
+> `workflow_app/forge/` + `docs/agent/MEMORY.md` and the Forge workshop document.
+> V2/V3 docs are historical — see `docs/FORGE-V3.md` (marked superseded).
+
 ## Error Capture Obligation
 
 New server code that can fail MUST route its failures through the durable capture framework. Do not add a bare `try/catch` that swallows, do not only `console.error`, and do not let a throw escape a route/action/edge uncaptured.
