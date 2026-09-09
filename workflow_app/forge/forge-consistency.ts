@@ -85,17 +85,21 @@ function completeWithOnlyScoutEvidence(s: StoryConsistencySnapshot): Consistency
   }
 }
 
-/** I2 — a non-terminal story with no open task and no candidate: parked with no
- *  actionable work (either stuck mid-flight or abandoned without a terminal). */
+/** I2 — a story that STARTED (it has run/engine evidence) but is not terminal
+ *  and has no open task and no candidate: a started run parked/abandoned without
+ *  reaching a terminal. Backlog stories that have never run (no evidence) are not
+ *  violations — having no open task before a story is picked up is expected. */
 function inProgressNoActionableWork(s: StoryConsistencySnapshot): ConsistencyViolation | null {
   if (isStoryTerminal(s.storyStatus)) return null
+  const started = Boolean(s.evidence) || Boolean(s.run?.resultStatus)
+  if (!started) return null
   if (s.openTaskCount > 0) return null
   if (s.evidence?.candidateSha) return null
   return {
     storyId: s.storyId,
     kind: 'in-progress-no-actionable-work',
     severity: 'warn',
-    detail: `story '${s.storyStatus}' has no open task and no candidate (openTaskCount=0)`,
+    detail: `story '${s.storyStatus}' started but has no open task and no candidate (openTaskCount=0)`,
   }
 }
 

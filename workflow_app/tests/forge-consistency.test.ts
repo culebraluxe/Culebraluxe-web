@@ -54,13 +54,25 @@ test('I1: Complete with a real candidate is NOT scout-only', () => {
   assert.ok(!v.some((x) => x.kind === 'complete-with-only-scout-evidence'))
 })
 
-test('I2: a non-terminal story with no open task and no candidate is parked', () => {
-  const v = auditStoryConsistency(base({ storyStatus: 'Planned', openTaskCount: 0 }))
+test('I2: a story that STARTED (has run/evidence) but is stuck with no task is flagged', () => {
+  const v = auditStoryConsistency(
+    base({
+      storyStatus: 'Planned',
+      run: { resultStatus: 'Partial' },
+      evidence: { candidateSha: null, qaPassed: null, qaVerifiedSha: null, publishedSha: null, deployedSha: null },
+      openTaskCount: 0,
+    }),
+  )
   assert.ok(v.some((x) => x.kind === 'in-progress-no-actionable-work'))
 })
 
 test('I2: an open task means there IS actionable work', () => {
-  const v = auditStoryConsistency(base({ storyStatus: 'Planned', openTaskCount: 1 }))
+  const v = auditStoryConsistency(base({ storyStatus: 'Planned', run: { resultStatus: 'Partial' }, openTaskCount: 1 }))
+  assert.ok(!v.some((x) => x.kind === 'in-progress-no-actionable-work'))
+})
+
+test('I2: a backlog story that never started (no run/evidence) is NOT flagged', () => {
+  const v = auditStoryConsistency(base({ storyStatus: 'Planned' }))
   assert.ok(!v.some((x) => x.kind === 'in-progress-no-actionable-work'))
 })
 
