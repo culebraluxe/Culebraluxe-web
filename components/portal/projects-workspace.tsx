@@ -31,6 +31,7 @@ import type {
   ProjectPole,
   ProjectWorkNode,
   ProjectWorkStatus,
+  ProjectsWorkspaceData,
   ProjectWorkspaceView,
 } from "@/ui/projects"
 import {
@@ -638,8 +639,11 @@ function PaneThree({ pole, project, node }: InspectorProps) {
     </section>
   )
 }
-export function ProjectsWorkspace() {
-  const source = useMemo(() => new InMemoryProjectsWorkspaceSource(), [])
+export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorkspaceData }) {
+  const source = useMemo(
+    () => new InMemoryProjectsWorkspaceSource(initialData),
+    [initialData],
+  )
   const controller = useMemo(() => new ProjectsWorkspaceController(source), [source])
   const model = usePageController(controller)
 
