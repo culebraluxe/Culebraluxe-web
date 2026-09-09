@@ -43,6 +43,7 @@ package-lock.json
 # Nested research/reference clones — never part of the Culebraluxe app.
 praxis/
 claude-orchestrate/
+gsd-core/
 
 # Forge context-lesson feedback loop (runtime-generated; never committed).
 .forge-context/
