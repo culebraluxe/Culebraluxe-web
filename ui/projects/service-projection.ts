@@ -1,10 +1,17 @@
 // ---------------------------------------------------------------------------
 // Projection from the REAL WBS repositories (wbs_project + wbs_item) into the
-// MVI ProjectsWorkspaceData (pole -> project -> WBS) for the test wiring.
+// MVI ProjectsWorkspaceData, built as DOMAIN PERSPECTIVES.
 //
-// The real model is flat (a WbsProject with WbsItem children, each categorized)
-// and has no "Pole". Best-effort (refine later): synthesize one collection Pole
-// per area/category mapped to an MVI domain and nest the real projects + items.
+// Intent: the left domain tab is a perspective. A People tab shows each CLIENT
+// as a pole with that client's projects; a Properties tab shows each PROPERTY
+// as a pole with its projects. A project whose work items are anchored to both
+// a person and a property appears under BOTH poles (same project, two views).
+//
+// The real model anchors via WbsItem.entity {type: person|property|contract|deal,
+// id}. Name resolution is a SEAM: identityNames maps `${type}:${id}` -> display
+// name. Until the real person/property services feed it, the test seed supplies
+// the names. Projects with no person/property anchor fall back to a
+// category-collection pole so nothing is lost.
 // ---------------------------------------------------------------------------
 import type { WbsItem, WbsProject } from "@/services/wbs"
 import type { ProjectWorkStatus } from "./model"
@@ -28,7 +35,19 @@ const DOMAINS: ProjectDomain[] = [
   { key: "accounting", label: "Accounting", shortLabel: "Accounting" },
 ]
 
-/** Real WbsItem category -> MVI domain (best effort). */
+/** Names for the seeded test anchors (swap for real person/property services). */
+export const PROJECTS_TEST_IDENTITY_NAMES: Record<string, string> = {
+  "person:jessica-iverson": "Jessica Iverson",
+  "property:sea-to-soul": "Sea to Soul",
+}
+
+const ENTITY_TO_DOMAIN: Record<string, ProjectDomainKey> = {
+  person: "people",
+  property: "properties",
+  contract: "deals",
+  deal: "deals",
+}
+
 function categoryToDomain(category: string): ProjectDomainKey {
   if (category === "properties" || category === "media") return "properties"
   if (category === "clients") return "people"
@@ -74,7 +93,6 @@ function attach(items: WbsItem[], item: WbsItem): ProjectWorkNode {
   }
 }
 
-/** Pick the project's dominant area from its item categories (best effort). */
 function dominantCategory(items: WbsItem[], fallback: string): string {
   const counts = new Map<string, number>()
   for (const item of items) counts.set(item.category, (counts.get(item.category) ?? 0) + 1)
@@ -89,7 +107,11 @@ function dominantCategory(items: WbsItem[], fallback: string): string {
   return best
 }
 
-export function mapRealProjectsToWorkspace(projects: WbsProject[], items: WbsItem[]): ProjectsWorkspaceData {
+export function mapRealProjectsToWorkspace(
+  projects: WbsProject[],
+  items: WbsItem[],
+  identityNames: Record<string, string> = {},
+): ProjectsWorkspaceData {
   const itemsByProject = new Map<string, WbsItem[]>()
   for (const item of items) {
     if (!item.projectId) continue
@@ -98,10 +120,11 @@ export function mapRealProjectsToWorkspace(projects: WbsProject[], items: WbsIte
     itemsByProject.set(item.projectId, list)
   }
 
-  const byDomain = new Map<ProjectDomainKey, ProjectPlan[]>()
+  const anchored = new Map<string, { type: string; id: string; domain: ProjectDomainKey; plans: ProjectPlan[] }>()
+  const fallbackByDomain = new Map<ProjectDomainKey, ProjectPlan[]>()
+
   for (const project of projects) {
     const projectItems = itemsByProject.get(project.id) ?? []
-    const domain = categoryToDomain(dominantCategory(projectItems, "management"))
     const top = projectItems.filter((i) => !i.parentId)
     const done = projectItems.filter((i) => i.status === "done").length
     const plan: ProjectPlan = {
@@ -113,23 +136,59 @@ export function mapRealProjectsToWorkspace(projects: WbsProject[], items: WbsIte
       phaseLabel: project.status,
       workNodes: top.map((node) => attach(projectItems, node)),
     }
-    byDomain.set(domain, [...(byDomain.get(domain) ?? []), plan])
+
+    // Unique person/property anchors among this project's items.
+    const anchors = new Map<string, { type: string; id: string }>()
+    for (const item of projectItems) {
+      const entity = item.entity
+      if (!entity) continue
+      if (entity.type !== "person" && entity.type !== "property") continue
+      anchors.set(`${entity.type}:${entity.id}`, entity)
+    }
+
+    if (anchors.size > 0) {
+      for (const anchor of anchors.values()) {
+        const key = `${anchor.type}:${anchor.id}`
+        const domain = ENTITY_TO_DOMAIN[anchor.type] ?? "firm"
+        const existing = anchored.get(key)
+        if (existing) existing.plans.push(plan)
+        else anchored.set(key, { type: anchor.type, id: anchor.id, domain, plans: [plan] })
+      }
+    } else {
+      const domain = categoryToDomain(dominantCategory(projectItems, "management"))
+      fallbackByDomain.set(domain, [...(fallbackByDomain.get(domain) ?? []), plan])
+    }
   }
 
   const poles: ProjectPole[] = []
+  const avg = (plans: ProjectPlan[]) =>
+    plans.length ? Math.round(plans.reduce((sum, p) => sum + p.progress, 0) / plans.length) : 0
+
   for (const domain of DOMAINS) {
-    const plans = byDomain.get(domain.key)
-    if (!plans || plans.length === 0) continue
-    const total = plans.reduce((sum, p) => sum + p.progress, 0)
-    poles.push({
-      id: `collection-${domain.key}`,
-      domain: domain.key,
-      label: domain.label,
-      subtitle: `${plans.length} ${plans.length === 1 ? "project" : "projects"}`,
-      progress: Math.round(total / plans.length),
-      statusLabel: "Collection",
-      projects: plans,
-    })
+    for (const entry of anchored.values()) {
+      if (entry.domain !== domain.key) continue
+      poles.push({
+        id: `entity-${entry.type}-${entry.id}`,
+        domain: domain.key,
+        label: identityNames[`${entry.type}:${entry.id}`] ?? entry.id,
+        subtitle: entry.type === "person" ? "Client" : entry.type === "property" ? "Property" : "Workspace",
+        progress: avg(entry.plans),
+        statusLabel: "Active",
+        projects: entry.plans,
+      })
+    }
+    const fallback = fallbackByDomain.get(domain.key)
+    if (fallback && fallback.length > 0) {
+      poles.push({
+        id: `collection-${domain.key}`,
+        domain: domain.key,
+        label: domain.label,
+        subtitle: `${fallback.length} ${fallback.length === 1 ? "project" : "projects"}`,
+        progress: avg(fallback),
+        statusLabel: "Collection",
+        projects: fallback,
+      })
+    }
   }
 
   return { domains: DOMAINS, poles }

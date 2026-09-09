@@ -6,9 +6,17 @@ import { sql } from "../db/client"
 import { SqlWbsRepository } from "../db/wbs-service-repository"
 
 const PROJECT_ID = "seed-sea-to-soul"
-const ITEMS = [
-  { id: "seed-s2s-parties", title: "Clients / Parties", category: "clients", parentId: null },
-  { id: "seed-s2s-property", title: "Property", category: "properties", parentId: null },
+type SeedItem = {
+  id: string
+  title: string
+  category: string
+  parentId: string | null
+  entity?: { type: "person" | "property"; id: string }
+}
+
+const ITEMS: SeedItem[] = [
+  { id: "seed-s2s-parties", title: "Clients / Parties", category: "clients", parentId: null, entity: { type: "person", id: "jessica-iverson" } },
+  { id: "seed-s2s-property", title: "Property", category: "properties", parentId: null, entity: { type: "property", id: "sea-to-soul" } },
   { id: "seed-s2s-agreement", title: "Listing Agreement", category: "contracts", parentId: null },
   { id: "seed-s2s-signature", title: "Seller Signature", category: "contracts", parentId: "seed-s2s-agreement" },
   { id: "seed-s2s-media", title: "Media", category: "media", parentId: null },
@@ -40,6 +48,7 @@ async function main() {
       category: item.category as never,
       projectId: PROJECT_ID,
       parentId: item.parentId,
+      entity: item.entity,
     })
   }
 

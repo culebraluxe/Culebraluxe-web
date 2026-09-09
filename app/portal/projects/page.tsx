@@ -2,7 +2,7 @@ import { ProjectsWorkspace } from "@/components/portal/projects-workspace"
 import { SqlWbsRepository } from "@/db/wbs-service-repository"
 import { captureServerError } from "@/lib/server-error-capture"
 import type { ProjectsWorkspaceData } from "@/ui/projects/model"
-import { mapRealProjectsToWorkspace } from "@/ui/projects/service-projection"
+import { mapRealProjectsToWorkspace, PROJECTS_TEST_IDENTITY_NAMES } from "@/ui/projects/service-projection"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +15,7 @@ async function loadRealProjectsData(): Promise<ProjectsWorkspaceData | undefined
     const wbs = new SqlWbsRepository()
     const projects = await wbs.listProjects()
     const items = await wbs.listDue({})
-    return mapRealProjectsToWorkspace(projects, items)
+    return mapRealProjectsToWorkspace(projects, items, PROJECTS_TEST_IDENTITY_NAMES)
   } catch (error) {
     captureServerError("projects:load-workspace-data", error, { level: "error" })
     return undefined
