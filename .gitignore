@@ -44,3 +44,6 @@ package-lock.json
 praxis/
 claude-orchestrate/
 
+# Forge context-lesson feedback loop (runtime-generated; never committed).
+.forge-context/
+
