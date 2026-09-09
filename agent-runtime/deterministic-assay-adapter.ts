@@ -237,10 +237,11 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     this.evidence = null
     this.execution = this.executePlan(context)
       .catch((error) => {
-        const candidateSha = assayCandidateFromInstructions(
-          context.command.specialInstructions,
-        )
         const workspace = context.executionWorkspace?.worktreePath ?? null
+        const verifiedSha = workspace ? gitHead(workspace) : null
+        const candidateSha =
+          assayCandidateFromInstructions(context.command.specialInstructions) ??
+          verifiedSha
         const frozenPlan = planAssay({
           testMode: context.story.testMode,
           assayCommands: context.story.assayCommands,
@@ -248,7 +249,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
         this.evidence = finalizeAssayEvidence({
           version: 1,
           candidateSha,
-          verifiedSha: workspace ? gitHead(workspace) : null,
+          verifiedSha,
           requiredCommands: frozenPlan.ok ? frozenPlan.commands : [],
           commandResults: [],
           policyViolations: [
@@ -273,9 +274,14 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       assayCommands: context.story.assayCommands,
     })
     const plan = frozenPlan.ok ? frozenPlan : null
-    const candidateSha = assayCandidateFromInstructions(instructions)
     const workspace = context.executionWorkspace?.worktreePath ?? null
     const verifiedSha = workspace ? gitHead(workspace) : null
+    // Fall back to the worktree HEAD when no explicit candidate directive was
+    // stamped: the QA worktree IS the Smith candidate. Without this, an engine
+    // that does not pin the directive can never PASS (CANDIDATE_MISMATCH -> the
+    // infinite repair-Smith loop). Exact-SHA pinning still wins when present.
+    const candidateSha =
+      assayCandidateFromInstructions(instructions) ?? verifiedSha
     const policyViolations: string[] = []
     const commandResults: AssayCommandResult[] = []
     const requiredCommands = plan?.commands ?? []

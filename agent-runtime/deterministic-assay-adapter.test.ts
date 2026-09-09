@@ -221,3 +221,41 @@ test('deterministic Assay: a stalled command times out and terminalizes (never h
     w.cleanup()
   }
 })
+
+test('deterministic Assay: no candidate directive falls back to worktree HEAD (no CANDIDATE_MISMATCH loop)', async () => {
+  const w = workspace()
+  try {
+    const runner: AssayCommandRunner = async ({ command }) => ({
+      command,
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      durationMs: 1,
+      tests: { total: 26, passed: 26, failed: 0 },
+      stdoutTail: 'clean',
+      stderrTail: '',
+    })
+    // NOTE: deliberately NO withAssayCandidateDirective - simulate the engine
+    // forgetting to pin the candidate. The worktree HEAD must stand in for it.
+    const instructions = withAssayPlanDirective('stale plan', {
+      mode: 'FULL',
+      commands: ['must-not-run-from-envelope'],
+    })
+    const cmd = command(instructions)
+    const ctx = context(w.cwd, w.sha, cmd, 'verify-one\nverify-two')
+    const adapter = new ExposedAssay(
+      { work: {} as never, runs: {} as never },
+      { runCommand: runner, commandTimeoutMs: 1_000 },
+    )
+    await adapter.startForTest(ctx)
+    const status = await terminalStatus(adapter, cmd, ctx)
+    assert.equal(status.lifecycle, 'success')
+    const evidence = await adapter.resultForTest(cmd, ctx)
+    assert.equal(evidence?.resultStatus, 'Complete')
+    assert.equal(evidence?.assayEvidence?.verdict, 'PASS')
+    assert.equal(evidence?.assayEvidence?.candidateSha, w.sha)
+    assert.equal(evidence?.assayEvidence?.verifiedSha, w.sha)
+  } finally {
+    w.cleanup()
+  }
+})
