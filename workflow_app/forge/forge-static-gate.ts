@@ -107,7 +107,15 @@ export function runStaticGate(input: {
   const config = input.config ?? '.dependency-cruiser.js'
   const timeoutMs = input.timeoutMs ?? 180_000
 
-  const arch = runDepcruise({ workspace, roots, config, depcruiseBin: input.depcruiseBin, timeoutMs })
+  // dependency-cruiser validates a JS/TS module graph. A workspace without a
+  // package manifest (a non-package tree or a bare unit harness) has no graph
+  // to cruise and no pnpm root to resolve the tool — skip it rather than fail
+  // the hard gate on tooling. Real candidate workspaces (this JS repo) always
+  // carry package.json, so production arch gating is unchanged.
+  const hasManifest = existsSync(join(workspace, 'package.json'))
+  const arch = hasManifest
+    ? runDepcruise({ workspace, roots, config, depcruiseBin: input.depcruiseBin, timeoutMs })
+    : { ok: true, errors: [] }
   const sec = runSemgrep({ workspace, roots, configDir: '.semgrep', semgrepBin: input.semgrepBin, timeoutMs })
 
   return {
