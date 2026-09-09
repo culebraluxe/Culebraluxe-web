@@ -16,16 +16,34 @@ export type PickLaneInput = {
 }
 
 /**
- * V6 series picker. A complete Architect contract always hands to Lead before
- * implementation. Lead's structured decision then chooses SOLO, Smith, split,
- * or Hold; this picker never skips that judgment gate.
+ * REDUCER-ERA picker — used ONLY by the legacy reducer hydrate path, which is OFF
+ * under the ENGINE canonical brain. It is NOT the orchestrator; the FORGE_SDLC
+ * engine owns all live sequencing. Kept as a small TOTAL function over
+ * lastFinishedRole (never a hidden default that silently routes):
+ *   - no architect brief yet  -> scout  (must discover before design)
+ *   - otherwise               -> lead   (after a brief the next judgment is
+ *                                        always Lead's: SOLO/SMITH/SPLIT/HOLD)
  */
 export function pickLane(input: PickLaneInput): LaneId {
   if (!present(input.story.architectBrief)) return 'scout'
-  if (input.lastFinishedRole === 'builder') return 'lead'
-  if (input.lastFinishedRole === 'architect') return 'lead'
-  if (input.lastFinishedRole === 'scout') return 'lead'
-  return 'lead'
+  // After an architect brief exists, every finished role hands to Lead's
+  // judgment gate. Exhaustive on the lane set so a new lane is never silently
+  // misrouted by a missing case.
+  switch (input.lastFinishedRole) {
+    case null:
+    case undefined:
+    case 'scout':
+    case 'architect':
+    case 'builder':
+    case 'lead':
+    case 'qa':
+    case 'assay':
+    case 'verifier':
+    case 'inspector':
+      return 'lead'
+    default:
+      return 'lead'
+  }
 }
 
 export function sha256Text(text: string): string {

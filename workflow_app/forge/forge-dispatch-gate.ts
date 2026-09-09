@@ -41,9 +41,10 @@ export type AssessDispatchOptions = {
   scorer?: DifficultyScorer
 }
 
-/** One consolidated pre-Smith gate. A single failure class HOLDs the whole thing:
- *  structural violation, NOT_DISPATCHABLE qualitative shape, or difficulty reject
- *  (< 0.35). FLAG = dispatch but with a stronger proof requirement. */
+/** One consolidated pre-Smith gate. HOLD comes only from structural violations or
+ *  qualitative NOT_DISPATCHABLE (the 6-surface monster). Difficulty P(success) is
+ *  ADVISORY: reject and flag both surface as a FLAG (stronger proof required),
+ *  never a HOLD, until the logistic scorer is calibrated on real runs. */
 export function assessSmithDispatch(
   plan: SmithExecutionPlan | null | undefined,
   options: AssessDispatchOptions = {},
@@ -65,10 +66,19 @@ export function assessSmithDispatch(
 
   const scored = scorePlan(plan, scorer)
   const difficulty = { pSuccess: scored.pSuccess, gate: scored.gate }
-  if (scored.gate === 'reject') reasons.push(`difficulty: P(success)=${scored.pSuccess.toFixed(3)} below dispatch (reject)`)
+  // Difficulty (the logistic P(success)) is ADVISORY only: the scorer is not yet
+  // calibrated on real runs, so it must never be a HOLD authority. reject/flag
+  // both surface as a FLAG (stronger proof), never a HOLD. Structural rules and
+  // qualitative NOT_DISPATCHABLE are the only HOLD authorities (calibration
+  // fiction guard — do not teach uncalibrated numbers to spend money).
   if (scored.gate === 'flag') reasons.push(`difficulty: flagged P(success)=${scored.pSuccess.toFixed(3)} (stronger proof required)`)
+  if (scored.gate === 'reject') {
+    reasons.push(
+      `difficulty: advisory P(success)=${scored.pSuccess.toFixed(3)} below dispatch — scorer not calibrated on real runs; FLAG, not HOLD`,
+    )
+  }
 
-  const holds = structural.length > 0 || (qualitative?.verdict === 'NOT_DISPATCHABLE') || scored.gate === 'reject'
-  const verdict: SmithDispatchVerdict = holds ? 'HOLD' : scored.gate === 'flag' ? 'FLAG' : 'GO'
+  const holds = structural.length > 0 || qualitative?.verdict === 'NOT_DISPATCHABLE'
+  const verdict: SmithDispatchVerdict = holds ? 'HOLD' : scored.gate === 'dispatch' ? 'GO' : 'FLAG'
   return { verdict, reasons, structuralOk, qualitative, difficulty }
 }
