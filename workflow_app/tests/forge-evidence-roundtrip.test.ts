@@ -137,3 +137,59 @@ test(
     await teardown(story, pid)
   }
 })
+
+// ---------------------------------------------------------------------------
+// REGRESSION (2026-09-10): `leadRoutingFacts` carries the in-memory sentinel
+// `splitCount: 0` for SOLO/SMITH routes. `forge_workflow_evidence_split_count_check`
+// permits only NULL or 2..8, so writing that sentinel straight through raised a
+// 23514 CHECK violation on a REAL run (a non-SPLIT Lead completion could not be
+// persisted). The repository boundary owns the normalization; an explicit
+// leadDecision write is authoritative over coalesce (so a former SPLIT count is
+// cleared rather than lingering beside a SOLO decision).
+// ---------------------------------------------------------------------------
+test(
+  'a non-SPLIT lead decision persists NULL split_count and clears a prior split',
+  { skip: dbConfigured ? false : 'DB not configured (run with .env.local on demand)' },
+  async () => {
+    process.env.APP_ENV = DEV
+    const suffix = Date.now()
+    const story = `EVIDENCE-SPLIT-${suffix}`
+    const pid = randomUUID()
+
+    try {
+      await scaffold(story, pid)
+      // Start as a SPLIT so there is real prior truth to clear.
+      await mergeForgeWorkflowEvidence(pid, story, {
+        workType: 'FEATURE',
+        leadDecision: 'SPLIT',
+        splitCount: 3,
+      })
+      assert.equal((await readForgeWorkflowEvidence(story)).splitCount, 3)
+
+      // Now a SOLO Lead run: the sentinel 0 must NOT reach the CHECK constraint...
+      await mergeForgeWorkflowEvidence(pid, story, {
+        workType: 'FEATURE',
+        leadDecision: 'SOLO',
+        splitCount: 0,
+      })
+      const got = await readForgeWorkflowEvidence(story)
+      assert.equal(got.leadDecision, 'SOLO')
+      // The repository normalizes SQL NULL to `undefined` (never the illegal 0 the
+      // in-memory sentinel carried).
+      assert.equal(got.splitCount, undefined, 'a non-SPLIT route must not carry a split count')
+
+      // ...and a write that omits the decision must still preserve what it knows.
+      await mergeForgeWorkflowEvidence(pid, story, {
+        workType: 'FEATURE',
+        leadDecision: 'SPLIT',
+        splitCount: 4,
+      })
+      await mergeForgeWorkflowEvidence(pid, story, { qaPassed: true })
+      const preserved = await readForgeWorkflowEvidence(story)
+      assert.equal(preserved.splitCount, 4)
+      assert.equal(preserved.qaPassed, true)
+    } finally {
+      await teardown(story, pid)
+    }
+  },
+)
