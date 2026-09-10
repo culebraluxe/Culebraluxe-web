@@ -332,11 +332,31 @@ export async function claimSpecificAgentWork(
   return runner(async (tx) => {
     await tx`select pg_advisory_xact_lock(cast(9000212 as bigint))`
 
-    const activeRows = await tx`
-      select id from agent_work_item
-      where state in ('Claimed', 'Running', 'Paused')
-      limit 1
+    // ENG-FORGE-SPLIT-01 — claim scope follows the row's nature (migration 143 model):
+    //   * SERIAL work (parallel_group_id IS NULL) keeps the historical system-wide
+    //     single-active rule, unchanged;
+    //   * a SPLIT child is a parallel slot, scoped to its own group, so independent
+    //     Smiths can run concurrently. Parallel rows only exist when the runtime
+    //     explicitly opted into SPLIT (FORGE_SPLIT_ENABLED), so this cannot widen
+    //     the serial path by accident.
+    // Either way an active SERIAL item anywhere still blocks every claim.
+    const targetRows = await tx`
+      select parallel_group_id from agent_work_item where id = ${workItemId}
     `
+    const targetGroup = (targetRows[0]?.parallel_group_id as string | null | undefined) ?? null
+
+    const activeRows = targetGroup
+      ? await tx`
+          select id from agent_work_item
+          where state in ('Claimed', 'Running', 'Paused')
+            and (parallel_group_id is null or parallel_group_id = ${targetGroup})
+          limit 1
+        `
+      : await tx`
+          select id from agent_work_item
+          where state in ('Claimed', 'Running', 'Paused')
+          limit 1
+        `
     if (activeRows.length > 0) return null
 
     const claimedRows = await tx`
