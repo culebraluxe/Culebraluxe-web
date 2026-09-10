@@ -48,7 +48,7 @@ import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
-import { renderSplitAssignmentWorkOrders, splitChildAssignment } from './forge-split-handoff'
+import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
 import {
   acceptedLeadRouting,
   buildLeadRoutingContext,
@@ -217,6 +217,30 @@ export function createAgentRuntimeForgeRoleRunner(
       throw new Error(
         `Forge ${nodeId} HOLD: ${splitChildContract.errors.join('; ') || 'no resolvable Lead assignment'}`,
       )
+    }
+    // The assignment's execution contract must be VALID before the child launches:
+    // identity (story/node/attempt/owner), allowedScope from the plan's surfaces,
+    // requiredEvidence from the plan's proofs, and the SIBLING surfaces this child may
+    // not touch in prohibitedScope. Without this gate the contract is library-only and
+    // a malformed assignment could still put a child in a worktree with no enforced
+    // boundary — the mangled-branch failure mode.
+    if (splitChildContract?.assignment) {
+      const splitAssignment = splitChildContract.assignment
+      // Sibling surfaces become the child's prohibitedScope: the boundary is then
+      // machine-enforced by the contract, not merely stated in prose.
+      const siblings = (acceptedRouting?.assignments ?? []).filter((a) => a.id !== splitAssignment.id)
+      const contract = smithContractFromAssignment({
+        storyId: resolvedStory.id,
+        nodeId,
+        attempt,
+        assignment: splitAssignment,
+        siblings,
+      })
+      if (contract.errors.length > 0) {
+        throw new Error(
+          `Forge ${nodeId} HOLD: split assignment contract invalid — ${contract.errors.join('; ')}`,
+        )
+      }
     }
     // The join is the engine's, but INTEGRATION is ours: `lead_post` must not
     // integrate a fan-out whose children did not all finish with their own

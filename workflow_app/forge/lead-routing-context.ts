@@ -7,13 +7,18 @@
 // them, so this module derives them from durable story/task state — never from
 // model prose.
 //
-// Runtime capability is deliberately conservative today:
-//   splitEnabled: false  — the SPLIT lane is unproven (mangled branch, candidate
-//                          captured from the wrong workspace; see MEMORY
-//                          2026-09-10). Declaring it unavailable makes a Lead
-//                          SPLIT proposal get CORRECTED instead of silently
-//                          routed into a broken lane.
-//   maxSmiths: 1         — the executor runs splitConcurrency 1.
+// Runtime capability is supplied by the TRUSTED runtime (see
+// LEAD_ROUTING_CAPABILITIES in agent-runtime-role-runner.ts) and never by the model:
+//   splitEnabled — env `FORGE_SPLIT_ENABLED` (default ON; `false` closes the door).
+//                  The SPLIT lane was dark until 2026-09-10 because of a mangled-branch
+//                  / wrong-workspace incident; it is now proven end to end (two
+//                  concurrent children, each with its OWN candidate SHA, satisfied join,
+//                  `lead_post` integration, QA pass — see MEMORY 2026-09-10).
+//   maxSmiths    — env `FORGE_SPLIT_MAX_SMITHS` (default 2), matched by the worker's
+//                  `FORGE_SPLIT_CONCURRENCY` (default 2).
+// Do NOT read the posture from prose in this file or from a packet: read the runtime
+// declaration. A stale comment here previously claimed split was unavailable while the
+// runtime had it enabled.
 // ---------------------------------------------------------------------------
 import { parseAssayCommands } from '../../agent-runtime/assay-plan'
 import { proposalValidShape } from './forge-lead-routing'
