@@ -190,7 +190,7 @@ export async function listStoryboardStories(
 
   const rows = await q`
     select id, workstream, operating_surface, title, priority, status, notes,
-      batch, goal, scope,
+      batch, batch_deploy, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
@@ -264,7 +264,7 @@ export async function getStoryboardStory(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, workstream, operating_surface, title, priority, status, notes,
-      batch, goal, scope,
+      batch, batch_deploy, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
@@ -306,7 +306,7 @@ export async function createStoryboardStory(
     )
     on conflict (id) do nothing
     returning id, workstream, operating_surface, title, priority, status, notes,
-      batch, goal,
+      batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
@@ -358,7 +358,7 @@ export async function updateStoryboardStory(
         updated_at = now()
     where id = ${id}
     returning id, workstream, operating_surface, title, priority, status, notes,
-      batch, goal,
+      batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
@@ -462,7 +462,7 @@ export async function setStoryboardStatus(
         updated_at = now()
     where id = ${id}
     returning id, workstream, operating_surface, title, priority, status, notes,
-      batch, goal,
+      batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
@@ -534,7 +534,7 @@ export async function listActiveWork(
   const q = execute ?? (await executor())
   const rows = await q`
     select s.id, s.workstream, s.operating_surface, s.title, s.priority, s.status,
-      s.notes, s.batch, s.goal, s.scope, s.dependencies, s.preconditions,
+      s.notes, s.batch, s.batch_deploy, s.goal, s.scope, s.dependencies, s.preconditions,
       s.architect_brief, s.context_refs, s.acceptance_criteria, s.postconditions,
       s.architect_brief_updated_at, s.completion, s.rollup, s.planned_start_at,
       s.actual_start_at, s.completed_at, s.created_at, s.updated_at
@@ -901,7 +901,7 @@ export async function startStoryRun(
         actual_start_at = coalesce(actual_start_at, now()),
         updated_at = now()
     where id = ${storyId}
-    returning id, workstream, title, priority, status, notes, batch, goal,
+    returning id, workstream, title, priority, status, notes, batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
@@ -1083,7 +1083,7 @@ export async function finishStoryRun(
           then now() else null end,
         updated_at = now()
     where id = ${run.storyId}
-    returning id, workstream, title, priority, status, notes, batch, goal,
+    returning id, workstream, title, priority, status, notes, batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
