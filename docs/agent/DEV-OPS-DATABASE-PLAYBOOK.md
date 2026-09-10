@@ -27,6 +27,38 @@ state and point `DATABASE_URL_DEV` at it. That is instant, byte-exact, and copie
 sequences, indexes, partitions and constraints — no copy script, no FK ordering,
 no preserve lists.
 
+### What a Neon branch actually is (the "raw files" question)
+You cannot download Neon database files. Neon disaggregates storage from compute:
+the Postgres compute node is stateless, and durable data lives in a distributed
+page store (pageserver + safekeepers) writing WAL to object storage. `pg_basebackup`
+(the Postgres equivalent of an Oracle physical backup — datafiles + WAL) needs
+filesystem access to the server, which Neon does not expose.
+
+Neon's equivalent is **copy-on-write branching**: because pages are versioned,
+creating a branch from a point in time is O(1) — it makes a new timeline pointing
+at the existing page versions, and only subsequent writes diverge. That is a
+*physical* clone, strictly better than file-copy for a same-cloud refresh:
+
+| | Oracle/physical files (`pg_basebackup`) | Logical copy (`pg_dump`, `pull-prod-to-dev.mjs`) | Neon branch |
+| --- | --- | --- | --- |
+| exactness | byte-exact | row-exact, loses bloat/seq/stat state | byte-exact |
+| speed | restore time | slow (row transfer) | instant |
+| needs filesystem | yes | no | no |
+| portable across clouds | no | yes | no (Neon-only) |
+| selective / partial | no | **yes** | no (whole DB) |
+
+CLI (requires `neonctl auth` — not currently configured on this machine):
+
+```sh
+neonctl branches list   --project-id <project>          # find the prod/dev branch ids
+neonctl branches create --name dev-refresh --parent <prod-branch-id>
+# then repoint DATABASE_URL_DEV at the new branch's connection string
+```
+
+After any reset: `pnpm db:seed:projects` to restore DEV-only work, then
+`pnpm db:parity` to confirm, then smoke the portal.
+
+
 `scripts/pull-prod-to-dev.mjs` (table-by-table) is the **fallback** for the rare
 case where you need a *selective* or *partial* copy (e.g. business tables only,
 while preserving DEV-owned state). It is not the normal path.
