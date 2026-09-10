@@ -498,13 +498,28 @@ export async function enqueueAgentWorkCommand(
   // the two schemas. Instead: read the active row, update it if present,
   // otherwise insert; a unique violation (a dispatch trigger raced us) falls
   // back to the update.
-  const existing = await q`
-    select id from agent_work_item
-    where story_id = ${input.storyId}
-      and state in ('Ready', 'Claimed', 'Running')
-    order by created_at asc
-    limit 1
-  `
+  // A PARALLEL child (SPLIT) must be scoped to its OWN group+slot: the story-wide
+  // lookup below would find a sibling's active row, upsert onto it, and leave the
+  // second child with no row of its own to claim. Serial work looks only at serial
+  // rows (parallel_group_id is null) for the same reason, in reverse.
+  const existing = input.parallelGroupId
+    ? await q`
+        select id from agent_work_item
+        where story_id = ${input.storyId}
+          and parallel_group_id = ${input.parallelGroupId}
+          and parallel_slot = ${input.parallelSlot ?? null}
+          and state in ('Ready', 'Claimed', 'Running')
+        order by created_at asc
+        limit 1
+      `
+    : await q`
+        select id from agent_work_item
+        where story_id = ${input.storyId}
+          and parallel_group_id is null
+          and state in ('Ready', 'Claimed', 'Running')
+        order by created_at asc
+        limit 1
+      `
   const existingId = (existing[0]?.id as string | undefined) ?? null
 
   const updateActive = async (id: string): Promise<AgentWorkRow | undefined> => {
