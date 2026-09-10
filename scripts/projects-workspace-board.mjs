@@ -97,6 +97,70 @@ const NEW_STORIES = [
   },
 ]
 
+// ---------------------------------------------------------------------------
+// Phase 2 — make the assay MACHINE-RUNNABLE.
+//
+// Review found GPT's assay_commands are PROSE, not commands (WS-07 has no command
+// at all; WS-13 requires screenshots / a manual keyboard pass). Forge freezes
+// assay_commands into the legal proof vocabulary and then the assay harness must RUN
+// them, so prose cannot be satisfied by a chunk and human steps cannot be automated.
+// This repo has node:test + tsx only (no Playwright/vitest/jsdom), so UI/visual
+// acceptance is not machine-verifiable.
+//
+// Each story therefore gets:
+//   * assay_commands  = concrete, scoped, runnable commands only;
+//   * notes += FORGE MACHINE ASSAY + HUMAN GATE (the visual/manual items, listed so
+//     nobody pretends Forge verified them).
+// The original prose is preserved verbatim in notes. Phase 2 also adds WS-18, the
+// single human visual/accessibility gate that collects every manual item.
+// ---------------------------------------------------------------------------
+
+const MACHINE_ALWAYS = ['- `pnpm exec tsc --noEmit`', '- `git diff --check`']
+
+// id -> { test: story-owned test file Forge must create (red -> green), human: manual items }
+const ASSAY_MAP = {
+  'PROJECTS-WORKSPACE-01': { test: 'testv2/projects-workspace-01-readmodel.test.ts', human: ['pane content read-through against the approved reference'] },
+  'PROJECTS-WORKSPACE-02': { test: 'testv2/projects-workspace-02-tokens.test.ts', human: ['desktop geometry match', 'approved browser screenshots (three-pane widths, borders, sticky behaviour)'] },
+  'PROJECTS-WORKSPACE-03': { test: 'testv2/projects-workspace-03-navigator.test.ts', human: ['tree interaction feel', 'icon-language review'] },
+  'PROJECTS-WORKSPACE-04': { test: 'testv2/projects-workspace-04-header-nextaction.test.ts', human: ['header/callout visual match'] },
+  'PROJECTS-WORKSPACE-05': { test: 'testv2/projects-workspace-05-workplan-table.test.ts', human: ['table alignment/overflow visual check'] },
+  'PROJECTS-WORKSPACE-06': { test: 'testv2/projects-workspace-06-inspector.test.ts', human: ['edit feedback feel', 'stale-edit UX review'] },
+  'PROJECTS-WORKSPACE-07': { test: 'testv2/projects-workspace-07-actions.test.ts', human: ['linked-record navigation spot check (Forms/signature/Cabinet/Marketing/Accounting)'] },
+  'PROJECTS-WORKSPACE-08': { test: 'testv2/projects-workspace-08-timeline.test.ts', human: ['timeline grouping read-through'] },
+  'PROJECTS-WORKSPACE-09': { test: 'testv2/projects-workspace-09-calendar.test.ts', human: ['calendar projection read-through'] },
+  'PROJECTS-WORKSPACE-10': { test: 'testv2/projects-workspace-10-documents.test.ts', human: ['documents lens read-through'] },
+  'PROJECTS-WORKSPACE-11': { test: 'testv2/projects-workspace-11-activity.test.ts', human: ['activity feed read-through'] },
+  'PROJECTS-WORKSPACE-12': { test: 'testv2/projects-workspace-12-urlstate.test.ts', human: ['back/forward and breadcrumb walkthrough'] },
+  'PROJECTS-WORKSPACE-13': { test: 'testv2/projects-workspace-13-semantics.test.ts', human: ['iPad verification', 'accessibility scan', 'manual keyboard pass', 'state screenshots'] },
+  'PROJECTS-WORKSPACE-14': { test: 'testv2/projects-workspace-14-acceptance.test.ts', human: ['DEV/PROD smoke on the canonical fixture'] },
+  'PROJECTS-WORKSPACE-15': { test: null, extra: ['- `node --env-file=.env.local --import tsx scripts/probe-error-capture.ts`'], human: [] },
+  'PROJECTS-WORKSPACE-16': { test: 'testv2/projects-service-projection.test.ts', human: [] },
+  'PROJECTS-WORKSPACE-17': { test: 'testv2/projects-workspace-17-scale.test.ts', human: [] },
+}
+
+const GATE_STORY = {
+  id: 'PROJECTS-WORKSPACE-18',
+  title: 'Human visual, iPad, and accessibility acceptance gate',
+  priority: 'High',
+  batch: 4,
+  goal:
+    'Collect every visual, touch, keyboard and accessibility acceptance item that cannot be machine-verified into one explicit human gate, so no automated run can claim them.',
+  scope:
+    'The approved three-pane reference, iPad/touch behavior, keyboard traversal and screen-reader semantics across the workspace panes, plus the state screenshots.',
+  acceptance_criteria: [
+    'Every item listed as HUMAN GATE on stories 02-14 is walked on the real screen and recorded with a screenshot or a written pass/na note.',
+    'Desktop, medium and small pane behavior is confirmed against the approved reference.',
+    'Practical touch targets (~48px) and focus transfer to drawers are confirmed on iPad.',
+    'Keyboard traversal and screen-reader semantics are confirmed for tree, tabs, table and forms.',
+    'This gate is EXPLICITLY human: no automated run may mark it complete, and Forge must not be asked to verify it.',
+  ].join('\n'),
+  dependencies: 'PROJECTS-WORKSPACE-02, PROJECTS-WORKSPACE-03, PROJECTS-WORKSPACE-04, PROJECTS-WORKSPACE-05, PROJECTS-WORKSPACE-06, PROJECTS-WORKSPACE-13',
+  notes:
+    'BASELINE STATUS: MISSING as a story. Shows up as scattered manual steps inside stories 02/05/13, which Forge cannot execute (this repo has node:test + tsx only; no browser test tooling). ADDED 2026-09-10 to keep machine acceptance and human acceptance honestly separate.',
+  test_mode: 'SCOPED',
+  assay_commands: '- HUMAN GATE — not machine-verifiable by design; see the HUMAN GATE items on stories 02-14.',
+}
+
 const AMENDMENTS = [
   {
     id: 'PROJECTS-WORKSPACE-01',
@@ -177,6 +241,53 @@ async function main() {
     await prod.query(
       `update storyboard_story set ${a.field} = coalesce(${a.field},'') || $2, updated_at = now() where id = $1`,
       [a.id, a.append],
+    )
+  }
+
+  // ---- phase 2: machine-runnable assays + the explicit human gate -----------
+  const prodAll = await prod.query(`select id, assay_commands, notes from storyboard_story where id like $1 order by id`, [STORY_IDS])
+  for (const row of prodAll.rows) {
+    const spec = ASSAY_MAP[row.id]
+    if (!spec) continue
+    const commands = [
+      ...MACHINE_ALWAYS,
+      ...(spec.test ? [`- \`pnpm exec tsx --test ${spec.test}\``] : []),
+      ...(spec.extra ?? []),
+    ].join('\n')
+    const gate = spec.human.length
+      ? `\n\nHUMAN GATE (NOT machine-verifiable — this repo has node:test + tsx only; see PROJECTS-WORKSPACE-18):\n${spec.human.map((h) => `  * ${h}`).join('\n')}`
+      : '\n\nHUMAN GATE: none — fully machine-verifiable.'
+    const notes = String(row.notes ?? '')
+    const marker = 'FORGE MACHINE ASSAY'
+    console.log(`[assay] ${row.id} -> ${spec.test ?? 'commands only'}${spec.human.length ? ' + human gate' : ''}`)
+    if (!APPLY) continue
+    const withoutOldProse = notes.includes(marker) ? notes.split(`\n\nORIGINAL ASSAY PROSE`)[0] : notes
+    const preserved = notes.includes('ORIGINAL ASSAY PROSE')
+      ? ''
+      : `\n\nORIGINAL ASSAY PROSE (advisory, preserved for intent — NOT a machine proof):\n${String(row.assay_commands ?? '').replace(/\n/g, '\n  ')}`
+    await prod.query(
+      `update storyboard_story set assay_commands = $2, notes = $3, updated_at = now() where id = $1`,
+      [row.id, commands, `${withoutOldProse}${preserved}\n\n${marker}:\n${commands}${gate}`],
+    )
+  }
+
+  // ---- add the single human gate story -------------------------------------
+  console.log(`[add] ${GATE_STORY.id} — ${GATE_STORY.title}`)
+  if (APPLY && workstream && surface) {
+    await prod.query(
+      `insert into storyboard_story
+         (id, workstream, title, priority, status, notes, batch, goal, scope, acceptance_criteria,
+          dependencies, operating_surface, test_mode, assay_commands, completion, rollup)
+       values ($1,$2,$3,$4,'Planned',$5,$6,$7,$8,$9,$10,$11,$12,$13,0,false)
+       on conflict (id) do update set
+         title = excluded.title, priority = excluded.priority, batch = excluded.batch, goal = excluded.goal,
+         scope = excluded.scope, acceptance_criteria = excluded.acceptance_criteria,
+         dependencies = excluded.dependencies, notes = excluded.notes,
+         operating_surface = excluded.operating_surface, test_mode = excluded.test_mode,
+         assay_commands = excluded.assay_commands, updated_at = now()`,
+      [GATE_STORY.id, workstream, GATE_STORY.title, GATE_STORY.priority, GATE_STORY.notes, GATE_STORY.batch,
+        GATE_STORY.goal, GATE_STORY.scope, GATE_STORY.acceptance_criteria, GATE_STORY.dependencies,
+        surface, GATE_STORY.test_mode, GATE_STORY.assay_commands],
     )
   }
 
