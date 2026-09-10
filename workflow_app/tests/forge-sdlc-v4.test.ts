@@ -36,13 +36,19 @@ test('active definition is v6, parses/validates, and carries the batch release d
   assert.match(source, /<transition name="deferred" to="complete"\/>/, 'deferred must complete the story')
 
   // v6's addition: a batch story holds the WHOLE release tail at qa_result, so
-  // nothing is published (publishing main IS the production trigger).
-  const qaFail = source.indexOf('condition="qaPassed == false" transition="fail"')
-  const releaseDeferred = source.indexOf('condition="releaseDeferred == true" transition="deferred"')
-  const qaPass = source.indexOf('condition="qaPassed == true" transition="pass"')
+  // nothing is published (publishing main IS the production trigger). Scoped to the
+  // qa_result decision itself — a whole-file search would match other decisions.
+  const qaResultStart = source.indexOf('<decision id="qa_result"')
+  const qaResultEnd = source.indexOf('</decision>', qaResultStart)
+  assert.ok(qaResultStart > 0 && qaResultEnd > qaResultStart, 'qa_result decision must exist')
+  const qaResult = source.slice(qaResultStart, qaResultEnd)
+  const qaFail = qaResult.indexOf('condition="qaPassed == false" transition="fail"')
+  const releaseDeferred = qaResult.indexOf('condition="releaseDeferred == true" transition="deferred"')
+  const qaPass = qaResult.indexOf('condition="qaPassed == true" transition="pass"')
   assert.ok(releaseDeferred > 0, 'qa_result must branch on releaseDeferred')
   assert.ok(qaFail < releaseDeferred, 'a QA failure must still route to repair BEFORE the deferral is considered')
   assert.ok(releaseDeferred < qaPass, 'the deferral must be considered BEFORE the normal release pass')
+  assert.match(qaResult, /<transition name="deferred" to="complete"\/>/, 'the deferred release must complete the story')
   // Architect review park present (reuses hold; no new end state).
   assert.ok(nodes.includes('architect_review'))
   // v4 loader agrees with the active loader.
