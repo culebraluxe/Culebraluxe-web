@@ -26,6 +26,7 @@ export const PORTAL_NAVIGATION: PortalNavGroup[] = [
     label: 'Work',
     items: [
       { label: 'Dashboard', href: '/portal/dashboard', authority: 'portal.read' },
+      { label: 'Projects', href: '/portal/projects', authority: 'portal.read' },
       { label: 'Attention', href: '/portal/attention', authority: 'portal.read' },
       { label: 'Needs Review', href: '/portal/needs-review', authority: 'portal.read' },
       { label: 'Activity', href: '/portal/activity', authority: 'portal.read' },
