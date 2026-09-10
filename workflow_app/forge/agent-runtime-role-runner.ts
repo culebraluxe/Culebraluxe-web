@@ -218,7 +218,9 @@ export function createAgentRuntimeForgeRoleRunner(
     // candidate SHA (compute it before the model runs, so a bad join costs no tokens).
     if (nodeId === 'lead_post' && acceptedRouting?.decision === 'SPLIT') {
       const expectedIds = acceptedRouting.assignments.map((a) => a.id)
-      const { outcomes, unrecorded } = await listSplitChildOutcomes(resolvedStory.id)
+      const { outcomes, unrecorded } = await listSplitChildOutcomes(resolvedStory.id, {
+        groupId: task.processInstanceId,
+      })
       const holdReasons = splitJoinHoldReasons({ expectedIds, outcomes, unrecordedCandidates: unrecorded })
       if (holdReasons.length > 0) {
         throw new Error(`Forge ${nodeId} HOLD: SPLIT join not satisfied — ${holdReasons.join('; ')}`)

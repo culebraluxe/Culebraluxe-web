@@ -67,23 +67,37 @@ export async function recordSplitChildCandidate(
 /**
  * Terminal outcomes for a story's split children, as the join reducer's input.
  *
+ * MUST be scoped to ONE fan-out: a story accumulates child rows across runs (and
+ * template/rehearsal rows), and the join must never reduce a sibling from a
+ * different attempt. `groupId` is the run's parallel group (the process instance).
+ *
  * Only TERMINAL children are returned: a child still Ready/Claimed/Running is
  * deliberately absent so `reduceSplit` reports it as MISSING — "not finished" is
  * not "finished with no evidence".
  */
 export async function listSplitChildOutcomes(
   storyId: string,
+  options: { groupId?: string | null } = {},
   execute?: QueryExecutor,
 ): Promise<{ outcomes: SplitOutcome[]; unrecorded: string[] }> {
   const q = execute ?? (await executor())
-  const rows = await q`
-    select split_assignment, parallel_slot, state, attempts, candidate_shas
-    from agent_work_item
-    where story_id = ${storyId}
-      and split_assignment is not null
-    order by parallel_slot nulls last, created_at
-  `
-  const outcomes: SplitOutcome[] = []
+  const rows = options.groupId
+    ? await q`
+        select split_assignment, parallel_slot, state, attempts, candidate_shas
+        from agent_work_item
+        where story_id = ${storyId}
+          and split_assignment is not null
+          and parallel_group_id = ${options.groupId}
+        order by parallel_slot nulls last, created_at
+      `
+    : await q`
+        select split_assignment, parallel_slot, state, attempts, candidate_shas
+        from agent_work_item
+        where story_id = ${storyId}
+          and split_assignment is not null
+        order by parallel_slot nulls last, created_at
+      `
+  const byChild = new Map<string, SplitOutcome>()
   const unrecorded: string[] = []
   for (const row of rows as Array<{
     split_assignment: string
@@ -94,27 +108,27 @@ export async function listSplitChildOutcomes(
   }>) {
     const childId = String(row.split_assignment)
     const shas = (row.candidate_shas ?? []).map((s) => String(s))
-    const common = {
+    const status: SplitOutcome['status'] | null =
+      row.state === 'Done'
+        ? 'completed'
+        : row.state === 'Failed'
+          ? 'failed'
+          : row.state === 'Cancelled' || row.state === 'Paused'
+            ? 'cancelled'
+            : null
+    // Non-terminal (Ready/Claimed/Running): omitted on purpose so the reducer
+    // reports it as MISSING — "not finished" is not "finished with no evidence".
+    if (status === null) continue
+    const outcome: SplitOutcome = {
       childId,
+      status,
       attempt: Math.max(1, Number(row.attempts ?? 1)),
       candidateSha: shas.length ? shas[shas.length - 1] : null,
     }
-    switch (row.state) {
-      case 'Done':
-        if (!common.candidateSha) unrecorded.push(childId)
-        outcomes.push({ ...common, status: 'completed' })
-        break
-      case 'Failed':
-        outcomes.push({ ...common, status: 'failed' })
-        break
-      case 'Cancelled':
-      case 'Paused':
-        outcomes.push({ ...common, status: 'cancelled' })
-        break
-      default:
-        // Non-terminal: omitted on purpose (reduceSplit reports it as missing).
-        break
-    }
+    if (status === 'completed' && !outcome.candidateSha) unrecorded.push(childId)
+    // One child row per slot per group, but keep the most advanced attempt.
+    const existing = byChild.get(childId)
+    if (!existing || outcome.attempt >= existing.attempt) byChild.set(childId, outcome)
   }
-  return { outcomes, unrecorded }
+  return { outcomes: [...byChild.values()], unrecorded }
 }
