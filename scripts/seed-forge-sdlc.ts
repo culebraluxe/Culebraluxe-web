@@ -9,10 +9,10 @@
 // FORGE_SDLC v4 row only (prior immutable v1/v2/v3 rows are never touched).
 //
 // Usage:
-//   node --env-file=.env.local scripts/seed-forge-sdlc.ts [dev|prod]
+//   node --env-file=.env.local --import tsx scripts/seed-forge-sdlc.ts [dev|prod]
 // -----------------------------------------------------------------------------
 import { Pool } from '@neondatabase/serverless'
-import { parseForgeSdlcV4 } from '../workflow_app/definitions/forge-sdlc'
+import { parseForgeSdlc, FORGE_SDLC_VERSION } from '../workflow_app/definitions/forge-sdlc'
 
 const which = (process.argv[2] ?? (process.env.APP_ENV === 'production' ? 'prod' : 'dev')).toLowerCase()
 if (which !== 'prod' && which !== 'dev') {
@@ -25,27 +25,30 @@ if (!url) {
   process.exit(2)
 }
 
-const graph = parseForgeSdlcV4().graph
+const graph = parseForgeSdlc().graph
+const version = FORGE_SDLC_VERSION
 
 async function main() {
   const pool = new Pool({ connectionString: url })
   try {
-    // Idempotent for v4 only. (null tenant + unique(tenant_id,key,version) treats
-    // NULLs as distinct in Postgres, so clear any prior v4 row before inserting.)
-    await pool.query(`delete from process_definitions where key = 'FORGE_SDLC' and version = 4`)
+    // Idempotent for the ACTIVE version only (FORGE_SDLC_VERSION is the single source
+    // of truth, so this script can never seed a version the engine will not start).
+    // (null tenant + unique(tenant_id,key,version) treats NULLs as distinct in
+    // Postgres, so clear any prior row for this version before inserting.)
+    await pool.query(`delete from process_definitions where key = 'FORGE_SDLC' and version = $1`, [version])
     await pool.query(
       `insert into process_definitions (key, version, name, description, definition, status, created_by)
        values ($1, $2, $3, $4, $5::jsonb, 'active', 'forge-seed')
        on conflict (tenant_id, key, version) do nothing`,
       [
         'FORGE_SDLC',
-        4,
+        version,
         'Forge Software Delivery Lifecycle',
-        'End-state Forge orchestration workflow (FAST lane + Architect review park).',
+        'End-state Forge orchestration workflow (batch-sliced rollout deferral).',
         JSON.stringify(graph),
       ],
     )
-    console.log(`seeded FORGE_SDLC v4 -> ${which} control plane (${Object.keys(graph.nodes).length} nodes)`)
+    console.log(`seeded FORGE_SDLC v${version} -> ${which} control plane (${Object.keys(graph.nodes).length} nodes)`)
   } finally {
     await pool.end()
   }

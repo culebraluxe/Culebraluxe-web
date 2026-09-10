@@ -118,6 +118,13 @@ export type ForgeGateEvidence = {
   /** deploy */
   deploymentRequired?: boolean
   deploymentSucceeded?: boolean
+  /**
+   * BATCH-SLICED ROLLOUT (definition v5): true when this story completed with its
+   * deployment DEFERRED to a release batch. The engine's deployment_result decision
+   * routes a deferred story to completion instead of classifying it as a deployment
+   * failure — a deferral is an accepted outcome, not a fake success.
+   */
+  deploymentDeferred?: boolean
   deploymentReceipt?: string | null
   /** production_result */
   productionVerified?: boolean
@@ -271,6 +278,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     derivedRefreshSucceeded: evidence.derivedRefreshSucceeded,
     derivedRefreshVerified: evidence.derivedRefreshVerified,
     deploymentRequired: evidence.deploymentRequired,
+    deploymentDeferred: evidence.deploymentDeferredToBatch != null,
     deploymentSucceeded:
       evidence.deploymentSucceeded === true && forgeLineageError(evidence, 'deploy') === null,
     productionVerified:
