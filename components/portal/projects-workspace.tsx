@@ -732,7 +732,7 @@ function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
             </p>
           ) : null}
 
-          {summary ? <p className="mt-3 text-[16px] font-light leading-relaxed text-[var(--portal-navy)]">{summary}</p> : null}
+          {summary ? <p className={`mt-3 ${PROJECTS_LONG_CONTENT.prose.classes} text-[16px] font-light leading-relaxed text-[var(--portal-navy)]`}>{summary}</p> : null}
 
           <div className="mt-3 space-y-2 border-y border-[var(--portal-panel-border)] py-3">
             <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
