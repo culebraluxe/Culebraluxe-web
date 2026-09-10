@@ -130,16 +130,64 @@ export function parseForgeFindings(raw: unknown): ArchitectFinding[] {
   return findings
 }
 
-/** Read Architect findings from the evidence marker in notes/testsSummary text. */
+/**
+ * Read Architect findings from the evidence marker in notes/testsSummary text.
+ *
+ * The marker is emitted by a MODEL, so the payload arrives in whatever shape the
+ * model chose: inline, after a newline, inside a ```json fence, or spread over many
+ * lines. An earlier implementation required `FORGE_FINDINGS_JSON:` to be followed
+ * immediately by `[...]` and to end at a line end, so a fenced or multiline payload
+ * silently produced ZERO findings — which starves the Lead's routing context (the
+ * validator then refuses every non-HOLD proposal: "No required findings supplied")
+ * and blocks the story at the human gate. Observed live 2026-09-10.
+ *
+ * Now: locate the marker, skip whitespace/fence, then scan for the matching close
+ * bracket (string-aware) and parse exactly that slice.
+ */
 export function findingsFromArchitectEvidence(text: string | null | undefined): ArchitectFinding[] {
   if (!text) return []
-  const match = text.match(/FORGE_FINDINGS_JSON:\s*(\[[\s\S]*\])\s*$/m)
-  if (!match) return []
-  try {
-    return parseForgeFindings(JSON.parse(match[1]))
-  } catch {
-    return []
+  // Try every occurrence, LAST first: the model's real emission is at the end, and
+  // an echoed instruction line must not shadow it. The first payload that parses wins.
+  const positions: number[] = []
+  for (let at = text.indexOf(STRUCTURED_PREFIX); at >= 0; at = text.indexOf(STRUCTURED_PREFIX, at + 1)) {
+    positions.push(at)
   }
+  for (let i = positions.length - 1; i >= 0; i--) {
+    const slice = extractJsonArray(text.slice(positions[i] + STRUCTURED_PREFIX.length))
+    if (!slice) continue
+    try {
+      const parsed = parseForgeFindings(JSON.parse(slice))
+      if (parsed.length > 0) return parsed
+    } catch {
+      /* try an earlier occurrence */
+    }
+  }
+  return []
+}
+
+/** First balanced `[...]` in `text`, string-aware. Null when there is no array. */
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf('[')
+  if (start < 0) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '[') depth++
+    else if (ch === ']') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
 }
 
 export function findingsMarker(findings: ArchitectFinding[]): string {
