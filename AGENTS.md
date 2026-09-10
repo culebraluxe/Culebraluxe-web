@@ -101,7 +101,7 @@ See `docs/STARTUP-DELIVERY-OPERATING-RULES.md` for the durable operating contrac
 **DEV_OPS database playbook:** `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` is the operating contract for database work (environment topology, promotion order, the Neon-branch rule for refreshing DEV, hard-won rules). Two gates from it:
 
 - **"Pull PROD down to DEV" means reset the DEV Neon branch from PROD** — instant and byte-exact. The table-by-table `scripts/pull-prod-to-dev.mjs` is the selective/partial fallback, not the normal path.
-- **`pnpm db:parity` is a release gate.** A branch reset *hides* drift rather than fixing it, so parity must be checked independently. (2026-09-10: DEV and PROD had silently diverged in both directions for weeks — PROD never received 116–122/138, DEV never received the Forge dispatch columns that existed in no migration, and migration 118's rename was only half-reflected in code. `db:parity` is currently the only guard, since there is no migration ledger.)
+- **`pnpm db:parity` and `pnpm db:migrations` are release gates.** A branch reset *hides* drift rather than fixing it, so parity must be checked independently. (2026-09-10: DEV and PROD had silently diverged in both directions for weeks — PROD never received 116–122/138, DEV never received the Forge dispatch columns that existed in no migration, and migration 118's rename was only half-reflected in code.) The `schema_migration` ledger (migration 144) now records every apply with a checksum, so "what was run where" is answerable; pre-baseline history is reported as unrecorded rather than claimed.
 
 ## Repository Boundary Type Normalization
 

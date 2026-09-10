@@ -63,6 +63,8 @@
     "mq:worker:prod": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "workflow": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/workflow-cli.ts",
     "db:parity": "node --env-file=.env.local scripts/check-schema-parity.mjs",
+    "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
+    "db:migrations": "node --env-file=.env.local scripts/migration-status.mjs",
     "db:pull:dev": "node --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
     "db:seed:projects": "node --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev"

@@ -94,8 +94,21 @@ Exits non-zero on drift. Treat it as a release gate for any schema story.
    migration (as `agent_work_item.lane/player_id/parallel_*` did), write a
    migration capturing them and apply it to DEV. Silent drift is the enemy.
 
-There is **no migration ledger** — `apply-migration.mjs` executes a file and
-records nothing. `db:parity` is the only guard until a ledger exists.
+A **migration ledger now exists** (`schema_migration`, migration 144), written
+automatically by `scripts/apply-migration.mjs`. Each apply records filename,
+sha256 checksum, target and timestamp; re-applying a recorded file is *skipped*
+(and refused outright if the file's checksum changed since it was applied).
+
+The ledger is authoritative **from the 2026-09-10 baseline forward** — pre-baseline
+history is honestly reported as "unrecorded" rather than claimed:
+
+```sh
+pnpm db:migrations     # what is recorded, where, and what is unrecorded/one-sided
+pnpm db:parity         # structural truth across tables, columns, indexes, FKs
+```
+
+`db:parity` remains the only check that can *detect* drift; the ledger tells you
+what was *run*. Both are release gates.
 
 ## 4. Hard-won rules
 
