@@ -139,7 +139,23 @@ what was *run*. Both are release gates.
 - **Never** reset PROD, copy DEV over PROD, or truncate canonical history.
   DEV data may be rebuilt freely; PROD data may not.
 
-## 5. DEV_OPS checklist
+## 5. The DEV_OPS gate in Forge
+
+The discipline is now enforced mechanically, not by memory:
+
+- `workflow_app/forge/release-operations.ts` → `applyMigrations` records every
+  applied migration in the durable `schema_migration` ledger (story-scoped rows in
+  `forge_migration_execution` were never enough — that is exactly how drift hid).
+- `verifyMigrations` fails closed unless (a) each migration has a checksum-matched
+  execution, (b) it is present in the `schema_migration` ledger, and (c) **DEV and
+  PROD have zero parity drift** across tables, columns, indexes and FKs.
+- The comparison is one shared implementation: pure logic in `lib/schema-parity.ts`,
+  DB reader in `workflow_app/forge/schema-parity.ts` (the Forge workspace is outside
+  the ARCH scan that forbids the Neon driver in `db|lib|app`).
+
+So a schema-touching story cannot reach `complete` while the environments differ.
+
+## 6. DEV_OPS checklist
 
 Before a wide data change:
 - [ ] Snapshot the target (`/tmp/...`, outside the repo — data is not committed)

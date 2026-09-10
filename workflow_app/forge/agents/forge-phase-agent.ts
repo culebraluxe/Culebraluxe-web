@@ -127,7 +127,7 @@ export class ForgePhaseAgent {
 
   /**
    * Parse FORGE_FINDINGS_JSON from raw role output into evidence.findings.
-   * Shared by Scout (repo research) and Architect (plan findings) — the 
+   * Shared by Scout (repo research) and Architect (plan findings) — the
    * generalization of the isScoutNode/isArchitectNode branches.
    */
   marshalFindings(evidence: ForgeGateEvidence, raw: string): ForgeGateEvidence {

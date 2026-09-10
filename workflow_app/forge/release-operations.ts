@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { basename, relative, resolve, sep } from 'node:path'
 import { Pool } from '@neondatabase/serverless'
+import { checkSchemaParity } from './schema-parity'
 
 export type ForgeReleaseTarget = 'dev' | 'prod'
 export type ForgeOperationResult = { success: boolean; detail: string }
@@ -71,6 +72,7 @@ async function migrationContents(repoRoot: string, files: string[]) {
       const sql = await readFile(path, 'utf8')
       return {
         file: basename(path),
+        inputFile: file,
         sql,
         sha256: createHash('sha256').update(sql, 'utf8').digest('hex'),
       }
@@ -104,6 +106,23 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
               ],
             )
             completed.push(migration.file)
+            // Durable ledger (migration 144): the canonical record of what was
+            // applied where, independent of this story's execution history.
+            try {
+              await pool.query(
+                `insert into schema_migration (filename, checksum, target, note)
+                 values ($1, $2, $3, $4)
+                 on conflict (filename, target)
+                 do update set checksum = excluded.checksum, applied_at = now(), note = excluded.note`,
+                [migration.inputFile, `sha256:${migration.sha256}`, input.target, `forge story ${input.storyId}`],
+              )
+            } catch (ledgerError) {
+              const detail = String((ledgerError as Error)?.message ?? ledgerError)
+              return {
+                success: false,
+                detail: `${migration.file} applied but could not be recorded in the schema_migration ledger (apply db/migrations/144_schema_migration_ledger.sql): ${detail}`,
+              }
+            }
           } catch (error) {
             const detail = String((error as Error)?.message ?? error)
             await pool
@@ -148,11 +167,51 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
               detail: `${migration.file} has no successful checksum-matched execution on ${input.target}`,
             }
           }
+
+          // Durable ledger: a story-scoped execution row is not enough — the
+          // canonical record must exist too, or "what is applied where" is
+          // unanswerable again (the 2026-09-10 drift).
+          const ledger = await pool.query(
+            `select 1 from schema_migration where filename = $1 and target = $2 and checksum = $3`,
+            [migration.inputFile, input.target, `sha256:${migration.sha256}`],
+          )
+          if (ledger.rowCount !== 1) {
+            return {
+              success: false,
+              detail: `${migration.file} is not recorded in the schema_migration ledger for ${input.target} (apply db/migrations/144_schema_migration_ledger.sql, or re-run the migration command so it is recorded)`,
+            }
+          }
         }
         await pool.query('select 1')
+
+        // DEV_OPS gate: no schema story reaches complete while DEV and PROD
+        // structurally differ. A branch reset hides drift, so it is checked here
+        // independently, on tables, columns, indexes and FKs.
+        const devUrl = process.env.DATABASE_URL_DEV
+        const prodUrl = process.env.DATABASE_URL_PROD
+        if (!devUrl || !prodUrl) {
+          return {
+            success: false,
+            detail: 'DEV_OPS gate requires DATABASE_URL_DEV and DATABASE_URL_PROD to verify schema parity',
+          }
+        }
+        const parity = await checkSchemaParity(devUrl, prodUrl)
+        if (!parity.clean) {
+          const lines = [
+            ...parity.tablesOnlyDev.map((t) => `table only in DEV: ${t}`),
+            ...parity.tablesOnlyProd.map((t) => `table only in PROD: ${t}`),
+            ...parity.columnDrift,
+            ...parity.indexDrift.map((d) => `index ${d}`),
+            ...parity.fkDrift.map((d) => `fk ${d}`),
+          ]
+          return {
+            success: false,
+            detail: `schema parity FAILED between DEV and PROD (${lines.length} difference(s)): ${lines.slice(0, 8).join('; ')}${lines.length > 8 ? `; +${lines.length - 8} more` : ''}`,
+          }
+        }
         return {
           success: true,
-          detail: `verified ${migrations.length} checksum-matched migration execution(s) on ${input.target}`,
+          detail: `verified ${migrations.length} checksum-matched migration execution(s) on ${input.target}; ledger recorded; DEV/PROD schema parity OK`,
         }
       } finally {
         await pool.end()
