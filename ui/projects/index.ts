@@ -1,5 +1,18 @@
 export { ProjectsWorkspaceController } from "./projects-controller"
 export {
+  PROJECTS_PANE_ORDER,
+  PROJECTS_GEOMETRY,
+  PROJECTS_GRID_TEMPLATE,
+  PROJECTS_SURFACE,
+  PROJECTS_PRIMITIVES,
+  PROJECTS_LONG_CONTENT,
+  PROJECTS_SCROLL_CLASS,
+  type ProjectsPaneRole,
+  type ProjectsSurfaceFamily,
+  type ProjectsPrimitiveSurface,
+  type ProjectsLongContentPolicy,
+} from "./visual-system"
+export {
   InMemoryProjectsWorkspaceSource,
   PROJECTS_WORKSPACE_FIXTURE,
   type ProjectsWorkspaceSource,

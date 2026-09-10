@@ -588,6 +588,52 @@
   white-space: nowrap;
 }
 
+/* Stable shell-chrome height. The OperatingShell owns this token so any
+   viewport-bounded work surface (the Projects three-pane grid) can size itself
+   against the chrome without hardcoding a magic calc(100dvh - 10.5rem). */
+.portal-shell-main {
+  --portal-shell-chrome-height: 10.5rem;
+}
+
+/* PROJECTS-WORKSPACE-02 — three-pane geometry + visual system.
+   The frozen contract lives in ui/projects/visual-system.ts; these classes are
+   its CSS realization. Colors reference existing --portal-* tokens only
+   (navy / ivory / gold) — no new raw hex. */
+.projects-workspace-grid {
+  min-height: 0;
+}
+
+@media (min-width: 1024px) {
+  .projects-workspace-grid {
+    height: calc(100dvh - var(--portal-shell-chrome-height, 10.5rem));
+    grid-template-columns: minmax(350px, 375px) minmax(0, 1fr) minmax(295px, 315px);
+  }
+}
+
+.projects-pane {
+  min-height: 0;
+}
+
+.projects-pane.projects-pane-navigator {
+  background-color: color-mix(in srgb, var(--portal-navy) 90%, transparent);
+  color: var(--portal-on-navy);
+}
+
+.projects-pane.projects-pane-canvas {
+  background-color: var(--portal-panel-bg);
+  color: var(--portal-text);
+}
+
+.projects-pane.projects-pane-inspector {
+  background-color: color-mix(in srgb, var(--portal-ivory) 94%, transparent);
+  color: var(--portal-text);
+}
+
+.projects-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .portal-glass-nav {
     background: #d7e2eb;

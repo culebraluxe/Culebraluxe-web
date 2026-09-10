@@ -166,7 +166,7 @@ export function OperatingShell({
         </div>
       </header>
 
-      <main className="px-3 py-4 sm:px-6 lg:px-10 lg:py-5">{children}</main>
+      <main className="portal-shell-main px-3 py-4 sm:px-6 lg:px-10 lg:py-5">{children}</main>
       <CommandPalette clients={clients} deals={deals} />
     </div>
   )

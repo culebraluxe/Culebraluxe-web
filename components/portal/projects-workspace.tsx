@@ -38,6 +38,11 @@ import type {
 } from "@/ui/projects"
 import {
   InMemoryProjectsWorkspaceSource,
+  PROJECTS_GEOMETRY,
+  PROJECTS_LONG_CONTENT,
+  PROJECTS_PRIMITIVES,
+  PROJECTS_SCROLL_CLASS,
+  PROJECTS_SURFACE,
   ProjectsWorkspaceController,
 } from "@/ui/projects"
 import { usePageController } from "@/ui/runtime"
@@ -361,10 +366,7 @@ function PaneOne(props: PaneOneProps) {
     [props],
   )
   return (
-    <section
-      className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
-      style={{ backgroundColor: "color-mix(in srgb, var(--portal-navy) 90%, transparent)" }}
-    >
+    <section className={PROJECTS_SURFACE.navigator.className}>
       <div className="flex min-h-0 flex-1">
         <DomainRail domains={props.domains} active={props.activeDomain} onSelect={props.onSelectDomain} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -426,11 +428,11 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
       <button
         type="button"
         onClick={() => onSelectNode(selected ? null : node.id)}
-        className={`flex w-full items-center gap-2.5 rounded-[var(--portal-tab-radius)] px-2 py-2 text-left transition ${selected ? "bg-[var(--portal-navy)]/[0.04] ring-1 ring-inset ring-[var(--portal-navy)]/10" : "hover:bg-white/40"}`}
+        className={PROJECTS_PRIMITIVES.row({ selected })}
       >
         <StatusIcon status={node.status} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13.5px] text-[var(--portal-navy)]">{node.title}</span>
+          <span className={`block ${PROJECTS_LONG_CONTENT.label.classes} text-[13.5px] text-[var(--portal-navy)]`}>{node.title}</span>
           <span className="block truncate text-[10px] font-light text-black/40">{node.type}</span>
         </span>
         <span className="text-right">
@@ -451,7 +453,7 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
 
 function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 px-1.5 py-1">
+    <div className={`flex-1 ${PROJECTS_SCROLL_CLASS} rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 px-1.5 py-1`}>
       <div className="grid grid-cols-[22px_minmax(0,1fr)_72px_88px] gap-2 border-b border-[var(--portal-panel-border)]/70 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40"><span /><span>Work item</span><span className="text-right">Due</span><span className="text-right">Owner</span></div>
       <ul className="space-y-0.5">
         {project.workNodes.map((node) => (
@@ -624,7 +626,7 @@ type PaneTwoProps = {
 /** Pane 2 — the dominant working surface. */
 function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSelectNode, onStatusChange, statusPending }: PaneTwoProps) {
   return (
-    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section className={PROJECTS_SURFACE.canvas.className}>
       {!pole || !project ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-light text-black/45">
           Choose a Pole and Project from the navigator.
@@ -703,7 +705,7 @@ function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
   }, [node])
   if (!node) {
     return (
-      <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+      <section className={PROJECTS_SURFACE.inspector.className}>
         <PaneThreeHead />
         <div className="flex flex-1 items-center justify-center px-6 text-center text-[16px] font-light text-black/45">
           Select a work item to inspect it.
@@ -714,10 +716,10 @@ function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
   const related = node.inspector?.relatedItems ?? []
   const summary = node.inspector?.summary ?? node.note
   return (
-    <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
+    <section className={PROJECTS_SURFACE.inspector.className}>
       <PaneThreeHead />
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className={`flex-1 ${PROJECTS_SCROLL_CLASS} px-4 py-3`}>
           <p className="text-[15px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{node.type}</p>
           <h3 className="mt-1 font-serif text-[22px] font-light leading-tight text-[var(--portal-navy)]">{node.title}</h3>
           <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/50 px-3 py-1 text-[15px] font-medium text-[var(--portal-navy-soft)]">
@@ -749,7 +751,7 @@ function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
             </label>
             <label className="block text-[13px] font-light text-black/45">
               Notes
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-1 w-full resize-y rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-[13px] text-[var(--portal-navy)]" />
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className={`mt-1 resize-y ${PROJECTS_PRIMITIVES.input()}`} />
             </label>
             {saveError ? <p className="text-[12px] text-[var(--portal-archive)]">{saveError}</p> : null}
             <button type="button" disabled={saving} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: status === "complete" ? "done" : status === "dismissed" ? "dismissed" : status === "in-progress" ? "doing" : "open", dueAt: dueAt ? new Date(`${dueAt}T12:00:00`).toISOString() : null, owner: owner.trim() || null, notes }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="rounded-lg bg-[var(--portal-navy)] px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50">
@@ -938,7 +940,7 @@ export function ProjectsWorkspace({
           New Project
         </button>
       </div>
-      <div className="grid min-h-0 flex-1 gap-3 lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[minmax(350px,375px)_minmax(0,1fr)_minmax(295px,315px)]">
+      <div className={PROJECTS_GEOMETRY.gridClassName}>
       <PaneOne
         domains={domains}
         activeDomain={model.activeDomain}
@@ -978,7 +980,7 @@ export function ProjectsWorkspace({
               onChange={(event) => setNewProjectName(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter") createProject() }}
               placeholder="e.g. Sunset Point Listing"
-              className="mt-1.5 h-10 w-full rounded-lg border border-[var(--portal-panel-border)] bg-white px-3 text-[14px] font-light outline-none focus:border-[var(--portal-gold)]"
+              className={`mt-1.5 h-10 ${PROJECTS_PRIMITIVES.input()}`}
             />
           </label>
           {newProjectError ? <p className="mt-2 text-[12px] text-[var(--portal-archive)]">{newProjectError}</p> : null}
