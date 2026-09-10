@@ -179,16 +179,17 @@ export type LeadHandoffGate = {
 }
 
 /**
- * The RUNNER's decision, as a pure function: may this node hand off to Smith?
+ * LEGACY — retired from the hot path 2026-09-10. See `forge-lead-routing.ts`.
  *
- * This is the call the role runner makes on the `lead_pre` node. Keeping it pure
- * means the running path's hold decision is asserted by tests directly instead of
- * being re-derived from reading the runner — the review's ask: "a Lead that
- * routes SMITH with no parseable LEAD_PLAN must not start a Smith adapter."
+ * It WAS the RUNNER's decision as a pure function: "may this node hand off to Smith?"
+ * — the review's ask, "a Lead that routes SMITH with no parseable LEAD_PLAN must not
+ * start a Smith adapter." Astra LEAD routing replaced it: `reviewLeadProposal` now
+ * validates each assignment's plan (chunk ceiling, surfaces, proofs drawn from the
+ * frozen acceptance) before Smith can start, so **no production caller remains**.
+ * Retained for tests/history — do not re-wire without re-declaring the contract.
  *
- * Scoping matters: the gate applies ONLY at the Lead handoff. It is not applied
- * on a `smith` node (Smith has already run there, so holding would be the
- * after-the-fact behaviour we are eliminating).
+ * Scoping (historical): the gate applied ONLY at the Lead handoff, never on a
+ * `smith` node (Smith has already run there).
  */
 /** @deprecated Retired from the hot path 2026-09-10 — see forge-lead-routing.ts. */
 export function assessLeadHandoff(

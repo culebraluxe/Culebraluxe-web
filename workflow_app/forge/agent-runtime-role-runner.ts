@@ -416,13 +416,17 @@ export function createAgentRuntimeForgeRoleRunner(
           }
         }
       }
-      // Pre-Smith handoff gate (LEAD_PLAN contract): a successful Lead that
-      // decided to dispatch to Smith (SMITH/SPLIT) MUST have emitted an
-      // assessable LEAD_PLAN the KRAKEN gate accepts — otherwise it HOLDS and
-      // never hands off, so the engine never starts a Smith lane. Absent plan
-      // (NO_PLAN) IS gated (authoritative pre-Smith fuse). The gate decision is
-      // persisted durably on the story run so audits and future gates read it
-      // without parsing thrown errors.
+      // Durable observability of the PRE routing verdict (NOT a second gate).
+      //
+      // HISTORY (do not be misled by older revisions of this comment): a
+      // "Pre-Smith handoff gate (LEAD_PLAN contract)" once lived here and HOLDS'd
+      // any SMITH/SPLIT route without an assessable LEAD_PLAN. That fuse was
+      // RETIRED when Astra LEAD routing landed: the pre-Smith brake is now
+      // `reviewLeadProposal`'s structural gate (forge-lead-routing.ts), which
+      // validates each assignment's plan (chunk ceiling, surfaces, proofs drawn
+      // from the frozen acceptance) before Smith can start. `assessLeadHandoff`
+      // in forge-lead-plan.ts therefore has NO production caller. The block below
+      // only records the verdict; it no longer gates the handoff.
       if (nodeId === 'lead_pre') {
         // The routing decision itself is owned by reviewLeadProposal above; this is
         // durable observability of its verdict, not a second gate.
