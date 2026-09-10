@@ -16,6 +16,7 @@
 //   maxSmiths: 1         — the executor runs splitConcurrency 1.
 // ---------------------------------------------------------------------------
 import { parseAssayCommands } from '../../agent-runtime/assay-plan'
+import { proposalValidShape } from './forge-lead-routing'
 import { DEFAULT_FORGE_TEAM } from '../../agent-runtime/team'
 import { parseLeadRouting, reviewLeadProposal, type LeadProposal, type RoutingContext } from './forge-lead-routing'
 import type { ForgeGateEvidence } from './forge-facts'
@@ -118,6 +119,26 @@ function workerSummary(): { lead: string; smith: string } {
     lead: `${lead.profile} via ${lead.harnessId} (position ${lead.position})`,
     smith: `${smith.profile} via ${smith.harnessId}${upgrade}`,
   }
+}
+
+/**
+ * The accepted routing decision for this story.
+ *
+ * The DURABLE accepted proposal wins: it was validated once, at acceptance, and it
+ * is a business fact from that moment on. Re-deriving it from run notes and
+ * re-validating against the live context is a LEGACY FALLBACK only — the context
+ * mutates while a story runs (findings are story-global and are rewritten as roles
+ * report), which on 2026-09-10 left a live fan-out unable to recover its own
+ * accepted decision (`no accepted Lead assignment for split branch 0`).
+ */
+export function acceptedLeadRouting(input: {
+  /** Durable accepted proposal (forge_workflow_evidence.lead_routing). */
+  durable?: unknown
+  runs?: Array<{ runType?: string | null; notes?: string | null }> | null
+  context: RoutingContext
+}): LeadProposal | null {
+  if (proposalValidShape(input.durable)) return input.durable
+  return findLatestAcceptedLeadRouting(input.runs, input.context)
 }
 
 /**

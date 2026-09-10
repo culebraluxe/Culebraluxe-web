@@ -36,6 +36,14 @@ export type ForgeGateEvidence = {
   /** execution_shape */
   leadDecision?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
   splitCount?: number
+  /**
+   * ENG-FORGE-SPLIT-01 — the ACCEPTED Lead routing proposal (validated once at
+   * acceptance) persisted as a durable fact. Work orders, split-child assignment
+   * and the join gate read THIS; they must never re-derive it from run notes and
+   * re-validate against a context that other roles are still mutating.
+   * Typed loosely here to keep the facts projector free of a routing import cycle.
+   */
+  leadRouting?: unknown
   /** ENG-FORGE-SHAPE-01 — durable Architect findings snapshot (Lead shaping gate). */
   findings?: ArchitectFinding[]
   /** qa_policy */

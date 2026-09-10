@@ -50,6 +50,7 @@ import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import { renderSplitAssignmentWorkOrders, splitChildAssignment } from './forge-split-handoff'
 import {
+  acceptedLeadRouting,
   buildLeadRoutingContext,
   findLatestAcceptedLeadRouting,
   type LeadRoutingCapabilities,
@@ -198,10 +199,11 @@ export function createAgentRuntimeForgeRoleRunner(
     // tied to an accepted assignment HOLDS before launch: handing it the general
     // decomposition directive would let it invent its own scope (that is how a
     // branch gets mangled and a candidate ends up from the wrong workspace).
-    const acceptedRouting = findLatestAcceptedLeadRouting(
-      await runs.listForStory(resolvedStory.id),
-      leadRoutingContext,
-    )
+    const acceptedRouting = acceptedLeadRouting({
+      durable: current.leadRouting,
+      runs: await runs.listForStory(resolvedStory.id),
+      context: leadRoutingContext,
+    })
     const splitChildContract =
       nodeId === 'smith_split_work'
         ? splitChildAssignment({ proposal: acceptedRouting, formData: task.formData })

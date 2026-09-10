@@ -76,6 +76,7 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     architectureReviewRequired: value(row, 'architecture_review_required'),
     leadDecision: value(row, 'lead_decision'),
     splitCount: value(row, 'split_count'),
+    leadRouting: value(row, 'lead_routing'),
     findings: findingsArray(row, 'findings'),
     qaReviewRequired: value(row, 'qa_review_required'),
     qaReviewPassed: value(row, 'qa_review_passed'),
@@ -119,7 +120,7 @@ export async function mergeForgeWorkflowEvidence(
     insert into forge_workflow_evidence (
       process_instance_id, story_id, work_type, research_disposition,
       scout_required, root_cause_known, diagnosis_blocked, architecture_suspect, architecture_review_required,
-      lead_decision, split_count, qa_review_required, qa_review_passed, qa_passed,
+      lead_decision, split_count, lead_routing, qa_review_required, qa_review_passed, qa_passed,
       failure_class, failed_release_stage, publish_succeeded, migration_required,
       migration_files, dev_migration_applied, dev_migration_verified,
       prod_migration_applied, prod_migration_verified, derived_refresh_required,
@@ -132,7 +133,7 @@ export async function mergeForgeWorkflowEvidence(
       ${evidence.researchDisposition ?? null}, ${evidence.scoutRequired ?? null},
       ${evidence.rootCauseKnown ?? null}, ${evidence.diagnosisBlocked ?? null},
       ${evidence.architectureSuspect ?? null}, ${evidence.architectureReviewRequired ?? null}, ${evidence.leadDecision ?? null},
-      ${evidence.leadDecision === 'SPLIT' ? evidence.splitCount ?? null : null}, ${evidence.qaReviewRequired ?? null},
+      ${evidence.leadDecision === 'SPLIT' ? evidence.splitCount ?? null : null}, ${evidence.leadRouting ? JSON.stringify(evidence.leadRouting) : null}, ${evidence.qaReviewRequired ?? null},
       ${evidence.qaReviewPassed ?? null}, ${evidence.qaPassed ?? null},
       ${evidence.failureClass ?? null}, ${evidence.failedReleaseStage ?? null},
       ${evidence.publishSucceeded ?? null}, ${evidence.migrationRequired ?? null},
@@ -160,6 +161,9 @@ export async function mergeForgeWorkflowEvidence(
       architecture_review_required = coalesce(excluded.architecture_review_required, forge_workflow_evidence.architecture_review_required),
       lead_decision = coalesce(excluded.lead_decision, forge_workflow_evidence.lead_decision),
       split_count = case when excluded.lead_decision is null then forge_workflow_evidence.split_count else excluded.split_count end,
+      -- The accepted proposal follows its decision the same way: an explicit Lead
+      -- write is authoritative, an unrelated write preserves what is known.
+      lead_routing = case when excluded.lead_decision is null then forge_workflow_evidence.lead_routing else excluded.lead_routing end,
       qa_review_required = coalesce(excluded.qa_review_required, forge_workflow_evidence.qa_review_required),
       qa_review_passed = coalesce(excluded.qa_review_passed, forge_workflow_evidence.qa_review_passed),
       qa_passed = coalesce(excluded.qa_passed, forge_workflow_evidence.qa_passed),

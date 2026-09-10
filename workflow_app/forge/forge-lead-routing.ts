@@ -61,7 +61,7 @@ function planValidShape(v: unknown): v is SmithExecutionPlan {
       (c.dependsOn === undefined || (Array.isArray(c.dependsOn) && c.dependsOn.every(d => Number.isInteger(d) && d > 0))))
 }
 
-function proposalValidShape(v: unknown): v is LeadProposal {
+export function proposalValidShape(v: unknown): v is LeadProposal {
   return object(v) && v.version === 1 && ['SOLO', 'SMITH', 'SPLIT', 'HOLD'].includes(String(v.decision)) &&
     ['SMALL', 'MEDIUM', 'LARGE'].includes(String(v.size)) && nonempty(v.sizeReason) && nonempty(v.reason) &&
     strings(v.mergeChecks) && Array.isArray(v.assignments) && v.assignments.length <= 8 &&
