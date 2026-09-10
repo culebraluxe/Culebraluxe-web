@@ -36,12 +36,19 @@ import {
 import { appendForgeRunDetail, getForgeLeadRunRecord } from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
+import {
+  listSplitChildOutcomes,
+  recordSplitChildAssignment,
+  recordSplitChildCandidate,
+} from '../../db/forge-split-children'
+import { splitJoinHoldReasons } from './split-join'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
+import { renderSplitAssignmentWorkOrders, splitChildAssignment } from './forge-split-handoff'
 import {
   buildLeadRoutingContext,
   findLatestAcceptedLeadRouting,
@@ -49,13 +56,21 @@ import {
 } from './lead-routing-context'
 
 /**
- * Trusted runtime capability for LEAD routing. SPLIT is declared UNAVAILABLE
- * because the split lane is unproven (mangled branch, candidate captured from the
- * wrong workspace — MEMORY 2026-09-10): a Lead SPLIT proposal is therefore
- * CORRECTED by the validator instead of being silently routed into that lane.
- * maxSmiths reflects the executor's splitConcurrency of 1.
+ * Trusted runtime capability for LEAD routing.
+ *
+ * FAIL-CLOSED BY DEFAULT: SPLIT stays dark unless the environment explicitly opts
+ * in. It was locked because the lane was unproven (mangled branch, candidate
+ * captured from the wrong workspace — MEMORY 2026-09-10); the lane now resolves
+ * each child's own accepted assignment, records per-child candidate provenance,
+ * and gates `lead_post` on a satisfied join, but a capability is never inferred
+ * from prompt text or a model claim — and never silently enabled in production.
+ *
+ * DEV dogfood:  FORGE_SPLIT_ENABLED=true FORGE_SPLIT_MAX_SMITHS=2 FORGE_SPLIT_CONCURRENCY=2
  */
-const LEAD_ROUTING_CAPABILITIES: LeadRoutingCapabilities = { splitEnabled: false, maxSmiths: 1 }
+const LEAD_ROUTING_CAPABILITIES: LeadRoutingCapabilities = {
+  splitEnabled: process.env.FORGE_SPLIT_ENABLED === 'true',
+  maxSmiths: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_MAX_SMITHS ?? '1')) || 1),
+}
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -177,15 +192,39 @@ export function createAgentRuntimeForgeRoleRunner(
     // Astra handoff: the worker that will EXECUTE Lead's accepted work orders gets
     // exactly that assignment's plan — the serial Smith lane OR the Lead SOLO
     // implementation lane (SOLO needs the work orders too; that injection used to
-    // be Smith-only). Split children are out of scope while the split lane is
-    // declared unavailable. The plan is re-VALIDATED against trusted context, never
-    // trusted blindly, and comes from Lead's own run notes.
+    // be Smith-only). A SPLIT child gets ITS OWN assignment resolved from the
+    // re-validated accepted proposal against the engine's 0-based branch index,
+    // cross-checked with the slice the engine handed it. A child that cannot be
+    // tied to an accepted assignment HOLDS before launch: handing it the general
+    // decomposition directive would let it invent its own scope (that is how a
+    // branch gets mangled and a candidate ends up from the wrong workspace).
+    const acceptedRouting = findLatestAcceptedLeadRouting(
+      await runs.listForStory(resolvedStory.id),
+      leadRoutingContext,
+    )
+    const splitChildContract =
+      nodeId === 'smith_split_work'
+        ? splitChildAssignment({ proposal: acceptedRouting, formData: task.formData })
+        : null
+    if (splitChildContract && (splitChildContract.errors.length > 0 || !splitChildContract.assignment)) {
+      throw new Error(
+        `Forge ${nodeId} HOLD: ${splitChildContract.errors.join('; ') || 'no resolvable Lead assignment'}`,
+      )
+    }
+    // The join is the engine's, but INTEGRATION is ours: `lead_post` must not
+    // integrate a fan-out whose children did not all finish with their own
+    // candidate SHA (compute it before the model runs, so a bad join costs no tokens).
+    if (nodeId === 'lead_post' && acceptedRouting?.decision === 'SPLIT') {
+      const expectedIds = acceptedRouting.assignments.map((a) => a.id)
+      const { outcomes, unrecorded } = await listSplitChildOutcomes(resolvedStory.id)
+      const holdReasons = splitJoinHoldReasons({ expectedIds, outcomes, unrecordedCandidates: unrecorded })
+      if (holdReasons.length > 0) {
+        throw new Error(`Forge ${nodeId} HOLD: SPLIT join not satisfied — ${holdReasons.join('; ')}`)
+      }
+    }
     const executesLeadWorkOrders =
       (plan.lane === 'smith' && nodeId !== 'smith_split_work') || nodeId === 'lead_solo_implement'
-    const acceptedLeadPlan = executesLeadWorkOrders
-      ? (findLatestAcceptedLeadRouting(await runs.listForStory(resolvedStory.id), leadRoutingContext)
-          ?.assignments[0]?.plan ?? null)
-      : null
+    const acceptedLeadPlan = executesLeadWorkOrders ? (acceptedRouting?.assignments[0]?.plan ?? null) : null
     // When Astra routing governs PRE, the legacy lead_pre evidence contract
     // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:
     // on a live run the model obeyed the longer legacy text, emitted no LEAD_ROUTING
@@ -203,13 +242,18 @@ export function createAgentRuntimeForgeRoleRunner(
       buildRunGuardrailsDirective(),
       buildRunPassDirective(),
       buildRtkCompressionDirective(),
-      plan.lane === 'smith'
-        ? acceptedLeadPlan
-          ? renderSmithWorkOrders(acceptedLeadPlan)
-          : buildSmithWorkDecompositionDirective()
-        : nodeId === 'lead_solo_implement' && acceptedLeadPlan
-          ? renderSmithWorkOrders(acceptedLeadPlan)
-          : null,
+      // SPLIT child: execute ONLY its own accepted assignment. The general
+      // decomposition directive is deliberately unreachable here (see the
+      // fail-closed resolution above).
+      nodeId === 'smith_split_work'
+        ? renderSplitAssignmentWorkOrders(splitChildContract!.assignment!)
+        : plan.lane === 'smith'
+          ? acceptedLeadPlan
+            ? renderSmithWorkOrders(acceptedLeadPlan)
+            : buildSmithWorkDecompositionDirective()
+          : nodeId === 'lead_solo_implement' && acceptedLeadPlan
+            ? renderSmithWorkOrders(acceptedLeadPlan)
+            : null,
       plan.lane === 'architect' || plan.lane === 'lead' ? buildGroundingDirective() : null,
     ]
       .filter(Boolean)
@@ -266,6 +310,15 @@ export function createAgentRuntimeForgeRoleRunner(
       throw new Error(
         `Forge engine task ${task.taskId} claimed agent work item ${queued.id}, but the durable row could not be reloaded`,
       )
+    }
+    if (splitChildContract?.assignment && splitChildContract.index !== null) {
+      // Provenance (ENG-FORGE-SPLIT-01): tie this child's durable row to the ONE
+      // accepted assignment it owns before it runs, so the join can be accounted
+      // per child. No silent catch — an untraceable child must not be admitted.
+      await recordSplitChildAssignment(durableClaim.id, {
+        assignmentId: splitChildContract.assignment.id,
+        index: splitChildContract.index,
+      })
     }
 
     // WORKSPACE-01: canonical Git lineage = processInstanceId + execution
@@ -337,6 +390,13 @@ export function createAgentRuntimeForgeRoleRunner(
     const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
     agent.marshalFindings(evidence, raw)
+    // Provenance (ENG-FORGE-SPLIT-01): a split child's candidate SHA is recorded
+    // against ITS OWN work item, so the join can never credit a sibling's SHA or
+    // the parent checkout's. No silent catch: if the write fails the run fails
+    // closed rather than letting an untraceable candidate reach the join.
+    if (nodeId === 'smith_split_work' && typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()) {
+      await recordSplitChildCandidate(durableClaim.id, evidence.candidateSha)
+    }
     // LEAD routing (Astra handoff): the AI proposes, code accepts or returns
     // corrections — it never silently reroutes. The validated proposal is the
     // single source of engine routing facts, and a malformed/absent proposal is a

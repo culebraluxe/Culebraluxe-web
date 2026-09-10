@@ -10,6 +10,7 @@ import {
 import { buildLeadRoutingDirective } from '../forge/forge-lead-routing-prompt'
 import {
   assignmentForSplitBranch,
+  splitChildAssignment,
   splitBranchIndexFromForm,
 } from '../forge/forge-split-handoff'
 
@@ -136,7 +137,7 @@ test('directive teaches SPLIT only when the runtime enables it', () => {
   assert.match(text, /maxSmiths=3/)
 })
 
-test('split-child handoff maps 1-based branch index onto assignments', () => {
+test('split-child handoff uses the ENGINE 0-based branch index', () => {
   const proposal: LeadProposal = {
     version: 1,
     decision: 'SPLIT',
@@ -149,8 +150,61 @@ test('split-child handoff maps 1-based branch index onto assignments', () => {
     ],
     mergeChecks: [proof],
   }
-  assert.equal(assignmentForSplitBranch(proposal, 2)?.id, 'b')
+  // engine.ts forks `for (let i = 0; i < count; i++)` and sends `splitBranchIndex: i`
+  // — index 0 IS the first child (a 1-based reading silently orphaned it).
+  assert.equal(splitBranchIndexFromForm({ splitBranchIndex: 0 }), 0)
+  assert.equal(splitBranchIndexFromForm({ splitBranchIndex: 1 }), 1)
+  assert.equal(assignmentForSplitBranch(proposal, 0)?.id, 'a')
+  assert.equal(assignmentForSplitBranch(proposal, 1)?.id, 'b')
   assert.equal(assignmentForSplitBranch(proposal, 9), null)
-  assert.equal(splitBranchIndexFromForm({ splitBranchIndex: 2 }), 2)
-  assert.equal(splitBranchIndexFromForm({ splitBranchIndex: 0 }), null)
+  // "absent" is null, never branch 0.
+  assert.equal(splitBranchIndexFromForm({}), null)
+  assert.equal(splitBranchIndexFromForm(null), null)
+  assert.equal(splitBranchIndexFromForm({ splitBranchIndex: '' }), null)
+  assert.equal(splitBranchIndexFromForm({ splitBranchIndex: -1 }), null)
+})
+
+test('a split child that cannot be tied to an assignment HOLDS (never invents scope)', () => {
+  const proposal: LeadProposal = {
+    version: 1, decision: 'SPLIT', size: 'LARGE', sizeReason: 's', reason: 'r',
+    assignments: [assignment('a', 'f1', ['workflow_app/forge/a.ts'])],
+    mergeChecks: [proof],
+  }
+  // No index on the form -> refuse.
+  const noIndex = splitChildAssignment({ proposal, formData: {} })
+  assert.equal(noIndex.assignment, null)
+  assert.match(noIndex.errors.join('\n'), /no splitBranchIndex/)
+  // Index beyond the accepted assignments -> refuse.
+  const outOfRange = splitChildAssignment({ proposal, formData: { splitBranchIndex: 1 } })
+  assert.equal(outOfRange.assignment, null)
+  assert.match(outOfRange.errors.join('\n'), /no accepted Lead assignment for split branch 1/)
+  // No accepted proposal at all -> refuse.
+  const noProposal = splitChildAssignment({ proposal: null, formData: { splitBranchIndex: 0 } })
+  assert.equal(noProposal.assignment, null)
+  assert.ok(noProposal.errors.length > 0)
+  // Resolvable + engine slice agrees -> allow.
+  const ok = splitChildAssignment({
+    proposal,
+    formData: { splitBranchIndex: 0, splitBranch: { id: 'a' } },
+  })
+  assert.equal(ok.assignment?.id, 'a')
+  assert.deepEqual(ok.errors, [])
+})
+
+test('an engine slice that disagrees with the accepted proposal is refused, not guessed', () => {
+  const proposal: LeadProposal = {
+    version: 1, decision: 'SPLIT', size: 'LARGE', sizeReason: 's', reason: 'r',
+    assignments: [
+      assignment('a', 'f1', ['workflow_app/forge/a.ts']),
+      assignment('b', 'f2', ['workflow_app/forge/b.ts']),
+    ],
+    mergeChecks: [proof],
+  }
+  // Off-by-one class: the engine says 'b' where the accepted proposal puts 'a'.
+  const mismatch = splitChildAssignment({
+    proposal,
+    formData: { splitBranchIndex: 0, splitBranch: { id: 'b' } },
+  })
+  assert.equal(mismatch.assignment?.id, 'a', 'the accepted proposal wins for RESOLUTION...')
+  assert.match(mismatch.errors.join('\n'), /refusing rather than guessing/, '...but the disagreement is a HOLD')
 })

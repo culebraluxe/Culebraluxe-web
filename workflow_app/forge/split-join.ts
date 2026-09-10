@@ -97,3 +97,42 @@ export function reduceSplit(input: {
     joinSatisfied,
   }
 }
+
+/**
+ * ENG-FORGE-SPLIT-01 — the pre-`lead_post` gate, as a pure function.
+ *
+ * `lead_post` integrates the fan-out. It must not integrate unless the join is
+ * genuinely satisfiable from durable child facts: every expected child finished,
+ * none failed/cancelled, no sibling wrote the same output key, AND every child
+ * recorded a candidate SHA of its own (a child whose SHA was never captured from
+ * its own workspace is exactly how the wrong candidate gets frozen for QA).
+ *
+ * Returns [] when the join may proceed. Empty reasons are the ONLY safe state.
+ */
+export function splitJoinHoldReasons(input: {
+  expectedIds: string[]
+  outcomes: SplitOutcome[]
+  /** Children that reached a terminal completed state with no recorded SHA. */
+  unrecordedCandidates?: string[]
+}): string[] {
+  const reduction = reduceSplit({ expectedIds: input.expectedIds, outcomes: input.outcomes })
+  const reasons: string[] = []
+  if (reduction.missing.length > 0) {
+    reasons.push(`split children never reached a terminal state: ${reduction.missing.join(', ')}`)
+  }
+  if (reduction.failed.length > 0) {
+    reasons.push(`split children failed: ${reduction.failed.join(', ')}`)
+  }
+  if (reduction.cancelled.length > 0) {
+    reasons.push(`split children cancelled/paused: ${reduction.cancelled.join(', ')}`)
+  }
+  if (reduction.conflicts.length > 0) {
+    reasons.push(`sibling assignments claim the same output: ${reduction.conflicts.join(', ')}`)
+  }
+  if ((input.unrecordedCandidates ?? []).length > 0) {
+    reasons.push(
+      `split children completed with no candidate SHA recorded from their own workspace: ${input.unrecordedCandidates!.join(', ')}`,
+    )
+  }
+  return reasons
+}

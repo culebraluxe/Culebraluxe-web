@@ -76,7 +76,8 @@ async function main(): Promise<void> {
       executionEnvironment: process.env.EXECUTION_ENV ?? 'DEV',
     }),
     workerId,
-    splitConcurrency: 1,
+    // SPLIT stays serial unless the environment opts in (fail-closed default).
+    splitConcurrency: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_CONCURRENCY ?? '1')) || 1),
     onProgress: (message) => console.log(`[${stamp()}] ${message}`),
     ...(stopAfter ? { stopAfter } : {}),
   })
