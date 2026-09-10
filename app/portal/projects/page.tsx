@@ -54,20 +54,35 @@ async function resolveIdentityNames(items: WbsItem[], projects: { personId: stri
       ...projects.map((p) => type === "person" ? p.personId : type === "property" ? p.propertyId : p.contractId),
     ].filter(Boolean)))
   const uuidOnly = (ids: (string | null | undefined)[]) => ids.filter((id): id is string => Boolean(id) && UUID_RE.test(id as string))
+  // Each lookup is best-effort: a missing/failed anchor degrades to the id
+  // fallback in the projection. Failures are durably captured, never swallowed,
+  // and never allowed to take down the whole Projects page.
   for (const id of uuidOnly(idsFor("property"))) {
-    const rows = await sql`select name from property where id = ${id} limit 1`
-    const name = rows[0]?.name as string | undefined
-    if (name) names[`property:${id}`] = name
+    try {
+      const rows = await sql`select name from property where id = ${id} limit 1`
+      const name = rows[0]?.name as string | undefined
+      if (name) names[`property:${id}`] = name
+    } catch (error) {
+      captureServerError("projects:resolve-identity:property", error, { level: "warn" })
+    }
   }
   for (const id of uuidOnly(idsFor("person"))) {
-    const rows = await sql`select display_name from mv_client_directory where person_id = ${id} limit 1`
-    const name = rows[0]?.display_name as string | undefined
-    if (name) names[`person:${id}`] = name
+    try {
+      const rows = await sql`select display_name from mv_client_directory where person_id = ${id} limit 1`
+      const name = rows[0]?.display_name as string | undefined
+      if (name) names[`person:${id}`] = name
+    } catch (error) {
+      captureServerError("projects:resolve-identity:person", error, { level: "warn" })
+    }
   }
   for (const id of uuidOnly(idsFor("contract"))) {
-    const rows = await sql`select contract_type from contract where id = ${id} limit 1`
-    const type = rows[0]?.contract_type as string | undefined
-    if (type) names[`contract:${id}`] = type.replaceAll("_", " ")
+    try {
+      const rows = await sql`select contract_type from contract where id = ${id} limit 1`
+      const type = rows[0]?.contract_type as string | undefined
+      if (type) names[`contract:${id}`] = type.replaceAll("_", " ")
+    } catch (error) {
+      captureServerError("projects:resolve-identity:contract", error, { level: "warn" })
+    }
   }
   return names
 }
