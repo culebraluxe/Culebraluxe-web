@@ -124,7 +124,6 @@ export async function listSplitChildOutcomes(
       attempt: Math.max(1, Number(row.attempts ?? 1)),
       candidateSha: shas.length ? shas[shas.length - 1] : null,
     }
-    if (status === 'completed' && !outcome.candidateSha) unrecorded.push(childId)
     // One child row per slot per group, but keep the most advanced attempt.
     const existing = byChild.get(childId)
     if (!existing || outcome.attempt >= existing.attempt) byChild.set(childId, outcome)
