@@ -76,8 +76,8 @@ async function main(): Promise<void> {
       executionEnvironment: process.env.EXECUTION_ENV ?? 'DEV',
     }),
     workerId,
-    // SPLIT stays serial unless the environment opts in (fail-closed default).
-    splitConcurrency: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_CONCURRENCY ?? '1')) || 1),
+    // SPLIT concurrency: default 2 (the lane is enabled by default now).
+    splitConcurrency: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_CONCURRENCY ?? '2')) || 2),
     onProgress: (message) => console.log(`[${stamp()}] ${message}`),
     ...(stopAfter ? { stopAfter } : {}),
   })

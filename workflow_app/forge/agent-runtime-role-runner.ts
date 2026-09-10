@@ -59,18 +59,23 @@ import {
 /**
  * Trusted runtime capability for LEAD routing.
  *
- * FAIL-CLOSED BY DEFAULT: SPLIT stays dark unless the environment explicitly opts
- * in. It was locked because the lane was unproven (mangled branch, candidate
- * captured from the wrong workspace — MEMORY 2026-09-10); the lane now resolves
- * each child's own accepted assignment, records per-child candidate provenance,
- * and gates `lead_post` on a satisfied join, but a capability is never inferred
- * from prompt text or a model claim — and never silently enabled in production.
+ * SPLIT IS ENABLED BY DEFAULT (captain's call, 2026-09-10) now that the lane is
+ * proven end to end: Lead SPLIT accepted → real fork → two children running
+ * concurrently in their own worktrees, each producing its OWN candidate SHA →
+ * satisfied join → `lead_post` integrating → QA PASS. Evidence is durable
+ * (forge_workflow_evidence: lead_decision=SPLIT, split_count=2, lead_routing with 2
+ * assignments, per-child candidate_shas on each child row).
  *
- * DEV dogfood:  FORGE_SPLIT_ENABLED=true FORGE_SPLIT_MAX_SMITHS=2 FORGE_SPLIT_CONCURRENCY=2
+ * The door can still be closed explicitly per environment with
+ * `FORGE_SPLIT_ENABLED=false` (fail-closed switch), and the runtime — never the
+ * model — owns these numbers.
+ *
+ * Knobs: FORGE_SPLIT_ENABLED (default on) · FORGE_SPLIT_MAX_SMITHS (default 2)
+ * · FORGE_SPLIT_CONCURRENCY (worker, default 2)
  */
 const LEAD_ROUTING_CAPABILITIES: LeadRoutingCapabilities = {
-  splitEnabled: process.env.FORGE_SPLIT_ENABLED === 'true',
-  maxSmiths: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_MAX_SMITHS ?? '1')) || 1),
+  splitEnabled: process.env.FORGE_SPLIT_ENABLED !== 'false',
+  maxSmiths: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_MAX_SMITHS ?? '2')) || 2),
 }
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
