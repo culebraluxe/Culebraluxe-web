@@ -236,7 +236,8 @@ export function createAgentRuntimeForgeRoleRunner(
       const built = smithContractFromAssignment({
         storyId: resolvedStory.id,
         nodeId,
-        attempt,
+        // The loop counter is 0-based; a contract attempt is 1-based (validateSmithContract).
+        attempt: attempt + 1,
         assignment: splitAssignment,
         siblings,
       })
