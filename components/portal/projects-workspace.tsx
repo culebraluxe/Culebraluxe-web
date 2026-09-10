@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -30,6 +30,7 @@ import type {
   ProjectDomainKey,
   ProjectPlan,
   ProjectPole,
+  ProjectSecondaryViewProvenance,
   ProjectWorkNode,
   ProjectWorkStatus,
   ProjectsWorkspaceData,
@@ -463,7 +464,7 @@ function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
 
 function ProjectCalendar({ project }: { project: ProjectPlan }) {
   const items = project.calendarItems ?? []
-  if (!items.length) return <ProjectionPlaceholder view="calendar" />
+  if (!items.length) return <ProjectionState view="calendar" provenance={project.provenance} />
   return (
     <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
       <ul className="divide-y divide-[var(--portal-panel-border)]/70">
@@ -481,7 +482,7 @@ function ProjectCalendar({ project }: { project: ProjectPlan }) {
 
 function ProjectDocuments({ project }: { project: ProjectPlan }) {
   const documents = project.documents ?? []
-  if (!documents.length) return <ProjectionPlaceholder view="documents" />
+  if (!documents.length) return <ProjectionState view="documents" provenance={project.provenance} />
   return (
     <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
       <ul className="divide-y divide-[var(--portal-panel-border)]/70">
@@ -499,7 +500,7 @@ function ProjectDocuments({ project }: { project: ProjectPlan }) {
 
 function ProjectActivity({ project }: { project: ProjectPlan }) {
   const activity = project.activity ?? []
-  if (!activity.length) return <ProjectionPlaceholder view="activity" />
+  if (!activity.length) return <ProjectionState view="activity" provenance={project.provenance} />
   return (
     <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
       <ul className="divide-y divide-[var(--portal-panel-border)]/70">
@@ -569,11 +570,41 @@ function ProjectHeader({ pole, project, onStatusChange, statusPending }: { pole:
   )
 }
 
-function ProjectionPlaceholder({ view }: { view: ProjectWorkspaceView }) {
+function WorkspaceMessage({
+  state,
+  tone = "muted",
+  children,
+}: {
+  state: "loading" | "empty" | "unauthorized" | "failure"
+  tone?: "muted" | "notice" | "error"
+  children: ReactNode
+}) {
+  const color = tone === "error" ? "text-[var(--portal-archive)]" : "text-black/45"
+  return <p data-state={state} className={`px-4 py-6 text-sm font-light ${color}`}>{children}</p>
+}
+
+function ProjectionState({
+  view,
+  provenance,
+}: {
+  view: ProjectWorkspaceView
+  provenance?: ProjectSecondaryViewProvenance
+}) {
+  const label = VIEW_LABEL[view]
+  const status = view === "documents" ? provenance?.documents : view === "activity" ? provenance?.activity : undefined
+  let message: string
+  if (status === "unlinked") {
+    const anchor = view === "documents" ? "property" : "contact"
+    message = `This project is not anchored to a ${anchor}, so ${label.toLowerCase()} cannot be linked.`
+  } else if (status === "empty") {
+    message = `No ${label.toLowerCase()} are linked to this project yet.`
+  } else {
+    message = `${label} is not available in this workspace yet.`
+  }
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center rounded-[var(--portal-tab-radius)] border border-dashed border-[var(--portal-panel-border)] bg-white/15 px-6 py-8 text-center">
       <p className="text-sm font-light text-black/45">
-        <span className="font-medium text-[var(--portal-navy)]">{VIEW_LABEL[view]}</span> is next in the prototype. Work Plan is the active surface.
+        <span className="font-medium text-[var(--portal-navy)]">{label}</span> — {message}
       </p>
     </div>
   )
@@ -631,7 +662,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
             ) : activeView === "activity" ? (
               <ProjectActivity project={project} />
             ) : (
-              <ProjectionPlaceholder view={activeView} />
+              <ProjectionState view={activeView} provenance={project.provenance} />
             )}
           </div>
         </>
@@ -874,14 +905,26 @@ export function ProjectsWorkspace({
     [controller],
   )
 
+  const loadState = model.data?.loadState ?? initialData?.loadState
+  const serverStatus = loadState?.status
+
   if (loadError) {
-    return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">{loadError}</p>
+    return <WorkspaceMessage state="failure" tone="error">{loadError}</WorkspaceMessage>
+  }
+  if (serverStatus === "unauthorized") {
+    return <WorkspaceMessage state="unauthorized" tone="notice">{loadState?.message ?? "You are not authorized to view the Projects workspace."}</WorkspaceMessage>
+  }
+  if (serverStatus === "failure") {
+    return <WorkspaceMessage state="failure" tone="error">{loadState?.message ?? "The Projects workspace could not be loaded."}</WorkspaceMessage>
   }
   if (model.error) {
-    return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">Could not load the Projects workspace: {model.error}</p>
+    return <WorkspaceMessage state="failure" tone="error">Could not load the Projects workspace: {model.error}</WorkspaceMessage>
   }
   if (model.loading || !model.data) {
-    return <p className="px-4 py-6 text-sm font-light text-black/45">Loading projects…</p>
+    return <WorkspaceMessage state="loading">Loading projects…</WorkspaceMessage>
+  }
+  if (serverStatus === "empty" || model.data.poles.length === 0) {
+    return <WorkspaceMessage state="empty" tone="notice">No projects are available in this workspace yet.</WorkspaceMessage>
   }
 
   return (

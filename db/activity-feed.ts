@@ -10,6 +10,8 @@ export type ActivityFeedEntry = {
   id: string
   personId: string | null
   dealId: string | null
+  /** Stable property id for id-based joins (never join on propertyName). */
+  propertyId: string | null
   channel: string
   direction: string | null
   occurredAt: string
@@ -21,19 +23,48 @@ export type ActivityFeedEntry = {
   dealPropertyName: string | null
 }
 
-type ActivityFeedRow = {
+export type ActivityFeedRow = {
   id: string
   person_id: string | null
   deal_id: string | null
+  property_id: string | null
   channel: string
   direction: string | null
-  occurred_at: string
+  occurred_at: unknown
   occurred_at_label: string
   title: string | null
   summary: string | null
   person_name: string | null
   property_name: string | null
   deal_property_name: string | null
+}
+
+/** Repository boundary: normalize the driver timestamp (Date | string) to ISO
+ *  before the value leaves the repository. UI/domain code never sees a raw
+ *  driver Date. */
+function iso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString()
+  return new Date(String(value)).toISOString()
+}
+
+/** Pure row -> entry mapper. Exported so the boundary normalization is testable
+ *  without a live database. */
+export function toActivityFeedEntry(row: ActivityFeedRow): ActivityFeedEntry {
+  return {
+    id: row.id,
+    personId: row.person_id ?? null,
+    dealId: row.deal_id ?? null,
+    propertyId: row.property_id ?? null,
+    channel: row.channel,
+    direction: row.direction ?? null,
+    occurredAt: iso(row.occurred_at),
+    occurredAtLabel: row.occurred_at_label,
+    title: row.title ?? null,
+    summary: row.summary ?? null,
+    personName: row.person_name ?? null,
+    propertyName: row.property_name ?? null,
+    dealPropertyName: row.deal_property_name ?? null,
+  }
 }
 
 export async function getActivityFeed(
@@ -44,6 +75,7 @@ export async function getActivityFeed(
       i.id,
       person.id as person_id,
       deal.id as deal_id,
+      i.property_id as property_id,
       i.channel,
       i.direction,
       i.occurred_at,
@@ -69,18 +101,5 @@ export async function getActivityFeed(
     limit ${limit}
   `
 
-  return (rows as ActivityFeedRow[]).map((row) => ({
-    id: row.id,
-    personId: row.person_id ?? null,
-    dealId: row.deal_id ?? null,
-    channel: row.channel,
-    direction: row.direction ?? null,
-    occurredAt: row.occurred_at,
-    occurredAtLabel: row.occurred_at_label,
-    title: row.title ?? null,
-    summary: row.summary ?? null,
-    personName: row.person_name ?? null,
-    propertyName: row.property_name ?? null,
-    dealPropertyName: row.deal_property_name ?? null,
-  }))
+  return (rows as ActivityFeedRow[]).map(toActivityFeedEntry)
 }

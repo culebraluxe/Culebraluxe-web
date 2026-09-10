@@ -17,7 +17,7 @@ import {
   StaticAuthorizationPolicyProvider,
 } from "@/services/entitlement"
 import type { WbsItem } from "@/services/wbs"
-import type { ProjectsWorkspaceData } from "@/ui/projects/model"
+import type { ProjectsWorkspaceData, ProjectsWorkspaceLoadState } from "@/ui/projects/model"
 import { mapRealProjectsToWorkspace } from "@/ui/projects/service-projection"
 import { listIssuedDocuments } from "@/db/transaction-document"
 import { getActivityFeed } from "@/db/activity-feed"
@@ -87,11 +87,22 @@ async function resolveIdentityNames(items: WbsItem[], projects: { personId: stri
   return names
 }
 
-type ProjectsLoadResult =
-  | { data: ProjectsWorkspaceData; error: null }
-  | { data: null; error: string }
+type ProjectsLoadResult = {
+  data: ProjectsWorkspaceData
+  error: string | null
+}
 
-/** Load the Projects MVI through the canonical Project + WBS service contracts. */
+/** A truthful workspace payload for a non-ready outcome: no fabricated poles,
+ *  only the discriminated load state. */
+function stateData(loadState: ProjectsWorkspaceLoadState): ProjectsWorkspaceData {
+  return { domains: [], poles: [], loadState }
+}
+
+const AUTH_DENIAL_CODES = new Set(["FORBIDDEN", "UNAUTHORIZED", "UNAUTHENTICATED"])
+
+/** Load the Projects MVI through the canonical Project + WBS service contracts.
+ *  The result is always a complete page model: `ready`/`empty` carry the
+ *  projection, `unauthorized`/`failure` carry a distinct state and no panes. */
 async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
   try {
     const infrastructure = {
@@ -108,15 +119,26 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
       listIssuedDocuments(undefined, { accountType: acting.accountType, personId: acting.personId }),
       getActivityFeed(200),
     ])
-    if (!itemsResult.ok) throw new Error(`WBS read failed: ${itemsResult.error.code}`)
-    if (!projectsResult.ok) throw new Error(`Project read failed: ${projectsResult.error.code}`)
+    if (!itemsResult.ok) {
+      if (AUTH_DENIAL_CODES.has(itemsResult.error.code)) {
+        return { data: stateData({ status: "unauthorized", message: itemsResult.error.message }), error: null }
+      }
+      throw new Error(`WBS read failed: ${itemsResult.error.code}`)
+    }
+    if (!projectsResult.ok) {
+      if (AUTH_DENIAL_CODES.has(projectsResult.error.code)) {
+        return { data: stateData({ status: "unauthorized", message: projectsResult.error.message }), error: null }
+      }
+      throw new Error(`Project read failed: ${projectsResult.error.code}`)
+    }
     const items = itemsResult.value
     const projects = projectsResult.value
     const identityNames = await resolveIdentityNames(items, projects)
     return { data: mapRealProjectsToWorkspace(projects, items, identityNames, documents, activity), error: null }
   } catch (error) {
     captureServerError("projects:load-workspace-data", error, { level: "error" })
-    return { data: null, error: "Projects are temporarily unavailable. The service read failed and no fixture data was substituted." }
+    const message = "Projects are temporarily unavailable. The service read failed and no fixture data was substituted."
+    return { data: stateData({ status: "failure", message }), error: message }
   }
 }
 

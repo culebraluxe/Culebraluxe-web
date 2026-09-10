@@ -36,6 +36,12 @@ export type ProjectWorkNode = {
   owner?: string
   note?: string
   relatedLabel?: string
+  /**
+   * Canonical entity link the node is anchored to (`person`/`property`/`contract`/
+   * `deal` + stable id). Labels for the inspector are resolved from identityNames,
+   * never invented, and never matched by display name.
+   */
+  entity?: { type: string; id: string }
   children?: ProjectWorkNode[]
   /**
    * Selected-work-inspector content (Pane 3). Kept on the WorkNode so the
@@ -50,6 +56,20 @@ export type ProjectWorkNode = {
   actions?: string[]
 }
 
+/**
+ * Provenance of a project's secondary panes. `linked` = an anchor exists and
+ * records matched it; `empty` = an anchor exists but no records matched;
+ * `unlinked` = no anchor exists, so the pane must explain the absence instead
+ * of inventing content. Never computed from display-name equality.
+ */
+export type ProjectSecondaryViewStatus = "linked" | "unlinked" | "empty"
+
+export type ProjectSecondaryViewProvenance = {
+  documents: ProjectSecondaryViewStatus
+  activity: ProjectSecondaryViewStatus
+  calendar: ProjectSecondaryViewStatus
+}
+
 export type ProjectPlan = {
   id: string
   title: string
@@ -61,6 +81,7 @@ export type ProjectPlan = {
   playbookVersion?: number
   contextLabels?: string[]
   anchorSource?: 'row' | 'wbs' | 'none'
+  provenance?: ProjectSecondaryViewProvenance
   nextAction?: string
   nextActionDetail?: string
   blocker?: string
@@ -80,9 +101,23 @@ export type ProjectPole = {
   projects: ProjectPlan[]
 }
 
+/**
+ * Discriminated server-composed load state for the workspace. `ready` and
+ * `empty` are successful reads (empty = zero projects); `unauthorized` is an
+ * authorization denial; `failure` is a service/DB error. Kept distinct so the
+ * view never renders one state as another.
+ */
+export type ProjectsWorkspaceStatus = "ready" | "empty" | "unauthorized" | "failure"
+
+export type ProjectsWorkspaceLoadState = {
+  status: ProjectsWorkspaceStatus
+  message?: string
+}
+
 export type ProjectsWorkspaceData = {
   domains: ProjectDomain[]
   poles: ProjectPole[]
+  loadState?: ProjectsWorkspaceLoadState
 }
 
 export type ProjectWorkspaceView =

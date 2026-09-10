@@ -11,6 +11,7 @@ export interface ProjectsWorkspaceSource {
 function cloneData(data: ProjectsWorkspaceData): ProjectsWorkspaceData {
   return {
     domains: data.domains.map((domain) => ({ ...domain })),
+    ...(data.loadState ? { loadState: { ...data.loadState } } : {}),
     poles: data.poles.map((pole) => ({
       ...pole,
       projects: pole.projects.map((project) => ({

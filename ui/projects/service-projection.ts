@@ -24,6 +24,8 @@ import type {
   ProjectDomainKey,
   ProjectPlan,
   ProjectPole,
+  ProjectSecondaryViewProvenance,
+  ProjectSecondaryViewStatus,
   ProjectWorkNode,
   ProjectWorkNodeType,
   ProjectsWorkspaceData,
@@ -101,7 +103,50 @@ function dueLabel(dueAt: string | null | undefined): string | undefined {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
-function attach(items: WbsItem[], item: WbsItem): ProjectWorkNode {
+const ENTITY_CAPTION: Record<string, string> = {
+  person: "Client",
+  property: "Property",
+  contract: "Contract",
+  deal: "Deal",
+}
+
+const ENTITY_ACTION: Record<string, string> = {
+  person: "Open client",
+  property: "Open property",
+  contract: "Open contract",
+  deal: "Open deal",
+}
+
+/** Inspector content derived ONLY from canonical WBS facts (notes, owner, and
+ *  the resolved entity link). No invented labels, no name guessing. */
+function nodeInspector(
+  item: WbsItem,
+  identityNames: Record<string, string>,
+): ProjectWorkNode["inspector"] {
+  const relatedItems: Array<{ label: string; caption?: string }> = []
+  if (item.entity) {
+    const label = identityNames[`${item.entity.type}:${item.entity.id}`] ?? item.entity.id
+    relatedItems.push({ label, caption: ENTITY_CAPTION[item.entity.type] ?? item.entity.type })
+  }
+  if (item.owner) relatedItems.push({ label: item.owner, caption: "Assignee" })
+  const summary = item.notes?.trim() || undefined
+  if (!summary && relatedItems.length === 0) return undefined
+  return {
+    ...(summary ? { summary } : {}),
+    ...(relatedItems.length > 0 ? { relatedItems } : {}),
+  }
+}
+
+/** Actions derived from the canonical entity link type, never a listing name. */
+function nodeActions(item: WbsItem): string[] {
+  if (!item.entity) return []
+  const action = ENTITY_ACTION[item.entity.type]
+  return action ? [action] : []
+}
+
+function attach(items: WbsItem[], item: WbsItem, identityNames: Record<string, string>): ProjectWorkNode {
+  const inspector = nodeInspector(item, identityNames)
+  const actions = nodeActions(item)
   return {
     id: item.id,
     title: item.title,
@@ -111,10 +156,13 @@ function attach(items: WbsItem[], item: WbsItem): ProjectWorkNode {
     ...(item.dueAt ? { dueAt: item.dueAt } : {}),
     ...(dueLabel(item.dueAt) ? { dueLabel: dueLabel(item.dueAt) } : {}),
     ...(item.notes ? { note: item.notes } : {}),
+    ...(item.entity ? { entity: { type: item.entity.type, id: item.entity.id } } : {}),
+    ...(inspector ? { inspector } : {}),
+    ...(actions.length > 0 ? { actions } : {}),
     children: items
       .filter((candidate) => candidate.parentId === item.id)
       .sort(compareItems)
-      .map((child) => attach(items, child)),
+      .map((child) => attach(items, child, identityNames)),
   }
 }
 
@@ -139,6 +187,27 @@ function dominantCategory(items: WbsItem[], fallback: string): string {
     }
   }
   return best
+}
+
+function viewStatus(anchored: boolean, recordCount: number): ProjectSecondaryViewStatus {
+  if (!anchored) return "unlinked"
+  return recordCount > 0 ? "linked" : "empty"
+}
+
+function provenanceFor(input: {
+  documentsAnchored: boolean
+  documents: number
+  activityAnchored: boolean
+  activity: number
+  calendar: number
+}): ProjectSecondaryViewProvenance {
+  return {
+    documents: viewStatus(input.documentsAnchored, input.documents),
+    activity: viewStatus(input.activityAnchored, input.activity),
+    // Calendar derives from the project's own WBS, so it is never "unlinked":
+    // it is linked when a dated item exists, empty otherwise.
+    calendar: input.calendar > 0 ? "linked" : "empty",
+  }
 }
 
 export function mapRealProjectsToWorkspace(
@@ -185,6 +254,19 @@ export function mapRealProjectsToWorkspace(
     const effectivePropertyIds = project.propertyId != null ? [project.propertyId] : wbsPropertyIds
     const effectivePersonIds = project.personId != null ? [project.personId] : wbsPersonIds
 
+    // Secondary-view joins use stable ids only. A property name is NEVER used
+    // as a join key: an absent anchor yields an empty pane, never a global match.
+    const planDocuments = documents
+      .filter((document) => document.propertyId != null && effectivePropertyIds.includes(document.propertyId))
+      .map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt }))
+    const planActivity = activity
+      .filter((entry) =>
+        (effectivePersonIds.length > 0 && entry.personId != null && effectivePersonIds.includes(entry.personId)) ||
+        (effectivePropertyIds.length > 0 && entry.propertyId != null && effectivePropertyIds.includes(entry.propertyId)),
+      )
+      .map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName }))
+    const planCalendar = mapProjectCalendarItems(projectItems)
+
     const plan: ProjectPlan = {
       id: project.id,
       title: project.name,
@@ -202,10 +284,17 @@ export function mapRealProjectsToWorkspace(
         ].filter((label): label is string => Boolean(label)),
       } : {}),
       anchorSource: project.personId != null || project.propertyId != null ? 'row' : anchors.size > 0 ? 'wbs' : 'none',
-      calendarItems: mapProjectCalendarItems(projectItems),
-      documents: documents.filter((document) => document.propertyId != null && effectivePropertyIds.includes(document.propertyId)).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
-      activity: activity.filter((entry) => (effectivePersonIds.length > 0 && entry.personId != null && effectivePersonIds.includes(entry.personId)) || effectivePropertyIds.some((id) => Boolean(entry.propertyName) && identityNames[`property:${id}`] === entry.propertyName)).map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName })),
-      workNodes: top.map((node) => attach(projectItems, node)),
+      calendarItems: planCalendar,
+      documents: planDocuments,
+      activity: planActivity,
+      provenance: provenanceFor({
+        documentsAnchored: effectivePropertyIds.length > 0,
+        documents: planDocuments.length,
+        activityAnchored: effectivePersonIds.length > 0 || effectivePropertyIds.length > 0,
+        activity: planActivity.length,
+        calendar: planCalendar.length,
+      }),
+      workNodes: top.map((node) => attach(projectItems, node, identityNames)),
     }
     const action = firstAction(plan.workNodes)
     if (action) {
@@ -258,5 +347,11 @@ export function mapRealProjectsToWorkspace(
     }
   }
 
-  return { domains: DOMAINS, poles }
+  // A successful read with zero projects is `empty`, not `failure`; the page
+  // overrides this for unauthorized/failure outcomes.
+  return {
+    domains: DOMAINS,
+    poles,
+    loadState: { status: projects.length === 0 ? "empty" : "ready" },
+  }
 }
