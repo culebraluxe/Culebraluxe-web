@@ -140,9 +140,23 @@ export class ForgePhaseAgent {
   /**
    * Lead PRE shape override: when Lead's decision conflicts with what the
    * Architect findings demand, route to the bounded SPLIT. Shared + authoritative.
+   *
+   * Lead owns HOW (docs: "Lead — how do we get this story done?"). A **SOLO**
+   * backed by a valid, bounded `LEAD_PLAN` is therefore HONOURED: it is not the
+   * anti-pattern this override exists to refuse (one *Smith* lane spanning
+   * multiple independent required seams). The authoritative vocabulary
+   * (`leadShapePlan`) only produces SMITH/SPLIT/HOLD, so without this a Lead SOLO
+   * was always "invalid" and silently rewritten — which routed a tiny single-file
+   * story into the unproven split lane and HOLDed the run after the work was done
+   * (ENG-PROJECTS-ANCHOR-01, 2026-09-10). See docs/agent/MEMORY.md.
    */
-  applyLeadShape(evidence: ForgeGateEvidence, currentFindings: ForgeGateEvidence['findings']): ForgeGateEvidence {
+  applyLeadShape(
+    evidence: ForgeGateEvidence,
+    currentFindings: ForgeGateEvidence['findings'],
+    leadPlanIsValid = false,
+  ): ForgeGateEvidence {
     if (this.nodeId !== 'lead_pre' || !evidence.leadDecision) return evidence
+    if (evidence.leadDecision === 'SOLO' && leadPlanIsValid) return evidence
     const findings = currentFindings ?? []
     if (findings.length > 0) {
       const verdict = validateLeadShapeChoice({

@@ -39,7 +39,7 @@ import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
-import { assessLeadHandoff, findLatestLeadPlan, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
+import { assessLeadHandoff, assessLeadPreDispatch, findLatestLeadPlan, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -300,7 +300,11 @@ export function createAgentRuntimeForgeRoleRunner(
     const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
     agent.marshalFindings(evidence, raw)
-    agent.applyLeadShape(evidence, current.findings)
+    // "Valid bounded plan" = Lead emitted an assessable LEAD_PLAN the KRAKEN gate
+    // does not HOLD. Only then may a Lead SOLO stand against the authoritative
+    // shape (see applyLeadShape); a SOLO without a plan is still overridden.
+    const leadPlanGate = assessLeadPreDispatch(raw)
+    agent.applyLeadShape(evidence, current.findings, leadPlanGate.planPresent && leadPlanGate.verdict !== 'HOLD')
 
     // Write-on-exit to Neon from the role's ACTUAL output (never gated on a model
     // self-format marker). Centralized: the agent declares its Story-field
