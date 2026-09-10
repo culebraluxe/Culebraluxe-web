@@ -5,6 +5,8 @@ import type { LaneId } from './lanes'
 import type { AgentRuntimeRegistry } from './registry'
 import type { ForgeTeam } from './team'
 import { sessionFromStory, storyPacketInstructions, type StoryPacketFields } from './story-session'
+import { buildLeadRoutingDirective } from '../workflow_app/forge/forge-lead-routing-prompt'
+import type { RoutingContext } from '../workflow_app/forge/forge-lead-routing'
 
 export type LaneEnqueueInput = {
   lane: LaneId
@@ -13,6 +15,12 @@ export type LaneEnqueueInput = {
   smithGrade?: SmithGrade
   extraInstructions?: string | null
   leadPhase?: LeadRunPhase
+  /**
+   * Trusted routing context for the Lead PRE handoff (Astra handoff). When present
+   * on a lead/pre lane, the single `LEAD_ROUTING` directive replaces the legacy
+   * multi-marker PRE instructions. Never derived from model output.
+   */
+  leadRoutingContext?: RoutingContext
   authorizeEmergency?: boolean
   registry?: Pick<AgentRuntimeRegistry, 'hasProfile'>
   team?: ForgeTeam
@@ -35,7 +43,15 @@ export function buildLaneEnqueue(input: LaneEnqueueInput): LaneDecision & {
   if (packet) extras.push(packet)
 
   if (input.lane === 'lead') {
-    extras.unshift(leadPhaseInstructions(input.leadPhase ?? 'pre'))
+    const phase = input.leadPhase ?? 'pre'
+    // PRE uses the single LEAD_ROUTING directive when trusted context is supplied
+    // (the routing validator owns the decision); implement/POST keep their own
+    // instructions untouched.
+    extras.unshift(
+      phase === 'pre' && input.leadRoutingContext
+        ? buildLeadRoutingDirective(input.leadRoutingContext)
+        : leadPhaseInstructions(phase),
+    )
   }
 
   if (input.lane === 'assay') {

@@ -3,10 +3,7 @@ import {
   forgeRoleNodePlan,
   type ForgeRoleNodePlan,
 } from '../forge-role-mapping'
-import {
-  findingsFromArchitectEvidence,
-  validateLeadShapeChoice,
-} from '../forge-shaping'
+import { findingsFromArchitectEvidence } from '../forge-shaping'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-PHASE-AGENT — the role/phase contract layer. A ForgePhaseAgent owns
@@ -134,41 +131,6 @@ export class ForgePhaseAgent {
     if (!this.isScout && !this.isArchitect) return evidence
     const parsed = findingsFromArchitectEvidence(raw)
     if (parsed.length > 0) evidence.findings = parsed
-    return evidence
-  }
-
-  /**
-   * Lead PRE shape override: when Lead's decision conflicts with what the
-   * Architect findings demand, route to the bounded SPLIT. Shared + authoritative.
-   *
-   * Lead owns HOW (docs: "Lead — how do we get this story done?"). A **SOLO**
-   * backed by a valid, bounded `LEAD_PLAN` is therefore HONOURED: it is not the
-   * anti-pattern this override exists to refuse (one *Smith* lane spanning
-   * multiple independent required seams). The authoritative vocabulary
-   * (`leadShapePlan`) only produces SMITH/SPLIT/HOLD, so without this a Lead SOLO
-   * was always "invalid" and silently rewritten — which routed a tiny single-file
-   * story into the unproven split lane and HOLDed the run after the work was done
-   * (ENG-PROJECTS-ANCHOR-01, 2026-09-10). See docs/agent/MEMORY.md.
-   */
-  applyLeadShape(
-    evidence: ForgeGateEvidence,
-    currentFindings: ForgeGateEvidence['findings'],
-    leadPlanIsValid = false,
-  ): ForgeGateEvidence {
-    if (this.nodeId !== 'lead_pre' || !evidence.leadDecision) return evidence
-    if (evidence.leadDecision === 'SOLO' && leadPlanIsValid) return evidence
-    const findings = currentFindings ?? []
-    if (findings.length > 0) {
-      const verdict = validateLeadShapeChoice({
-        findings,
-        choice: evidence.leadDecision,
-        splitCount: evidence.splitCount,
-      })
-      if (!verdict.ok) {
-        evidence.leadDecision = verdict.authoritative.decision
-        evidence.splitCount = verdict.authoritative.splitCount ?? evidence.splitCount
-      }
-    }
     return evidence
   }
 

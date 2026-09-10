@@ -159,43 +159,12 @@ test('buildSelfHealDirective names the missing fields and restates required outp
   assert.ok(buildSelfHealDirective('lead_pre', ['lead_decision'], null).includes('lead_decision'))
 })
 
-// -- Lead SOLO authority (ENG-PROJECTS-ANCHOR-01 regression, 2026-09-10) -------
-// Two independent required seams => the authoritative shape is SPLIT. A Lead SOLO
-// used to be rewritten to SPLIT unconditionally, because the authoritative
-// vocabulary is only SMITH/SPLIT/HOLD — so SOLO could never "validate". That sent
-// a tiny single-file story into the unproven split lane, which HOLDed the run after
-// the work was already done. Lead owns HOW, so a PLANNED solo must stand.
-
-const SPLIT_FINDINGS = [
-  { id: 'forge-seam', summary: 'forge seam fix', required: true, seams: ['workflow_app/forge/'] },
-  { id: 'harness-seam', summary: 'harness seam fix', required: true, seams: ['agent-runtime/opencode/'] },
-] as const
-
-const leadShapeEvidence = (decision: string): Record<string, unknown> => ({
-  leadDecision: decision,
-  splitCount: null,
-})
-
-test('lead shape: a SOLO backed by a valid bounded plan is HONOURED (not rewritten to SPLIT)', () => {
-  const agent = new ForgePhaseAgent('lead_pre')
-  const evidence = leadShapeEvidence('SOLO')
-  agent.applyLeadShape(evidence as never, [...SPLIT_FINDINGS], true)
-  assert.equal(evidence.leadDecision, 'SOLO', 'Lead owns how; a planned solo stands')
-  assert.equal(evidence.splitCount, null)
-})
-
-test('lead shape: a SOLO WITHOUT a valid plan is still overridden by the authoritative shape', () => {
-  const agent = new ForgePhaseAgent('lead_pre')
-  const evidence = leadShapeEvidence('SOLO')
-  agent.applyLeadShape(evidence as never, [...SPLIT_FINDINGS], false)
-  assert.equal(evidence.leadDecision, 'SPLIT')
-  assert.equal(evidence.splitCount, 2)
-})
-
-test('lead shape: the dogfood anti-pattern refusal is preserved for SMITH over independent seams', () => {
-  const agent = new ForgePhaseAgent('lead_pre')
-  const evidence = leadShapeEvidence('SMITH')
-  agent.applyLeadShape(evidence as never, [...SPLIT_FINDINGS], true)
-  assert.equal(evidence.leadDecision, 'SPLIT', 'one Smith lane spanning two seams is still refused')
-})
+// -- Lead routing authority (ENG-PROJECTS-ANCHOR-01 regression, 2026-09-10) -----
+// The PRE shape override was RETIRED: the accepted route now comes from
+// reviewLeadProposal (workflow_app/forge/forge-lead-routing.ts), which validates
+// the model's LEAD_ROUTING proposal and returns corrections through the bounded
+// self-heal loop instead of silently rewriting the decision. A Lead SOLO is a
+// first-class legal route there (SMALL work), and the "one Smith lane over
+// multiple independent seams" anti-pattern is refused by the KRAKEN gate per
+// assignment. Behavior is covered in workflow_app/tests/forge-lead-routing.test.ts.
 

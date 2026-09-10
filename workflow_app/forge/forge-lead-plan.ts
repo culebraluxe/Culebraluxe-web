@@ -148,6 +148,15 @@ export type LeadDispatchDecision = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
  *  an assessable LEAD_PLAN. Missing plan (NO_PLAN) is itself a HOLD back to Lead
  *  — the pre-Smith fuse must not be silently skipped just because Lead did not
  *  produce a plan. Decisions that do NOT dispatch (SOLO/HOLD) are not gated. */
+/**
+ * LEGACY single-plan gate (retired from the hot path 2026-09-10).
+ *
+ * The runner no longer calls this: LEAD routing is now decided by
+ * `reviewLeadProposal` (forge-lead-routing.ts), whose contract is a multi-assignment
+ * `LEAD_ROUTING` proposal that the runtime validates and corrects through the
+ * bounded self-heal loop. Kept for the legacy single-plan contract tests only —
+ * do NOT wire it back into the PRE path; it consumes a different contract.
+ */
 export function leadPreDispatchHoldReasons(
   leadDecision: LeadDispatchDecision | undefined,
   notes: string | null | undefined,
@@ -181,6 +190,7 @@ export type LeadHandoffGate = {
  * on a `smith` node (Smith has already run there, so holding would be the
  * after-the-fact behaviour we are eliminating).
  */
+/** @deprecated Retired from the hot path 2026-09-10 — see forge-lead-routing.ts. */
 export function assessLeadHandoff(
   nodeId: string,
   leadDecision: LeadDispatchDecision | undefined,

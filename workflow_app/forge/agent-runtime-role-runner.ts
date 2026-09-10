@@ -39,7 +39,22 @@ import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
-import { assessLeadHandoff, assessLeadPreDispatch, findLatestLeadPlan, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
+import { renderSmithWorkOrders } from './forge-lead-plan'
+import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
+import {
+  buildLeadRoutingContext,
+  findLatestAcceptedLeadRouting,
+  type LeadRoutingCapabilities,
+} from './lead-routing-context'
+
+/**
+ * Trusted runtime capability for LEAD routing. SPLIT is declared UNAVAILABLE
+ * because the split lane is unproven (mangled branch, candidate captured from the
+ * wrong workspace — MEMORY 2026-09-10): a Lead SPLIT proposal is therefore
+ * CORRECTED by the validator instead of being silently routed into that lane.
+ * maxSmiths reflects the executor's splitConcurrency of 1.
+ */
+const LEAD_ROUTING_CAPABILITIES: LeadRoutingCapabilities = { splitEnabled: false, maxSmiths: 1 }
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -110,6 +125,15 @@ export function createAgentRuntimeForgeRoleRunner(
     let correctiveNote = ''
     for (let attempt = 0; attempt < totalAttempts; attempt++) {
     const plan = forgeRoleNodePlan(nodeId)
+    // Trusted LEAD routing context (Astra handoff): derived from durable story +
+    // Architect findings and runtime capability — NEVER from model output. Read
+    // once per attempt; the same `current` is reused for gate evidence below.
+    const current = await readForgeWorkflowEvidence(resolvedStory.id)
+    const leadRoutingContext = buildLeadRoutingContext({
+      story: resolvedStory,
+      findings: current.findings,
+      capabilities: LEAD_ROUTING_CAPABILITIES,
+    })
     const branchInstruction =
       nodeId === 'smith_split_work'
         ? `Split branch ${String(task.formData.splitBranchIndex ?? '?')} of ${String(task.formData.splitBranchCount ?? '?')}. Bounded branch contract: ${JSON.stringify(task.formData.splitBranch ?? null)}`
@@ -149,14 +173,18 @@ export function createAgentRuntimeForgeRoleRunner(
       ),
     )
 
-    // Phase 3 (ENG-FORGE-LEAD-WORKORDER): a serial Smith lane executes Lead's
-    // persisted WORK ORDERS verbatim instead of re-deriving them. SPLIT child
-    // lanes (smith_split_work) get their branch assignment and are not fed the
-    // whole serial plan here.
-    const smithLeadPlan =
-      plan.lane === 'smith' && nodeId !== 'smith_split_work'
-        ? findLatestLeadPlan(await runs.listForStory(resolvedStory.id))
-        : null
+    // Astra handoff: the worker that will EXECUTE Lead's accepted work orders gets
+    // exactly that assignment's plan — the serial Smith lane OR the Lead SOLO
+    // implementation lane (SOLO needs the work orders too; that injection used to
+    // be Smith-only). Split children are out of scope while the split lane is
+    // declared unavailable. The plan is re-VALIDATED against trusted context, never
+    // trusted blindly, and comes from Lead's own run notes.
+    const executesLeadWorkOrders =
+      (plan.lane === 'smith' && nodeId !== 'smith_split_work') || nodeId === 'lead_solo_implement'
+    const acceptedLeadPlan = executesLeadWorkOrders
+      ? (findLatestAcceptedLeadRouting(await runs.listForStory(resolvedStory.id), leadRoutingContext)
+          ?.assignments[0]?.plan ?? null)
+      : null
     const extraInstructions = [
       correctiveNote,
       identityInstruction,
@@ -169,10 +197,12 @@ export function createAgentRuntimeForgeRoleRunner(
       buildRunPassDirective(),
       buildRtkCompressionDirective(),
       plan.lane === 'smith'
-        ? smithLeadPlan
-          ? renderSmithWorkOrders(smithLeadPlan)
+        ? acceptedLeadPlan
+          ? renderSmithWorkOrders(acceptedLeadPlan)
           : buildSmithWorkDecompositionDirective()
-        : null,
+        : nodeId === 'lead_solo_implement' && acceptedLeadPlan
+          ? renderSmithWorkOrders(acceptedLeadPlan)
+          : null,
       plan.lane === 'architect' || plan.lane === 'lead' ? buildGroundingDirective() : null,
     ]
       .filter(Boolean)
@@ -182,6 +212,7 @@ export function createAgentRuntimeForgeRoleRunner(
       story: resolvedStory,
       registry,
       leadPhase: plan.leadPhase,
+      leadRoutingContext,
       extraInstructions,
       // FEATURE path: the engine already decided Scout is not needed for this
       // architect node (feature_scout_needed -> architect). Waive the Scout
@@ -277,7 +308,6 @@ export function createAgentRuntimeForgeRoleRunner(
       throw new Error(reason)
     }
 
-    const current = await readForgeWorkflowEvidence(resolvedStory.id)
     const finishedItem = await getAgentWorkItem(result.workItemId)
     const leadDecision = finishedItem?.storyRunId
       ? await getForgeLeadRunRecord(finishedItem.storyRunId)
@@ -300,11 +330,14 @@ export function createAgentRuntimeForgeRoleRunner(
     const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
     agent.marshalFindings(evidence, raw)
-    // "Valid bounded plan" = Lead emitted an assessable LEAD_PLAN the KRAKEN gate
-    // does not HOLD. Only then may a Lead SOLO stand against the authoritative
-    // shape (see applyLeadShape); a SOLO without a plan is still overridden.
-    const leadPlanGate = assessLeadPreDispatch(raw)
-    agent.applyLeadShape(evidence, current.findings, leadPlanGate.planPresent && leadPlanGate.verdict !== 'HOLD')
+    // LEAD routing (Astra handoff): the AI proposes, code accepts or returns
+    // corrections — it never silently reroutes. The validated proposal is the
+    // single source of engine routing facts, and a malformed/absent proposal is a
+    // miss that rides the bounded self-heal path below (never a default route).
+    const routingReview = nodeId === 'lead_pre' ? reviewLeadProposal(parseLeadRouting(raw), leadRoutingContext) : null
+    if (routingReview?.ok) {
+      Object.assign(evidence, leadRoutingFacts(routingReview))
+    }
 
     // Write-on-exit to Neon from the role's ACTUAL output (never gated on a model
     // self-format marker). Centralized: the agent declares its Story-field
@@ -335,6 +368,14 @@ export function createAgentRuntimeForgeRoleRunner(
     // HOLDed (thrown -> forge-executor releases the task) after the bounded
     // self-heal budget, instead of silently advancing.
     const miss: string[] = []
+
+    // LEAD routing validation is a PREREQUISITE for handing off execution, not an
+    // optional formatting check — so it applies even when deliverable enforcement
+    // is disabled (FORGE_ENFORCE_DELIVERABLES=0). Errors ride the same bounded
+    // self-heal path below; exhaustion is a real HOLD.
+    if (successful && routingReview && !routingReview.ok) {
+      miss.push(...routingReview.errors.map((reason) => `lead-routing:${reason}`))
+    }
     if (enforceDeliverables && successful) {
       const missing = agent.missingDeliverables(evidence, raw, scoutDelivered, architectDelivered)
       // Routing-decision validation: even a phase whose WORK persisted must leave a
@@ -376,34 +417,21 @@ export function createAgentRuntimeForgeRoleRunner(
       // persisted durably on the story run so audits and future gates read it
       // without parsing thrown errors.
       if (nodeId === 'lead_pre') {
-        // The gate decision itself is pure (assessLeadHandoff) so tests assert the
-        // running path's hold/allow decision directly, not a re-reading of this file.
-        const handoff = assessLeadHandoff(nodeId, evidence.leadDecision, raw)
-        const leadHolds = handoff.holds
-        const storyRunId = finishedItem?.storyRunId ?? null
-        if (storyRunId) {
-          await appendForgeRunDetail(
-            storyRunId,
-            `dispatch gate node=lead_pre decision=${evidence.leadDecision ?? '(none)'} ` +
-              `verdict=${handoff.verdict} ` +
-              `reasons=${leadHolds.length > 0 ? leadHolds.join(' | ') : 'none'}`,
-          ).catch(() => {
-            /* run-detail append is observer-only; the gate verdict stands on the HOLD/GO above */
-          })
-          // Phase 2 (ENG-FORGE-LEAD-WORKORDER): persist the parsed plan durably
-          // (work orders -> Smith) so a later Smith reads the SAME structured plan
-          // Lead wrote, never a re-derivation from a notes blob.
-          const plan = parseLeadPlan(raw)
-          if (plan) {
+        // The routing decision itself is owned by reviewLeadProposal above; this is
+        // durable observability of its verdict, not a second gate.
+        if (nodeId === 'lead_pre') {
+          const storyRunId = finishedItem?.storyRunId ?? null
+          if (storyRunId && routingReview) {
             await appendForgeRunDetail(
               storyRunId,
-              `lead-plan:${JSON.stringify(plan)}`,
+              `lead-routing verdict=${routingReview.ok ? 'GO' : 'HOLD'} ` +
+                `errors=${routingReview.ok ? 'none' : routingReview.errors.join(' | ')} ` +
+                `advisories=${routingReview.ok && routingReview.advisories.length ? routingReview.advisories.join(' | ') : 'none'}`,
             ).catch(() => {
-              /* observer-only */
+              /* run-detail append is observer-only; the routing verdict stands above */
             })
           }
         }
-        if (leadHolds.length > 0) missing.push(...leadHolds)
       }
       miss.push(...missing)
     }
