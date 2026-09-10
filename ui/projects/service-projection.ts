@@ -201,6 +201,7 @@ export function mapRealProjectsToWorkspace(
           project.contractId ? identityNames[`contract:${project.contractId}`] ?? project.contractId : null,
         ].filter((label): label is string => Boolean(label)),
       } : {}),
+      anchorSource: project.personId != null || project.propertyId != null ? 'row' : anchors.size > 0 ? 'wbs' : 'none',
       calendarItems: mapProjectCalendarItems(projectItems),
       documents: documents.filter((document) => document.propertyId != null && effectivePropertyIds.includes(document.propertyId)).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
       activity: activity.filter((entry) => (effectivePersonIds.length > 0 && entry.personId != null && effectivePersonIds.includes(entry.personId)) || effectivePropertyIds.some((id) => Boolean(entry.propertyName) && identityNames[`property:${id}`] === entry.propertyName)).map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName })),

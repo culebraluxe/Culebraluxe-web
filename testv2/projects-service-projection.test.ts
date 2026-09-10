@@ -178,3 +178,49 @@ test('Projects projection row anchors win over WBS anchors of the same type', ()
   assert.ok(plan)
   assert.deepEqual(plan.documents?.map((document) => document.id), ['doc-row'])
 })
+
+test('Projects projection reports anchorSource row when the project row carries an anchor', () => {
+  const byPerson = mapRealProjectsToWorkspace([project({ personId: 'person-row' })], [item('plain')])
+  const byProperty = mapRealProjectsToWorkspace([project({ propertyId: 'property-row' })], [item('plain')])
+
+  assert.equal(planFor(byPerson)?.anchorSource, 'row')
+  assert.equal(planFor(byProperty)?.anchorSource, 'row')
+})
+
+test('Projects projection reports anchorSource wbs when only WBS entity anchors exist', () => {
+  const byPerson = mapRealProjectsToWorkspace(
+    [project()],
+    [item('anchor', { entity: { type: 'person', id: 'person-wbs' } })],
+  )
+  const byProperty = mapRealProjectsToWorkspace(
+    [project()],
+    [item('anchor', { entity: { type: 'property', id: 'property-wbs' } })],
+  )
+
+  assert.equal(planFor(byPerson)?.anchorSource, 'wbs')
+  assert.equal(planFor(byProperty)?.anchorSource, 'wbs')
+})
+
+test('Projects projection reports anchorSource none when neither row nor WBS anchors exist', () => {
+  const data = mapRealProjectsToWorkspace([project()], [item('plain')])
+
+  assert.equal(planFor(data)?.anchorSource, 'none')
+})
+
+test('Projects projection reports anchorSource row when the row and WBS both anchor', () => {
+  const data = mapRealProjectsToWorkspace(
+    [project({ propertyId: 'property-row' })],
+    [item('anchor', { entity: { type: 'person', id: 'person-wbs' } })],
+  )
+
+  assert.equal(planFor(data)?.anchorSource, 'row')
+})
+
+test('Projects projection reports anchorSource none for a contract-only row with plain WBS', () => {
+  const data = mapRealProjectsToWorkspace(
+    [project({ contractId: 'contract-1' })],
+    [item('plain')],
+  )
+
+  assert.equal(planFor(data)?.anchorSource, 'none')
+})

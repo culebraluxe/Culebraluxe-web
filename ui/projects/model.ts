@@ -60,6 +60,7 @@ export type ProjectPlan = {
   playbookId?: string
   playbookVersion?: number
   contextLabels?: string[]
+  anchorSource?: 'row' | 'wbs' | 'none'
   nextAction?: string
   nextActionDetail?: string
   blocker?: string
