@@ -81,6 +81,13 @@ function pathOf(scope: string): string | null {
 const within = (path: string, area: string) => path === area || path.startsWith(area + '/')
 const overlap = (a: string, b: string) => within(a, b) || within(b, a)
 
+export const SPLIT_UNAVAILABLE =
+  'SPLIT is not available this run; HOLD and recut into one resident Smith (1..3 serial chunks) or a new story'
+export const LARGE_REQUIRES_RECUT =
+  'LARGE work cannot dispatch while SPLIT is unavailable; HOLD and recut into one MEDIUM Smith assignment or a new story'
+export const LARGE_REQUIRES_SPLIT =
+  'LARGE requires two or more bounded Smith assignments'
+
 /** The AI proposes; code accepts or returns corrections. Never silently reroute.
  * Uses the EXISTING KRAKEN gate once per assignment, not once per whole story.
  * Current XML is a sibling fork, so unfinished sibling dependencies are refused.
@@ -89,9 +96,6 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
   const errors: string[] = []
   const advisories: string[] = []
   if (raw === null || raw === undefined) {
-    // The role never emitted the line at all — a different failure from an emitted
-    // but invalid proposal, and the only one a self-heal reprompt can act on
-    // directly. Naming it turns a blind retry into a targeted correction.
     return {
       ok: false,
       errors: [
@@ -115,16 +119,20 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
   if (required.some(f => f.hint === 'HOLD')) errors.push('Required Architect HOLD remains unresolved')
   const n = p.assignments.length
   if ((p.decision === 'SOLO' || p.decision === 'SMITH') && n !== 1) errors.push(p.decision + ' requires one assignment')
-  if (p.decision === 'SPLIT' && (!context.splitEnabled || n < 2 || n > context.maxSmiths)) {
-    errors.push('SPLIT requires runtime support and 2..maxSmiths assignments')
+  if (p.decision === 'SPLIT') {
+    if (!context.splitEnabled) {
+      errors.push(SPLIT_UNAVAILABLE)
+    } else if (n < 2 || n > context.maxSmiths) {
+      errors.push('SPLIT requires 2..maxSmiths assignments')
+    }
   }
   if (p.size === 'SMALL' && p.decision === 'SPLIT') errors.push('SMALL work does not justify a split; revise the size or assignment')
   if (p.size === 'LARGE' && p.decision !== 'SPLIT') {
-    errors.push(
-      context.splitEnabled && context.maxSmiths > 1
-        ? 'LARGE requires two or more bounded Smith assignments'
-        : 'LARGE requires two or more bounded Smith assignments, but SPLIT is unavailable this run (splitEnabled=false) — HOLD and recut the story into bounded units instead of relabelling the size',
-    )
+    if (!context.splitEnabled) {
+      errors.push(LARGE_REQUIRES_RECUT)
+    } else {
+      errors.push(LARGE_REQUIRES_SPLIT)
+    }
   }
   if (p.decision === 'SOLO' && p.size !== 'SMALL') errors.push('SOLO requires SMALL work')
   if (!unique(p.assignments.map(a => a.id))) errors.push('Duplicate assignment IDs')
@@ -160,13 +168,6 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     const gate = assessSmithDispatch(a.plan)
     if (gate.verdict === 'HOLD') errors.push(...gate.reasons.map(r => prefix + r))
     else if (gate.verdict === 'FLAG') advisories.push(...gate.reasons.map(r => prefix + r))
-    // The captain's dispatchability math still RUNS on LEAD's self-ratings, but its
-    // verdict is RECORDED evidence, never a veto: these inputs are uncalibrated
-    // self-assessments (no run history, no telemetry — MEMORY 2026-09-10), so a
-    // rating must not HOLD the story. That would let a guess block the model and
-    // would re-arm the difficulty veto the captain already made FLAG-only (9fe43fd).
-    // The numbers stay as calibration food for the learned scorer; the STRUCTURAL
-    // gate above still fails closed on countable plan facts.
     const selfRated = dispatchabilityFor(a.features)
     if (selfRated.verdict === 'NOT_DISPATCHABLE') {
       advisories.push(
@@ -181,7 +182,7 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
       errors.push(prefix + 'SOLO requires one bounded chunk, one behavior, low uncertainty/coupling/proof/context burden')
     }
   }
-  if (p.decision === 'SPLIT') {
+  if (p.decision === 'SPLIT' && context.splitEnabled) {
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       if (pathsByAssignment[i].some(a => pathsByAssignment[j].some(b => overlap(a, b)))) {
         errors.push('Concurrent write conflict: ' + p.assignments[i].id + ' / ' + p.assignments[j].id)
