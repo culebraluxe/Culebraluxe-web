@@ -14,8 +14,8 @@ import {
 // batch story complete with its deployment DEFERRED instead of being classified as
 // a deployment failure.
 
-test('active definition is v5, parses/validates, and carries the batch deferral', () => {
-  assert.equal(FORGE_SDLC_VERSION, 5)
+test('active definition is v6, parses/validates, and carries the batch release deferral', () => {
+  assert.equal(FORGE_SDLC_VERSION, 6)
   assert.doesNotThrow(() => parseForgeSdlc())
   const graph = parseForgeSdlc().graph
   const nodes = Object.keys(graph.nodes)
@@ -34,6 +34,15 @@ test('active definition is v5, parses/validates, and carries the batch deferral'
   assert.ok(failureBranch > 0, 'the deployment failure branch must still exist')
   assert.ok(deferredBranch < failureBranch, 'the deferred branch must be evaluated BEFORE the failure branch')
   assert.match(source, /<transition name="deferred" to="complete"\/>/, 'deferred must complete the story')
+
+  // v6's addition: a batch story holds the WHOLE release tail at qa_result, so
+  // nothing is published (publishing main IS the production trigger).
+  const qaFail = source.indexOf('condition="qaPassed == false" transition="fail"')
+  const releaseDeferred = source.indexOf('condition="releaseDeferred == true" transition="deferred"')
+  const qaPass = source.indexOf('condition="qaPassed == true" transition="pass"')
+  assert.ok(releaseDeferred > 0, 'qa_result must branch on releaseDeferred')
+  assert.ok(qaFail < releaseDeferred, 'a QA failure must still route to repair BEFORE the deferral is considered')
+  assert.ok(releaseDeferred < qaPass, 'the deferral must be considered BEFORE the normal release pass')
   // Architect review park present (reuses hold; no new end state).
   assert.ok(nodes.includes('architect_review'))
   // v4 loader agrees with the active loader.

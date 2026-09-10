@@ -179,10 +179,12 @@ export function createAgentRuntimeForgeRoleRunner(
     // Architect findings and runtime capability — NEVER from model output. Read
     // once per attempt; the same `current` is reused for gate evidence below.
     const current = await readForgeWorkflowEvidence(resolvedStory.id)
-    // Batch-sliced rollout (migration 148): a story flagged batch_deploy completes
-    // QA-verified with its deployment DEFERRED to the release batch. Recording the
-    // deferral is honest; recording a deployment receipt here would be a fabrication.
-    if (resolvedStory.batchDeploy && nodeId === 'deploy' && current.deploymentDeferredToBatch == null) {
+    // Batch-sliced rollout (migration 148): record the deferral as soon as the story
+    // is known to be a batch story — NOT only at the deploy node — because definition
+    // v6's qa_result decision reads `releaseDeferred` to hold the whole release tail
+    // (publish included) and complete the story QA-verified. Recording the deferral is
+    // honest; recording a deployment/publish receipt here would be a fabrication.
+    if (resolvedStory.batchDeploy && current.deploymentDeferredToBatch == null) {
       await mergeForgeWorkflowEvidence(task.processInstanceId, resolvedStory.id, {
         deploymentDeferredToBatch: resolvedStory.batch ?? 0,
       })

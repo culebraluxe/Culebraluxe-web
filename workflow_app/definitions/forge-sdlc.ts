@@ -25,9 +25,9 @@ import { forgeCommandIsRouted } from '../forge-command-types'
 // ---------------------------------------------------------------------------
 
 export const FORGE_SDLC_KEY = 'FORGE_SDLC'
-export const FORGE_SDLC_VERSION = 5
+export const FORGE_SDLC_VERSION = 6
 
-const XML_FILE_URL = new URL('./FORGE_SDLC-v5.xml', import.meta.url)
+const XML_FILE_URL = new URL('./FORGE_SDLC-v6.xml', import.meta.url)
 
 export function forgeSdlcXmlSource(): string {
   return readFileSync(fileURLToPath(XML_FILE_URL), 'utf-8')
