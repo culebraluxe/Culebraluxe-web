@@ -49,6 +49,9 @@ import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
+import { scopeViolations, type SmithExecutionContract } from './smith-contract'
+import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
+import { deriveWorktreePath } from '../../lib/worker-workspace/provisioner'
 import {
   acceptedLeadRouting,
   buildLeadRoutingContext,
@@ -224,23 +227,25 @@ export function createAgentRuntimeForgeRoleRunner(
     // not touch in prohibitedScope. Without this gate the contract is library-only and
     // a malformed assignment could still put a child in a worktree with no enforced
     // boundary — the mangled-branch failure mode.
+    let splitAssignmentContract: SmithExecutionContract | null = null
     if (splitChildContract?.assignment) {
       const splitAssignment = splitChildContract.assignment
       // Sibling surfaces become the child's prohibitedScope: the boundary is then
       // machine-enforced by the contract, not merely stated in prose.
       const siblings = (acceptedRouting?.assignments ?? []).filter((a) => a.id !== splitAssignment.id)
-      const contract = smithContractFromAssignment({
+      const built = smithContractFromAssignment({
         storyId: resolvedStory.id,
         nodeId,
         attempt,
         assignment: splitAssignment,
         siblings,
       })
-      if (contract.errors.length > 0) {
+      if (built.errors.length > 0) {
         throw new Error(
-          `Forge ${nodeId} HOLD: split assignment contract invalid — ${contract.errors.join('; ')}`,
+          `Forge ${nodeId} HOLD: split assignment contract invalid — ${built.errors.join('; ')}`,
         )
       }
+      splitAssignmentContract = built.contract
     }
     // The join is the engine's, but INTEGRATION is ours: `lead_post` must not
     // integrate a fan-out whose children did not all finish with their own
@@ -434,6 +439,26 @@ export function createAgentRuntimeForgeRoleRunner(
     // the parent checkout's. No silent catch: if the write fails the run fails
     // closed rather than letting an untraceable candidate reach the join.
     if (nodeId === 'smith_split_work' && typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()) {
+      // The child's candidate must be INSIDE its assignment. Declared scope is checked
+      // against the child's real diff before its SHA is accepted — otherwise the join
+      // only proves "every child produced a SHA", not "that SHA was in its lane".
+      // Fail-closed: an unresolvable diff or any out-of-scope path refuses the child.
+      if (splitAssignmentContract) {
+        const cwd = workspaces?.worktreesRoot
+          ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
+          : process.cwd()
+        const changedFiles = await changedFilesForCandidate({
+          cwd,
+          baseRef: workspaces?.baseRef ?? 'origin/main',
+          candidateSha: evidence.candidateSha,
+        })
+        const violations = scopeViolations(splitAssignmentContract, changedFiles)
+        if (violations.length > 0) {
+          throw new Error(
+            `Forge ${nodeId} HOLD: candidate ${evidence.candidateSha.slice(0, 12)} touched files outside its assignment (${splitAssignmentContract.identity.owner}): ${violations.join(', ')}`,
+          )
+        }
+      }
       await recordSplitChildCandidate(durableClaim.id, evidence.candidateSha)
     }
     // LEAD routing (Astra handoff): the AI proposes, code accepts or returns

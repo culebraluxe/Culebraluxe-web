@@ -73,3 +73,18 @@ function pathWithin(path: string, area: string): boolean {
   const a = area.replace(/\/+$/g, '')
   return p === a || p.startsWith(`${a}/`) || a === '*'
 }
+
+/**
+ * ENG-FORGE-SPLIT-01 — the child's ACTUAL diff against its assignment contract.
+ *
+ * `isChangeAllowed` existed with no caller: scope was declared but never checked, so
+ * a SPLIT child could edit a sibling's file and still present a candidate. This is
+ * the missing lock: every changed path must be inside `allowedScope` and outside
+ * `prohibitedScope`, or the candidate is not a valid child output.
+ *
+ * Pure. Empty `allowedScope` is a violation for any change (fail closed) and `*`
+ * remains "anything allowed" per `pathWithin`.
+ */
+export function scopeViolations(c: SmithExecutionContract, changedFiles: string[]): string[] {
+  return changedFiles.filter((path) => !isChangeAllowed(c, path))
+}
