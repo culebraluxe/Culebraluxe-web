@@ -14,6 +14,7 @@
 // this contract.
 // ---------------------------------------------------------------------------
 
+import { captureServerLog } from '../lib/server-error-capture'
 import type {
   AgentExecutionContext,
   AgentRunEvidence,
@@ -209,11 +210,21 @@ export abstract class AgentRuntimeAdapter {
       const changed = Boolean(prog?.note) || Boolean(prog?.step) || prog?.completion != null
       if (changed || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS) {
         lastHeartbeatAt = now
-        await this.deps.work.progress(command.workItemId, {
-          step: prog?.step,
-          completion: prog?.completion,
-          note: prog?.note,
-        })
+        try {
+          await this.deps.work.progress(command.workItemId, {
+            step: prog?.step,
+            completion: prog?.completion,
+            note: prog?.note,
+          })
+        } catch (err) {
+          // ENG-FORGE-SPLIT-01: progress is OBSERVABILITY (heartbeat + milestones),
+          // not control flow. Under concurrent siblings a transient failure here
+          // aborted a healthy child mid-run. Record it durably and keep the run
+          // going — the child's real evidence is verified independently.
+          captureServerLog('warn', 'forge.adapter.progress', String((err as { message?: string })?.message ?? err), {
+            route: 'forge:role-progress',
+          })
+        }
       }
       status = await this.statusExternal(command, ctxWithRun)
     }
