@@ -45,3 +45,31 @@ FORGE_SPLIT_ENABLED=true FORGE_SPLIT_MAX_SMITHS=2 FORGE_SPLIT_CONCURRENCY=2 \
   node --env-file=.env.local --import tsx scripts/forge-engine-worker.ts \
   --story ENG-FORGE-SPLIT-DOGFOOD-01 --work-type FEATURE
 ```
+
+## Run log
+
+### 2026-09-10 — dogfood attempts (the lane is wired; still dark by default)
+
+Each attempt fixed a real blocker, in this order:
+
+1. Lead SPLIT accepted, but the child could not be tied to an assignment → **durable
+   accepted proposal** (migration 147) instead of re-validating mutable context.
+2. Assignment resolved, but the second child could not be claimed → **parallel-group
+   enqueue** (a story-wide "existing row" lookup collapsed siblings onto one row).
+3. Claimed, but the claim failed on `agent_work_item_one_parallel_slot` → **one slot
+   convention** (1-based) across the enqueue and the child-assignment writer.
+4. Claim failed under the *system-wide* single-active rule → **claim scope** now
+   honours parallel groups (only an active SERIAL item blocks a split child).
+5. Both children claimed and ran, then the second was refused as workspace theft:
+   the branch name truncated the run id to 40 chars and dropped `-split-N` → **branch
+   naming fixed** (this is the original "mangled branch" incident).
+6. Both children then executed in their own worktrees; with `splitConcurrency=2` a
+   bare driver error surfaced during simultaneous progress writes → **open**.
+
+Observed live: the fork creates 2 children with the engine's 0-based index and each
+child's own slice (`idx 0 → 'a'`, `idx 1 → 'b'`), both are claimable concurrently, and
+each provisions a distinct branch/worktree. **Not yet observed:** both children
+finishing, a satisfied join, and `lead_post` integrating.
+
+Note: one attempt had the Lead choose HOLD (model variance) and the engine correctly
+parked at the human gate — a legitimate outcome, not a lane failure.
