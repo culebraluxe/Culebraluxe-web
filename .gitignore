@@ -48,3 +48,6 @@ gsd-core/
 # Forge context-lesson feedback loop (runtime-generated; never committed).
 .forge-context/
 
+
+# scratch workspace (not a knowledge artifact)
+docs/agent/scratch/
