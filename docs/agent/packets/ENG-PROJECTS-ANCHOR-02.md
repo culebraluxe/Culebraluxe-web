@@ -55,6 +55,11 @@ Chain: `architect → lead_pre → smith → lead_post → qa_verify → deploy`
 - `deploy`: **HOLD (after 2 attempts): role did not deliver `devops-receipt`** — a
   pre-existing structural gap, not a routing failure. Nothing in the repo ever populates
   `AgentRunEvidence.releaseEvidence`, which the `deploy` adjudication requires, so the stage
-  cannot be satisfied by any run (see MEMORY 2026-09-10 "ENGINE BLOCKER"). The story is
-  therefore NOT complete; the routing refinement it was used to prove is.
-- Story status after the run: `In Progress` (candidate QA-verified, release stage blocked).
+  cannot be satisfied by any run (see MEMORY 2026-09-10 "ENGINE BLOCKER").
+- **The release itself DID execute:** `origin/main` advanced to `0465126` — exactly the
+  Smith's QA-verified candidate — because the DEV_OPS lane is instructed to "Own
+  publication" (it may push, only force-push is forbidden). Vercel therefore auto-deploys
+  the change; what the engine cannot do is *record or verify* that deployment.
+- Net story state: **code published, candidate QA-verified, deployment unrecordable** →
+  story left `In Progress`. The routing refinement this run was built to prove is
+  **proven**; the story's own release-obligation bookkeeping is blocked by the receipt gap.
