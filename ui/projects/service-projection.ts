@@ -164,6 +164,27 @@ export function mapRealProjectsToWorkspace(
     const top = projectItems.filter((i) => !i.parentId).sort(compareItems)
     const done = projectItems.filter((i) => i.status === "done").length
     const planned = projectItems.filter((i) => i.status !== "dismissed").length
+
+    // Unique person/property anchors among this project's items. These are the
+    // real entity anchors: a project row may carry no personId/propertyId while
+    // its WBS items are anchored to the property/person. Row anchors win per
+    // type; otherwise fall back to the WBS anchors of that same type.
+    const anchors = new Map<string, { type: string; id: string }>()
+    for (const item of projectItems) {
+      const entity = item.entity
+      if (!entity) continue
+      if (entity.type !== "person" && entity.type !== "property") continue
+      anchors.set(`${entity.type}:${entity.id}`, entity)
+    }
+    const wbsPropertyIds = Array.from(anchors.values())
+      .filter((anchor) => anchor.type === "property")
+      .map((anchor) => anchor.id)
+    const wbsPersonIds = Array.from(anchors.values())
+      .filter((anchor) => anchor.type === "person")
+      .map((anchor) => anchor.id)
+    const effectivePropertyIds = project.propertyId != null ? [project.propertyId] : wbsPropertyIds
+    const effectivePersonIds = project.personId != null ? [project.personId] : wbsPersonIds
+
     const plan: ProjectPlan = {
       id: project.id,
       title: project.name,
@@ -181,23 +202,14 @@ export function mapRealProjectsToWorkspace(
         ].filter((label): label is string => Boolean(label)),
       } : {}),
       calendarItems: mapProjectCalendarItems(projectItems),
-      documents: documents.filter((document) => project.propertyId != null && document.propertyId === project.propertyId).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
-      activity: activity.filter((entry) => (project.personId ? entry.personId === project.personId : false) || (project.propertyId ? Boolean(entry.propertyName && identityNames[`property:${project.propertyId}`] === entry.propertyName) : false)).map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName })),
+      documents: documents.filter((document) => document.propertyId != null && effectivePropertyIds.includes(document.propertyId)).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
+      activity: activity.filter((entry) => (effectivePersonIds.length > 0 && entry.personId != null && effectivePersonIds.includes(entry.personId)) || effectivePropertyIds.some((id) => Boolean(entry.propertyName) && identityNames[`property:${id}`] === entry.propertyName)).map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName })),
       workNodes: top.map((node) => attach(projectItems, node)),
     }
     const action = firstAction(plan.workNodes)
     if (action) {
       plan.nextAction = action.title
       plan.nextActionDetail = action.status === "in-progress" ? "In progress" : "Ready to work"
-    }
-
-    // Unique person/property anchors among this project's items.
-    const anchors = new Map<string, { type: string; id: string }>()
-    for (const item of projectItems) {
-      const entity = item.entity
-      if (!entity) continue
-      if (entity.type !== "person" && entity.type !== "property") continue
-      anchors.set(`${entity.type}:${entity.id}`, entity)
     }
 
     if (anchors.size > 0) {

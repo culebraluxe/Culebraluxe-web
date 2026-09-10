@@ -111,3 +111,70 @@ test('Projects projection scopes activity to the project person or resolved prop
   const plan = result.poles.flatMap((pole) => pole.projects).find((candidate) => candidate.id === projectFixture.id)
   assert.deepEqual(plan?.activity?.map((entry) => entry.id), ['a1'])
 })
+
+function planFor(result: ReturnType<typeof mapRealProjectsToWorkspace>, id = 'project-1') {
+  return result.poles.flatMap((pole) => pole.projects).find((candidate) => candidate.id === id)
+}
+
+test('Projects projection attaches WBS property-anchored documents when the row has no propertyId', () => {
+  const data = mapRealProjectsToWorkspace(
+    [project()],
+    [item('anchor', { entity: { type: 'property', id: 'property-wbs' } })],
+    {},
+    [{ id: 'doc-1', title: 'Deed', state: 'ready', propertyId: 'property-wbs', createdAt: '2026-09-09T00:00:00.000Z' }],
+  )
+
+  const plan = planFor(data)
+  assert.ok(plan)
+  assert.deepEqual(plan.documents?.map((document) => document.id), ['doc-1'])
+})
+
+test('Projects projection matches WBS person-anchored activity when the row has no personId', () => {
+  const data = mapRealProjectsToWorkspace(
+    [project()],
+    [item('anchor', { entity: { type: 'person', id: 'person-wbs' } })],
+    {},
+    [],
+    [
+      { id: 'a1', personId: 'person-wbs', dealId: null, channel: 'imessage', direction: 'inbound', occurredAt: '2026-01-01', occurredAtLabel: 'Jan 1', title: 'Hello', summary: null, personName: 'A', propertyName: null, dealPropertyName: null },
+      { id: 'a2', personId: 'other', dealId: null, channel: 'email', direction: 'outbound', occurredAt: '2026-01-02', occurredAtLabel: 'Jan 2', title: 'Other', summary: null, personName: 'B', propertyName: null, dealPropertyName: null },
+    ],
+  )
+
+  const plan = planFor(data)
+  assert.ok(plan)
+  assert.deepEqual(plan.activity?.map((entry) => entry.id), ['a1'])
+})
+
+test('Projects projection projects empty documents and activity when neither row nor WBS anchors exist', () => {
+  const data = mapRealProjectsToWorkspace(
+    [project()],
+    [item('plain')],
+    { 'property:property-9': 'Sunset Point' },
+    [{ id: 'doc-1', title: 'Deed', state: 'ready', propertyId: 'property-9', createdAt: '2026-09-09T00:00:00.000Z' }],
+    [
+      { id: 'a1', personId: 'person-9', dealId: null, channel: 'imessage', direction: 'inbound', occurredAt: '2026-01-01', occurredAtLabel: 'Jan 1', title: 'Hello', summary: null, personName: 'A', propertyName: 'Sunset Point', dealPropertyName: null },
+    ],
+  )
+
+  const plan = planFor(data)
+  assert.ok(plan)
+  assert.deepEqual(plan.documents, [])
+  assert.deepEqual(plan.activity, [])
+})
+
+test('Projects projection row anchors win over WBS anchors of the same type', () => {
+  const data = mapRealProjectsToWorkspace(
+    [project({ propertyId: 'property-row' })],
+    [item('anchor', { entity: { type: 'property', id: 'property-wbs' } })],
+    {},
+    [
+      { id: 'doc-row', title: 'Row', state: 'ready', propertyId: 'property-row', createdAt: '2026-09-09T00:00:00.000Z' },
+      { id: 'doc-wbs', title: 'Wbs', state: 'ready', propertyId: 'property-wbs', createdAt: '2026-09-09T00:00:00.000Z' },
+    ],
+  )
+
+  const plan = planFor(data)
+  assert.ok(plan)
+  assert.deepEqual(plan.documents?.map((document) => document.id), ['doc-row'])
+})
