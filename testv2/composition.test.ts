@@ -134,13 +134,7 @@ const wbsRepo: WbsRepository = {
   async dismiss(request) {
     return { id: request.id, title: '', notes: '', category: 'clients', status: 'dismissed', projectId: null, parentId: null, dueAt: null, owner: null, order: null, entity: null, createdAt: null, updatedAt: null }
   },
-  async createProject() {
-    return { id: '', name: '', owner: null, status: 'open', createdAt: null, updatedAt: null }
-  },
-  async getProject() {
-    return null
-  },
-  async listProjects() {
+  async listProjectItems() {
     return []
   },
 }
@@ -178,13 +172,13 @@ const projectRepo: ProjectRepository = {
     return []
   },
   async create(request) {
-    return { id: request.id, name: request.name, owner: null, status: 'open', description: '', areas: [], startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
+    return { id: request.id, name: request.name, owner: null, status: 'open', description: '', areas: [], projectType: null, playbookId: null, playbookVersion: null, personId: null, propertyId: null, contractId: null, startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
   },
   async update(request) {
-    return { id: request.id, name: request.name ?? '', owner: null, status: 'open', description: '', areas: [], startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
+    return { id: request.id, name: request.name ?? '', owner: null, status: 'open', description: '', areas: [], projectType: null, playbookId: null, playbookVersion: null, personId: null, propertyId: null, contractId: null, startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
   },
   async complete(request) {
-    return { id: request.id, name: '', owner: null, status: 'done', description: '', areas: [], startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
+    return { id: request.id, name: '', owner: null, status: 'done', description: '', areas: [], projectType: null, playbookId: null, playbookVersion: null, personId: null, propertyId: null, contractId: null, startsAt: null, endsAt: null, createdAt: null, updatedAt: null }
   },
 }
 

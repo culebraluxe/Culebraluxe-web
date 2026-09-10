@@ -11,11 +11,9 @@ export {
 export {
   WBS_OPERATIONS,
   type CreateWbsItemRequest,
-  type CreateWbsProjectRequest,
   type DismissWbsItemRequest,
-  type GetProjectRequest,
   type GetWbsItemRequest,
-  type ListProjectsRequest,
+  type ListProjectWbsItemsRequest,
   type ListWbsDueRequest,
   type SaveWbsItemRequest,
   type CompleteWbsItemRequest,
@@ -24,6 +22,5 @@ export {
   type WbsItem,
   type WbsOperationMap,
   type WbsOperationName,
-  type WbsProject,
   type WbsStatus,
 } from './types'

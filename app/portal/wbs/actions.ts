@@ -80,3 +80,28 @@ export async function dismissWbsItemAction(id: string): Promise<WbsActionResult>
     return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not dismiss follow-up." }
   }
 }
+
+export async function updateWbsItemAction(input: {
+  id: string
+  status?: 'open' | 'doing' | 'done' | 'dismissed'
+  dueAt?: string | null
+  owner?: string | null
+  notes?: string
+}): Promise<WbsActionResult> {
+  try {
+    const context = await runContext()
+    const service = wbsService()
+    const current = await service.execute({ operation: "wbs.get", payload: { id: input.id }, context })
+    if (!current.ok) return { ok: false, code: current.error.code, message: current.error.message }
+    if (!current.value) return { ok: false, code: "WBS_NOT_FOUND", message: "That work item no longer exists." }
+    const res = await service.execute({
+      operation: "wbs.save",
+      payload: { id: current.value.id, title: current.value.title, category: current.value.category, projectId: current.value.projectId, parentId: current.value.parentId, order: current.value.order, entity: current.value.entity, dueAt: input.dueAt === undefined ? current.value.dueAt : input.dueAt, owner: input.owner === undefined ? current.value.owner : input.owner, notes: input.notes === undefined ? current.value.notes : input.notes, status: input.status ?? current.value.status },
+      context,
+    })
+    if (!res.ok) return { ok: false, code: res.error.code, message: res.error.message }
+    return { ok: true, id: res.value.id }
+  } catch (caught) {
+    return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not update work item." }
+  }
+}

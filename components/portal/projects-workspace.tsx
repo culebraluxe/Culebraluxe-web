@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
 import {
   AlertCircle,
@@ -47,6 +48,8 @@ import {
   selectedTreeNodeId,
   type ProjectTreeNode,
 } from "@/ui/projects/tree-projection"
+import { instantiateProjectAction, updateProjectStatusAction } from "@/app/portal/projects/actions"
+import { updateWbsItemAction } from "@/app/portal/wbs/actions"
 
 const DOMAIN_ICON: Record<ProjectDomainKey, LucideIcon> = {
   properties: Home,
@@ -95,6 +98,7 @@ const STATUS_LABEL: Record<ProjectWorkStatus, string> = {
   "in-progress": "In progress",
   "not-started": "Not started",
   blocked: "Blocked",
+  dismissed: "Dismissed",
 }
 
 const STATUS_BAR: Record<ProjectWorkStatus, string> = {
@@ -103,6 +107,7 @@ const STATUS_BAR: Record<ProjectWorkStatus, string> = {
   "in-progress": "bg-[var(--portal-blue-gray)]",
   "not-started": "bg-black/20",
   blocked: "bg-[var(--portal-archive)]",
+  dismissed: "bg-black/35",
 }
 
 const VIEW_LABEL: Record<ProjectWorkspaceView, string> = {
@@ -124,6 +129,7 @@ function StatusIcon({ status }: { status: ProjectWorkStatus }) {
   if (status === "waiting") return <Clock3 className="h-3.5 w-3.5 shrink-0 text-[var(--portal-gold)]" aria-hidden />
   if (status === "blocked") return <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[var(--portal-archive)]" aria-hidden />
   if (status === "in-progress") return <Circle className="h-3.5 w-3.5 shrink-0 text-[var(--portal-blue-gray)]" aria-hidden />
+  if (status === "dismissed") return <Circle className="h-3.5 w-3.5 shrink-0 text-black/35" aria-hidden />
   return <Circle className="h-3.5 w-3.5 shrink-0 text-black/25" aria-hidden />
 }
 
@@ -156,12 +162,15 @@ function poleMatches(pole: ProjectPole, query: string): boolean {
 /** Find a WorkNode (searching children) under a project. */
 function findWorkNode(project: ProjectPlan | null, nodeId: string | null): ProjectWorkNode | null {
   if (!project || !nodeId) return null
-  for (const node of project.workNodes) {
-    if (node.id === nodeId) return node
-    const child = node.children?.find((c) => c.id === nodeId)
-    if (child) return child
+  const visit = (nodes: readonly ProjectWorkNode[]): ProjectWorkNode | null => {
+    for (const node of nodes) {
+      if (node.id === nodeId) return node
+      const child = node.children ? visit(node.children) : null
+      if (child) return child
+    }
+    return null
   }
-  return null
+  return visit(project.workNodes)
 }
 
 type DomainRailProps = {
@@ -234,6 +243,7 @@ function navyWorkDot(status?: ProjectWorkStatus): string {
   if (status === "waiting") return "bg-[var(--portal-gold)]"
   if (status === "blocked") return "bg-[var(--portal-archive)]"
   if (status === "in-progress") return "bg-[var(--portal-gold)]/70"
+  if (status === "dismissed") return "bg-white/20"
   return "bg-white/30"
 }
 
@@ -242,6 +252,7 @@ function statusGlyphColor(status?: ProjectWorkStatus): string {
   if (status === "blocked") return "text-[var(--portal-archive)]"
   if (status === "waiting") return "text-[var(--portal-gold)]"
   if (status === "in-progress") return "text-[var(--portal-gold)]/80"
+  if (status === "dismissed") return "text-white/35"
   return "text-white/55"
 }
 
@@ -419,11 +430,11 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
         <StatusIcon status={node.status} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13.5px] text-[var(--portal-navy)]">{node.title}</span>
-          <span className="block truncate text-[10px] font-light text-black/40">{node.type} · {node.owner ?? "—"}</span>
+          <span className="block truncate text-[10px] font-light text-black/40">{node.type}</span>
         </span>
         <span className="text-right">
-          <span className="block text-[10px] font-light text-[var(--portal-blue-gray)]">{STATUS_LABEL[node.status]}</span>
-          {node.dueLabel ? <span className="block text-[9px] font-light text-black/40">{node.dueLabel}</span> : null}
+          <span className="block text-[10px] font-light text-[var(--portal-blue-gray)]">{node.dueLabel ?? "—"}</span>
+          <span className="block truncate text-[9px] font-light text-black/40">{node.owner ?? "—"}</span>
         </span>
       </button>
       {node.children?.length ? (
@@ -440,6 +451,7 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
 function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 px-1.5 py-1">
+      <div className="grid grid-cols-[22px_minmax(0,1fr)_72px_88px] gap-2 border-b border-[var(--portal-panel-border)]/70 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40"><span /><span>Work item</span><span className="text-right">Due</span><span className="text-right">Owner</span></div>
       <ul className="space-y-0.5">
         {project.workNodes.map((node) => (
           <WorkPlanNode key={node.id} node={node} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
@@ -449,28 +461,104 @@ function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
   )
 }
 
-function ProjectHeader({ pole, project }: { pole: ProjectPole; project: ProjectPlan }) {
+function ProjectCalendar({ project }: { project: ProjectPlan }) {
+  const items = project.calendarItems ?? []
+  if (!items.length) return <ProjectionPlaceholder view="calendar" />
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
+      <ul className="divide-y divide-[var(--portal-panel-border)]/70">
+        {items.map((item) => (
+          <li key={item.id} className="flex items-center gap-3 px-2 py-2.5">
+            <time dateTime={item.startAt} className="w-24 shrink-0 text-[11px] font-medium text-[var(--portal-gold-muted)]">{new Date(item.startAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--portal-navy)]">{item.title}</span>
+            <span className="shrink-0 text-[10px] font-light text-black/40">{item.owner ?? "Unassigned"}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ProjectDocuments({ project }: { project: ProjectPlan }) {
+  const documents = project.documents ?? []
+  if (!documents.length) return <ProjectionPlaceholder view="documents" />
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
+      <ul className="divide-y divide-[var(--portal-panel-border)]/70">
+        {documents.map((document) => (
+          <li key={document.id} className="flex items-center gap-3 px-2 py-2.5">
+            <FileText className="h-4 w-4 shrink-0 text-[var(--portal-gold-muted)]" aria-hidden />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--portal-navy)]">{document.title}</span>
+            <span className="shrink-0 text-[10px] font-medium uppercase text-black/40">{document.state}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ProjectActivity({ project }: { project: ProjectPlan }) {
+  const activity = project.activity ?? []
+  if (!activity.length) return <ProjectionPlaceholder view="activity" />
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
+      <ul className="divide-y divide-[var(--portal-panel-border)]/70">
+        {activity.map((entry) => (
+          <li key={entry.id} className="px-2 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--portal-gold-muted)]">{entry.channel}{entry.direction ? ` · ${entry.direction}` : ""}</span>
+              <time dateTime={entry.occurredAt} className="text-[10px] font-light text-black/40">{entry.occurredAtLabel}</time>
+            </div>
+            <p className="mt-1 text-[13px] text-[var(--portal-navy)]">{entry.title ?? entry.summary ?? "Activity recorded"}</p>
+            {entry.summary && entry.title ? <p className="mt-0.5 truncate text-[11px] font-light text-black/45">{entry.summary}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ProjectHeader({ pole, project, onStatusChange, statusPending }: { pole: ProjectPole; project: ProjectPlan; onStatusChange?: (status: "open" | "doing" | "done" | "archived") => void; statusPending?: boolean }) {
   return (
     <div>
       <p className="flex items-center gap-1 text-[10px] font-light uppercase tracking-[0.16em] text-[var(--portal-blue-gray)]">
         {pole.label} <ChevronRight className="h-3 w-3" aria-hidden /> {project.kind}
       </p>
-      <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="min-w-0 font-serif text-[26px] font-light leading-tight text-[var(--portal-navy)]">{project.title}</h2>
+      <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-serif text-[26px] font-light leading-tight text-[var(--portal-navy)]">{project.title}</h2>
+          {project.contextLabels?.length ? <p className="mt-1 truncate text-[12px] font-light text-black/45">{project.contextLabels.join(" · ")}</p> : null}
+        </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)]">{project.phaseLabel}</span>
+          <select
+            value={project.status === "active" ? "doing" : project.status === "complete" ? "done" : project.status === "archived" ? "archived" : "open"}
+            disabled={!onStatusChange || statusPending}
+            onChange={(event) => onStatusChange?.(event.target.value as "open" | "doing" | "done" | "archived")}
+            aria-label="Project status"
+            className="rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] outline-none"
+          >
+            <option value="open">Open</option>
+            <option value="doing">In progress</option>
+            <option value="done">Complete</option>
+            <option value="archived">Archived</option>
+          </select>
           <span className="text-[11px] font-light text-[var(--portal-blue-gray)]">{project.progress}%</span>
         </div>
       </div>
       <div className="mt-2 w-full max-w-[280px]">
         <Progress value={project.progress} />
       </div>
+      {project.playbookId ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {project.playbookId ? <span className="rounded-full bg-[var(--portal-gold)]/15 px-2 py-0.5 text-[10px] font-medium text-[var(--portal-gold-muted)]">{project.playbookId}{project.playbookVersion ? ` v${project.playbookVersion}` : ""}</span> : null}
+        </div>
+      ) : null}
       {project.nextAction ? (
-        <p className="mt-2 text-[12.5px] font-light text-[var(--portal-navy)]">
-          <span className="font-medium text-[var(--portal-gold-muted)]">Next&nbsp;·&nbsp;</span>
-          {project.nextAction}
-          {project.nextActionDetail ? <span className="text-black/45"> — {project.nextActionDetail}</span> : null}
-        </p>
+        <div className="mt-3 rounded-xl border border-[var(--portal-gold)]/25 bg-[var(--portal-gold)]/10 px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">Next action</p>
+          <p className="mt-1 text-[13px] font-medium text-[var(--portal-navy)]">{project.nextAction}</p>
+          {project.nextActionDetail ? <p className="mt-0.5 text-[11px] font-light text-black/45">{project.nextActionDetail}</p> : null}
+        </div>
       ) : null}
       {project.blocker ? (
         <p className="mt-1.5 flex items-start gap-1.5 text-[11.5px] font-light text-[var(--portal-archive)]">
@@ -498,10 +586,12 @@ type PaneTwoProps = {
   selectedNodeId: string | null
   onSelectView: (v: ProjectWorkspaceView) => void
   onSelectNode: (id: string | null) => void
+  onStatusChange?: (status: "open" | "doing" | "done" | "archived") => void
+  statusPending?: boolean
 }
 
 /** Pane 2 — the dominant working surface. */
-function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSelectNode }: PaneTwoProps) {
+function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSelectNode, onStatusChange, statusPending }: PaneTwoProps) {
   return (
     <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
       {!pole || !project ? (
@@ -511,7 +601,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
       ) : (
         <>
           <div className="border-b border-[var(--portal-panel-border)] px-4 pb-3 pt-4">
-            <ProjectHeader pole={pole} project={project} />
+            <ProjectHeader pole={pole} project={project} onStatusChange={onStatusChange} statusPending={statusPending} />
           </div>
           <div className="overflow-x-auto px-2 pt-2">
             <nav aria-label="Project workspace views" className="portal-glass-rail flex min-w-max gap-1 p-1">
@@ -534,6 +624,12 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
           <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
             {activeView === "work-plan" ? (
               <WorkPlan project={project} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
+            ) : activeView === "calendar" ? (
+              <ProjectCalendar project={project} />
+            ) : activeView === "documents" ? (
+              <ProjectDocuments project={project} />
+            ) : activeView === "activity" ? (
+              <ProjectActivity project={project} />
             ) : (
               <ProjectionPlaceholder view={activeView} />
             )}
@@ -548,6 +644,7 @@ type InspectorProps = {
   pole: ProjectPole | null
   project: ProjectPlan | null
   node: ProjectWorkNode | null
+  onSaved?: () => void
 }
 
 function PaneThreeHead() {
@@ -559,7 +656,20 @@ function PaneThreeHead() {
 }
 
 /** Pane 3 — persistent selected-WorkNode inspector (readable type sizes). */
-function PaneThree({ pole, project, node }: InspectorProps) {
+function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
+  const [status, setStatus] = useState(node?.status ?? "not-started")
+  const [dueAt, setDueAt] = useState(node?.dueAt?.slice(0, 10) ?? "")
+  const [owner, setOwner] = useState(node?.owner ?? "")
+  const [notes, setNotes] = useState(node?.note ?? "")
+  const [saving, startSaving] = useTransition()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  useEffect(() => {
+    setStatus(node?.status ?? "not-started")
+    setDueAt(node?.dueAt?.slice(0, 10) ?? "")
+    setOwner(node?.owner ?? "")
+    setNotes(node?.note ?? "")
+    setSaveError(null)
+  }, [node])
   if (!node) {
     return (
       <section className="portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]">
@@ -590,6 +700,35 @@ function PaneThree({ pole, project, node }: InspectorProps) {
           ) : null}
 
           {summary ? <p className="mt-3 text-[16px] font-light leading-relaxed text-[var(--portal-navy)]">{summary}</p> : null}
+
+          <div className="mt-3 space-y-2 border-y border-[var(--portal-panel-border)] py-3">
+            <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
+              Status
+              <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className="rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-[13px] text-[var(--portal-navy)]">
+                <option value="not-started">Not started</option><option value="in-progress">In progress</option><option value="complete">Complete</option><option value="dismissed">Dismissed</option>
+              </select>
+            </label>
+            <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
+              Due date
+              <input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} className="rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-[13px] text-[var(--portal-navy)]" />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
+              Assignee
+              <input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="Unassigned" className="w-32 rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-right text-[13px] text-[var(--portal-navy)]" />
+            </label>
+            <label className="block text-[13px] font-light text-black/45">
+              Notes
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-1 w-full resize-y rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-[13px] text-[var(--portal-navy)]" />
+            </label>
+            {saveError ? <p className="text-[12px] text-[var(--portal-archive)]">{saveError}</p> : null}
+            <button type="button" disabled={saving} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: status === "complete" ? "done" : status === "dismissed" ? "dismissed" : status === "in-progress" ? "doing" : "open", dueAt: dueAt ? new Date(`${dueAt}T12:00:00`).toISOString() : null, owner: owner.trim() || null, notes }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="rounded-lg bg-[var(--portal-navy)] px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50">
+              {saving ? "Saving…" : "Save work item"}
+            </button>
+            <div className="flex gap-2">
+              <button type="button" disabled={saving || status === "complete"} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: "done" }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="flex-1 rounded-lg border border-[var(--portal-success)]/40 px-3 py-2 text-[12px] font-medium text-[var(--portal-success)] disabled:opacity-40">Complete</button>
+              <button type="button" disabled={saving || status === "dismissed"} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: "dismissed" }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="flex-1 rounded-lg border border-[var(--portal-archive)]/40 px-3 py-2 text-[12px] font-medium text-[var(--portal-archive)] disabled:opacity-40">Dismiss</button>
+            </div>
+          </div>
 
           <dl className="mt-3 space-y-2 border-y border-[var(--portal-panel-border)] py-3 text-[16px] font-light">
             {node.dueLabel ? (
@@ -639,9 +778,21 @@ function PaneThree({ pole, project, node }: InspectorProps) {
     </section>
   )
 }
-export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorkspaceData }) {
+export function ProjectsWorkspace({
+  initialData,
+  loadError,
+}: {
+  initialData: ProjectsWorkspaceData | null
+  loadError?: string | null
+}) {
+  const router = useRouter()
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
+  const [newProjectName, setNewProjectName] = useState("")
+  const [newProjectError, setNewProjectError] = useState<string | null>(null)
+  const [isCreating, startCreating] = useTransition()
+  const [isUpdatingStatus, startUpdatingStatus] = useTransition()
   const source = useMemo(
-    () => new InMemoryProjectsWorkspaceSource(initialData),
+    () => new InMemoryProjectsWorkspaceSource(initialData ?? { domains: [], poles: [] }),
     [initialData],
   )
   const controller = useMemo(() => new ProjectsWorkspaceController(source), [source])
@@ -667,6 +818,41 @@ export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorks
   const selectedProject = selectedPole?.projects.find((p) => p.id === model.selectedProjectId) ?? null
   const selectedNode = findWorkNode(selectedProject, model.selectedNodeId)
 
+  const createProject = useCallback(() => {
+    const name = newProjectName.trim()
+    if (!name) {
+      setNewProjectError("Enter a project name.")
+      return
+    }
+    setNewProjectError(null)
+    startCreating(async () => {
+      const result = await instantiateProjectAction({
+        id: crypto.randomUUID(),
+        name,
+        projectType: "listing",
+        playbookId: "listing-onboarding",
+        playbookVersion: 1,
+        areas: ["clients", "properties", "contracts", "media", "marketing", "accounting"],
+      })
+      if (!result.ok) {
+        setNewProjectError(result.message)
+        return
+      }
+      setNewProjectName("")
+      setNewProjectOpen(false)
+      router.refresh()
+    })
+  }, [newProjectName, router])
+
+  const updateStatus = useCallback((status: "open" | "doing" | "done" | "archived") => {
+    if (!selectedProject) return
+    startUpdatingStatus(async () => {
+      const result = await updateProjectStatusAction(selectedProject.id, status)
+      if (!result.ok) setNewProjectError(result.message)
+      else router.refresh()
+    })
+  }, [router, selectedProject])
+
   const handleTreeSelect = useCallback(
     (node: ProjectTreeNode | null) => {
       if (!node) return
@@ -688,6 +874,9 @@ export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorks
     [controller],
   )
 
+  if (loadError) {
+    return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">{loadError}</p>
+  }
   if (model.error) {
     return <p className="px-4 py-6 text-sm font-light text-[var(--portal-archive)]">Could not load the Projects workspace: {model.error}</p>
   }
@@ -696,7 +885,17 @@ export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorks
   }
 
   return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:h-[calc(100dvh-8.5rem)] lg:grid-cols-[minmax(350px,375px)_minmax(0,1fr)_minmax(295px,315px)]">
+    <div className="relative flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex shrink-0 justify-end">
+        <button
+          type="button"
+          onClick={() => { setNewProjectError(null); setNewProjectOpen(true) }}
+          className="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90"
+        >
+          New Project
+        </button>
+      </div>
+      <div className="grid min-h-0 flex-1 gap-3 lg:h-[calc(100dvh-10.5rem)] lg:grid-cols-[minmax(350px,375px)_minmax(0,1fr)_minmax(295px,315px)]">
       <PaneOne
         domains={domains}
         activeDomain={model.activeDomain}
@@ -714,8 +913,37 @@ export function ProjectsWorkspace({ initialData }: { initialData?: ProjectsWorks
         selectedNodeId={model.selectedNodeId}
         onSelectView={(view) => void controller.dispatch({ operation: "projects.selectView", payload: { view } })}
         onSelectNode={(nodeId) => void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId } })}
+        onStatusChange={updateStatus}
+        statusPending={isUpdatingStatus}
       />
-      <PaneThree pole={selectedPole} project={selectedProject} node={selectedNode} />
+      <PaneThree pole={selectedPole} project={selectedProject} node={selectedNode} onSaved={() => router.refresh()} />
+      </div>
+      {newProjectOpen ? (
+        <div className="absolute right-0 top-10 z-20 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-[var(--portal-panel-border)] bg-white p-4 shadow-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">New project</p>
+              <h2 className="mt-1 font-serif text-[22px] font-light text-[var(--portal-navy)]">Listing onboarding</h2>
+            </div>
+            <button type="button" onClick={() => setNewProjectOpen(false)} className="text-xl font-light text-black/40" aria-label="Close">×</button>
+          </div>
+          <label className="mt-4 block text-[12px] font-medium text-[var(--portal-navy)]">
+            Project name
+            <input
+              autoFocus
+              value={newProjectName}
+              onChange={(event) => setNewProjectName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") createProject() }}
+              placeholder="e.g. Sunset Point Listing"
+              className="mt-1.5 h-10 w-full rounded-lg border border-[var(--portal-panel-border)] bg-white px-3 text-[14px] font-light outline-none focus:border-[var(--portal-gold)]"
+            />
+          </label>
+          {newProjectError ? <p className="mt-2 text-[12px] text-[var(--portal-archive)]">{newProjectError}</p> : null}
+          <button type="button" disabled={isCreating} onClick={createProject} className="mt-4 w-full rounded-lg bg-[var(--portal-navy)] px-3 py-2.5 text-[13px] font-medium text-white disabled:opacity-50">
+            {isCreating ? "Creating…" : "Create listing project"}
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

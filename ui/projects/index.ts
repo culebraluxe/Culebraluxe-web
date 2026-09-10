@@ -4,6 +4,7 @@ export {
   PROJECTS_WORKSPACE_FIXTURE,
   type ProjectsWorkspaceSource,
 } from "./source"
+export { mapProjectCalendarItems, type ProjectCalendarItem } from "./secondary-projection"
 export type {
   ProjectDomain,
   ProjectDomainKey,

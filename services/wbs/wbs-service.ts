@@ -7,12 +7,12 @@ import { isWbsCategory } from './categories'
 import type { WbsRepository } from './repository'
 import { WBS_OPERATIONS, type WbsOperationMap } from './types'
 
-/** Canonical WBS service: Work Items + Projects, built on the shared BaseService. */
+/** Canonical WBS service: Work Items, built on the shared BaseService. */
 export class WbsService extends BaseService<WbsOperationMap> {
   readonly domain = 'wbs'
   readonly version = '1'
   readonly description =
-    'Owns work items (WBS nodes) and lightweight projects; follow-up is the key output.'
+    'Owns work items (WBS nodes); ProjectService owns their canonical parent.'
   protected readonly operations: ServiceOperationDefinitions<WbsOperationMap>
 
   constructor(
@@ -37,6 +37,14 @@ export class WbsService extends BaseService<WbsOperationMap> {
         idempotent: true,
         execution: { mode: 'inline' },
         handle: async (request) => this.repository.listDue(request),
+      },
+      [WBS_OPERATIONS.LIST_PROJECT_ITEMS]: {
+        kind: 'query',
+        description: 'List the complete persisted WBS for Projects, including terminal rows.',
+        authorization: 'wbs.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.listProjectItems(request),
       },
       [WBS_OPERATIONS.CREATE]: {
         kind: 'command',
@@ -112,39 +120,6 @@ export class WbsService extends BaseService<WbsOperationMap> {
           return item
         },
       },
-      [WBS_OPERATIONS.GET_PROJECT]: {
-        kind: 'query',
-        description: 'Return one lightweight project by id.',
-        authorization: 'wbs.read',
-        idempotent: true,
-        execution: { mode: 'inline' },
-        handle: async (request) => this.repository.getProject(request.id),
-      },
-      [WBS_OPERATIONS.LIST_PROJECTS]: {
-        kind: 'query',
-        description: 'List projects (newest first) for the projects view.',
-        authorization: 'wbs.read',
-        idempotent: true,
-        execution: { mode: 'inline' },
-        handle: async () => this.repository.listProjects(),
-      },
-      [WBS_OPERATIONS.CREATE_PROJECT]: {
-        kind: 'command',
-        description: 'Create a lightweight project (a WBS root).',
-        authorization: 'wbs.write',
-        execution: { mode: 'ordered', partitionBy: 'id' },
-        handle: async (request, context) => {
-          if (!request.name?.trim()) {
-            this.fail('WBS_PROJECT_NAME_REQUIRED', 'A Project requires a name.')
-          }
-          const project = await this.repository.createProject(request)
-          await this.emit(
-            { type: 'project.created', aggregateId: project.id, payload: { id: project.id, name: project.name } },
-            context,
-          )
-          return project
-        },
-      },
     }
   }
 
@@ -159,7 +134,7 @@ export class WbsService extends BaseService<WbsOperationMap> {
 
   invariants() {
     return [
-      'WBS owns follow-up work items and lightweight projects; a WorkItem is open/doing/done/dismissed.',
+      'WBS owns follow-up work items only; ProjectService owns Projects. A WorkItem is open/doing/done/dismissed.',
       'Category is a fixed dimension (Clients, Contracts, Properties, Media, Marketing, Accounting, Management).',
       'A work item is either a project child (WBS) or a standalone ad-hoc follow-up (no project).',
       'WBS persistence is reachable only through the WbsRepository boundary.',

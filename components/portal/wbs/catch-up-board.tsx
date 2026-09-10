@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import type { WbsCategoryId, WbsItem, WbsProject } from '@/services/wbs'
+import type { WbsCategoryId, WbsItem } from '@/services/wbs'
+import type { Project } from '@/services/project'
 import { WBS_CATEGORIES } from '@/services/wbs'
 import { FullCalendarCandidate } from '@/components/portal/fullcalendar-candidate'
 import type { CatchUpCalendarEvent } from '@/lib/catchup/calendar-adapter'
@@ -31,7 +32,7 @@ function dueLabel(item: WbsItem): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: WbsProject[] }) {
+export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: Project[] }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [filter, setFilter] = useState<string | null>(null)
@@ -232,4 +233,3 @@ export function CatchUpBoard({ items, projects }: { items: WbsItem[]; projects: 
     </div>
   )
 }
-

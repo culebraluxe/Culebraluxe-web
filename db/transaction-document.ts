@@ -508,6 +508,7 @@ export async function getTransactionDocument(
 export type IssuedDocumentListItem = {
   id: string
   dealId: string
+  propertyId: string | null
   documentTypeLabel: string | null
   title: string | null
   state: TransactionDocumentState
@@ -540,7 +541,7 @@ export async function listIssuedDocuments(
       td.issued_checksum_sha256, td.signed_media_id, td.signed_audit_media_id,
       u.display_name as issued_by_display_name,
       p.display_name as party_name,
-      pr.name as property_name,
+      pr.id as property_id, pr.name as property_name,
       null as deal_name,
       td.created_at
     from transaction_document td
@@ -561,6 +562,7 @@ export async function listIssuedDocuments(
   return rows.map((row) => ({
     id: row.id as string,
     dealId: row.deal_id as string,
+    propertyId: (row.property_id as string | null) ?? null,
     documentTypeLabel: (row.document_type_label as string | null) ?? null,
     title: (row.title as string | null) ?? null,
     state: (row.state as TransactionDocumentState) ?? 'ready',

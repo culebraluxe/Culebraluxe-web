@@ -4,12 +4,11 @@ import type { WbsCategoryId, WbsEntityLink } from '@/services/wbs'
 import type {
   CompleteWbsItemRequest,
   CreateWbsItemRequest,
-  CreateWbsProjectRequest,
   DismissWbsItemRequest,
   ListWbsDueRequest,
+  ListProjectWbsItemsRequest,
   SaveWbsItemRequest,
   WbsItem,
-  WbsProject,
   WbsRepository,
 } from '@/services/wbs'
 
@@ -26,15 +25,6 @@ type WbsItemRow = {
   sort_order: unknown
   entity_type: string | null
   entity_id: string | null
-  created_at: unknown
-  updated_at: unknown
-}
-
-type WbsProjectRow = {
-  id: string
-  name: string
-  owner: string | null
-  status: string
   created_at: unknown
   updated_at: unknown
 }
@@ -76,17 +66,6 @@ function toItem(row: WbsItemRow): WbsItem {
   }
 }
 
-function toProject(row: WbsProjectRow): WbsProject {
-  return {
-    id: row.id,
-    name: row.name,
-    owner: row.owner,
-    status: row.status as WbsItem['status'],
-    createdAt: iso(row.created_at),
-    updatedAt: iso(row.updated_at),
-  }
-}
-
 
 /** SQL adapter behind WbsService. */
 export class SqlWbsRepository implements WbsRepository {
@@ -115,6 +94,21 @@ export class SqlWbsRepository implements WbsRepository {
           from wbs_item where status in ('open', 'doing')
           order by due_at nulls last, id
         `) as unknown as WbsItemRow[])
+    return rows.map(toItem)
+  }
+
+  async listProjectItems(_request: ListProjectWbsItemsRequest): Promise<WbsItem[]> {
+    const rows = (await this.execute`
+      select id, project_id, parent_id, title, notes, category, status,
+             due_at, owner, sort_order, entity_type, entity_id, created_at, updated_at
+      from wbs_item
+      where project_id is not null
+      order by project_id,
+               parent_id nulls first,
+               sort_order nulls last,
+               due_at nulls last,
+               id
+    `) as unknown as WbsItemRow[]
     return rows.map(toItem)
   }
 
@@ -180,30 +174,4 @@ export class SqlWbsRepository implements WbsRepository {
   }
 
 
-  async createProject(request: CreateWbsProjectRequest): Promise<WbsProject> {
-    const rows = (await this.execute`
-      insert into wbs_project (id, name, owner)
-      values (${request.id}, ${request.name}, ${request.owner ?? null})
-      returning id, name, owner, status, created_at, updated_at
-    `) as unknown as WbsProjectRow[]
-    if (!rows[0]) throw new Error('WBS project creation returned no row.')
-    return toProject(rows[0])
-  }
-
-  async getProject(id: string): Promise<WbsProject | null> {
-    const rows = (await this.execute`
-      select id, name, owner, status, created_at, updated_at
-      from wbs_project where id = ${id} limit 1
-    `) as unknown as WbsProjectRow[]
-    return rows[0] ? toProject(rows[0]) : null
-  }
-
-  async listProjects(): Promise<WbsProject[]> {
-    const rows = (await this.execute`
-      select id, name, owner, status, created_at, updated_at
-      from wbs_project order by created_at desc, id
-    `) as unknown as WbsProjectRow[]
-    return rows.map(toProject)
-  }
 }
-

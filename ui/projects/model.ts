@@ -12,7 +12,7 @@ export type ProjectDomain = {
   shortLabel: string
 }
 
-export type ProjectWorkStatus = "complete" | "waiting" | "in-progress" | "not-started" | "blocked"
+export type ProjectWorkStatus = "complete" | "waiting" | "in-progress" | "not-started" | "blocked" | "dismissed"
 
 export type ProjectWorkNodeType =
   | "group"
@@ -32,6 +32,7 @@ export type ProjectWorkNode = {
   type: ProjectWorkNodeType
   status: ProjectWorkStatus
   dueLabel?: string
+  dueAt?: string
   owner?: string
   note?: string
   relatedLabel?: string
@@ -53,12 +54,18 @@ export type ProjectPlan = {
   id: string
   title: string
   kind: string
-  status: "active" | "planning" | "hold" | "complete"
+  status: "active" | "planning" | "hold" | "complete" | "archived"
   progress: number
   phaseLabel: string
+  playbookId?: string
+  playbookVersion?: number
+  contextLabels?: string[]
   nextAction?: string
   nextActionDetail?: string
   blocker?: string
+  calendarItems?: Array<{ id: string; title: string; startAt: string; status: string; category: string; owner: string | null }>
+  documents?: Array<{ id: string; title: string; state: string; propertyId: string | null; createdAt: string }>
+  activity?: Array<{ id: string; channel: string; direction: string | null; occurredAt: string; occurredAtLabel: string; title: string | null; summary: string | null; personName: string | null; propertyName: string | null }>
   workNodes: ProjectWorkNode[]
 }
 

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// TESTV2 — WBS service (Work Items + Projects). Mirrors the kernel test style.
+// TESTV2 — WBS service (Work Items). Mirrors the kernel test style.
 // ---------------------------------------------------------------------------
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { WbsService } from '../services/wbs'
 import type { WbsRepository } from '../services/wbs'
 import { isWbsCategory, MANAGEMENT_CATEGORY_ID, WBS_CATEGORIES } from '../services/wbs'
-import type { WbsItem, WbsProject } from '../services/wbs'
+import type { WbsItem } from '../services/wbs'
 import { capturingInfrastructure, context } from './test-support'
 
 const actor = { id: 'u-1', kind: 'user' as const }
@@ -33,7 +33,6 @@ function baseItem(id: string, over: Partial<WbsItem> = {}): WbsItem {
 
 class MemoryWbsRepository implements WbsRepository {
   private readonly items = new Map<string, WbsItem>()
-  private readonly projects = new Map<string, WbsProject>()
   seed(item: WbsItem): this {
     this.items.set(item.id, item)
     return this
@@ -46,6 +45,16 @@ class MemoryWbsRepository implements WbsRepository {
       .filter((i) => i.status === 'open' || i.status === 'doing')
       .filter((i) => !request.category || i.category === request.category)
       .sort((a, b) => (a.dueAt ?? '9999').localeCompare(b.dueAt ?? '9999'))
+  }
+  async listProjectItems() {
+    return [...this.items.values()]
+      .filter((i) => i.projectId !== null)
+      .sort((a, b) => {
+        const project = (a.projectId ?? '').localeCompare(b.projectId ?? '')
+        if (project) return project
+        const order = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)
+        return order || a.id.localeCompare(b.id)
+      })
   }
   async create(request: { id: string; title: string; category: string; projectId?: string | null }): Promise<WbsItem> {
     const item = baseItem(request.id, {
@@ -83,24 +92,7 @@ class MemoryWbsRepository implements WbsRepository {
     this.items.set(request.id, updated)
     return updated
   }
-  async getProject(id: string): Promise<WbsProject | null> {
-    return this.projects.get(id) ?? null
-  }
-  async listProjects(): Promise<WbsProject[]> {
-    return [...this.projects.values()]
-  }
-  async createProject(request: { id: string; name: string }): Promise<WbsProject> {
-    const project: WbsProject = {
-      id: request.id,
-      name: request.name,
-      owner: null,
-      status: 'open',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-    }
-    this.projects.set(request.id, project)
-    return project
-  }
+
 }
 
 test('the category catalog is plural where it should be and has a Management catch-all', () => {
@@ -191,18 +183,28 @@ test('wbs.listDue returns only open/doing items, filterable by category', async 
   if (clients.ok) assert.deepEqual(clients.value.map((i) => i.id), ['open-client'])
 })
 
-test('project.create creates a lightweight project root', async () => {
+test('wbs.listProjectItems returns the complete project plan, including terminal rows', async () => {
   const repo = new MemoryWbsRepository()
-  const infra = capturingInfrastructure()
-  const service = new WbsService(repo, infra.infrastructure)
-  const res = await service.execute({
-    operation: 'project.create',
-    payload: { id: 'prj-1', name: 'Onboard Ana' },
+    .seed(baseItem('open-project', { projectId: 'p1', status: 'open' }))
+    .seed(baseItem('done-project', { projectId: 'p1', status: 'done' }))
+    .seed(baseItem('dismissed-project', { projectId: 'p1', status: 'dismissed' }))
+    .seed(baseItem('standalone', { projectId: null, status: 'open' }))
+  const service = new WbsService(repo, capturingInfrastructure().infrastructure)
+
+  const result = await service.execute({
+    operation: 'wbs.listProjectItems',
+    payload: {},
     context: context({ actor }),
   })
-  assert.equal(res.ok, true)
-  if (res.ok) assert.equal(res.value.name, 'Onboard Ana')
-  assert.ok(infra.events.some((e) => e.type === 'project.created'))
+
+  assert.equal(result.ok, true)
+  if (result.ok) {
+    assert.deepEqual(result.value.map((item) => item.id), [
+      'dismissed-project',
+      'done-project',
+      'open-project',
+    ])
+  }
 })
 
 test('wbs.dismiss sets an item aside (dismissed) and emits wbs.dismissed', async () => {
@@ -213,27 +215,4 @@ test('wbs.dismiss sets an item aside (dismissed) and emits wbs.dismissed', async
   assert.equal(res.ok, true)
   if (res.ok) assert.equal(res.value.status, 'dismissed')
   assert.ok(infra.events.some((e) => e.type === 'wbs.dismissed'))
-})
-
-test('project.get and project.list return created projects', async () => {
-  const repo = new MemoryWbsRepository()
-  const service = new WbsService(repo, capturingInfrastructure().infrastructure)
-  await service.execute({
-    operation: 'project.create',
-    payload: { id: 'prj-1', name: 'Onboard Ana' },
-    context: context({ actor }),
-  })
-  await service.execute({
-    operation: 'project.create',
-    payload: { id: 'prj-2', name: 'List Casa 3' },
-    context: context({ actor }),
-  })
-
-  const got = await service.execute({ operation: 'project.get', payload: { id: 'prj-1' }, context: context({ actor }) })
-  assert.equal(got.ok, true)
-  if (got.ok) assert.equal(got.value?.name, 'Onboard Ana')
-
-  const list = await service.execute({ operation: 'project.list', payload: {}, context: context({ actor }) })
-  assert.equal(list.ok, true)
-  if (list.ok) assert.equal(list.value.length, 2)
 })

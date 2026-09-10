@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// Projection from the REAL WBS repositories (wbs_project + wbs_item) into the
-// MVI ProjectsWorkspaceData, built as DOMAIN PERSPECTIVES.
+// Projection from canonical Project + WBS service results into the MVI
+// ProjectsWorkspaceData, built as DOMAIN PERSPECTIVES.
 //
 // Intent: the left domain tab is a perspective. A People tab shows each CLIENT
 // as a pole with that client's projects; a Properties tab shows each PROPERTY
@@ -9,13 +9,15 @@
 //
 // The real model anchors via WbsItem.entity {type: person|property|contract|deal,
 // id}. Name resolution is a SEAM: identityNames maps `${type}:${id}` -> display
-// name. Until the real person/property services feed it, the test seed supplies
-// the names. Projects with no person/property anchor fall back to a
-// category-collection pole so nothing is lost.
+// name. The server-side workspace loader supplies resolved canonical names.
+// Projects with no person/property anchor fall back to a category-collection
+// pole so nothing is lost.
 // ---------------------------------------------------------------------------
 import type { WbsItem } from "@/services/wbs"
 import type { Project } from "@/services/project"
+import type { ActivityFeedEntry } from "@/db/activity-feed"
 import type { ProjectWorkStatus } from "./model"
+import { mapProjectCalendarItems } from "./secondary-projection"
 
 import type {
   ProjectDomain,
@@ -36,12 +38,6 @@ const DOMAINS: ProjectDomain[] = [
   { key: "accounting", label: "Accounting", shortLabel: "Accounting" },
 ]
 
-/** Names for the seeded test anchors (swap for real person/property services). */
-export const PROJECTS_TEST_IDENTITY_NAMES: Record<string, string> = {
-  "person:jessica-iverson": "Jessica Iverson",
-  "property:sea-to-soul": "Sea to Soul",
-}
-
 const ENTITY_TO_DOMAIN: Record<string, ProjectDomainKey> = {
   person: "people",
   property: "properties",
@@ -61,8 +57,32 @@ function categoryToDomain(category: string): ProjectDomainKey {
 function wbsStatus(status: string): ProjectWorkStatus {
   if (status === "done") return "complete"
   if (status === "doing") return "in-progress"
-  if (status === "dismissed") return "complete"
+  if (status === "dismissed") return "dismissed"
   return "not-started"
+}
+
+function projectStatus(status: string): ProjectPlan["status"] {
+  if (status === "doing") return "active"
+  if (status === "done") return "complete"
+  if (status === "archived") return "archived"
+  return "planning"
+}
+
+function statusLabel(status: string): string {
+  if (status === "doing") return "In progress"
+  if (status === "done") return "Complete"
+  if (status === "archived") return "Archived"
+  return "Open"
+}
+
+function compareItems(a: WbsItem, b: WbsItem): number {
+  const aOrder = a.order ?? Number.MAX_SAFE_INTEGER
+  const bOrder = b.order ?? Number.MAX_SAFE_INTEGER
+  if (aOrder !== bOrder) return aOrder - bOrder
+  const aDue = a.dueAt ?? "9999"
+  const bDue = b.dueAt ?? "9999"
+  const due = aDue.localeCompare(bDue)
+  return due || a.id.localeCompare(b.id)
 }
 
 function categoryToType(category: string): ProjectWorkNodeType {
@@ -88,10 +108,23 @@ function attach(items: WbsItem[], item: WbsItem): ProjectWorkNode {
     type: categoryToType(item.category),
     status: wbsStatus(item.status),
     ...(item.owner ? { owner: item.owner } : {}),
+    ...(item.dueAt ? { dueAt: item.dueAt } : {}),
     ...(dueLabel(item.dueAt) ? { dueLabel: dueLabel(item.dueAt) } : {}),
     ...(item.notes ? { note: item.notes } : {}),
-    children: items.filter((candidate) => candidate.parentId === item.id).map((child) => attach(items, child)),
+    children: items
+      .filter((candidate) => candidate.parentId === item.id)
+      .sort(compareItems)
+      .map((child) => attach(items, child)),
   }
+}
+
+function firstAction(nodes: ProjectWorkNode[]): ProjectWorkNode | null {
+  for (const node of nodes) {
+    if (node.status !== "complete" && node.status !== "dismissed") return node
+    const child = node.children ? firstAction(node.children) : null
+    if (child) return child
+  }
+  return null
 }
 
 function dominantCategory(items: WbsItem[], fallback: string): string {
@@ -112,6 +145,8 @@ export function mapRealProjectsToWorkspace(
   projects: Project[],
   items: WbsItem[],
   identityNames: Record<string, string> = {},
+  documents: Array<{ id: string; title: string | null; state: string; propertyId: string | null; createdAt: string }> = [],
+  activity: ActivityFeedEntry[] = [],
 ): ProjectsWorkspaceData {
   const itemsByProject = new Map<string, WbsItem[]>()
   for (const item of items) {
@@ -126,16 +161,34 @@ export function mapRealProjectsToWorkspace(
 
   for (const project of projects) {
     const projectItems = itemsByProject.get(project.id) ?? []
-    const top = projectItems.filter((i) => !i.parentId)
+    const top = projectItems.filter((i) => !i.parentId).sort(compareItems)
     const done = projectItems.filter((i) => i.status === "done").length
+    const planned = projectItems.filter((i) => i.status !== "dismissed").length
     const plan: ProjectPlan = {
       id: project.id,
       title: project.name,
-      kind: String(project.areas?.[0] ?? "WORK").toUpperCase(),
-      status: "active",
-      progress: projectItems.length ? Math.round((done / projectItems.length) * 100) : 0,
-      phaseLabel: project.status,
+      kind: String(project.projectType ?? project.areas?.[0] ?? "WORK").toUpperCase(),
+      status: projectStatus(project.status),
+      progress: planned ? Math.round((done / planned) * 100) : 0,
+      phaseLabel: statusLabel(project.status),
+      ...(project.playbookId ? { playbookId: project.playbookId } : {}),
+      ...(project.playbookVersion != null ? { playbookVersion: project.playbookVersion } : {}),
+      ...((project.personId || project.propertyId || project.contractId) ? {
+        contextLabels: [
+          project.personId ? identityNames[`person:${project.personId}`] ?? project.personId : null,
+          project.propertyId ? identityNames[`property:${project.propertyId}`] ?? project.propertyId : null,
+          project.contractId ? identityNames[`contract:${project.contractId}`] ?? project.contractId : null,
+        ].filter((label): label is string => Boolean(label)),
+      } : {}),
+      calendarItems: mapProjectCalendarItems(projectItems),
+      documents: documents.filter((document) => document.propertyId === project.propertyId).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
+      activity: activity.filter((entry) => (project.personId ? entry.personId === project.personId : false) || (project.propertyId ? Boolean(entry.propertyName && identityNames[`property:${project.propertyId}`] === entry.propertyName) : false)).map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName })),
       workNodes: top.map((node) => attach(projectItems, node)),
+    }
+    const action = firstAction(plan.workNodes)
+    if (action) {
+      plan.nextAction = action.title
+      plan.nextActionDetail = action.status === "in-progress" ? "In progress" : "Ready to work"
     }
 
     // Unique person/property anchors among this project's items.
