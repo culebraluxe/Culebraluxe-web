@@ -39,7 +39,7 @@ import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
-import { findLatestLeadPlan, leadPreDispatchHoldReasons, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
+import { assessLeadHandoff, findLatestLeadPlan, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -372,13 +372,16 @@ export function createAgentRuntimeForgeRoleRunner(
       // persisted durably on the story run so audits and future gates read it
       // without parsing thrown errors.
       if (nodeId === 'lead_pre') {
-        const leadHolds = leadPreDispatchHoldReasons(evidence.leadDecision, raw)
+        // The gate decision itself is pure (assessLeadHandoff) so tests assert the
+        // running path's hold/allow decision directly, not a re-reading of this file.
+        const handoff = assessLeadHandoff(nodeId, evidence.leadDecision, raw)
+        const leadHolds = handoff.holds
         const storyRunId = finishedItem?.storyRunId ?? null
         if (storyRunId) {
           await appendForgeRunDetail(
             storyRunId,
             `dispatch gate node=lead_pre decision=${evidence.leadDecision ?? '(none)'} ` +
-              `verdict=${leadHolds.length > 0 ? 'HOLD' : 'GO'} ` +
+              `verdict=${handoff.verdict} ` +
               `reasons=${leadHolds.length > 0 ? leadHolds.join(' | ') : 'none'}`,
           ).catch(() => {
             /* run-detail append is observer-only; the gate verdict stands on the HOLD/GO above */

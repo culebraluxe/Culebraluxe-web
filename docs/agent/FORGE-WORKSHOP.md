@@ -249,27 +249,39 @@ Stop or HOLD rather than silently expanding when any of these occurs:
 
 ---
 
-## Live capability snapshot — 2026-09-09
+## Live capability snapshot — 2026-09-10
 
 This is a **snapshot, not authority**. Verify newer truth in Git + Neon before acting.
 
-- Forge Phase Agent durable deliverables: **WIRED / live-proven**.
-- Scout Ripwire grounding: **WIRED**.
-- RTK compression directive: **WIRED**.
-- Context-lesson injection loop: **WIRED**.
-- OpenCode session-resume plumbing / resident continuity concept: **PROVEN in accumulator and live role-chain dogfood**; exact current binding/enforcement details must be read from code.
-- Lead execution shaping: **LIVE-PROVEN** on a real evaluation: one case produced 3 bounded serial Smith chunks and explicitly rejected unnecessary SPLIT.
-- Lead cost judgment: **LIVE-PROVEN** to choose cheap Flash for bounded/mechanically-provable work.
-- Lead SOLO routing: **LIVE-PROVEN** on a tiny real-write dogfood target.
-- Real isolated write candidate creation: **PROVEN** on the SOLO dogfood; later QA/Assay completion must be verified from current Neon/Git evidence before claiming full end-to-end victory.
-- `assessSmithDispatch(...)` consolidated policy seam: **BUILT / tested as a library**.
-- Smith Oversized/>3-chunk inner fuse: **WIRED in the running role gate** (`4c808e7`).
-- QA verification/config-gap anti-deadlock guard: **WIRED END-TO-END and verified** (`f447d93` policy + `cb8849e` facts + `a89b1f3` evidence detection) — a qa/assay run whose `failure_code` is MISSING_ASSAY_PLAN / ASSAY_POLICY_FAILED maps to `verificationGap`, which HOLDs and never routes to smith. Real `ASSAY_TEST_FAILED` still repairs. Live because `runMachineEvidenceFromFinish` writes `assay.failureCode` to the run's `failure_code`.
-- lead_post / lead_solo_implement no longer demand an execution-shape decision (`2b25b4f`, `0935ddc` — caught by the FINAL-02 full-chain run).
-- plan->difficulty bridge (`f959f21`) + consolidated forge-dispatch-gate (`8572b3a`): BUILT as a tested library.
-- Full-chain FINAL-02 (real WRITE): Smith produced a real candidate (helper + test); real enforcement bugs caught + fixed; QA deadlocked on a missing `## Assay commands` packet (not a candidate defect). **Lesson: a FEATURE/RESEARCH story given to QA MUST carry a `## Assay commands:` section in its packet or Assay deterministically HOLDs.**
-- Authoritative pre-Smith use of the consolidated Kraken gate: **DO NOT ASSUME — verify current hot path**.
-- Full resident-Smith WRITE -> fresh QA -> Assay dogfood: **NOT YET ESTABLISHED by this snapshot**.
+**Routing / architecture**
+- `FORGE_ROUTING_BRAIN` **defaults to `engine`** — one canonical brain (`FORGE_SDLC`). The legacy reducer is opt-in (`FORGE_ROUTING_BRAIN=reducer`) for tests/migration only, and `pickLane` is labeled reducer-era hydrate-only (a total function). Never dual-write.
+- Engine named as the one brain; `workflow_app/forge` and DEV_OPS grew *around* `engine.ts` rather than splitting it.
+
+**Pre-Smith fuse (Lead → Smith) — authoritative and machine-enforced**
+- Lead **must** emit a machine-readable `LEAD_PLAN:` for a SMITH/SPLIT dispatch (`8f842b8`), it is persisted (`a01e7db`), and rendered to Smith as explicit per-chunk WORK ORDERS it executes verbatim (no re-planning, no scope enlargement).
+- The **running** gate is `assessLeadHandoff` (`forge-lead-plan.ts`), called on the `lead_pre` node in `agent-runtime-role-runner`. A **missing or malformed** plan on SMITH/SPLIT is itself a HOLD → the task is released and **no Smith adapter starts**. Gated only at the Lead handoff (never applied on a `smith` node).
+- Difficulty scores are **FLAG-only** (`9fe43fda`): uncalibrated logistics can no longer spend a HOLD.
+- The full KRAKEN gate (`assessSmithDispatch`) therefore **runs in the live pre-Smith path**; the post-Smith envelope guard (`assessSmithWork` in `forge-dispatch-seam.ts`) still holds Smith's self-reported `SMITH_PLAN` when it is OVERSIZED or claims >3 chunks.
+
+**QA / Assay**
+- Ready-gate: a **zero-command assay recipe = `missing-assay-plan`** (`b8df15`) — FINAL-02's lesson is now a gate, not a postmortem. A FEATURE/RESEARCH story packet still needs a `## Assay commands:` section.
+- QA **always terminates**: the assay child runs in its own process group, the timeout SIGTERMs the tree then SIGKILLs after a 5s grace (worst case `timedOut` → HOLD), so QA can no longer hang.
+- Optional arch tooling missing in a bare worktree no longer fails QA.
+- `failure_classifier` routes on the **`failureClass` the model emitted**, not on `leadDecision` (`46ffa33`).
+
+**DEV_OPS / release**
+- **MINIMAL DEV_OPS** (`e83f6ed`): a `deploy_required=false` story **completes at publish**; CI owns production smoke. A headless run is no longer blocked on `production_smoke`.
+- **Schema gate (new, 2026-09-10):** `db/migrations/144` added the `schema_migration` ledger; every apply records filename + sha256 + target, re-apply is skipped/refused on checksum mismatch. `pnpm db:parity` (tables, columns, **indexes, FKs**) and `pnpm db:migrations` are release gates, and `release-operations.verifyMigrations` fails closed unless the ledger records the migration **and** DEV/PROD parity is clean. See `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md`.
+- `db/migrations/145` added `tasks.node_id` and the engine now writes it (fixes a live defect where Contract execution could never complete `pns_executed`).
+
+**Proven end-to-end**
+- **V13** reached publish. **V14** ran to `"status":"completed"` and shipped `1a83b3b` — the first clean full WRITE → freeze → QA → publish → complete with a real `lead_post` integration.
+- Still **not** established: one quiet completion with no human in the loop on publish/classifier. V13/V14 hit `PUBLISH_CONFLICT` / classifier confusion; a HOLD after QA PASS is a control-plane bug, not a Smith bug.
+
+**Known gaps (honest)**
+- **Usage is still zero.** 204 PROD runs, `tokens_*` unwritten — so difficulty cannot be calibrated and Flash-vs-Pro cannot be graded. Packet `ENG-FORGE-RUN-USAGE` is the next story; **null is honest, invented numbers are poison**.
+- **Session continuity is still env-gated** — proven, not the default. The amnesia problem is not closed.
+- Dispatch/`LEAD_PLAN` parsing depends on the model emitting the machine line; the gate HOLDs rather than guessing when it is absent.
 
 ---
 

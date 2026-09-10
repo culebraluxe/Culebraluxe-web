@@ -161,6 +161,36 @@ export function leadPreDispatchHoldReasons(
   return []
 }
 
+export type LeadHandoffGate = {
+  /** True only on the Lead pre-dispatch handoff node. */
+  applies: boolean
+  /** Hold reasons ([] = safe to hand off, or not gated at all). */
+  holds: string[]
+  verdict: 'GO' | 'HOLD' | 'NOT_GATED'
+}
+
+/**
+ * The RUNNER's decision, as a pure function: may this node hand off to Smith?
+ *
+ * This is the call the role runner makes on the `lead_pre` node. Keeping it pure
+ * means the running path's hold decision is asserted by tests directly instead of
+ * being re-derived from reading the runner — the review's ask: "a Lead that
+ * routes SMITH with no parseable LEAD_PLAN must not start a Smith adapter."
+ *
+ * Scoping matters: the gate applies ONLY at the Lead handoff. It is not applied
+ * on a `smith` node (Smith has already run there, so holding would be the
+ * after-the-fact behaviour we are eliminating).
+ */
+export function assessLeadHandoff(
+  nodeId: string,
+  leadDecision: LeadDispatchDecision | undefined,
+  notes: string | null | undefined,
+): LeadHandoffGate {
+  if (nodeId !== 'lead_pre') return { applies: false, holds: [], verdict: 'NOT_GATED' }
+  const holds = leadPreDispatchHoldReasons(leadDecision, notes)
+  return { applies: true, holds, verdict: holds.length > 0 ? 'HOLD' : 'GO' }
+}
+
 /** Render Lead's plan as explicit per-chunk WORK ORDERS for Smith (Phase 3).
  *  Smith executes these verbatim — it does NOT re-plan or enlarge scope. */
 export function renderSmithWorkOrders(plan: LeadPlan): string {

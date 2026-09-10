@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  assessLeadHandoff,
   assessLeadPreDispatch,
   findLatestLeadPlan,
   leadPreDispatchHoldReasons,
@@ -114,4 +115,40 @@ test('lead handoff gate: NO_PLAN on a SMITH/SPLIT dispatch now HOLDS (authoritat
   assert.ok(noPlanSmith.length > 0, 'SMITH with no LEAD_PLAN must hold pre-Smith')
   assert.ok(noPlanSmith[0]!.includes('lead-plan:missing'))
   assert.ok(leadPreDispatchHoldReasons('SPLIT', 'decision only').length > 0)
+})
+
+// The review's assertion, at the level the RUNNER actually decides: a Lead that
+// routes SMITH/SPLIT with no parseable LEAD_PLAN never hands off to a write lane.
+test('lead handoff gate: the runner HOLDs a SMITH/SPLIT dispatch with missing or malformed LEAD_PLAN', () => {
+  // Missing plan -> HOLD (no Smith adapter may start).
+  const missing = assessLeadHandoff('lead_pre', 'SMITH', 'I decided to dispatch to Smith.')
+  assert.equal(missing.applies, true)
+  assert.equal(missing.verdict, 'HOLD')
+  assert.ok(missing.holds[0]!.includes('lead-plan:missing'))
+
+  // Malformed plan -> HOLD, and the reason names the plan problem, not just absence.
+  const malformed = assessLeadHandoff('lead_pre', 'SMITH', MALFORMED)
+  assert.equal(malformed.verdict, 'HOLD')
+  assert.ok(malformed.holds.length > 0)
+
+  // SPLIT gates identically.
+  assert.equal(assessLeadHandoff('lead_pre', 'SPLIT', 'no plan here').verdict, 'HOLD')
+
+  // A valid in-bounds plan hands off.
+  assert.deepEqual(assessLeadHandoff('lead_pre', 'SMITH', VALID_2), {
+    applies: true,
+    holds: [],
+    verdict: 'GO',
+  })
+
+  // Not a dispatch decision -> not gated.
+  assert.equal(assessLeadHandoff('lead_pre', 'SOLO', 'no plan here').verdict, 'GO')
+
+  // The gate is SCOPED to the Lead handoff: on a smith node it never applies, so a
+  // post-Smith node cannot be held for a missing Lead plan.
+  assert.deepEqual(assessLeadHandoff('smith', 'SMITH', 'no plan here'), {
+    applies: false,
+    holds: [],
+    verdict: 'NOT_GATED',
+  })
 })

@@ -1,20 +1,21 @@
 // ---------------------------------------------------------------------------
 // forge-dispatch-seam — the RUNNING enforcement seam for Smith work-safety.
 //
-// The full KRAKEN gate (assessSmithDispatch in forge-dispatch-gate.ts) is
-// test-only today: the only Smith work-safety check in the running path is an
-// inline bounds test in agent-runtime-role-runner on Smith's self-reported
-// SMITH_PLAN envelope {size, chunks, proofs}. That envelope is NOT a full
-// SmithExecutionPlan (no per-chunk outcome/surface/invariant), so the full gate
-// cannot score it structurally.
+// The full KRAKEN gate (assessSmithDispatch in forge-dispatch-gate.ts) is NO
+// LONGER test-only. It runs in the live path PRE-Smith: the `lead_pre` handoff
+// (forge-lead-plan.ts → assessLeadPreDispatch → assessSmithDispatch) adjudicates
+// Lead's structured LEAD_PLAN before any Smith lane can start, and a missing or
+// malformed plan is itself a HOLD (see assessLeadHandoff). That is the
+// authoritative pre-Smith fuse.
 //
-// This seam makes the gate AUTHORITATIVE for the enforcement that DOES exist:
-// the runner's Smith work-safety check now delegates here — one adjudication
-// path shared by the running path and tests — instead of an inline ad-hoc test.
-// The seam is behavior-preserving for today's real capture (OVERSIZED or >3
-// chunks => HOLD) and upgrades to the FULL gate whenever a full structured plan
-// is ever available (the next expedition: Lead emitting a structured plan
-// pre-Smith).
+// This seam remains the POST-Smith envelope guard: the runner adjudicates
+// Smith's self-reported SMITH_PLAN envelope {size, chunks, proofs}. That envelope
+// is not a full SmithExecutionPlan (no per-chunk outcome/surface/invariant), so
+// the structural gate cannot score it — the seam applies the bounded envelope
+// rules (OVERSIZED or >3 chunks => HOLD) and upgrades to the FULL gate whenever a
+// full structured plan is supplied.
+//
+// One adjudication path shared by the running path and tests.
 //
 // Pure, DB-free, unit-testable.
 // ---------------------------------------------------------------------------
