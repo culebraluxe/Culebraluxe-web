@@ -23,7 +23,7 @@ import {
 } from './assay-evidence'
 import { planAssay } from './assay-plan'
 import { detectFullRegressionAttempt } from './test-mode'
-import { recordStaticGateArtifact } from '../db/forge-artifact'
+import { recordStaticGateArtifact, recordAssayEvidenceArtifact } from '../db/forge-artifact'
 import { runStaticGate } from '../workflow_app/forge/forge-static-gate'
 import {
   assertExecutionTargetSafe,
@@ -258,6 +258,13 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
           startedAt: new Date().toISOString(),
           endedAt: new Date().toISOString(),
         })
+        await recordAssayEvidenceArtifact({
+          storyId: context.story.id,
+          storyRunId: context.storyRunId,
+          evidence: this.evidence,
+        }).catch(() => {
+          /* artifact write is best-effort; the QA verdict stands on the tree */
+        })
       })
       .finally(() => {
         this.currentChild = null
@@ -418,6 +425,15 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       policyViolations,
       startedAt,
       endedAt: new Date().toISOString(),
+    })
+    // Durable reason for the verdict (best-effort). Without this a QA FAIL leaves
+    // only CODE_DEFECT behind and cannot be diagnosed after the fact.
+    await recordAssayEvidenceArtifact({
+      storyId: context.story.id,
+      storyRunId: context.storyRunId,
+      evidence: this.evidence,
+    }).catch(() => {
+      /* artifact write is best-effort; the QA verdict stands on the tree */
     })
   }
 

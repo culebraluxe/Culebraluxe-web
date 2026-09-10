@@ -1,4 +1,5 @@
 import type { QueryExecutor, QueryRow } from './query-executor'
+import type { AssayEvidence } from '../agent-runtime/assay-evidence'
 
 let defaultExecutor: QueryExecutor | null = null
 
@@ -78,6 +79,69 @@ export async function listToolArtifactsForRun(
     order by created_at desc
   `
   return rows as ForgeToolArtifact[]
+}
+
+/**
+ * Persist the QA assay verdict AND ITS REASON as a child artifact.
+ *
+ * The AssayEvidence already carries the complete diagnosis (verdict, failureCode,
+ * failureDetail, policyViolations, per-command exit codes/tails), but until now only
+ * the derived booleans (qa_passed/failure_class) reached the database — so a QA FAIL
+ * could not be explained after the fact. That cost real time: WS-05 failed QA four
+ * times with CODE_DEFECT while all three frozen commands passed locally in the same
+ * worktree at the same SHA, and there was no durable record of WHY.
+ *
+ * Best-effort by design: a failed write must never change the QA verdict.
+ */
+export async function recordAssayEvidenceArtifact(
+  input: {
+    storyId: string
+    storyRunId?: string | null
+    evidence: AssayEvidence
+  },
+  execute?: QueryExecutor,
+): Promise<ForgeToolArtifact> {
+  const { evidence } = input
+  const reason =
+    evidence.verdict === 'PASS'
+      ? 'every frozen command passed'
+      : evidence.failureCode ??
+        evidence.policyViolations[0] ??
+        evidence.failureDetail ??
+        'assay failed without a recorded code'
+  return recordToolArtifact(
+    {
+      storyId: input.storyId,
+      storyRunId: input.storyRunId ?? null,
+      tool: 'assay',
+      kind: 'qa-assay-evidence',
+      verdict: evidence.verdict,
+      summary: `${evidence.verdict}: ${reason}`.slice(0, 1000),
+      detail: {
+        verdict: evidence.verdict,
+        failureCode: evidence.failureCode,
+        failureDetail: evidence.failureDetail,
+        candidateSha: evidence.candidateSha,
+        verifiedSha: evidence.verifiedSha,
+        candidateMatchesVerified: evidence.candidateSha === evidence.verifiedSha,
+        requiredCommands: evidence.requiredCommands,
+        policyViolations: evidence.policyViolations.slice(0, 8),
+        commandResults: evidence.commandResults.slice(0, 12).map((result) => ({
+          command: result.command,
+          exitCode: result.exitCode,
+          signal: result.signal,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
+          tests: result.tests,
+          stderrTail: result.stderrTail.slice(-400),
+        })),
+        startedAt: evidence.startedAt,
+        endedAt: evidence.endedAt,
+      },
+      sha: evidence.verifiedSha ?? evidence.candidateSha ?? null,
+    },
+    execute,
+  )
 }
 
 /** Persist a static-gate verdict (from runStaticGate) as a child artifact. */
