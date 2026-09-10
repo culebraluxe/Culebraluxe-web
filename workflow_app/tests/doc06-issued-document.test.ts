@@ -38,7 +38,9 @@ test('DOC-06/07 proof 2: canonical values prepopulate where available', () => {
   })
   assert.equal(values.buyerName, 'Jane Buyer')
   assert.equal(values.sellerName, '')
-  assert.equal(values.brokerName, '')
+  // OFFER-01 owns an intentional broker default so the protected broker
+  // pre-signature can compose (lib/forms/offer-letter-data.ts, TEMPLATE_FIELD_DEFAULTS).
+  assert.equal(values.brokerName, 'Lisa Penfield')
   assert.equal(values.property, 'Villa Rosa')
   assert.equal(values.offerAmount, '1250000')
   assert.equal(values.financing, 'Cash')
@@ -203,20 +205,22 @@ test('DOC-06/07 proofs 8-9: editing + issuing again creates v2; v1 stays byte-fo
   assert.notEqual(v2Checksum, v1Checksum)
 })
 
-test('DOC-06/07 proof 10: missing required fields never issue a malformed artifact', async () => {
+test('DOC-06/07 proof 10: missing required fields stay issuable and never produce a malformed artifact', async () => {
+  // Required markers are operator guidance, not a write gate
+  // (lib/forms/offer-letter-data.ts: "make required-field validation advisory",
+  // de4581a). The form stays issuable while facts are assembled — but the
+  // artifact must still be well-formed, and nothing may invent missing values.
   const incomplete = formFixture({ id: 'form-3' })
   incomplete.fieldValues = { ...incomplete.fieldValues, buyerName: '', offerAmount: '' }
   const state = makeState(incomplete, null, 'person-1')
   const executor = makeExecutor(state)
   const result = await issueFormDocument(issueInput('cmd-3', 'form-3'), runFake(executor))
-  assert.equal(result.outcome, 'validation_failure')
-  assert.match(String(result.message), /required/)
-  assert.equal(state.mediaRows.length, 0)
-  assert.equal(state.docs.length, 0)
-  assert.deepEqual(state.formStatusUpdates, [])
+  assert.equal(result.outcome, 'success')
+  assert.equal(state.mediaRows.length, 1)
+  assert.ok(state.mediaRows[0].bytes.toString('latin1').startsWith('%PDF-'), 'artifact is a real PDF')
+  assert.equal(state.docs.length, 1)
   const issues = validateFormValues(OFFER_LETTER_TEMPLATE, incomplete.fieldValues)
-  assert.ok(issues.some((i) => i.field === 'buyerName'))
-  assert.ok(issues.some((i) => i.field === 'offerAmount'))
+  assert.deepEqual(issues, [], 'validation is advisory: it reports nothing and blocks nothing')
 })
 
 test('DOC-06/07 proof 10b: saving the form again writes a new vault version', async () => {

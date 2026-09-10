@@ -233,7 +233,9 @@ function parseField(el: XmlElement, fieldIds: Set<string>): TemplateFieldDefinit
     label: requireAttr(el, 'label'),
     type: type as TemplateFieldType,
     required: boolAttr(el, 'required', false),
-    binding: source ? (source as TemplateFieldBinding) : null,
+    // TemplateFieldDefinition.binding is OPTIONAL: unbound fields must not carry
+    // a null binding (the declared contract is `binding?: TemplateFieldBinding`).
+    ...(source ? { binding: source as TemplateFieldBinding } : {}),
     ...(options ? { options } : {}),
     ...(when ? { when } : {}),
   }

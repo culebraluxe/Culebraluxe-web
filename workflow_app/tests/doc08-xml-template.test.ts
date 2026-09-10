@@ -26,15 +26,15 @@ const legacyOfferDefinition: TemplateDefinition = {
   documentTypeLabel: 'Offer Letter',
   fields: [
     { name: 'buyerName', label: 'Buyer / Client', type: 'text', required: true, binding: 'deal.client.name' },
-    { name: 'sellerName', label: 'Seller / Owner', type: 'text', required: true, binding: null },
-    { name: 'brokerName', label: "Buyer's Broker", type: 'text', required: true, binding: null },
+    { name: 'sellerName', label: 'Seller / Owner', type: 'text', required: true },
+    { name: 'brokerName', label: "Buyer's Broker", type: 'text', required: true },
     { name: 'property', label: 'Property', type: 'text', required: true, binding: 'deal.property.label' },
     { name: 'offerAmount', label: 'Offer amount', type: 'money', required: true, binding: 'deal.offer.amount' },
-    { name: 'deposit', label: 'Deposit', type: 'money', required: false, binding: null },
+    { name: 'deposit', label: 'Deposit', type: 'money', required: false },
     { name: 'financing', label: 'Cash / Financing', type: 'select', required: true, binding: 'deal.financing.type', options: ['Cash', 'Financed'] },
     { name: 'closingDate', label: 'Proposed closing date', type: 'date', required: true, binding: 'deal.closing.date' },
-    { name: 'expiration', label: 'Offer expiration', type: 'date', required: true, binding: null },
-    { name: 'contingencies', label: 'Contingencies', type: 'textarea', required: false, binding: null },
+    { name: 'expiration', label: 'Offer expiration', type: 'date', required: true },
+    { name: 'contingencies', label: 'Contingencies', type: 'textarea', required: false },
   ],
   sections: [{ name: 'specialTerms', label: 'Special Terms', editable: true, segments: [], values: [] }],
   participants: [
@@ -88,11 +88,11 @@ test('DOC-08 XML: source bindings survive correctly', () => {
   assert.equal(fieldProjection(xmlTemplate, 'offerAmount').binding, 'deal.offer.amount')
   assert.equal(fieldProjection(xmlTemplate, 'financing').binding, 'deal.financing.type')
   assert.equal(fieldProjection(xmlTemplate, 'closingDate').binding, 'deal.closing.date')
-  assert.equal(fieldProjection(xmlTemplate, 'sellerName').binding, null)
-  assert.equal(fieldProjection(xmlTemplate, 'brokerName').binding, null)
-  assert.equal(fieldProjection(xmlTemplate, 'deposit').binding, null)
-  assert.equal(fieldProjection(xmlTemplate, 'expiration').binding, null)
-  assert.equal(fieldProjection(xmlTemplate, 'contingencies').binding, null)
+  assert.equal(fieldProjection(xmlTemplate, 'sellerName').binding, undefined)
+  assert.equal(fieldProjection(xmlTemplate, 'brokerName').binding, undefined)
+  assert.equal(fieldProjection(xmlTemplate, 'deposit').binding, undefined)
+  assert.equal(fieldProjection(xmlTemplate, 'expiration').binding, undefined)
+  assert.equal(fieldProjection(xmlTemplate, 'contingencies').binding, undefined)
   assert.deepEqual(fieldProjection(xmlTemplate, 'financing').options, ['Cash', 'Financed'])
 })
 

@@ -80,11 +80,11 @@ test('SUPPORT-2 test 11: canonical Clients view is preserved on the page', () =>
     new URL('../../app/portal/clients/page.tsx', import.meta.url),
     'utf8',
   )
-  assert.ok(page.includes('ClientManager'), 'canonical ClientManager is the CORE Clients UX')
+  assert.ok(page.includes('ClientLens'), 'canonical ClientLens is the CORE Clients UX')
   assert.ok(!page.includes('ClientAdmin'), 'Client Administration is not on CORE Clients (moved to OPPS)')
   assert.ok(!/ClientsTabBar/.test(page), 'staging strip removed from CORE Clients')
   assert.ok(!/ImportedContactsPanel/.test(page), 'imported pane removed from CORE Clients')
-  assert.ok(page.includes('ClientManager />'), 'paged ClientManager is self-contained')
+  assert.ok(page.includes('ClientsWorkspace />'), 'paged Clients workspace is self-contained')
   assert.ok(!/app\/portal\/clients\/imported/.test(page), 'no second top-level Clients page')
 })
 
