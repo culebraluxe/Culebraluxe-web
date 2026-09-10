@@ -134,7 +134,14 @@ export function deriveRunId(workerId: string, runId?: string): string {
 }
 
 export function deriveBranchName(storyId: string, runId: string): string {
-  return `${GIT_BRANCH_PREFIX}${sanitizeBranchSegment(storyId)}/${sanitizeBranchSegment(runId, 40)}`
+  // NOTE: the max MUST NOT truncate the run id's meaning. A composed run id is
+  // `<uuid 36>-e<generation>[-split-<slot>]` (e.g. 47 chars for a SPLIT child).
+  // An earlier limit of 40 cut `-split-0` / `-split-1` off the end, so BOTH split
+  // siblings derived the SAME branch `…-e0-` and the second was refused as an
+  // attempt to steal another workspace (the 2026-09-10 "mangled branch" incident).
+  // The default (60) keeps every suffix while leaving serial ids identical, since
+  // `<uuid>-e0` is only 39 characters.
+  return `${GIT_BRANCH_PREFIX}${sanitizeBranchSegment(storyId)}/${sanitizeBranchSegment(runId)}`
 }
 
 export function deriveWorktreePath(
