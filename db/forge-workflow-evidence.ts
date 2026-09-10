@@ -77,6 +77,7 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     leadDecision: value(row, 'lead_decision'),
     splitCount: value(row, 'split_count'),
     leadRouting: value(row, 'lead_routing'),
+    deploymentDeferredToBatch: value(row, 'deployment_deferred_to_batch'),
     findings: findingsArray(row, 'findings'),
     qaReviewRequired: value(row, 'qa_review_required'),
     qaReviewPassed: value(row, 'qa_review_passed'),
@@ -127,7 +128,7 @@ export async function mergeForgeWorkflowEvidence(
       derived_models, derived_refresh_succeeded, derived_refresh_verified,
       deployment_required, deployment_succeeded, deployment_receipt,
       production_verified, production_verification_receipt, resume_target, candidate_sha, qa_verified_sha,
-      published_sha, deployed_sha, production_verified_sha, findings
+      published_sha, deployed_sha, production_verified_sha, findings, deployment_deferred_to_batch
     ) values (
       ${processInstanceId}, ${storyId}, ${evidence.workType ?? null},
       ${evidence.researchDisposition ?? null}, ${evidence.scoutRequired ?? null},
@@ -149,7 +150,8 @@ export async function mergeForgeWorkflowEvidence(
       ${evidence.candidateSha ?? null}, ${evidence.qaVerifiedSha ?? null},
       ${evidence.publishedSha ?? null}, ${evidence.deployedSha ?? null},
       ${evidence.productionVerifiedSha ?? null},
-      ${evidence.findings === undefined ? null : JSON.stringify(evidence.findings)}::jsonb
+      ${evidence.findings === undefined ? null : JSON.stringify(evidence.findings)}::jsonb,
+      ${evidence.deploymentDeferredToBatch ?? null}
     )
     on conflict (process_instance_id) do update set
       work_type = coalesce(excluded.work_type, forge_workflow_evidence.work_type),
@@ -167,6 +169,7 @@ export async function mergeForgeWorkflowEvidence(
       qa_review_required = coalesce(excluded.qa_review_required, forge_workflow_evidence.qa_review_required),
       qa_review_passed = coalesce(excluded.qa_review_passed, forge_workflow_evidence.qa_review_passed),
       qa_passed = coalesce(excluded.qa_passed, forge_workflow_evidence.qa_passed),
+      deployment_deferred_to_batch = coalesce(excluded.deployment_deferred_to_batch, forge_workflow_evidence.deployment_deferred_to_batch),
       failure_class = coalesce(excluded.failure_class, forge_workflow_evidence.failure_class),
       failed_release_stage = coalesce(excluded.failed_release_stage, forge_workflow_evidence.failed_release_stage),
       publish_succeeded = coalesce(excluded.publish_succeeded, forge_workflow_evidence.publish_succeeded),

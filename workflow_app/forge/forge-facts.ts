@@ -44,6 +44,12 @@ export type ForgeGateEvidence = {
    * Typed loosely here to keep the facts projector free of a routing import cycle.
    */
   leadRouting?: unknown
+  /**
+   * ENG-FORGE batch rollout: set when a batch-sliced story completes with its
+   * deployment DEFERRED to a release batch. Distinct from a deployment receipt —
+   * it never claims production verification.
+   */
+  deploymentDeferredToBatch?: number
   /** ENG-FORGE-SHAPE-01 — durable Architect findings snapshot (Lead shaping gate). */
   findings?: ArchitectFinding[]
   /** qa_policy */

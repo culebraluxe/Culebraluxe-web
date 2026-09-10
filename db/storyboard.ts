@@ -28,6 +28,13 @@ export type StoryboardStory = {
   status: StoryStatus
   notes: string
   batch: number | null
+  /**
+   * Major-rollout slicing (migration 148): when true this story COMPLETES
+   * QA-verified with its deployment DEFERRED to the release batch — a recorded
+   * deferral, never a fabricated deployment receipt. Release the slice with
+   * `scripts/forge-batch-release.mjs`.
+   */
+  batchDeploy: boolean
   goal: string | null
   scope: string | null
   dependencies: string | null
@@ -88,6 +95,7 @@ export type StoryRow = QueryRow & {
   status: string
   notes: string
   batch: number | null
+  batch_deploy: boolean
   goal: string | null
   scope: string | null
   dependencies: string | null
@@ -140,6 +148,7 @@ export function mapStory(row: StoryRow): StoryboardStory {
     status: row.status as StoryStatus,
     notes: row.notes,
     batch: row.batch,
+    batchDeploy: Boolean(row.batch_deploy),
     goal: row.goal,
     scope: row.scope,
     dependencies: row.dependencies,

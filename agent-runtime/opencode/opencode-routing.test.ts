@@ -365,6 +365,7 @@ function story(): StoryboardStory {
     status: 'In Progress',
     notes: 'test fixture',
     batch: null,
+    batchDeploy: false,
     goal: 'Prove Forge can use OpenCode as an inner Smith execution harness.',
     scope: null,
     dependencies: null,

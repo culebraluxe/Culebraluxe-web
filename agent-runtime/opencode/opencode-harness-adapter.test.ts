@@ -95,6 +95,7 @@ function story(overrides: Partial<StoryboardStory> = {}): StoryboardStory {
     status: 'In Progress',
     notes: 'test fixture',
     batch: null,
+    batchDeploy: false,
     goal: 'Prove Forge can use OpenCode as an inner Smith execution harness.',
     scope: 'Smallest possible OpenCode execution adapter.',
     dependencies: null,

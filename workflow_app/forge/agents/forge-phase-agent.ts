@@ -228,7 +228,14 @@ export class ForgePhaseAgent {
         if (evidence.qaPassed === undefined) missing.push('qa-verdict')
         break
       case 'devops-receipt':
-        if (evidence.deploymentReceipt == null && evidence.productionVerificationReceipt == null) {
+        // A batch-sliced rollout defers deployment deliberately: that is a RECORDED
+        // deferral, not a deployment claim. Accepting it here is what lets a story
+        // complete QA-verified while the slice waits to deploy as one batch.
+        if (
+          evidence.deploymentReceipt == null &&
+          evidence.productionVerificationReceipt == null &&
+          evidence.deploymentDeferredToBatch == null
+        ) {
           missing.push('devops-receipt')
         }
         break

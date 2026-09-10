@@ -35,7 +35,7 @@ import {
 } from '../../db/forge-engine-task-execution'
 import { appendForgeRunDetail, getForgeLeadRunRecord } from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
-import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
+import { readForgeWorkflowEvidence, mergeForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import {
   listSplitChildOutcomes,
   recordSplitChildAssignment,
@@ -154,6 +154,14 @@ export function createAgentRuntimeForgeRoleRunner(
     // Architect findings and runtime capability — NEVER from model output. Read
     // once per attempt; the same `current` is reused for gate evidence below.
     const current = await readForgeWorkflowEvidence(resolvedStory.id)
+    // Batch-sliced rollout (migration 148): a story flagged batch_deploy completes
+    // QA-verified with its deployment DEFERRED to the release batch. Recording the
+    // deferral is honest; recording a deployment receipt here would be a fabrication.
+    if (resolvedStory.batchDeploy && nodeId === 'deploy' && current.deploymentDeferredToBatch == null) {
+      await mergeForgeWorkflowEvidence(task.processInstanceId, resolvedStory.id, {
+        deploymentDeferredToBatch: resolvedStory.batch ?? 0,
+      })
+    }
     const leadRoutingContext = buildLeadRoutingContext({
       story: resolvedStory,
       findings: current.findings,
