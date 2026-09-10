@@ -19,6 +19,11 @@ import { Pool } from '@neondatabase/serverless'
 
 const MARK = 'AMENDED 2026-09-10'
 const APPLY = process.argv.includes('--apply')
+// --context-only writes ONLY the captain-context scope notes + context_refs (to PROD
+// and DEV directly) and exits. Needed because the PROD->DEV mirror below copies EVERY
+// column including `status`, so a full --apply would clobber DEV's live run state
+// (Complete / In Progress) with PROD's Planned.
+const CONTEXT_ONLY = process.argv.includes('--context-only')
 const STORY_IDS = 'PROJECTS-WORKSPACE-%'
 
 const NEW_STORIES = [
@@ -192,6 +197,71 @@ const AMENDMENTS = [
   },
 ]
 
+// ---- captain context (2026-09-10) ------------------------------------------
+// Two stories were SILENT about shipped code, and the WS-09 architect duly began
+// designing a calendar from scratch. These notes point the Scout packet
+// (context_refs) and the Architect at what already exists. They add NO new scope:
+// the calendar is reused, and the document vault is a lens, not a new store.
+const MARK_CTX = 'AMENDED 2026-09-10 (captain context)'
+
+const CAPTAIN_CONTEXT = [
+  {
+    id: 'PROJECTS-WORKSPACE-09',
+    append:
+      `\n\n${MARK_CTX}: REUSE the shipped Catch-up calendar engine — ` +
+      'components/portal/catch-up-calendar.tsx (month/week toggle, initialView="month"), ' +
+      'lib/catchup/calendar-mappers.ts (event mappers), components/portal/fullcalendar-candidate.tsx ' +
+      '(daygrid + timegrid). Default MONTH with WEEK available, exactly as Catch-up already does; ' +
+      'do not build a second calendar engine. ' +
+      'KEY DATES are DERIVED from canonical dated facts — never a new date store and never hand-entered: ' +
+      'wbs_item.due_at (WBS commitments), project.starts_at / project.ends_at (project lifecycle), and ' +
+      'canonically anchored appointments reachable through the existing calendar intake ' +
+      '(calendar_intake_receipt / google_calendar_token_store). WBS dates are DEADLINES; ' +
+      'intake-linked items are APPOINTMENTS — keep the two visually and semantically distinct, and never ' +
+      'invent an event for a row that has no date. ' +
+      'The pane must NOT read Apple/provider types: the Catch-up pane treats Apple Calendar as authoritative ' +
+      'for ITS OWN feed, but the project calendar projects canonical DB facts (project -> wbs_item -> dates). ' +
+      'If an expected date source is absent, say so on screen; do not silently drop the event.',
+  },
+  {
+    id: 'PROJECTS-WORKSPACE-10',
+    append:
+      `\n\n${MARK_CTX}: the vault ALREADY EXISTS as transaction_document (+ document_form_instance). ` +
+      'This story is a project LENS over it, NOT a new document store. Association is schema-driven, never ' +
+      'guessed: PROJECT via transaction_document.deal_id (and contract_id where present); PERSON via ' +
+      'transaction_document.party_person_id and document_form_instance.person_id; PROPERTY is NOT a direct ' +
+      'column on transaction_document — reach it through the deal, or via ' +
+      'document_form_instance.property_id, and explain the no-property case instead of inventing one. ' +
+      'VERSIONS/history via supersedes_document_id + issued_version; FILES via media_id / signed_media_id ' +
+      '(media, property_media.role=document). Render type/state/issued date/context and group current vs ' +
+      'superseded versions.',
+  },
+]
+
+const CONTEXT_REFS = {
+  'PROJECTS-WORKSPACE-09': [
+    'components/portal/catch-up-calendar.tsx',
+    'lib/catchup/calendar-mappers.ts',
+    'components/portal/fullcalendar-candidate.tsx',
+    'components/portal/catch-up-calendar-evaluation.tsx',
+    'app/portal/catch-up/page.tsx',
+    'ui/projects/source.ts',
+    'ui/projects/work-plan-projection.ts',
+    'components/portal/projects-workspace.tsx',
+    'schema: wbs_item.due_at, project.starts_at, project.ends_at',
+    'schema: calendar_intake_receipt, google_calendar_token_store',
+  ].join('\n'),
+  'PROJECTS-WORKSPACE-10': [
+    'app/portal/documents/page.tsx',
+    'app/portal/documents/[documentId]/page.tsx',
+    'components/portal/documents/document-list.tsx',
+    'ui/projects/source.ts',
+    'schema: transaction_document (deal_id, contract_id, party_person_id, media_id, signed_media_id, supersedes_document_id, issued_version, state, document_type)',
+    'schema: document_form_instance (deal_id, person_id, property_id, contract_id, showing_id)',
+    'schema: media, property_media.role=document',
+  ].join('\n'),
+}
+
 async function board(url) {
   return new Pool({ connectionString: url })
 }
@@ -242,6 +312,40 @@ async function main() {
       `update storyboard_story set ${a.field} = coalesce(${a.field},'') || $2, updated_at = now() where id = $1`,
       [a.id, a.append],
     )
+  }
+
+  // ---- captain context: scope notes + Scout packet refs ---------------------
+  // Written to PROD and DEV directly so DEV does not depend on the status-clobbering
+  // mirror below. --context-only writes these and exits.
+  const writeContext = APPLY
+  for (const a of CAPTAIN_CONTEXT) {
+    for (const [label, conn] of [['PROD', prod], ['DEV', dev]]) {
+      const cur = await conn.query(`select scope as v from storyboard_story where id = $1`, [a.id])
+      const existing = cur.rows[0]?.v ?? ''
+      if (existing.includes(MARK_CTX)) {
+        console.log(`[context] ${label} ${a.id} already carries the captain context — skipped`)
+        continue
+      }
+      console.log(`[context] ${label} ${a.id}.scope += captain context`)
+      if (!writeContext) continue
+      await conn.query(
+        `update storyboard_story set scope = coalesce(scope,'') || $2, updated_at = now() where id = $1`,
+        [a.id, a.append],
+      )
+    }
+  }
+  for (const [id, refs] of Object.entries(CONTEXT_REFS)) {
+    console.log(`[context] ${id}.context_refs = ${refs.split('\n').length} ref(s)`)
+    if (!writeContext) continue
+    for (const conn of [prod, dev]) {
+      await conn.query(`update storyboard_story set context_refs = $2, updated_at = now() where id = $1`, [id, refs])
+    }
+  }
+  if (CONTEXT_ONLY) {
+    await prod.end()
+    await dev.end()
+    console.log(writeContext ? 'CONTEXT-ONLY APPLIED (PROD + DEV)' : 'CONTEXT-ONLY DRY RUN')
+    return
   }
 
   // ---- phase 2: machine-runnable assays + the explicit human gate -----------
