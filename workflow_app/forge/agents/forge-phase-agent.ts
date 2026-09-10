@@ -31,8 +31,29 @@ const ARCHITECT_NODES = new Set(['architect', 'repair_architect', 'research_arch
 
 const RESEARCH_DISPOSITIONS = new Set(['IMPLEMENT', 'ARCHIVE', 'HOLD'])
 const LEAD_DECISIONS = new Set(['SMITH', 'SPLIT', 'HOLD', 'SOLO'])
+const FAILURE_CLASSES = new Set([
+  'CODE_DEFECT',
+  'TEST_DEFECT',
+  'ARCHITECTURE_GAP',
+  'REQUIREMENTS_GAP',
+  'UNKNOWN_CAUSE',
+  'ENVIRONMENT',
+  'MIGRATION',
+  'PUBLISH_CONFLICT',
+  'DEPLOYMENT',
+  'PRODUCTION_SMOKE',
+  'HOLD',
+])
 
-export type PhaseDeliverableKind = 'scout-packet' | 'architect-plan' | 'lead-decision' | 'smith-candidate' | 'qa-verdict' | 'devops-receipt' | 'none'
+export type PhaseDeliverableKind =
+  | 'scout-packet'
+  | 'architect-plan'
+  | 'lead-decision'
+  | 'failure-class'
+  | 'smith-candidate'
+  | 'qa-verdict'
+  | 'devops-receipt'
+  | 'none'
 
 /** Raw role output = model notes + tests summary (what a deliverable is built from). */
 export function rawRoleOutput(notes?: string | null, testsSummary?: string | null): string {
@@ -91,6 +112,7 @@ export class ForgePhaseAgent {
 
   /** The durable deliverable this phase is contractually expected to produce. */
   deliverableKind(): PhaseDeliverableKind {
+    if (this.nodeId === 'failure_classifier') return 'failure-class'
     if (this.isScout) return 'scout-packet'
     if (this.isArchitect) return 'architect-plan'
     // Only lead_pre is an execution-shape decision node. lead_solo_implement and
@@ -217,6 +239,11 @@ export class ForgePhaseAgent {
       case 'lead-decision':
         if (evidence.leadDecision == null) missing.push('lead-decision')
         break
+      case 'failure-class':
+        if (!FAILURE_CLASSES.has(String(evidence.failureClass ?? ''))) {
+          missing.push('failure-class')
+        }
+        break
       case 'smith-candidate':
         if (evidence.candidateSha == null) missing.push('smith-candidate')
         break
@@ -245,6 +272,11 @@ export class ForgePhaseAgent {
    * otherwise null means the routing decision is present and valid.
    */
   routingDecisionMissing(evidence: ForgeGateEvidence): string | null {
+    if (this.nodeId === 'failure_classifier') {
+      return FAILURE_CLASSES.has(String(evidence.failureClass ?? ''))
+        ? null
+        : 'failure_class'
+    }
     if (this.nodeId === 'research_architect') {
       return RESEARCH_DISPOSITIONS.has(String(evidence.researchDisposition ?? ''))
         ? null
