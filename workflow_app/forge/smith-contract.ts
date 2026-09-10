@@ -68,9 +68,20 @@ export function isChangeAllowed(c: SmithExecutionContract, changedPath: string):
   return c.allowedScope.some((a) => pathWithin(changedPath, a))
 }
 
+/**
+ * Scope entries are SYMBOL-level (`path/file.ts#symbol`) while a git diff reports the
+ * FILE. Comparing them literally made every child's own edits look out of scope
+ * (caught live 2026-09-10: "candidate … touched files outside its assignment").
+ * Scope is therefore compared at FILE level — the same convention the SPLIT conflict
+ * rules use ("symbol # still shares the file").
+ */
+function fileOf(path: string): string {
+  return path.split('#')[0].replace(/\/+$/g, '')
+}
+
 function pathWithin(path: string, area: string): boolean {
-  const p = path.replace(/\/+$/g, '')
-  const a = area.replace(/\/+$/g, '')
+  const p = fileOf(path)
+  const a = fileOf(area)
   return p === a || p.startsWith(`${a}/`) || a === '*'
 }
 

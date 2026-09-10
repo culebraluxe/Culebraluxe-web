@@ -44,6 +44,22 @@ test('an unrelated file outside every scope is a violation (fail closed)', () =>
   ])
 })
 
+test('symbol-level scope entries accept the whole FILE (git reports files, not symbols)', () => {
+  // The live false positive: scope said `file.ts#symbol`, the diff said `file.ts`.
+  const c = contract({
+    allowedScope: ['workflow_app/forge/a.ts#doTheThing', 'workflow_app/tests/a.test.ts#case'],
+    prohibitedScope: ['workflow_app/forge/b.ts#otherThing'],
+  })
+  assert.deepEqual(scopeViolations(c, ['workflow_app/forge/a.ts', 'workflow_app/tests/a.test.ts']), [])
+})
+
+test("a sibling's symbol-level surface still forbids the whole sibling file", () => {
+  const c = contract({
+    allowedScope: ['workflow_app/forge/a.ts#doTheThing'],
+    prohibitedScope: ['workflow_app/forge/b.ts#otherThing'],
+  })
+  assert.deepEqual(scopeViolations(c, ['workflow_app/forge/b.ts']), ['workflow_app/forge/b.ts'])
+})
 test('an empty allowedScope refuses every change', () => {
   assert.deepEqual(scopeViolations(contract({ allowedScope: [] }), ['x.ts']), ['x.ts'])
 })
