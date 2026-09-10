@@ -38,7 +38,7 @@ import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
-import { assessSmithWork } from './forge-dispatch-seam'
+import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { findLatestLeadPlan, leadPreDispatchHoldReasons, parseLeadPlan, renderSmithWorkOrders } from './forge-lead-plan'
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
@@ -346,7 +346,23 @@ export function createAgentRuntimeForgeRoleRunner(
       // is ever captured.
       if (plan.lane === 'smith') {
         const smithWork = assessSmithWork(raw)
-        if (smithWork.verdict === 'HOLD') missing.push(...smithWork.reasons)
+        if (smithWork.verdict === 'HOLD') {
+          missing.push(...smithWork.reasons)
+          // Final-attempt observability (ENG-FORGE-V14): persist the full
+          // dispatch-gate adjudication on the story run before the HOLD throw
+          // below carries the same reasons in `miss`. Observer-only .catch,
+          // mirroring the lead_pre record; self-heal attempts do not duplicate.
+          if (attempt + 1 >= totalAttempts) {
+            const storyRunId = finishedItem?.storyRunId ?? null
+            if (storyRunId) {
+              await appendForgeRunDetail(storyRunId, smithDispatchRunDetail(smithWork)).catch(
+                () => {
+                  /* run-detail append is observer-only; the HOLD throw below stands */
+                },
+              )
+            }
+          }
+        }
       }
       // Pre-Smith handoff gate (LEAD_PLAN contract): a successful Lead that
       // decided to dispatch to Smith (SMITH/SPLIT) MUST have emitted an

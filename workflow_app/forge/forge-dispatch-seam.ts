@@ -90,3 +90,17 @@ export function assessSmithWork(
 
   return { verdict: 'GO', reasons: [], gate: 'envelope-guard', envelope }
 }
+
+/**
+ * Render one Smith work-safety adjudication as a durable story-run detail line
+ * (mirrors the `lead_pre` dispatch-gate record written by the runner). The seam
+ * verdict/reasons remain the authority; this is observer-only text for audits.
+ */
+export function smithDispatchRunDetail(assessment: SmithWorkAssessment): string {
+  const reasons =
+    assessment.reasons.length > 0 ? assessment.reasons.join(' | ') : 'none'
+  return (
+    `dispatch gate node=smith verdict=${assessment.verdict} ` +
+    `gate=${assessment.gate} reasons=${reasons}`
+  )
+}

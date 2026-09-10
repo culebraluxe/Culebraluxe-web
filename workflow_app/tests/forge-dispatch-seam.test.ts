@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { SmithChunk, SmithExecutionPlan } from '../forge/forge-execution-shaping'
-import { assessSmithWork } from '../forge/forge-dispatch-seam'
+import { assessSmithWork, smithDispatchRunDetail } from '../forge/forge-dispatch-seam'
 
 const SMALL_LINE = 'SMITH_PLAN: {"size":"SMALL","chunks":1,"proofs":["pnpm exec tsx --test a.test.ts"]}'
 const MEDIUM_LINE = 'SMITH_PLAN: {"size":"MEDIUM","chunks":2,"proofs":["pnpm exec tsx --test a.test.ts","pnpm exec tsx --test b.test.ts"]}'
@@ -49,6 +49,41 @@ test('dispatch seam: OVERSIZED self-size HOLDs with the anti-token-fire reason',
 test('dispatch seam: a 4th chunk (MEDIUM, 4 chunks) HOLDs — not "keep working"', () => {
   const a = assessSmithWork(FOUR_CHUNK_LINE)
   assert.equal(a.verdict, 'HOLD')
+})
+
+test('dispatch seam: smithDispatchRunDetail carries verdict + gate + full reason for an OVERSIZED envelope HOLD', () => {
+  const a = assessSmithWork(OVERSIZED_LINE)
+  assert.equal(a.verdict, 'HOLD')
+  const detail = smithDispatchRunDetail(a)
+  assert.ok(detail.includes('node=smith'), `detail should name the smith gate node: ${detail}`)
+  assert.ok(detail.includes('verdict=HOLD'), `detail should carry verdict=HOLD: ${detail}`)
+  assert.ok(detail.includes(`gate=${a.gate}`), `detail should carry the adjudication gate: ${detail}`)
+  assert.ok(a.reasons.length > 0)
+  for (const reason of a.reasons) {
+    assert.ok(detail.includes(reason), `detail should carry the complete reason "${reason}": ${detail}`)
+  }
+})
+
+test('dispatch seam: smithDispatchRunDetail carries verdict + gate + full reason for a 4th-chunk envelope HOLD', () => {
+  const a = assessSmithWork(FOUR_CHUNK_LINE)
+  assert.equal(a.verdict, 'HOLD')
+  const detail = smithDispatchRunDetail(a)
+  assert.ok(detail.includes('node=smith'))
+  assert.ok(detail.includes('verdict=HOLD'))
+  assert.ok(detail.includes(`gate=${a.gate}`))
+  assert.ok(a.reasons.length > 0)
+  for (const reason of a.reasons) {
+    assert.ok(detail.includes(reason), `detail should carry the complete reason "${reason}": ${detail}`)
+  }
+})
+
+test('dispatch seam: smithDispatchRunDetail renders a GO adjudication without fabricated reasons', () => {
+  const a = assessSmithWork(SMALL_LINE)
+  assert.equal(a.verdict, 'GO')
+  const detail = smithDispatchRunDetail(a)
+  assert.ok(detail.includes('verdict=GO'))
+  assert.ok(detail.includes('gate=envelope-guard'))
+  assert.ok(detail.includes('reasons=none'))
 })
 
 test('dispatch seam: a malformed plan line is treated as no evidence — dispatches (GO)', () => {

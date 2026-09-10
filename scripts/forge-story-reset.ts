@@ -11,36 +11,22 @@
 //
 // Usage:
 //   node --env-file=.env.local --import tsx scripts/forge-story-reset.ts \
-//        <story-id> [reset|recover] [dev|prod]
+//        <story-id> [reset|recover] [dev|prod] [--force]
 //
 // Safe: only touches the named story's engine rows. PROD is explicit (default
-// target follows APP_ENV). Always run reset when you want a clean re-run; use
-// recover to continue a partial run whose worker died.
+// target follows APP_ENV) and is REFUSED unless --force is passed. Always run
+// reset when you want a clean re-run; use recover to continue a partial run
+// whose worker died.
 // ---------------------------------------------------------------------------
 import { Pool } from '@neondatabase/serverless'
+import { resolveStoryResetConfig } from './forge-story-reset-config'
 
-const story = process.argv[2]
-const mode = (process.argv[3] ?? 'reset').toLowerCase()
-const which = (
-  process.argv[4] ?? (process.env.APP_ENV === 'production' ? 'prod' : 'dev')
-).toLowerCase()
-if (!story) {
-  console.error('usage: forge-story-reset <story-id> [reset|recover] [dev|prod]')
+const config = resolveStoryResetConfig(process.argv, process.env)
+if (!config.ok) {
+  console.error(config.error)
   process.exit(2)
 }
-if (mode !== 'reset' && mode !== 'recover') {
-  console.error(`unknown mode ${JSON.stringify(mode)} (expected reset|recover)`)
-  process.exit(2)
-}
-if (which !== 'prod' && which !== 'dev') {
-  console.error(`unknown target ${JSON.stringify(which)}`)
-  process.exit(2)
-}
-const url = which === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
-if (!url) {
-  console.error(`no ${which.toUpperCase()} DATABASE_URL configured`)
-  process.exit(2)
-}
+const { story, mode, target, url } = config
 
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: url })
