@@ -181,7 +181,7 @@ export function mapRealProjectsToWorkspace(
         ].filter((label): label is string => Boolean(label)),
       } : {}),
       calendarItems: mapProjectCalendarItems(projectItems),
-      documents: documents.filter((document) => document.propertyId === project.propertyId).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
+      documents: documents.filter((document) => project.propertyId != null && document.propertyId === project.propertyId).map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt })),
       activity: activity.filter((entry) => (project.personId ? entry.personId === project.personId : false) || (project.propertyId ? Boolean(entry.propertyName && identityNames[`property:${project.propertyId}`] === entry.propertyName) : false)).map((entry) => ({ id: entry.id, channel: entry.channel, direction: entry.direction, occurredAt: entry.occurredAt, occurredAtLabel: entry.occurredAtLabel, title: entry.title, summary: entry.summary, personName: entry.personName, propertyName: entry.propertyName })),
       workNodes: top.map((node) => attach(projectItems, node)),
     }

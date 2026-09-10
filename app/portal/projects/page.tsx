@@ -37,9 +37,15 @@ async function serviceContext(): Promise<ServiceContext> {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** Resolve real display names for the entity anchors (name-resolution seam).
  *  Property names come from the real property table; other anchors fall back
- *  to their id until the person/contract name seam is wired. */
+ *  to their id until the person/contract name seam is wired.
+ *
+ *  property.id / contract.id are UUID columns, so a text anchor that is not a
+ *  UUID must be SKIPPED (never passed to the uuid comparison - that raised
+ *  Postgres 22P02 and 500'd the whole page). */
 async function resolveIdentityNames(items: WbsItem[], projects: { personId: string | null; propertyId: string | null; contractId: string | null }[]): Promise<Record<string, string>> {
   const names: Record<string, string> = {}
   const idsFor = (type: string) =>
@@ -47,17 +53,18 @@ async function resolveIdentityNames(items: WbsItem[], projects: { personId: stri
       ...items.map((i) => (i.entity?.type === type ? i.entity.id : "")),
       ...projects.map((p) => type === "person" ? p.personId : type === "property" ? p.propertyId : p.contractId),
     ].filter(Boolean)))
-  for (const id of idsFor("property")) {
+  const uuidOnly = (ids: (string | null | undefined)[]) => ids.filter((id): id is string => Boolean(id) && UUID_RE.test(id as string))
+  for (const id of uuidOnly(idsFor("property"))) {
     const rows = await sql`select name from property where id = ${id} limit 1`
     const name = rows[0]?.name as string | undefined
     if (name) names[`property:${id}`] = name
   }
-  for (const id of idsFor("person")) {
+  for (const id of uuidOnly(idsFor("person"))) {
     const rows = await sql`select display_name from mv_client_directory where person_id = ${id} limit 1`
     const name = rows[0]?.display_name as string | undefined
     if (name) names[`person:${id}`] = name
   }
-  for (const id of idsFor("contract")) {
+  for (const id of uuidOnly(idsFor("contract"))) {
     const rows = await sql`select contract_type from contract where id = ${id} limit 1`
     const type = rows[0]?.contract_type as string | undefined
     if (type) names[`contract:${id}`] = type.replaceAll("_", " ")
