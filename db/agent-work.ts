@@ -335,11 +335,12 @@ export async function claimSpecificAgentWork(
     // ENG-FORGE-SPLIT-01 — claim scope follows the row's nature (migration 143 model):
     //   * SERIAL work (parallel_group_id IS NULL) keeps the historical system-wide
     //     single-active rule, unchanged;
-    //   * a SPLIT child is a parallel slot, scoped to its own group, so independent
-    //     Smiths can run concurrently. Parallel rows only exist when the runtime
-    //     explicitly opted into SPLIT (FORGE_SPLIT_ENABLED), so this cannot widen
-    //     the serial path by accident.
-    // Either way an active SERIAL item anywhere still blocks every claim.
+    //   * a SPLIT child is a parallel slot. SIBLINGS MUST BE ABLE TO RUN CONCURRENTLY,
+    //     so the only thing that blocks a child is an active SERIAL item anywhere;
+    //     per-slot exclusivity is already enforced by
+    //     `agent_work_item_one_parallel_slot (story_id, parallel_group_id, parallel_slot)`.
+    //     Parallel rows only exist when the runtime explicitly opted into SPLIT
+    //     (FORGE_SPLIT_ENABLED), so this cannot widen the serial path by accident.
     const targetRows = await tx`
       select parallel_group_id from agent_work_item where id = ${workItemId}
     `
@@ -349,7 +350,7 @@ export async function claimSpecificAgentWork(
       ? await tx`
           select id from agent_work_item
           where state in ('Claimed', 'Running', 'Paused')
-            and (parallel_group_id is null or parallel_group_id = ${targetGroup})
+            and parallel_group_id is null
           limit 1
         `
       : await tx`
