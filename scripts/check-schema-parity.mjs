@@ -35,7 +35,23 @@ async function schema(pool) {
     if (!map.has(c.table_name)) map.set(c.table_name, new Map())
     map.get(c.table_name).set(c.column_name, `${c.data_type}${c.is_nullable === 'NO' ? ' NOT NULL' : ''}`)
   }
-  return { tables: tables.rows.map((r) => r.table_name), map }
+  // Indexes: the dispatch lock indexes proved these matter as much as columns.
+  const idx = await pool.query(
+    "select tablename, indexname, indexdef from pg_indexes where schemaname='public' order by 1,2",
+  )
+  const indexes = new Map()
+  for (const r of idx.rows) {
+    indexes.set(`${r.tablename}.${r.indexname}`, r.indexdef.replace(/\s+/g, ' ').trim())
+  }
+  // Foreign keys.
+  const fk = await pool.query(`
+    select con.conname, con.conrelid::regclass::text as child, con.confrelid::regclass::text as parent
+    from pg_constraint con join pg_namespace n on n.oid = con.connamespace
+    where con.contype = 'f' and n.nspname = 'public' order by 1`)
+  const fks = new Map()
+  for (const r of fk.rows) fks.set(r.conname, `${r.child} -> ${r.parent}`)
+
+  return { tables: tables.rows.map((r) => r.table_name), map, indexes, fks }
 }
 
 try {
@@ -67,7 +83,31 @@ try {
   }
   console.log(`column-drift tables: ${drift}`)
 
-  const clean = onlyDev.length === 0 && onlyProd.length === 0 && drift === 0
+  const idxKeys = new Set([...d.indexes.keys(), ...p.indexes.keys()])
+  const idxDrift = []
+  for (const k of idxKeys) {
+    const dv = d.indexes.get(k)
+    const pv = p.indexes.get(k)
+    if (dv === pv) continue
+    if (!dv) idxDrift.push(`  PROD-only index: ${k}`)
+    else if (!pv) idxDrift.push(`  DEV-only index : ${k}`)
+    else idxDrift.push(`  index differs  : ${k}`)
+  }
+  console.log(`index drift: ${idxDrift.length}`)
+  for (const l of idxDrift.slice(0, 20)) console.log(l)
+
+  const fkKeys = new Set([...d.fks.keys(), ...p.fks.keys()])
+  const fkDrift = []
+  for (const k of fkKeys) {
+    const dv = d.fks.get(k)
+    const pv = p.fks.get(k)
+    if (dv === pv) continue
+    fkDrift.push(`  ${!dv ? 'PROD-only' : !pv ? 'DEV-only ' : 'differs  '} fk ${k}: DEV=${dv ?? '-'} PROD=${pv ?? '-'}`)
+  }
+  console.log(`fk drift: ${fkDrift.length}`)
+  for (const l of fkDrift.slice(0, 20)) console.log(l)
+
+  const clean = onlyDev.length === 0 && onlyProd.length === 0 && drift === 0 && idxDrift.length === 0 && fkDrift.length === 0
   console.log(clean ? '\nPARITY OK' : '\nDRIFT FOUND')
   process.exitCode = clean ? 0 : 1
 } finally {

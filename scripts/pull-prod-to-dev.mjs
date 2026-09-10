@@ -172,6 +172,31 @@ async function main() {
     if (d !== n) { mismatch++; console.log(`  MISMATCH ${t}: DEV=${d} PROD=${n}`) }
   }
   console.log(mismatch === 0 ? 'OK - every copied table now matches PROD' : `${mismatch} mismatches`)
+
+  // A logical copy only moves BASE TABLE rows. Materialized read models must be
+  // rebuilt, and sequences must be >= max(id) or later inserts collide.
+  console.log('\nrefreshing materialized views…')
+  const mvs = await dev.query("select matviewname from pg_matviews where schemaname='public' order by 1")
+  for (const r of mvs.rows) {
+    await dev.query(`refresh materialized view "${r.matviewname}"`)
+    console.log(`  refreshed ${r.matviewname}`)
+  }
+
+  const seqCols = await dev.query(`
+    select table_name, column_name, column_default from information_schema.columns
+    where table_schema='public' and column_default like 'nextval%' order by 1`)
+  let behind = 0
+  for (const c of seqCols.rows) {
+    const seq = c.column_default.match(/nextval\('([^']+)'/)?.[1]?.replace(/^public\./, '').replace(/"/g, '')
+    if (!seq) continue
+    const s = await dev.query("select last_value from pg_sequences where schemaname='public' and sequencename=$1", [seq])
+    const mx = (await dev.query(`select max("${c.column_name}")::bigint m from "${c.table_name}"`)).rows[0].m
+    if (s.rows[0] && mx != null && Number(s.rows[0].last_value) < Number(mx)) {
+      behind++
+      console.log(`  SEQUENCE BEHIND ${c.table_name}.${c.column_name}: seq=${s.rows[0].last_value} max=${mx}`)
+    }
+  }
+  console.log(behind === 0 ? 'sequences OK (none behind max value)' : `${behind} sequences behind - fix with setval`)
 }
 
 main()

@@ -99,6 +99,15 @@ records nothing. `db:parity` is the only guard until a ledger exists.
 
 ## 4. Hard-won rules
 
+- **A logical copy carries two traps a Neon branch never has:** it only moves
+  **BASE TABLE** rows, so (a) **materialized views must be refreshed**
+  (`mv_client_directory` was 2628 vs PROD 2632 after the 2026-09-10 pull), and
+  (b) **sequences are not advanced** — verify `last_value >= max(id)` or later
+  inserts collide. `pull-prod-to-dev.mjs` now does both automatically.
+- **Parity covers four axes: tables, columns, indexes, and FKs.** Indexes are not
+  cosmetic — the Forge dispatch lock lives in a partial unique index, and a
+  missing one silently changes dispatch behavior.
+
 - **Never hand-roll SQL literals for array/json columns.** `'["a","b"]'` is not a
   valid Postgres array; use parameterized inserts with `::jsonb` casts where needed.
 - **A preserve-closure must not cascade from the auth tables.** `app_user`,
