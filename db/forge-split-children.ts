@@ -98,7 +98,6 @@ export async function listSplitChildOutcomes(
         order by parallel_slot nulls last, created_at
       `
   const byChild = new Map<string, SplitOutcome>()
-  const unrecorded: string[] = []
   for (const row of rows as Array<{
     split_assignment: string
     parallel_slot: number | null
@@ -130,5 +129,12 @@ export async function listSplitChildOutcomes(
     const existing = byChild.get(childId)
     if (!existing || outcome.attempt >= existing.attempt) byChild.set(childId, outcome)
   }
+  // The unrecorded check is per CHILD, not per ROW: a story (and even one fan-out) can
+  // hold more than one row for the same child when an attempt is superseded, and the
+  // reducer already collapses those. Counting a superseded row as "no SHA" would HOLD
+  // a join whose children all produced candidates.
+  const unrecorded = [...byChild.values()]
+    .filter((o) => o.status === 'completed' && !o.candidateSha)
+    .map((o) => o.childId)
   return { outcomes: [...byChild.values()], unrecorded }
 }
