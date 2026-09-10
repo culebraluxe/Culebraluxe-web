@@ -8,6 +8,11 @@ export function buildLeadRoutingDirective(context: RoutingContext): string {
     'Use the supplied Scout evidence, Architect contract, original acceptance, and known code surfaces. Do not invent missing evidence or expand discovery into current scope.',
     'First assess work size by coherent outcomes, uncertainty, coupling, context burden and proof burden. File count alone is not size; several files can implement one small behavior.',
     'Then assign ownership. SMALL: normally SOLO, Lead implements one low-risk bounded chunk; SMITH is allowed if the specialist is a better fit. MEDIUM: one SMITH by default, or SPLIT if separate bounded assignments repay coordination. LARGE: SPLIT to at least two bounded Smith assignments.',
+    ...(context.splitEnabled && context.maxSmiths > 1
+      ? []
+      : [
+          `SPLIT IS NOT AVAILABLE ON THIS RUN (splitEnabled=false, maxSmiths=${context.maxSmiths}). Do not propose SPLIT: it is rejected as requiring runtime support, and a rejected proposal wastes an attempt. A LARGE story therefore cannot be dispatched from here at all — if the work is genuinely LARGE, choose HOLD (or the smallest honest MEDIUM recut of it) and say exactly which bounded units it must become. Never relabel LARGE work as smaller just to make validation pass; a false size is worse than a HOLD.`,
+        ]),
     'A Smith assignment contains 1..3 serial chunks in the same worker context. Three chunks do not imply three workers. Apply the chunk ceiling PER ASSIGNMENT, not per whole story.',
     'The current XML SPLIT is a sibling fork. Every assignment must be executable from the same starting candidate with existing stable contracts. A dependency on a sibling output is not runnable here; report HOLD with the missing prerequisite/staging need. Do not erase dependencies to make validation pass.',
     'The runtime controls split availability, worker cap, concurrency and model configuration. Do not infer any of these from old prompt text. Do not claim you changed a model by mentioning Flash or Pro.',

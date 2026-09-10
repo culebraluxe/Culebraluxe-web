@@ -118,6 +118,21 @@ test('four total chunks across two Smiths are allowed; three is per assignment',
   }
   assert.equal(reviewLeadProposal(p, context).ok, true)
 })
+test('with SPLIT unavailable the directive forbids SPLIT and blocks LARGE (no legal-route trap)', () => {
+  const f = fixture()
+  const noSplit: RoutingContext = { ...f.context, splitEnabled: false, maxSmiths: 1 }
+  const directive = buildLeadRoutingDirective(noSplit)
+  assert.match(directive, /SPLIT IS NOT AVAILABLE ON THIS RUN/)
+  assert.match(directive, /choose HOLD/)
+  // A LARGE proposal must fail with a reason that names the runtime cause, so the
+  // self-heal reprompt is actionable instead of blind.
+  f.p.size = 'LARGE'; f.p.decision = 'SMITH'
+  const r = reviewLeadProposal(f.p, noSplit)
+  assert.equal(r.ok, false)
+  if (!r.ok) assert.match(r.errors.join('\n'), /SPLIT is unavailable this run/)
+  // The split-enabled directive must NOT carry the unavailability warning.
+  assert.doesNotMatch(buildLeadRoutingDirective(f.context), /SPLIT IS NOT AVAILABLE/)
+})
 test('an absent LEAD_ROUTING line is named specifically (non-blind self-heal)', () => {
   const f = fixture()
   const r = reviewLeadProposal(null, f.context)

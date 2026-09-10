@@ -119,7 +119,13 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     errors.push('SPLIT requires runtime support and 2..maxSmiths assignments')
   }
   if (p.size === 'SMALL' && p.decision === 'SPLIT') errors.push('SMALL work does not justify a split; revise the size or assignment')
-  if (p.size === 'LARGE' && p.decision !== 'SPLIT') errors.push('LARGE requires two or more bounded Smith assignments')
+  if (p.size === 'LARGE' && p.decision !== 'SPLIT') {
+    errors.push(
+      context.splitEnabled && context.maxSmiths > 1
+        ? 'LARGE requires two or more bounded Smith assignments'
+        : 'LARGE requires two or more bounded Smith assignments, but SPLIT is unavailable this run (splitEnabled=false) — HOLD and recut the story into bounded units instead of relabelling the size',
+    )
+  }
   if (p.decision === 'SOLO' && p.size !== 'SMALL') errors.push('SOLO requires SMALL work')
   if (!unique(p.assignments.map(a => a.id))) errors.push('Duplicate assignment IDs')
   if (!p.mergeChecks.length || p.mergeChecks.some(c => !context.allowedProofs.includes(c))) {
