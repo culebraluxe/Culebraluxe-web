@@ -20,7 +20,14 @@ async function executor(): Promise<QueryExecutor> {
   return client.sql
 }
 
-/** Record which accepted Lead assignment this child owns. */
+/**
+ * Record which accepted Lead assignment this child owns.
+ *
+ * `index` is the engine's 0-based branch index; the persisted slot is 1-BASED
+ * (`index + 1`) to match the enqueue, which allocates `parallel_slot = index + 1`.
+ * Two writers using different conventions for the same column produced a duplicate
+ * (story, group, slot) and a 23505 on a live run — keep them in step.
+ */
 export async function recordSplitChildAssignment(
   workItemId: string,
   input: { assignmentId: string; index: number },
@@ -30,7 +37,7 @@ export async function recordSplitChildAssignment(
   await q`
     update agent_work_item
     set split_assignment = ${input.assignmentId},
-        parallel_slot = ${input.index},
+        parallel_slot = ${input.index + 1},
         updated_at = now()
     where id = ${workItemId}
   `
