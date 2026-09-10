@@ -159,8 +159,18 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     if (!scopes.length || scopes.some(s => s === null)) errors.push(prefix + 'Architect must supply explicit repository-relative scopes')
     const paths = a.plan.chunks.flatMap(c => c.surface).map(pathOf)
     pathsByAssignment.push(paths.filter((s): s is string => s !== null))
-    if (paths.some(path => !path || !scopes.some(scope => scope && within(path, scope)))) {
-      errors.push(prefix + 'chunk edits exceed the assigned Architect scope or use an invalid path')
+    const illegal = paths.filter(path => !path || !scopes.some(scope => scope && within(path, scope)))
+    if (illegal.length) {
+      // Name the offending surfaces and the legal seams. The LEAD retries on this
+      // error text, so an actionable message is the difference between a self-correcting
+      // second attempt and a deterministic HOLD (observed on PROJECTS-WORKSPACE-05).
+      errors.push(
+        prefix +
+          'chunk edits exceed the assigned Architect scope or use an invalid path: ' +
+          illegal.map(path => path ?? '<unparseable surface>').join(', ') +
+          ' — allowed seams: ' +
+          (scopes.filter((scope): scope is string => scope !== null).join(', ') || '<none declared>'),
+      )
     }
     if (a.plan.chunks.some(c => !context.allowedProofs.includes(c.proof))) {
       errors.push(prefix + 'chunk proof is not in the frozen story acceptance commands')
