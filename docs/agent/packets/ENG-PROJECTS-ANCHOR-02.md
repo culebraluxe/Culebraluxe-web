@@ -63,3 +63,7 @@ Chain: `architect → lead_pre → smith → lead_post → qa_verify → deploy`
 - Net story state: **code published, candidate QA-verified, deployment unrecordable** →
   story left `In Progress`. The routing refinement this run was built to prove is
   **proven**; the story's own release-obligation bookkeeping is blocked by the receipt gap.
+- Durable facts (`forge_workflow_evidence`, instance `25e37d98-302b-4fb3-b99a-659577cbcaf7`):
+  `lead_decision=SMITH`, `split_count=NULL`, `qa_passed=true`,
+  `candidate_sha=published_sha=0465126bd8bfe55306d98cfd7272cfc53b9188a8`,
+  `deployment_receipt=NULL`.
