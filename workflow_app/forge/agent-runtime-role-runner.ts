@@ -133,6 +133,31 @@ export function createAgentRuntimeForgeRoleRunner(
     const resolvedStory = await getStoryboardStory(String(subjectRows[0]?.subject_id ?? ''))
     if (!resolvedStory) throw new Error(`Forge engine task ${task.taskId} has no Storyboard story`)
 
+    // ---------------------------------------------------------------------
+    // BATCH-SLICED ROLLOUT — DEV_OPS IS HELD OFF THE CHAIN (migration 148).
+    //
+    // A story flagged `batch_deploy` belongs to a major feature rollout that must
+    // deploy as ONE deliberate slice, not story-by-story. Satisfying the receipt
+    // gate is NOT enough: the DEV_OPS lane would still publish and (because main
+    // maps to production) deploy. So for these stories the release lane does not
+    // run at all — no publish, no deploy, no fabricated receipt — and the node
+    // completes with an honest DEFERRAL record instead.
+    //
+    // Release deliberately: scripts/forge-batch-release.mjs (lists the slice), then
+    // the real publish/deploy/verify for the whole batch.
+    // ---------------------------------------------------------------------
+    if (resolvedStory.batchDeploy && (nodeId === 'deploy' || nodeId === 'production_smoke')) {
+      const deferredTo = resolvedStory.batch ?? 0
+      await mergeForgeWorkflowEvidence(task.processInstanceId, resolvedStory.id, {
+        deploymentDeferredToBatch: deferredTo,
+      })
+      await finishForgeEngineTaskExecution(task.taskId, { storyRunId: null, status: 'completed' })
+      console.log(
+        `[${nodeId}] batch-sliced rollout: DEV_OPS held off the chain — deployment DEFERRED to batch ${deferredTo}. Nothing published or deployed.`,
+      )
+      return { transitionName: 'complete', evidence: { deploymentDeferredToBatch: deferredTo } }
+    }
+
     // Bounded self-heal. When the enforced gate (default ON; disable with
     // FORGE_ENFORCE_DELIVERABLES=0) HOLDs a *successful* run for a missing
     // deliverable / routing decision, we
