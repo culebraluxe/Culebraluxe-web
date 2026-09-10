@@ -106,9 +106,27 @@ export function smithContractFromAssignment(input: {
   nodeId: string
   attempt: number
   assignment: LeadAssignment
+  /**
+   * Other accepted assignments in the same SPLIT. Their surfaces become the
+   * child's prohibitedScope so sibling isolation is machine-enforced, not just
+   * prose. Caller contract (not wired here):
+   *   siblings = acceptedRouting.assignments.filter((a) => a.id !== resolvedAssignment.id)
+   */
+  siblings?: LeadAssignment[]
 }): { contract: SmithExecutionContract; errors: string[] } {
   const surfaces = input.assignment.plan.chunks.flatMap((c) => c.surface)
   const proofs = input.assignment.plan.chunks.map((c) => c.proof)
+  const own = new Set(surfaces)
+  const siblingSurfaces = (input.siblings ?? []).flatMap((s) =>
+    s.plan.chunks.flatMap((c) => c.surface),
+  )
+  // A child must never forbid its own surfaces. Drop exact own surfaces AND any
+  // sibling surface that is a path-ANCESTOR of an own surface: isChangeAllowed()
+  // uses prefix matching, so a sibling directory that contains an own file would
+  // otherwise self-forbid the child's own edit.
+  const isAncestorOfOwn = (s: string) =>
+    [...own].some((o) => o === s || o.startsWith(s.endsWith('/') ? s : s + '/'))
+  const prohibitedScope = [...new Set(siblingSurfaces)].filter((s) => !isAncestorOfOwn(s))
   const contract: SmithExecutionContract = {
     identity: {
       storyId: input.storyId,
@@ -119,7 +137,7 @@ export function smithContractFromAssignment(input: {
     objective: input.assignment.reasoning,
     requiredInputs: input.assignment.evidenceRefs,
     allowedScope: surfaces,
-    prohibitedScope: [],
+    prohibitedScope,
     expectedOutputs: input.assignment.plan.chunks.map((c) => c.outcome),
     requiredEvidence: proofs,
     dependsOn: input.assignment.dependsOn,

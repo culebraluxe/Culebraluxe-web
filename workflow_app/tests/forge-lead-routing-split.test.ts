@@ -10,9 +10,11 @@ import {
 import { buildLeadRoutingDirective } from '../forge/forge-lead-routing-prompt'
 import {
   assignmentForSplitBranch,
+  smithContractFromAssignment,
   splitChildAssignment,
   splitBranchIndexFromForm,
 } from '../forge/forge-split-handoff'
+import { isChangeAllowed } from '../forge/smith-contract'
 
 const proof = 'pnpm exec tsx --test workflow_app/tests/forge-lead-routing-split.test.ts'
 
@@ -207,4 +209,69 @@ test('an engine slice that disagrees with the accepted proposal is refused, not 
   })
   assert.equal(mismatch.assignment?.id, 'a', 'the accepted proposal wins for RESOLUTION...')
   assert.match(mismatch.errors.join('\n'), /refusing rather than guessing/, '...but the disagreement is a HOLD')
+})
+
+test('smithContractFromAssignment carries sibling surfaces into prohibitedScope (machine-enforced)', () => {
+  const own = assignment('a', 'f1', ['workflow_app/forge/a.ts'])
+  const siblingB = assignment('b', 'f2', ['workflow_app/forge/b.ts'])
+  // A sibling that ALSO declares this child's own surface must not self-forbid.
+  const siblingC = assignment('c', 'f3', [
+    'workflow_app/forge/c.ts',
+    'workflow_app/forge/a.ts',
+  ])
+
+  // Siblings absent or empty leaves prohibitedScope unchanged as [].
+  const absent = smithContractFromAssignment({
+    storyId: 's', nodeId: 'n', attempt: 1, assignment: own,
+  })
+  assert.deepEqual(absent.contract.prohibitedScope, [])
+  assert.deepEqual(absent.errors, [])
+  const empty = smithContractFromAssignment({
+    storyId: 's', nodeId: 'n', attempt: 1, assignment: own, siblings: [],
+  })
+  assert.deepEqual(empty.contract.prohibitedScope, [])
+
+  // Deduped sibling surfaces in first-seen order; the own surface is excluded.
+  const withSiblings = smithContractFromAssignment({
+    storyId: 's', nodeId: 'n', attempt: 1, assignment: own,
+    siblings: [siblingB, siblingC, siblingB],
+  })
+  assert.deepEqual(withSiblings.contract.prohibitedScope, [
+    'workflow_app/forge/b.ts',
+    'workflow_app/forge/c.ts',
+  ])
+  assert.ok(!withSiblings.contract.prohibitedScope.includes('workflow_app/forge/a.ts'))
+  assert.deepEqual(withSiblings.errors, [])
+
+  // Machine enforcement: a sibling surface is denied, the own surface is allowed.
+  assert.equal(isChangeAllowed(withSiblings.contract, 'workflow_app/forge/b.ts'), false)
+  assert.equal(isChangeAllowed(withSiblings.contract, 'workflow_app/forge/c.ts'), false)
+  assert.equal(isChangeAllowed(withSiblings.contract, 'workflow_app/forge/a.ts'), true)
+
+  // Existing derivations are unchanged by adding siblings.
+  assert.deepEqual(withSiblings.contract.allowedScope, ['workflow_app/forge/a.ts'])
+  assert.deepEqual(withSiblings.contract.requiredInputs, own.evidenceRefs)
+  assert.deepEqual(withSiblings.contract.expectedOutputs, ['done a'])
+  assert.deepEqual(withSiblings.contract.requiredEvidence, [proof])
+  assert.deepEqual(withSiblings.contract.dependsOn, own.dependsOn)
+})
+
+test('a sibling surface that is an ANCESTOR of an own surface does not self-forbid the child', () => {
+  const own = assignment('a', 'f1', ['workflow_app/forge/sub/a.ts'])
+  // Sibling declares the containing directory (and a trailing-slash variant) —
+  // prefix matching in isChangeAllowed would otherwise deny the child its own file.
+  const siblingDir = assignment('b', 'f2', ['workflow_app/forge/sub'])
+  const siblingDirSlash = assignment('c', 'f3', ['workflow_app/forge/sub/'])
+  const siblingOther = assignment('d', 'f4', ['workflow_app/forge/other.ts'])
+
+  const { contract, errors } = smithContractFromAssignment({
+    storyId: 's', nodeId: 'n', attempt: 1, assignment: own,
+    siblings: [siblingDir, siblingDirSlash, siblingOther],
+  })
+  assert.deepEqual(errors, [])
+  // Ancestor surfaces are dropped; a disjoint sibling surface is kept.
+  assert.deepEqual(contract.prohibitedScope, ['workflow_app/forge/other.ts'])
+  // The child can still edit its own file even though a sibling declared the parent dir.
+  assert.equal(isChangeAllowed(contract, 'workflow_app/forge/sub/a.ts'), true)
+  assert.equal(isChangeAllowed(contract, 'workflow_app/forge/other.ts'), false)
 })
