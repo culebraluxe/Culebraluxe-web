@@ -89,7 +89,7 @@ export async function getSecurityPrincipal(
             from (
               select distinct r.code
               from app_user_role aur
-              join role r
+              join security_role r
                 on r.id = aur.role_id
                 and r.active = true
               where aur.app_user_id = u.id
@@ -100,7 +100,7 @@ export async function getSecurityPrincipal(
             from (
               select distinct a.code
               from app_user_role aur
-              join role r
+              join security_role r
                 on r.id = aur.role_id
                 and r.active = true
               join role_authority ra

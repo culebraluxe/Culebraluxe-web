@@ -244,7 +244,7 @@ async function actorMayApplyBrokerSignature(
         select r.code
         from app_user u
         join app_user_role aur on aur.app_user_id = u.id
-        join role r on r.id = aur.role_id and r.active = true
+        join security_role r on r.id = aur.role_id and r.active = true
         where u.id = ${actorAppUserId}
           and u.active = true
         order by r.code

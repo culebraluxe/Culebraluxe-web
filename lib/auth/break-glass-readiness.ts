@@ -47,7 +47,7 @@ export async function getBreakGlassReadiness(): Promise<BreakGlassReadiness> {
       const ownerRows = await sql`
         select 1
         from app_user_role aur
-        join role r on r.id = aur.role_id
+        join security_role r on r.id = aur.role_id
         where aur.app_user_id = ${config.appUserId}
           and r.code = 'owner'
         limit 1

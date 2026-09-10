@@ -65,7 +65,7 @@ export async function getSettingsUsers(): Promise<SettingsUser[]> {
         (
           select jsonb_agg(r.code order by r.code)
           from app_user_role aur
-          join role r
+          join security_role r
             on r.id = aur.role_id
           where aur.app_user_id = u.id
             and r.active = true
@@ -121,7 +121,7 @@ export async function getSettingsRoles(): Promise<SettingsRole[]> {
         '[]'::jsonb
       ) as authorities,
       (select count(*)::int from app_user_role aur where aur.role_id = r.id) as user_count
-    from role r
+    from security_role r
     order by r.account_type, r.code
   `
 
@@ -156,7 +156,7 @@ export async function getSettingsAuthorities(): Promise<SettingsAuthority[]> {
         (
           select jsonb_agg(r.code order by r.code)
           from role_authority ra
-          join role r
+          join security_role r
             on r.id = ra.role_id
           where ra.authority_id = a.id
         ),

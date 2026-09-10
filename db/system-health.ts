@@ -220,7 +220,7 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
         (
           select count(*)::int
           from app_user_role aur
-          join role r on r.id = aur.role_id
+          join security_role r on r.id = aur.role_id
           join app_user u on u.id = aur.app_user_id
           where r.account_type <> u.account_type
         ) as account_type_mismatch_count,
@@ -235,7 +235,7 @@ export async function getSystemHealth(): Promise<SystemHealthSnapshot> {
         (
           select count(*)::int
           from app_user_role aur
-          join role r on r.id = aur.role_id
+          join security_role r on r.id = aur.role_id
           where r.code = 'owner'
         ) as owner_assignments
     `
