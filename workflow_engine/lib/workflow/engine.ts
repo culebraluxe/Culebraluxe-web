@@ -1764,7 +1764,7 @@ export class WorkflowEngine {
     const taskRows = await tx`
       INSERT INTO tasks (
         tenant_id, process_instance_id, token_id, name, description,
-        status, candidates, form_key, priority
+        status, candidates, form_key, priority, node_id
       ) VALUES (
         ${instance.tenantId},
         ${instance.id},
@@ -1774,7 +1774,8 @@ export class WorkflowEngine {
         'ready',
         ${candidates},
         ${node.formKey ?? null},
-        ${node.priority ?? 0}
+        ${node.priority ?? 0},
+        ${node.id}
       )
       RETURNING id
     `;

@@ -197,7 +197,12 @@ export class FakeSql {
 
     if (t.startsWith('select id from tasks where process_instance_id =') && t.includes("status in ('ready', 'reserved', 'in_progress')")) {
       const pid = params[0];
-      return st.tasks.filter((r) => r.process_instance_id === pid && ['ready', 'reserved', 'in_progress'].includes(r.status)).map((r) => ({ id: r.id }));
+      // Consumers look tasks up by canonical node id (006-style: and node_id = $2).
+      // Honour it when present so the fake matches production semantics.
+      const nodeId = t.includes('node_id =') ? params[1] : null;
+      return st.tasks
+        .filter((r) => r.process_instance_id === pid && ['ready', 'reserved', 'in_progress'].includes(r.status) && (nodeId === null || r.node_id === nodeId))
+        .map((r) => ({ id: r.id }));
     }
     if (t.startsWith('select id from tasks where token_id =') && t.includes("status in ('ready', 'reserved', 'in_progress')")) {
       const tid = params[0];
@@ -359,6 +364,7 @@ export class FakeSql {
         priority: params[7],
         due_date: null,
         form_key: params[6],
+        node_id: params[8] ?? null,
         form_data: {},
         created_at: now,
         claimed_at: null,
