@@ -31,6 +31,14 @@ export type SplitReduction = {
   duplicates: string[]
   conflicts: string[]
   joinSatisfied: boolean
+  /**
+   * ENG-FORGE-SPLIT-DOGFOOD-01 — children that reported MORE THAN ONE completed
+   * terminal outcome. `duplicates` records every repeat outcome (including
+   * retries that later failed); this names only children whose repeats were all
+   * terminal completions, so the gate can report a collapsed duplicate instead
+   * of silently accepting it. First-seen order.
+   */
+  duplicatedTerminal: string[]
 }
 
 /**
@@ -57,6 +65,18 @@ export function reduceSplit(input: {
       byChild.set(o.childId, o)
     }
   }
+
+  // ENG-FORGE-SPLIT-DOGFOOD-01 — duplicated terminal completions, computed from
+  // RAW outcomes before dedupe so a collapsed repeat is reported, not swallowed.
+  const completedCount = new Map<string, number>()
+  for (const o of input.outcomes) {
+    if (o.status === 'completed') {
+      completedCount.set(o.childId, (completedCount.get(o.childId) ?? 0) + 1)
+    }
+  }
+  const duplicatedTerminal = [...completedCount.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id)
 
   const accounted = [...byChild.values()].map((o) => o.childId)
   const completed = [...byChild.values()].filter((o) => o.status === 'completed').map((o) => o.childId)
@@ -95,6 +115,7 @@ export function reduceSplit(input: {
     duplicates,
     conflicts,
     joinSatisfied,
+    duplicatedTerminal,
   }
 }
 
@@ -128,6 +149,11 @@ export function splitJoinHoldReasons(input: {
   }
   if (reduction.conflicts.length > 0) {
     reasons.push(`sibling assignments claim the same output: ${reduction.conflicts.join(', ')}`)
+  }
+  if (reduction.duplicatedTerminal.length > 0) {
+    reasons.push(
+      `split children reported duplicate terminal completions: ${reduction.duplicatedTerminal.join(', ')}`,
+    )
   }
   if ((input.unrecordedCandidates ?? []).length > 0) {
     reasons.push(

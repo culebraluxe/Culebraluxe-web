@@ -84,3 +84,47 @@ test('a retried child is counted once, and the later attempt wins', () => {
     [],
   )
 })
+
+// ENG-FORGE-SPLIT-DOGFOOD-01 — duplicated TERMINAL child outcomes.
+//
+// `duplicates` records every repeat outcome (a failed attempt then a retry is a
+// duplicate, and that is fine). But two completed terminal outcomes for the same
+// child mean the reducer silently collapsed a duplicate terminal result. The
+// reduction must name it, and the pre-lead_post gate must HOLD on it.
+
+test('a single completed outcome per child yields no duplicatedTerminal', () => {
+  const reduction = reduceSplit({
+    expectedIds: ['a', 'b'],
+    outcomes: [ok('a'), ok('b')],
+  })
+  assert.deepEqual(reduction.duplicatedTerminal, [])
+})
+
+test('a failed-then-retried child is a duplicate, not a duplicated terminal', () => {
+  const reduction = reduceSplit({
+    expectedIds: ['a', 'b'],
+    outcomes: [
+      { childId: 'a', status: 'failed', attempt: 1 },
+      { childId: 'a', status: 'completed', attempt: 2, candidateSha: 'sha-a2' },
+      ok('b'),
+    ],
+  })
+  assert.deepEqual(reduction.duplicates, ['a'])
+  assert.deepEqual(reduction.duplicatedTerminal, [])
+})
+
+test('two completed outcomes for one child are named in first-seen order', () => {
+  const reduction = reduceSplit({
+    expectedIds: ['a', 'b'],
+    outcomes: [ok('a', 1), ok('b', 1), ok('a', 2, 'sha-a2'), ok('a', 3, 'sha-a3')],
+  })
+  assert.deepEqual(reduction.duplicatedTerminal, ['a'])
+})
+
+test('the pre-lead_post gate reports duplicated terminal outcomes by name', () => {
+  const reasons = splitJoinHoldReasons({
+    expectedIds: ['a', 'b'],
+    outcomes: [ok('a', 1), ok('b'), ok('a', 2, 'sha-a2')],
+  })
+  assert.match(reasons.join('\n'), /duplicate terminal completions: a/)
+})
