@@ -118,6 +118,15 @@ test('four total chunks across two Smiths are allowed; three is per assignment',
   }
   assert.equal(reviewLeadProposal(p, context).ok, true)
 })
+test('an absent LEAD_ROUTING line is named specifically (non-blind self-heal)', () => {
+  const f = fixture()
+  const r = reviewLeadProposal(null, f.context)
+  assert.equal(r.ok, false)
+  if (!r.ok) {
+    assert.match(r.errors.join('\n'), /No LEAD_ROUTING line was emitted/)
+    assert.doesNotMatch(r.errors.join('\n'), /Malformed/, 'absence is not the same miss as an invalid shape')
+  }
+})
 test('a self-rated oversized assignment is ADVISORY, not a dispatch veto', () => {
   const f = splitFixture(); f.p.assignments[0].features.semanticSurface = 4
   const r = reviewLeadProposal(f.p, f.context)

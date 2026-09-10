@@ -88,6 +88,18 @@ const overlap = (a: string, b: string) => within(a, b) || within(b, a)
 export function reviewLeadProposal(raw: unknown, context: RoutingContext): RoutingReview {
   const errors: string[] = []
   const advisories: string[] = []
+  if (raw === null || raw === undefined) {
+    // The role never emitted the line at all — a different failure from an emitted
+    // but invalid proposal, and the only one a self-heal reprompt can act on
+    // directly. Naming it turns a blind retry into a targeted correction.
+    return {
+      ok: false,
+      errors: [
+        'No LEAD_ROUTING line was emitted — end the reply with exactly one un-fenced single JSON line beginning LEAD_ROUTING:',
+      ],
+      advisories,
+    }
+  }
   if (!proposalValidShape(raw)) return { ok: false, errors: ['Malformed LEAD_ROUTING proposal'], advisories }
   const p = raw
   if (p.decision === 'HOLD') {

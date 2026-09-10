@@ -41,6 +41,7 @@ import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
+import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import {
   buildLeadRoutingContext,
   findLatestAcceptedLeadRouting,
@@ -185,11 +186,17 @@ export function createAgentRuntimeForgeRoleRunner(
       ? (findLatestAcceptedLeadRouting(await runs.listForStory(resolvedStory.id), leadRoutingContext)
           ?.assignments[0]?.plan ?? null)
       : null
+    // When Astra routing governs PRE, the legacy lead_pre evidence contract
+    // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:
+    // on a live run the model obeyed the longer legacy text, emitted no LEAD_ROUTING
+    // line at all, and HOLDed. The routing directive is the only routing contract in
+    // that lane; the legacy text still applies to lanes without a routing context.
+    const leadRoutingGovernsPre = nodeId === 'lead_pre' && Boolean(leadRoutingContext)
     const extraInstructions = [
       correctiveNote,
       identityInstruction,
       branchInstruction,
-      plan.evidenceInstruction,
+      leadRoutingGovernsPre ? null : plan.evidenceInstruction,
       repoContextInstruction,
       priorScoutInstruction,
       contextLessonsDirective,
@@ -451,7 +458,13 @@ export function createAgentRuntimeForgeRoleRunner(
     // routing decision is re-run with a corrective directive naming what was
     // missing. Only when the reprompt budget is exhausted do we throw the HOLD.
     if (attempt + 1 < totalAttempts) {
-      correctiveNote = buildSelfHealDirective(nodeId, miss, plan.evidenceInstruction)
+      correctiveNote = buildSelfHealDirective(
+        nodeId,
+        miss,
+        leadRoutingGovernsPre && leadRoutingContext
+          ? buildLeadRoutingDirective(leadRoutingContext)
+          : plan.evidenceInstruction,
+      )
       continue
     }
     throw new Error(
