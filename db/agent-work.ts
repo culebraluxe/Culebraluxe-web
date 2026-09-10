@@ -469,6 +469,18 @@ export async function enqueueAgentWorkCommand(
     maxAttempts?: number
     executionPolicy?: string
     executionEnvironment?: string | null
+    /**
+     * ENG-FORGE-SPLIT-01 — parallel-group membership.
+     *
+     * A SPLIT child MUST declare its group+slot. Without a group id it is
+     * governed by the serial index (`agent_work_item_one_serial_active_per_story`
+     * — `story_id` where state is active AND `parallel_group_id IS NULL`), so
+     * siblings collapse onto ONE row through the 23505 fallback below and the
+     * second child can never be claimed. With a group they are governed by
+     * `agent_work_item_one_parallel_slot (story_id, parallel_group_id, parallel_slot)`.
+     */
+    parallelGroupId?: string | null
+    parallelSlot?: number | null
   },
   execute?: QueryExecutor,
 ): Promise<AgentWorkItem> {
@@ -522,12 +534,14 @@ export async function enqueueAgentWorkCommand(
       const rows = await q`
         insert into agent_work_item (
           story_id, state, priority, role, model_profile, special_instructions,
-          max_attempts, execution_policy, execution_environment
+          max_attempts, execution_policy, execution_environment,
+          parallel_group_id, parallel_slot
         ) values (
           ${input.storyId}, 'Ready', ${input.priority ?? 0},
           ${input.role ?? null}, ${input.modelProfile ?? null},
           ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3},
-          ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null}
+          ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null},
+          ${input.parallelGroupId ?? null}, ${input.parallelSlot ?? null}
         )
         returning id, story_id, state, priority, queued_at, claimed_at,
           claimed_by, started_at, finished_at, story_run_id, error_text,
@@ -538,7 +552,9 @@ export async function enqueueAgentWorkCommand(
     } catch (error) {
       // A dispatch trigger (migration 025) may have just created the active row;
       // that unique race falls back to the update instead of failing the insert.
-      if ((error as { code?: string })?.code === '23505') {
+      // A PARALLEL child (SPLIT) must never take that path: merging siblings onto
+      // one row is exactly the collapse that makes the second child unclaimable.
+      if ((error as { code?: string })?.code === '23505' && !input.parallelGroupId) {
         const raced = await q`
           select id from agent_work_item
           where story_id = ${input.storyId}

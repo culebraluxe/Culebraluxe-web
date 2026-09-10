@@ -288,6 +288,12 @@ export function createAgentRuntimeForgeRoleRunner(
       ...lane.envelope,
       executionEnvironment: target,
       executionPolicy: 'Unattended OK',
+      // SPLIT children are a parallel group, not serial work: without this they are
+      // governed by the one-serial-active-per-story index and siblings collapse
+      // onto a single work item (the second child then cannot be claimed).
+      ...(splitChildContract?.index !== null && splitChildContract?.index !== undefined
+        ? { parallelGroupId: task.processInstanceId, parallelSlot: splitChildContract.index + 1 }
+        : {}),
     })
     if (attempt === 0) {
       await linkForgeEngineTaskExecution({

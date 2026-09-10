@@ -228,6 +228,9 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     maxAttempts?: number
     executionPolicy?: string
     executionEnvironment?: string | null
+    /** SPLIT child: its parallel group + slot (see enqueueAgentWorkCommand). */
+    parallelGroupId?: string | null
+    parallelSlot?: number | null
   }) {
     const q = await this.executor()
     return enqueueAgentWorkCommand(input, q)
