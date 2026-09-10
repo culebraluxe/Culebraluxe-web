@@ -118,9 +118,17 @@ test('four total chunks across two Smiths are allowed; three is per assignment',
   }
   assert.equal(reviewLeadProposal(p, context).ok, true)
 })
-test('one oversized assignment cannot hide inside a split', () => {
+test('a self-rated oversized assignment is ADVISORY, not a dispatch veto', () => {
   const f = splitFixture(); f.p.assignments[0].features.semanticSurface = 4
-  rejects(f, /semantic-surface/)
+  const r = reviewLeadProposal(f.p, f.context)
+  assert.equal(r.ok, true, 'an uncalibrated self-rating must not HOLD the story')
+  assert.ok(r.advisories.some((a) => a.includes('self-rated')), 'the over-rating is recorded as an advisory')
+})
+test('structural limits still fail closed: a fourth chunk is refused', () => {
+  const f = fixture()
+  const chunk = f.p.assignments[0].plan.chunks[0]
+  f.p.assignments[0].plan.chunks = [chunk, { ...chunk, id: 2 }, { ...chunk, id: 3 }, { ...chunk, id: 4 }]
+  rejects(f, /Malformed/)
 })
 test('difficulty scorer stays advisory', () => {
   const {p, context} = fixture(); p.decision = 'SMITH'; p.size = 'MEDIUM'

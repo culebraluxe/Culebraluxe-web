@@ -1,4 +1,5 @@
 import { assessSmithDispatch } from './forge-dispatch-gate'
+import { dispatchabilityFor } from './forge-dispatchability'
 import type { DispatchabilityFeatures } from './forge-dispatchability'
 import type { SmithExecutionPlan } from './forge-execution-shaping'
 
@@ -138,9 +139,24 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     if (a.plan.chunks.some(c => !context.allowedProofs.includes(c.proof))) {
       errors.push(prefix + 'chunk proof is not in the frozen story acceptance commands')
     }
-    const gate = assessSmithDispatch(a.plan, { qualitativeFeatures: a.features })
+    const gate = assessSmithDispatch(a.plan)
     if (gate.verdict === 'HOLD') errors.push(...gate.reasons.map(r => prefix + r))
     else if (gate.verdict === 'FLAG') advisories.push(...gate.reasons.map(r => prefix + r))
+    // The captain's dispatchability math still RUNS on LEAD's self-ratings, but its
+    // verdict is RECORDED evidence, never a veto: these inputs are uncalibrated
+    // self-assessments (no run history, no telemetry — MEMORY 2026-09-10), so a
+    // rating must not HOLD the story. That would let a guess block the model and
+    // would re-arm the difficulty veto the captain already made FLAG-only (9fe43fd).
+    // The numbers stay as calibration food for the learned scorer; the STRUCTURAL
+    // gate above still fails closed on countable plan facts.
+    const selfRated = dispatchabilityFor(a.features)
+    if (selfRated.verdict === 'NOT_DISPATCHABLE') {
+      advisories.push(
+        `${prefix}self-rated ${selfRated.verdict}: ${selfRated.reasons.join('; ')} — advisory only, not a dispatch veto`,
+      )
+    } else if (selfRated.verdict === 'HEAVY') {
+      advisories.push(`${prefix}self-rated HEAVY (${selfRated.chunks} chunk(s)): ${selfRated.reasons.join('; ')}`)
+    }
     if (p.decision === 'SOLO' && (a.plan.size !== 'SMALL' || a.plan.chunks.length !== 1 ||
         a.features.semanticSurface !== 1 || a.features.dependencyDepth !== 1 ||
         riskKeys.some(k => a.features[k] > 2))) {

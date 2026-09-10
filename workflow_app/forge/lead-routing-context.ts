@@ -16,6 +16,7 @@
 //   maxSmiths: 1         — the executor runs splitConcurrency 1.
 // ---------------------------------------------------------------------------
 import { parseAssayCommands } from '../../agent-runtime/assay-plan'
+import { DEFAULT_FORGE_TEAM } from '../../agent-runtime/team'
 import { parseLeadRouting, reviewLeadProposal, type LeadProposal, type RoutingContext } from './forge-lead-routing'
 import type { ForgeGateEvidence } from './forge-facts'
 
@@ -30,10 +31,25 @@ export type LeadRoutingStoryFields = {
   packetSha?: string | null
 }
 
+/** Runtime capability — supplied by the trusted runtime, never by the model. */
 export type LeadRoutingCapabilities = {
   splitEnabled: boolean
   maxSmiths: number
 }
+
+/** Bounded content extras injected alongside the trusted refs. */
+export type LeadRoutingContentExtras = {
+  /**
+   * ACTUAL contents of the handoff material, not just its names — a real lead reads
+   * the work package, not a label pointing at it. Truncated, bounded.
+   */
+  evidence?: { architectContract?: string; scoutContext?: string }
+  /** What LEAD and Smith can actually do right now (single source: the team map). */
+  workers?: { lead: string; smith: string }
+}
+
+/** The context injected into the LEAD PRE directive. */
+export type LeadRoutingContext = RoutingContext & LeadRoutingContentExtras
 
 /**
  * The named references the Lead is actually handed. These are the only strings a
@@ -54,7 +70,14 @@ export function buildLeadRoutingContext(input: {
   story: LeadRoutingStoryFields
   findings?: ForgeGateEvidence['findings']
   capabilities: LeadRoutingCapabilities
-}): RoutingContext {
+}): LeadRoutingContext {
+  const content = (value: string | null | undefined, cap: number): string | undefined => {
+    const text = (value ?? '').trim()
+    if (!text) return undefined
+    return text.length > cap ? `${text.slice(0, cap)}\n[bounded to ${cap} characters]` : text
+  }
+  const architectContract = content(input.story.architectBrief, CONTENT_CAP)
+  const scoutContext = content(input.story.contextRefs, CONTENT_CAP)
   return {
     findings: (input.findings ?? []).map((f) => ({
       id: f.id,
@@ -67,6 +90,33 @@ export function buildLeadRoutingContext(input: {
     maxSmiths: input.capabilities.maxSmiths,
     // The frozen story acceptance is the ONLY legal proof vocabulary.
     allowedProofs: parseAssayCommands(input.story.assayCommands),
+    // A real lead reads the work, not a pointer to it. Contents are bounded so the
+    // directive stays inside the model's context budget.
+    ...(architectContract || scoutContext
+      ? {
+          evidence: {
+            ...(architectContract ? { architectContract } : {}),
+            ...(scoutContext ? { scoutContext } : {}),
+          },
+        }
+      : {}),
+    // What the workers actually are — single source of truth is the team map, so the
+    // model reasons about the real configured capability instead of a guess.
+    workers: workerSummary(),
+  }
+}
+
+/** Bounded content budget for handoff material injected into the directive. */
+export const CONTENT_CAP = 6000
+
+/** Describe the configured LEAD/Smith capability from the team map. */
+function workerSummary(): { lead: string; smith: string } {
+  const lead = DEFAULT_FORGE_TEAM.assignments.lead
+  const smith = DEFAULT_FORGE_TEAM.assignments.smith
+  const upgrade = smith.upgrade ? `; escalates to ${smith.upgrade.profile} on failure` : ''
+  return {
+    lead: `${lead.profile} via ${lead.harnessId} (position ${lead.position})`,
+    smith: `${smith.profile} via ${smith.harnessId}${upgrade}`,
   }
 }
 

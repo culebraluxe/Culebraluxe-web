@@ -1,5 +1,6 @@
 import { planAssay } from './assay-plan'
 import { leadPhaseInstructions, type LeadRunPhase } from './lead-decision'
+import { renderModelCostLines } from './model-prices'
 import { resolveLane, type LaneDecision, type LaneSession, type SmithGrade } from './lane-policy'
 import type { LaneId } from './lanes'
 import type { AgentRuntimeRegistry } from './registry'
@@ -49,7 +50,7 @@ export function buildLaneEnqueue(input: LaneEnqueueInput): LaneDecision & {
     // instructions untouched.
     extras.unshift(
       phase === 'pre' && input.leadRoutingContext
-        ? buildLeadRoutingDirective(input.leadRoutingContext)
+        ? [buildLeadRoutingDirective(input.leadRoutingContext), ...renderModelCostLines()].join('\n')
         : leadPhaseInstructions(phase),
     )
   }
