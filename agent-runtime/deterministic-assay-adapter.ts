@@ -236,7 +236,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     this.cancelled = false
     this.evidence = null
     this.execution = this.executePlan(context)
-      .catch((error) => {
+      .catch(async (error) => {
         const workspace = context.executionWorkspace?.worktreePath ?? null
         const verifiedSha = workspace ? gitHead(workspace) : null
         const candidateSha =
