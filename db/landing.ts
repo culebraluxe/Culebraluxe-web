@@ -104,6 +104,47 @@ export async function landEmail(input: LandedEmail, execute?: QueryExecutor): Pr
   return Array.isArray(rows) && rows.length > 0
 }
 
+export type LandedAppleMail = {
+  sourceAccount: string | null
+  /** RFC Message-ID when present, else Apple's own emlx/row identity. */
+  sourceMessageId: string
+  threadId?: string | null
+  /** INBOX | Sent | Archive | ... — the folder is part of the record. */
+  mailbox?: string | null
+  fromAddress?: string | null
+  toAddress?: string | null
+  ccAddress?: string | null
+  subject?: string | null
+  sentAt?: string | null
+  bodyPreview?: string | null
+  hasAttachments?: boolean | null
+  isRead?: boolean | null
+  raw: unknown
+}
+
+export async function landAppleMail(
+  input: LandedAppleMail,
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const rows = (await q`
+    insert into l_apple_mail (
+      source_account, source_message_id, thread_id, mailbox, from_address,
+      to_address, cc_address, subject, sent_at, body_preview,
+      has_attachments, is_read, raw
+    ) values (
+      ${input.sourceAccount}, ${input.sourceMessageId}, ${input.threadId ?? null},
+      ${input.mailbox ?? null}, ${input.fromAddress ?? null}, ${input.toAddress ?? null},
+      ${input.ccAddress ?? null}, ${input.subject ?? null}, ${input.sentAt ?? null}::timestamptz,
+      ${input.bodyPreview ?? null}, ${input.hasAttachments ?? null}, ${input.isRead ?? null},
+      ${JSON.stringify(input.raw)}::jsonb
+    )
+    on conflict (coalesce(source_account, ''), source_message_id) do nothing
+    returning id
+  `) as unknown as unknown[]
+  return Array.isArray(rows) && rows.length > 0
+}
+
 export type LandedCall = {
   sourceAccount: string | null
   sourceMessageId: string

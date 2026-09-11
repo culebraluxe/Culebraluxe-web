@@ -43,7 +43,7 @@ FLAVOR="contacts"
 PLAN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
-    contacts|imessage|email|gmail|calls|full|all) FLAVOR="$arg" ;;
+    contacts|imessage|email|gmail|calls|apple-mail|full|all) FLAVOR="$arg" ;;
     --plan|--dry-run) PLAN_ONLY=1 ;;
     --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[ods-load] ERROR: unknown option '$arg' (try --help)" >&2; exit 2 ;;
@@ -73,6 +73,7 @@ case "$FLAVOR" in
   imessage) STEPS=("contacts" "imessage") ;;
   email)    STEPS=("email") ;;
   calls)    STEPS=("contacts" "calls") ;;
+  apple-mail) STEPS=("contacts" "apple-mail") ;;
   full)     STEPS=("contacts" "imessage" "calls" "email") ;;
 esac
 
@@ -82,6 +83,7 @@ script_for() {
     imessage) echo "$SELF_DIR/apple-sync.sh" ;;
     calls)    echo "$SELF_DIR/apple-calls-sync.sh" ;;
     email)    echo "$SELF_DIR/email-sync.sh" ;;
+    apple-mail) echo "$SELF_DIR/apple-mail-sync.sh" ;;
   esac
 }
 
