@@ -79,8 +79,18 @@ const L_PERSON_UPSERT_SQL = `
     staged_profile_id, integration_intake_batch_id, source, source_account, source_contact_id,
     revision, payload_fingerprint,
     coalesce(
-      nullif(trim(concat_ws(' ', profile->'name'->>'prefix', profile->'name'->>'given',
-        profile->'name'->>'middle', profile->'name'->>'family', profile->'name'->>'suffix')), ''),
+      -- Each name part must be NULLed when empty: Apple exports absent parts as
+      -- EMPTY STRINGS, and concat_ws skips NULLs but NOT empty strings. Joining the
+      -- raw values produced doubled spaces ("Juan A.  Santa Cruz", "Art  Buyer") in
+      -- ~31% of l_person rows, which propagated to person.display_name and made the
+      -- client search (a contiguous ILIKE over normalized-in-name search_text) return
+      -- nothing for the human-typed name ("Maria Cruz" -> 0 while "Maria  Cruz" exists).
+      nullif(trim(concat_ws(' ',
+        nullif(trim(profile->'name'->>'prefix'), ''),
+        nullif(trim(profile->'name'->>'given'), ''),
+        nullif(trim(profile->'name'->>'middle'), ''),
+        nullif(trim(profile->'name'->>'family'), ''),
+        nullif(trim(profile->'name'->>'suffix'), ''))), ''),
       nullif(trim(profile->>'organization'), ''),
       nullif(trim(profile->'name'->>'nickname'), ''),
       source_contact_id,
