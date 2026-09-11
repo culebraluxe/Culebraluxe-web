@@ -142,4 +142,15 @@ if ! APP_ENV=production node --env-file=.env.local --import tsx scripts/promote-
   fail "Contacts Person mastering / MV refresh failed; no SUCCESS reported"
 fi
 
-log "SUCCESS: Apple Contacts -> historical ODS -> current l_person -> canonical Person -> Clients read model complete"
+# Mastering links IDENTITIES (phone/email) but does not NAME the person. Without this
+# step a canonical Person keeps whatever name it was first created with — observed
+# 2026-09-10: a contact in Apple Contacts named "Juan A. Santa Cruz" was mastered onto
+# an existing Person still called "Puerple  House", so "find client" could never find
+# him by his real name (only by email/phone). The naming pass lives in
+# enrich-apple-contacts-names.ts and was never part of this chain (and was DEV-only).
+log "enriching canonical Person display names from current Contacts"
+if ! node --env-file=.env.local --import tsx scripts/enrich-apple-contacts-names.ts --env prod; then
+  fail "Apple Contacts display-name enrichment failed; Person names may be stale"
+fi
+
+log "SUCCESS: Apple Contacts -> historical ODS -> current l_person -> canonical Person -> names -> Clients read model complete"
