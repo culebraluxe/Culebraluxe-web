@@ -154,21 +154,28 @@ type MailWindow = {
   maxPerMailbox: number | null
 }
 
-const DEFAULT_MAIL_SYNC_SINCE = '24mo'
+const DEFAULT_MAIL_SYNC_SINCE = '90d'
 
 /**
  * How far back the current pull reaches.
  *
- * A Mail.app pull walks Inbox and Sent in full, and a busy Gmail account is tens of
- * thousands of messages - `penfield33@gmail.com` alone holds 23,271 in Sent Mail.
- * The first pass is therefore windowed rather than unbounded; the window is applied
- * while reading, so out-of-window messages are never fetched over Apple Events.
+ * MEASURED: Mail.app scripting yields ~5.3 messages/second. The rate is set by Apple
+ * Events (one or more per property, per message), not by the database, so it cannot be
+ * tuned from our side. A busy Gmail account compounds it: penfield33@gmail.com holds
+ * 23,271 messages in Sent Mail, which is ~70 minutes to read on its own, and a full
+ * pull across all three accounts is a multi-hour background job.
  *
- * MAIL_SYNC_SINCE  a relative window (24mo, 90d, 3w, 2y), an ISO date, or "all".
- *                  Defaults to 24 months. "all" reads complete history.
- * MAIL_SYNC_MAX_PER_MAILBOX  hard cap per mailbox per run. Off by default (0/off);
- *                  set it to bound a pathological mailbox that the window alone
- *                  does not tame.
+ * The window is applied WHILE READING, so an out-of-window message costs one Apple
+ * Event (its date) instead of the full record - reading the last 90 days of that same
+ * Sent Mail took 311 reads instead of 23,271. That is why the default is narrow: it
+ * turns an hour-long background job into a few minutes.
+ *
+ * MAIL_SYNC_SINCE  a relative window (90d, 24mo, 3w, 2y), an ISO date, or "all".
+ *                  Defaults to 90 days. "all" reads complete history - deliberate,
+ *                  slow, and normally something to run in the background.
+ * MAIL_SYNC_MAX_PER_MAILBOX  hard cap per mailbox per run, newest first. Off by
+ *                  default (0/off). This, not the window, is what bounds a mailbox
+ *                  whose recent traffic alone is large.
  *
  * Both are read-only bounds: nothing is deleted, and a later run with a wider window
  * simply lands the older messages (landing is replay-safe on message identity).
