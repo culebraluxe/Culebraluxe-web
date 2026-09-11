@@ -106,20 +106,39 @@ export async function landEmail(input: LandedEmail, execute?: QueryExecutor): Pr
 
 export type LandedAppleMail = {
   sourceAccount: string | null
-  /** RFC Message-ID when present, else Apple's own emlx/row identity. */
+  /** 'message-id:<Message-ID>' or 'mail-local:<mailbox-kind>:<local-id>'. */
   sourceMessageId: string
-  threadId?: string | null
-  /** INBOX | Sent | Archive | ... — the folder is part of the record. */
-  mailbox?: string | null
-  fromAddress?: string | null
-  toAddress?: string | null
-  ccAddress?: string | null
+  /** 'inbox' | 'sent' */
+  mailboxKind?: string | null
+  mailboxName?: string | null
+  localId?: number | null
+  messageId?: string | null
+  occurredAt?: string | null
+  sender?: string | null
+  toRecipients?: unknown
+  ccRecipients?: unknown
+  bccRecipients?: unknown
   subject?: string | null
-  sentAt?: string | null
-  bodyPreview?: string | null
-  hasAttachments?: boolean | null
-  isRead?: boolean | null
+  /** The UNMODIFIED exporter record — never a normalized or derived object. */
   raw: unknown
+}
+
+/**
+ * The Apple Mail replay identity. Deliberately the same rule the intake already
+ * uses: prefer the RFC Message-ID, fall back to the Mail.app local identity.
+ * Never random — a random id would make every re-run land a duplicate.
+ */
+export function appleMailReplayId(input: {
+  messageId?: string | null
+  mailboxKind?: string | null
+  localId?: number | null
+}): string | null {
+  const messageId = (input.messageId ?? '').trim()
+  if (messageId) return `message-id:${messageId}`
+  if (input.mailboxKind && typeof input.localId === 'number') {
+    return `mail-local:${input.mailboxKind}:${input.localId}`
+  }
+  return null
 }
 
 export async function landAppleMail(
@@ -128,16 +147,18 @@ export async function landAppleMail(
 ): Promise<boolean> {
   const q = execute ?? (await executor())
   const rows = (await q`
-    insert into l_apple_mail (
-      source_account, source_message_id, thread_id, mailbox, from_address,
-      to_address, cc_address, subject, sent_at, body_preview,
-      has_attachments, is_read, raw
+    insert into l_applemail (
+      source_account, source_message_id, mailbox_kind, mailbox_name, local_id,
+      message_id, occurred_at, sender, to_recipients, cc_recipients,
+      bcc_recipients, subject, raw
     ) values (
-      ${input.sourceAccount}, ${input.sourceMessageId}, ${input.threadId ?? null},
-      ${input.mailbox ?? null}, ${input.fromAddress ?? null}, ${input.toAddress ?? null},
-      ${input.ccAddress ?? null}, ${input.subject ?? null}, ${input.sentAt ?? null}::timestamptz,
-      ${input.bodyPreview ?? null}, ${input.hasAttachments ?? null}, ${input.isRead ?? null},
-      ${JSON.stringify(input.raw)}::jsonb
+      ${input.sourceAccount}, ${input.sourceMessageId}, ${input.mailboxKind ?? null},
+      ${input.mailboxName ?? null}, ${input.localId ?? null}, ${input.messageId ?? null},
+      ${input.occurredAt ?? null}::timestamptz, ${input.sender ?? null},
+      ${input.toRecipients == null ? null : JSON.stringify(input.toRecipients)}::jsonb,
+      ${input.ccRecipients == null ? null : JSON.stringify(input.ccRecipients)}::jsonb,
+      ${input.bccRecipients == null ? null : JSON.stringify(input.bccRecipients)}::jsonb,
+      ${input.subject ?? null}, ${JSON.stringify(input.raw)}::jsonb
     )
     on conflict (coalesce(source_account, ''), source_message_id) do nothing
     returning id

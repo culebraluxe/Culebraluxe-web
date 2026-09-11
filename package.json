@@ -10,7 +10,7 @@
     "ods:load:imessage": "bash scripts/ods-load.sh imessage",
     "ods:load:gmail": "bash scripts/ods-load.sh gmail",
     "ods:load:calls": "bash scripts/ods-load.sh calls",
-    "ods:load:apple-mail": "bash scripts/ods-load.sh apple-mail",
+    "ods:load:applemail": "bash scripts/ods-load.sh applemail",
     "ods:load:all": "bash scripts/ods-load.sh all",
     "ods:load:full": "bash scripts/ods-load.sh full",
     "ods:sync:prod": "bash scripts/ods-load.sh contacts",
