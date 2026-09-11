@@ -6,12 +6,14 @@ import {
   buildAppleCallRelationshipEvidence,
   callDirection,
   callSource,
+  isFaceTimeCall,
   type AppleCallRecord,
 } from '../lib/relationship-intel/apple-calls'
 import { upsertRelationshipEvidence, recordReconcileDecision, getRelationshipEvidenceRows } from '../db/relationship-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
 import { createInteraction } from '../db/interactions'
+import { landCall } from '../db/landing'
 import type { QueryExecutor } from '../db/query-executor'
 import { createPoolExecutor } from './lib/pool-executor'
 
@@ -49,6 +51,27 @@ async function refresh(execute: QueryExecutor) {
 async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
   const calls = loadCalls(file)
   const sourceAccount = 'apple_call_history_local'
+
+  // Land every call into its OWN table (l_call) before anything else happens.
+  // Replay-safe on (source_account, uniqueId), so re-running the master load
+  // lands nothing new. Video is FaceTime.
+  for (const call of calls) {
+    await landCall(
+      {
+        sourceAccount,
+        sourceMessageId: call.uniqueId,
+        handle: call.address,
+        direction: call.originated ? 'outgoing' : 'incoming',
+        callType: isFaceTimeCall(call) ? 'video' : 'audio',
+        answered: call.answered == null ? null : Boolean(call.answered),
+        durationSeconds: call.duration,
+        startedAt: call.dateISO,
+        raw: call,
+      },
+      execute,
+    )
+  }
+
   const evidenceBuilds = buildAppleCallRelationshipEvidence(calls, sourceAccount)
   const { lookup } = await createInMemoryPersonLookup(execute)
   const tally: Record<string, number> = {}
