@@ -374,10 +374,13 @@ test('CRM-27: missing/invalid/ineligible documents return truthful outcomes and 
   const r2b = await d2b.execute(envelope())
   assert.equal(r2b.outcome, 'validation_failure')
 
+  // Ineligible template. Since the 2026-09-06 Contract cut the eligibility check
+  // reports validation_failure (malformed/ineligible input) rather than
+  // precondition_failure; the command still refuses and emits nothing.
   const db3 = new AgreementCommandDb(doc({ template_id: 'OFFER-01' }))
   const d3 = makeDispatcher(db3, eventSink)
   const r3 = await d3.execute(envelope())
-  assert.equal(r3.outcome, 'precondition_failure')
+  assert.equal(r3.outcome, 'validation_failure')
   assert.equal(db3.outbox.length, 0)
 
   const db4 = new AgreementCommandDb(doc({ deal_id: null }))
@@ -546,7 +549,7 @@ test('CRM-27: manual execution requires an authenticated actor and a valid docum
   const ineligible = await d3.execute(
     envelope({ commandType: AGREEMENT_EXECUTION_MANUAL, input: { transactionDocumentId: 'doc-1' } }),
   )
-  assert.equal(ineligible.outcome, 'precondition_failure')
+  assert.equal(ineligible.outcome, 'validation_failure')
   assert.equal(db3.outbox.length, 0)
 })
 

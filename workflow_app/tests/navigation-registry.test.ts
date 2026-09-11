@@ -99,7 +99,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       // the earlier "hidden from visible CORE navigation" note).
       'Cockpit',
       'Clients',
-      'Catch-Up',
+      'Projects',
       'Contracts',
       'Cabinet',
       'Workflows',

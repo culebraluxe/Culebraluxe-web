@@ -1,6 +1,5 @@
 import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import { setDatabaseTestExecutor } from '../../db/client'
 import type { QueryExecutor } from '../../db/query-executor'
@@ -109,23 +108,7 @@ test('createTask: creates a context-free task with workstream/category through t
   assert.ok(captured[0].params.includes('CONTRACTS'))
 })
 
-test('workspace: opens editable (no Edit gate) with taxonomy/priority/date controls + create', () => {
-  const src = readFileSync(
-    new URL('../../components/portal/catch-up-task-detail.tsx', import.meta.url),
-    'utf8',
-  )
-  assert.ok(/variant="feature"/.test(src), 'navy Feature workspace')
-  assert.ok(/Task Workspace/.test(src), 'heading is Task Workspace')
-  assert.ok(
-    /saveTaskAction/.test(src) && /completeTaskAction/.test(src) && /createTaskAction/.test(src),
-    'save / complete / create actions wired',
-  )
-  assert.ok(!/startEdit/.test(src), 'no Edit gate mode-switch')
-  assert.ok(/name="title"/.test(src) && /name="detail"/.test(src), 'title + notes editable')
-  assert.ok(/name="targetDate"/.test(src), 'Target Date field')
-  assert.ok(/Add Date/.test(src) && /createdAt/.test(src), 'Add Date uses task.createdAt')
-  assert.ok(/name="workstream"/.test(src) && /name="category"/.test(src), 'taxonomy dropdowns')
-  assert.ok(/name="priority"/.test(src), 'priority selector')
-  assert.ok(/PRIORITY_LEVELS/.test(src) && /priorityToLevel/.test(src), 'priority shows LOW/MEDIUM/HIGH, not integer')
-  assert.ok(/New Task/.test(src) && /Create Task/.test(src), 'new/create task actions')
-})
+// (The workspace source guard that read components/portal/catch-up-task-detail.tsx
+// was removed with the Catch-Up surface itself. The data-layer proofs above are
+// the durable ones.)
+

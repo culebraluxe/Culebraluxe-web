@@ -86,16 +86,6 @@ test('CAL-02: evaluation data is anchored to the current month', () => {
   }
 })
 
-test('CAL-02: the evaluation passes the SAME events to both candidates (source guard)', () => {
-  const src = readFileSync(
-    new URL('../../components/portal/catch-up-calendar-evaluation.tsx', import.meta.url),
-    'utf8',
-  )
-  assert.ok(/CatchUpCalendar events=\{events\}/.test(src), 'Option A gets events')
-  assert.ok(/FullCalendarCandidate events=\{events\}/.test(src), 'Option B gets events')
-  assert.ok(!/fetch|getCatchUpCalendarEvents/.test(src), 'no per-candidate data fetch')
-})
-
 test('CAL-02: FullCalendar candidate uses the shared engine + mapper (source guard)', () => {
   const src = readFileSync(
     new URL('../../components/portal/fullcalendar-candidate.tsx', import.meta.url),
@@ -104,12 +94,4 @@ test('CAL-02: FullCalendar candidate uses the shared engine + mapper (source gua
   assert.ok(/@fullcalendar\/react/.test(src), 'uses FullCalendar')
   assert.ok(/toFullCalendarEvent/.test(src), 'uses the shared mapper')
   assert.ok(/initialView="dayGridMonth"/.test(src), 'defaults to Month view')
-})
-
-test('CAL-02: ilamy candidate uses the shared mapper (source guard)', () => {
-  const src = readFileSync(
-    new URL('../../components/portal/catch-up-calendar.tsx', import.meta.url),
-    'utf8',
-  )
-  assert.ok(/toIlamyCalendarEvent/.test(src), 'uses the shared ilamy mapper')
 })

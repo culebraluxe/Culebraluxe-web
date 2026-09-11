@@ -25,14 +25,16 @@ const legacyOfferDefinition: TemplateDefinition = {
   displayName: 'Offer Letter',
   documentTypeLabel: 'Offer Letter',
   fields: [
-    { name: 'buyerName', label: 'Buyer / Client', type: 'text', required: true, binding: 'deal.client.name' },
+    { name: 'buyerName', label: 'Buyer / Client', type: 'text', required: true, binding: 'person.displayName' },
     { name: 'sellerName', label: 'Seller / Owner', type: 'text', required: true },
     { name: 'brokerName', label: "Buyer's Broker", type: 'text', required: true },
-    { name: 'property', label: 'Property', type: 'text', required: true, binding: 'deal.property.label' },
-    { name: 'offerAmount', label: 'Offer amount', type: 'money', required: true, binding: 'deal.offer.amount' },
+    { name: 'property', label: 'Property', type: 'text', required: true, binding: 'property.name' },
+    // v2 is contract-first: the Offer's economics have no Deal source — they are
+    // entered on the contract itself (lib/forms/templates/OFFER-01.v2.xml).
+    { name: 'offerAmount', label: 'Offer amount', type: 'money', required: true },
     { name: 'deposit', label: 'Deposit', type: 'money', required: false },
-    { name: 'financing', label: 'Cash / Financing', type: 'select', required: true, binding: 'deal.financing.type', options: ['Cash', 'Financed'] },
-    { name: 'closingDate', label: 'Proposed closing date', type: 'date', required: true, binding: 'deal.closing.date' },
+    { name: 'financing', label: 'Cash / Financing', type: 'select', required: true, options: ['Cash', 'Financed'] },
+    { name: 'closingDate', label: 'Proposed closing date', type: 'date', required: true },
     { name: 'expiration', label: 'Offer expiration', type: 'date', required: true },
     { name: 'contingencies', label: 'Contingencies', type: 'textarea', required: false },
   ],
@@ -83,11 +85,13 @@ test('DOC-08 XML: required fields survive correctly', () => {
 })
 
 test('DOC-08 XML: source bindings survive correctly', () => {
-  assert.equal(fieldProjection(xmlTemplate, 'buyerName').binding, 'deal.client.name')
-  assert.equal(fieldProjection(xmlTemplate, 'property').binding, 'deal.property.label')
-  assert.equal(fieldProjection(xmlTemplate, 'offerAmount').binding, 'deal.offer.amount')
-  assert.equal(fieldProjection(xmlTemplate, 'financing').binding, 'deal.financing.type')
-  assert.equal(fieldProjection(xmlTemplate, 'closingDate').binding, 'deal.closing.date')
+  // v2 carries exactly two sources: the party and the property. Everything else
+  // is entered on the contract, so the Deal bindings are gone by design.
+  assert.equal(fieldProjection(xmlTemplate, 'buyerName').binding, 'person.displayName')
+  assert.equal(fieldProjection(xmlTemplate, 'property').binding, 'property.name')
+  assert.equal(fieldProjection(xmlTemplate, 'offerAmount').binding, undefined)
+  assert.equal(fieldProjection(xmlTemplate, 'financing').binding, undefined)
+  assert.equal(fieldProjection(xmlTemplate, 'closingDate').binding, undefined)
   assert.equal(fieldProjection(xmlTemplate, 'sellerName').binding, undefined)
   assert.equal(fieldProjection(xmlTemplate, 'brokerName').binding, undefined)
   assert.equal(fieldProjection(xmlTemplate, 'deposit').binding, undefined)

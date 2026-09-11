@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { getTemplate } from '../../lib/forms/template-registry'
+import { getActiveTemplate } from '../../lib/forms/template-registry'
 import { prefillFieldValues, emptySectionValues, validateFormValues } from '../../lib/forms/offer-letter-data'
 import { buildOfferLetterPdf, formatMoney, formatDate } from '../../lib/forms/pdf'
 import { issueFormDocument } from '../../db/issued-document'
@@ -13,15 +13,17 @@ import type { QueryExecutor, QueryRow } from '../../db/query-executor'
 import type { FormInstance } from '../../services/forms'
 import type { TxRunner } from '../../db/tx'
 
-const OFFER_LETTER_TEMPLATE = getTemplate('OFFER-01', 1)!
+const OFFER_LETTER_TEMPLATE = getActiveTemplate('OFFER-01')!
 const ISSUED_AT = '2026-08-22T12:00:00.000Z'
 const SIGNATURE_BYTES = readFileSync(join(process.cwd(), 'public/brand/CLLOGO.png'))
 
 test('DOC-06/07 proof 1: reference template loads through TemplateDefinition', () => {
-  const template = getTemplate('OFFER-01', 1)
+  // OFFER-01 v1 was retired in the contract-first cut; the active version now
+  // carries the Offer Letter definition (lib/forms/templates/OFFER-01.v2.xml).
+  const template = getActiveTemplate('OFFER-01')
   assert.ok(template)
   assert.equal(template.id, 'OFFER-01')
-  assert.equal(template.version, 1)
+  assert.equal(template.version, 2)
   assert.equal(template.displayName, 'Offer Letter')
   assert.equal(template.documentTypeLabel, 'Offer Letter')
   const names = template.fields.map((f) => f.name)
@@ -36,15 +38,18 @@ test('DOC-06/07 proof 2: canonical values prepopulate where available', () => {
     clientName: 'Jane Buyer', propertyLabel: 'Villa Rosa', offerAmount: '1250000',
     financingType: 'Cash', closingDate: '2026-10-15',
   })
+  // v2 is contract-first: only the party and property carry a source
+  // (person.displayName, property.name — see OFFER-01.v2.xml). The Deal no
+  // longer drives the Offer, so its economics are entered on the contract.
   assert.equal(values.buyerName, 'Jane Buyer')
+  assert.equal(values.property, 'Villa Rosa')
   assert.equal(values.sellerName, '')
   // OFFER-01 owns an intentional broker default so the protected broker
   // pre-signature can compose (lib/forms/offer-letter-data.ts, TEMPLATE_FIELD_DEFAULTS).
   assert.equal(values.brokerName, 'Lisa Penfield')
-  assert.equal(values.property, 'Villa Rosa')
-  assert.equal(values.offerAmount, '1250000')
-  assert.equal(values.financing, 'Cash')
-  assert.equal(values.closingDate, '2026-10-15')
+  assert.equal(values.offerAmount, '')
+  assert.equal(values.financing, '')
+  assert.match(values.closingDate, /^\d{4}-\d{2}-\d{2}$/)
   assert.equal(values.deposit, '')
   assert.match(values.expiration, /^\d{4}-\d{2}-\d{2}$/)
   assert.equal(values.contingencies, '')
@@ -126,7 +131,9 @@ function runFake(executor: QueryExecutor): TxRunner { return async (cb) => cb(ex
 
 function formFixture(overrides: Partial<FormInstance> & { id: string }): FormInstance {
   return {
-    id: overrides.id, templateId: overrides.templateId ?? 'OFFER-01', templateVersion: overrides.templateVersion ?? 1,
+    // OFFER-01 v1 was retired in the contract-first cut; issue against the
+    // active v2 definition (lib/forms/templates/OFFER-01.v2.xml).
+    id: overrides.id, templateId: overrides.templateId ?? 'OFFER-01', templateVersion: overrides.templateVersion ?? 2,
     dealId: overrides.dealId ?? 'deal-1', personId: overrides.personId ?? null, propertyId: overrides.propertyId ?? null,
     status: overrides.status ?? 'draft',
     fieldValues: overrides.fieldValues ?? { buyerName: 'Jane Buyer', sellerName: 'Carlos Vega', brokerName: 'Lisa Penfield', property: 'Villa Rosa', offerAmount: '1250000', deposit: '50000', financing: 'Cash', closingDate: '2026-10-15', expiration: '2026-09-01', contingencies: 'Financing and inspection contingencies.' },
@@ -156,7 +163,8 @@ test('DOC-06/07 proofs 4-7: first issuance creates a PDF, persists evidence, mat
   assert.equal(doc.prepared_by_user_id, 'user-1')
   assert.equal(doc.party_person_id, 'person-1')
   assert.equal(doc.template_id, 'OFFER-01')
-  assert.equal(doc.template_version, 1)
+  // The issued document records the template version it was issued from.
+  assert.equal(doc.template_version, 2)
   assert.equal(doc.issued_version, 1)
   assert.equal(doc.form_instance_id, 'form-1')
   const snapshot = JSON.parse(String(doc.source_snapshot))

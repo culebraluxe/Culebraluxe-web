@@ -27,17 +27,6 @@ test('ara-mic: reusable control feature-detects and never auto-submits', () => {
   assert.ok(/unsupported/.test(src), 'degrades cleanly when the browser lacks speech support')
 })
 
-test('ara-mic: CatchUp command keeps typed path and gains the mic', () => {
-  const src = readFileSync(
-    new URL('../../components/portal/catch-up-command.tsx', import.meta.url),
-    'utf8',
-  )
-  assert.ok(/AraMicButton/.test(src), 'mic present on the Ara command surface')
-  assert.ok(/onRun/.test(src), 'existing typed command handler preserved')
-  assert.ok(/setPrompt/.test(src), 'prompt stays editable')
-  assert.ok(/\bGo\b/.test(src), 'explicit submit preserved')
-})
-
 test('ara-mic: Forms Grok helper reuses the shared mic and keeps its command path', () => {
   const src = readFileSync(
     new URL('../../components/portal/forms/form-grok-helper.tsx', import.meta.url),

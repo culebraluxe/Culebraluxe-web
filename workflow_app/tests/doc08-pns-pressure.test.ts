@@ -49,7 +49,8 @@ test('DOC-08 P&S: structured parties are role-driven, not buyer1/buyer2', () => 
 
 test('DOC-08 P&S: signature groups carry roles, name fields and initials', () => {
   const groups = pns.signatureGroups
-  assert.equal(groups.length, 3)
+  // v3 signs five roles: the parties, the seller's spouse, and both brokers.
+  assert.equal(groups.length, 5)
   const buyer = groups.find((g) => g.role === 'BUYER')
   assert.ok(buyer)
   assert.equal(buyer.initials, true)
@@ -69,17 +70,20 @@ test('DOC-08 P&S: stable boilerplate vs broad negotiated sections', () => {
   for (const name of ['titleInsurance', 'taxes', 'closingCosts', 'risk', 'default', 'notices', 'governingLaw']) {
     assert.equal(section(name).editable, false, `${name} boilerplate`)
   }
-  for (const name of ['financingTerms', 'appraisalSurveyInspection', 'additionalTerms', 'specialConditions']) {
+  // v3 splits the old appraisalSurveyInspection block into three structured,
+  // NON-editable sections (appraisal / survey / inspection). The negotiated set
+  // is the prose the parties can actually rewrite.
+  for (const name of ['financingTerms', 'additionalTerms', 'specialConditions']) {
     assert.equal(section(name).editable, true, `${name} negotiated`)
   }
 })
 
 test('DOC-08 P&S: structured facts bind into boilerplate prose via <value>', () => {
   const parties = section('parties')
-  assert.deepEqual(parties.values, ['buyerName', 'sellerName'])
-  assert.deepEqual(section('propertyDescription').values, ['property', 'municipality', 'catastroNumber', 'registryEntry'])
-  assert.deepEqual(section('purchasePrice').values, ['purchasePrice', 'deposit'])
-  assert.deepEqual(section('closing').values, ['closingDate'])
+  assert.deepEqual(parties.values, ['effectiveDate', 'buyerName', 'sellerName'])
+  assert.deepEqual(section('propertyDescription').values, ['property', 'municipality', 'catastroNumber', 'fincaNumber', 'registrySection', 'registryEntry'])
+  assert.deepEqual(section('purchasePrice').values, ['purchasePrice', 'financing', 'deposit', 'escrowHolder', 'bankLoanAmount', 'ownerPrincipal', 'cashAtClosing'])
+  assert.deepEqual(section('closing').values, ['closingDate', 'notaryName'])
 
   const text = interpolateSectionText(
     parties,

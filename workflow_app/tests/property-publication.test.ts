@@ -124,8 +124,10 @@ test('HARDEN-05: setPropertyPublished is the canonical idempotent publication mu
 })
 
 test('HARDEN-05: legacy status predicate confined to the internal getProperties default; public reads use is_published', async () => {
+  // The public read path moved out of the retired db/properties.ts into
+  // db/property-public-reads.ts (the module the Property service consumes).
   const source = await readFile(
-    new URL('../../db/properties.ts', import.meta.url),
+    new URL('../../db/property-public-reads.ts', import.meta.url),
     'utf8',
   )
   const legacy = /status in \('active', 'coming_soon', 'under_contract'\)/g

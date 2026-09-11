@@ -88,9 +88,11 @@ test('FORM-SERVICE-CUT-01: Offer Letter maps Person + Property into Contract-own
   assert.ok(!('dealId' in mapped))
 })
 
-test('FORM-SERVICE-CUT-01: OFFER-01 v2 is active while v1 remains addressable', () => {
+test('FORM-SERVICE-CUT-01: OFFER-01 v2 is active; the retired v1 is no longer addressable', () => {
   assert.equal(getActiveTemplate('OFFER-01')?.version, 2)
-  assert.equal(getTemplate('OFFER-01', 1)?.version, 1)
+  // v1 was removed with the contract-first cut — no persisted record references
+  // it (PROD transaction_document holds no OFFER-01 rows).
+  assert.equal(getTemplate('OFFER-01', 1), null)
   assert.equal(
     getTemplate('OFFER-01', 2)?.fields.find((field) => field.name === 'buyerName')?.binding,
     'person.displayName',

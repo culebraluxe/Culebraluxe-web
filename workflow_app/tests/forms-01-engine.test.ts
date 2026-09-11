@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseTemplateXml, TemplateXmlError } from '../../lib/forms/xml-template'
 import {
+  getActiveTemplate,
   getTemplate,
   listTemplates,
   OFFER_LETTER_TEMPLATE_ID,
@@ -47,7 +48,7 @@ test('FORMS-01: all production templates load and validate', () => {
   ]
   const loaded = listTemplates()
   for (const id of ids) {
-    const template = getTemplate(id, 1)
+    const template = getActiveTemplate(id)
     assert.ok(template, `${id} loads`)
     assert.ok(template.fields.length > 0, `${id} has fields`)
     assert.equal(loaded.some((item) => item.id === id), true)
@@ -162,7 +163,7 @@ test('FORMS-01: XML rejects unknown bindings and duplicate fields', () => {
 })
 
 test('FORMS-01: unified renderer matches Offer Letter', async () => {
-  const template = getTemplate(OFFER_LETTER_TEMPLATE_ID, 1)!
+  const template = getActiveTemplate(OFFER_LETTER_TEMPLATE_ID)!
   const values = prefillFieldValues(template, {
     clientName: 'James Lee',
     propertyLabel: 'Sunset Point',
@@ -412,7 +413,7 @@ test('FORMS-01: remaining production templates render PDFs', async () => {
     SHOWING_INFO_TEMPLATE_ID,
     SHOWING_REPORT_TEMPLATE_ID,
   ]) {
-    const template = getTemplate(id, 1)!
+    const template = getActiveTemplate(id)!
     const values: Record<string, string> = {}
     for (const field of template.fields) {
       values[field.name] = field.type === 'date' ? '2026-09-01' : 'Test'
