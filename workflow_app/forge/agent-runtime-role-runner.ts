@@ -54,6 +54,8 @@ import { scopeViolations, type SmithExecutionContract } from './smith-contract'
 import {
   createPersistentTraceSink,
   recordAlert,
+  recordRunEnd,
+  recordRunStart,
   recordScopeCheck,
 } from './forge-observer'
 import { evaluateAlerts } from './forge-alerts'
@@ -494,6 +496,40 @@ export function createAgentRuntimeForgeRoleRunner(
     const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
     agent.marshalFindings(evidence, raw)
+
+    // OBSERVER (phase 1, record-only): EVERY role attempt, not just split
+    // children — this is what makes the worker-execution layer live in normal
+    // traffic instead of waiting for a SPLIT. The sink cannot throw and the
+    // events never gate; the runner still decides everything below.
+    const observerAttempt = {
+      storyId: resolvedStory.id,
+      processInstanceId: task.processInstanceId,
+      taskId: durableClaim.id,
+      nodeId,
+      attempt: attempt + 1,
+      worktreePath: process.cwd(),
+      baseCommit: workspaces?.baseRef ?? 'origin/main',
+    }
+    recordRunStart(forgeObserverSink, observerAttempt, { role: nodeId })
+    const attemptStatus = /hold/i.test(result.evidence.resultStatus)
+      ? 'interrupted'
+      : /pass|success|complete/i.test(result.evidence.resultStatus)
+        ? 'completed'
+        : 'failed'
+    recordRunEnd(forgeObserverSink, observerAttempt, {
+      status: attemptStatus,
+      sha:
+        typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
+          ? evidence.candidateSha
+          : undefined,
+    })
+    for (const alert of evaluateAlerts(forgeObserverSink.list(resolvedStory.id))) {
+      recordAlert(forgeObserverSink, observerAttempt, {
+        code: alert.code,
+        severity: alert.severity,
+        reason: alert.reason,
+      })
+    }
     // Provenance (ENG-FORGE-SPLIT-01): a split child's candidate SHA is recorded
     // against ITS OWN work item, so the join can never credit a sibling's SHA or
     // the parent checkout's. No silent catch: if the write fails the run fails
