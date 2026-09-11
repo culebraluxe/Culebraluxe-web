@@ -26,6 +26,10 @@ function write(handle, value) {
   handle.writeData(data)
 }
 
+function writeTextFile(path, text) {
+  $(text).writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, null)
+}
+
 let outputHandle = null
 
 function out(value) {
@@ -35,6 +39,79 @@ function out(value) {
 
 function progress(value) {
   write($.NSFileHandle.fileHandleWithStandardError, value + '\n')
+}
+
+// ---------------------------------------------------------------------------
+// BOUNDED PAGING.
+//
+// A mailbox must never be acquired as one giant pass. This exporter supports the
+// equivalent of limit / page size and cursor, so a caller can:
+//
+//   fetch 500 -> land 500 -> checkpoint cursor -> fetch next 500
+//
+// The cursor is the mailbox's REAL stable ordering key, derived from this proven
+// enumerator (no invented schema): occurred_at DESC + local id DESC, plus the
+// Mail.app enumeration index of the last emitted record as a fast-path resume
+// hint. On the next page that index is checked against the same record; if the
+// mailbox moved, the exporter falls back to a linear scan for the first record
+// not newer than the cursor. Landing is idempotent, so a re-emitted boundary
+// record is harmless.
+//
+// The page result is written to a sidecar file next to the JSONL output:
+//   { "mailboxKind", "nextCursor", "complete", "emitted", "scanned" }
+// ---------------------------------------------------------------------------
+
+function cursorMs(cursor) {
+  if (!cursor || !cursor.occurredAt) return 0
+  const parsed = Date.parse(cursor.occurredAt)
+  return isNaN(parsed) ? 0 : parsed
+}
+
+function cursorLocalId(cursor) {
+  return cursor && typeof cursor.localId === 'number' ? cursor.localId : 0
+}
+
+// DESC-key comparison: is this record NEWER than the cursor (already emitted)?
+function newerThanCursor(occurredMs, localId, cursor) {
+  if (!cursor) return false
+  const messageMs = occurredMs === null ? 0 : occurredMs
+  const messageId = typeof localId === 'number' ? localId : 0
+  return messageMs > cursorMs(cursor) || (messageMs === cursorMs(cursor) && messageId > cursorLocalId(cursor))
+}
+
+function messageOccurredMs(message, kind) {
+  const occurred = kind === 'sent'
+    ? safe(() => message.dateSent(), null)
+    : safe(() => message.dateReceived(), null)
+  return occurred instanceof Date ? occurred.getTime() : null
+}
+
+// NEVER the array index: a real Mail.app local id, or null. A fabricated id
+// would make the landing replay key unstable.
+function messageLocalId(message) {
+  const localId = safe(() => message.id(), null)
+  return typeof localId === 'number' ? localId : null
+}
+
+// Does the message currently at the cursor's index still match the cursor?
+function cursorMatches(message, cursor, kind) {
+  if (!cursor) return false
+  const ms = messageOccurredMs(message, kind)
+  const localId = messageLocalId(message)
+  const messageMs = ms === null ? 0 : ms
+  const messageId = localId === null ? 0 : localId
+  return messageMs === cursorMs(cursor) && messageId === cursorLocalId(cursor)
+}
+
+function parseCursorMap(raw) {
+  const value = String(raw || '').trim()
+  if (!value || value.toLowerCase() === 'none') return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (_) {
+    throw new Error('Invalid paging cursor JSON: ' + value)
+  }
 }
 
 // Mail.app scripting fails to enumerate some mailboxes outright - on this Mac
@@ -57,7 +134,7 @@ function run(argv) {
   const targetAddress = normalized(argv[0])
   const outputPath = String(argv[1] || '')
   if (!targetAddress || !outputPath) {
-    throw new Error('Usage: osascript -l JavaScript apple-mail-metadata.jxa <email> <output-jsonl> [since-iso|all] [max-per-mailbox]')
+    throw new Error('Usage: osascript -l JavaScript apple-mail-metadata.jxa <email> <output-jsonl> [since-iso|all] [page-size] [mailboxKind|all] [cursor-json|none]')
   }
   outputHandle = $.NSFileHandle.fileHandleForWritingAtPath($(outputPath))
   if (!outputHandle) throw new Error('Unable to open Mail metadata output file')
@@ -75,20 +152,25 @@ function run(argv) {
     )
   }
 
-  const selected = []
+  const requestedKind = normalized(argv[4]) || 'all'
+  const all = []
   for (const mailbox of account.mailboxes()) {
     const name = normalized(safe(() => mailbox.name(), ''))
-    if (name === 'inbox') selected.push({ kind: 'inbox', mailbox })
+    if (name === 'inbox') all.push({ kind: 'inbox', mailbox })
     if (['sent', 'sent messages', 'sent mail'].includes(name)) {
-      selected.push({ kind: 'sent', mailbox })
+      all.push({ kind: 'sent', mailbox })
     }
   }
 
-  if (!selected.some((entry) => entry.kind === 'inbox')) {
+  if (!all.some((entry) => entry.kind === 'inbox')) {
     throw new Error('Mail.app account did not expose an Inbox mailbox')
   }
-  if (!selected.some((entry) => entry.kind === 'sent')) {
+  if (!all.some((entry) => entry.kind === 'sent')) {
     throw new Error('Mail.app account did not expose a Sent mailbox')
+  }
+  const selected = requestedKind === 'all' ? all : all.filter((entry) => entry.kind === requestedKind)
+  if (selected.length === 0) {
+    throw new Error('No Mail.app mailbox matches requested kind: ' + requestedKind)
   }
 
   const sinceArg = normalized(argv[2])
@@ -101,7 +183,8 @@ function run(argv) {
     cutoff = parsedSince.getTime()
   }
   const capArg = Number(argv[3] || 0)
-  const maxPerMailbox = Number.isFinite(capArg) && capArg > 0 ? Math.floor(capArg) : 0
+  const pageSize = Number.isFinite(capArg) && capArg > 0 ? Math.floor(capArg) : 0
+  const cursors = parseCursorMap(argv[5])
 
   // Consecutive out-of-window messages that end a mailbox scan. Mail.app lists a
   // mailbox newest-first, so once this far past the cutoff there is nothing left to
@@ -111,14 +194,20 @@ function run(argv) {
   const STALE_LIMIT = 250
 
   let exported = 0
+  let scanned = 0
   let outsideWindow = 0
   const skippedMailboxes = []
+  const nextCursors = {}
+
+
   for (const { kind, mailbox } of selected) {
     const name = safe(() => mailbox.name(), kind)
     const opened = openMailbox(mailbox)
     if (!opened) {
       progress('WARNING mailbox ' + name + ': unreadable through Mail.app scripting - SKIPPED')
       skippedMailboxes.push(name)
+      // An unreadable mailbox cannot be paged; it is never marked complete.
+      if (cursors[kind]) nextCursors[kind] = cursors[kind]
       continue
     }
     const messages = opened.messages
@@ -126,19 +215,31 @@ function run(argv) {
     progress('mailbox ' + name + ': ' + total + ' messages')
     if (cutoff) progress('mailbox ' + name + ': window since ' + new Date(cutoff).toISOString())
 
+    const cursor = cursors[kind] || null
+    let startIndex = 0
+    let useNewerFilter = false
+    if (cursor) {
+      // Fast path: the cursor's index still holds the same record.
+      const candidate = safe(() => messages[cursor.index], null)
+      if (candidate && cursorMatches(candidate, cursor, kind)) {
+        startIndex = cursor.index + 1
+      } else {
+        useNewerFilter = true
+        progress('mailbox ' + name + ': cursor index moved - falling back to a linear resume scan')
+      }
+    }
+
     let staleRun = 0
     let descending = true
     let previous = null
     let emittedHere = 0
-    let stoppedEarly = false
+    let mailboxExhausted = true
 
-    for (let index = 0; index < total; index += 1) {
+    for (let index = startIndex; index < total; index += 1) {
       const message = messages[index]
+      scanned += 1
       try {
-        const occurred = kind === 'sent'
-          ? safe(() => message.dateSent(), null)
-          : safe(() => message.dateReceived(), null)
-        const occurredMs = occurred instanceof Date ? occurred.getTime() : null
+        const occurredMs = messageOccurredMs(message, kind)
 
         // Newer-than-previous means the mailbox is not date-descending; disable the
         // early break permanently so we scan everything rather than lose records.
@@ -153,34 +254,44 @@ function run(argv) {
           outsideWindow += 1
           staleRun += 1
           if (descending && staleRun >= STALE_LIMIT) {
-            stoppedEarly = true
             progress('mailbox ' + name + ': stopping early - ' + staleRun + ' consecutive messages older than the window')
             break
           }
+          continue
         }
 
-        if (inWindow) {
-          if (maxPerMailbox && emittedHere >= maxPerMailbox) {
-            stoppedEarly = true
-            progress('mailbox ' + name + ': stopping early - cap of ' + maxPerMailbox + ' reached')
-            break
+        const localId = messageLocalId(message)
+        // Linear-resume fallback: skip records already emitted before the cursor.
+        if (useNewerFilter && newerThanCursor(occurredMs, localId, cursor)) continue
+
+        if (pageSize && emittedHere >= pageSize) {
+          // Page is full: record the cursor for THIS mailbox and stop it. The
+          // caller lands this page, checkpoints, then asks for the next page.
+          mailboxExhausted = false
+          nextCursors[kind] = {
+            index,
+            occurredAt: occurredMs === null ? null : new Date(occurredMs).toISOString(),
+            localId,
           }
-          const record = {
+          progress('mailbox ' + name + ': page full at ' + emittedHere + ' (of ' + total + ' available)')
+          break
+        }
+
+        const record = {
           mailbox: kind,
           mailboxName: name,
-          localId: Number(safe(() => message.id(), index + 1)),
+          localId,
           messageId: safe(() => message.messageId(), null),
-          occurredAt: occurred instanceof Date ? occurred.toISOString() : null,
+          occurredAt: occurredMs === null ? null : new Date(occurredMs).toISOString(),
           sender: safe(() => message.sender(), null),
           to: recipientsOf(message, 'toRecipients'),
           cc: recipientsOf(message, 'ccRecipients'),
           bcc: recipientsOf(message, 'bccRecipients'),
           subject: safe(() => message.subject(), null),
         }
-          out(JSON.stringify(record) + '\n')
-          emittedHere += 1
-          exported += 1
-        }
+        out(JSON.stringify(record) + '\n')
+        emittedHere += 1
+        exported += 1
       } catch (error) {
         progress('skipped unreadable Mail.app message ' + (index + 1) + ': ' + String(error))
       }
@@ -193,13 +304,24 @@ function run(argv) {
 
     progress(
       'mailbox ' + name + ': exported ' + emittedHere +
-      (stoppedEarly ? ' (stopped early, ' + total + ' available)' : ' (scanned ' + total + ')'),
+      (mailboxExhausted ? ' (scanned ' + total + ')' : ' (page full, more available)'),
     )
   }
 
+  const complete = Object.keys(nextCursors).length === 0
+  const result = {
+    mailboxKind: requestedKind,
+    nextCursor: complete ? null : nextCursors,
+    complete,
+    emitted: exported,
+    scanned,
+  }
+  writeTextFile(outputPath + '.page.json', JSON.stringify(result))
+
   progress(
     'Mail.app metadata export complete: ' + exported + ' messages' +
-    (outsideWindow ? ', ' + outsideWindow + ' outside the window' : ''),
+    (outsideWindow ? ', ' + outsideWindow + ' outside the window' : '') +
+    ' | page complete=' + complete,
   )
   if (skippedMailboxes.length) {
     progress('WARNING skipped unreadable mailboxes: ' + skippedMailboxes.join(', '))

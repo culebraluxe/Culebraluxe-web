@@ -10,7 +10,8 @@ export type ICloudMailObservation = {
   sourceExternalId: string
   sourceAccount: string
   mailbox: string
-  uid: number
+  /** A real source uid when the provider exposes one, else null. Never an index. */
+  uid: number | null
   uidValidity: string
   occurredAt: string
   direction: 'inbound' | 'outbound'

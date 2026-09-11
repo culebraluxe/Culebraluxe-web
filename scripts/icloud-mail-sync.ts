@@ -56,7 +56,8 @@ type LocalMailAddress = {
 type LocalMailRecord = {
   mailbox: 'inbox' | 'sent'
   mailboxName: string
-  localId: number
+  /** A real Mail.app local row id, or null. The exporter never emits an index. */
+  localId: number | null
   messageId: string | null
   occurredAt: string | null
   sender: string | null
@@ -332,6 +333,12 @@ async function acquireMetadata(
     }
 
     if (!record.occurredAt) {
+      invalid += 1
+      continue
+    }
+    if (!record.messageId?.trim() && record.localId == null) {
+      // No Message-ID and no real stable local id: not replayable. Recorded, never
+      // invented (an array position is not an identity).
       invalid += 1
       continue
     }
