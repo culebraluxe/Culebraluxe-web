@@ -81,7 +81,7 @@ export function DealsPortfolio({
 
   return (
     <div>
-      <PageHeader compact eyebrow="Portfolio" title="Deals">
+      <PageHeader compact eyebrow="Portfolio" title="Contracts">
         <span className="text-xs font-light text-black/40">
           {filteredDeals.length} shown
         </span>

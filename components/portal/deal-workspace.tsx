@@ -123,9 +123,9 @@ export function DealWorkspace({
   if (!deal) {
     return (
       <div>
-        <PageHeader compact eyebrow="Portfolio" title="Deal Workspace" />
+        <PageHeader compact eyebrow="Portfolio" title="Contract Workspace" />
         <div className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-10">
-          <p className="text-sm font-light text-black/45">Deal not found.</p>
+          <p className="text-sm font-light text-black/45">Contract not found.</p>
         </div>
       </div>
     )
@@ -135,7 +135,7 @@ export function DealWorkspace({
 
   return (
     <div>
-      <PageHeader compact eyebrow="Deal" title={property?.name ?? "Deal"}>
+      <PageHeader compact eyebrow="Contract" title={property?.name ?? "Contract"}>
         <span className="rounded-full bg-[var(--portal-blue-pale)] px-3 py-1.5 text-[10px] font-light uppercase tracking-[0.1em] text-[var(--portal-navy-soft)]">
           {stageLabel(deal.stage)}
         </span>
@@ -391,9 +391,9 @@ export function DealWorkspace({
         <section className="portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)]">
           <div className="flex items-center justify-between border-b border-[var(--portal-border)] px-6 py-5">
             <div>
-              <h2 className="font-serif text-2xl font-light">Recent Deal Activity</h2>
+              <h2 className="font-serif text-2xl font-light">Recent Contract Activity</h2>
               <p className="mt-1 text-xs font-light text-black/40">
-                Interactions tied to this deal.
+                Interactions tied to this contract.
               </p>
             </div>
             <span className="text-xs font-light text-black/35">
@@ -606,7 +606,7 @@ export function DealWorkspace({
 
       {deal.notes && (
         <section className="mt-6 portal-glass-panel overflow-hidden rounded-[var(--portal-panel-radius)] p-6">
-          <h2 className="font-serif text-2xl font-light">Deal Notes</h2>
+          <h2 className="font-serif text-2xl font-light">Contract Notes</h2>
           <p className="mt-4 text-sm font-light leading-7 text-black/55">{deal.notes}</p>
         </section>
       )}

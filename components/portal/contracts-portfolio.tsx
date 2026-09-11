@@ -48,7 +48,7 @@ export function ContractsPortfolio({
       divider
       flush
       eyebrow="Artifacts"
-      heading="Contracts"
+      heading="Contracts from Forms"
     >
       {readFailed ? (
         <p className="px-6 py-8 text-sm font-light text-muted-foreground">

@@ -77,9 +77,9 @@ export function DealCreatePanel({
     <section className="portal-glass-panel mb-6 overflow-hidden rounded-[var(--portal-panel-radius)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--portal-border)] px-6 py-5">
         <div>
-          <h2 className="font-serif text-2xl font-light">New deal</h2>
+          <h2 className="font-serif text-2xl font-light">New contract</h2>
           <p className="mt-1 text-xs font-light text-black/40">
-            Open a deal against an active property and its client; the canonical
+            Open a contract against an active property and its client; the canonical
             participant rows are created with it.
           </p>
         </div>
@@ -88,7 +88,7 @@ export function DealCreatePanel({
           onClick={() => setOpen(!open)}
           className="inline-flex min-h-11 items-center justify-center rounded-sm bg-[var(--portal-navy)] px-5 text-[11px] font-light uppercase tracking-[0.14em] text-white transition hover:bg-[var(--portal-navy-soft)]"
         >
-          {open ? "Close" : "New deal"}
+          {open ? "Close" : "New contract"}
         </button>
       </div>
 
