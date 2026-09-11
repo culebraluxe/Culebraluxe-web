@@ -27,6 +27,12 @@ export type FormInstance = {
   dealId: string | null
   personId: string | null
   propertyId: string | null
+  /**
+   * The Contract this form produced (the artifact link). The form is the INPUT;
+   * the contract is what it creates. Written back after the bridge runs so a
+   * second save updates the same contract instead of creating another one.
+   */
+  contractId: string | null
   status: FormInstanceStatus
   fieldValues: Record<string, string>
   sections: Record<string, string>
@@ -69,6 +75,8 @@ export type UpdateFormInstanceInput = {
   fieldValues?: Record<string, string>
   sections?: Record<string, string>
   status?: FormInstanceStatus
+  /** Set once the form has produced a Contract (the artifact link). */
+  contractId?: string | null
 }
 
 export type CreateFormInstanceRequest = CreateFormInstanceInput

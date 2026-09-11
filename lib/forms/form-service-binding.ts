@@ -4,6 +4,7 @@ import { sql } from '@/db/client'
 import {
   bindFormInstanceToDirectContext,
   resolveDealLaunchContext,
+  updateFormInstance,
 } from '@/lib/forms/form-instance-io'
 import {
   loadListingCanonicalSnapshot,
@@ -15,6 +16,7 @@ import {
   type ListingCanonicalFields,
 } from './listing-field-binding'
 import { syncOfferContractForm } from './offer-contract-binding'
+import { syncListingContract } from './listing-contract-bridge'
 import { syncShowingReportForm } from './showing-report-binding'
 
 export const SERVICE_BOUND_FORM_TEMPLATES = new Set(['SHOW-RPT', 'OFFER-01'])
@@ -150,6 +152,20 @@ async function syncListingForm(
     actorId,
     propertyId ?? before.physicalPropertyId ?? undefined,
   )
+
+  // The form feeds its Contract (Forms -> Contract -> Vault, design section 1).
+  // The form's own values become the contract's facts and roles; the artifact id
+  // is written back onto the form so the next save updates the same contract
+  // instead of creating a second one.
+  const contractId = await syncListingContract({
+    ...stored,
+    fieldValues: fields,
+    personId,
+    propertyId: result.physicalPropertyId ?? propertyId ?? stored.propertyId,
+  })
+  if (contractId && contractId !== stored.contractId) {
+    await updateFormInstance(stored.id, { contractId })
+  }
 
   return {
     kind: 'listing',

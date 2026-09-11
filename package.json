@@ -75,6 +75,7 @@
     "verify:vault": "node --env-file=.env.local --import tsx scripts/verify-vault-service.ts",
     "verify:contract": "node --env-file=.env.local --import tsx scripts/verify-contract-service.ts",
     "verify:wbs": "node --env-file=.env.local --import tsx scripts/verify-wbs-service.ts",
+    "verify:bridge": "node --env-file=.env.local --import tsx scripts/verify-listing-contract-bridge.ts",
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --env-file=.env.local scripts/export-dev-projects-workspace.mjs",

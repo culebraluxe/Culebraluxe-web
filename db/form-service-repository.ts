@@ -52,6 +52,7 @@ export type FormInstanceRow = QueryRow & {
   deal_id: string | null
   person_id: string | null
   property_id: string | null
+  contract_id: string | null
   status: string
   field_values: unknown
   sections: unknown
@@ -68,6 +69,7 @@ function mapFormInstance(row: FormInstanceRow): FormInstance {
     dealId: row.deal_id ?? null,
     personId: row.person_id ?? null,
     propertyId: row.property_id ?? null,
+    contractId: row.contract_id ?? null,
     status: row.status as FormInstanceStatus,
     fieldValues: (row.field_values ?? {}) as Record<string, string>,
     sections: (row.sections ?? {}) as Record<string, string>,
@@ -115,7 +117,7 @@ export async function createFormInstance(
       ${JSON.stringify(input.sections)}::jsonb,
       ${input.createdByUserId ?? null}
     )
-    returning id, template_id, template_version, deal_id, person_id, property_id,
+    returning id, template_id, template_version, deal_id, person_id, property_id, contract_id,
       status, field_values, sections, created_by_user_id, created_at, updated_at
   `
   const row = rows[0] as FormInstanceRow | undefined
@@ -132,7 +134,7 @@ export async function getFormInstance(
 ): Promise<FormInstance | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select id, template_id, template_version, deal_id, person_id, property_id, status,
+    select id, template_id, template_version, deal_id, person_id, property_id, contract_id, status,
       field_values, sections, created_by_user_id, created_at, updated_at
     from document_form_instance
     where id = ${id}
@@ -158,9 +160,11 @@ export async function updateFormInstance(
             then sections else ${JSON.stringify(input.sections ?? {})}::jsonb end,
         status = case when ${input.status ?? null}::text is null
           then status else ${input.status ?? 'draft'} end,
+        contract_id = case when ${input.contractId ?? null}::uuid is null
+          then contract_id else ${input.contractId ?? null}::uuid end,
         updated_at = now()
     where id = ${id}
-    returning id, template_id, template_version, deal_id, person_id, property_id, status,
+    returning id, template_id, template_version, deal_id, person_id, property_id, contract_id, status,
       field_values, sections, created_by_user_id, created_at, updated_at
   `
   const row = rows[0] as FormInstanceRow | undefined
@@ -267,7 +271,7 @@ export async function listFormInstances(
 ): Promise<FormInstanceListItem[]> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select f.id, f.template_id, f.template_version, f.deal_id, f.person_id, f.property_id, f.status,
+    select f.id, f.template_id, f.template_version, f.deal_id, f.person_id, f.property_id, f.contract_id, f.status,
       f.field_values, f.sections, f.created_by_user_id, f.created_at, f.updated_at,
       null as deal_label,
       coalesce(p.name, fp.name) as property_label,
