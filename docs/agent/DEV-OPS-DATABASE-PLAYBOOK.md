@@ -8,6 +8,41 @@ parallel-dispatch columns (which existed in **no migration at all**), and the ap
 code had only partially followed migration 118's rename. Both environments had a
 broken page and nobody knew.
 
+## 0. Forge runs against PROD. Never DEV.
+
+> **Rule (2026-09-11, captain's directive):** *"we are NEVER running forge against DEV again."*
+> Forge runs — engine lanes, dogfoods, splits, role attempts — execute against **PROD only**.
+
+DEV is for application/dev work and local scripts. It is **not** a Forge execution target,
+and the environment is **not** something a run may flip on its own.
+
+Why the rule exists: the PROJECTS-WORKSPACE series ran in DEV while the Story Board lives in
+PROD, so twelve shipped stories left the PROD board unable to show its own numbers — the board
+silently disagreed with git and the rows had to be reconciled by hand. A board that cannot
+point at its own evidence is worse than an empty one.
+
+**What to do instead**, depending on what actually happened:
+
+| Situation | Action |
+| --- | --- |
+| Work shipped but PROD shows no numbers | **Do NOT re-run.** Recover the history: **`pnpm forge:sync-history`** |
+| A Forge run resolves to non-PROD | Treat it as a **defect** — the guard must **fail closed**, not warn |
+| History must be carried DEV → PROD | `scripts/sync-forge-history.ts` — additive, idempotent, never updates/deletes PROD |
+
+**`pnpm forge:sync-history`** copies **stories → runs → work items** in that order, `on conflict
+(id) do nothing`, FK-checked against PROD parents and skipped-with-reason when a parent is absent
+(so a partial copy can never half-link). Safe to re-run any time. First run 2026-09-11 recovered
+**+11 stories, +137 runs, +142 work items**. Scope: those three tables only — the wider
+`forge_*`/`process_*` evidence tables are not carried yet.
+
+### Parity blind spot (found 2026-09-11, by that sync)
+
+`pnpm db:parity` compares **tables, columns, indexes and FKs — but NOT check constraints**.
+On 2026-09-11 it reported **0 drift** while PROD enforced `agent_work_item_parallel_shape_check`
+and DEV had no such constraint at all. The direction is the dangerous one: **PROD is stricter,
+DEV is permissive**, so DEV accepts rows PROD rejects. Until parity compares constraints,
+treat a clean parity result as **incomplete evidence**, not proof of agreement.
+
 ## 1. Environment topology
 
 | Env | Neon endpoint | Notes |

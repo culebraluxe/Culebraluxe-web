@@ -26,6 +26,7 @@ Never
 
 - Commit secrets or `.env.local`.
 - Push, merge, or rebase from a worker.
+- Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0).
 - Reset PROD, copy DEV over PROD, or truncate canonical history.
 - Keep a git commit as Scout, Assay, or Inspector.
 - Special-case Casa Luar or any one listing in application code.
