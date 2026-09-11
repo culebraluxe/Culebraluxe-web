@@ -29,9 +29,21 @@
 //                            else 2011-06-01).
 //   --shard <YYYY-MM>        run exactly one date shard.
 //
-// Environment:
-//   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN  (required)
-//   GMAIL_MAILBOX_ADDRESS   expected mailbox; default penfield33@gmail.com
+// Environment (DEDICATED mailbox credentials - deliberately NOT the app's):
+//   GMAIL_MAILBOX_CLIENT_ID       required - OAuth client for this mailbox only
+//   GMAIL_MAILBOX_CLIENT_SECRET   required - its secret
+//   GMAIL_MAILBOX_REFRESH_TOKEN   required - refresh token for penfield33@gmail.com
+//   GMAIL_MAILBOX_ADDRESS         expected mailbox; default penfield33@gmail.com
+//   GMAIL_MAILBOX_TOKEN_ENDPOINT  optional - default https://oauth2.googleapis.com/token
+//
+// CREDENTIAL ISOLATION (deliberate, load-bearing):
+//   The app's security architecture already owns GOOGLE_CLIENT_ID /
+//   GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN (the Google Calendar adapter,
+//   CRM-08, and the Vercel production env contract) and AUTH_GOOGLE_ID /
+//   AUTH_GOOGLE_SECRET (portal login). Those are bound to OTHER Google accounts.
+//   This intake must never read, reuse, or alter them: reading GOOGLE_* would
+//   authenticate as the wrong mailbox and couple a bulk census to the running
+//   security stack. The dedicated GMAIL_MAILBOX_* keys are the whole point.
 //
 // Error policy: a failed individual message is reported with its source id and
 // the page continues. A failed page does NOT advance the checkpoint and the run
@@ -86,16 +98,39 @@ export function expectedMailbox(): string {
   return (process.env.GMAIL_MAILBOX_ADDRESS?.trim().toLowerCase() || DEFAULT_GMAIL_MAILBOX)
 }
 
-// --- authentication (reused from the proven gmail-metadata-sync flow) --------
+// --- authentication ----------------------------------------------------------
+
+/**
+ * The mailbox intake's OWN credential names.
+ *
+ * These are intentionally distinct from the app's security credentials
+ * (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN - the Calendar
+ * adapter, Vercel prod contract) and from portal login (AUTH_GOOGLE_ID /
+ * AUTH_GOOGLE_SECRET). Reusing either would authenticate as the wrong Google
+ * account and tie a bulk mailbox census to the running security stack.
+ */
+export const GMAIL_MAILBOX_CREDENTIAL_KEYS = {
+  clientId: 'GMAIL_MAILBOX_CLIENT_ID',
+  clientSecret: 'GMAIL_MAILBOX_CLIENT_SECRET',
+  refreshToken: 'GMAIL_MAILBOX_REFRESH_TOKEN',
+  tokenEndpoint: 'GMAIL_MAILBOX_TOKEN_ENDPOINT',
+} as const
+
+export function gmailMailboxTokenEndpoint(): string {
+  return (
+    process.env[GMAIL_MAILBOX_CREDENTIAL_KEYS.tokenEndpoint]?.trim() ||
+    'https://oauth2.googleapis.com/token'
+  )
+}
 
 export async function fetchAccessToken(): Promise<string> {
-  const response = await fetch('https://oauth2.googleapis.com/token', {
+  const response = await fetch(gmailMailboxTokenEndpoint(), {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: requiredEnv('GOOGLE_CLIENT_ID'),
-      client_secret: requiredEnv('GOOGLE_CLIENT_SECRET'),
-      refresh_token: requiredEnv('GOOGLE_REFRESH_TOKEN'),
+      client_id: requiredEnv(GMAIL_MAILBOX_CREDENTIAL_KEYS.clientId),
+      client_secret: requiredEnv(GMAIL_MAILBOX_CREDENTIAL_KEYS.clientSecret),
+      refresh_token: requiredEnv(GMAIL_MAILBOX_CREDENTIAL_KEYS.refreshToken),
       grant_type: 'refresh_token',
     }),
   })

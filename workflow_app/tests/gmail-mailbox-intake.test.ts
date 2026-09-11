@@ -19,7 +19,9 @@ import {
   gmailMetadataPath,
   gmailMetadataToLandedEmail,
 } from '../../lib/intake/gmail'
-import { selectShards } from '../../scripts/gmail-mailbox-intake'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { GMAIL_MAILBOX_CREDENTIAL_KEYS, selectShards } from '../../scripts/gmail-mailbox-intake'
 import type { GmailMetadataMessage } from '../../lib/relationship-intel/gmail-latest-context'
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,27 @@ test('gmail: the authenticated profile must equal penfield33@gmail.com', () => {
   assert.doesNotThrow(() => assertGmailAccount('Penfield33@Gmail.com', 'penfield33@gmail.com'))
   assert.throws(() => assertGmailAccount('someone@else.com', 'penfield33@gmail.com'), /Refusing to ingest another mailbox/)
   assert.throws(() => assertGmailAccount('', 'penfield33@gmail.com'), /did not report an email address/)
+})
+
+// --- credential isolation: never the app's security keys ---------------------
+
+test('gmail: the intake uses dedicated credentials, never the app security keys', () => {
+  const names = Object.values(GMAIL_MAILBOX_CREDENTIAL_KEYS)
+  for (const name of names) {
+    assert.match(name, /^GMAIL_MAILBOX_/, `credential name ${name} must be mailbox-scoped`)
+  }
+  // The Calendar adapter owns GOOGLE_*, portal login owns AUTH_GOOGLE_*. Reading
+  // either here would authenticate as the wrong account and couple a bulk census
+  // to the running security stack.
+  const source = readFileSync(resolve(process.cwd(), 'scripts/gmail-mailbox-intake.ts'), 'utf8')
+  for (const forbidden of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'AUTH_GOOGLE_ID', 'AUTH_GOOGLE_SECRET']) {
+    assert.equal(
+      source.includes(`process.env.${forbidden}`) || source.includes(`'${forbidden}'`) || source.includes(`"${forbidden}"`),
+      false,
+      `the intake must never read ${forbidden}`,
+    )
+  }
+  assert.ok(source.includes('GMAIL_MAILBOX_CLIENT_ID'))
 })
 
 // --- 2. messages.list is bounded --------------------------------------------
