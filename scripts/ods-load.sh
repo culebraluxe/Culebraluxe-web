@@ -2,16 +2,24 @@
 # ---------------------------------------------------------------------------
 # CulebraLuxe — the ONE ODS loader. ALWAYS PROD. DEV is never a target.
 #
-# Flavors:
+# Flavors — every source can be loaded on its own:
 #   contacts  (default, fast)  Apple Contacts, full field set
 #                              export -> ODS staging -> l_person -> Person mastery
 #                              -> names -> clients read models      (~1 minute)
-#   imessage                   contacts + iMessage (the ~90k-message, ~3h load)
-#   full                       contacts + iMessage + Apple calls + email
+#   imessage                   contacts + iMessage (~90k messages, ~3h)
+#   gmail                      contacts + Gmail metadata (its own pull)
+#   calls                      contacts + Apple call history (incl. FaceTime)
+#   full | all                 contacts + iMessage + calls + email
+#
+# Each communication source is a SEPARATE pull: run only the one you want.
+# gmail/calls prepend the fast contacts step because their evidence stage needs
+# the contact identities resolved first (same reason imessage does).
 #
 #   pnpm ods:load            # fast: contacts
 #   pnpm ods:load:imessage   # contacts + iMessage
-#   pnpm ods:load:full       # everything we can get
+#   pnpm ods:load:gmail      # contacts + Gmail
+#   pnpm ods:load:calls      # contacts + calls/FaceTime
+#   pnpm ods:load:all        # everything we can get
 #   bash scripts/ods-load.sh --plan        # show the plan, run nothing
 #
 # Each source is its own canonical script (this wrapper adds no ingest logic):
@@ -34,12 +42,16 @@ FLAVOR="contacts"
 PLAN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
-    contacts|imessage|full) FLAVOR="$arg" ;;
+    contacts|imessage|email|gmail|calls|full|all) FLAVOR="$arg" ;;
     --plan|--dry-run) PLAN_ONLY=1 ;;
-    --help|-h) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[ods-load] ERROR: unknown option '$arg' (try --help)" >&2; exit 2 ;;
   esac
 done
+
+# gmail is the captain's word for the email source; all is short for full.
+[ "$FLAVOR" = "gmail" ] && FLAVOR="email"
+[ "$FLAVOR" = "all" ] && FLAVOR="full"
 
 log() { echo "[ods-load] $*"; }
 fail() { echo "[ods-load] ERROR: $*" >&2; exit 1; }
@@ -58,6 +70,8 @@ STEPS=()
 case "$FLAVOR" in
   contacts) STEPS=("contacts") ;;
   imessage) STEPS=("contacts" "imessage") ;;
+  email)    STEPS=("contacts" "email") ;;
+  calls)    STEPS=("contacts" "calls") ;;
   full)     STEPS=("contacts" "imessage" "calls" "email") ;;
 esac
 
@@ -72,7 +86,7 @@ script_for() {
 
 log "flavor=$FLAVOR -> PROD (${STEPS[*]})"
 if [ "$FLAVOR" = "contacts" ]; then
-  log "iMessage is NOT part of this flavor (~90k messages, ~3h). Use: pnpm ods:load:imessage"
+  log "only contacts. Per-source loads: pnpm ods:load:imessage | ods:load:gmail | ods:load:calls | ods:load:all"
 fi
 
 if [ "$PLAN_ONLY" = "1" ]; then
