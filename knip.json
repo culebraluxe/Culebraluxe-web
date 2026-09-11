@@ -20,7 +20,23 @@
     "**/*.d.ts",
     ".next/**",
     "coverage/**",
-    "workflow_app/definitions/**"
+    "workflow_app/definitions/**",
+    "workflow_engine/**",
+    "grok/**",
+    "lib/workflow/**",
+    "lib/mq/**",
+    "workflow_app/scripts/**",
+    "workflow_app/idempotency.ts",
+    "components/portal/workflow-dashboard-card.tsx",
+    "neon.ts",
+    "app/actions/catchup-lead.ts",
+    "lib/intake/index.ts"
+  ],
+  "ignoreDependencies": [
+    "tailwindcss",
+    "@fullcalendar/core",
+    "shadcn",
+    "tw-animate-css"
   ]
 }
 
