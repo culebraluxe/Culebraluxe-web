@@ -16,6 +16,7 @@ import type {
   ListingCanonicalSnapshot,
   ListingFieldOrigin,
 } from './listing-field-binding'
+import { formatAddressLine } from '@/lib/address-format'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { formEntitlements } from './form-service-runtime'
 import { SqlFormInstanceRepository } from '@/db/form-service-repository'
@@ -50,17 +51,10 @@ function compact(value: string | null | undefined): string {
   return value?.trim() ?? ''
 }
 
+// Single-line form fields: a multi-line Apple street must not glue together
+// here. Shared with the property repository so both agree (lib/address-format).
 function formatAddress(address: PropertyAddressDto | null | undefined): string {
-  if (!address) return ''
-  return [
-    compact(address.addressLine1) || null,
-    compact(address.neighborhood) || null,
-    compact(address.city) || null,
-    [compact(address.stateOrProvince), compact(address.postalCode)].filter(Boolean).join(' ') || null,
-    compact(address.country) || null,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(', ')
+  return formatAddressLine(address)
 }
 
 async function latestListingEvidence(personId: string): Promise<FormEvidence | null> {

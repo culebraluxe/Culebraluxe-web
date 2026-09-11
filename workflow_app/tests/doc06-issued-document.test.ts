@@ -10,7 +10,7 @@ import { buildOfferLetterPdf, formatMoney, formatDate } from '../../lib/forms/pd
 import { issueFormDocument } from '../../db/issued-document'
 import { listIssuedDocuments } from '../../db/transaction-document'
 import type { QueryExecutor, QueryRow } from '../../db/query-executor'
-import type { FormInstance } from '../../db/document-form-instance'
+import type { FormInstance } from '../../services/forms'
 import type { TxRunner } from '../../db/tx'
 
 const OFFER_LETTER_TEMPLATE = getTemplate('OFFER-01', 1)!

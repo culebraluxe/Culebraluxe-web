@@ -21,14 +21,21 @@ export const SHOWING_INFO_TEMPLATE_ID = 'SHOW-INFO'
 export const SHOWING_REPORT_TEMPLATE_ID = 'SHOW-RPT'
 
 const TEMPLATE_FILES = [
-  // One ACTIVE version per form family. Superseded versions were removed
-  // (2026-09-11): every form path re-renders from the template file by
-  // (templateId, templateVersion), so an old version is only kept while a live
-  // record still points at it — LISTING-01 v3 is retained for the one issued
-  // Listing Agreement issued at that version.
+  // One ACTIVE version per form family, PLUS every version a persisted record
+  // still points at. A document re-renders from its template file by
+  // (templateId, templateVersion), so removing a version that a live record
+  // references makes that record unresolvable.
+  //
+  // 2026-09-11: LISTING-01 v2 (6 issued documents) and PR-PNS v1 (3 issued
+  // documents) are retained for exactly this reason — PROD transaction_document
+  // rows reference them. The guard is the persisted-version proof in
+  // workflow_app/tests/forms-template-versioning.test.ts: check the database
+  // before deleting any file listed here.
   'OFFER-01.v2.xml',
+  'LISTING-01.v2.xml',
   'LISTING-01.v3.xml',
   'LISTING-01.v4.xml',
+  'PR-PNS.xml',
   'PR-PNS.v3.xml',
   'PR-PNS-AMD.xml',
   'SHOW-INFO.xml',

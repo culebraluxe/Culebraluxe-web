@@ -23,7 +23,7 @@ import {
   getPropertyBySlug,
   getPublicPropertySlugs,
   getSimilarProperties,
-} from '../../db/properties'
+} from '../../db/property-public-reads'
 import { setPropertyPublished } from '../../db/portal-property'
 import { setDatabaseTestExecutor } from '../../db/client'
 import { PortalWriteError } from '../../lib/portal-write-error'

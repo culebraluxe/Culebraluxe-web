@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  getTemplate,
+  getActiveTemplate,
   OFFER_LETTER_TEMPLATE_ID,
 } from '../../lib/forms/template-registry'
 import { parseTemplateXml, TemplateXmlError } from '../../lib/forms/xml-template'
@@ -54,7 +54,7 @@ const legacyOfferDefinition: TemplateDefinition = {
   },
 }
 
-const xmlTemplate = getTemplate(OFFER_LETTER_TEMPLATE_ID, 1)
+const xmlTemplate = getActiveTemplate(OFFER_LETTER_TEMPLATE_ID)
 assert.ok(xmlTemplate, 'OFFER-01 must load from XML through the seam')
 
 function fieldProjection(template: TemplateDefinition, name: string) {
@@ -66,7 +66,7 @@ function fieldProjection(template: TemplateDefinition, name: string) {
 
 test('DOC-08 XML: parses into stable id/version/title/document type', () => {
   assert.equal(xmlTemplate.id, 'OFFER-01')
-  assert.equal(xmlTemplate.version, 1)
+  assert.equal(xmlTemplate.version, 2)
   assert.equal(xmlTemplate.displayName, 'Offer Letter')
   assert.equal(xmlTemplate.documentTypeLabel, 'Offer Letter')
   assert.equal(xmlTemplate.rendering.title, 'OFFER LETTER')

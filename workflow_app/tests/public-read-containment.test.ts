@@ -16,7 +16,7 @@ import {
   getProperties,
   getFilteredProperties,
   getPropertyBySlug,
-} from '../../db/properties'
+} from '../../db/property-public-reads'
 import { getMarketingContent } from '../../db/marketing-content'
 import type { QueryExecutor } from '../../db/query-executor'
 

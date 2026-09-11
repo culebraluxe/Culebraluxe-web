@@ -18,7 +18,7 @@ import assert from 'node:assert/strict'
 // including the no-op-write guard that keeps event listeners from
 // re-triggering themselves.
 
-import type { PropertySummary } from '../../db/properties'
+import type { PropertySummary } from '../../services/property'
 import {
   DEFAULT_SEARCH_FILTERS,
   describeSearchFilters,

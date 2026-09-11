@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  getTemplate,
+  getActiveTemplate,
   PURCHASE_SALE_TEMPLATE_ID,
 } from '../../lib/forms/template-registry'
 import { buildPurchaseSalePdf, interpolateSectionText } from '../../lib/forms/pdf'
@@ -19,7 +19,7 @@ import { parseTemplateXml } from '../../lib/forms/xml-template'
 // groups with initials — and renders deterministically across multiple pages.
 // ---------------------------------------------------------------------------
 
-const pns = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)
+const pns = getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)
 assert.ok(pns, 'PR-PNS must load from XML through the seam')
 
 const section = (name: string) => {
@@ -30,7 +30,7 @@ const section = (name: string) => {
 
 test('DOC-08 P&S: template identity and shape survive', () => {
   assert.equal(pns.id, 'PR-PNS')
-  assert.equal(pns.version, 1)
+  assert.equal(pns.version, 3)
   assert.equal(pns.displayName, 'Purchase and Sale Agreement')
   assert.equal(pns.rendering.title, 'PURCHASE AND SALE AGREEMENT')
   assert.ok(pns.fields.length >= 16, 'structured fields declared')

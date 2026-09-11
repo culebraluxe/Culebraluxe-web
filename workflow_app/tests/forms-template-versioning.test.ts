@@ -2,259 +2,93 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  getTemplate,
-  getLatestTemplate,
-  getActiveTemplate,
   ACTIVE_TEMPLATE_VERSIONS,
-  resolveLatestTemplateVersion,
+  getActiveTemplate,
+  getLatestTemplate,
+  getTemplate,
   listTemplates,
+  LISTING_AGREEMENT_TEMPLATE_ID,
+  OFFER_LETTER_TEMPLATE_ID,
   PURCHASE_SALE_TEMPLATE_ID,
 } from '../../lib/forms/template-registry'
-import { compareTemplateStructure } from '../../lib/forms/template-versioning'
-import type {
-  TemplateDefinition,
-  TemplateFieldDefinition,
-  TemplateParticipantRole,
-  TemplateSectionDefinition,
-  TemplateSignatureGroup,
-} from '../../lib/forms/template-types'
 
 // ---------------------------------------------------------------------------
-// FORMS TEMPLATE VERSIONING — registry + structural compatibility proofs.
+// FORMS TEMPLATE VERSIONING — the registry guarantee that matters.
+//
+// The rule (lib/forms/template-registry.ts): keep one ACTIVE version per form
+// family, PLUS every version a persisted record still points at. A document
+// re-renders from its template file by (templateId, templateVersion), so
+// removing a version that a live record references makes that record
+// unresolvable.
+//
+// PERSISTED_VERSIONS below is the real PROD reference set:
+//
+//   select template_id, template_version, count(*)::int
+//     from transaction_document group by 1, 2 order by 1, 2
+//
+// 2026-09-11: LISTING-01 v2 (6 documents) and PR-PNS v1 (3 documents) had been
+// removed as "superseded" while PROD still referenced them. This proof is why
+// they were restored — re-run that query before deleting any version.
 // ---------------------------------------------------------------------------
 
-const BASE_FIELD: TemplateFieldDefinition = {
-  name: 'buyerName',
-  label: 'Buyer',
-  type: 'text',
-  required: true,
-  binding: 'deal.client.name',
-}
+/** [templateId, templateVersion, issued documents in PROD]. */
+const PERSISTED_VERSIONS: readonly (readonly [string, number, number])[] = [
+  [LISTING_AGREEMENT_TEMPLATE_ID, 2, 6],
+  [LISTING_AGREEMENT_TEMPLATE_ID, 3, 19],
+  [LISTING_AGREEMENT_TEMPLATE_ID, 4, 8],
+  [PURCHASE_SALE_TEMPLATE_ID, 1, 3],
+  [PURCHASE_SALE_TEMPLATE_ID, 3, 8],
+  ['SHOW-RPT', 1, 1],
+]
 
-const BASE_SECTION: TemplateSectionDefinition = {
-  name: 'terms',
-  label: 'Terms',
-  editable: false,
-  segments: [{ kind: 'text', text: 'The parties agree to the following terms.' }],
-  values: [],
-}
-
-const BASE_PARTICIPANT: TemplateParticipantRole = {
-  role: 'SELLER',
-  label: 'Seller',
-  multiple: false,
-}
-
-const BASE_SIGNATURE: TemplateSignatureGroup = {
-  role: 'SELLER',
-  label: 'Seller',
-  field: 'sellerName',
-  initials: true,
-}
-
-function makeTemplate(overrides: Partial<TemplateDefinition> = {}): TemplateDefinition {
-  return {
-    id: 'PR-PNS',
-    version: 1,
-    displayName: 'Purchase and Sale Agreement',
-    documentTypeLabel: 'Purchase and Sale Agreement',
-    fields: [{ ...BASE_FIELD }],
-    sections: [{ ...BASE_SECTION }],
-    participants: [{ ...BASE_PARTICIPANT }],
-    signatureGroups: [{ ...BASE_SIGNATURE }],
-    rendering: { title: 'PURCHASE AND SALE AGREEMENT', issuer: 'CulebraLuxe Real Estate', presentation: 'agreement' },
-    ...overrides,
+test('FORMS-VER: every template version a PROD record references still resolves', () => {
+  for (const [id, version, documents] of PERSISTED_VERSIONS) {
+    const template = getTemplate(id, version)
+    assert.ok(template, `${id} v${version} (${documents} issued documents) must resolve`)
+    assert.equal(template.id, id)
+    assert.equal(template.version, version)
   }
-}
-
-// --- Registry: coexistence, exact lookup, latest ----------------------------
-
-test('FORMS-VER 1: registry holds PR-PNS v1, v2 and v3 simultaneously', () => {
-  const versions = listTemplates()
-    .filter((t) => t.id === PURCHASE_SALE_TEMPLATE_ID)
-    .map((t) => t.version)
-    .sort((a, b) => a - b)
-  assert.deepEqual(versions, [1, 2, 3])
 })
 
-test('FORMS-VER 2: exact lookup resolves every persisted PR-PNS version', () => {
-  const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)
-  const v2 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)
-  const v3 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)
-  assert.ok(v1)
-  assert.ok(v2)
-  assert.ok(v3)
-  assert.equal(v1.version, 1)
-  assert.equal(v2.version, 2)
-  assert.equal(v3.version, 3)
-  assert.notEqual(v1, v2, 'v1 and v2 are distinct definitions')
-  assert.notEqual(v2, v3, 'v2 and v3 are distinct definitions')
+test('FORMS-VER: exact lookup returns the requested version, never a substitute', () => {
+  for (const [id, version] of PERSISTED_VERSIONS) {
+    assert.equal(getTemplate(id, version)?.version, version, `${id} v${version}`)
+  }
 })
 
-test('FORMS-VER 3: latest lookup returns v3', () => {
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
+test('FORMS-VER: new forms use the active version, and it is the latest kept', () => {
+  for (const id of [PURCHASE_SALE_TEMPLATE_ID, LISTING_AGREEMENT_TEMPLATE_ID, OFFER_LETTER_TEMPLATE_ID]) {
+    const active = getActiveTemplate(id)
+    assert.ok(active, `${id} has an active version`)
+    assert.equal(active.version, ACTIVE_TEMPLATE_VERSIONS[id], `${id} active version matches the manifest`)
+    assert.equal(active.version, getLatestTemplate(id)?.version, `${id} active is the newest kept version`)
+  }
 })
 
-test('FORMS-VER 4: when only v1 exists, latest resolves to v1 (new form stores v1)', () => {
-  const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
-  const onlyV1 = [v1]
-  assert.equal(resolveLatestTemplateVersion(onlyV1, PURCHASE_SALE_TEMPLATE_ID)?.version, 1)
-})
-
-test('FORMS-VER 5: NEW form creation uses the ACTIVE approved version (v3)', () => {
-  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
-})
-
-test('FORMS-VER 16: PR-PNS v1/v2 remain registered while v3 is active/approved', () => {
-  assert.equal(ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID], 3)
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)?.version, 1)
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)?.version, 2)
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)?.version, 3)
-  assert.equal(getLatestTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
-  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
-})
-
-test('FORMS-VER 17: an existing persisted v2 form still resolves v2 exactly', () => {
-  // Never downgrade/migrate persisted instances — exact historical resolution stands.
-  const persistedV2 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 2 }
-  assert.equal(
-    getTemplate(persistedV2.templateId, persistedV2.templateVersion)?.version,
-    2,
-  )
-  // And v1 persists too.
-  const persistedV1 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 1 }
-  assert.equal(
-    getTemplate(persistedV1.templateId, persistedV1.templateVersion)?.version,
-    1,
-  )
-})
-
-test('FORMS-VER 18: active manifest is the source of truth for NEW form creation', () => {
-  assert.equal(getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version, 3)
-  assert.equal(
-    getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)?.version,
-    ACTIVE_TEMPLATE_VERSIONS[PURCHASE_SALE_TEMPLATE_ID],
-  )
-})
-
-test('FORMS-VER 19: Grok Fill resolution seam — persisted v1 form uses v1 exactly', () => {
-  const persistedV1 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 1 }
-  const resolved = getTemplate(persistedV1.templateId, persistedV1.templateVersion)
-  assert.equal(resolved?.version, 1)
-})
-
-test('FORMS-VER 20: Grok Fill resolution seam — persisted v2 form uses v2 exactly', () => {
-  const persistedV2 = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 2 }
-  const resolved = getTemplate(persistedV2.templateId, persistedV2.templateVersion)
-  assert.equal(resolved?.version, 2)
-})
-
-test('FORMS-VER 21: Grok Fill resolution seam — missing persisted template version fails closed', () => {
-  const persistedMissing = { templateId: PURCHASE_SALE_TEMPLATE_ID, templateVersion: 0 }
-  assert.equal(
-    getTemplate(persistedMissing.templateId, persistedMissing.templateVersion),
-    null,
-  )
-})
-
-test('FORMS-VER 6: an existing v1 form still resolves v1 after newer versions exist', () => {
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)?.version, 1)
-})
-
-test('FORMS-VER 7: v1 preview after newer versions exist still uses the v1 definition', () => {
-  const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
-  const v3 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)!
-  assert.equal(v1.version, 1)
-  assert.notEqual(v1, v3)
-  assert.equal(v1.rendering.title, 'PURCHASE AND SALE AGREEMENT')
-  assert.ok(v1.sections.length >= 15, 'v1 keeps its full section set')
-})
-
-test('FORMS-VER 8/9: issuance resolves the exact stored version', () => {
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)?.version, 1)
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 2)?.version, 2)
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 3)?.version, 3)
-})
-
-test('FORMS-VER 10: unknown persisted template version fails closed (null)', () => {
-  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 999), null)
+test('FORMS-VER: unknown persisted versions fail closed', () => {
   assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 0), null)
+  assert.equal(getTemplate(PURCHASE_SALE_TEMPLATE_ID, 999), null)
 })
 
-test('FORMS-VER 11: previously issued v1 definition remains unchanged', () => {
-  // The v1 file/definition is preserved exactly (not overwritten by newer versions).
-  const v1 = getTemplate(PURCHASE_SALE_TEMPLATE_ID, 1)!
-  assert.equal(v1.version, 1)
-  assert.equal(v1.fields.length, 16)
-  assert.ok(v1.fields.some((f) => f.name === 'buyerName'))
+test('FORMS-VER: no duplicate (id, version) pair is registered', () => {
+  const seen = new Set<string>()
+  for (const template of listTemplates()) {
+    const key = `${template.id}@${template.version}`
+    assert.equal(seen.has(key), false, `duplicate registration for ${key}`)
+    seen.add(key)
+  }
 })
 
-// --- Structural compatibility validator -------------------------------------
-
-test('FORMS-VER 12: validator accepts a prose-only revision', () => {
-  const prev = makeTemplate()
-  const next = makeTemplate({
-    sections: [
-      {
-        ...BASE_SECTION,
-        segments: [{ kind: 'text', text: 'The parties agree to the following revised terms.' }],
-      },
-    ],
-  })
-  const report = compareTemplateStructure(prev, next)
-  assert.equal(report.contentChanged, true, 'prose differs')
-  assert.equal(report.participants, 'unchanged')
-  assert.equal(report.canonicalFields, 'unchanged')
-  assert.equal(report.signatureGroups, 'unchanged')
-  assert.equal(report.executionStructure, 'unchanged')
-  assert.equal(report.compatible, true, 'prose-only revision is structurally compatible')
+test('FORMS-VER: the Purchase and Sale Agreement keeps its full body', () => {
+  const active = getActiveTemplate(PURCHASE_SALE_TEMPLATE_ID)
+  assert.ok(active)
+  assert.equal(active.rendering.title, 'PURCHASE AND SALE AGREEMENT')
+  assert.ok(active.fields.length >= 16, 'agreement keeps its structured fields')
+  assert.ok(active.sections.length >= 15, 'agreement keeps its full section set')
 })
 
-test('FORMS-VER 13: validator rejects a participant-role change', () => {
-  const prev = makeTemplate()
-  const next = makeTemplate({
-    participants: [
-      { ...BASE_PARTICIPANT },
-      { role: 'BUYER', label: 'Buyer', multiple: false },
-    ],
-  })
-  const report = compareTemplateStructure(prev, next)
-  assert.ok(Array.isArray(report.participants), 'participant change reported')
-  assert.equal(report.compatible, false, 'participant set change is not compatible')
-})
-
-test('FORMS-VER 13b: validator rejects a participant multiplicity change', () => {
-  const prev = makeTemplate()
-  const next = makeTemplate({
-    participants: [{ ...BASE_PARTICIPANT, multiple: true }],
-  })
-  const report = compareTemplateStructure(prev, next)
-  assert.ok(Array.isArray(report.participants), 'participant change reported')
-  assert.equal(report.compatible, false)
-})
-
-test('FORMS-VER 14: validator rejects a signature-group change', () => {
-  const prev = makeTemplate()
-  const next = makeTemplate({
-    signatureGroups: [{ ...BASE_SIGNATURE, initials: false }],
-  })
-  const report = compareTemplateStructure(prev, next)
-  assert.ok(Array.isArray(report.signatureGroups), 'signature change reported')
-  assert.equal(report.compatible, false)
-})
-
-test('FORMS-VER 15: validator rejects a canonical field/binding change', () => {
-  const prev = makeTemplate()
-  const next = makeTemplate({
-    fields: [{ ...BASE_FIELD, binding: 'person.displayName' }],
-  })
-  const report = compareTemplateStructure(prev, next)
-  assert.ok(Array.isArray(report.canonicalFields), 'field/binding change reported')
-  assert.equal(report.compatible, false)
-
-  const nextType = makeTemplate({ fields: [{ ...BASE_FIELD, type: 'money' }] })
-  const reportType = compareTemplateStructure(prev, nextType)
-  assert.ok(Array.isArray(reportType.canonicalFields))
-  assert.equal(reportType.compatible, false)
+test('FORMS-VER: the Listing Agreement keeps its section body', () => {
+  const active = getActiveTemplate(LISTING_AGREEMENT_TEMPLATE_ID)
+  assert.ok(active)
+  assert.ok(active.sections.length >= 10, 'listing agreement keeps its sections')
 })

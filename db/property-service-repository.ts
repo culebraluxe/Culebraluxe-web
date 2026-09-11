@@ -10,6 +10,7 @@ import {
   getSimilarProperties,
   type PropertyReadExecutor,
 } from './property-public-reads'
+import { formatAddressLine, oneLine } from '@/lib/address-format'
 import type { PropertyDetailResult } from '@/lib/property-types'
 import type {
   FilterPropertiesRequest,
@@ -79,7 +80,9 @@ function compact(value: string | null | undefined): string | null {
  * truth. `location` remains the final legacy fallback only.
  */
 function canonicalAddressLine(row: PropertyRow): string | null {
-  const canonical = compact(row.address_line1)
+  // Apple Contacts stores multi-line streets ("Bo. Delicias\nVagabundo Capital
+  // LLC"). One line leaves the repository so no single-line field glues them.
+  const canonical = oneLine(row.address_line1)
   if (canonical) return canonical
 
   const street = [compact(row.street_number), compact(row.street_name)]
@@ -88,7 +91,7 @@ function canonicalAddressLine(row: PropertyRow): string | null {
   const unit = compact(row.unit_number)
   if (street) return unit ? `${street}, ${unit}` : street
 
-  return compact(row.location)
+  return oneLine(row.location)
 }
 
 function canonicalAddress(row: PropertyRow): PropertyAddressDto {
@@ -104,15 +107,7 @@ function canonicalAddress(row: PropertyRow): PropertyAddressDto {
 }
 
 function addressLabel(address: PropertyAddressDto): string {
-  return [
-    address.addressLine1,
-    address.neighborhood,
-    address.city,
-    [address.stateOrProvince, address.postalCode].filter(Boolean).join(' ') || null,
-    address.country,
-  ]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .join(', ') || 'Property'
+  return formatAddressLine(address) || 'Property'
 }
 
 function toProperty(row: PropertyRow): PropertyDto {

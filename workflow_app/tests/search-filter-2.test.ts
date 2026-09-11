@@ -21,7 +21,7 @@ import assert from 'node:assert/strict'
 //   - the URL round trip (filters -> query -> filters) is lossless for
 //     canonical inputs, which the showroom's push-guard depends on.
 
-import type { PropertySummary } from '../../db/properties'
+import type { PropertySummary } from '../../services/property'
 import {
   DEFAULT_SEARCH_FILTERS,
   applySearchFilters,
