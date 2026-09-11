@@ -77,6 +77,7 @@
     "verify:wbs": "node --env-file=.env.local --import tsx scripts/verify-wbs-service.ts",
     "verify:bridge": "node --env-file=.env.local --import tsx scripts/verify-listing-contract-bridge.ts",
     "test:observer": "node --import tsx --test workflow_app/forge/forge-observer/*.test.ts workflow_app/forge/forge-alerts/*.test.ts",
+    "forge:scorecard": "node --env-file=.env.local --import tsx scripts/forge-scorecard.ts",
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --env-file=.env.local scripts/export-dev-projects-workspace.mjs",

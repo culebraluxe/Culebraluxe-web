@@ -51,6 +51,13 @@ import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
 import { scopeViolations, type SmithExecutionContract } from './smith-contract'
+import {
+  createPersistentTraceSink,
+  recordAlert,
+  recordScopeCheck,
+} from './forge-observer'
+import { evaluateAlerts } from './forge-alerts'
+import { recordTraceEvent } from '../../db/workflow-trace'
 import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
 import { deriveWorktreePath } from '../../lib/worker-workspace/provisioner'
 import {
@@ -81,6 +88,22 @@ const LEAD_ROUTING_CAPABILITIES: LeadRoutingCapabilities = {
   splitEnabled: process.env.FORGE_SPLIT_ENABLED !== 'false',
   maxSmiths: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_MAX_SMITHS ?? '2')) || 2),
 }
+
+/**
+ * Forge Observer — PHASE 1: RECORD ONLY.
+ *
+ * Instruments are not authority. This sink never routes, never throws and never
+ * gates a run: it writes the worker-execution layer (tool/file/scope/hold/alert
+ * events) that nothing recorded before, through the EXISTING trace table
+ * (workflow_execution_trace_event) rather than a second store. Alerts are
+ * classified as `hold-recommend` at most — the runner still owns HOLD.
+ *
+ * One sink per process, so alert rules can compare events across attempts
+ * (see RETRY_UNCHANGED_INPUT in forge-alerts/rules.ts).
+ */
+const forgeObserverSink = createPersistentTraceSink({
+  write: (input) => recordTraceEvent(input as never),
+})
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
 import {
@@ -490,6 +513,30 @@ export function createAgentRuntimeForgeRoleRunner(
           candidateSha: evidence.candidateSha,
         })
         const violations = scopeViolations(splitAssignmentContract, changedFiles)
+        // OBSERVER (phase 1): record the scope verdict BEFORE the HOLD below
+        // decides, so a denied candidate leaves a trace even though it throws.
+        // The sink cannot throw, so this can never change the outcome.
+        const observerIdentity = {
+          storyId: resolvedStory.id,
+          processInstanceId: task.processInstanceId,
+          taskId: durableClaim.id,
+          nodeId,
+          attempt: splitAssignmentContract.identity.attempt,
+          worktreePath: cwd,
+          baseCommit: workspaces?.baseRef ?? 'origin/main',
+        }
+        recordScopeCheck(forgeObserverSink, observerIdentity, {
+          sha: evidence.candidateSha,
+          paths: changedFiles,
+          violations,
+        })
+        for (const alert of evaluateAlerts(forgeObserverSink.list(resolvedStory.id))) {
+          recordAlert(forgeObserverSink, observerIdentity, {
+            code: alert.code,
+            severity: alert.severity,
+            reason: alert.reason,
+          })
+        }
         if (violations.length > 0) {
           throw new Error(
             `Forge ${nodeId} HOLD: candidate ${evidence.candidateSha.slice(0, 12)} touched files outside its assignment (${splitAssignmentContract.identity.owner}): ${violations.join(', ')}`,
