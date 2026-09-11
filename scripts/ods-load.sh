@@ -7,13 +7,14 @@
 #                              export -> ODS staging -> l_person -> Person mastery
 #                              -> names -> clients read models      (~1 minute)
 #   imessage                   contacts + iMessage (~90k messages, ~3h)
-#   gmail                      contacts + Gmail metadata (its own pull)
+#   gmail                      Gmail metadata ONLY (its own pull, nothing else)
 #   calls                      contacts + Apple call history (incl. FaceTime)
 #   full | all                 contacts + iMessage + calls + email
 #
 # Each communication source is a SEPARATE pull: run only the one you want.
-# gmail/calls prepend the fast contacts step because their evidence stage needs
-# the contact identities resolved first (same reason imessage does).
+# gmail is standalone — no contacts step, nothing implied. calls and imessage
+# prepend the fast contacts step because their evidence stage needs contact
+# identities resolved first; if you want contacts on its own, run ods:load.
 #
 #   pnpm ods:load            # fast: contacts
 #   pnpm ods:load:imessage   # contacts + iMessage
@@ -70,7 +71,7 @@ STEPS=()
 case "$FLAVOR" in
   contacts) STEPS=("contacts") ;;
   imessage) STEPS=("contacts" "imessage") ;;
-  email)    STEPS=("contacts" "email") ;;
+  email)    STEPS=("email") ;;
   calls)    STEPS=("contacts" "calls") ;;
   full)     STEPS=("contacts" "imessage" "calls" "email") ;;
 esac
