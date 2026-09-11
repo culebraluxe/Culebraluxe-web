@@ -179,7 +179,9 @@ export async function computeForgeScorecard(
         withModel > 0 ? `model identity captured on ${withModel}/${total} runs` : null,
         withWidgets > 0 ? `widget cost captured on ${withWidgets}/${total} runs` : null,
         withTokens === 0 ? 'raw tokens NOT captured (harness result carries no usage field)' : null,
-        withCost === 0 ? 'vendor dollars NOT captured (cost_usd null; cost_widgets is the standardized unit)' : null,
+        withCost === 0
+          ? 'vendor dollars NOT captured — cost_usd is VENDOR-REPORTED only (opencode export); there is NO widgets->dollars rate and none should be inferred'
+          : null,
       ]
         .filter(Boolean)
         .join(' · ') || 'no telemetry captured in this window',
