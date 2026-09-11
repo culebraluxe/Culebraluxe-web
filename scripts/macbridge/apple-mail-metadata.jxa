@@ -37,11 +37,27 @@ function progress(value) {
   write($.NSFileHandle.fileHandleWithStandardError, value + '\n')
 }
 
+// Mail.app scripting fails to enumerate some mailboxes outright - on this Mac
+// penfield33@gmail.com's INBOX and Gmail's virtual "All Mail" both throw before any
+// message is read, while the same account's Sent Mail enumerates fine. That is a
+// Mail.app limitation, not a window/cap artefact, so an unreadable mailbox is
+// SKIPPED and named rather than allowed to abort every other account's pull.
+function openMailbox(mailbox) {
+  try {
+    const messages = mailbox.messages()
+    const total = messages.length
+    if (typeof total !== 'number') return null
+    return { messages, total }
+  } catch (_) {
+    return null
+  }
+}
+
 function run(argv) {
   const targetAddress = normalized(argv[0])
   const outputPath = String(argv[1] || '')
   if (!targetAddress || !outputPath) {
-    throw new Error('Usage: osascript -l JavaScript apple-mail-metadata.jxa <email> <output-jsonl>')
+    throw new Error('Usage: osascript -l JavaScript apple-mail-metadata.jxa <email> <output-jsonl> [since-iso|all] [max-per-mailbox]')
   }
   outputHandle = $.NSFileHandle.fileHandleForWritingAtPath($(outputPath))
   if (!outputHandle) throw new Error('Unable to open Mail metadata output file')
@@ -75,12 +91,46 @@ function run(argv) {
     throw new Error('Mail.app account did not expose a Sent mailbox')
   }
 
+  const sinceArg = normalized(argv[2])
+  let cutoff = null
+  if (sinceArg && sinceArg !== 'all') {
+    const parsedSince = new Date(String(argv[2]))
+    if (isNaN(parsedSince.getTime())) {
+      throw new Error('Invalid since date: ' + String(argv[2]))
+    }
+    cutoff = parsedSince.getTime()
+  }
+  const capArg = Number(argv[3] || 0)
+  const maxPerMailbox = Number.isFinite(capArg) && capArg > 0 ? Math.floor(capArg) : 0
+
+  // Consecutive out-of-window messages that end a mailbox scan. Mail.app lists a
+  // mailbox newest-first, so once this far past the cutoff there is nothing left to
+  // find. The break switches off the moment the mailbox proves NOT to be
+  // date-descending, so an oddly-sorted mailbox is scanned in full rather than
+  // silently truncated.
+  const STALE_LIMIT = 250
+
   let exported = 0
+  let outsideWindow = 0
+  const skippedMailboxes = []
   for (const { kind, mailbox } of selected) {
     const name = safe(() => mailbox.name(), kind)
-    const messages = mailbox.messages()
-    const total = messages.length
+    const opened = openMailbox(mailbox)
+    if (!opened) {
+      progress('WARNING mailbox ' + name + ': unreadable through Mail.app scripting - SKIPPED')
+      skippedMailboxes.push(name)
+      continue
+    }
+    const messages = opened.messages
+    const total = opened.total
     progress('mailbox ' + name + ': ' + total + ' messages')
+    if (cutoff) progress('mailbox ' + name + ': window since ' + new Date(cutoff).toISOString())
+
+    let staleRun = 0
+    let descending = true
+    let previous = null
+    let emittedHere = 0
+    let stoppedEarly = false
 
     for (let index = 0; index < total; index += 1) {
       const message = messages[index]
@@ -88,7 +138,34 @@ function run(argv) {
         const occurred = kind === 'sent'
           ? safe(() => message.dateSent(), null)
           : safe(() => message.dateReceived(), null)
-        const record = {
+        const occurredMs = occurred instanceof Date ? occurred.getTime() : null
+
+        // Newer-than-previous means the mailbox is not date-descending; disable the
+        // early break permanently so we scan everything rather than lose records.
+        if (previous !== null && occurredMs !== null && occurredMs > previous) descending = false
+        if (occurredMs !== null) previous = occurredMs
+
+        // A message with no readable date cannot be windowed, so it is kept.
+        const inWindow = !cutoff || occurredMs === null || occurredMs >= cutoff
+        if (inWindow) {
+          staleRun = 0
+        } else {
+          outsideWindow += 1
+          staleRun += 1
+          if (descending && staleRun >= STALE_LIMIT) {
+            stoppedEarly = true
+            progress('mailbox ' + name + ': stopping early - ' + staleRun + ' consecutive messages older than the window')
+            break
+          }
+        }
+
+        if (inWindow) {
+          if (maxPerMailbox && emittedHere >= maxPerMailbox) {
+            stoppedEarly = true
+            progress('mailbox ' + name + ': stopping early - cap of ' + maxPerMailbox + ' reached')
+            break
+          }
+          const record = {
           mailbox: kind,
           mailboxName: name,
           localId: Number(safe(() => message.id(), index + 1)),
@@ -100,8 +177,10 @@ function run(argv) {
           bcc: recipientsOf(message, 'bccRecipients'),
           subject: safe(() => message.subject(), null),
         }
-        out(JSON.stringify(record) + '\n')
-        exported += 1
+          out(JSON.stringify(record) + '\n')
+          emittedHere += 1
+          exported += 1
+        }
       } catch (error) {
         progress('skipped unreadable Mail.app message ' + (index + 1) + ': ' + String(error))
       }
@@ -111,7 +190,18 @@ function run(argv) {
         progress('export progress ' + name + ': ' + processed + '/' + total + ' messages')
       }
     }
+
+    progress(
+      'mailbox ' + name + ': exported ' + emittedHere +
+      (stoppedEarly ? ' (stopped early, ' + total + ' available)' : ' (scanned ' + total + ')'),
+    )
   }
 
-  progress('Mail.app metadata export complete: ' + exported + ' messages')
+  progress(
+    'Mail.app metadata export complete: ' + exported + ' messages' +
+    (outsideWindow ? ', ' + outsideWindow + ' outside the window' : ''),
+  )
+  if (skippedMailboxes.length) {
+    progress('WARNING skipped unreadable mailboxes: ' + skippedMailboxes.join(', '))
+  }
 }

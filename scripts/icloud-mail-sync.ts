@@ -75,7 +75,7 @@ function senderAddress(value: string | null): LocalMailAddress | null {
   return { address, name }
 }
 
-async function runMailExporter(account: string): Promise<LocalMailRecord[]> {
+async function runMailExporter(account: string, window: MailWindow): Promise<LocalMailRecord[]> {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'culebraluxe-mail-'))
   const outputPath = join(temporaryDirectory, 'messages.jsonl')
   await writeFile(outputPath, '', 'utf8')
@@ -85,7 +85,16 @@ async function runMailExporter(account: string): Promise<LocalMailRecord[]> {
       const exporter = resolve(process.cwd(), 'scripts/macbridge/apple-mail-metadata.jxa')
       const child = spawn(
         '/usr/bin/osascript',
-        ['-l', 'JavaScript', exporter, account, outputPath],
+        [
+          '-l',
+          'JavaScript',
+          exporter,
+          account,
+          outputPath,
+          // Always positional, so a window without a cap cannot shift argv.
+          window.since ?? 'all',
+          window.maxPerMailbox ? String(window.maxPerMailbox) : '0',
+        ],
         { stdio: ['ignore', 'ignore', 'pipe'] },
       )
       child.stderr?.setEncoding('utf8')
@@ -140,11 +149,74 @@ function mailAppAccounts(): string[] {
   return [...new Set(accounts)]
 }
 
+type MailWindow = {
+  since: string | null
+  maxPerMailbox: number | null
+}
+
+const DEFAULT_MAIL_SYNC_SINCE = '24mo'
+
+/**
+ * How far back the current pull reaches.
+ *
+ * A Mail.app pull walks Inbox and Sent in full, and a busy Gmail account is tens of
+ * thousands of messages - `penfield33@gmail.com` alone holds 23,271 in Sent Mail.
+ * The first pass is therefore windowed rather than unbounded; the window is applied
+ * while reading, so out-of-window messages are never fetched over Apple Events.
+ *
+ * MAIL_SYNC_SINCE  a relative window (24mo, 90d, 3w, 2y), an ISO date, or "all".
+ *                  Defaults to 24 months. "all" reads complete history.
+ * MAIL_SYNC_MAX_PER_MAILBOX  hard cap per mailbox per run. Off by default (0/off);
+ *                  set it to bound a pathological mailbox that the window alone
+ *                  does not tame.
+ *
+ * Both are read-only bounds: nothing is deleted, and a later run with a wider window
+ * simply lands the older messages (landing is replay-safe on message identity).
+ */
+function mailSyncWindow(): MailWindow {
+  const raw = (process.env.MAIL_SYNC_SINCE ?? DEFAULT_MAIL_SYNC_SINCE).trim().toLowerCase()
+  let since: string | null = null
+  if (raw && raw !== 'all' && raw !== 'none' && raw !== 'off') {
+    const relative = raw.match(/^(\d+)(d|w|mo|y)$/)
+    if (relative) {
+      const count = Number(relative[1])
+      const unit = relative[2]
+      const days = unit === 'd' ? count : unit === 'w' ? count * 7 : unit === 'mo' ? count * 30 : count * 365
+      if (count <= 0) throw new Error(`MAIL_SYNC_SINCE must be a positive window (got "${raw}").`)
+      since = new Date(Date.now() - days * 86_400_000).toISOString()
+    } else {
+      const parsed = new Date(raw)
+      if (Number.isNaN(parsed.getTime())) {
+        throw new Error(`MAIL_SYNC_SINCE must be an ISO date, a relative window like 24mo/90d/2y, or "all" (got "${raw}").`)
+      }
+      since = parsed.toISOString()
+    }
+  }
+
+  const capRaw = process.env.MAIL_SYNC_MAX_PER_MAILBOX?.trim().toLowerCase()
+  let maxPerMailbox: number | null = null
+  if (capRaw && capRaw !== '0' && capRaw !== 'off') {
+    const cap = Number(capRaw)
+    if (!Number.isInteger(cap) || cap <= 0) {
+      throw new Error(`MAIL_SYNC_MAX_PER_MAILBOX must be a positive integer, or 0/off (got "${capRaw}").`)
+    }
+    maxPerMailbox = cap
+  }
+
+  return { since, maxPerMailbox }
+}
+
 async function acquireMetadata(
   execute: QueryExecutor,
   verifyOnly = false,
 ): Promise<ICloudMailObservation[]> {
   const accounts = mailAppAccounts()
+  const window = mailSyncWindow()
+  console.log(
+    window.since
+      ? `Apple Mail window: since ${window.since}${window.maxPerMailbox ? `, max ${window.maxPerMailbox} per mailbox` : ''}`
+      : 'Apple Mail window: ALL history (MAIL_SYNC_SINCE=all)',
+  )
   const internal = internalAddresses()
   for (const candidate of accounts) {
     if (!internal.has(candidate)) {
@@ -166,7 +238,7 @@ async function acquireMetadata(
 
   for (const account of accounts) {
     console.log(`reading Apple Mail metadata through authenticated Mail.app account=${account}`)
-    const records = await runMailExporter(account)
+    const records = await runMailExporter(account, window)
     exportedTotal += records.length
     if (verifyOnly) {
       console.log(`Apple Mail.app account access verified: ${account}`)
