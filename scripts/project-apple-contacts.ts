@@ -106,7 +106,21 @@ const L_PERSON_UPSERT_SQL = `
     nullif(trim(profile->>'department'), ''),
     nullif(trim(profile->>'jobTitle'), ''),
     (
-      select nullif(trim(profile->'postalAddresses'->0->>'street'), '')
+      -- CONVENTION (captain, 2026-09-10): in Apple Contacts there are only two address
+      -- slots, and "Home" IS the legal address. Apple stores absent parts as empty
+      -- strings, so each component is nullif(trim(...),'')-ed before concat_ws (which
+      -- skips NULLs but NOT empty strings). Selection is LABEL-driven, not positional:
+      -- the old postalAddresses[0].street picked whichever address happened to be first
+      -- and kept only the street line, dropping city/state/ZIP/country.
+      select nullif(trim(concat_ws(', ',
+          nullif(trim(a->>'street'), ''),
+          nullif(trim(a->>'city'), ''),
+          nullif(trim(concat_ws(' ', nullif(trim(a->>'state'), ''), nullif(trim(a->>'postalCode'), ''))), ''),
+          nullif(trim(a->>'country'), '')
+        )), '')
+      from jsonb_array_elements(profile->'postalAddresses') a
+      order by case when a->>'label' = '_$!<Home>!$_' then 0 else 1 end
+      limit 1
     ),
     reconciliation_status, candidate_person_id
   from latest
