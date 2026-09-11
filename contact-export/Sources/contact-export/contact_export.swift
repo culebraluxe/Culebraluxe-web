@@ -113,7 +113,12 @@ struct ContactExport {
                         organization: contact.organizationName,
                         department: contact.departmentName,
                         jobTitle: contact.jobTitle,
-                        note: contact.note,
+                        // NOTE ACCESS IS ENTITLEMENT-GATED on macOS. Requesting
+                        // CNContactNoteKey is not enough: without the notes entitlement the
+                        // property is NOT fetched, and simply reading `.note` throws
+                        // CNPropertyNotFetchedException (an ObjC exception Swift cannot
+                        // catch — it aborts the process). So probe first and degrade to "".
+                        note: contact.isKeyAvailable(CNContactNoteKey) ? contact.note : "",
 
                         emails: contact.emailAddresses.map {
                             LabeledTextValue(
