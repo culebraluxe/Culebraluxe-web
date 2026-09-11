@@ -195,23 +195,34 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
   for (const person of persons) {
     const personIdents = identitiesByPerson.get(person.id) ?? []
 
-    if (isHumanName(person.display_name)) {
-      // Already a real name. Mark provenance only if it is unmarked.
-      if (person.display_name_source === null) resolvedHumanIds.push(person.id)
-      continue
-    }
-
-    // Identity fallback / non-human label (phone, email, or a structured ID) —
-    // try to resolve a trusted human name from Apple Contacts.
+    // APPLE CONTACTS IS THE AUTHORITATIVE SOURCE FOR CLIENT NAMES.
+    //
+    // There is no in-system screen where an operator enters client details — they are
+    // entered in Apple Contacts. So a human name supplied by Contacts must be able to
+    // OVERRIDE an inferred or stale one. Without this the first record to claim an
+    // identity owns its name forever: on 2026-09-10 a person holding a phone number as
+    // "Puerple House" (source_evidence) blocked the human-authored "Juan A. Santa Cruz"
+    // on the SAME number, so the client could not be found by name at all.
+    //
+    // The only name left untouched is one that ALREADY came from Contacts (no churn).
     const keys = personIdents
       .map((it) => identityMatchKey(it.identity_type, it.identity_value))
       .filter((k): k is string => Boolean(k))
     const { contact, ambiguous } = resolveContactForIdentityKeys(keys, contactIndex)
+    const contactHumanName =
+      contact && isHumanName(contact.displayName) ? contact.displayName : null
 
-    if (contact && isHumanName(contact.displayName)) {
+    if (contactHumanName && person.display_name_source !== 'apple_contacts') {
       enrichedIds.push(person.id)
-      enrichedNames.push(contact.displayName as string)
-      enrichedLocs.push(contact.displayAddress ?? '')
+      enrichedNames.push(contactHumanName)
+      enrichedLocs.push(contact?.displayAddress ?? '')
+      continue
+    }
+
+    if (isHumanName(person.display_name)) {
+      // Already a real name and either already sourced from Contacts or Contacts has no
+      // better one. Mark provenance only if it is unmarked.
+      if (person.display_name_source === null) resolvedHumanIds.push(person.id)
       continue
     }
     // No reliable single human name. Multiple distinct names -> ambiguous
