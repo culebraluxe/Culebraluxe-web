@@ -17,6 +17,9 @@ import type {
   ListingFieldOrigin,
 } from './listing-field-binding'
 import { formatAddressLine } from '@/lib/address-format'
+import { getActingUser } from '@/lib/auth/get-acting-user'
+import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
+import { resolveSecurityLevel } from '@/services/security'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { formEntitlements } from './form-service-runtime'
 import { SqlFormInstanceRepository } from '@/db/form-service-repository'
@@ -62,7 +65,7 @@ async function latestListingEvidence(personId: string): Promise<FormEvidence | n
     formService.execute({
       operation: FORM_OPERATIONS.LATEST_EVIDENCE,
       payload: { templateId: 'LISTING-01', personId, roles: ['client', 'seller', 'owner'] },
-      context: serviceContext(),
+      context: await serviceContext(),
     }),
     'listing evidence',
   )
@@ -96,10 +99,30 @@ async function serviceValue<T>(
   return result.value
 }
 
-function serviceContext(actorId: string | null = null) {
-  return {
-    actor: { id: actorId, kind: actorId ? 'user' as const : 'system' as const },
-    correlationId: randomUUID(),
+/**
+ * The acting operator, so the Person/Property write-backs are authorized as that
+ * user. Same shape as lib/forms/form-instance-io.ts: the service kernel
+ * authorizes off `principal`, and a context without one is treated as GUEST.
+ * That is exactly why the Listing form's canonical sync was refused with
+ * "cannot run commands" at save and issue time — the context carried only an
+ * `actor` id, which the kernel does not use to resolve the principal.
+ */
+async function serviceContext() {
+  const correlationId = randomUUID()
+  try {
+    const acting = await getActingUser(getPortalSessionAdapter())
+    return {
+      actor: { id: acting.appUserId, kind: 'user' as const },
+      correlationId,
+      principal: {
+        appUserId: acting.appUserId,
+        level: resolveSecurityLevel(acting.roleCodes),
+        roleCodes: acting.roleCodes,
+      },
+    }
+  } catch {
+    // No session (background/route context): reads still work, commands fail closed.
+    return { actor: { id: null, kind: 'system' as const }, correlationId }
   }
 }
 
@@ -114,7 +137,7 @@ export async function loadListingCanonicalSnapshot(
       personService.execute({
         operation: PERSON_OPERATIONS.GET,
         payload: { personId: cleanPersonId },
-        context: serviceContext(),
+        context: await serviceContext(),
       }),
       'Person lookup failed',
     ),
@@ -122,7 +145,7 @@ export async function loadListingCanonicalSnapshot(
       propertyService.execute({
         operation: PROPERTY_OPERATIONS.FOR_PERSON,
         payload: { personId: cleanPersonId },
-        context: serviceContext(),
+        context: await serviceContext(),
       }),
       'Property context failed',
     ),
@@ -139,7 +162,7 @@ export async function loadListingCanonicalSnapshot(
       propertyService.execute({
         operation: PROPERTY_OPERATIONS.GET,
         payload: { propertyId: evidence.propertyId },
-        context: serviceContext(),
+        context: await serviceContext(),
       }),
       'Listing Property lookup failed',
     )
@@ -199,7 +222,7 @@ export async function saveListingCanonicalFields(
   physicalPropertyId?: string | null,
 ): Promise<ListingCanonicalSnapshot> {
   const before = await loadListingCanonicalSnapshot(personId)
-  const context = () => serviceContext(actorId)
+  const context = () => serviceContext()
   const sourceKey = before.formInstanceId
 
   const sellerName = compact(fields.sellerName)
@@ -208,7 +231,7 @@ export async function saveListingCanonicalFields(
       personService.execute({
         operation: PERSON_OPERATIONS.SET_DISPLAY_NAME,
         payload: { personId: before.personId, displayName: sellerName },
-        context: context(),
+        context: await context(),
       }),
       'Person write-back failed',
     )
@@ -227,7 +250,7 @@ export async function saveListingCanonicalFields(
           sourceType: 'listing_form',
           sourceKey,
         },
-        context: context(),
+        context: await context(),
       }),
       'Legal address write-back failed',
     )
@@ -256,7 +279,7 @@ export async function saveListingCanonicalFields(
           sourceType: 'listing_form',
           sourceKey,
         },
-        context: context(),
+        context: await context(),
       }),
       'Physical Property write-back failed',
     )

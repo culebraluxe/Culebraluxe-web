@@ -12,6 +12,8 @@ import {
 } from '@/lib/forms/form-service-binding'
 import { prefillFieldValues } from '@/lib/forms/offer-letter-data'
 import { getTemplate } from '@/lib/forms/template-registry'
+import { getPortalActingUser } from '@/lib/auth/portal-session'
+import { captureServerError } from '@/lib/server-error-capture'
 import {
   createFormAction as coreCreateFormAction,
   grokFillFormAction as coreGrokFillFormAction,
@@ -26,6 +28,22 @@ export type { FormActionResult, FormSignatureSendData } from './actions-core'
 
 function bindingFail<T>(message: string): FormActionResult<T> {
   return { ok: false, code: 'validation', message }
+}
+
+/**
+ * The service kernel authorizes every write-back against the acting principal.
+ * Called without one, the kernel sees GUEST and refuses the command with
+ * "cannot run commands", which is exactly how the Listing form's canonical sync
+ * used to fail at save and issue time. Resolve the real portal principal and
+ * hand it to the sync so the Person/Property write-backs are authorized.
+ */
+async function serviceActorId(): Promise<string | null> {
+  try {
+    const actor = await getPortalActingUser()
+    return actor.appUserId
+  } catch {
+    return null
+  }
 }
 
 async function directCreateContext(input: {
@@ -119,11 +137,11 @@ export async function createFormAction(input: {
     // Property values hydrate the working editor, and explicit review/issue is
     // the boundary that may synchronize those owned fields.
     if (normalized.templateId !== 'LISTING-01') {
-      await syncFormServiceBinding(result.data.formId)
+      await syncFormServiceBinding(result.data.formId, await serviceActorId())
     }
     return result
   } catch (error) {
-    console.error('Form service binding failed during create.', error)
+    captureServerError('Form service binding failed during create.', error)
     return bindingFail('Could not bind the form to its canonical service context.')
   }
 }
@@ -148,7 +166,7 @@ export async function updateFormAction(
   const result = await coreUpdateFormAction(formId, fieldValues, sections)
   if (!result.ok) return result
   try {
-    const binding = await syncFormServiceBinding(formId)
+    const binding = await syncFormServiceBinding(formId, await serviceActorId())
     return {
       ok: true,
       data: {
@@ -158,7 +176,7 @@ export async function updateFormAction(
       },
     }
   } catch (error) {
-    console.error('Form service binding failed during save.', error)
+    captureServerError('Form service binding failed during save.', error)
     return bindingFail('The form was saved, but its service-side draft could not be synchronized.')
   }
 }
@@ -167,9 +185,9 @@ export async function issueFormAction(
   formId: string,
 ): Promise<FormActionResult<{ documentId: string; issuedVersion: number; checksum: string }>> {
   try {
-    await syncFormServiceBinding(formId)
+    await syncFormServiceBinding(formId, await serviceActorId())
   } catch (error) {
-    console.error('Form service binding failed before issue.', error)
+    captureServerError('Form service binding failed before issue.', error)
     return bindingFail('The form could not be synchronized to its canonical service before issue.')
   }
   return coreIssueFormAction(formId)
@@ -186,12 +204,12 @@ export async function sendFormForSignatureAction(
   input: Parameters<typeof coreSendFormForSignatureAction>[1],
 ): Promise<FormActionResult<FormSignatureSendData>> {
   try {
-    await syncFormServiceBinding(formId, null, {
+    await syncFormServiceBinding(formId, await serviceActorId(), {
       fieldValues: input.fieldValues,
       sections: input.sections,
     })
   } catch (error) {
-    console.error('Form service binding failed before signature send.', error)
+    captureServerError('Form service binding failed before signature send.', error)
     return bindingFail('The form could not be synchronized to its canonical service before sending.')
   }
   return coreSendFormForSignatureAction(formId, input)
