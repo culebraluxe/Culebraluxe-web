@@ -140,7 +140,9 @@ function run(argv) {
   if (!outputHandle) throw new Error('Unable to open Mail metadata output file')
 
   const Mail = Application('Mail')
-  const accounts = Mail.accounts()
+  // A slow or wedged Mail.app must not abort the whole pull: enumerating accounts
+  // can itself time out (-1712) before any mailbox is opened.
+  const accounts = safe(() => Mail.accounts(), [])
   const account = accounts.find((candidate) =>
     safe(() => candidate.emailAddresses(), []).map(normalized).includes(targetAddress),
   )
@@ -154,7 +156,7 @@ function run(argv) {
 
   const requestedKind = normalized(argv[4]) || 'all'
   const all = []
-  for (const mailbox of account.mailboxes()) {
+  for (const mailbox of safe(() => account.mailboxes(), [])) {
     const name = normalized(safe(() => mailbox.name(), ''))
     if (name === 'inbox') all.push({ kind: 'inbox', mailbox })
     if (['sent', 'sent messages', 'sent mail'].includes(name)) {

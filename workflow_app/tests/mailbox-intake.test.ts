@@ -11,11 +11,11 @@ import {
   type AppleLocalMailRecord,
   type AppleMailTransport,
 } from '../../lib/intake/mailbox-paging'
-import { landAppleRecord, parseRecords, runAppleVerify } from '../../scripts/apple-mailbox-intake'
+import { landMailRecord, parseRecords, runMailboxVerify } from '../../scripts/apple-mailbox-intake'
 
 // ---------------------------------------------------------------------------
-// APPLE MAILBOX INTAKE — bounded extraction of the PROVEN exporter.
-// The exporter never returns unbounded mailbox history: one bounded page is
+// MAILBOX INTAKE — bounded read of the LOCAL BOX (the proven Mail.app bridge).
+// The reader never returns unbounded mailbox history: one bounded page is
 // fetched, fully landed, checkpointed, and only then is the next page requested.
 // No database, no Mail.app: the transport and the checkpoint store are faked.
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ function captureExecutor(): { calls: Array<{ sql: string; values: unknown[] }>; 
 
 // --- 14. the exporter request is bounded ------------------------------------
 
-test('applemail: a page is bounded, and an over-sized page is a contract violation', async () => {
+test('mailbox: a page is bounded, and an over-sized page is a contract violation', async () => {
   assert.equal(APPLE_PAGE_SIZE, 500)
   const store = checkpointStore()
   const transport: AppleMailTransport = {
@@ -94,7 +94,7 @@ test('applemail: a page is bounded, and an over-sized page is a contract violati
 
 // --- 15. one page lands before the next page is requested -------------------
 
-test('applemail: one page lands before the next page is requested', async () => {
+test('mailbox: one page lands before the next page is requested', async () => {
   const events: string[] = []
   const store = checkpointStore()
   let call = 0
@@ -136,7 +136,7 @@ test('applemail: one page lands before the next page is requested', async () => 
 
 // --- 16. the checkpoint advances only after a completed landing -------------
 
-test('applemail: the checkpoint advances only after the page has landed', async () => {
+test('mailbox: the checkpoint advances only after the page has landed', async () => {
   const events: string[] = []
   const store = checkpointStore()
   const transport: AppleMailTransport = {
@@ -169,7 +169,7 @@ test('applemail: the checkpoint advances only after the page has landed', async 
 
 // --- 17. a crash before the checkpoint safely replays the page ---------------
 
-test('applemail: a crash before the checkpoint replays the same page safely', async () => {
+test('mailbox: a crash before the checkpoint replays the same page safely', async () => {
   const store = checkpointStore()
   const requests: Array<string | null> = []
   const transport: AppleMailTransport = {
@@ -195,24 +195,24 @@ test('applemail: a crash before the checkpoint replays the same page safely', as
 
 // --- 18, 19, 20. the replay identity: Message-ID, real local id, never index --
 
-test('applemail: a real Message-ID is preferred as the replay identity', async () => {
+test('mailbox: a real Message-ID is preferred as the replay identity', async () => {
   const { calls, execute } = captureExecutor()
-  const inserted = await landAppleRecord(record({ messageId: '<abc@x>', localId: 99 }), ACCOUNT, execute)
+  const inserted = await landMailRecord(record({ messageId: '<abc@x>', localId: 99 }), ACCOUNT, execute)
   assert.equal(inserted, true)
   assert.ok(calls[0].values.includes('message-id:<abc@x>'))
 })
 
-test('applemail: a real stable local id is accepted when there is no Message-ID', async () => {
+test('mailbox: a real stable local id is accepted when there is no Message-ID', async () => {
   const { calls, execute } = captureExecutor()
-  await landAppleRecord(record({ messageId: null, localId: 4242 }), ACCOUNT, execute)
+  await landMailRecord(record({ messageId: null, localId: 4242 }), ACCOUNT, execute)
   assert.ok(calls[0].values.includes('mail-local:inbox:4242'))
 })
 
-test('applemail: an array position is never used as a message identity', async () => {
+test('mailbox: an array position is never used as a message identity', async () => {
   const { execute } = captureExecutor()
   await assert.rejects(
-    landAppleRecord(record({ messageId: null, localId: null }), ACCOUNT, execute),
-    /unlandable Apple record/,
+    landMailRecord(record({ messageId: null, localId: null }), ACCOUNT, execute),
+    /unlandable record/,
   )
   // The cursor is never fabricated from a position either.
   assert.equal(parseAppleCursor(null), null)
@@ -224,7 +224,7 @@ test('applemail: an array position is never used as a message identity', async (
 
 // --- 21. verify mode performs zero writes -----------------------------------
 
-test('applemail: verify requests one bounded page and performs zero writes', async () => {
+test('mailbox: verify requests one bounded page and performs zero writes', async () => {
   let fetches = 0
   const transport: AppleMailTransport = {
     async fetchPage(kind) {
@@ -232,7 +232,7 @@ test('applemail: verify requests one bounded page and performs zero writes', asy
       return { records: [record({ mailbox: kind }), record({ mailbox: kind, localId: 2 })], nextCursor: null, complete: true }
     },
   }
-  const result = await runAppleVerify(transport, 'inbox')
+  const result = await runMailboxVerify(transport, ACCOUNT, 'inbox')
   assert.equal(fetches, 1, 'verify requests exactly one page')
   assert.equal(result.received, 2)
   assert.equal(result.complete, true)
@@ -241,7 +241,7 @@ test('applemail: verify requests one bounded page and performs zero writes', asy
 
 // --- exporter output parsing + null-safe local id ---------------------------
 
-test('applemail: the exporter JSONL is parsed, and a missing local id survives as null', () => {
+test('mailbox: the reader JSONL is parsed, and a missing local id survives as null', () => {
   const jsonl = [
     JSON.stringify(record({ localId: 1 })),
     '',
