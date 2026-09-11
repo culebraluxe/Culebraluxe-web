@@ -55,8 +55,10 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
   // Land every call into its OWN table (l_call) before anything else happens.
   // Replay-safe on (source_account, uniqueId), so re-running the master load
   // lands nothing new. Video is FaceTime.
+  let landed = 0
+  let replayed = 0
   for (const call of calls) {
-    await landCall(
+    const inserted = await landCall(
       {
         sourceAccount,
         sourceMessageId: call.uniqueId,
@@ -70,7 +72,12 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
       },
       execute,
     )
+    if (inserted) landed += 1
+    else replayed += 1
   }
+  console.log(
+    `l_call: ${landed} landed, ${replayed} replayed (of ${calls.length} exported)`,
+  )
 
   const evidenceBuilds = buildAppleCallRelationshipEvidence(calls, sourceAccount)
   const { lookup } = await createInMemoryPersonLookup(execute)
