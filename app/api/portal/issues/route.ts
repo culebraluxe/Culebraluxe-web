@@ -5,6 +5,7 @@ import type {
   IssueResponsibility,
   IssueState,
 } from "@/lib/issue-types"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // ISSUE QUEUE — bounded server-side paging for the OPPS issue dashboard.
@@ -25,7 +26,7 @@ function intParam(value: string | null, fallback: number, min: number, max: numb
   return Math.max(min, Math.min(max, parsed))
 }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   const params = req.nextUrl.searchParams
   const scope = VALID_SCOPES.includes(params.get("scope") as IssueResponsibility)
     ? (params.get("scope") as IssueResponsibility)
@@ -44,3 +45,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ rows: [], total: 0, page, pageSize, scope, state })
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/issues', route: '/api/portal/issues' },
+  GETHandler,
+)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getRuntimeInspection } from "@/workflow_app/runtime-inspector-read"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // WORKFLOW RUNTIME INSPECTOR — overlay Flight Recorder trace evidence on the
 // design-time topology for one workflow instance.
@@ -9,7 +10,7 @@ import { getRuntimeInspection } from "@/workflow_app/runtime-inspector-read"
 //               visual replay only, never re-execution)
 export const dynamic = "force-dynamic"
 
-export async function GET(
+async function GETHandler(
   req: NextRequest,
   { params }: { params: Promise<{ instanceId: string }> },
 ) {
@@ -30,3 +31,9 @@ export async function GET(
     )
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/runtime-inspector/[instanceId]', route: '/api/portal/runtime-inspector/[instanceId]' },
+  GETHandler,
+)

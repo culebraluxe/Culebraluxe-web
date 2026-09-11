@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 import { createCommandDispatcher } from '@/lib/commands'
 import { runAgreementExecutionRecovery } from '@/lib/agreements/recovery'
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // CRM-27 (BLOCKER 3) — durable agreement-execution recovery scheduler hook.
@@ -25,7 +26,7 @@ export const dynamic = 'force-dynamic'
 
 const RECOVERY_KEY_HEADER = 'x-recovery-key'
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const expected = process.env.AGREEMENT_EXECUTION_RECOVERY_KEY
   if (!expected) {
     return NextResponse.json(
@@ -48,3 +49,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const POST = withApiHandler(
+  { label: '/api/system/agreement-execution-recovery', route: '/api/system/agreement-execution-recovery' },
+  POSTHandler,
+)

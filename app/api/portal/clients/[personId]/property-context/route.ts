@@ -11,6 +11,7 @@ import {
   StaticAuthorizationPolicyProvider,
 } from '@/services/entitlement'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // Sidecar composition root for the new service architecture. The route owns
 // transport only; PropertyService owns the operation contract and repository
@@ -21,7 +22,7 @@ const propertyService = new PropertyService(new SqlPropertyRepository(), {
   errors: appServiceErrorSink(),
 })
 
-export async function GET(
+async function GETHandler(
   _request: NextRequest,
   { params }: { params: Promise<{ personId: string }> },
 ) {
@@ -45,3 +46,9 @@ export async function GET(
 
   return NextResponse.json(result.value)
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/clients/[personId]/property-context', route: '/api/portal/clients/[personId]/property-context' },
+  GETHandler,
+)

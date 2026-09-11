@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getFlightRecorderTransaction } from "@/workflow_app/flight-recorder-read"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // FLIGHT RECORDER — the canonical transaction read model backing the Grok view.
 // Loads the business transaction, its workflow instance(s), their exact persisted
@@ -8,7 +9,7 @@ import { getFlightRecorderTransaction } from "@/workflow_app/flight-recorder-rea
 // remains a separate engineering surface.
 export const dynamic = "force-dynamic"
 
-export async function GET(
+async function GETHandler(
   _req: NextRequest,
   { params }: { params: Promise<{ instanceId: string }> },
 ) {
@@ -27,3 +28,9 @@ export async function GET(
     )
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/flight-recorder/[instanceId]', route: '/api/portal/flight-recorder/[instanceId]' },
+  GETHandler,
+)

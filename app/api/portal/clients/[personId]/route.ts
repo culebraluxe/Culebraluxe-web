@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getClientById } from "@/db/clients"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // CLIENTS — full canonical Client detail for one person (working-pane read).
@@ -8,7 +9,7 @@ import { getClientById } from "@/db/clients"
 // so the detail pane never requires loading every Person.
 // ---------------------------------------------------------------------------
 
-export async function GET(
+async function GETHandler(
   _req: NextRequest,
   { params }: { params: Promise<{ personId: string }> },
 ) {
@@ -20,3 +21,9 @@ export async function GET(
     return NextResponse.json({ client: null })
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/clients/[personId]', route: '/api/portal/clients/[personId]' },
+  GETHandler,
+)

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getClientsPage } from "@/db/clients"
 import { getClientAdminPage } from "@/db/client-admin"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // CLIENTS — server-side pagination over the canonical `person` parent.
@@ -23,7 +24,7 @@ function intParam(value: string | null, fallback: number, min: number, max: numb
   return Math.max(min, Math.min(max, parsed))
 }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   const params = req.nextUrl.searchParams
   const view = params.get("view") ?? "directory"
   const search = params.get("search") ?? ""
@@ -60,3 +61,9 @@ export async function GET(req: NextRequest) {
     )
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/clients', route: '/api/portal/clients' },
+  GETHandler,
+)

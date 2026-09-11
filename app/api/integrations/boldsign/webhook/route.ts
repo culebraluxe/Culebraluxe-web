@@ -14,6 +14,7 @@ import {
 } from '@/lib/signature/boldsign/config'
 import { SignatureReconciliationHandler } from '@/lib/signature/reconciliation'
 import { evaluateAgreementViaCommand } from '@/lib/agreements/re-drive'
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // DOC-04/05 — BoldSign webhook production endpoint.
@@ -87,7 +88,7 @@ function getApplication(): SignatureApplication {
   return application
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   // FIRST operation — BoldSign Verify handshake. Check the `x-boldsign-event`
   // header BEFORE any body parsing, signature validation, config loading, DB
   // access, or application construction. The handshake is unsigned and must
@@ -190,3 +191,9 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const POST = withApiHandler(
+  { label: '/api/integrations/boldsign/webhook', route: '/api/integrations/boldsign/webhook' },
+  POSTHandler,
+)

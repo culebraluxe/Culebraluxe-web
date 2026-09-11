@@ -11,6 +11,7 @@ import {
   verifyMetaWhatsAppHandshake,
   verifyMetaWhatsAppSignature,
 } from '@/lib/whatsapp-cloud/verify'
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,7 +30,7 @@ function isFixturePayload(payload: MetaWhatsAppWebhookPayload): boolean {
   ) ?? false
 }
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   let expectedToken: string
   try {
     expectedToken = loadWhatsAppVerifyToken()
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
       })
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const rawBody = await request.text()
 
   let config: ReturnType<typeof loadMetaWhatsAppConfiguration>
@@ -153,3 +154,14 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/integrations/whatsapp/webhook', route: '/api/integrations/whatsapp/webhook' },
+  GETHandler,
+)
+
+export const POST = withApiHandler(
+  { label: '/api/integrations/whatsapp/webhook', route: '/api/integrations/whatsapp/webhook' },
+  POSTHandler,
+)

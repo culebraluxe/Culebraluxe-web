@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { dbTargetInfo } from "@/db/database-gateway"
 import { sql } from "@/db/client"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // Safe, credential-free DB-target diagnostic. Reports the resolved database
 // TARGET (prod/dev), the Vercel/APP env signals, the Neon host token (never the
@@ -9,7 +10,7 @@ import { sql } from "@/db/client"
 // the live mv_client_directory and active-person counts on that target.
 export const dynamic = "force-dynamic"
 
-export async function GET() {
+async function GETHandler() {
   const info = dbTargetInfo()
   let directoryCount: number | null = null
   let personCount: number | null = null
@@ -27,3 +28,9 @@ export async function GET() {
     read: { directoryCount, personCount, error },
   })
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/db-diag', route: '/api/portal/db-diag' },
+  GETHandler,
+)

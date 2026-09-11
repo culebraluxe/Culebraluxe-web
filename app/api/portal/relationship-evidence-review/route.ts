@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getRelationshipEvidenceReview } from "@/db/relationship-evidence"
 import type { ReviewState } from "@/lib/relationship-intel/contracts"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — OPPS relationship-evidence review (occasional data stewardship).
@@ -20,7 +21,7 @@ const VALID_REVIEW_STATES: ReviewState[] = [
   "deferred",
 ]
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   const params = req.nextUrl.searchParams
   const rawState = params.get("reviewState")
   const reviewState: ReviewState | "all" =
@@ -39,3 +40,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ rows: [], total: 0 })
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/relationship-evidence-review', route: '/api/portal/relationship-evidence-review' },
+  GETHandler,
+)

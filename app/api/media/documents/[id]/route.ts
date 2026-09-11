@@ -1,4 +1,5 @@
 import { sql } from '@/db/client'
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -13,7 +14,7 @@ function contentDisposition(filename: string, download: boolean) {
   return `${disposition}; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
 }
 
-export async function GET(
+async function GETHandler(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -73,3 +74,9 @@ export async function GET(
     headers,
   })
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/media/documents/[id]', route: '/api/media/documents/[id]' },
+  GETHandler,
+)

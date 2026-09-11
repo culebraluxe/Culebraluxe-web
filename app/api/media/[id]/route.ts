@@ -1,5 +1,6 @@
 import { sql } from "@/db/client"
 import { getToken } from "next-auth/jwt"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // HARDEN-05 + AUTH-BOUNDARY — Public media inherits Property publication state.
@@ -18,7 +19,7 @@ import { getToken } from "next-auth/jwt"
 // absent (or decoding fails) we fail closed to the publication gate.
 // ---------------------------------------------------------------------------
 
-export async function GET(
+async function GETHandler(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -92,3 +93,9 @@ export async function GET(
     },
   })
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/media/[id]', route: '/api/media/[id]' },
+  GETHandler,
+)

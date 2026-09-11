@@ -12,6 +12,7 @@ import { REL_INTEL_RULE_VERSION } from "@/lib/relationship-intel/reconcile"
 import type { ReviewState } from "@/lib/relationship-intel/contracts"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — OPPS relationship-evidence stewardship actions.
@@ -31,7 +32,7 @@ const VALID_REVIEW_STATES = [
   "rejected", "non_person", "deferred",
 ]
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "crm.write")
   if (!access.ok) {
     return NextResponse.json({ ok: false, code: "unauthorized", message: "Unauthorized" }, { status: 401 })
@@ -147,3 +148,8 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const POST = withApiHandler(
+  { label: '/api/portal/relationship-evidence-review/actions', route: '/api/portal/relationship-evidence-review/actions' },
+  POSTHandler,
+)

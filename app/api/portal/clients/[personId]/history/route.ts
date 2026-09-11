@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getClientContactHistory } from "@/db/contact-history"
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
 // CLIENTS — contact history for a selected canonical Person.
 // Server-side paginated (SQL ORDER BY occurred_at DESC + LIMIT/OFFSET), ~20/page.
 // ---------------------------------------------------------------------------
 
-export async function GET(
+async function GETHandler(
   req: NextRequest,
   { params }: { params: Promise<{ personId: string }> },
 ) {
@@ -24,3 +25,9 @@ export async function GET(
     return NextResponse.json({ rows: [], total: 0, page, pageSize, recent })
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const GET = withApiHandler(
+  { label: '/api/portal/clients/[personId]/history', route: '/api/portal/clients/[personId]/history' },
+  GETHandler,
+)

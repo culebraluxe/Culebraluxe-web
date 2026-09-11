@@ -6,10 +6,11 @@ import {
   MAX_MEDIA_UPLOAD_BYTES,
   sanitizeUploadFilename,
 } from '@/lib/media/upload-policy'
+import { withApiHandler } from '@/lib/error-capture-seam'
 
 export const runtime = 'nodejs'
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     // AUTH-03: authenticated Portal write — resolve the acting user and require
     // listing.write BEFORE any multipart/work. Denied callers get 401/403 and
@@ -141,3 +142,9 @@ export async function POST(request: Request) {
     )
   }
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably and returns a 500.
+export const POST = withApiHandler(
+  { label: '/api/property-media/upload', route: '/api/property-media/upload' },
+  POSTHandler,
+)
