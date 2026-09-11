@@ -170,6 +170,16 @@ export async function loadListingCanonicalSnapshot(
   }
 
   const form = evidence?.fields ?? {}
+
+  // "Known as" on the Listing agreement. Captain's rule (2026-09-11): Juan is the
+  // true person and the true property IS the address — so a real property name
+  // wins, then the property's own address, then the person's name. Company is
+  // deliberately NOT used here: the LLC is the owner entity, not the property.
+  const propertyKnownAs =
+    compact(physical?.property.localName) ||
+    (physical ? formatAddress(physical.property.address) : '') ||
+    person.displayName
+
   const resolved: Record<ListingCanonicalFieldName, { value: string; origin: ListingFieldOrigin }> = {
     sellerName: choose(person.displayName, 'person', form.sellerName),
     sellerResidenceAddress: choose(
@@ -177,16 +187,7 @@ export async function loadListingCanonicalSnapshot(
       'property',
       form.sellerResidenceAddress,
     ),
-    // "Known as" on the Listing agreement. The property's own name wins; when
-    // the record has none — an Apple address, or an entity-owned property —
-    // the owner's Company is how the property is known, and failing that the
-    // person's name. This is what makes an LLC listing fill itself without
-    // anyone typing the entity into the form by hand.
-    property: choose(
-      physical?.property.localName ?? person.company ?? person.displayName,
-      physical?.property.localName || person.company ? 'property' : 'person',
-      form.property,
-    ),
+    property: choose(propertyKnownAs, physical ? 'property' : 'person', form.property),
     propertyLocation: choose(
       physical ? formatAddress(physical.property.address) : null,
       'property',
