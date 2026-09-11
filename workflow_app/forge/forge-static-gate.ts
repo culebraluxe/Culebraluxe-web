@@ -19,6 +19,9 @@ export type StaticGateResult = {
   archErrors: string[]
   semgrepRan: boolean
   semgrepFindings: string[]
+  /** Hygiene instrument (V5-27). Informational: never recalls Smith. */
+  knipRan: boolean
+  knipFindings: string[]
   /** True when architecture (the hard gate) is clean. */
   ok: boolean
 }
@@ -87,9 +90,58 @@ function runSemgrep(input: { workspace: string; roots: string[]; configDir: stri
   return { ran: true, findings }
 }
 
+function runKnip(input: { workspace: string; knipBin?: string; timeoutMs: number }): {
+  ran: boolean
+  findings: string[]
+} {
+  // knip needs the installed tool and a manifest, exactly like depcruise.
+  const hasManifest = existsSync(join(input.workspace, 'package.json'))
+  const hasKnipBin =
+    Boolean(input.knipBin) || existsSync(join(input.workspace, 'node_modules', '.bin', 'knip'))
+  if (!hasManifest || !hasKnipBin) return { ran: false, findings: [] }
+
+  const bin = input.knipBin ?? 'pnpm'
+  const args = input.knipBin
+    ? ['--reporter', 'json']
+    : ['exec', 'knip', '--reporter', 'json']
+  const r = spawn(bin, args, input.workspace, input.timeoutMs)
+  const findings: string[] = []
+  if (r.status === 0) return { ran: true, findings }
+
+  // Parse structured output so the artifact carries file/symbol/type, not a blob.
+  try {
+    const json = JSON.parse(r.stdout) as {
+      files?: Array<string | { file?: string; name?: string }>
+      issues?: Array<{
+        file?: string
+        symbol?: string
+        type?: string
+        name?: string
+      }>
+    }
+    for (const issue of (json.issues ?? []).slice(0, 100)) {
+      const type = issue.type ?? 'issue'
+      const file = issue.file ?? '?'
+      const symbol = issue.symbol ?? issue.name ?? ''
+      findings.push(`${type} ${file}${symbol ? `:${symbol}` : ''}`)
+    }
+    for (const file of (json.files ?? []).slice(0, 100)) {
+      const path = typeof file === 'string' ? file : (file?.file ?? file?.name ?? '?')
+      findings.push(`unused-file ${path}`)
+    }
+    if (findings.length === 0) {
+      findings.push(`knip exited ${r.status} but returned no structured results`)
+    }
+  } catch {
+    findings.push(r.out.slice(0, 400))
+  }
+  return { ran: true, findings }
+}
+
 /**
  * Run the deterministic static gate against a workspace. Architecture is the
- * hard gate (ok=false on error-severity findings); semgrep reports informationally.
+ * hard gate (ok=false on error-severity findings); semgrep and knip report
+ * informationally — hygiene must never recall Smith.
  */
 export function runStaticGate(input: {
   workspace: string
@@ -100,6 +152,8 @@ export function runStaticGate(input: {
   depcruiseBin?: string
   /** Explicit semgrep binary path. */
   semgrepBin?: string
+  /** Explicit knip binary (e.g. primary checkout node_modules/.bin/knip). */
+  knipBin?: string
   timeoutMs?: number
 }): StaticGateResult {
   const workspace = input.workspace
@@ -129,6 +183,7 @@ export function runStaticGate(input: {
         })
       : { ok: true, errors: [] }
   const sec = runSemgrep({ workspace, roots, configDir: '.semgrep', semgrepBin: input.semgrepBin, timeoutMs })
+  const hygiene = runKnip({ workspace, knipBin: input.knipBin, timeoutMs })
 
   return {
     workspace,
@@ -137,6 +192,8 @@ export function runStaticGate(input: {
     archErrors: arch.errors,
     semgrepRan: sec.ran,
     semgrepFindings: sec.findings,
+    knipRan: hygiene.ran,
+    knipFindings: hygiene.findings,
     ok: arch.ok,
   }
 }

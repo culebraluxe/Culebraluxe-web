@@ -36,11 +36,15 @@ test('V5-23..27: every declared tool carries an honest wiring status', () => {
     assert.equal(typeof declaration.wired, 'boolean', id)
     assert.ok(declaration.skillDoc.startsWith('docs/agent/skills/'), id)
   }
-  // The five tool stories are NOT wired yet. If this ever flips, the story that
-  // did it must flip it deliberately.
-  for (const id of ['serena', 'rtk', 'cruiser', 'semgrep', 'knip'] as ForgeToolId[]) {
-    assert.equal(FORGE_TOOL_CATALOG[id].wired, false, `${id} claimed wired without a seam`)
-  }
+  // Corrected 2026-09-11: the deterministic instruments ARE wired — the Assay
+  // adapter runs them via runStaticGate. This assertion previously claimed all
+  // five were unwired, which was false, and it was load-bearing for a lie.
+  assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, true)
+  assert.equal(FORGE_TOOL_CATALOG.semgrep.wired, true)
+  assert.equal(FORGE_TOOL_CATALOG.knip.wired, true)
+  // These two genuinely are not wired yet.
+  assert.equal(FORGE_TOOL_CATALOG.serena.wired, false)
+  assert.equal(FORGE_TOOL_CATALOG.rtk.wired, false)
 })
 
 test('V5-23..27: an unwired tool never becomes a grant, and its degradation is explicit', () => {
@@ -151,8 +155,17 @@ test('V5-25/V5-26: when an instrument is unavailable the omission is recorded, n
   const resolution = resolveForgeToolPermissions('assay', { available: ['cruiser'] })
   assert.ok(resolution.instruments.includes('cruiser'))
   const semgrep = resolution.degradations.find((d) => d.tool === 'semgrep')
-  assert.equal(semgrep?.reason, 'not-wired')
+  // Wired, but not available in this environment — a different reason than
+  // 'not-wired', and both are stated rather than silently skipped.
+  assert.equal(semgrep?.reason, 'unavailable')
   assert.match(semgrep!.fallback, /skipped and that omission is recorded/)
+})
+
+test('V5-25/V5-26: the instruments are granted by default now that they are wired', () => {
+  const resolution = resolveForgeToolPermissions('assay')
+  assert.ok(resolution.instruments.includes('cruiser'))
+  assert.ok(resolution.instruments.includes('semgrep'))
+  assert.equal(resolution.degradations.some((d) => d.tool === 'cruiser'), false)
 })
 
 // --- V5-27 knip --------------------------------------------------------------

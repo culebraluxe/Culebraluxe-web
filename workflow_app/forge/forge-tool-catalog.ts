@@ -97,8 +97,11 @@ export type ForgeToolDeclaration = {
 //   V5-25 cruiser — Assay/QA deterministic instrument, never model-facing.
 //   V5-26 semgrep — Assay/QA deterministic instrument, never model-facing.
 //   V5-27 knip    — maintenance/hygiene.
-// None is wired to an execution seam yet, so `wired: false` everywhere. That is
-// the honest status and the reason this module exists.
+// Wiring status corrected 2026-09-11: cruiser, semgrep and knip ARE wired —
+// workflow_app/forge/forge-static-gate.ts runs them from the Assay adapter on the
+// exact candidate. This catalog previously claimed wired:false for all five,
+// which was simply wrong; the README said "not yet wired" and I took it at face
+// value instead of reading the assay code. serena and rtk remain unwired.
 // ---------------------------------------------------------------------------
 
 export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclaration>> = {
@@ -141,7 +144,7 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'architecture boundaries and cycles as a hard gate',
     skillDoc: 'docs/agent/skills/cruiser.md',
-    wired: false,
+    wired: true,
     roles: ['assay', 'inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — the gate is skipped and that omission is recorded',
@@ -151,7 +154,7 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'static and dataflow security checks on the exact candidate',
     skillDoc: 'docs/agent/skills/semgrep.md',
-    wired: false,
+    wired: true,
     roles: ['assay', 'inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — the gate is skipped and that omission is recorded',
@@ -161,7 +164,9 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'unused files, exports and dependencies (hygiene)',
     skillDoc: 'docs/agent/skills/knip.md',
-    wired: false,
+    // Wired into the static gate 2026-09-11 (runKnip). Findings are informational
+    // and are not yet persisted as a durable artifact — see V5-27 acceptance.
+    wired: true,
     roles: ['inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — reported as not run',

@@ -40,9 +40,20 @@ grant.
 | `ripwire` | model-facing | Scout · Architect · Lead PRE · Smith · Inspector | — | yes |
 | `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | **no** |
 | `rtk` | transparent shim | Architect · Lead · Smith | — | **no** |
-| `cruiser` | deterministic | Assay · Inspector | — | **no** |
-| `semgrep` | deterministic | Assay · Inspector | — | **no** |
-| `knip` | deterministic | Inspector | — | **no** |
+| `cruiser` | deterministic | Assay · Inspector | — | yes |
+| `semgrep` | deterministic | Assay · Inspector | — | yes (informational) |
+| `knip` | deterministic | Inspector | — | yes (informational) |
+
+`cruiser`, `semgrep` and `knip` run from the Assay adapter via
+`runStaticGate` (`workflow_app/forge/forge-static-gate.ts`) against the exact
+candidate. Architecture (`cruiser`) is the **hard gate**; `semgrep` and `knip`
+are informational and must never recall Smith.
+
+**Corrected 2026-09-11:** this table previously said "not yet wired" for all five
+and the catalog asserted `wired: false` for all five. That was wrong — the
+deterministic trio was already wired in the assay adapter, and the status had been
+taken from this doc instead of from the code. `serena` and `rtk` remain genuinely
+unwired.
 
 Two rules the table enforces mechanically:
 
