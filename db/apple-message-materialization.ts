@@ -12,6 +12,7 @@ import {
 } from '../lib/relationship-intel/apple-message-materializer'
 import { getRelationshipEvidenceRows } from './relationship-evidence'
 import { createInteraction } from './interactions'
+import { landImessage } from './landing'
 import { refreshClientReadModels } from './client-read-models'
 
 // ---------------------------------------------------------------------------
@@ -141,6 +142,23 @@ export async function materializeAppleMessages(
           m,
           resolved.canonicalPersonId,
           exportData.sourceAccount,
+        )
+        // ODS landing FIRST (captain's model: landing -> promote -> warehouse).
+        // The source record lands in l_imessage before anything is promoted, so a
+        // full load is re-derivable and replay-safe on (source_account, guid).
+        await landImessage(
+          {
+            sourceAccount: exportData.sourceAccount,
+            sourceMessageId: m.guid,
+            conversationId: m.chatGuid,
+            handle: m.handleValue,
+            direction: m.isFromMe ? 'outgoing' : 'incoming',
+            service: m.service,
+            sentAt: m.dateISO,
+            text: m.text,
+            raw: m,
+          },
+          execute,
         )
         const { created } = await createInteraction(input, execute)
         if (created) result.inserted += 1
