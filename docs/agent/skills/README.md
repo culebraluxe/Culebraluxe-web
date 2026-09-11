@@ -35,25 +35,40 @@ Role → tool authority is declared in
 transition and holds no session state, so a resumed session cannot carry a stale
 grant.
 
-| tool | class | positions | may mutate | wired |
+| tool | class | positions | may mutate | can run |
 | --- | --- | --- | --- | --- |
 | `ripwire` | model-facing | Scout · Architect · Lead PRE · Smith · Inspector | — | yes |
-| `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | **no** |
-| `rtk` | transparent shim | Architect · Lead · Smith | — | **no** |
-| `cruiser` | deterministic | Assay · Inspector | — | yes |
+| `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | **no** (no seam) |
+| `rtk` | transparent shim | Architect · Lead · Smith | — | **no** (no seam) |
+| `cruiser` | deterministic | Assay · Inspector | — | **no** (tool not installed) |
 | `semgrep` | deterministic | Assay · Inspector | — | yes (informational) |
-| `knip` | deterministic | Inspector | — | yes (informational) |
+| `knip` | deterministic | Inspector | — | **no** (tool not installed) |
 
-`cruiser`, `semgrep` and `knip` run from the Assay adapter via
-`runStaticGate` (`workflow_app/forge/forge-static-gate.ts`) against the exact
-candidate. Architecture (`cruiser`) is the **hard gate**; `semgrep` and `knip`
-are informational and must never recall Smith.
+`can run` is the honest column: it requires **both** the execution seam and the
+tool itself. `runStaticGate`
+(`workflow_app/forge/forge-static-gate.ts`) is the seam for the deterministic
+trio; it runs from the Assay adapter against the exact candidate. Architecture
+(`cruiser`) is the **hard gate**; `semgrep` and `knip` are informational and must
+never recall Smith.
 
-**Corrected 2026-09-11:** this table previously said "not yet wired" for all five
-and the catalog asserted `wired: false` for all five. That was wrong — the
-deterministic trio was already wired in the assay adapter, and the status had been
-taken from this doc instead of from the code. `serena` and `rtk` remain genuinely
-unwired.
+Interrogate or run them yourself:
+
+```sh
+pnpm forge:tools                 # wiring status for every tool
+pnpm forge:tools --role smith    # what is in force for one position
+pnpm forge:tools --run           # run the deterministic instruments here
+```
+
+**Corrected twice on 2026-09-11** — worth recording because both mistakes were
+the same mistake:
+
+1. This table said "not yet wired" for all five, and the catalog asserted
+   `wired: false` for all five. The status came from this doc instead of the code.
+2. Reading the code then showed a real seam for cruiser/semgrep/knip, so all three
+   were marked wired — but **neither `dependency-cruiser` nor `knip` is installed
+   in this repo**, so the architecture hard gate was silently skipping and
+   reporting clean. `wired` now means *runnable*, and the gate reports
+   `archRan: false` instead of a false PASS.
 
 Two rules the table enforces mechanically:
 

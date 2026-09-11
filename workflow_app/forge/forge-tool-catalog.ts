@@ -77,8 +77,14 @@ export type ForgeToolDeclaration = {
   purpose: string
   skillDoc: string
   /**
-   * Honest wiring status. FALSE means: declared and permissioned here, but the
-   * execution seam is not connected yet — so no lane may report that it ran.
+   * Can this tool ACTUALLY RUN here? True requires both the execution seam and
+   * the tool itself being present. Anything less is false, because a tool that
+   * cannot run must never be reported as run.
+   *
+   * Revised 2026-09-11 (second correction): the first version of this field only
+   * meant "a code path exists", which made cruiser and knip read as wired while
+   * neither binary is installed in this repo — so the architecture gate was
+   * silently skipping and reporting clean. `wired` now means runnable.
    */
   wired: boolean
   /** Positions that receive the tool at all. Absence means denial. */
@@ -144,7 +150,9 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'architecture boundaries and cycles as a hard gate',
     skillDoc: 'docs/agent/skills/cruiser.md',
-    wired: true,
+    // Seam exists (runStaticGate) but dependency-cruiser is NOT installed in this
+    // repo, so the hard gate silently skips. Install it to make this true.
+    wired: false,
     roles: ['assay', 'inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — the gate is skipped and that omission is recorded',
@@ -164,9 +172,9 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'unused files, exports and dependencies (hygiene)',
     skillDoc: 'docs/agent/skills/knip.md',
-    // Wired into the static gate 2026-09-11 (runKnip). Findings are informational
-    // and are not yet persisted as a durable artifact — see V5-27 acceptance.
-    wired: true,
+    // Seam added 2026-09-11 (runKnip in the static gate), but knip is NOT
+    // installed in this repo, so it does not run yet.
+    wired: false,
     roles: ['inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — reported as not run',

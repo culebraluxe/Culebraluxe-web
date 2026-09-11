@@ -80,6 +80,7 @@
     "forge:scorecard": "node --env-file=.env.local --import tsx scripts/forge-scorecard.ts",
     "forge:sync-history": "node --env-file=.env.local --import tsx scripts/sync-forge-history.ts",
     "forge:board-sync": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-board-sync.ts",
+    "forge:tools": "node --import tsx scripts/forge-tools.ts",
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --env-file=.env.local scripts/export-dev-projects-workspace.mjs",

@@ -36,13 +36,14 @@ test('V5-23..27: every declared tool carries an honest wiring status', () => {
     assert.equal(typeof declaration.wired, 'boolean', id)
     assert.ok(declaration.skillDoc.startsWith('docs/agent/skills/'), id)
   }
-  // Corrected 2026-09-11: the deterministic instruments ARE wired — the Assay
-  // adapter runs them via runStaticGate. This assertion previously claimed all
-  // five were unwired, which was false, and it was load-bearing for a lie.
-  assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, true)
+  // Corrected TWICE on 2026-09-11. First: cruiser, semgrep and knip have a real
+  // execution seam (the Assay static gate). Second: only semgrep is actually
+  // INSTALLED, so only semgrep can run — `wired` now means runnable, not
+  // "a code path exists".
   assert.equal(FORGE_TOOL_CATALOG.semgrep.wired, true)
-  assert.equal(FORGE_TOOL_CATALOG.knip.wired, true)
-  // These two genuinely are not wired yet.
+  assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, false, 'dependency-cruiser is not installed here')
+  assert.equal(FORGE_TOOL_CATALOG.knip.wired, false, 'knip is not installed here')
+  // No execution seam at all yet.
   assert.equal(FORGE_TOOL_CATALOG.serena.wired, false)
   assert.equal(FORGE_TOOL_CATALOG.rtk.wired, false)
 })
@@ -161,11 +162,16 @@ test('V5-25/V5-26: when an instrument is unavailable the omission is recorded, n
   assert.match(semgrep!.fallback, /skipped and that omission is recorded/)
 })
 
-test('V5-25/V5-26: the instruments are granted by default now that they are wired', () => {
+test('V5-25/V5-26: only the installed instrument is granted by default', () => {
   const resolution = resolveForgeToolPermissions('assay')
-  assert.ok(resolution.instruments.includes('cruiser'))
+  // semgrep is installed and runs; cruiser's seam exists but the binary does not,
+  // so it is reported as not-wired rather than silently granted.
   assert.ok(resolution.instruments.includes('semgrep'))
-  assert.equal(resolution.degradations.some((d) => d.tool === 'cruiser'), false)
+  assert.equal(resolution.instruments.includes('cruiser'), false)
+  assert.equal(
+    resolution.degradations.find((d) => d.tool === 'cruiser')?.reason,
+    'not-wired',
+  )
 })
 
 // --- V5-27 knip --------------------------------------------------------------

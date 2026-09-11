@@ -15,6 +15,8 @@ import { join } from 'node:path'
 export type StaticGateResult = {
   workspace: string
   roots: string[]
+  /** Did dependency-cruiser actually execute? FALSE means the gate was skipped. */
+  archRan: boolean
   archOk: boolean
   archErrors: string[]
   semgrepRan: boolean
@@ -96,8 +98,10 @@ function runKnip(input: { workspace: string; knipBin?: string; timeoutMs: number
 } {
   // knip needs the installed tool and a manifest, exactly like depcruise.
   const hasManifest = existsSync(join(input.workspace, 'package.json'))
+  // Same rule as depcruise: an explicit path counts only if it exists.
   const hasKnipBin =
-    Boolean(input.knipBin) || existsSync(join(input.workspace, 'node_modules', '.bin', 'knip'))
+    (input.knipBin ? existsSync(input.knipBin) : false) ||
+    existsSync(join(input.workspace, 'node_modules', '.bin', 'knip'))
   if (!hasManifest || !hasKnipBin) return { ran: false, findings: [] }
 
   const bin = input.knipBin ?? 'pnpm'
@@ -169,8 +173,12 @@ export function runStaticGate(input: {
   // than fail the hard gate on missing tooling. QA must not FAIL (and recall
   // Smith) just because an optional deep check cannot run.
   const hasManifest = existsSync(join(workspace, 'package.json'))
+  // An explicit bin path counts only if it EXISTS. Otherwise a caller passing a
+  // path that is not there produced a non-zero spawn with no output — a silent
+  // FALSE FAIL of the architecture hard gate, which would block QA forever with
+  // no evidence. A tool that is not present must skip, not fail.
   const hasDepcruiseBin =
-    Boolean(input.depcruiseBin) ||
+    (input.depcruiseBin ? existsSync(input.depcruiseBin) : false) ||
     existsSync(join(workspace, 'node_modules', '.bin', 'depcruise'))
   const arch =
     hasManifest && hasDepcruiseBin
@@ -188,6 +196,10 @@ export function runStaticGate(input: {
   return {
     workspace,
     roots,
+    // `archRan` must be reported separately from `archOk`: a skipped gate is NOT
+    // a clean architecture, and printing "clean" when the tool is absent is the
+    // false-PASS this field exists to prevent.
+    archRan: hasManifest && hasDepcruiseBin,
     archOk: arch.ok,
     archErrors: arch.errors,
     semgrepRan: sec.ran,

@@ -154,6 +154,9 @@ export async function recordStaticGateArtifact(
     archErrorCount: number
     semgrepRan: boolean
     semgrepFindingCount: number
+    /** Hygiene instrument (V5-27). Optional so existing callers keep working. */
+    knipRan?: boolean
+    knipFindingCount?: number
     workspace?: string | null
   },
   execute?: QueryExecutor,
@@ -162,6 +165,9 @@ export async function recordStaticGateArtifact(
     `${input.archOk ? 'architecture clean' : `${input.archErrorCount} architecture violation(s)`}` +
     (input.semgrepRan
       ? `; semgrep ${input.semgrepFindingCount === 0 ? 'clean' : `${input.semgrepFindingCount} finding(s)`}`
+      : '') +
+    (input.knipRan
+      ? `; knip ${input.knipFindingCount === 0 ? 'clean' : `${input.knipFindingCount} finding(s)`}`
       : '')
   return recordToolArtifact(
     {
