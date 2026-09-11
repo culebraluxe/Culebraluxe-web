@@ -7,6 +7,7 @@ import type {
   DismissWbsItemRequest,
   ListWbsDueRequest,
   ListProjectWbsItemsRequest,
+  ListWbsForEntityRequest,
   SaveWbsItemRequest,
   WbsItem,
   WbsRepository,
@@ -107,6 +108,24 @@ export class SqlWbsRepository implements WbsRepository {
                parent_id nulls first,
                sort_order nulls last,
                due_at nulls last,
+               id
+    `) as unknown as WbsItemRow[]
+    return rows.map(toItem)
+  }
+
+  /**
+   * The tie (design doc section 6.5): the work items hanging off one thing.
+   * entity_id is text, so a transaction's process-instance id stores as-is.
+   */
+  async listForEntity(request: ListWbsForEntityRequest): Promise<WbsItem[]> {
+    const rows = (await this.execute`
+      select id, project_id, parent_id, title, notes, category, status,
+             due_at, owner, sort_order, entity_type, entity_id, created_at, updated_at
+      from wbs_item
+      where entity_type = ${request.type}
+        and entity_id = ${request.id}
+      order by due_at nulls last,
+               sort_order nulls last,
                id
     `) as unknown as WbsItemRow[]
     return rows.map(toItem)

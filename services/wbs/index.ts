@@ -14,6 +14,7 @@ export {
   type DismissWbsItemRequest,
   type GetWbsItemRequest,
   type ListProjectWbsItemsRequest,
+  type ListWbsForEntityRequest,
   type ListWbsDueRequest,
   type SaveWbsItemRequest,
   type CompleteWbsItemRequest,

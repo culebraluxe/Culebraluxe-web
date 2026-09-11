@@ -46,6 +46,15 @@ export class WbsService extends BaseService<WbsOperationMap> {
         execution: { mode: 'inline' },
         handle: async (request) => this.repository.listProjectItems(request),
       },
+      [WBS_OPERATIONS.LIST_FOR_ENTITY]: {
+        kind: 'query',
+        description:
+          'The tie: every work item hanging off one thing — the transaction a process instance runs, a contract, a property, a person.',
+        authorization: 'wbs.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.listForEntity(request),
+      },
       [WBS_OPERATIONS.CREATE]: {
         kind: 'command',
         description: 'Create a work item (standalone follow-up or under a project).',
