@@ -8,9 +8,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { Dashboard } from "@/components/portal/dashboard"
-import { getClients } from "@/db/clients"
-import { getDeals } from "@/db/deals"
-import { getDashboardSnapshot } from "@/db/dashboard"
+import {
+  getClients,
+  getDeals,
+  getDashboardSnapshot,
+} from "@/lib/review-dashboard-reads"
 import { getWorkflowSummaries } from "@/workflow_app/read-service"
 
 export async function ReviewDashboard() {

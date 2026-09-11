@@ -3,8 +3,10 @@ import { notFound } from "next/navigation"
 import { getFormInstance, listFormInstances } from "@/lib/forms/form-instance-io"
 import { resolveDealLaunchContext } from "@/lib/forms/form-instance-io"
 import { getIssuedDocumentForFormInstance } from "@/lib/vault-io"
-import { listSignatureRequestsByDocument } from "@/db/signature-request"
-import { listFormSignerPeople } from "@/db/form-signer"
+import {
+  listSignatureRequestsByDocument,
+  listFormSignerPeople,
+} from "@/lib/form-signing-reads"
 import {
   getActiveTemplate,
   getTemplate,

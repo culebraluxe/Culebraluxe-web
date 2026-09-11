@@ -18,7 +18,7 @@ import {
 import {
   listStoryboardStories,
   listStoryExecutionSummaries,
-} from "@/db/storyboard"
+} from "@/lib/storyboard-reads"
 import {
   buildStoryBoardModel,
   isExecutionActive,
