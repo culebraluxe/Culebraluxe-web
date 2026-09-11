@@ -64,6 +64,8 @@ type LandingPerson = {
   note: string | null
   phones: Array<{ label: string | null; value: string }> | null
   emails: Array<{ label: string | null; value: string }> | null
+  /** Apple Contacts Company/Organization — the owning entity. */
+  organization: string | null
   legal_address: string | null
 }
 
@@ -77,6 +79,7 @@ const LANDING_SQL = `
     lp.note,
     lp.phones,
     lp.emails,
+    lp.organization,
     (select nullif(trim(concat_ws(', ',
         nullif(trim(p.address_line1), ''),
         nullif(trim(p.city), ''),
@@ -337,14 +340,16 @@ async function main() {
                                     then 'apple_contacts' else p.display_name_source end,
          location = coalesce(nullif(trim(u.loc), ''), p.location),
          notes = coalesce(nullif(trim(u.note), ''), p.notes),
+         company = coalesce(nullif(trim(u.company), ''), p.company),
          updated_at = now()
-       from unnest($1::uuid[], $2::text[], $3::text[], $4::text[]) as u(id, name, loc, note)
+       from unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[]) as u(id, name, loc, note, company)
        where p.id = u.id`,
       [
         ready.map((p) => p.personId),
         ready.map((p) => p.row.display_name),
         ready.map((p) => p.row.legal_address),
         ready.map((p) => p.row.note),
+        ready.map((p) => p.row.organization),
       ],
     )
     stats.factsUpdated = ready.length

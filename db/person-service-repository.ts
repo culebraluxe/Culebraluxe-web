@@ -26,6 +26,7 @@ type PersonRow = {
   display_name: string
   status: string
   archived_at: string | Date | null
+  company: string | null
 }
 
 type IdentityRow = {
@@ -47,6 +48,7 @@ function toPerson(row: PersonRow): PersonDto {
     displayName: row.display_name,
     status: row.status,
     archivedAt: toIso(row.archived_at),
+    company: row.company ?? null,
   }
 }
 
@@ -67,7 +69,7 @@ export class SqlPersonRepository implements PersonRepository {
 
   async get(personId: string): Promise<PersonDto | null> {
     const rows = (await this.execute`
-      select id, display_name, status, archived_at
+      select id, display_name, status, archived_at, company
       from person
       where id = ${personId}
         and archived_at is null
@@ -82,7 +84,7 @@ export class SqlPersonRepository implements PersonRepository {
     const value = normalizedIdentity(identity)
     const sourceSystem = identity.sourceSystem?.trim() || null
     const rows = (await this.execute`
-      select p.id, p.display_name, p.status, p.archived_at
+      select p.id, p.display_name, p.status, p.archived_at, p.company
       from person_identity pi
       join person p on p.id = pi.person_id
       where p.archived_at is null
@@ -114,7 +116,7 @@ export class SqlPersonRepository implements PersonRepository {
       set display_name = ${displayName}, updated_at = now()
       where id = ${request.personId}
         and archived_at is null
-      returning id, display_name, status, archived_at
+      returning id, display_name, status, archived_at, company
     `) as PersonRow[]
     if (!rows[0]) throw new Error(`Person not found: ${request.personId}`)
     return toPerson(rows[0])

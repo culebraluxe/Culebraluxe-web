@@ -8,6 +8,12 @@ export type PersonDto = {
   displayName: string
   status: string
   archivedAt: string | null
+  /**
+   * Company/Organization from Apple Contacts (l_person.organization). An
+   * attribute of the Person: for an entity-owned listing it is the owning
+   * entity, for example "Vagabundo Capital LLC".
+   */
+  company: string | null
 }
 
 export type PersonIdentityDto = {

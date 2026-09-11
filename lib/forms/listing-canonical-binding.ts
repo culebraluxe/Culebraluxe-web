@@ -154,7 +154,16 @@ export async function loadListingCanonicalSnapshot(
       'property',
       form.sellerResidenceAddress,
     ),
-    property: choose(physical?.property.localName, 'property', form.property),
+    // "Known as" on the Listing agreement. The property's own name wins; when
+    // the record has none — an Apple address, or an entity-owned property —
+    // the owner's Company is how the property is known, and failing that the
+    // person's name. This is what makes an LLC listing fill itself without
+    // anyone typing the entity into the form by hand.
+    property: choose(
+      physical?.property.localName ?? person.company ?? person.displayName,
+      physical?.property.localName || person.company ? 'property' : 'person',
+      form.property,
+    ),
     propertyLocation: choose(
       physical ? formatAddress(physical.property.address) : null,
       'property',
