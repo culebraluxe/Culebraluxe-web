@@ -42,6 +42,8 @@ export type AppleContactExport = {
   organization: string
   department: string
   jobTitle: string
+  /** Free-text operator note. Optional: exports before 2026-09-10 have no note field. */
+  note?: string
   emails: AppleLabeledTextValue[]
   phones: AppleLabeledTextValue[]
   postalAddresses: ApplePostalAddress[]
@@ -114,6 +116,8 @@ function contact(value: unknown, index: number): AppleContactExport {
     organization: string(row.organization, `${path}.organization`),
     department: string(row.department, `${path}.department`),
     jobTitle: string(row.jobTitle, `${path}.jobTitle`),
+    // Tolerant: older exports have no note field at all.
+    note: string(row.note ?? '', `${path}.note`),
     emails: array(row.emails, `${path}.emails`).map((item, itemIndex) =>
       labeledText(item, `${path}.emails[${itemIndex}]`),
     ),
@@ -221,6 +225,7 @@ function contactSourceFacts(contact: AppleContactExport): JsonObject {
     organization: contact.organization,
     department: contact.department,
     jobTitle: contact.jobTitle,
+    note: contact.note ?? '',
     emails: contact.emails,
     phones: contact.phones,
     postalAddresses: contact.postalAddresses,

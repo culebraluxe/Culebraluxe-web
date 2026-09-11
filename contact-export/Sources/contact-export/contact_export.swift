@@ -29,6 +29,7 @@ struct ExportContact: Codable {
     let organization: String
     let department: String
     let jobTitle: String
+    let note: String
 
     let emails: [LabeledTextValue]
     let phones: [LabeledTextValue]
@@ -83,6 +84,12 @@ struct ContactExport {
                 CNContactDepartmentNameKey as CNKeyDescriptor,
                 CNContactJobTitleKey as CNKeyDescriptor,
 
+                // Free-text Notes. This is the operator's context ("house is purple",
+                // "wants waterfront", "brother of Jack") — never a name, never an
+                // identity. Captured so it is not lost; the canonical layer decides
+                // what to do with it.
+                CNContactNoteKey as CNKeyDescriptor,
+
                 CNContactEmailAddressesKey as CNKeyDescriptor,
                 CNContactPhoneNumbersKey as CNKeyDescriptor,
                 CNContactPostalAddressesKey as CNKeyDescriptor
@@ -106,6 +113,7 @@ struct ContactExport {
                         organization: contact.organizationName,
                         department: contact.departmentName,
                         jobTitle: contact.jobTitle,
+                        note: contact.note,
 
                         emails: contact.emailAddresses.map {
                             LabeledTextValue(

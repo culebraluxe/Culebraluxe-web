@@ -72,7 +72,7 @@ const L_PERSON_UPSERT_SQL = `
     integration_staged_contact_profile_id, integration_intake_batch_id,
     source, source_account, source_contact_id, source_revision, payload_fingerprint,
     display_name, name_prefix, given_name, middle_name, family_name, name_suffix,
-    nickname, organization, department, job_title, display_address,
+    nickname, organization, department, job_title, note, display_address,
     reconciliation_status, candidate_person_id
   )
   select
@@ -105,6 +105,7 @@ const L_PERSON_UPSERT_SQL = `
     nullif(trim(profile->>'organization'), ''),
     nullif(trim(profile->>'department'), ''),
     nullif(trim(profile->>'jobTitle'), ''),
+    nullif(trim(profile->>'note'), ''),
     (
       -- CONVENTION (captain, 2026-09-10): in Apple Contacts there are only two address
       -- slots, and "Home" IS the legal address. Apple stores absent parts as empty
@@ -139,6 +140,7 @@ const L_PERSON_UPSERT_SQL = `
     organization = excluded.organization,
     department = excluded.department,
     job_title = excluded.job_title,
+    note = excluded.note,
     display_address = excluded.display_address,
     reconciliation_status = excluded.reconciliation_status,
     candidate_person_id = excluded.candidate_person_id
