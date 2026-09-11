@@ -76,6 +76,30 @@ async function main() {
 
   // reads on an unknown id are empty, not an error
   const missingId = '00000000-0000-4000-8000-000000000000'
+
+  // ---- The cord (docs/REAL-ESTATE-TRANSACTION-DESIGN.md 5.1 / 7.2) ----------
+  // A Contract names the process instance (transaction) it belongs to, and the
+  // transaction reads its Contracts back. Read-only here: no contract carries a
+  // cord yet, so the filter is proven by its shape and the mapper by the field
+  // being present on every summary row.
+  const cordRead = await contract.execute({
+    operation: CONTRACT_OPERATIONS.LIST_FOR_PROCESS_INSTANCE,
+    payload: { processInstanceId: missingId },
+    context: operatorContext(),
+  })
+  check(
+    'contract.listForProcessInstance runs through the service',
+    cordRead.ok && Array.isArray(cordRead.value),
+    cordRead.ok ? `${cordRead.value.length} contract(s) for that transaction` : cordRead.error.code,
+  )
+  check(
+    'the cord read is filtered, not the whole portfolio',
+    cordRead.ok && cordRead.value.every((row) => row.processInstanceId === missingId),
+  )
+  check(
+    'every Contract summary carries the cord field',
+    listResult.ok && listResult.value.every((row) => 'processInstanceId' in row),
+  )
   const getResult = await contract.execute({
     operation: CONTRACT_OPERATIONS.GET,
     payload: { contractId: missingId },

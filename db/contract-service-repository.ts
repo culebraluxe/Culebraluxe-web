@@ -20,6 +20,7 @@ type ContractRow = {
   form_template_id: string
   source_form_instance_id: string | null
   predecessor_contract_id: string | null
+  process_instance_id: string | null
   facts: unknown
   status: string
   executed_at: string | Date | null
@@ -127,7 +128,8 @@ async function loadContract(
   const contractRows = (await query`
     select
       id, contract_type, form_template_id, source_form_instance_id,
-      predecessor_contract_id, facts, status, executed_at, evidence_document_id
+      predecessor_contract_id, process_instance_id, facts, status, executed_at,
+      evidence_document_id
     from contract
     where id = ${contractId}
     limit 1
@@ -205,6 +207,7 @@ async function loadContract(
     formTemplateId: row.form_template_id,
     sourceFormInstanceId: row.source_form_instance_id,
     predecessorContractId: row.predecessor_contract_id,
+    processInstanceId: row.process_instance_id,
     propertyId: propertyRows[0].property_id,
     roles,
     facts: asRecord(row.facts),
@@ -274,8 +277,11 @@ export class SqlContractRepository implements ContractRepository {
   /**
    * Portfolio read for the Contracts surface: the contract row joined to its
    * SUBJECT_PROPERTY mapping. The predecessor link is the workflow chain.
+   *
+   * `processInstanceId` is the cord filter: null lists every Contract, a value
+   * lists the Contracts attached to that one transaction.
    */
-  async list(): Promise<ContractSummaryDto[]> {
+  private async listContracts(processInstanceId: string | null): Promise<ContractSummaryDto[]> {
     const rows = (await this.query`
       select
         c.id,
@@ -283,6 +289,7 @@ export class SqlContractRepository implements ContractRepository {
         c.form_template_id,
         c.status,
         c.predecessor_contract_id,
+        c.process_instance_id,
         c.evidence_document_id,
         c.executed_at,
         c.created_at,
@@ -295,6 +302,7 @@ export class SqlContractRepository implements ContractRepository {
        and r.scope = cp.role_scope
       where r.scope = 'contract_property'
         and r.code = 'SUBJECT_PROPERTY'
+        and (${processInstanceId}::uuid is null or c.process_instance_id = ${processInstanceId}::uuid)
       order by c.created_at desc, c.id
     `) as Array<{
       id: string
@@ -302,6 +310,7 @@ export class SqlContractRepository implements ContractRepository {
       form_template_id: string
       status: string
       predecessor_contract_id: string | null
+      process_instance_id: string | null
       evidence_document_id: string | null
       executed_at: string | Date | null
       created_at: string | Date
@@ -315,10 +324,20 @@ export class SqlContractRepository implements ContractRepository {
       status: row.status,
       propertyId: row.property_id,
       predecessorContractId: row.predecessor_contract_id ?? null,
+      processInstanceId: row.process_instance_id ?? null,
       evidenceDocumentId: row.evidence_document_id ?? null,
       executedAt: toIso(row.executed_at),
       createdAt: toIso(row.created_at) ?? '',
     }))
+  }
+
+  async list(): Promise<ContractSummaryDto[]> {
+    return this.listContracts(null)
+  }
+
+  /** The cord, read from the transaction side. */
+  async listForProcessInstance(processInstanceId: string): Promise<ContractSummaryDto[]> {
+    return this.listContracts(processInstanceId)
   }
 
   async createFromForm(request: CreateContractFromFormRequest): Promise<ContractDto> {
@@ -331,13 +350,14 @@ export class SqlContractRepository implements ContractRepository {
       await tx`
         insert into contract (
           id, contract_type, form_template_id, source_form_instance_id,
-          predecessor_contract_id, facts, status
+          predecessor_contract_id, process_instance_id, facts, status
         ) values (
           ${request.contractId},
           ${request.contractType.trim()},
           ${request.formTemplateId.trim()},
           ${request.sourceFormInstanceId ?? null}::uuid,
           ${request.predecessorContractId ?? null}::uuid,
+          ${request.processInstanceId ?? null}::uuid,
           ${JSON.stringify(request.facts)}::jsonb,
           'draft'
         )
@@ -372,6 +392,7 @@ export class SqlContractRepository implements ContractRepository {
               form_template_id = ${request.formTemplateId.trim()},
               source_form_instance_id = ${request.sourceFormInstanceId ?? null}::uuid,
               predecessor_contract_id = ${request.predecessorContractId ?? null}::uuid,
+              process_instance_id = ${request.processInstanceId ?? null}::uuid,
               facts = ${JSON.stringify(request.facts)}::jsonb,
               updated_at = now()
           where id = ${request.contractId}
@@ -380,13 +401,14 @@ export class SqlContractRepository implements ContractRepository {
         await tx`
           insert into contract (
             id, contract_type, form_template_id, source_form_instance_id,
-            predecessor_contract_id, facts, status
+            predecessor_contract_id, process_instance_id, facts, status
           ) values (
             ${request.contractId},
             ${request.contractType.trim()},
             ${request.formTemplateId.trim()},
             ${request.sourceFormInstanceId ?? null}::uuid,
             ${request.predecessorContractId ?? null}::uuid,
+            ${request.processInstanceId ?? null}::uuid,
             ${JSON.stringify(request.facts)}::jsonb,
             'draft'
           )

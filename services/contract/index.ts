@@ -8,6 +8,7 @@ export {
   type ContractFirmRoleDto,
   type ContractSummaryDto,
   type ListContractsRequest,
+  type ListContractsForProcessInstanceRequest,
   type ContractOperationMap,
   type ContractOperationName,
   type ContractPersonRoleDto,

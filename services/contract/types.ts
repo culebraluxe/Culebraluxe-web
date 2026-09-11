@@ -33,6 +33,12 @@ export type ContractDto = {
   formTemplateId: string
   sourceFormInstanceId: string | null
   predecessorContractId: string | null
+  /**
+   * The cord: the workflow/process instance (transaction) this Contract belongs
+   * to. Null when the Contract stands alone (a showing report that goes nowhere).
+   * See docs/REAL-ESTATE-TRANSACTION-DESIGN.md section 5.1.
+   */
+  processInstanceId: string | null
   propertyId: string
   roles: readonly ContractRoleDto[]
   facts: Readonly<Record<string, unknown>>
@@ -62,11 +68,16 @@ export type ContractSummaryDto = {
   status: string
   propertyId: string
   predecessorContractId: string | null
+  /** The cord — see ContractDto.processInstanceId. */
+  processInstanceId: string | null
   evidenceDocumentId: string | null
   executedAt: string | null
   createdAt: string
 }
 export type ListContractsRequest = Record<string, never>
+
+/** The cord, read the other way: every Contract attached to one transaction. */
+export type ListContractsForProcessInstanceRequest = { processInstanceId: string }
 
 export type CreateContractFromFormRequest = {
   contractId: string
@@ -74,6 +85,8 @@ export type CreateContractFromFormRequest = {
   formTemplateId: string
   sourceFormInstanceId?: string | null
   predecessorContractId?: string | null
+  /** Attach the Contract to its transaction (the cord). Optional by design. */
+  processInstanceId?: string | null
   propertyId: string
   roles: readonly ContractRoleDto[]
   facts: Readonly<Record<string, unknown>>
@@ -96,6 +109,7 @@ export type ExecuteContractRequest = {
 export const CONTRACT_OPERATIONS = {
   GET: 'contract.get',
   LIST: 'contract.list',
+  LIST_FOR_PROCESS_INSTANCE: 'contract.listForProcessInstance',
   CREATE_FROM_FORM: 'contract.createFromForm',
   SAVE_DRAFT: 'contract.saveDraft',
   GET_EFFECTIVE_STATE: 'contract.getEffectiveState',
@@ -105,6 +119,10 @@ export const CONTRACT_OPERATIONS = {
 export type ContractOperationMap = {
   'contract.get': { request: GetContractRequest; response: ContractDto | null }
   'contract.list': { request: ListContractsRequest; response: ContractSummaryDto[] }
+  'contract.listForProcessInstance': {
+    request: ListContractsForProcessInstanceRequest
+    response: ContractSummaryDto[]
+  }
   'contract.createFromForm': { request: CreateContractFromFormRequest; response: ContractDto }
   'contract.saveDraft': { request: SaveContractDraftRequest; response: ContractDto }
   'contract.getEffectiveState': {

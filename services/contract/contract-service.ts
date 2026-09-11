@@ -87,6 +87,15 @@ export class ContractService extends BaseService<ContractOperationMap> {
         execution: { mode: 'inline' },
         handle: async () => this.repository.list(),
       },
+      [CONTRACT_OPERATIONS.LIST_FOR_PROCESS_INSTANCE]: {
+        kind: 'query',
+        description:
+          'The cord read from the transaction side: every Contract attached to one process instance.',
+        authorization: 'contract.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.listForProcessInstance(request.processInstanceId),
+      },
       [CONTRACT_OPERATIONS.CREATE_FROM_FORM]: {
         kind: 'command',
         description: 'Create a durable Contract instance from a Form-defined contract type.',
