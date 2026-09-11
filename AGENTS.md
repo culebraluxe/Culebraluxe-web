@@ -50,6 +50,18 @@ Never
 - Derive conditional UI capabilities from available data.
 - Avoid listing-specific hardcoding.
 
+## Reporting to the captain
+
+Default report is three items, in this order, and nothing else:
+
+1. **FINISHED** — yes/no, one line.
+2. **NEXT** — the single next action.
+3. **PROBLEMS FOUND** — one line each, max 4.
+
+No tables, no verification dumps, no file lists, no restating the plan. Detail only
+when asked. The captain reads for status and blockers, not completeness. Exact files
+and tests still get reported — named in one line, not pasted.
+
 ## Working Style
 
 - CulebraLuxe operates as a startup with rapid fix-forward delivery, not Fortune-500-style change control.
