@@ -29,6 +29,8 @@ export type ContactInfo = {
   displayName: string | null
   organization: string | null
   displayAddress: string | null
+  /** When this contact revision was last projected — the recency signal for "newer wins". */
+  updatedAt?: string | null
 }
 
 export type EnrichResult = {
@@ -72,6 +74,7 @@ export function buildContactIndex(
       displayName: c.displayName,
       organization: c.organization,
       displayAddress: c.displayAddress,
+      updatedAt: c.updatedAt ?? null,
     }
     const arr = index.get(key) ?? []
     arr.push(info)
@@ -86,10 +89,18 @@ export type IdentityResolution = {
 }
 
 /**
- * Resolve a canonical Person's identity keys against Apple Contacts. Enriches
- * ONLY when there is exactly ONE distinct human name across all matching
- * Contacts; zero human names -> unresolved; more than one distinct human name
- * -> ambiguous (never guess).
+ * Resolve a canonical Person's identity keys against Apple Contacts.
+ *
+ * NEWER WINS (captain's rule, 2026-09-10 — the same problem as reused tickers in
+ * corporate actions). Apple does NOT enforce unique numbers, so one identity commonly
+ * matches several contacts with different names. The previous behaviour refused to
+ * decide ("ambiguous -> keep what we have"), which let an OLD, poorer record beat a
+ * newer, fully-qualified one: "Puerple House" (a colour used as a memory aid in the
+ * name field) outlived the real "Juan A. Santa Cruz" on the same phone number.
+ *
+ * Recency is the tie-breaker, then completeness; old data is simply deprecated. A
+ * single distinct human name still resolves directly, and zero human names still
+ * resolves to nothing (never invent).
  */
 export function resolveContactForIdentityKeys(
   keys: string[],
@@ -101,14 +112,35 @@ export function resolveContactForIdentityKeys(
     if (arr) matches.push(...arr)
   }
   const human = matches.filter((c) => isHumanName(c.displayName))
+  if (!human.length) return { contact: null, ambiguous: false }
+
   const distinctNames = new Set(human.map((c) => c.displayName!.trim()))
   if (distinctNames.size === 1) {
     const name = [...distinctNames][0]
     const contact = human.find((c) => c.displayName!.trim() === name) ?? null
     return { contact, ambiguous: false }
   }
-  if (distinctNames.size > 1) return { contact: null, ambiguous: true }
-  return { contact: null, ambiguous: false }
+
+  // Conflicting names across duplicate/shared contacts: take the NEWEST, then the most
+  // complete. Never fall back to the caller's older stored value.
+  const newest = [...human].sort(
+    (a, b) =>
+      recencyOf(b) - recencyOf(a) ||
+      completenessOf(b) - completenessOf(a) ||
+      (a.displayName ?? '').localeCompare(b.displayName ?? ''),
+  )[0]
+  return { contact: newest ?? null, ambiguous: false }
+}
+
+function recencyOf(c: ContactInfo): number {
+  const t = c.updatedAt ? Date.parse(c.updatedAt) : NaN
+  return Number.isFinite(t) ? t : 0
+}
+
+function completenessOf(c: ContactInfo): number {
+  return (
+    (c.displayName ? 2 : 0) + (c.displayAddress ? 1 : 0) + (c.organization ? 1 : 0)
+  )
 }
 
 
@@ -134,6 +166,7 @@ type ContactRowRaw = {
   display_name: string | null
   organization: string | null
   display_address: string | null
+  updated_at: string | null
   identity_type: string
   normalized_value: string | null
 }
@@ -159,7 +192,7 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
 
   const rawContacts = (await sql`
     select
-      lp.display_name, lp.organization, lp.display_address,
+      lp.display_name, lp.organization, lp.display_address, lp.updated_at,
       li.identity_type, li.normalized_value
     from l_person lp
     join l_person_identity li on li.l_person_id = lp.id
@@ -170,6 +203,7 @@ export async function enrichDisplayNamesFromAppleContacts(): Promise<EnrichResul
     displayName: r.display_name,
     organization: r.organization,
     displayAddress: r.display_address,
+    updatedAt: r.updated_at,
     identityType: r.identity_type,
     normalizedValue: r.normalized_value,
   }))
