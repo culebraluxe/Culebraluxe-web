@@ -237,6 +237,12 @@ export function deriveBoardSync(input: {
   runs: RunEvidence
   /** Injected for deterministic notes; ISO string. */
   now: string
+  /**
+   * The operator has explicitly decided to release a Hold/Deferred story whose
+   * work shipped. Without this, a protected status is REPORTED and never written
+   * — releasing a human park is a person's decision, expressed as a flag.
+   */
+  releaseHeld?: boolean
 }): BoardSyncDecision {
   const { story, ship, runs, now } = input
   const provenance = summarizeRunEnvironments(runs.environments)
@@ -257,7 +263,24 @@ export function deriveBoardSync(input: {
   // that decision: report it as 'held-shipped' so the hold can be released on
   // purpose, rather than overwriting a deliberate state from a script.
   if (SYNC_PROTECTED_STATUSES.has(story.status) && ship.commits.length > 0) {
-    return { ...base, action: 'no-change', completion: null, reason: 'held-shipped', note: null }
+    if (!input.releaseHeld) {
+      return { ...base, action: 'no-change', completion: null, reason: 'held-shipped', note: null }
+    }
+    return {
+      ...base,
+      action: 'complete',
+      completion: 100,
+      reason: 'released-held',
+      note: buildSyncNote({
+        storyId: story.id,
+        ship,
+        runs,
+        provenance,
+        environmentWarning,
+        now,
+        releasedFrom: story.status,
+      }),
+    }
   }
 
   if (ship.commits.length === 0) {
@@ -299,8 +322,10 @@ export function buildSyncNote(input: {
   provenance: RunEnvironmentSummary
   environmentWarning: string | null
   now: string
+  /** Set when the operator deliberately released a Hold/Deferred park. */
+  releasedFrom?: string | null
 }): string {
-  const { storyId, ship, runs, provenance, environmentWarning, now } = input
+  const { storyId, ship, runs, provenance, environmentWarning, now, releasedFrom } = input
   const hasRunEvidence = runs.runCount > 0 || runs.itemCount > 0
   const evidenceLine = hasRunEvidence
     ? `PROD run evidence: PRESENT (${runs.runCount} run(s), ${runs.itemCount} work item(s)` +
@@ -314,6 +339,10 @@ export function buildSyncNote(input: {
     ...ship.commits.slice(0, 20).map((c) => `  - ${c}`),
     ship.docsOnly?.length
       ? `Excluded ${ship.docsOnly.length} docs/packet commit(s) — writing a story is not shipping it.`
+      : null,
+    releasedFrom
+      ? `Hold released deliberately by the operator: this story was ${releasedFrom}. ` +
+        'The status was a human park, not a lack of evidence.'
       : null,
     evidenceLine,
     environmentWarning ? `WARNING: ${environmentWarning}` : null,

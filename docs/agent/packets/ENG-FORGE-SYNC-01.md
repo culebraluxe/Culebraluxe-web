@@ -79,7 +79,26 @@ Effect on the live list: the naive matcher would have written **9** completions.
 After both rules it writes **1** — the other 8 were packets, prefix collisions, or
 human holds. This is the story working as intended: it refuses to invent.
 
-### A human Hold is not repealed by shipped code
+### A write-path bug that verification caught (2026-09-11)
+
+The first `--apply` reported success and **wrote nothing** — the four rows were
+still `Planned`/`Hold` at 0%. Cause: the tool *read* evidence from PROD through an
+explicit pool but *wrote* through the shared `sql` executor, which routes by
+`APP_ENV`. So it was reading PROD and writing **DEV** — silent, and precisely the
+class of environment confusion this story exists to eliminate.
+
+Fixes, both in `scripts/forge-board-sync.ts`:
+
+1. **Fail closed on the database target, not just the intent flag.**
+   `resolveDbTarget()` must return `prod` or the tool refuses to start.
+   Proof: with `APP_ENV` unset it now prints
+   `refusing to run: the database target resolves to "dev", not prod`.
+2. **Write through the same connection the evidence was read from.** A
+   pool-backed `QueryExecutor` is passed to the writer, so the reconcile can never
+   diverge from what it verified. `pnpm forge:board-sync` sets `APP_ENV=production`.
+
+Lesson worth keeping: *a flag that says "PROD" is not evidence that the write
+reaches PROD.* Only the resolved target is.
 
 `Hold` and `Deferred` are deliberate human states. A shipped commit does not
 repeal them, so the sync reports `held-shipped` and writes nothing — the operator

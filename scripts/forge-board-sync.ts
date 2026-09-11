@@ -18,6 +18,8 @@
 import { execFileSync } from 'node:child_process'
 import { Pool } from '@neondatabase/serverless'
 
+import { resolveDbTarget } from '../db/database-gateway'
+import type { QueryExecutor, QueryRow } from '../db/query-executor'
 import {
   assertForgeExecutionTarget,
   classifyShipCommits,
@@ -26,6 +28,22 @@ import {
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
+/** Releasing a Hold/Deferred park is a human decision, so it needs its own flag. */
+const RELEASE_HELD = args.includes('--release-held')
+/**
+ * Operator override for stories whose acceptance is NOT met despite a shipping
+ * commit — e.g. a delivered slice of a larger story. Exclusion can only ever
+ * AVOID a write; it can never fabricate evidence.
+ */
+const excludeIndex = args.indexOf('--exclude')
+const EXCLUDED: ReadonlySet<string> = new Set(
+  excludeIndex >= 0
+    ? (args[excludeIndex + 1] ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [],
+)
 const storyIndex = args.indexOf('--story')
 const STORY_FILTER = storyIndex >= 0 ? (args[storyIndex + 1] ?? null) : null
 const BRANCH = process.env.SYNC_BRANCH ?? 'main'
@@ -42,8 +60,18 @@ type StoryRow = {
 }
 
 async function main() {
-  // Part 3: fail closed on the environment. This tool writes the PROD board.
+  // Part 3: fail closed on the environment, AND on the database the write would
+  // actually reach. An intent flag is not enough — this tool must be incapable of
+  // writing DEV, which is the precise confusion that produced the WS-01..12 mess.
   const target = assertForgeExecutionTarget(process.env.EXECUTION_ENV ?? 'PROD')
+  const dbTarget = resolveDbTarget()
+  if (dbTarget !== 'prod') {
+    throw new Error(
+      `refusing to run: the database target resolves to "${dbTarget}", not prod. ` +
+        'A sync that reads PROD evidence and writes DEV board rows is worse than no sync. ' +
+        'Run with APP_ENV=production (docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md section 0).',
+    )
+  }
 
   const url = process.env.DATABASE_URL_PROD
   if (!url) {
@@ -51,11 +79,31 @@ async function main() {
   }
   const pool = new Pool({ connectionString: url })
 
+  /**
+   * Writes go through the SAME connection the evidence was read from, so the
+   * reconcile can never diverge from what it verified. (Found the hard way: the
+   * first version read PROD via this pool but wrote through the shared `sql`
+   * executor, which routes by APP_ENV — so completions went to DEV while the
+   * evidence came from PROD.)
+   */
+  const prodExecutor: QueryExecutor = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let text = ''
+    strings.forEach((chunk, index) => {
+      text += chunk
+      if (index < values.length) text += `$${index + 1}`
+    })
+    const result = await pool.query(text, values)
+    return result.rows as QueryRow[]
+  }
+
   const gitLog = execFileSync('git', ['log', '--oneline', '-n', '5000', BRANCH], {
     encoding: 'utf8',
   })
   console.log(`target ${target} | ship evidence: git log --oneline ${BRANCH}`)
   console.log(APPLY ? 'mode: APPLY (writing)' : 'mode: dry run (pass --apply to write)')
+  if (RELEASE_HELD) {
+    console.log('release-held: ON — Hold/Deferred stories whose work shipped will be completed')
+  }
 
   // Part 1: run provenance is part of the read, not an afterthought.
   const cols = (await pool.query(
@@ -87,6 +135,10 @@ async function main() {
   const heldShipped: string[] = []
 
   for (const story of stories) {
+    if (EXCLUDED.has(story.id)) {
+      console.log(`  ${story.id.padEnd(32)} ${story.status.padEnd(12)} excluded (left untouched)`)
+      continue
+    }
     const { shipping, docsOnly } = classifyShipCommits(story.id, gitLog)
     const decision = deriveBoardSync({
       story: { id: story.id, status: story.status, completion: story.completion },
@@ -97,6 +149,7 @@ async function main() {
         environments: [...(story.run_envs ?? []), ...(story.item_envs ?? [])],
       },
       now: new Date().toISOString(),
+      releaseHeld: RELEASE_HELD,
     })
 
     if (decision.environmentWarning) warnings.push(`${story.id}: ${decision.environmentWarning}`)
@@ -118,7 +171,7 @@ async function main() {
 
     if (APPLY) {
       const { markForgeStoryShippedComplete } = await import('../db/forge-story-state')
-      await markForgeStoryShippedComplete(story.id, decision.note ?? '')
+      await markForgeStoryShippedComplete(story.id, decision.note ?? '', prodExecutor)
     }
   }
 

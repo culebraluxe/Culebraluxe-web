@@ -317,3 +317,40 @@ test('an active story that shipped still completes', () => {
   assert.equal(decision.action, 'complete')
   assert.equal(decision.completion, 100)
 })
+
+test('releaseHeld: an explicit operator decision completes a held story and says so', () => {
+  const input = {
+    story: { id: 'ENG-FORGE-SHAPE-01', status: 'Hold', completion: 0 },
+    ship: ship({
+      storyId: 'ENG-FORGE-SHAPE-01',
+      commits: ['cd5740d feat(forge): ENG-FORGE-SHAPE-01 shaping layer'],
+    }),
+    runs: runs(),
+    now: NOW,
+  }
+
+  // Without the flag: reported, never written.
+  const guarded = deriveBoardSync(input)
+  assert.equal(guarded.action, 'no-change')
+  assert.equal(guarded.reason, 'held-shipped')
+
+  // With the flag: written, and the note records that a human released the park.
+  const released = deriveBoardSync({ ...input, releaseHeld: true })
+  assert.equal(released.action, 'complete')
+  assert.equal(released.completion, 100)
+  assert.equal(released.reason, 'released-held')
+  assert.match(released.note!, /Hold released deliberately by the operator/)
+  assert.match(released.note!, /was Hold\. The status was a human park, not a lack of evidence/)
+})
+
+test('releaseHeld does not apply to a story with no shipping evidence', () => {
+  const decision = deriveBoardSync({
+    story: { id: 'ENG-FORGE-V5-12', status: 'Hold', completion: 0 },
+    ship: ship({ storyId: 'ENG-FORGE-V5-12' }),
+    runs: runs(),
+    now: NOW,
+    releaseHeld: true,
+  })
+  assert.equal(decision.action, 'no-change')
+  assert.equal(decision.reason, 'no-ship-evidence')
+})
