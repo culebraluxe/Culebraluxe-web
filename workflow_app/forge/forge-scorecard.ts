@@ -47,7 +47,15 @@ export type Scorecard = {
     avgMinutes: number | null
   }>
   observerEvents: Array<{ eventType: string; events: number }>
-  telemetry: { runsWithTokens: number; runsWithCost: number; note: string }
+  /** Which model actually ran each story run (harness-observed, never self-report). */
+  models: Array<{ model: string; runs: number }>
+  telemetry: {
+    runsWithTokens: number
+    runsWithCost: number
+    runsWithModel: number
+    runsWithWidgets: number
+    note: string
+  }
 }
 
 export async function computeForgeScorecard(
@@ -65,6 +73,8 @@ export async function computeForgeScorecard(
       count(*) filter (where result_status = 'Interrupted')::int as interrupted,
       count(*) filter (where tokens_input is not null or tokens_output is not null)::int as with_tokens,
       count(*) filter (where cost_usd is not null)::int as with_cost,
+      count(*) filter (where model_used is not null)::int as with_model,
+      count(*) filter (where cost_widgets is not null)::int as with_widgets,
       coalesce(sum(tests_passed), 0)::int as tests_passed,
       coalesce(sum(tests_failed), 0)::int as tests_failed,
       avg(extract(epoch from (ended_at - started_at)) / 60.0) as avg_minutes
@@ -108,6 +118,13 @@ export async function computeForgeScorecard(
     group by role order by items desc, role
   `) as Array<Record<string, unknown>>
 
+  const modelRows = (await execute`
+    select coalesce(model_used, '(unknown)') as model, count(*)::int as runs
+    from storyboard_story_run
+    where started_at > now() - ${w}::interval
+    group by 1 order by runs desc, model
+  `) as Array<{ model: string; runs: number }>
+
   const observerEvents = (await execute`
     select event_type as event_type, count(*)::int as events
     from workflow_execution_trace_event
@@ -120,6 +137,8 @@ export async function computeForgeScorecard(
   const total = int(r.runs)
   const withTokens = int(r.with_tokens)
   const withCost = int(r.with_cost)
+  const withModel = int(r.with_model)
+  const withWidgets = int(r.with_widgets)
 
   return {
     windowDays,
@@ -150,13 +169,20 @@ export async function computeForgeScorecard(
       avgMinutes: num(row.avg_minutes),
     })),
     observerEvents: observerEvents.map((row) => ({ eventType: row.event_type, events: row.events })),
+    models: modelRows.map((row) => ({ model: row.model, runs: row.runs })),
     telemetry: {
       runsWithTokens: withTokens,
       runsWithCost: withCost,
-      note:
-        withTokens > 0 || withCost > 0
-          ? 'token/cost columns carry data'
-          : 'NOT CAPTURED: tokens_input/tokens_output/cost_usd are null on every run in this window',
+      runsWithModel: withModel,
+      runsWithWidgets: withWidgets,
+      note: [
+        withModel > 0 ? `model identity captured on ${withModel}/${total} runs` : null,
+        withWidgets > 0 ? `widget cost captured on ${withWidgets}/${total} runs` : null,
+        withTokens === 0 ? 'raw tokens NOT captured (harness result carries no usage field)' : null,
+        withCost === 0 ? 'vendor dollars NOT captured (cost_usd null; cost_widgets is the standardized unit)' : null,
+      ]
+        .filter(Boolean)
+        .join(' · ') || 'no telemetry captured in this window',
     },
   }
 }

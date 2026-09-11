@@ -38,13 +38,18 @@ async function main() {
 
   console.log('\nOBSERVER LAYER (worker execution)')
   if (s.observerEvents.length === 0) {
-    console.log('  none yet — the hook records on the next split-child attempt')
+    console.log('  none yet in this window — the hook records every role attempt')
   } else {
     for (const e of s.observerEvents) console.log(`  ${e.eventType.padEnd(18)} ${e.events}`)
   }
 
+  console.log('\nMODELS (harness-observed)')
+  for (const m of s.models) console.log(`  ${m.model.padEnd(30)} ${m.runs}`)
+
   console.log(`\nTELEMETRY  ${s.telemetry.note}`)
-  console.log(`  runs with tokens: ${s.telemetry.runsWithTokens}   runs with cost: ${s.telemetry.runsWithCost}`)
+  console.log(
+    `  model: ${s.telemetry.runsWithModel}   widgets: ${s.telemetry.runsWithWidgets}   tokens: ${s.telemetry.runsWithTokens}   dollars: ${s.telemetry.runsWithCost}`,
+  )
   console.log('')
 }
 
