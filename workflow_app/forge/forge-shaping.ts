@@ -394,3 +394,129 @@ export function smithUnitForNode(
   return { unit: decision.units[0], error: null }
 }
 
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-ARCHITECT-BRIEF-01 (slice 1) — the Architect brief is a CONTRACT.
+//
+// The findings marker is emitted by a MODEL, so the payload arrives in whatever
+// shape it chose. findingsFromArchitectEvidence() tolerates that SHAPE (correctly),
+// but tolerating shape must never mean accepting SILENCE. A brief that parsed to
+// zero findings degraded quietly to `[]`, so the failure surfaced one lane later as
+// LEAD refusing to route ("No required findings supplied") — blaming the wrong role
+// with a message the Architect could neither act on nor retry against. WS-09 then
+// invented a calendar because its contract was empty.
+//
+// This gate runs at the ARCHITECT boundary for the nodes that owe findings
+// (`architect`, `repair_architect`) — deliberately NOT lane-wide, because
+// `research_architect` shares lane 'architect' and owes a disposition, not findings.
+// It fails CLOSED with diagnostics written for the retry: that is what turned LEAD
+// from a deterministic HOLD into a self-correcting attempt.
+//
+// No schema change: the findings jsonb column already exists.
+// ---------------------------------------------------------------------------
+
+/** The chunk ceiling a REQUIRED finding must respect before it must be decomposed. */
+export const MAX_SEAMS_PER_FINDING = 3
+
+export type ArchitectBriefAssessment = {
+  verdict: 'OK' | 'HOLD'
+  reasons: string[]
+  findingCount: number
+  seamCount: number
+}
+
+export const ARCHITECT_FINDINGS_MISSING =
+  'ARCHITECT_BRIEF: no readable findings. End the reply with exactly ONE un-fenced single JSON line beginning ' +
+  '`FORGE_FINDINGS_JSON:` whose value is an array of {"id":"<stable-key>","summary":"<one distinct finding>",' +
+  '"required":true|false,"seams":["<repository-relative path>","<path#symbol>"],' +
+  '"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}.'
+
+/**
+ * A seam is usable only when it is a repository-relative path. Mirrors the LEAD
+ * pathOf() rules — and additionally rejects embedded whitespace, because a seam is
+ * ONE path: if a sentence can live inside the value ("ui/a b.ts"), prose has leaked
+ * into a machine field and the value should be rejected at the Architect's own
+ * boundary rather than die later as a silent scope mismatch at LEAD.
+ */
+export function isRepoRelativeSeam(scope: string): boolean {
+  const p = String(scope).trim().split('#')[0].replace(/^\.\//, '').replace(/\/+$/, '')
+  if (!p || p.startsWith('/')) return false
+  if (/[\s*?[\]{}:]/.test(p)) return false
+  return !p.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+}
+
+export function assessArchitectBrief(
+  text: string | null | undefined,
+  options: { maxSeamsPerFinding?: number } = {},
+): ArchitectBriefAssessment {
+  const maxSeams = options.maxSeamsPerFinding ?? MAX_SEAMS_PER_FINDING
+  const reasons: string[] = []
+  const raw = text ?? ''
+
+  // Last parseable marker wins: the model's real emission is at the end, and an
+  // echoed instruction line must never shadow it.
+  const positions: number[] = []
+  for (let at = raw.indexOf(STRUCTURED_PREFIX); at >= 0; at = raw.indexOf(STRUCTURED_PREFIX, at + 1)) {
+    positions.push(at)
+  }
+  let payload: unknown[] | null = null
+  for (let i = positions.length - 1; i >= 0; i--) {
+    const slice = extractJsonArray(raw.slice(positions[i] + STRUCTURED_PREFIX.length))
+    if (!slice) continue
+    try {
+      const parsed: unknown = JSON.parse(slice)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        payload = parsed
+        break
+      }
+    } catch {
+      /* try an earlier occurrence */
+    }
+  }
+
+  const findings = payload ? parseForgeFindings(payload) : []
+  if (!payload || findings.length === 0) {
+    reasons.push(ARCHITECT_FINDINGS_MISSING)
+    return { verdict: 'HOLD', reasons, findingCount: 0, seamCount: 0 }
+  }
+
+  // Silent row loss is the same disease as silent parse loss: a partial payload must
+  // not quietly shrink the story's finding set.
+  if (payload.length > findings.length) {
+    reasons.push(
+      `ARCHITECT_BRIEF: ${payload.length - findings.length} of ${payload.length} finding rows were dropped as ` +
+        `incomplete — every row needs a non-empty "id" AND "summary" (${findings.length} usable).`,
+    )
+  }
+
+  for (const finding of findings) {
+    if (!finding.seams.length) {
+      reasons.push(
+        `ARCHITECT_BRIEF ${finding.id}: declare at least one repository-relative seam — LEAD builds work orders ` +
+          'from seams, not prose.',
+      )
+      continue
+    }
+    const invalid = finding.seams.filter((seam) => !isRepoRelativeSeam(seam))
+    if (invalid.length) {
+      reasons.push(
+        `ARCHITECT_BRIEF ${finding.id}: invalid seam(s) ${invalid.map((s) => `"${s}"`).join(', ')} — use ` +
+          'repository-relative paths or path#symbol (no leading "/", no "./", no globs, no spaces).',
+      )
+    }
+    if (finding.required && finding.seams.length > maxSeams) {
+      reasons.push(
+        `ARCHITECT_BRIEF ${finding.id}: ${finding.seams.length} seams exceeds the chunk ceiling of ${maxSeams} — ` +
+          'decompose it into separate findings (or mark it hint SPLIT_CHILD / FOLLOW_UP_STORY).',
+      )
+    }
+  }
+
+  return {
+    verdict: reasons.length ? 'HOLD' : 'OK',
+    reasons,
+    findingCount: findings.length,
+    seamCount: findings.reduce((n, f) => n + f.seams.length, 0),
+  }
+}
+

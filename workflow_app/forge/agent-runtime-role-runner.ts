@@ -45,6 +45,7 @@ import { splitJoinHoldReasons } from './split-join'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { parseExecutionEnvironment } from '../../lib/execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
+import { assessArchitectBrief } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
@@ -576,6 +577,20 @@ export function createAgentRuntimeForgeRoleRunner(
           }
         }
       }
+      // ENG-FORGE-ARCHITECT-BRIEF-01 (slice 1) — the Architect brief is a CONTRACT,
+      // enforced at the ARCHITECT boundary so a bad brief names the Architect, not
+      // LEAD. Node-scoped (not lane-scoped): `research_architect` shares lane
+      // 'architect' but owes a disposition, not findings. This cannot add HOLD risk:
+      // an empty/invalid brief already HOLDs one lane later — it just HOLDs the wrong
+      // role with a message the author could not act on. Errors ride the same bounded
+      // self-heal path as LEAD routing, so attempt 2 can fix them.
+      if (nodeId === 'architect' || nodeId === 'repair_architect') {
+        const brief = assessArchitectBrief(raw)
+        if (brief.verdict === 'HOLD') {
+          missing.push(...brief.reasons.map((reason) => `architect-brief:${reason}`))
+        }
+      }
+
       // Durable observability of the PRE routing verdict (NOT a second gate).
       //
       // HISTORY (do not be misled by older revisions of this comment): a
