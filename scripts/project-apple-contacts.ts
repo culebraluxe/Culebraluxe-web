@@ -259,7 +259,7 @@ const ADDRESSES_SQL = `
 const L_PROPERTY_SQL = `
   ${LATEST_CTE}
   insert into l_property (
-    source_system, source_account, source_key, source_label, ordinal,
+    source_system, source_account, source_key, source_label, address_type, ordinal,
     address_line1, city, state_or_province, postal_code, country, iso_country_code, raw
   )
   select
@@ -267,6 +267,16 @@ const L_PROPERTY_SQL = `
     l.source_account,
     l.source_contact_id || ':' || (a.ordinal - 1),
     nullif(trim(a.value->>'label'), ''),
+    -- THE FORK: Home is the LEGAL address, Work is the PHYSICAL property.
+    -- Label first (it carries the operator's intent); ordinal as the fallback
+    -- (first address -> LEGAL, second -> PHYSICAL) when a label is missing.
+    case
+      when coalesce(a.value->>'label', '') ilike '%home%' then 'LEGAL'
+      when coalesce(a.value->>'label', '') ilike '%work%' then 'PHYSICAL'
+      when (a.ordinal - 1) = 0 then 'LEGAL'
+      when (a.ordinal - 1) = 1 then 'PHYSICAL'
+      else 'OTHER'
+    end,
     a.ordinal - 1,
     nullif(trim(a.value->>'street'), ''),
     nullif(trim(a.value->>'city'), ''),
@@ -281,6 +291,7 @@ const L_PROPERTY_SQL = `
   on conflict (coalesce(source_system, ''), coalesce(source_account, ''), coalesce(source_key, ''))
   do update set
     source_label = excluded.source_label,
+    address_type = excluded.address_type,
     address_line1 = excluded.address_line1,
     city = excluded.city,
     state_or_province = excluded.state_or_province,
