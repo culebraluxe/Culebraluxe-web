@@ -1,4 +1,5 @@
 'use server'
+import { withServerErrorCapture } from '@/lib/error-capture-seam'
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
@@ -36,7 +37,7 @@ function revalidateMarketing() {
   revalidatePath('/portal/marketing/syndication')
 }
 
-export async function publishListingsAction(
+async function publishListingsActionHandler(
   _prev: MarketingWriteState,
   formData: FormData,
 ): Promise<MarketingWriteState> {
@@ -69,7 +70,7 @@ export async function publishListingsAction(
   }
 }
 
-export async function confirmPlacementAction(
+async function confirmPlacementActionHandler(
   _prev: MarketingWriteState,
   formData: FormData,
 ): Promise<MarketingWriteState> {
@@ -84,7 +85,7 @@ export async function confirmPlacementAction(
   return { ok: true, message: 'Round trip closed — placement is live.' }
 }
 
-export async function withdrawPlacementAction(
+async function withdrawPlacementActionHandler(
   _prev: MarketingWriteState,
   formData: FormData,
 ): Promise<MarketingWriteState> {
@@ -97,7 +98,7 @@ export async function withdrawPlacementAction(
   return { ok: true, message: 'Placement withdrawn.' }
 }
 
-export async function renewPlacementAction(
+async function renewPlacementActionHandler(
   _prev: MarketingWriteState,
   formData: FormData,
 ): Promise<MarketingWriteState> {
@@ -113,7 +114,7 @@ export async function renewPlacementAction(
 const SIGHTING_NETWORKS: readonly SightingNetwork[] = ['zillow', 'realtor_com', 'homes_com', 'other']
 
 /** Record where a listing was observed (V3 §2.3). Never creates a placement. */
-export async function addSightingAction(
+async function addSightingActionHandler(
   _prev: MarketingWriteState,
   formData: FormData,
 ): Promise<MarketingWriteState> {
@@ -135,7 +136,7 @@ export async function addSightingAction(
 const INQUIRY_SOURCES = ['phone', 'whatsapp', 'email', 'walkin'] as const
 
 /** Log a listing inquiry against an existing person (reuses property_interest). */
-export async function logInquiryAction(
+async function logInquiryActionHandler(
   _prev: MarketingWriteState,
   formData: FormData,
 ): Promise<MarketingWriteState> {
@@ -153,7 +154,22 @@ export async function logInquiryAction(
 }
 
 /** Read-only person picker for the Launch panel (requires a query). */
-export async function searchInquiryPeopleAction(query: string) {
+async function searchInquiryPeopleActionHandler(query: string) {
   await requireRead()
   return searchPeople(query ?? '', 8)
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably, then rethrown.
+export const publishListingsAction = withServerErrorCapture('portal/marketing/actions.publishListingsAction', publishListingsActionHandler)
+
+export const confirmPlacementAction = withServerErrorCapture('portal/marketing/actions.confirmPlacementAction', confirmPlacementActionHandler)
+
+export const withdrawPlacementAction = withServerErrorCapture('portal/marketing/actions.withdrawPlacementAction', withdrawPlacementActionHandler)
+
+export const renewPlacementAction = withServerErrorCapture('portal/marketing/actions.renewPlacementAction', renewPlacementActionHandler)
+
+export const addSightingAction = withServerErrorCapture('portal/marketing/actions.addSightingAction', addSightingActionHandler)
+
+export const logInquiryAction = withServerErrorCapture('portal/marketing/actions.logInquiryAction', logInquiryActionHandler)
+
+export const searchInquiryPeopleAction = withServerErrorCapture('portal/marketing/actions.searchInquiryPeopleAction', searchInquiryPeopleActionHandler)

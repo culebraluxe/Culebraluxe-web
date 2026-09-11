@@ -1,4 +1,5 @@
 'use server'
+import { withServerErrorCapture } from '@/lib/error-capture-seam'
 
 import { inspectInstance } from '@/workflow_app/diagnostics'
 import type { InstanceDetail } from '@/workflow_app/diagnostics'
@@ -8,8 +9,11 @@ import type { InstanceDetail } from '@/workflow_app/diagnostics'
 // technical detail is fetched lazily when a support operator expands a row.
 // No engine changes, no XML changes, no workflow mutation.
 
-export async function loadWorkflowInstanceDetail(
+async function loadWorkflowInstanceDetailHandler(
   instanceId: string
 ): Promise<InstanceDetail | null> {
   return inspectInstance(instanceId)
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably, then rethrown.
+export const loadWorkflowInstanceDetail = withServerErrorCapture('portal/workflow-diagnostics-actions.loadWorkflowInstanceDetail', loadWorkflowInstanceDetailHandler)

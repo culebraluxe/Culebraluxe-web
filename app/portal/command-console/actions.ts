@@ -1,4 +1,5 @@
 'use server'
+import { withServerErrorCapture } from '@/lib/error-capture-seam'
 
 import { revalidatePath } from 'next/cache'
 
@@ -43,7 +44,7 @@ function result<T>(fn: () => Promise<T>): Promise<ConsoleActionResult<T>> {
  * storyboard_story at execution time. This is the console's only command
  * creation path; no second command table exists.
  */
-export async function queueCommandAction(input: {
+async function queueCommandActionHandler(input: {
   storyId: string
   role: string
   modelProfile: string
@@ -92,7 +93,7 @@ export async function queueCommandAction(input: {
 }
 
 /** Cancel a running/claimed command (terminal, never success). */
-export async function cancelCommandAction(
+async function cancelCommandActionHandler(
   workItemId: string,
 ): Promise<ConsoleActionResult<{ workItemId: string }>> {
   return result(async () => {
@@ -103,7 +104,7 @@ export async function cancelCommandAction(
 }
 
 /** Pause a Running command (preserves assignment). */
-export async function pauseCommandAction(
+async function pauseCommandActionHandler(
   workItemId: string,
 ): Promise<ConsoleActionResult<{ workItemId: string }>> {
   return result(async () => {
@@ -114,7 +115,7 @@ export async function pauseCommandAction(
 }
 
 /** Resume a Paused command (same logical attempt). */
-export async function resumeCommandAction(
+async function resumeCommandActionHandler(
   workItemId: string,
 ): Promise<ConsoleActionResult<{ workItemId: string }>> {
   return result(async () => {
@@ -123,3 +124,12 @@ export async function resumeCommandAction(
     return { workItemId }
   })
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably, then rethrown.
+export const queueCommandAction = withServerErrorCapture('portal/command-console/actions.queueCommandAction', queueCommandActionHandler)
+
+export const cancelCommandAction = withServerErrorCapture('portal/command-console/actions.cancelCommandAction', cancelCommandActionHandler)
+
+export const pauseCommandAction = withServerErrorCapture('portal/command-console/actions.pauseCommandAction', pauseCommandActionHandler)
+
+export const resumeCommandAction = withServerErrorCapture('portal/command-console/actions.resumeCommandAction', resumeCommandActionHandler)

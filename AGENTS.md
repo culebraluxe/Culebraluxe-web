@@ -222,7 +222,7 @@ Canonical seams — reuse these; do not invent parallel capture:
 - **DB**: `DatabaseGateway` captures normalized DB failures automatically.
 - **Service kernel**: `BaseService` + `ServiceErrorSink` (`ServiceInfrastructure.errors`, bound via `composeCoreServices`/`appServiceErrorSink`) — captures unhandled (non-domain) exceptions with domain/operation/correlationId.
 - **Route handlers that throw**: `withApiHandler({ label, route })(handler)` (`lib/error-capture-seam.ts`) — captures and returns a 500. When a handler catches-and-returns an error body instead of throwing, call `captureServerError` in the non-auth catch (pattern: `app/api/portal/form-sidecar/*`).
-- **Server actions / async fns**: `withServerErrorCapture(label)(fn)`, or `captureServerError`/`captureServerLog` in the catch.
+- **Server actions / async fns**: `withServerErrorCapture(label, fn)`, or `captureServerError`/`captureServerLog` in the catch. (Single call, not curried — the curried form cannot infer the handler's argument types, same fix `withApiHandler` needed in `dca591b`.)
 - **Low-level entry**: `recordError`/`captureError` (`db/app-error.ts`), severity `info`/`warn`/`error`/`fatal`.
 
 Severity conveys intent: `info` observed · `warn` soft · `error` recoverable · `fatal` cannot continue. Expected business outcomes (validation failures, authorization denials/FORBIDDEN, "not found") are **audited control flow**, not error rows — never capture them as error noise.

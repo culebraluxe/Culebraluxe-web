@@ -1,9 +1,10 @@
 // -----------------------------------------------------------------------------
 // Capture seam helpers — low-friction wrappers so the sweep is mechanical.
 //
-//   withServerErrorCapture(label, opts)(asyncFn)   — wraps a server action /
+//   withServerErrorCapture(label, asyncFn)         — wraps a server action /
 //     async fn: on throw it captures durably then rethrows (caller decides).
-//   withApiHandler(label, opts)(handler)            — for Next route handlers:
+//     SINGLE CALL: the curried form cannot infer the handler's argument types.
+//   withApiHandler({ label, route }, handler)      — for Next route handlers:
 //     on throw it captures and returns a 500 Response instead of letting a raw
 //     error escape to a client.
 //
@@ -30,29 +31,37 @@ function messageOf(err: unknown, label: string): string {
   return String(err)
 }
 
-/** Wrap an async server function: capture durably on throw, then rethrow. */
+/**
+ * Wrap an async server function: capture durably on throw, then rethrow.
+ *
+ * SINGLE CALL, deliberately. The curried form `withServerErrorCapture(label)(fn)`
+ * cannot infer the handler's argument types — TypeScript pins TArgs to unknown[]
+ * at the first call and the second call then fails to accept a typed handler.
+ * `withApiHandler` was made single-call for exactly this reason (commit dca591b);
+ * this now matches it.
+ */
 export function withServerErrorCapture<TArgs extends unknown[], TResult>(
   label: string,
+  fn: (...args: TArgs) => Promise<TResult>,
   opts: CaptureOpts = {},
-) {
-  return (fn: (...args: TArgs) => Promise<TResult>) =>
-    async (...args: TArgs): Promise<TResult> => {
-      try {
-        return await fn(...args)
-      } catch (err) {
-        const level = opts.level ?? levelOf(err)
-        captureError({
-          kind: err instanceof Error ? err.name || 'Error' : 'Error',
-          operation: label,
-          message: messageOf(err, label),
-          stack: err instanceof Error ? err.stack ?? null : null,
-          storyId: opts.storyId ?? null,
-          route: opts.route ?? null,
-          level,
-        })
-        throw err
-      }
+): (...args: TArgs) => Promise<TResult> {
+  return async (...args: TArgs): Promise<TResult> => {
+    try {
+      return await fn(...args)
+    } catch (err) {
+      const level = opts.level ?? levelOf(err)
+      captureError({
+        kind: err instanceof Error ? err.name || 'Error' : 'Error',
+        operation: label,
+        message: messageOf(err, label),
+        stack: err instanceof Error ? err.stack ?? null : null,
+        storyId: opts.storyId ?? null,
+        route: opts.route ?? null,
+        level,
+      })
+      throw err
     }
+  }
 }
 
 /** Wrap a Next route handler: capture durably on throw, return a 500 Response. */

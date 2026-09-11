@@ -1,4 +1,5 @@
 "use server"
+import { withServerErrorCapture } from '@/lib/error-capture-seam'
 
 import { redirect } from "next/navigation"
 
@@ -10,7 +11,7 @@ import { setActiveWork } from "@/db/storyboard"
 // story from Active Work is an INTENT flag only: it never changes story status,
 // never touches Forge run state, never creates an agent work item, and never
 // launches work. Requires tech.access.
-export async function setActiveWorkAction(formData: FormData): Promise<void> {
+async function setActiveWorkActionHandler(formData: FormData): Promise<void> {
   const access = await resolvePortalAccess(
     createAuthJsSessionAdapter(),
     "tech.access",
@@ -22,3 +23,6 @@ export async function setActiveWorkAction(formData: FormData): Promise<void> {
   if (!storyId) return
   await setActiveWork(storyId, active, access.ok ? access.actor.appUserId : null)
 }
+
+// ENG-FORGE error-capture: a throw is recorded durably, then rethrown.
+export const setActiveWorkAction = withServerErrorCapture('portal/tech/actions.setActiveWorkAction', setActiveWorkActionHandler)
