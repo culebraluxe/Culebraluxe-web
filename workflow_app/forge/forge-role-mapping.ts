@@ -1,6 +1,7 @@
 import type { LaneId } from '../../agent-runtime/lanes'
 import type { AgentRunEvidence } from '../../agent-runtime/types'
 import type { ForgeGateEvidence } from './forge-facts'
+import { isPlaceholderReceiptId } from './forge-release-receipt'
 
 export type ForgeRoleNodePlan = {
   lane: LaneId
@@ -279,6 +280,8 @@ export function forgeEvidenceFromAgentResult(input: {
           receipt?.kind === 'deployment' &&
           receipt.success &&
           receipt.receiptId.trim() &&
+          // A placeholder id ("n/a", "test", "tbd") is not a receipt. TECH-DEBT-07.
+          !isPlaceholderReceiptId(receipt.receiptId) &&
           deployed === published,
       )
       return {
