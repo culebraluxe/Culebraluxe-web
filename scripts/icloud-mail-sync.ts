@@ -14,6 +14,7 @@ import {
   upsertRelationshipEvidence,
 } from '../db/relationship-evidence'
 import { createInteraction } from '../db/interactions'
+import { appleMailReplayId, landAppleMail } from '../db/landing'
 import { createInMemoryPersonLookup } from '../lib/relationship-intel/inmemory-lookup'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import {
@@ -118,7 +119,10 @@ async function runMailExporter(account: string): Promise<LocalMailRecord[]> {
   }
 }
 
-async function acquireMetadata(verifyOnly = false): Promise<ICloudMailObservation[]> {
+async function acquireMetadata(
+  execute: QueryExecutor,
+  verifyOnly = false,
+): Promise<ICloudMailObservation[]> {
   const account = requiredEnv('ICLOUD_MAIL_ADDRESS').toLowerCase()
   const internal = internalAddresses()
   if (!internal.has(account)) throw new Error('ICLOUD_MAIL_ADDRESS must be listed in EMAIL_INTERNAL_ADDRESSES.')
@@ -129,6 +133,51 @@ async function acquireMetadata(verifyOnly = false): Promise<ICloudMailObservatio
     console.log('Apple Mail.app account access verified')
     return []
   }
+
+  // LANDING — before ANY identity decision. Every exported source record lands in
+  // l_applemail here, including the ones the classification below will skip
+  // (internal-only, ambiguous, no timestamp). Those are still source evidence and
+  // must not be silently lost. No Person decision, no CRM decision, no promotion.
+  let landed = 0
+  let replayed = 0
+  let unlandable = 0
+  for (const record of records) {
+    const sourceMessageId = appleMailReplayId({
+      messageId: record.messageId,
+      mailboxKind: record.mailbox,
+      localId: record.localId,
+    })
+    if (!sourceMessageId) {
+      // No stable identity means it cannot be replayed safely. Recorded, never
+      // invented - a random id would duplicate the row on every run.
+      unlandable += 1
+      continue
+    }
+    const inserted = await landAppleMail(
+      {
+        sourceAccount: account,
+        sourceMessageId,
+        mailboxKind: record.mailbox,
+        mailboxName: record.mailboxName,
+        localId: record.localId,
+        messageId: record.messageId,
+        occurredAt: record.occurredAt ? new Date(record.occurredAt).toISOString() : null,
+        sender: record.sender,
+        toRecipients: record.to,
+        ccRecipients: record.cc,
+        bccRecipients: record.bcc,
+        subject: record.subject,
+        // The UNMODIFIED exporter record - not a normalized evidence object.
+        raw: record,
+      },
+      execute,
+    )
+    if (inserted) landed += 1
+    else replayed += 1
+  }
+  console.log(
+    `l_applemail: ${landed} landed, ${replayed} replayed, ${unlandable} without a stable id (of ${records.length} exported)`,
+  )
 
   const seen = new Set<string>()
   const observations: ICloudMailObservation[] = []
@@ -261,10 +310,12 @@ async function main() {
     throw new Error('Usage: icloud-mail-sync.ts <dev|prod>')
   }
   const verifyOnly = process.argv.includes('--verify-only')
-  const observations = await acquireMetadata(verifyOnly)
-  if (verifyOnly) return
+  // The pool is created BEFORE acquisition so landing can write source evidence as
+  // the exporter's records arrive - landing must precede classification.
   const pool = createPoolExecutor(targetDatabaseUrl(target))
   try {
+    const observations = await acquireMetadata(pool.execute, verifyOnly)
+    if (verifyOnly) return
     await intakeMetadata(target, observations, pool.execute)
   } finally {
     await pool.end()
