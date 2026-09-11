@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { createCommandDispatcher } from '@/lib/commands'
 import { neonTx } from '@/db/tx'
 import { SignatureApplication } from '@/lib/signature/application'
@@ -114,6 +115,7 @@ async function POSTHandler(request: NextRequest) {
   try {
     cfg = getConfig()
   } catch (error) {
+    captureServerError('/api/integrations/boldsign/webhook', error, { route: '/api/integrations/boldsign/webhook' })
     // Fail closed on missing/invalid configuration; log the key NAMES (never
     // values) server-side and return a generic response to the public caller.
     console.error('[boldsign-webhook] configuration error', {
@@ -150,6 +152,7 @@ async function POSTHandler(request: NextRequest) {
   try {
     app = getApplication()
   } catch (error) {
+    captureServerError('/api/integrations/boldsign/webhook', error, { route: '/api/integrations/boldsign/webhook' })
     console.error('[boldsign-webhook] application configuration error', {
       error: errorMessage(error),
     })
@@ -175,13 +178,20 @@ async function POSTHandler(request: NextRequest) {
       // passes and benign deliveries are not retried; nothing was processed.
       // Reconciliation via status polling (lib/signature/application.ts
       // refreshStatus) remains the convergence backstop for genuine events.
+      //
+      // This is EXPECTED control flow, not a failure, so it is NOT captured as an
+      // error row (AGENTS.md: expected business outcomes are audited control flow,
+      // not error noise). Capturing it here would write an error on every Verify.
       console.warn('[boldsign-webhook] non-actionable event acknowledged', {
         error: message,
       })
       return NextResponse.json({ ok: true, acknowledged: true }, { status: 200 })
     }
-    // Infrastructure / reconciliation failure: surface a retryable error so BoldSign
-    // redelivers the event (all downstream paths are idempotent).
+    // Infrastructure / reconciliation failure: capture durably and surface a
+    // retryable error so BoldSign redelivers (all downstream paths are idempotent).
+    captureServerError('/api/integrations/boldsign/webhook', error, {
+      route: '/api/integrations/boldsign/webhook',
+    })
     console.error('[boldsign-webhook] event processing failed', {
       error: message,
     })

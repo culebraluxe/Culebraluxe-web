@@ -1,4 +1,6 @@
 import { sql } from '@/db/client'
+
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 const UUID_PATTERN =
@@ -35,6 +37,7 @@ async function GETHandler(
       LIMIT 1
     `
   } catch (err) {
+    captureServerError('/api/media/documents/[id]', err, { route: '/api/media/documents/[id]' })
     // DB-HARDEN-01C — public media read: controlled 503 on DB failure.
     console.error(
       '[media:gateway] public document read failed',

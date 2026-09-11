@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { guardPortalUpload } from '@/lib/auth/portal-session'
 import { sql } from '@/db/client'
 import {
@@ -134,6 +135,7 @@ async function POSTHandler(request: Request) {
       role,
     })
   } catch (error) {
+    captureServerError('/api/property-media/upload', error, { route: '/api/property-media/upload' })
     console.error('Property media upload failed:', error)
 
     return NextResponse.json(

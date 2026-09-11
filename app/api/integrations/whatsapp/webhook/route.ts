@@ -1,5 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server'
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { refreshClientReadModels } from '@/db/client-read-models'
 import {
   loadMetaWhatsAppConfiguration,
@@ -35,6 +36,7 @@ async function GETHandler(request: NextRequest) {
   try {
     expectedToken = loadWhatsAppVerifyToken()
   } catch (error) {
+    captureServerError('/api/integrations/whatsapp/webhook', error, { route: '/api/integrations/whatsapp/webhook' })
     console.error('[whatsapp-webhook] verification is not configured', {
       error: errorMessage(error),
     })
@@ -62,6 +64,7 @@ async function POSTHandler(request: NextRequest) {
   try {
     config = loadMetaWhatsAppConfiguration()
   } catch (error) {
+    captureServerError('/api/integrations/whatsapp/webhook', error, { route: '/api/integrations/whatsapp/webhook' })
     console.error('[whatsapp-webhook] configuration error', {
       error: errorMessage(error),
     })
@@ -85,7 +88,8 @@ async function POSTHandler(request: NextRequest) {
   let payload: MetaWhatsAppWebhookPayload
   try {
     payload = JSON.parse(rawBody) as MetaWhatsAppWebhookPayload
-  } catch {
+  } catch (error) {
+    captureServerError('/api/integrations/whatsapp/webhook', error, { route: '/api/integrations/whatsapp/webhook' })
     return NextResponse.json(
       { ok: false, error: 'Invalid WhatsApp payload.' },
       { status: 400 },
@@ -145,6 +149,7 @@ async function POSTHandler(request: NextRequest) {
       { status: 200 },
     )
   } catch (error) {
+    captureServerError('/api/integrations/whatsapp/webhook', error, { route: '/api/integrations/whatsapp/webhook' })
     console.error('[whatsapp-webhook] event processing failed', {
       error: errorMessage(error),
     })

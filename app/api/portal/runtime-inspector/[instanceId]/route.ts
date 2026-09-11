@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { getRuntimeInspection } from "@/workflow_app/runtime-inspector-read"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -24,6 +25,7 @@ async function GETHandler(
     }
     return NextResponse.json(payload)
   } catch (err) {
+    captureServerError('/api/portal/runtime-inspector/[instanceId]', err, { route: '/api/portal/runtime-inspector/[instanceId]' })
     console.error("[runtime-inspector] read failed:", err)
     return NextResponse.json(
       { error: "runtime_inspector_unavailable" },

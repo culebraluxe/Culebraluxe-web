@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { getClientsPage } from "@/db/clients"
 import { getClientAdminPage } from "@/db/client-admin"
 import { withApiHandler } from '@/lib/error-capture-seam'
@@ -50,6 +51,7 @@ async function GETHandler(req: NextRequest) {
     const result = await getClientsPage({ search, status, role, sort, page, pageSize })
     return NextResponse.json(result)
   } catch (err) {
+    captureServerError('/api/portal/clients', err, { route: '/api/portal/clients' })
     // The canonical clients seam is unavailable. Fail loudly instead of
     // returning an empty page that could be mistaken for "no clients" (which is
     // exactly how a production DB/routing failure previously looked like an

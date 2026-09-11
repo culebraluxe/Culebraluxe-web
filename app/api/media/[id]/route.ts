@@ -1,4 +1,6 @@
 import { sql } from "@/db/client"
+
+import { captureServerError } from '@/lib/server-error-capture'
 import { getToken } from "next-auth/jwt"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -56,6 +58,7 @@ async function GETHandler(
       LIMIT 1
     `
   } catch (err) {
+    captureServerError('/api/media/[id]', err, { route: '/api/media/[id]' })
     // DB-HARDEN-01C — public media read: contain DB failure as a controlled
     // 503 (no SQL/stack leak, no global impact).
     console.error(

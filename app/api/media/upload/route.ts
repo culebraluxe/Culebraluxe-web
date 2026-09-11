@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { guardPortalUpload } from "@/lib/auth/portal-session"
 import { sql } from "@/db/client"
 import {
@@ -16,7 +17,8 @@ async function POSTHandler(request: Request) {
   let guard
   try {
     guard = await guardPortalUpload("listing.write")
-  } catch {
+  } catch (error) {
+    captureServerError('/api/media/upload', error, { route: '/api/media/upload' })
     return NextResponse.json(
       { error: "Media upload failed." },
       { status: 500 }

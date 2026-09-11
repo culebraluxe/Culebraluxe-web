@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { getFlightRecorderTransaction } from "@/workflow_app/flight-recorder-read"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -21,6 +22,7 @@ async function GETHandler(
     }
     return NextResponse.json(tx)
   } catch (err) {
+    captureServerError('/api/portal/flight-recorder/[instanceId]', err, { route: '/api/portal/flight-recorder/[instanceId]' })
     console.error("[flight-recorder] read failed:", err)
     return NextResponse.json(
       { error: "flight_recorder_unavailable" },

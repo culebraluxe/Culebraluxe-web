@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
+import { captureServerError } from '@/lib/server-error-capture'
 import { createCommandDispatcher } from '@/lib/commands'
 import { runAgreementExecutionRecovery } from '@/lib/agreements/recovery'
 import { withApiHandler } from '@/lib/error-capture-seam'
@@ -45,6 +46,7 @@ async function POSTHandler(request: NextRequest) {
     })
     return NextResponse.json({ ok: true, summary }, { status: 200 })
   } catch (error) {
+    captureServerError('/api/system/agreement-execution-recovery', error, { route: '/api/system/agreement-execution-recovery' })
     const message = error instanceof Error ? error.message : String(error)
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
