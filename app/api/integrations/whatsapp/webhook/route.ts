@@ -1,13 +1,15 @@
 import { after, NextResponse, type NextRequest } from 'next/server'
 
 import { captureServerError } from '@/lib/server-error-capture'
+import { landWhatsapp } from '@/db/landing'
+import { sql } from '@/db/client'
 import { refreshClientReadModels } from '@/db/client-read-models'
 import {
   loadMetaWhatsAppConfiguration,
   loadWhatsAppVerifyToken,
 } from '@/lib/whatsapp-cloud/config'
 import { processMetaWhatsAppWebhook } from '@/lib/whatsapp-cloud/application'
-import type { MetaWhatsAppWebhookPayload } from '@/lib/whatsapp-cloud/types'
+import type { MetaWhatsAppWebhookPayload, MetaWhatsAppMessage } from '@/lib/whatsapp-cloud/types'
 import {
   verifyMetaWhatsAppHandshake,
   verifyMetaWhatsAppSignature,
@@ -97,6 +99,57 @@ async function POSTHandler(request: NextRequest) {
   }
 
   try {
+    // GOLDEN RULE: all input lands in its own L table first — the RAW Meta
+    // payload, before any normalization. Replay-safe on (source_account, wamid),
+    // so a Meta redelivery lands nothing new. Landing failures must NOT stop
+    // processing: the inbound message still has to reach the CRM.
+    try {
+      for (const entry of payload.entry ?? []) {
+        for (const change of entry.changes ?? []) {
+          const value = change.value
+          const sourceAccount = value?.metadata?.phone_number_id ?? config.phoneNumberId ?? null
+          const batches: Array<['incoming' | 'outgoing', MetaWhatsAppMessage[] | undefined]> = [
+            ['incoming', value?.messages],
+            ['outgoing', value?.message_echoes],
+          ]
+          for (const [direction, list] of batches) {
+            for (const message of list ?? []) {
+              if (!message.id) continue
+              const mediaId =
+                message.image?.id ??
+                message.video?.id ??
+                message.audio?.id ??
+                message.document?.id ??
+                message.sticker?.id ??
+                null
+              await landWhatsapp(
+                {
+                  sourceAccount,
+                  sourceMessageId: message.id,
+                  conversationId: message.context?.id ?? null,
+                  fromAddress: message.from ?? null,
+                  toAddress: message.to ?? null,
+                  direction,
+                  messageType: message.type ?? null,
+                  text: message.text?.body ?? null,
+                  mediaId,
+                  sentAt: message.timestamp
+                    ? new Date(Number(message.timestamp) * 1000).toISOString()
+                    : null,
+                  raw: message,
+                },
+                sql,
+              )
+            }
+          }
+        }
+      }
+    } catch (error) {
+      captureServerError('/api/integrations/whatsapp/webhook', error, {
+        route: '/api/integrations/whatsapp/webhook',
+      })
+    }
+
     const result = await processMetaWhatsAppWebhook({ payload, config })
     if (result.retryableFailure) {
       return NextResponse.json(

@@ -5,6 +5,7 @@
 // carrying a subject. No body, snippet, attachment, or raw MIME is requested.
 import { getRelationshipEvidenceRows } from '../db/relationship-evidence'
 import { createInteraction } from '../db/interactions'
+import { landEmail } from '../db/landing'
 import type { QueryExecutor } from '../db/query-executor'
 import {
   gmailMetadataToContext,
@@ -69,6 +70,7 @@ async function newestContext(
   email: string,
   internalEmail: string,
   personId: string,
+  execute: QueryExecutor,
 ) {
   const q = `{from:${email} to:${email} cc:${email} bcc:${email}} -in:trash -in:spam -label:drafts`
   const list = await googleGet<{ messages?: Array<{ id: string }> }>(
@@ -83,6 +85,24 @@ async function newestContext(
     const message = await googleGet<GmailMetadataMessage>(
       token,
       `messages/${encodeURIComponent(candidate.id)}?${params.toString()}`,
+    )
+    // GOLDEN RULE: all input lands in its own L table first. Same privacy
+    // boundary as the rest of this sync — headers only, no body/snippet/MIME.
+    const header = (name: string): string | null =>
+      message.payload?.headers?.find((h) => (h.name ?? '').toLowerCase() === name)?.value ?? null
+    await landEmail(
+      {
+        sourceAccount: internalEmail,
+        sourceMessageId: message.id || candidate.id,
+        threadId: message.threadId ?? null,
+        fromAddress: header('from'),
+        toAddress: header('to'),
+        subject: header('subject'),
+        sentAt: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null,
+        labels: null,
+        raw: message,
+      },
+      execute,
     )
     const mapped = gmailMetadataToContext(message, email, internalEmail, personId)
     if (mapped.ok) return mapped.interaction
@@ -118,6 +138,7 @@ export async function runGmailMetadataSync(
         row.sourceIdentityKey,
         internalEmail,
         row.canonicalPersonId!,
+        execute,
       )
       if (!input) {
         noContext += 1
