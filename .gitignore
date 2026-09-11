@@ -25,6 +25,8 @@ output/pdf/
 
 # Apple Contacts — private export data (never commit)
 contact-export/contacts-export.json
+# Any stray copy (Finder " 2.json" duplicates, manual re-exports) — client PII
+contact-export/contacts-export*.json
 
 # Apple Messages — local exporter build artifacts + private export data (never commit)
 apple-messages-export/.build/
