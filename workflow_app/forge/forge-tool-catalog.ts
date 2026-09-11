@@ -126,7 +126,10 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'model-facing',
     purpose: 'symbol-level navigation, references, and bounded semantic edits',
     skillDoc: 'docs/agent/skills/serena.md',
-    wired: false,
+    // Registered with OpenCode 2026-09-11 and verified connected via
+    // `opencode mcp list`. Per-role authority is enforced at the lane boundary
+    // (serenaAllowedToolsForRole), never by the registration.
+    wired: true,
     // Scout stays on Ripwire; Inspector/Assay/DEV_OPS are excluded in the initial cut.
     roles: ['architect', 'lead_pre', 'lead_solo', 'lead_post', 'smith'],
     // Lead PRE is read-only. Lead SOLO/POST and Smith may mutate.

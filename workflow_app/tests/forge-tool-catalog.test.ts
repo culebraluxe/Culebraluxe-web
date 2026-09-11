@@ -44,16 +44,18 @@ test('V5-23..27: every declared tool carries an honest wiring status', () => {
   assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, true, 'dependency-cruiser installed 2026-09-11')
   assert.equal(FORGE_TOOL_CATALOG.knip.wired, true, 'knip installed 2026-09-11')
   assert.equal(FORGE_TOOL_CATALOG.rtk.wired, true, 'rtk shim seam wired 2026-09-11')
-  // Serena's MCP registration is generated but not yet APPLIED to the host, so
-  // it stays false: a registration command that has not been run is not a seam.
-  assert.equal(FORGE_TOOL_CATALOG.serena.wired, false)
+  // Registered with OpenCode and confirmed connected 2026-09-11 — verified by
+  // running `opencode mcp list`, not by assuming the add command worked.
+  assert.equal(FORGE_TOOL_CATALOG.serena.wired, true, 'serena MCP registered 2026-09-11')
 })
 
-test('V5-23..27: an unwired tool never becomes a grant, and its degradation is explicit', () => {
-  const resolution = resolveForgeToolPermissions('smith')
-  assert.equal(grantFor('smith', 'serena'), undefined)
+test('V5-23..27: an unavailable tool never becomes a grant, and its degradation is explicit', () => {
+  // Every tool is now wired, so unavailability is expressed by the environment.
+  // The rule still holds: no grant without availability, and a stated fallback.
+  const resolution = resolveForgeToolPermissions('smith', { available: ['ripwire'] })
+  assert.equal(grantFor('smith', 'serena', ['ripwire']), undefined)
   const degradation = resolution.degradations.find((d) => d.tool === 'serena')
-  assert.equal(degradation?.reason, 'not-wired')
+  assert.equal(degradation?.reason, 'unavailable')
   assert.match(degradation!.fallback, /ripwire/)
 })
 

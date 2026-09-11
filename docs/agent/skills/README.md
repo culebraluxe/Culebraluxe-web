@@ -38,7 +38,7 @@ grant.
 | tool | class | positions | may mutate | can run |
 | --- | --- | --- | --- | --- |
 | `ripwire` | model-facing | Scout · Architect · Lead PRE · Smith · Inspector | — | yes |
-| `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | **no** (not registered) |
+| `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | yes (registered) |
 | `rtk` | transparent shim | Architect · Lead · Smith | — | yes |
 | `cruiser` | deterministic | Assay · Inspector | — | yes |
 | `semgrep` | deterministic | Assay · Inspector | — | yes (informational) |
@@ -55,10 +55,12 @@ Three seams exist now:
   generates `git`/`ls`/`tree`/`gh` shims for the worktree and prepends them to the
   harness child PATH, so the model keeps typing `git status` and transparently gets
   `rtk git status`. The shim `exec`s the proxy, so exit codes are preserved exactly.
-- **serena (V5-23)** — the MCP registration is generated
-  (`serenaMcpRegistration` / `serenaMcpAddCommand`) but **has not been applied to
-  the host yet**, so it stays `no`: a registration command that has not been run is
-  not a seam. Apply it with the printed `opencode mcp add` command.
+- **serena (V5-23)** — registered with OpenCode 2026-09-11
+  (`opencode mcp add serena -- serena start-mcp-server --project <repo>`) and
+  verified connected with `opencode mcp list`. The per-position tool list comes
+  from `serenaAllowedToolsForRole` in `workflow_app/forge/forge-tool-seams.ts`;
+  Architect holds read-only, Smith holds the bounded write subset, and Scout,
+  Inspector, Assay and DEV_OPS hold none.
 
 Interrogate or run them yourself:
 
