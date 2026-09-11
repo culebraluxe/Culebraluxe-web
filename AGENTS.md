@@ -54,13 +54,15 @@ Never
 
 Default report is three items, in this order, and nothing else:
 
-1. **FINISHED** — yes/no, one line.
-2. **NEXT** — the single next action.
-3. **PROBLEMS FOUND** — one line each, max 4.
+1. FINISHED — yes/no, one line.
+2. NEXT — the single next action.
+3. PROBLEMS FOUND — one line each, max 4.
 
-No tables, no verification dumps, no file lists, no restating the plan. Detail only
-when asked. The captain reads for status and blockers, not completeness. Exact files
-and tests still get reported — named in one line, not pasted.
+Number every line. Never use asterisks or bullets in reports to the captain: each
+item must be referenceable by number ("problem 2", "next 1"). No tables, no
+verification dumps, no file lists, no restating the plan. Detail only when asked.
+The captain reads for status and blockers, not completeness. Exact files and tests
+still get reported — named in one line, not pasted.
 
 ## Working Style
 
