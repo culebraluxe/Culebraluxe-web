@@ -119,20 +119,59 @@ async function runMailExporter(account: string): Promise<LocalMailRecord[]> {
   }
 }
 
+/**
+ * Mail.app accounts to pull, in order.
+ *
+ * Plan B (2026-09-11): Apple Mail is ALREADY authenticated to Google, so Gmail
+ * arrives through the same authenticated Mail.app bridge as iCloud. No OAuth
+ * client, no consent screen, no refresh token to expire, and no contact with the
+ * portal's login credentials (AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET are never read
+ * here). The acquisition channel - not the provider - decides the landing table,
+ * so every account below lands in l_applemail keyed on its own source_account.
+ *
+ * Falls back to the legacy single-account ICLOUD_MAIL_ADDRESS so existing runs are
+ * unchanged.
+ */
+function mailAppAccounts(): string[] {
+  const configured = process.env.MAIL_APP_ACCOUNTS?.trim()
+  const raw = configured ? configured.split(',') : [requiredEnv('ICLOUD_MAIL_ADDRESS')]
+  const accounts = raw.map((entry) => entry.trim().toLowerCase()).filter(Boolean)
+  if (accounts.length === 0) throw new Error('MAIL_APP_ACCOUNTS is set but lists no accounts.')
+  return [...new Set(accounts)]
+}
+
 async function acquireMetadata(
   execute: QueryExecutor,
   verifyOnly = false,
 ): Promise<ICloudMailObservation[]> {
-  const account = requiredEnv('ICLOUD_MAIL_ADDRESS').toLowerCase()
+  const accounts = mailAppAccounts()
   const internal = internalAddresses()
-  if (!internal.has(account)) throw new Error('ICLOUD_MAIL_ADDRESS must be listed in EMAIL_INTERNAL_ADDRESSES.')
-
-  console.log(`reading Apple Mail metadata through authenticated Mail.app account=${account}`)
-  const records = await runMailExporter(account)
-  if (verifyOnly) {
-    console.log('Apple Mail.app account access verified')
-    return []
+  for (const candidate of accounts) {
+    if (!internal.has(candidate)) {
+      throw new Error(`Mail.app account ${candidate} must be listed in EMAIL_INTERNAL_ADDRESSES.`)
+    }
   }
+
+  // Dedupe and classification counters span EVERY synced account: one message can
+  // surface in two mailboxes (one account's inbox, another's sent) and must collapse
+  // to a single observation.
+  const seen = new Set<string>()
+  const observations: ICloudMailObservation[] = []
+  let ambiguous = 0
+  let invalid = 0
+  let landedTotal = 0
+  let replayedTotal = 0
+  let unlandableTotal = 0
+  let exportedTotal = 0
+
+  for (const account of accounts) {
+    console.log(`reading Apple Mail metadata through authenticated Mail.app account=${account}`)
+    const records = await runMailExporter(account)
+    exportedTotal += records.length
+    if (verifyOnly) {
+      console.log(`Apple Mail.app account access verified: ${account}`)
+      continue
+    }
 
   // LANDING — before ANY identity decision. Every exported source record lands in
   // l_applemail here, including the ones the classification below will skip
@@ -176,13 +215,11 @@ async function acquireMetadata(
     else replayed += 1
   }
   console.log(
-    `l_applemail: ${landed} landed, ${replayed} replayed, ${unlandable} without a stable id (of ${records.length} exported)`,
+    `l_applemail[${account}]: ${landed} landed, ${replayed} replayed, ${unlandable} without a stable id (of ${records.length} exported)`,
   )
-
-  const seen = new Set<string>()
-  const observations: ICloudMailObservation[] = []
-  let ambiguous = 0
-  let invalid = 0
+  landedTotal += landed
+  replayedTotal += replayed
+  unlandableTotal += unlandable
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]
     const sender = senderAddress(record.sender)
@@ -242,6 +279,11 @@ async function acquireMetadata(
       console.log(`normalize progress: ${processed}/${records.length} | direct=${observations.length} ambiguous=${ambiguous} invalid=${invalid}`)
     }
   }
+  }
+
+  console.log(
+    `l_applemail total: ${landedTotal} landed, ${replayedTotal} replayed, ${unlandableTotal} without a stable id (of ${exportedTotal} exported across ${accounts.length} account(s))`,
+  )
   console.log(`metadata acquisition complete: ${observations.length} direct messages | ambiguous=${ambiguous} invalid=${invalid}`)
   return observations
 }
@@ -274,9 +316,12 @@ export async function intakeMetadata(
   }
   console.log('reconcile tally:', JSON.stringify(tally))
 
+  // Derived from the observations themselves, so every synced Mail.app account is
+  // honoured instead of only the single legacy ICLOUD_MAIL_ADDRESS.
+  const syncedAccounts = new Set(observations.map((observation) => observation.sourceAccount))
   const linked = new Map(
     (await getRelationshipEvidenceRows(ICLOUD_MAIL_SOURCE, execute))
-      .filter((row) => row.sourceAccount === requiredEnv('ICLOUD_MAIL_ADDRESS').toLowerCase())
+      .filter((row) => syncedAccounts.has(row.sourceAccount))
       .filter((row) => row.reviewState === 'exact_linked' && row.canonicalPersonId)
       .map((row) => [row.sourceIdentityKey, row.canonicalPersonId!]),
   )
