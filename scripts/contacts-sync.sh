@@ -123,6 +123,16 @@ NODE
 
 mv "$TMP_EXPORT" "$EXPORT_FILE"
 
+# Notes come from the Contacts APP, not the Swift exporter: macOS gates CNContact.note
+# behind the com.apple.developer.contacts.notes entitlement, which a local Swift build
+# does not have (requesting the key silently yields ""). AppleScript reaches the app's
+# own access instead. BULK property fetch (~5s); a per-person loop measured 336s.
+# Non-fatal by design: notes are context, and a missing note must never block the load.
+log "merging Apple Contacts NOTES into the fresh export"
+if ! node --env-file=.env.local --import tsx scripts/merge-contacts-notes.ts --file "$EXPORT_FILE"; then
+  log "WARNING: notes merge failed; continuing WITHOUT notes for this run"
+fi
+
 log "loading fresh export into historical PROD ODS"
 if ! node --env-file=.env.local --import tsx scripts/load-apple-contacts.ts \
   --env prod \
