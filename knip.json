@@ -1,6 +1,26 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "tags": [
-    "-lintignore"
+  "tags": ["-lintignore"],
+  "entry": [
+    "app/**/{page,layout,route,default,error,global-error,loading,not-found,template,head,opengraph-image,icon,apple-icon,sitemap,robots,manifest}.{ts,tsx}",
+    "middleware.{ts,tsx}",
+    "next.config.{js,mjs,ts}",
+    "postcss.config.{js,mjs}",
+    "scripts/**/*.{ts,js,mjs}",
+    "testv2/**/*.test.ts",
+    "workflow_app/tests/**/*.test.ts",
+    "workflow_app/forge/**/*.test.ts",
+    "agent-runtime/**/*.test.ts",
+    "lib/**/*.test.ts",
+    "**/*.test.{ts,tsx}"
+  ],
+  "project": ["**/*.{ts,tsx,js,mjs,cjs}"],
+  "ignoreExportsUsedInFile": true,
+  "ignore": [
+    "**/*.d.ts",
+    ".next/**",
+    "coverage/**",
+    "workflow_app/definitions/**"
   ]
 }
+
