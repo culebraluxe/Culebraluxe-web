@@ -24,6 +24,9 @@ export type StaticGateResult = {
   /** Hygiene instrument (V5-27). Informational: never recalls Smith. */
   knipRan: boolean
   knipFindings: string[]
+  /** Per-category counts (unused-file, unused-export, unused-dependency, ...). */
+  knipCounts: Record<string, number>
+  knipGroupCount: number
   /** True when architecture (the hard gate) is clean. */
   ok: boolean
 }
@@ -92,9 +95,79 @@ function runSemgrep(input: { workspace: string; roots: string[]; configDir: stri
   return { ran: true, findings }
 }
 
+/** knip reports one group per file, with typed arrays inside. */
+type KnipGroup = Record<string, unknown>
+
+/** Category label -> the key knip uses. */
+const KNIP_CATEGORIES: ReadonlyArray<[key: string, label: string]> = [
+  ['files', 'unused-file'],
+  ['exports', 'unused-export'],
+  ['types', 'unused-type'],
+  ['classMembers', 'unused-class-member'],
+  ['enumMembers', 'unused-enum-member'],
+  ['namespaceMembers', 'unused-namespace-member'],
+  ['dependencies', 'unused-dependency'],
+  ['devDependencies', 'unused-dev-dependency'],
+  ['optionalPeerDependencies', 'unused-optional-peer'],
+  ['unlisted', 'unlisted-dependency'],
+  ['binaries', 'unlisted-binary'],
+  ['unresolved', 'unresolved-import'],
+  ['duplicates', 'duplicate-export'],
+]
+
+function knipItemName(item: unknown): string {
+  if (typeof item === 'string') return item
+  if (item && typeof item === 'object') {
+    const row = item as Record<string, unknown>
+    const name = row.name ?? row.symbol ?? row.file ?? row.line
+    if (typeof name === 'string' || typeof name === 'number') {
+      const parent = typeof row.parentName === 'string' ? `${row.parentName}.` : ''
+      return `${parent}${String(name)}`
+    }
+  }
+  return '?'
+}
+
+/**
+ * Flatten knip's per-file groups into actionable findings, plus a per-category
+ * count so the scale is visible without reading every line.
+ */
+export function parseKnipJson(stdout: string, limit = 200): {
+  findings: string[]
+  counts: Record<string, number>
+  groupCount: number
+} {
+  const counts: Record<string, number> = {}
+  const findings: string[] = []
+  let parsed: { issues?: KnipGroup[] }
+  try {
+    parsed = JSON.parse(stdout) as { issues?: KnipGroup[] }
+  } catch {
+    return { findings, counts, groupCount: 0 }
+  }
+  const groups = Array.isArray(parsed.issues) ? parsed.issues : []
+  for (const group of groups) {
+    const file = typeof group.file === 'string' ? group.file : '?'
+    for (const [key, label] of KNIP_CATEGORIES) {
+      const items = group[key]
+      if (!Array.isArray(items) || items.length === 0) continue
+      counts[label] = (counts[label] ?? 0) + items.length
+      for (const item of items) {
+        if (findings.length >= limit) continue
+        const name = knipItemName(item)
+        findings.push(label === 'unused-file' ? `${label} ${file}` : `${label} ${file}:${name}`)
+      }
+    }
+  }
+  return { findings, counts, groupCount: groups.length }
+}
+
+
 function runKnip(input: { workspace: string; knipBin?: string; timeoutMs: number }): {
   ran: boolean
   findings: string[]
+  counts: Record<string, number>
+  groupCount: number
 } {
   // knip needs the installed tool and a manifest, exactly like depcruise.
   const hasManifest = existsSync(join(input.workspace, 'package.json'))
@@ -102,7 +175,7 @@ function runKnip(input: { workspace: string; knipBin?: string; timeoutMs: number
   const hasKnipBin =
     (input.knipBin ? existsSync(input.knipBin) : false) ||
     existsSync(join(input.workspace, 'node_modules', '.bin', 'knip'))
-  if (!hasManifest || !hasKnipBin) return { ran: false, findings: [] }
+  if (!hasManifest || !hasKnipBin) return { ran: false, findings: [], counts: {}, groupCount: 0 }
 
   const bin = input.knipBin ?? 'pnpm'
   const args = input.knipBin
@@ -110,36 +183,19 @@ function runKnip(input: { workspace: string; knipBin?: string; timeoutMs: number
     : ['exec', 'knip', '--reporter', 'json']
   const r = spawn(bin, args, input.workspace, input.timeoutMs)
   const findings: string[] = []
-  if (r.status === 0) return { ran: true, findings }
+  if (r.status === 0) return { ran: true, findings, counts: {}, groupCount: 0 }
 
   // Parse structured output so the artifact carries file/symbol/type, not a blob.
-  try {
-    const json = JSON.parse(r.stdout) as {
-      files?: Array<string | { file?: string; name?: string }>
-      issues?: Array<{
-        file?: string
-        symbol?: string
-        type?: string
-        name?: string
-      }>
-    }
-    for (const issue of (json.issues ?? []).slice(0, 100)) {
-      const type = issue.type ?? 'issue'
-      const file = issue.file ?? '?'
-      const symbol = issue.symbol ?? issue.name ?? ''
-      findings.push(`${type} ${file}${symbol ? `:${symbol}` : ''}`)
-    }
-    for (const file of (json.files ?? []).slice(0, 100)) {
-      const path = typeof file === 'string' ? file : (file?.file ?? file?.name ?? '?')
-      findings.push(`unused-file ${path}`)
-    }
-    if (findings.length === 0) {
-      findings.push(`knip exited ${r.status} but returned no structured results`)
-    }
-  } catch {
+  // knip's JSON is { issues: [ { file, exports: [...], files: [...], ... } ] } —
+  // one group per file with typed arrays. An earlier version of this parser read
+  // `issues` as flat {type, file, symbol} objects and therefore labelled every
+  // single finding "issue", which made the report useless.
+  const parsed = parseKnipJson(r.stdout)
+  findings.push(...parsed.findings)
+  if (parsed.groupCount === 0 && findings.length === 0) {
     findings.push(r.out.slice(0, 400))
   }
-  return { ran: true, findings }
+  return { ran: true, findings, counts: parsed.counts, groupCount: parsed.groupCount }
 }
 
 /**
@@ -206,6 +262,8 @@ export function runStaticGate(input: {
     semgrepFindings: sec.findings,
     knipRan: hygiene.ran,
     knipFindings: hygiene.findings,
+    knipCounts: hygiene.counts,
+    knipGroupCount: hygiene.groupCount,
     ok: arch.ok,
   }
 }

@@ -87,9 +87,19 @@ async function runInstruments() {
   for (const finding of gate.semgrepFindings.slice(0, 20)) console.log(`  ${finding}`)
 
   console.log(
-    `\nknip — informational: ${!gate.knipRan ? 'did not run (no manifest or binary)' : gate.knipFindings.length === 0 ? 'clean' : `${gate.knipFindings.length} finding(s)`}`,
+    `\nknip — informational: ${!gate.knipRan ? 'did not run (no manifest or binary)' : gate.knipFindings.length === 0 ? 'clean' : `${gate.knipGroupCount} file group(s)`}`,
   )
-  for (const finding of gate.knipFindings.slice(0, 20)) console.log(`  ${finding}`)
+  if (gate.knipRan) {
+    const summary = Object.entries(gate.knipCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count]) => `${label} ${count}`)
+      .join(' · ')
+    if (summary) console.log(`  by category: ${summary}`)
+  }
+  for (const finding of gate.knipFindings.slice(0, 30)) console.log(`  ${finding}`)
+  if (gate.knipFindings.length > 30) {
+    console.log(`  … ${gate.knipFindings.length - 30} more`)
+  }
 
   console.log(
     `\noverall: ${!gate.archRan ? 'INCOMPLETE — the architecture gate did not run (tool not installed)' : gate.ok ? 'PASS' : 'FAIL'}`,
