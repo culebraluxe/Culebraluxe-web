@@ -72,7 +72,7 @@ const L_PERSON_UPSERT_SQL = `
     integration_staged_contact_profile_id, integration_intake_batch_id,
     source, source_account, source_contact_id, source_revision, payload_fingerprint,
     display_name, name_prefix, given_name, middle_name, family_name, name_suffix,
-    nickname, organization, department, job_title, note, display_address,
+    nickname, organization, department, job_title, note, phones, emails, display_address,
     reconciliation_status, candidate_person_id
   )
   select
@@ -106,6 +106,23 @@ const L_PERSON_UPSERT_SQL = `
     nullif(trim(profile->>'department'), ''),
     nullif(trim(profile->>'jobTitle'), ''),
     nullif(trim(profile->>'note'), ''),
+    -- CORE INFO ON THE ROW: phones/emails live on l_person (no child table needed).
+    -- Labels are kept — Home/Work matter, and they are what the legal/physical split
+    -- (and the address fork into l_property) depends on.
+    coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'label', nullif(trim(x->>'label'), ''),
+        'value', trim(x->>'value')))
+      from jsonb_array_elements(coalesce(profile->'phones', '[]'::jsonb)) x
+      where coalesce(trim(x->>'value'), '') <> ''
+    ), '[]'::jsonb),
+    coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'label', nullif(trim(x->>'label'), ''),
+        'value', trim(x->>'value')))
+      from jsonb_array_elements(coalesce(profile->'emails', '[]'::jsonb)) x
+      where coalesce(trim(x->>'value'), '') <> ''
+    ), '[]'::jsonb),
     (
       -- CONVENTION (captain, 2026-09-10): in Apple Contacts there are only two address
       -- slots, and "Home" IS the legal address. Apple stores absent parts as empty
@@ -141,6 +158,8 @@ const L_PERSON_UPSERT_SQL = `
     department = excluded.department,
     job_title = excluded.job_title,
     note = excluded.note,
+    phones = excluded.phones,
+    emails = excluded.emails,
     display_address = excluded.display_address,
     reconciliation_status = excluded.reconciliation_status,
     candidate_person_id = excluded.candidate_person_id
@@ -237,6 +256,42 @@ const ADDRESSES_SQL = `
 `
 
 
+const L_PROPERTY_SQL = `
+  ${LATEST_CTE}
+  insert into l_property (
+    source_system, source_account, source_key, source_label, ordinal,
+    address_line1, city, state_or_province, postal_code, country, iso_country_code, raw
+  )
+  select
+    l.source,
+    l.source_account,
+    l.source_contact_id || ':' || (a.ordinal - 1),
+    nullif(trim(a.value->>'label'), ''),
+    a.ordinal - 1,
+    nullif(trim(a.value->>'street'), ''),
+    nullif(trim(a.value->>'city'), ''),
+    nullif(trim(a.value->>'state'), ''),
+    nullif(trim(a.value->>'postalCode'), ''),
+    nullif(trim(a.value->>'country'), ''),
+    nullif(trim(a.value->>'isoCountryCode'), ''),
+    a.value
+  from latest l
+  cross join lateral jsonb_array_elements(l.profile->'postalAddresses') with ordinality as a(value, ordinal)
+  where trim(coalesce(a.value->>'street', a.value->>'city', '')) <> ''
+  on conflict (coalesce(source_system, ''), coalesce(source_account, ''), coalesce(source_key, ''))
+  do update set
+    source_label = excluded.source_label,
+    address_line1 = excluded.address_line1,
+    city = excluded.city,
+    state_or_province = excluded.state_or_province,
+    postal_code = excluded.postal_code,
+    country = excluded.country,
+    iso_country_code = excluded.iso_country_code,
+    raw = excluded.raw,
+    ingested_at = now()
+`
+
+
 async function runMain() {
   const env = (flag('--env') ?? 'dev').toLowerCase()
   const url = env === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
@@ -306,6 +361,11 @@ async function runMain() {
       await client.query(PHONES_SQL, [batchId, SOURCE])
       await client.query(APPLE_ID_SQL, [batchId, SOURCE])
       await client.query(ADDRESSES_SQL, [batchId, SOURCE])
+      // DUAL-WRITE (ODS restructure step 2): the same addresses also land in l_property,
+      // where they fork by label — Home is the legal address, Work is the physical
+      // property. l_person_address stays populated until the readers are repointed
+      // (step 3) and the promotion runs (step 4); only then is it dropped (step 5).
+      await client.query(L_PROPERTY_SQL, [batchId, SOURCE])
       await client.query('commit')
     } catch (err) {
       await client.query('rollback')
