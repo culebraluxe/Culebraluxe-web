@@ -148,9 +148,9 @@ test('promotion 8: changed contact preserves survivorship (same identity reused)
 
 test('promotion 9: full orchestrator invokes projection then promotion after ODS staging', () => {
   const sh = readFileSync('scripts/contacts-sync.sh', 'utf8')
-  const loadIdx = sh.indexOf('load-apple-contacts.ts')
-  const projectIdx = sh.indexOf('project-apple-contacts.ts')
-  const promoteIdx = sh.indexOf('promote-apple-contacts.ts')
+  const loadIdx = sh.indexOf('scripts/load-apple-contacts.ts')
+  const projectIdx = sh.indexOf('scripts/project-apple-contacts.ts')
+  const promoteIdx = sh.indexOf('scripts/promote-warehouse.ts')
   assert.ok(loadIdx >= 0 && projectIdx >= 0 && promoteIdx >= 0)
   assert.ok(loadIdx < projectIdx && projectIdx < promoteIdx, 'ODS -> projection -> promotion order')
 })
@@ -160,15 +160,15 @@ test('promotion 10: successful promotion refreshes the client read model once', 
   assert.equal((src.match(/refreshClientReadModels\(\)/g) ?? []).length, 1)
 })
 
-test('promotion 11: failed downstream mastering prevents final SUCCESS', () => {
+test('promotion 11: failed downstream promotion prevents final SUCCESS', () => {
   const sh = readFileSync('scripts/contacts-sync.sh', 'utf8')
-  const promoteIdx = sh.indexOf('promote-apple-contacts.ts')
+  const promoteIdx = sh.indexOf('promote-warehouse.ts')
   const successIdx = sh.indexOf('SUCCESS:')
   assert.ok(promoteIdx >= 0 && successIdx >= 0)
-  assert.ok(successIdx > promoteIdx, 'SUCCESS is printed only after the mastering stage')
+  assert.ok(successIdx > promoteIdx, 'SUCCESS is printed only after the promotion stage')
   assert.ok(
-    sh.includes('fail "Contacts Person mastering / MV refresh failed'),
-    'Person mastering or read-model refresh failure fails the run',
+    sh.includes('fail "landing -> warehouse promotion failed'),
+    'promotion or read-model refresh failure fails the run',
   )
 })
 

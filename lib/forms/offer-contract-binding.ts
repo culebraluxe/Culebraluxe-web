@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { bindFormInstanceToContract, getFormContractId } from '@/db/contract-issued-document'
+import { bindFormInstanceToContract, getFormContractId } from '@/lib/vault-io'
 import { CONTRACT_OPERATIONS } from '@/services/contract'
 import { formCoreServices } from './form-service-runtime'
 import { formServiceContext, serviceValue } from './service-binding-core'

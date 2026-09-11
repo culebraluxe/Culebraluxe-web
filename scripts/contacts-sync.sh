@@ -6,13 +6,11 @@
 #   Apple Contacts (CNContactStore, local Mac)
 #     -> contact-export/contacts-export.json
 #     -> historical PROD ODS
-#     -> current l_person relational projection
-#     -> direct Person mastering
-#     -> Clients materialized read models
+#     -> landing tables (l_person, l_property)  <- current source state
+#     -> THE promotion (promote-warehouse.ts)   <- the only reader of the landing tables
+#     -> warehouse (person, property) + Clients materialized read models
 #
-# Historical ODS is append/replay-safe. l_person is current source state.
-# Identity mastering reads current l_person directly; relationship evidence is
-# provenance/context, not a promotion queue.
+# Nothing else reads the landing tables. Historical ODS is append/replay-safe.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -147,28 +145,9 @@ if ! node --env-file=.env.local --import tsx scripts/project-apple-contacts.ts -
   fail "Contacts current projection failed; no SUCCESS reported"
 fi
 
-log "mastering current Contacts into canonical Person"
-if ! APP_ENV=production node --env-file=.env.local --import tsx scripts/promote-apple-contacts.ts --env prod; then
-  fail "Contacts Person mastering / MV refresh failed; no SUCCESS reported"
+log "promoting landing tables into the warehouse (person, property)"
+if ! node --env-file=.env.local --import tsx scripts/promote-warehouse.ts --env prod --apply; then
+  fail "landing -> warehouse promotion failed; Person/Property may be missing facts"
 fi
 
-# Mastering links IDENTITIES (phone/email) but does not NAME the person. Without this
-# step a canonical Person keeps whatever name it was first created with — observed
-# 2026-09-10: a contact in Apple Contacts named "Juan A. Santa Cruz" was mastered onto
-# an existing Person still called "Puerple  House", so "find client" could never find
-# him by his real name (only by email/phone). The naming pass lives in
-# enrich-apple-contacts-names.ts and was never part of this chain (and was DEV-only).
-log "enriching canonical Person display names from current Contacts"
-if ! node --env-file=.env.local --import tsx scripts/enrich-apple-contacts-names.ts --env prod; then
-  fail "Apple Contacts display-name enrichment failed; Person names may be stale"
-fi
-
-# R4 — PROMOTE EVERYTHING: the load has always stopped at the landing table (l_person).
-# This is the step that actually gets Apple data INTO Person: name, phone, email,
-# legal address (Home) and note. Without it Person stays empty while l_person is right.
-log "promoting landing facts into Person (name, identities, legal address, note)"
-if ! node --env-file=.env.local --import tsx scripts/promote-l-person-facts.ts --env prod --apply; then
-  fail "l_person -> person promotion failed; Person may be missing facts"
-fi
-
-log "SUCCESS: Apple Contacts -> historical ODS -> current l_person -> canonical Person -> names -> Clients read model complete"
+log "SUCCESS: Apple Contacts -> ODS -> landing tables (l_person, l_property) -> warehouse (person, property) complete"

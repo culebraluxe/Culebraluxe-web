@@ -57,6 +57,14 @@ export class PersonService extends BaseService<PersonOperationMap> {
           return person
         },
       },
+      [PERSON_OPERATIONS.SEARCH]: {
+        kind: 'query',
+        description: 'Narrow operator search over canonical people by name or recorded identity substring.',
+        authorization: 'person.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.search(request),
+      },
       [PERSON_OPERATIONS.ATTACH_IDENTITY]: {
         kind: 'command',
         description: 'Attach an identity to the canonical person.',

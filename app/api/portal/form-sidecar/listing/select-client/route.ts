@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getFormInstance } from '@/db/document-form-instance'
-import { bindListingFormContext } from '@/db/form-service-lineage'
+import { getFormInstance } from '@/lib/forms/form-instance-io'
+import { bindListingFormContext } from '@/lib/forms/form-instance-io'
 import { AuthError } from '@/lib/auth/errors'
 import { getPortalSessionAdapter } from '@/lib/auth/portal-session'
 import { runAuthorized } from '@/lib/auth/require-authority'

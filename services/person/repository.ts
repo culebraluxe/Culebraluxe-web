@@ -3,6 +3,8 @@ import type {
   FindPersonByIdentityRequest,
   PersonDto,
   PersonIdentityDto,
+  PersonSearchResult,
+  SearchPeopleRequest,
   SetPersonDisplayNameRequest,
 } from './types'
 
@@ -12,4 +14,5 @@ export interface PersonRepository {
   findByIdentity(request: FindPersonByIdentityRequest): Promise<PersonDto | null>
   setDisplayName(request: SetPersonDisplayNameRequest): Promise<PersonDto>
   attachIdentity(request: AttachPersonIdentityRequest): Promise<PersonIdentityDto>
+  search(request: SearchPeopleRequest): Promise<PersonSearchResult[]>
 }

@@ -9,7 +9,7 @@ import {
   Search,
 } from 'lucide-react'
 
-import type { PropertySummary } from '@/db/properties'
+import type { PropertySummary } from '@/services/property'
 import { SaveProperty } from '@/components/property/save-property'
 import { CompareProperty } from '@/components/property/compare-property'
 import { FeaturedPropertyCarousel } from '@/components/property/featured-property-carousel'

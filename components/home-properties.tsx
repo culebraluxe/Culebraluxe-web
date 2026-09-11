@@ -2,7 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 
-import type { PropertySummary } from '@/db/properties'
+import type { PropertySummary } from '@/services/property'
 import { SaveProperty } from '@/components/property/save-property'
 import { formatArea, formatPrice, isLand } from '@/lib/property'
 

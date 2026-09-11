@@ -6,8 +6,20 @@ import type {
   PersonDto,
   PersonIdentityDto,
   PersonRepository,
+  PersonSearchResult,
+  SearchPeopleRequest,
   SetPersonDisplayNameRequest,
 } from '@/services/person'
+
+type PersonSearchRow = {
+  id: string
+  display_name: string
+  role: string
+  status: string
+  location: string | null
+  email: string | null
+  phone: string | null
+}
 
 type PersonRow = {
   id: string
@@ -164,5 +176,65 @@ export class SqlPersonRepository implements PersonRepository {
       sourceSystem: rows[0].source_system ?? undefined,
       isPrimary: rows[0].is_primary,
     }
+  }
+
+  /**
+   * Narrow operator search over canonical people (moved here from the retired
+   * db/people.ts). Exact substring match on display name or a recorded identity
+   * value; the operator chooses. No fuzzy matching or ranking.
+   */
+  async search(request: SearchPeopleRequest): Promise<PersonSearchResult[]> {
+    const query = request.query.trim()
+    if (!query) return []
+    const limit = request.limit ?? 8
+    const pattern = `%${query}%`
+
+    const rows = (await this.execute`
+      select
+        p.id,
+        p.display_name,
+        p.role,
+        p.status,
+        p.location,
+        (
+          select i.identity_value
+          from person_identity i
+          where i.person_id = p.id
+            and i.identity_type = 'email'
+          order by i.is_primary desc, i.created_at desc
+          limit 1
+        ) as email,
+        (
+          select i.identity_value
+          from person_identity i
+          where i.person_id = p.id
+            and i.identity_type = 'phone'
+          order by i.is_primary desc, i.created_at desc
+          limit 1
+        ) as phone
+      from person p
+      where p.archived_at is null
+        and (
+          p.display_name ilike ${pattern}
+          or exists (
+            select 1
+            from person_identity i
+            where i.person_id = p.id
+              and i.identity_value ilike ${pattern}
+          )
+        )
+      order by p.display_name asc
+      limit ${limit}
+    `) as PersonSearchRow[]
+
+    return rows.map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      role: row.role,
+      status: row.status,
+      location: row.location ?? null,
+      email: row.email ?? null,
+      phone: row.phone ?? null,
+    }))
   }
 }

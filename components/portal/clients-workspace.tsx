@@ -1,10 +1,7 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
-import {
-  Home,
-  MapPin,
-} from "lucide-react"
+import { Home } from "lucide-react"
 
 import { ContactHistory } from "@/components/portal/contact-history"
 import { Panel } from "@/components/portal/panel"
@@ -23,13 +20,13 @@ import {
 import type { ClientRole } from "@/lib/portal/types"
 import type { PropertyAddressDto } from "@/services/property"
 import {
-  ClientLensController,
-  HttpClientLensSource,
-  type ClientLensSource,
-} from "@/ui/client-lens"
+  ClientWorkspaceController,
+  HttpClientWorkspaceSource,
+  type ClientWorkspaceSource,
+} from "@/ui/client-workspace"
 import { usePageController } from "@/ui/runtime"
 
-type ClientLensModel = Readonly<ReturnType<ClientLensController["snapshot"]>>
+type ClientWorkspaceModel = Readonly<ReturnType<ClientWorkspaceController["snapshot"]>>
 
 function formatAddress(address: PropertyAddressDto): string {
   return [
@@ -89,8 +86,8 @@ function ClientGrokPlaceholder({ clientName }: { clientName: string | null }) {
   )
 }
 
-function clientLensStatus(
-  model: ClientLensModel,
+function clientWorkspaceStatus(
+  model: ClientWorkspaceModel,
   notesDirty: boolean,
 ): { tone: CommandStatusTone; text: string } {
   const errors = [
@@ -142,11 +139,10 @@ function clientLensStatus(
 function PropertyContextPanel({
   model,
 }: {
-  model: ClientLensModel
+  model: ClientWorkspaceModel
 }) {
   const context = model.propertyContext
   const canonicalCount = context?.properties.length ?? 0
-  const observedCount = context?.observedAddresses.length ?? 0
 
   return (
     <Panel
@@ -154,9 +150,7 @@ function PropertyContextPanel({
       heading="Property Context"
       action={
         <span className="text-[10px] font-light uppercase tracking-[0.12em] text-black/35">
-          {model.propertyLoading
-            ? "Loading…"
-            : `${canonicalCount} properties · ${observedCount} address observations`}
+          {model.propertyLoading ? "Loading…" : `${canonicalCount} properties`}
         </span>
       }
     >
@@ -166,9 +160,9 @@ function PropertyContextPanel({
         <p className="text-sm font-light text-[var(--portal-archive)]">
           Property context unavailable · {model.propertyError}
         </p>
-      ) : !context || (canonicalCount === 0 && observedCount === 0) ? (
+      ) : !context || canonicalCount === 0 ? (
         <p className="text-sm font-light text-black/45">
-          No Property relationship or structured address evidence yet.
+          No Property relationship recorded for this client yet.
         </p>
       ) : (
         <div className="space-y-4">
@@ -204,57 +198,21 @@ function PropertyContextPanel({
               </div>
             </section>
           ) : null}
-
-          {observedCount > 0 ? (
-            <section>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-muted)]">
-                  Structured Address Evidence
-                </div>
-                <span className="text-[9px] font-light uppercase tracking-[0.1em] text-black/35">
-                  Apple Contacts
-                </span>
-              </div>
-              <div className="space-y-2">
-                {context.observedAddresses.map((observation) => (
-                  <div
-                    key={observation.sourceKey}
-                    className="rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/30 px-3 py-2.5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-xs font-medium text-[var(--portal-navy)]">
-                          <MapPin className="h-3.5 w-3.5 shrink-0 text-[var(--portal-gold-muted)]" aria-hidden />
-                          {observation.sourceLabel || "Contact address"}
-                        </div>
-                        <div className="mt-1 pl-5 text-xs font-light leading-5 text-black/60">
-                          {formatAddress(observation.address)}
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[9px] font-light uppercase tracking-[0.1em] text-black/40">
-                        {observation.matchedPropertyId ? "Matched" : "Candidate"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
         </div>
       )}
     </Panel>
   )
 }
 
-export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
+export function Clients({ source }: { source?: ClientWorkspaceSource } = {}) {
   const controller = useMemo(
-    () => new ClientLensController(source ?? new HttpClientLensSource()),
+    () => new ClientWorkspaceController(source ?? new HttpClientWorkspaceSource()),
     [source],
   )
   const model = usePageController(controller)
 
   useEffect(() => {
-    void controller.dispatch({ operation: "clientLens.load", payload: {} })
+    void controller.dispatch({ operation: "clientWorkspace.load", payload: {} })
     // Keep the memoized controller alive through React StrictMode cleanup/setup.
   }, [controller])
 
@@ -272,14 +230,14 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
       if (event.key === "ArrowDown" && index >= 0 && index < ids.length - 1) {
         event.preventDefault()
         void controller.dispatch({
-          operation: "clientLens.selectClient",
+          operation: "clientWorkspace.selectClient",
           payload: { personId: ids[index + 1] },
         })
       }
       if (event.key === "ArrowUp" && index > 0) {
         event.preventDefault()
         void controller.dispatch({
-          operation: "clientLens.selectClient",
+          operation: "clientWorkspace.selectClient",
           payload: { personId: ids[index - 1] },
         })
       }
@@ -292,7 +250,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
   const notesDirty = model.notesDraft !== model.notesSaved
   const observed = client?.relationshipActivity?.observedCommunicationCount ?? 0
   const connectedSources = model.channels.filter((channel) => channel.connected).length
-  const status = clientLensStatus(model, notesDirty)
+  const status = clientWorkspaceStatus(model, notesDirty)
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -307,7 +265,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
               value={model.query}
               onChange={(event) => {
                 void controller.dispatch({
-                  operation: "clientLens.queryChanged",
+                  operation: "clientWorkspace.queryChanged",
                   payload: { query: event.target.value },
                 })
               }}
@@ -330,7 +288,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                     type="button"
                     onClick={() => {
                       void controller.dispatch({
-                        operation: "clientLens.selectClient",
+                        operation: "clientWorkspace.selectClient",
                         payload: { personId: item.id },
                       })
                     }}
@@ -366,7 +324,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
             <button
               type="button"
               disabled={model.page <= 1}
-              onClick={() => void controller.dispatch({ operation: "clientLens.previousPage", payload: {} })}
+              onClick={() => void controller.dispatch({ operation: "clientWorkspace.previousPage", payload: {} })}
               className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-30"
             >
               ← Prev
@@ -375,7 +333,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
             <button
               type="button"
               disabled={model.page >= model.pageCount}
-              onClick={() => void controller.dispatch({ operation: "clientLens.nextPage", payload: {} })}
+              onClick={() => void controller.dispatch({ operation: "clientWorkspace.nextPage", payload: {} })}
               className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] disabled:opacity-30"
             >
               Next →
@@ -443,7 +401,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                       value={model.notesDraft}
                       onChange={(event) => {
                         void controller.dispatch({
-                          operation: "clientLens.notesChanged",
+                          operation: "clientWorkspace.notesChanged",
                           payload: { notes: event.target.value },
                         })
                       }}
@@ -455,7 +413,7 @@ export function ClientLens({ source }: { source?: ClientLensSource } = {}) {
                       <button
                         type="button"
                         disabled={!notesDirty || model.notesSaving}
-                        onClick={() => void controller.dispatch({ operation: "clientLens.saveNotes", payload: {} })}
+                        onClick={() => void controller.dispatch({ operation: "clientWorkspace.saveNotes", payload: {} })}
                         className="inline-flex min-h-9 items-center rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[10px] font-medium uppercase tracking-[0.14em] text-white disabled:opacity-35"
                       >
                         {model.notesSaving ? "Saving…" : "Save"}

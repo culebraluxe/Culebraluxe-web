@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, Bookmark, BookmarkCheck, X } from 'lucide-react'
 
-import type { PropertySummary } from '@/db/properties'
+import type { PropertySummary } from '@/services/property'
 import {
   SAVED_SEARCHES_CHANGED_EVENT,
   markSavedSearchViewed,

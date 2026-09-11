@@ -1,0 +1,25 @@
+export { VaultService } from './vault-service'
+export type { VaultRepository } from './repository'
+export {
+  VAULT_OPERATIONS,
+  type BindFormToContractRequest,
+  type ContractIssuedLineage,
+  type CreateTransactionDocumentInput,
+  type FormContractIdRequest,
+  type GetVaultDocumentRequest,
+  type IssuedDocumentForFormInstance,
+  type IssuedDocumentListItem,
+  type IssueDocumentInput,
+  type IssuedForFormInstanceRequest,
+  type ListDocumentsByDealRequest,
+  type ListIssuedDocumentsRequest,
+  type NextIssuedVersionRequest,
+  type PriorContractDocumentRequest,
+  type TransactionDocument,
+  type TransitionTransactionDocumentInput,
+  type VaultEnvelope,
+  type VaultMediaBytes,
+  type VaultMediaBytesRequest,
+  type VaultOperationMap,
+  type VaultOperationName,
+} from './types'

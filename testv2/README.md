@@ -9,9 +9,9 @@ is never shipped with the application.
 
 ## Scope (this silo)
 - `services/` — the typed service tier (envelope contracts, repositories).
-- `ui/` — MVI controllers/lenses. `client-lens-controller.test.ts` is the UI
-  glass-box proof: it drives `ClientLensController` from `node:test` against a
-  fake `ClientLensSource` (no React/DOM/HTTP/DB) and asserts the published
+- `ui/` — MVI controllers/lenses. `client-workspace-controller.test.ts` is the UI
+  glass-box proof: it drives `ClientWorkspaceController` from `node:test` against a
+  fake `ClientWorkspaceSource` (no React/DOM/HTTP/DB) and asserts the published
   `PageModel`, exercising the runtime's latest-wins / serial / parallel
   semantics. The controller's module graph is alias/runtime-clean, so it runs
   under plain `tsx`; the projection spec is fully pure.

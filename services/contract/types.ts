@@ -49,6 +49,25 @@ export type ContractEffectiveStateDto = {
 
 export type GetContractRequest = { contractId: string }
 
+/**
+ * Portfolio row for the Contracts surface: one contract, its place in the
+ * workflow chain, and the Vault document that evidences it.
+ * The chain IS the workflow: Listing -> P&S -> Closing (seller),
+ * Showing Report -> Offer -> P&S -> Closing (buyer).
+ */
+export type ContractSummaryDto = {
+  id: string
+  contractType: string
+  formTemplateId: string
+  status: string
+  propertyId: string
+  predecessorContractId: string | null
+  evidenceDocumentId: string | null
+  executedAt: string | null
+  createdAt: string
+}
+export type ListContractsRequest = Record<string, never>
+
 export type CreateContractFromFormRequest = {
   contractId: string
   contractType: string
@@ -76,6 +95,7 @@ export type ExecuteContractRequest = {
 
 export const CONTRACT_OPERATIONS = {
   GET: 'contract.get',
+  LIST: 'contract.list',
   CREATE_FROM_FORM: 'contract.createFromForm',
   SAVE_DRAFT: 'contract.saveDraft',
   GET_EFFECTIVE_STATE: 'contract.getEffectiveState',
@@ -84,6 +104,7 @@ export const CONTRACT_OPERATIONS = {
 
 export type ContractOperationMap = {
   'contract.get': { request: GetContractRequest; response: ContractDto | null }
+  'contract.list': { request: ListContractsRequest; response: ContractSummaryDto[] }
   'contract.createFromForm': { request: CreateContractFromFormRequest; response: ContractDto }
   'contract.saveDraft': { request: SaveContractDraftRequest; response: ContractDto }
   'contract.getEffectiveState': {

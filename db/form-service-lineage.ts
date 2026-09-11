@@ -1,3 +1,9 @@
+// ---------------------------------------------------------------------------
+// FORMS — instance lineage SQL (repository internal).
+//
+// Reachable only through SqlFormInstanceRepository (db/form-service-repository.ts)
+// via the Forms service. Nothing outside the repository may import this module.
+// ---------------------------------------------------------------------------
 import type { QueryExecutor } from './query-executor'
 
 async function executor(): Promise<QueryExecutor> {

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 
-import { listIssuedDocuments } from "@/db/transaction-document"
+import { listIssuedDocuments } from "@/lib/vault-io"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { DocumentList } from "@/components/portal/documents/document-list"
@@ -18,7 +18,6 @@ export default async function DocumentsPage() {
   if (!access.ok) redirect(access.redirectTo)
 
   const documents = await listIssuedDocuments(
-    undefined,
     access.actor
       ? { accountType: access.actor.accountType, personId: access.actor.personId }
       : undefined,

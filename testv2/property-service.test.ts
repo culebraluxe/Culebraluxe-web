@@ -52,7 +52,7 @@ class MemoryPropertyRepository implements PropertyRepository {
     return null
   }
   async forPerson(personId: string) {
-    return { personId, properties: [], observedAddresses: [] }
+    return { personId, properties: [] }
   }
   async upsertForPerson(request: UpsertPropertyForPersonRequest): Promise<PropertyForPersonDto> {
     const property = [...this.map.values()][0] ?? prop()

@@ -38,7 +38,7 @@ export async function GET(
   if (!result.ok) {
     console.error('[property-context] PropertyService failed:', result.error.code, result.error.message)
     return NextResponse.json(
-      { error: result.error.code, personId, properties: [], observedAddresses: [] },
+      { error: result.error.code, personId, properties: [] },
       { status: 500 },
     )
   }

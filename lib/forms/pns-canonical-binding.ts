@@ -16,6 +16,8 @@ import { CONTRACT_OPERATIONS, type ContractDto, type ContractRoleDto } from '@/s
 import { FIRM_OPERATIONS, type FirmDto } from '@/services/firm'
 import { PERSON_OPERATIONS } from '@/services/person'
 import { PROPERTY_OPERATIONS, type PropertyDto } from '@/services/property'
+import { FORM_OPERATIONS } from '@/services/forms'
+import { SqlFormInstanceRepository } from '@/db/form-service-repository'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import {
   toPnsCanonicalValue,
@@ -39,16 +41,13 @@ const core = composeCoreServices(
     security: new SqlSecurityRepository(),
     wbs: new SqlWbsRepository(),
     project: new SqlProjectRepository(),
+    form: new SqlFormInstanceRepository(),
   },
   { errors: appServiceErrorSink() },
 )
 
-type PnsFormEvidenceRow = {
-  id: string
-  property_id: string | null
-  field_values: unknown
-  updated_at: string | Date
-}
+/** The Forms domain is composed here; fail fast if that ever stops being true. */
+
 type ContractIdRow = { id: string }
 type FormEvidence = {
   id: string
@@ -82,10 +81,6 @@ function asFieldValues(value: unknown): Record<string, string> {
   return result
 }
 
-function iso(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString()
-}
 
 async function serviceValue<T>(
   promise: Promise<{ ok: true; value: T } | { ok: false; error: { code: string; message: string } }>,
@@ -104,32 +99,22 @@ function serviceContext(actorId: string | null = null) {
 }
 
 async function latestPnsEvidence(personId: string): Promise<FormEvidence | null> {
-  const rows = (await sql`
-    select f.id, f.property_id, f.field_values, f.updated_at
-    from document_form_instance f
-    left join deal d on d.id = f.deal_id
-    where f.template_id = ${TEMPLATE_ID}
-      and (
-        f.person_id = ${personId}
-        or d.client_person_id = ${personId}
-        or exists (
-          select 1
-          from deal_participant dp
-          where dp.deal_id = f.deal_id
-            and dp.person_id = ${personId}
-            and dp.active = true
-        )
-      )
-    order by f.updated_at desc, f.id desc
-    limit 1
-  `) as PnsFormEvidenceRow[]
-  const row = rows[0]
-  if (!row) return null
+  const service = core.form
+  if (!service) throw new Error('Forms service is not composed for the PNS binding.')
+  const evidence = await serviceValue(
+    service.execute({
+      operation: FORM_OPERATIONS.LATEST_EVIDENCE,
+      payload: { templateId: TEMPLATE_ID, personId },
+      context: serviceContext(),
+    }),
+    'pns evidence',
+  )
+  if (!evidence) return null
   return {
-    id: row.id,
-    propertyId: row.property_id,
-    fields: asFieldValues(row.field_values),
-    updatedAt: iso(row.updated_at),
+    id: evidence.formInstanceId,
+    propertyId: evidence.propertyId,
+    fields: asFieldValues(evidence.fieldValues),
+    updatedAt: evidence.updatedAt ?? '',
   }
 }
 

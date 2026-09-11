@@ -6,6 +6,8 @@ export {
   type ContractEffectiveStateDto,
   type ContractEnvelope,
   type ContractFirmRoleDto,
+  type ContractSummaryDto,
+  type ListContractsRequest,
   type ContractOperationMap,
   type ContractOperationName,
   type ContractPersonRoleDto,

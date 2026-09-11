@@ -8,8 +8,8 @@ import type { ActingUser, AuthorityCode } from '@/lib/auth/types'
 import { PortalWriteError } from '@/lib/portal-write-error'
 import { toPortalInstant } from '@/lib/portal-time'
 import { refreshClientReadModels } from '@/db/client-read-models'
-import { searchPeople } from '@/db/people'
-import type { PersonSearchResult } from '@/db/people'
+import { searchPeople } from '@/lib/person-reads'
+import type { PersonSearchResult } from '@/lib/person-reads'
 import {
   archiveClient,
   createClient,

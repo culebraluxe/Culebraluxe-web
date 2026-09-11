@@ -18,9 +18,9 @@ import {
 import {
   getIssuedDocumentForFormInstance,
   getMediaBytes,
-} from '@/db/issued-document'
+} from '@/lib/vault-io'
 import { getActiveSignatureRequestForDocument } from '@/db/signature-request'
-import { getTransactionDocument } from '@/db/transaction-document'
+import { getTransactionDocument } from '@/lib/vault-io'
 import {
   isExecutionEligibleTemplate,
   resolveRequiredSlots,
@@ -43,7 +43,7 @@ import {
   getFormInstance,
   seedFormParticipantsFromDeal,
   updateFormInstance,
-} from '@/db/document-form-instance'
+} from '@/lib/forms/form-instance-io'
 import { PortalWriteError } from '@/lib/portal-write-error'
 
 export type FormActionResult<T> =

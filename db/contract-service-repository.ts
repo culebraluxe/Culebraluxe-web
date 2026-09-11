@@ -3,6 +3,7 @@ import type { QueryExecutor } from './query-executor'
 import type {
   ContractDto,
   ContractEffectiveStateDto,
+  ContractSummaryDto,
   ContractFirmRoleDto,
   ContractPersonRoleDto,
   ContractRepository,
@@ -268,6 +269,56 @@ export class SqlContractRepository implements ContractRepository {
 
   async get(contractId: string): Promise<ContractDto | null> {
     return loadContract(this.query, contractId)
+  }
+
+  /**
+   * Portfolio read for the Contracts surface: the contract row joined to its
+   * SUBJECT_PROPERTY mapping. The predecessor link is the workflow chain.
+   */
+  async list(): Promise<ContractSummaryDto[]> {
+    const rows = (await this.query`
+      select
+        c.id,
+        c.contract_type,
+        c.form_template_id,
+        c.status,
+        c.predecessor_contract_id,
+        c.evidence_document_id,
+        c.executed_at,
+        c.created_at,
+        cp.property_id
+      from contract c
+      join contract_property cp
+        on cp.contract_id = c.id
+      join role r
+        on r.id = cp.role_id
+       and r.scope = cp.role_scope
+      where r.scope = 'contract_property'
+        and r.code = 'SUBJECT_PROPERTY'
+      order by c.created_at desc, c.id
+    `) as Array<{
+      id: string
+      contract_type: string
+      form_template_id: string
+      status: string
+      predecessor_contract_id: string | null
+      evidence_document_id: string | null
+      executed_at: string | Date | null
+      created_at: string | Date
+      property_id: string
+    }>
+
+    return rows.map((row) => ({
+      id: row.id,
+      contractType: row.contract_type,
+      formTemplateId: row.form_template_id,
+      status: row.status,
+      propertyId: row.property_id,
+      predecessorContractId: row.predecessor_contract_id ?? null,
+      evidenceDocumentId: row.evidence_document_id ?? null,
+      executedAt: toIso(row.executed_at),
+      createdAt: toIso(row.created_at) ?? '',
+    }))
   }
 
   async createFromForm(request: CreateContractFromFormRequest): Promise<ContractDto> {

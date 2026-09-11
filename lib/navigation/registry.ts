@@ -36,7 +36,7 @@ export const OPERATING_SURFACES: Record<
     items: [
       { label: 'Cockpit', href: '/portal/dashboard', authority: 'portal.read' },
       { label: 'Clients', href: '/portal/clients', authority: 'portal.read' },
-      { label: 'Catch-Up', href: '/portal/catch-up', authority: 'portal.read' },
+      { label: 'Projects', href: '/portal/projects', authority: 'portal.read' },
       { label: 'Contracts', href: '/portal/deals', authority: 'deal.read' },
       { label: 'Cabinet', href: '/portal/documents', authority: 'deal.read' },
       { label: 'Workflows', href: '/portal/workflows', authority: 'portal.read' },

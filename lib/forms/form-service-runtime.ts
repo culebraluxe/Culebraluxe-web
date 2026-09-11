@@ -1,39 +1,18 @@
 import 'server-only'
 
-import { SqlContractRepository } from '@/db/contract-service-repository'
-import { SqlFirmRepository } from '@/db/firm-service-repository'
-import { SqlPersonRepository } from '@/db/person-service-repository'
-import { SqlPropertyRepository } from '@/db/property-service-repository'
-import { SqlSecurityRepository } from '@/db/security-service-repository'
-import { SqlShowingRepository } from '@/db/showing-service-repository'
-import { SqlWbsRepository } from '@/db/wbs-service-repository'
-import { SqlProjectRepository } from '@/db/project-service-repository'
-import { composeCoreServices } from '@/services/composition'
-import { AuthorizationService } from '@/services/entitlement'
-import { SqlAuthorizationPolicyProvider } from '@/services/entitlement/db-authorization-policy-provider'
-import { appServiceErrorSink } from '@/lib/service-error-sink'
+import { coreEntitlements, coreServices } from '@/lib/service-runtime'
 
 /**
- * Explicit entitlement port for the service kernel. It is deliberately open in
- * SECURITY-CORE-01; a later entitlement story replaces policy without changing
- * the business-service composition seam.
+ * The kernel has ONE composition — `lib/service-runtime.ts`. These aliases keep
+ * the forms/hydration call sites working; new code should import from
+ * `lib/service-runtime.ts` directly.
  */
-export const formEntitlements = new AuthorizationService(new SqlAuthorizationPolicyProvider())
+
+/** Explicit entitlement port for the service kernel. */
+export const formEntitlements = coreEntitlements
 
 /** The one production kernel composition: all six domains, one place. */
-export const formCoreServices = composeCoreServices(
-  {
-    person: new SqlPersonRepository(),
-    firm: new SqlFirmRepository(),
-    property: new SqlPropertyRepository(),
-    contract: new SqlContractRepository(),
-    showing: new SqlShowingRepository(),
-    security: new SqlSecurityRepository(),
-    wbs: new SqlWbsRepository(),
-    project: new SqlProjectRepository(),
-  },
-  { authorization: formEntitlements, errors: appServiceErrorSink() },
-)
+export const formCoreServices = coreServices
 
 /** Showing is a first-class composed domain now (kept as a stable alias). */
-export const formShowingService = formCoreServices.showing
+export const formShowingService = coreServices.showing

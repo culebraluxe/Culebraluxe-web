@@ -2,7 +2,6 @@ import 'server-only'
 
 import { randomUUID } from 'node:crypto'
 
-import { sql } from '@/db/client'
 import { SqlListingPropertyRepository } from '@/db/listing-property-service-repository'
 import { SqlPersonRepository } from '@/db/person-service-repository'
 import { PERSON_OPERATIONS, PersonService } from '@/services/person'
@@ -19,6 +18,8 @@ import type {
 } from './listing-field-binding'
 import { appServiceErrorSink } from '@/lib/service-error-sink'
 import { formEntitlements } from './form-service-runtime'
+import { SqlFormInstanceRepository } from '@/db/form-service-repository'
+import { FORM_OPERATIONS, FormService } from '@/services/forms'
 
 const serviceInfrastructure = {
   authorization: formEntitlements,
@@ -26,13 +27,7 @@ const serviceInfrastructure = {
 }
 const personService = new PersonService(new SqlPersonRepository(), serviceInfrastructure)
 const propertyService = new PropertyService(new SqlListingPropertyRepository(), serviceInfrastructure)
-
-type ListingFormEvidenceRow = {
-  id: string
-  property_id: string | null
-  field_values: unknown
-  updated_at: string | Date
-}
+const formService = new FormService(new SqlFormInstanceRepository(), serviceInfrastructure)
 
 type FormEvidence = {
   id: string
@@ -50,10 +45,6 @@ function asFieldValues(value: unknown): Record<string, string> {
   return result
 }
 
-function iso(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString()
-}
 
 function compact(value: string | null | undefined): string {
   return value?.trim() ?? ''
@@ -73,34 +64,20 @@ function formatAddress(address: PropertyAddressDto | null | undefined): string {
 }
 
 async function latestListingEvidence(personId: string): Promise<FormEvidence | null> {
-  const rows = (await sql`
-    select f.id, f.property_id, f.field_values, f.updated_at
-    from document_form_instance f
-    left join deal d on d.id = f.deal_id
-    where f.template_id = 'LISTING-01'
-      and (
-        f.person_id = ${personId}
-        or d.client_person_id = ${personId}
-        or exists (
-          select 1
-          from deal_participant dp
-          where dp.deal_id = f.deal_id
-            and dp.person_id = ${personId}
-            and dp.active = true
-            and dp.role in ('client', 'seller', 'owner')
-        )
-      )
-    order by f.updated_at desc, f.id desc
-    limit 1
-  `) as ListingFormEvidenceRow[]
-
-  const row = rows[0]
-  if (!row) return null
+  const evidence = await serviceValue(
+    formService.execute({
+      operation: FORM_OPERATIONS.LATEST_EVIDENCE,
+      payload: { templateId: 'LISTING-01', personId, roles: ['client', 'seller', 'owner'] },
+      context: serviceContext(),
+    }),
+    'listing evidence',
+  )
+  if (!evidence) return null
   return {
-    id: row.id,
-    propertyId: row.property_id ?? null,
-    fields: asFieldValues(row.field_values),
-    updatedAt: iso(row.updated_at),
+    id: evidence.formInstanceId,
+    propertyId: evidence.propertyId,
+    fields: asFieldValues(evidence.fieldValues),
+    updatedAt: evidence.updatedAt ?? '',
   }
 }
 

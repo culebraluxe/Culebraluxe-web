@@ -1,4 +1,6 @@
 import type { ServiceEnvelopeFor, ServiceOperationName } from '../core'
+import type { Result } from '@/db/client'
+import type { PropertyDetailResult } from '@/lib/property-types'
 
 /**
  * Canonical reusable address/place DTO.
@@ -53,19 +55,97 @@ export type PropertyForPersonDto = {
   property: PropertyDto
 }
 
-/** ODS evidence awaiting promotion into Property. Provenance/input, not a second Address model. */
-export type PropertyObservedAddressDto = {
-  source: string
-  sourceLabel: string | null
-  sourceKey: string
-  address: PropertyAddressDto
-  matchedPropertyId: string | null
-}
-
 export type PersonPropertyContextDto = {
   personId: string
   properties: PropertyForPersonDto[]
-  observedAddresses: PropertyObservedAddressDto[]
+}
+
+/* ------------------------------------------------------------------ *
+ * PUBLIC INVENTORY READS
+ *
+ * The public site (home, buyers, listing page, favorites) reads inventory
+ * through these. They answer one question: which properties are ACTIVE
+ * LISTINGS we are marketing right now? A property that is only a known
+ * place (for example an Apple Contacts address) is not inventory and never
+ * appears here.
+ * ------------------------------------------------------------------ */
+
+/** Compact inventory card used by every public surface. */
+export type PropertySummary = {
+  id: string
+  name: string
+  slug: string
+  status: string
+  propertyType: string | null
+  listPrice: number | null
+  featured: boolean
+
+  location: string | null
+  city: string | null
+  neighborhood: string | null
+
+  bedrooms: number | null
+  bathrooms: number | null
+  squareFeet: number | null
+
+  lotSize: number | null
+  lotSizeUnits: string | null
+
+  views: string[]
+
+  waterAccess: boolean
+  beachAccess: boolean
+
+  heroUrl: string | null
+  heroAlt: string
+}
+
+/** Minimal property reference for intros and cross-links. */
+export type PropertyIntro = {
+  id: string
+  name: string
+  location: string | null
+}
+
+/** Buyers search contract (PX-24B): structured filters applied in SQL. */
+export type PropertyFilterInput = {
+  category?: 'all' | 'homes' | 'land'
+  q?: string
+  maxPrice?: number | null
+  beds?: number | null
+  view?: string
+  sort?: 'featured' | 'price-high' | 'price-low' | 'name'
+}
+
+export type ListPropertiesRequest = {
+  /**
+   * true  -> ACTIVE LISTINGS only (public surfaces MUST pass this).
+   * false -> the working lifecycle set used by internal portal pickers.
+   */
+  publicOnly?: boolean
+}
+
+export type FilterPropertiesRequest = { filters: PropertyFilterInput }
+
+export type GetPropertyBySlugRequest = { slug: string }
+
+export type GetSimilarPropertiesRequest = {
+  propertyId: string
+  current: {
+    propertyType: string | null
+    city: string | null
+    neighborhood: string | null
+    listPrice: number | null
+  }
+  limit?: number
+}
+
+export type ListPropertySlugsRequest = Record<string, never>
+export type GetPropertyIntroRequest = { propertyId: string }
+
+export type PropertyInventoryPage = {
+  properties: PropertySummary[]
+  viewOptions: string[]
 }
 
 export type GetPropertyRequest = { propertyId: string }
@@ -107,6 +187,12 @@ export const PROPERTY_OPERATIONS = {
   UPSERT_FOR_PERSON: 'property.upsertForPerson',
   SET_DISPLAY_NAME: 'property.setDisplayName',
   SET_STATUS: 'property.setStatus',
+  LIST: 'property.list',
+  SEARCH: 'property.search',
+  SIMILAR: 'property.similar',
+  BY_SLUG: 'property.bySlug',
+  PUBLIC_SLUGS: 'property.publicSlugs',
+  INTRO: 'property.intro',
 } as const
 
 export type PropertyOperationMap = {
@@ -116,6 +202,15 @@ export type PropertyOperationMap = {
   'property.upsertForPerson': { request: UpsertPropertyForPersonRequest; response: PropertyForPersonDto }
   'property.setDisplayName': { request: SetPropertyDisplayNameRequest; response: PropertyDto }
   'property.setStatus': { request: SetPropertyStatusRequest; response: PropertyDto }
+  // Public inventory reads. They keep the DB-HARDEN-01C contract (a failed read is
+  // a Result, never a throw) so one broken source degrades a page instead of
+  // rejecting it. Result is the database gateway's shared type — type-only import.
+  'property.list': { request: ListPropertiesRequest; response: Result<PropertySummary[]> }
+  'property.search': { request: FilterPropertiesRequest; response: Result<PropertyInventoryPage> }
+  'property.similar': { request: GetSimilarPropertiesRequest; response: Result<PropertySummary[]> }
+  'property.bySlug': { request: GetPropertyBySlugRequest; response: Result<PropertyDetailResult | null> }
+  'property.publicSlugs': { request: ListPropertySlugsRequest; response: Result<string[]> }
+  'property.intro': { request: GetPropertyIntroRequest; response: Result<PropertyIntro | null> }
 }
 
 export type PropertyOperationName = ServiceOperationName<PropertyOperationMap>

@@ -1,4 +1,4 @@
-import type { FormInstance } from '@/db/document-form-instance'
+import type { FormInstance } from '@/lib/forms/form-instance-io'
 import type { ContractRoleDto } from '@/services/contract'
 import { compactFormValue } from './service-binding-core'
 

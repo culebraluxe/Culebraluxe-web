@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation"
 
-import { getFormInstance, listFormInstances } from "@/db/document-form-instance"
-import { resolveDealLaunchContext } from "@/db/form-service-lineage"
-import { getIssuedDocumentForFormInstance } from "@/db/issued-document"
+import { getFormInstance, listFormInstances } from "@/lib/forms/form-instance-io"
+import { resolveDealLaunchContext } from "@/lib/forms/form-instance-io"
+import { getIssuedDocumentForFormInstance } from "@/lib/vault-io"
 import { listSignatureRequestsByDocument } from "@/db/signature-request"
 import { listFormSignerPeople } from "@/db/form-signer"
 import {

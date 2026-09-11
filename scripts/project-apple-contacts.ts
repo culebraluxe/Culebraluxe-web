@@ -16,7 +16,8 @@
 //
 // ODS history (integration_staged_contact_profile / integration_inbox) is NEVER
 // truncated or rewritten. This projection only rebuilds the current-state
-// l_person / l_person_identity / l_person_address and NEVER mutates canonical
+// landing tables — l_person (name, phones, emails, note) and l_property
+// (addresses, typed LEGAL / PHYSICAL) — and NEVER mutates canonical
 // person / person_identity.
 //
 // The rebuild is atomic in a single DB transaction so a failed projection cannot
@@ -179,83 +180,6 @@ const PRUNE_SQL = `
     )
 `
 
-const EMAILS_SQL = `
-  ${LATEST_CTE}
-  insert into l_person_identity (l_person_id, identity_type, identity_value, normalized_value, source_label, ordinal)
-  select
-    lp.id, 'email',
-    trim(e.value->>'value'),
-    trim(e.value->>'value'),
-    nullif(trim(e.value->>'label'), ''),
-    e.ordinal - 1
-  from latest l
-  join l_person lp
-    on lp.source = l.source and lp.source_account = l.source_account
-   and lp.source_contact_id = l.source_contact_id
-  cross join lateral jsonb_array_elements(l.profile->'emails') with ordinality as e(value, ordinal)
-  where trim(coalesce(e.value->>'value', '')) <> ''
-  on conflict (l_person_id, identity_type, identity_value) do nothing
-`
-
-const PHONES_SQL = `
-  ${LATEST_CTE}
-  insert into l_person_identity (l_person_id, identity_type, identity_value, normalized_value, source_label, ordinal)
-  select
-    lp.id, 'phone',
-    trim(e.value->>'value'),
-    ('+' || regexp_replace(trim(e.value->>'value'), '[^0-9]', '', 'g')),
-    nullif(trim(e.value->>'label'), ''),
-    e.ordinal - 1
-  from latest l
-  join l_person lp
-    on lp.source = l.source and lp.source_account = l.source_account
-   and lp.source_contact_id = l.source_contact_id
-  cross join lateral jsonb_array_elements(l.profile->'phones') with ordinality as e(value, ordinal)
-  where trim(coalesce(e.value->>'value', '')) <> ''
-  on conflict (l_person_id, identity_type, identity_value) do nothing
-`
-
-const APPLE_ID_SQL = `
-  ${LATEST_CTE}
-  insert into l_person_identity (l_person_id, identity_type, identity_value, normalized_value, source_label, ordinal)
-  select
-    lp.id, 'apple_contact',
-    l.source_contact_id,
-    l.source_contact_id,
-    'Apple contact identifier',
-    0
-  from latest l
-  join l_person lp
-    on lp.source = l.source and lp.source_account = l.source_account
-   and lp.source_contact_id = l.source_contact_id
-  on conflict (l_person_id, identity_type, identity_value) do nothing
-`
-
-const ADDRESSES_SQL = `
-  ${LATEST_CTE}
-  insert into l_person_address (
-    l_person_id, source_label, street, city, state, postal_code, country,
-    iso_country_code, ordinal
-  )
-  select
-    lp.id,
-    nullif(trim(a.value->>'label'), ''),
-    trim(a.value->>'street'),
-    trim(a.value->>'city'),
-    trim(a.value->>'state'),
-    trim(a.value->>'postalCode'),
-    trim(a.value->>'country'),
-    trim(a.value->>'isoCountryCode'),
-    a.ordinal - 1
-  from latest l
-  join l_person lp
-    on lp.source = l.source and lp.source_account = l.source_account
-   and lp.source_contact_id = l.source_contact_id
-  cross join lateral jsonb_array_elements(l.profile->'postalAddresses') with ordinality as a(value, ordinal)
-  where trim(coalesce(a.value->>'street', a.value->>'city', '')) <> ''
-`
-
-
 const L_PROPERTY_SQL = `
   ${LATEST_CTE}
   insert into l_property (
@@ -359,23 +283,10 @@ async function runMain() {
     try {
       await client.query('begin')
       await client.query(L_PERSON_UPSERT_SQL, [batchId, SOURCE])
-      await client.query(
-        `delete from l_person_identity where l_person_id in (select id from l_person where source = $1 and source_account = $2)`,
-        [SOURCE, sourceAccount],
-      )
-      await client.query(
-        `delete from l_person_address where l_person_id in (select id from l_person where source = $1 and source_account = $2)`,
-        [SOURCE, sourceAccount],
-      )
       await client.query(PRUNE_SQL, [batchId, SOURCE, sourceAccount])
-      await client.query(EMAILS_SQL, [batchId, SOURCE])
-      await client.query(PHONES_SQL, [batchId, SOURCE])
-      await client.query(APPLE_ID_SQL, [batchId, SOURCE])
-      await client.query(ADDRESSES_SQL, [batchId, SOURCE])
-      // DUAL-WRITE (ODS restructure step 2): the same addresses also land in l_property,
-      // where they fork by label — Home is the legal address, Work is the physical
-      // property. l_person_address stays populated until the readers are repointed
-      // (step 3) and the promotion runs (step 4); only then is it dropped (step 5).
+      // Addresses land in l_property (the landing place record), where they fork by
+      // label — Home is the legal address, Work is the physical property. Identity
+      // (phones/emails) already lives on the l_person row itself.
       await client.query(L_PROPERTY_SQL, [batchId, SOURCE])
       await client.query('commit')
     } catch (err) {
@@ -398,15 +309,10 @@ async function runMain() {
     )
     const membershipCount = Number(membershipRows.rows[0]?.n ?? 0)
 
-    const idCounts = await pool.query(
-      `select identity_type, count(*)::int as n from l_person_identity
-        where l_person_id in (select id from l_person where source = $1 and source_account = $2)
-        group by identity_type order by identity_type`,
-      [SOURCE, sourceAccount],
-    )
-    const addressCount = await pool.query(
-      `select count(*)::int as n from l_person_address
-        where l_person_id in (select id from l_person where source = $1 and source_account = $2)`,
+    const propertyCount = await pool.query(
+      `select address_type, count(*)::int as n from l_property
+        where source_system = $1 and source_account = $2
+        group by address_type order by address_type`,
       [SOURCE, sourceAccount],
     )
 
@@ -418,8 +324,7 @@ async function runMain() {
           batchId,
           snapshotMembership: membershipCount,
           totals: { before: existingBefore, after: currentCount, pruned: Math.max(0, existingBefore - currentCount), error: 0 },
-          identities: Object.fromEntries(idCounts.rows.map((r) => [String(r.identity_type), Number(r.n)])),
-          addresses: Number(addressCount.rows[0]?.n ?? 0),
+          addresses: Object.fromEntries(propertyCount.rows.map((r) => [String(r.address_type), Number(r.n)])),
         },
         null,
         2,

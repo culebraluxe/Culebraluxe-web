@@ -10,5 +10,7 @@ export {
   type PersonIdentityDto,
   type PersonOperationMap,
   type PersonOperationName,
+  type PersonSearchResult,
+  type SearchPeopleRequest,
   type SetPersonDisplayNameRequest,
 } from './types'

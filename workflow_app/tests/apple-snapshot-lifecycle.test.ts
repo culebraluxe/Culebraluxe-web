@@ -95,14 +95,17 @@ test('lifecycle F: projection restricts l_person to current snapshot members and
   assert.ok(PROJECTOR.includes("load_status = 'loaded'"), 'projection uses the latest LOADED batch')
 })
 
-test('lifecycle G: operator masters exactly the current l_person population', () => {
+test('lifecycle G: the single promotion is the only thing that reads the landing tables', () => {
   const promote = readFileSync('db/promote-evidence.ts', 'utf8')
   assert.ok(promote.includes('lp.source_contact_id = integration_relationship_evidence.source_identity_key'), 'legacy evidence promotion can restrict to current l_person members')
-  const run = readFileSync('scripts/promote-apple-contacts.ts', 'utf8')
-  assert.ok(run.includes('loadAppleEvidence'), 'operator projects current Apple evidence before mastering')
-  assert.ok(run.includes('masterCurrentSourcePeople'), 'operator masters current source people directly')
-  assert.ok(run.includes('membership !== current'), 'operator fails closed if snapshot and l_person populations diverge')
-  assert.ok(run.includes('mastered.current !== current'), 'operator verifies mastering consumed the current population')
+
+  const run = readFileSync('scripts/promote-warehouse.ts', 'utf8')
+  assert.ok(run.includes('from l_person'), 'the promotion reads the landing person table')
+  assert.ok(run.includes('from l_property'), 'the promotion reads the landing property table')
+  assert.ok(run.includes('person_identity'), 'identity (phone/email) resolves which Person a contact is')
+  assert.ok(run.includes('createPersonWithIdentities'), 'unmatched contacts become canonical people')
+  assert.ok(run.includes("'legal_address'") && run.includes("'physical_property'"), 'addresses carry the relation names the forms read')
+  assert.ok(run.includes('DATABASE_URL_PROD'), 'the promotion fails closed on a missing PROD target')
 })
 
 test('lifecycle H: migration enforces unique membership per batch + FK', () => {

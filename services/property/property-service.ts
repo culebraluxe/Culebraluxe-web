@@ -41,7 +41,7 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
       },
       [PROPERTY_OPERATIONS.FOR_PERSON]: {
         kind: 'query',
-        description: 'Return canonical Person-to-Property relationships plus unpromoted address evidence.',
+        description: 'Return canonical Person-to-Property relationships.',
         authorization: 'property.read',
         idempotent: true,
         execution: { mode: 'inline' },
@@ -105,6 +105,54 @@ export class PropertyService extends BaseService<PropertyOperationMap> {
           )
           return property
         },
+      },
+      // ---- Public inventory reads -------------------------------------------------
+      // Queries, so the kernel's default lets an unauthenticated (GUEST) public page
+      // read them while still denying every command. Out-of-band authorization is
+      // deliberately absent: the public site has no principal, and an ACTIVE LISTING
+      // is public information. Internal/private Property detail stays behind
+      // property.get, which is never exposed to a public surface.
+      [PROPERTY_OPERATIONS.LIST]: {
+        kind: 'query',
+        description: 'List inventory. publicOnly=true returns ACTIVE LISTINGS only (public surfaces).',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.list(request),
+      },
+      [PROPERTY_OPERATIONS.SEARCH]: {
+        kind: 'query',
+        description: 'Structured buyers search over active-listing inventory, plus the stable view vocabulary.',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.search(request),
+      },
+      [PROPERTY_OPERATIONS.SIMILAR]: {
+        kind: 'query',
+        description: 'Deterministic similar-listing suggestions from canonical Property fields.',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.similar(request),
+      },
+      [PROPERTY_OPERATIONS.BY_SLUG]: {
+        kind: 'query',
+        description: 'Load the full public listing payload for one slug.',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.bySlug(request),
+      },
+      [PROPERTY_OPERATIONS.PUBLIC_SLUGS]: {
+        kind: 'query',
+        description: 'The set of currently live public listing slugs (stale recently-viewed entries drop out).',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async () => this.repository.publicSlugs(),
+      },
+      [PROPERTY_OPERATIONS.INTRO]: {
+        kind: 'query',
+        description: 'Minimal public Property reference (id, name, location) for intros and cross-links.',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async (request) => this.repository.intro(request),
       },
     }
   }

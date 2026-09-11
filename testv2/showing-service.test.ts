@@ -95,7 +95,7 @@ function propertyRepo(): PropertyRepository {
       return null
     },
     async forPerson() {
-      return { personId: '', properties: [], observedAddresses: [] }
+      return { personId: '', properties: [] }
     },
     async upsertForPerson() {
       throw new Error('unused')

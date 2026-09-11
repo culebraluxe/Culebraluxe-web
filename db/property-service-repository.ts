@@ -1,14 +1,32 @@
-import { sql } from './client'
+import { db, sql } from './client'
+import type { Result } from './client'
 import type { QueryExecutor } from './query-executor'
+import {
+  getFilteredProperties,
+  getProperties,
+  getPropertyBySlug,
+  getPropertyIntroById,
+  getPublicPropertySlugs,
+  getSimilarProperties,
+  type PropertyReadExecutor,
+} from './property-public-reads'
+import type { PropertyDetailResult } from '@/lib/property-types'
 import type {
+  FilterPropertiesRequest,
   FindPropertyByAddressRequest,
+  GetPropertyBySlugRequest,
+  GetPropertyIntroRequest,
+  GetSimilarPropertiesRequest,
+  ListPropertiesRequest,
   PersonPropertyContextDto,
   PersonPropertyRelation,
   PropertyAddressDto,
   PropertyDto,
   PropertyForPersonDto,
-  PropertyObservedAddressDto,
+  PropertyIntro,
+  PropertyInventoryPage,
   PropertyRepository,
+  PropertySummary,
   SetPropertyDisplayNameRequest,
   SetPropertyStatusRequest,
   UpsertPropertyForPersonRequest,
@@ -40,20 +58,6 @@ type PropertyRow = {
 type PropertyForPersonRow = PropertyRow & {
   relation_type: PersonPropertyRelation
   relation_status: string | null
-}
-
-type ObservedAddressRow = {
-  source: string
-  source_account: string
-  source_contact_id: string
-  source_label: string | null
-  street: string | null
-  city: string | null
-  state: string | null
-  postal_code: string | null
-  country: string | null
-  iso_country_code: string | null
-  ordinal: number
 }
 
 type RelationTableRow = { table_name: string | null }
@@ -93,18 +97,6 @@ function canonicalAddress(row: PropertyRow): PropertyAddressDto {
     city: row.city,
     stateOrProvince: row.state_or_province,
     neighborhood: row.neighborhood,
-    postalCode: row.postal_code,
-    country: row.country,
-    isoCountryCode: row.iso_country_code,
-  }
-}
-
-function observedAddress(row: ObservedAddressRow): PropertyAddressDto {
-  return {
-    addressLine1: row.street,
-    city: row.city,
-    stateOrProvince: row.state,
-    neighborhood: null,
     postalCode: row.postal_code,
     country: row.country,
     isoCountryCode: row.iso_country_code,
@@ -182,7 +174,11 @@ function mergeAddress(
 
 /** Production adapter behind PropertyService. */
 export class SqlPropertyRepository implements PropertyRepository {
-  constructor(private readonly execute: QueryExecutor = sql) {}
+  constructor(
+    private readonly execute: QueryExecutor = sql,
+    /** Public inventory reads use the Result-returning gateway (never a raw throw). */
+    private readonly reads: PropertyReadExecutor = db,
+  ) {}
 
   async get(propertyId: string): Promise<PropertyDto | null> {
     const rows = (await this.execute`
@@ -330,50 +326,7 @@ export class SqlPropertyRepository implements PropertyRepository {
       a.property.displayName.localeCompare(b.property.displayName),
     )
 
-    const observedRows = (await this.execute`
-      select
-        lp.source, lp.source_account, lp.source_contact_id,
-        a.source_label, a.street, a.city, a.state, a.postal_code,
-        a.country, a.iso_country_code, a.ordinal
-      from integration_source_person_link link
-      join l_person lp
-        on lp.source = link.source
-       and lp.source_account = link.source_account
-       and lp.source_contact_id = link.source_identity_key
-      join l_person_address a on a.l_person_id = lp.id
-      where link.canonical_person_id = ${personId}
-        and lp.source = 'apple_contacts'
-      order by lp.source_contact_id asc, a.ordinal asc
-    `) as ObservedAddressRow[]
-
-    const observedAddresses: PropertyObservedAddressDto[] = []
-    for (const row of observedRows) {
-      const address = observedAddress(row)
-      const matched = address.addressLine1
-        ? await this.findByAddress({
-            addressLine1: address.addressLine1,
-            municipality: address.city ?? undefined,
-            stateOrProvince: address.stateOrProvince ?? undefined,
-            postalCode: address.postalCode ?? undefined,
-          })
-        : null
-      const duplicate = observedAddresses.some((candidate) =>
-        normalized(candidate.address.addressLine1) === normalized(address.addressLine1) &&
-        normalized(candidate.address.city) === normalized(address.city) &&
-        normalized(candidate.address.stateOrProvince) === normalized(address.stateOrProvince) &&
-        normalized(candidate.address.postalCode) === normalized(address.postalCode),
-      )
-      if (duplicate) continue
-      observedAddresses.push({
-        source: row.source,
-        sourceLabel: row.source_label,
-        sourceKey: `${row.source}:${row.source_account}:${row.source_contact_id}:${row.ordinal}`,
-        address,
-        matchedPropertyId: matched?.id ?? null,
-      })
-    }
-
-    return { personId, properties, observedAddresses }
+    return { personId, properties }
   }
 
   async upsertForPerson(request: UpsertPropertyForPersonRequest): Promise<PropertyForPersonDto> {
@@ -530,4 +483,39 @@ export class SqlPropertyRepository implements PropertyRepository {
     if (!rows[0]) throw new Error(`Property not found: ${request.propertyId}`)
     return toProperty(rows[0])
   }
+
+  /* ------------------------------------------------------------------ *
+   * Public inventory reads (ACTIVE LISTINGS).
+   *
+   * The SQL + mapping live in db/property-public-reads.ts (moved out of the
+   * retired db/properties.ts). This class is the only thing that reaches them,
+   * which is the Property invariant: persistence is reachable only through the
+   * repository boundary. They keep the gateway Result contract, so a failed
+   * read degrades a page instead of rejecting it.
+   * ------------------------------------------------------------------ */
+
+  async list(request: ListPropertiesRequest): Promise<Result<PropertySummary[]>> {
+    return getProperties({ publicOnly: request.publicOnly === true }, this.reads)
+  }
+
+  async search(request: FilterPropertiesRequest): Promise<Result<PropertyInventoryPage>> {
+    return getFilteredProperties(request.filters, this.reads)
+  }
+
+  async similar(request: GetSimilarPropertiesRequest): Promise<Result<PropertySummary[]>> {
+    return getSimilarProperties(request.propertyId, request.current, request.limit ?? 3, this.reads)
+  }
+
+  async bySlug(request: GetPropertyBySlugRequest): Promise<Result<PropertyDetailResult | null>> {
+    return getPropertyBySlug(request.slug, this.reads)
+  }
+
+  async publicSlugs(): Promise<Result<string[]>> {
+    return getPublicPropertySlugs(this.reads)
+  }
+
+  async intro(request: GetPropertyIntroRequest): Promise<Result<PropertyIntro | null>> {
+    return getPropertyIntroById(request.propertyId, this.reads)
+  }
+
 }

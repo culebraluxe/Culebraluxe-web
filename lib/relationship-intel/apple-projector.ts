@@ -3,7 +3,9 @@
 //
 // Pure, deterministic mapper with no database imports so it is unit-testable
 // without a live Neon connection (matching the repository's pure-function test
-// convention). The DB orchestrator lives in apple-evidence.ts.
+// convention). The DB orchestrator that used to load this evidence was retired
+// with the Apple Contacts landing-table restructure; the landing tables are now
+// read by exactly one script (scripts/promote-warehouse.ts).
 //
 // It never converts Apple contacts into canonical Clients; classification is
 // left to the reconciliation engine.

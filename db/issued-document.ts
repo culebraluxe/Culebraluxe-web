@@ -17,7 +17,7 @@ import {
   getFormContractId,
   getPriorContractIssuedDocument,
 } from './contract-issued-document'
-import { getFormInstance, updateFormInstance } from './document-form-instance'
+import { getFormInstance, updateFormInstance } from './form-service-repository'
 import { listFormSignerPeople } from './form-signer'
 import { canonicalizeExecutionParticipants } from '../lib/agreements/participants'
 import type { QueryExecutor } from './query-executor'

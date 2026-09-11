@@ -1,5 +1,5 @@
 import { Showings } from "@/components/portal/showings"
-import { getProperties } from "@/db/properties"
+import { getProperties } from "@/lib/property-reads"
 import { getShowings } from "@/db/showings"
 
 export const dynamic = "force-dynamic"

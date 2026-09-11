@@ -21,16 +21,16 @@ export const SHOWING_INFO_TEMPLATE_ID = 'SHOW-INFO'
 export const SHOWING_REPORT_TEMPLATE_ID = 'SHOW-RPT'
 
 const TEMPLATE_FILES = [
-  'OFFER-01.xml',
+  // One ACTIVE version per form family. Superseded versions were removed
+  // (2026-09-11): every form path re-renders from the template file by
+  // (templateId, templateVersion), so an old version is only kept while a live
+  // record still points at it — LISTING-01 v3 is retained for the one issued
+  // Listing Agreement issued at that version.
   'OFFER-01.v2.xml',
-  'PR-PNS.xml',
-  'PR-PNS.v2.xml',
-  'PR-PNS.v3.xml',
-  'PR-PNS-AMD.xml',
-  'LISTING-01.xml',
-  'LISTING-01.v2.xml',
   'LISTING-01.v3.xml',
   'LISTING-01.v4.xml',
+  'PR-PNS.v3.xml',
+  'PR-PNS-AMD.xml',
   'SHOW-INFO.xml',
   'SHOW-RPT.xml',
 ]

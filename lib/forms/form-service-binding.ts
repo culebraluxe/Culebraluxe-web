@@ -1,10 +1,10 @@
-import type { FormInstance } from '@/db/document-form-instance'
-import { getFormInstance } from '@/db/document-form-instance'
+import type { FormInstance } from '@/lib/forms/form-instance-io'
+import { getFormInstance } from '@/lib/forms/form-instance-io'
 import { sql } from '@/db/client'
 import {
   bindFormInstanceToDirectContext,
   resolveDealLaunchContext,
-} from '@/db/form-service-lineage'
+} from '@/lib/forms/form-instance-io'
 import {
   loadListingCanonicalSnapshot,
   saveListingCanonicalFields,

@@ -78,6 +78,15 @@ export class ContractService extends BaseService<ContractOperationMap> {
         execution: { mode: 'inline' },
         handle: async (request) => this.repository.get(request.contractId),
       },
+      [CONTRACT_OPERATIONS.LIST]: {
+        kind: 'query',
+        description:
+          'Portfolio of Contracts, newest first. The predecessor link is the workflow chain (Listing -> P&S -> Closing).',
+        authorization: 'contract.read',
+        idempotent: true,
+        execution: { mode: 'inline' },
+        handle: async () => this.repository.list(),
+      },
       [CONTRACT_OPERATIONS.CREATE_FROM_FORM]: {
         kind: 'command',
         description: 'Create a durable Contract instance from a Form-defined contract type.',

@@ -1,5 +1,5 @@
-import { getTransactionDocument, listIssuedDocuments } from "@/db/transaction-document"
-import { getMediaBytes } from "@/db/issued-document"
+import { getTransactionDocument, listIssuedDocuments } from "@/lib/vault-io"
+import { getMediaBytes } from "@/lib/vault-io"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 
@@ -31,7 +31,7 @@ export async function GET(
 
   // AUTH-02 external scoping: only issued documents for the actor's own deals.
   if (access.actor.accountType === "external") {
-    const scoped = await listIssuedDocuments(undefined, {
+    const scoped = await listIssuedDocuments({
       accountType: access.actor.accountType,
       personId: access.actor.personId,
     })

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
 
-import { getFilteredProperties, getProperties } from '@/db/properties'
+import { getFilteredProperties, getProperties } from '@/lib/property-reads'
 import { searchParamsToFilters } from '@/lib/search-contract'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'

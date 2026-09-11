@@ -4,8 +4,8 @@ import {
   getDealFormFacts,
   getFormInstance,
   updateFormInstance,
-} from '@/db/document-form-instance'
-import { resolveDealLaunchContext } from '@/db/form-service-lineage'
+} from '@/lib/forms/form-instance-io'
+import { resolveDealLaunchContext } from '@/lib/forms/form-instance-io'
 import {
   isServiceBoundFormTemplate,
   syncFormServiceBinding,

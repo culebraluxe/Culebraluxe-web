@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 
 import { FormEditorSurface } from "@/components/portal/forms/form-editor-surface"
-import { listFormInstances } from "@/db/document-form-instance"
+import { listFormInstances } from "@/lib/forms/form-instance-io"
 import {
   getActiveTemplate,
   LISTING_AGREEMENT_TEMPLATE_ID,

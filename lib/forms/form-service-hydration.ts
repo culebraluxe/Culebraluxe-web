@@ -1,8 +1,8 @@
 import 'server-only'
 
-import type { FormInstance } from '@/db/document-form-instance'
-import { getFormContractId } from '@/db/contract-issued-document'
-import { getFormShowingId } from '@/db/form-service-lineage'
+import type { FormInstance } from '@/lib/forms/form-instance-io'
+import { getFormContractId } from '@/lib/vault-io'
+import { getFormShowingId } from '@/lib/forms/form-instance-io'
 import { CONTRACT_OPERATIONS } from '@/services/contract'
 import { PERSON_OPERATIONS } from '@/services/person'
 import { PROPERTY_OPERATIONS } from '@/services/property'

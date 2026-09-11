@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
-import { getFormInstance } from '@/db/document-form-instance'
-import { listFormSignerPeople } from '@/db/form-signer'
+import { getFormInstance } from '@/lib/forms/form-instance-io'
+import { listFormSignerPeople } from '@/lib/forms/form-instance-io'
 import { resolveBrokerSignatureForIssuance } from '@/db/broker-signature'
 import { sql } from '@/db/client'
 import { canonicalizeExecutionParticipants } from '@/lib/agreements/participants'

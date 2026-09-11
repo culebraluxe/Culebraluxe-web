@@ -13,7 +13,7 @@ import {
   requestPublishMany,
   withdrawPlacement,
 } from '@/db/syndication'
-import { searchPeople } from '@/db/people'
+import { searchPeople } from '@/lib/person-reads'
 import type { SightingNetwork } from '@/lib/syndication/types'
 import { isPrepareChannel } from '@/lib/syndication/channels'
 

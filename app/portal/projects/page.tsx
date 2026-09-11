@@ -19,7 +19,7 @@ import {
 import type { WbsItem } from "@/services/wbs"
 import type { ProjectsWorkspaceData, ProjectsWorkspaceLoadState } from "@/ui/projects/model"
 import { mapRealProjectsToWorkspace } from "@/ui/projects/service-projection"
-import { listIssuedDocuments } from "@/db/transaction-document"
+import { listIssuedDocuments } from "@/lib/vault-io"
 import { getActivityFeed } from "@/db/activity-feed"
 
 export const dynamic = "force-dynamic"
@@ -116,7 +116,7 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
     const [itemsResult, projectsResult, documents, activity] = await Promise.all([
       wbs.execute({ operation: "wbs.listProjectItems", payload: {}, context }),
       project.execute({ operation: "project.list", payload: {}, context }),
-      listIssuedDocuments(undefined, { accountType: acting.accountType, personId: acting.personId }),
+      listIssuedDocuments({ accountType: acting.accountType, personId: acting.personId }),
       getActivityFeed(200),
     ])
     if (!itemsResult.ok) {

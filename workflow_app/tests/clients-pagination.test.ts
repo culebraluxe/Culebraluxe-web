@@ -11,11 +11,6 @@ import {
   displayNameForEvidence,
 } from '../../db/promote-evidence'
 import { isHumanName } from '../../lib/relationship-intel/names'
-import {
-  identityMatchKey,
-  buildContactIndex,
-  resolveContactForIdentityKeys,
-} from '../../db/enrich-people'
 
 type Row = Record<string, any>
 
@@ -141,46 +136,6 @@ test('names: isHumanName accepts real names, rejects phone/email/structured IDs'
   assert.equal(isHumanName('759147B4-9BF0-4C1D-8E26-280D79168D5F:ABPerson'), false)
   assert.equal(isHumanName(''), false)
   assert.equal(isHumanName(null), false)
-})
-
-test('enrich: identityMatchKey normalizes phone/email to one stable key', () => {
-  assert.equal(identityMatchKey('phone', '+1 (787) 555-0134'), 'phone:+17875550134')
-  assert.equal(identityMatchKey('phone', '7875550134'), 'phone:+17875550134')
-  assert.equal(identityMatchKey('email', 'Jane@Example.com'), 'email:jane@example.com')
-  assert.equal(identityMatchKey('phone', ''), null)
-})
-
-test('enrich: buildContactIndex matches the same normalized identity and resolves the human-named contact', () => {
-  const contacts = [
-    { displayName: null, organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '+17875550134' },
-    { displayName: 'Jane Doe', organization: 'Acme', displayAddress: '1 Calle Sol', identityType: 'phone', normalizedValue: '7875550134' },
-  ]
-  const index = buildContactIndex(contacts as any)
-  const { contact, ambiguous } = resolveContactForIdentityKeys(['phone:+17875550134'], index)
-  assert.equal(ambiguous, false)
-  assert.equal(contact?.displayName, 'Jane Doe')
-  assert.equal(contact?.organization, 'Acme')
-  assert.equal(contact?.displayAddress, '1 Calle Sol')
-})
-
-test('enrich: resolveContactForIdentityKeys is ambiguous (never guesses) when names conflict', () => {
-  const contacts = [
-    { displayName: 'Jane Doe', organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '7875550134' },
-    { displayName: 'Jane Smith', organization: null, displayAddress: null, identityType: 'phone', normalizedValue: '+17875550134' },
-  ]
-  const index = buildContactIndex(contacts as any)
-  const { contact, ambiguous } = resolveContactForIdentityKeys(['phone:+17875550134'], index)
-  assert.equal(ambiguous, true)
-  assert.equal(contact, null)
-})
-
-test('enrich: resolveContactForIdentityKeys returns null when no identity matches', () => {
-  const index = buildContactIndex([
-    { displayName: 'Jane', organization: null, displayAddress: null, identityType: 'email', normalizedValue: 'jane@example.com' },
-  ] as any)
-  const { contact, ambiguous } = resolveContactForIdentityKeys(['phone:+19999999999'], index)
-  assert.equal(contact, null)
-  assert.equal(ambiguous, false)
 })
 
 test('clients: getClientsPage marks nameResolved from the read-model sort priority', async () => {

@@ -1,8 +1,8 @@
 import Image from 'next/image'
 import Link from 'next/link'
 
-import { getSimilarProperties } from '@/db/properties'
-import type { PropertySummary } from '@/db/properties'
+import { getSimilarProperties } from '@/lib/property-reads'
+import type { PropertySummary } from '@/lib/property-reads'
 import { formatPrice, propertyFacts, propertyLocation } from '@/lib/property'
 
 type SimilarPropertiesProps = {

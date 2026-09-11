@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Heart } from 'lucide-react'
 
-import type { PropertySummary } from '@/db/properties'
+import type { PropertySummary } from '@/services/property'
 import {
   FAVORITES_CHANGED_EVENT,
   pruneFavorites,

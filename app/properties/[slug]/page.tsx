@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
 
-import { getPropertyBySlug, getPublicPropertySlugs } from '@/db/properties'
+import { getPropertyBySlug, getPublicPropertySlugs } from '@/lib/property-reads'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PropertyCockpit } from '@/components/property/property-cockpit'

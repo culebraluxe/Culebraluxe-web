@@ -1,4 +1,4 @@
-import { getProperties } from '@/db/properties'
+import { getProperties } from '@/lib/property-reads'
 import { getMarketingContent } from '@/db/marketing-content'
 import { buildHomeContent } from '@/lib/marketing-content'
 import { SiteHeader } from '@/components/site-header'

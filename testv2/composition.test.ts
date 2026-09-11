@@ -64,7 +64,7 @@ const propertyRepo: PropertyRepository = {
     return null
   },
   async forPerson(personId: string) {
-    return { personId, properties: [], observedAddresses: [] }
+    return { personId, properties: [] }
   },
   async upsertForPerson(_r: UpsertPropertyForPersonRequest): Promise<PropertyForPersonDto> {
     throw new Error('unused in composition test')

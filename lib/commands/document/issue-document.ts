@@ -1,11 +1,10 @@
 // ---------------------------------------------------------------------------
 // DOC-06 — Canonical command wrapper: document.issue.
 //
-// Thin adapter over the canonical issuance service db/issued-document.ts
-// (issueFormDocument). The service owns legality, the claim-first receipt and
-// the ONE-transaction mutation (render PDF → append media → insert the
-// immutable transaction_document → mark the form issued); this handler only
-// translates the envelope into the service call. No business rules live here.
+// The transaction belongs to the COMMAND: the issuance, its receipt and the
+// command's own receipt must commit together, so this handler calls the vault
+// repository's issuance function directly and passes `ctx.run`. Service/request
+// surfaces go through VaultService instead (lib/vault-io.ts).
 // ---------------------------------------------------------------------------
 
 import { issueFormDocument } from '../../../db/issued-document'

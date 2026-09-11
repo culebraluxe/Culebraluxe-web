@@ -11,8 +11,7 @@
 // to FALLBACK_CATEGORY to preserve the three-level invariant.
 //
 // Pure and dependency-free so the projection is unit-testable without a DOM.
-// The React Arborist wrapper (components/portal/catch-up-task-tree.tsx) owns
-// tree mechanics; this module owns the data shape + ordering.
+// The React wrapper owns tree mechanics; this module owns the data shape + ordering.
 // ---------------------------------------------------------------------------
 
 export const CATCHUP_WORKSTREAMS = [

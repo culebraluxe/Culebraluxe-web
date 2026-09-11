@@ -16,6 +16,8 @@ import { SecurityService, type SecurityRepository } from './security'
 import { ShowingService, type ShowingRepository } from './showing'
 import { WbsService, type WbsRepository } from './wbs'
 import { ProjectService, type ProjectRepository } from './project'
+import { FormService, type FormRepository } from './forms'
+import { VaultService, type VaultRepository } from './vault'
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
@@ -34,6 +36,13 @@ export type CoreServiceRepositories = {
   security: SecurityRepository
   wbs: WbsRepository
   project: ProjectRepository
+  /**
+   * Optional: kernels that never touch documents (security runtime, form
+   * bindings, proofs) omit it. The full production runtime always provides it.
+   */
+  form?: FormRepository
+  /** Optional for the same reason as `form`: only document-touching kernels need it. */
+  vault?: VaultRepository
 }
 
 export type CoreServiceComposition = {
@@ -46,6 +55,10 @@ export type CoreServiceComposition = {
   security: SecurityService
   wbs: WbsService
   project: ProjectService
+  /** Present when the composition was given a Form repository (the full runtime). */
+  form?: FormService
+  /** Present when the composition was given a Vault repository (the full runtime). */
+  vault?: VaultService
 }
 
 /**
@@ -117,6 +130,24 @@ export function composeCoreServices(
   const showing = registry.register(new ShowingService(repositories.showing, serviceInfrastructure))
   const wbs = registry.register(new WbsService(repositories.wbs, serviceInfrastructure))
   const project = registry.register(new ProjectService(repositories.project, serviceInfrastructure))
+  const form = repositories.form
+    ? registry.register(new FormService(repositories.form, serviceInfrastructure))
+    : undefined
+  const vault = repositories.vault
+    ? registry.register(new VaultService(repositories.vault, serviceInfrastructure))
+    : undefined
 
-  return { registry, person, firm, property, contract, showing, security, wbs, project }
+  return {
+    registry,
+    person,
+    firm,
+    property,
+    contract,
+    showing,
+    security,
+    wbs,
+    project,
+    form,
+    vault,
+  }
 }

@@ -23,7 +23,7 @@
 // properties match) and keeps the same field set the server filters on:
 // category, price, beds, view, free-text.
 
-import type { PropertySummary } from '@/db/properties'
+import type { PropertySummary } from '@/services/property'
 import { isLand } from '@/lib/property'
 
 export type SearchCategory = 'all' | 'homes' | 'land'

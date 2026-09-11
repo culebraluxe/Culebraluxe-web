@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 
 import { searchPeopleAction } from '@/app/portal/actions'
-import type { PersonSearchResult } from '@/db/people'
+import type { PersonSearchResult } from '@/services/person'
 
 // Bounded existing-person selector. This is operator selection, NOT identity
 // resolution: it searches already-existing canonical people and lets the
