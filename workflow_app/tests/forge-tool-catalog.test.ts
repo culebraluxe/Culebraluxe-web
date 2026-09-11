@@ -41,11 +41,12 @@ test('V5-23..27: every declared tool carries an honest wiring status', () => {
   // INSTALLED, so only semgrep can run — `wired` now means runnable, not
   // "a code path exists".
   assert.equal(FORGE_TOOL_CATALOG.semgrep.wired, true)
-  assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, false, 'dependency-cruiser is not installed here')
-  assert.equal(FORGE_TOOL_CATALOG.knip.wired, false, 'knip is not installed here')
-  // No execution seam at all yet.
+  assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, true, 'dependency-cruiser installed 2026-09-11')
+  assert.equal(FORGE_TOOL_CATALOG.knip.wired, true, 'knip installed 2026-09-11')
+  assert.equal(FORGE_TOOL_CATALOG.rtk.wired, true, 'rtk shim seam wired 2026-09-11')
+  // Serena's MCP registration is generated but not yet APPLIED to the host, so
+  // it stays false: a registration command that has not been run is not a seam.
   assert.equal(FORGE_TOOL_CATALOG.serena.wired, false)
-  assert.equal(FORGE_TOOL_CATALOG.rtk.wired, false)
 })
 
 test('V5-23..27: an unwired tool never becomes a grant, and its degradation is explicit', () => {
@@ -126,8 +127,12 @@ test('V5-24: RTK never mutates and never widens lane authority', () => {
 })
 
 test('V5-24: an unavailable RTK degrades explicitly to the raw command path', () => {
-  const degradation = resolveForgeToolPermissions('smith').degradations.find((d) => d.tool === 'rtk')
-  assert.equal(degradation?.reason, 'not-wired')
+  // RTK is wired now, so unavailability comes from the environment, not the
+  // wiring — and it must still be stated rather than silently skipped.
+  const degradation = resolveForgeToolPermissions('smith', { available: ['ripwire'] }).degradations.find(
+    (d) => d.tool === 'rtk',
+  )
+  assert.equal(degradation?.reason, 'unavailable')
   assert.match(degradation!.fallback, /raw command path/)
 })
 
@@ -162,16 +167,13 @@ test('V5-25/V5-26: when an instrument is unavailable the omission is recorded, n
   assert.match(semgrep!.fallback, /skipped and that omission is recorded/)
 })
 
-test('V5-25/V5-26: only the installed instrument is granted by default', () => {
+test('V5-25/V5-26: the installed instruments are granted by default', () => {
   const resolution = resolveForgeToolPermissions('assay')
-  // semgrep is installed and runs; cruiser's seam exists but the binary does not,
-  // so it is reported as not-wired rather than silently granted.
+  // Both installed 2026-09-11, so both are granted; neither is model-facing.
+  assert.ok(resolution.instruments.includes('cruiser'))
   assert.ok(resolution.instruments.includes('semgrep'))
-  assert.equal(resolution.instruments.includes('cruiser'), false)
-  assert.equal(
-    resolution.degradations.find((d) => d.tool === 'cruiser')?.reason,
-    'not-wired',
-  )
+  assert.equal(resolution.modelCatalog.includes('cruiser'), false)
+  assert.equal(resolution.degradations.some((d) => d.tool === 'cruiser'), false)
 })
 
 // --- V5-27 knip --------------------------------------------------------------

@@ -72,6 +72,7 @@ import {
   verifyWorkspaceEnvFile,
 } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
+import { applyRtkToEnv, forgeToolRoleForAgentRole } from '../../workflow_app/forge/forge-tool-seams'
 import { existsSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -301,13 +302,25 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // application database.
     const childEnv = buildChildProcessEnv(target)
     this.startedAtMs = Date.now()
+    // V5-24: RTK transparency. Shims for the supported commands (git/ls/tree/gh)
+    // are generated for THIS worktree and prepended to the child PATH, so the
+    // model keeps typing `git status` and transparently gets `rtk git status`.
+    // Positions without the grant, or with rtk unavailable, are returned
+    // unchanged — an unavailable tool degrades, it never half-applies.
+    const rtk = applyRtkToEnv({
+      role: forgeToolRoleForAgentRole(context.command.role),
+      env: { ...childEnv, ...(this.config.env ?? {}) },
+      workspace,
+    })
     this.handle = startRun({
       cliBin: this.config.cliBin,
       cwd: workspace,
       model,
       task,
       continueSession,
-      env: { ...childEnv, ...(this.config.env ?? {}) },
+      // Spread into a fresh literal so the parameter's precise env type is
+      // restored (a passthrough value would widen it).
+      env: { ...rtk.env },
     })
     this.externalRunId = `opencode-${Date.now()}`
     return { externalRunId: this.externalRunId }

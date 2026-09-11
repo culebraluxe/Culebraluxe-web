@@ -138,7 +138,11 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'transparent',
     purpose: 'transparent compaction of noisy command output',
     skillDoc: 'docs/agent/skills/rtk.md',
-    wired: false,
+    // Wired 2026-09-11: applyRtkToEnv generates command shims (git/ls/tree/gh) and
+    // prepends them to the lane PATH in the harness child env, so the model keeps
+    // typing `git status` and transparently gets `rtk git status`. The shim execs
+    // the proxy, so exit codes are preserved exactly.
+    wired: true,
     // Transparent interception only: the model never chooses RTK, and it may
     // never mutate anything itself.
     roles: ['architect', 'lead_pre', 'lead_solo', 'lead_post', 'smith'],
@@ -150,9 +154,9 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'architecture boundaries and cycles as a hard gate',
     skillDoc: 'docs/agent/skills/cruiser.md',
-    // Seam exists (runStaticGate) but dependency-cruiser is NOT installed in this
-    // repo, so the hard gate silently skips. Install it to make this true.
-    wired: false,
+    // Installed 2026-09-11 (dependency-cruiser 18.2.0) and verified running:
+    // 1243 modules cruised, 6 real violations found on first live run.
+    wired: true,
     roles: ['assay', 'inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — the gate is skipped and that omission is recorded',
@@ -172,9 +176,9 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'deterministic',
     purpose: 'unused files, exports and dependencies (hygiene)',
     skillDoc: 'docs/agent/skills/knip.md',
-    // Seam added 2026-09-11 (runKnip in the static gate), but knip is NOT
-    // installed in this repo, so it does not run yet.
-    wired: false,
+    // Installed 2026-09-11 (knip 6.35.1) and verified running: 100 findings on
+    // first live run. Informational — hygiene never recalls Smith.
+    wired: true,
     roles: ['inspector'],
     writeRoles: [],
     degradeTo: 'no substitute — reported as not run',
