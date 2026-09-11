@@ -23,10 +23,6 @@ const missing=required.filter(k=>!values.get(k));
 if(missing.length){console.error("missing/empty env keys: "+missing.join(", "));process.exit(2)}
 ' || fail "environment is incomplete"
 
-log "DEV Apple Mail metadata sync start"
-node --env-file=.env.local --import tsx scripts/icloud-mail-sync.ts dev
-log "DEV Apple Mail metadata sync success"
-
 log "PROD Apple Mail metadata sync start"
 node --env-file=.env.local --import tsx scripts/icloud-mail-sync.ts prod
 log "PROD Apple Mail metadata sync success"

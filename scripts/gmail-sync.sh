@@ -22,10 +22,6 @@ const missing=required.filter(k=>!keys.has(k));
 if(missing.length){console.error("missing/empty env keys: "+missing.join(", "));process.exit(2)}
 ' || fail "environment is incomplete"
 
-log "DEV metadata intake start"
-node --env-file=.env.local --import tsx scripts/gmail-metadata-sync.ts dev
-log "DEV metadata intake success"
-
 log "PROD metadata intake start"
 node --env-file=.env.local --import tsx scripts/gmail-metadata-sync.ts prod
 log "PROD metadata intake success"
