@@ -163,4 +163,12 @@ if ! node --env-file=.env.local --import tsx scripts/enrich-apple-contacts-names
   fail "Apple Contacts display-name enrichment failed; Person names may be stale"
 fi
 
+# R4 — PROMOTE EVERYTHING: the load has always stopped at the landing table (l_person).
+# This is the step that actually gets Apple data INTO Person: name, phone, email,
+# legal address (Home) and note. Without it Person stays empty while l_person is right.
+log "promoting landing facts into Person (name, identities, legal address, note)"
+if ! node --env-file=.env.local --import tsx scripts/promote-l-person-facts.ts --env prod --apply; then
+  fail "l_person -> person promotion failed; Person may be missing facts"
+fi
+
 log "SUCCESS: Apple Contacts -> historical ODS -> current l_person -> canonical Person -> names -> Clients read model complete"
