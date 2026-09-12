@@ -28,6 +28,7 @@ import {
   buildStoryBoardModel,
   type StoryBoardModel,
 } from './storyboard-data'
+import { priorityRankOf } from './story-priority'
 import {
   listAgentWorkItems,
   type AgentWorkItem,
@@ -185,20 +186,9 @@ export type FactorySnapshot = {
   kpis: import('./factory-kpi').FactoryKpis | null
 }
 
-const PRIORITY_RANK: Record<string, number> = {
-  Critical: 0,
-  High: 1,
-  'High-ish': 2,
-  'Medium-High': 3,
-  Medium: 4,
-  Low: 5,
-  Later: 6,
-  'High-value polish': 7,
-}
-
-function priorityRank(priority: string): number {
-  return PRIORITY_RANK[priority] ?? 99
-}
+// One definition of the ladder, in ./story-priority. Local alias keeps the call
+// sites in this file unchanged.
+const priorityRank = priorityRankOf
 
 const HUMAN_GATES: ReadonlySet<string> = new Set([
   'Human Gate',

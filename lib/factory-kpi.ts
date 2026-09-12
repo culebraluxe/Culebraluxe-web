@@ -31,6 +31,7 @@ import type { AgentWorkItem } from '../db/agent-work'
 import type { StoryboardStory, StoryRun } from '../db/storyboard'
 import type { StoryBoardModel } from './storyboard-data'
 import type { PipelineBlockRef } from './factory-command-center-data'
+import { priorityRankOf } from './story-priority'
 
 // ---------------------------------------------------------------------------
 // Shared vocabulary
@@ -905,20 +906,11 @@ export function assessFactoryHealth(input: HealthInput): FactoryHealth {
 // Priority rank (shared with ENG-16)
 // ---------------------------------------------------------------------------
 
-const PRIORITY_RANK: Record<string, number> = {
-  Critical: 0,
-  High: 1,
-  'High-ish': 2,
-  'Medium-High': 3,
-  Medium: 4,
-  Low: 5,
-  Later: 6,
-  'High-value polish': 7,
-}
-
-export function priorityRankOf(priority: string): number {
-  return PRIORITY_RANK[priority] ?? 99
-}
+// The ladder has ONE definition, in ./story-priority (imported above and
+// re-exported here because this module's callers import it from this path). It
+// used to be copied verbatim into this file, ./storyboard-data and
+// ./factory-command-center-data.
+export { priorityRankOf }
 
 // ---------------------------------------------------------------------------
 // Convenience: KPI lookups used by the console UI

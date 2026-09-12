@@ -11,6 +11,18 @@
 // ---------------------------------------------------------------------------
 
 import { OPERATING_SURFACE_ORDER } from './navigation'
+import {
+  STORY_PRIORITIES,
+  priorityRankOf,
+  type StoryPriority,
+} from './story-priority'
+
+// Re-exported so every existing importer keeps its current path. The single
+// definition lives in ./story-priority: the priority vocabulary and the ENG-16
+// ladder were previously duplicated across THREE modules (this one, ./factory-kpi
+// and ./factory-command-center-data) and had already drifted apart.
+export { STORY_PRIORITIES, priorityRankOf }
+export type { StoryPriority }
 
 /** Workstream code stored on each story (editable secondary classification). */
 export const WORKSTREAMS = [
@@ -237,18 +249,9 @@ export const STORY_STATUSES = [
 
 export type StoryStatus = (typeof STORY_STATUSES)[number]
 
-export const STORY_PRIORITIES = [
-  'Critical',
-  'High',
-  'High-ish',
-  'Medium-High',
-  'Medium',
-  'Low',
-  'Later',
-  'High-value polish',
-] as const
-
-export type StoryPriority = (typeof STORY_PRIORITIES)[number]
+// STORY_PRIORITIES and StoryPriority now live in ./story-priority — one
+// definition, imported and re-exported above. The copy that used to sit here was
+// missing 'Reference', which nine live board rows carry.
 
 export type StoryRecord = {
   id: string
@@ -509,21 +512,8 @@ export function filterStories(
 export const NEXT_WORK_DEFAULT_LIMIT = 20
 export const NEXT_WORK_MAX_LIMIT = 50
 
-/** ENG-16 priority ladder — Critical first; unknown priorities rank last. */
-const PRIORITY_RANK: Record<string, number> = {
-  Critical: 0,
-  High: 1,
-  'High-ish': 2,
-  'Medium-High': 3,
-  Medium: 4,
-  Low: 5,
-  Later: 6,
-  'High-value polish': 7,
-}
-
-export function priorityRankOf(priority: string): number {
-  return PRIORITY_RANK[priority] ?? 99
-}
+// priorityRankOf — the ENG-16 ladder — is imported from ./story-priority and
+// re-exported above. One definition, not three.
 
 /** Statuses whose work is actionable now (eligible for Next Work). */
 const ACTIONABLE_STATUSES: ReadonlySet<string> = new Set([
