@@ -129,8 +129,12 @@ test('G: primary Client History panel renders six compact latest-activity source
     assert.ok(panel.includes(`label: "${label}"`), `${label} has a fixed source row`)
   }
   assert.ok(panel.includes('relationship-channels'), 'primary panel keeps the source-grain route')
-  assert.ok(panel.includes('View all'), 'detailed archive remains available')
-  assert.ok(panel.includes('&recent=true'), 'bounded history read supplies detail count without becoming primary')
+  // Deliberate reversal (captain): a full text chain belongs on her phone, so the
+  // archive is gone. The pane is the glance, and the warehouse no longer needs one
+  // interaction row per message to feed a timeline nobody shows. Asserted on CODE:
+  // the header names the removed feature in prose, so a phrase check would self-trip.
+  assert.ok(!panel.includes('viewAll'), 'no detailed archive: this pane is a glance')
+  assert.ok(!panel.includes('&recent=true'), 'no bounded history read on this pane')
   assert.ok(panel.includes('sourceContextMoment(channel)'), 'source row keeps preview, timestamp, and direction together')
 
   const correction = readFileSync('db/migrations/099_relationship_latest_context.sql', 'utf8')

@@ -183,12 +183,18 @@ test('clients: the deleted small Last contact pane is absent from the working pa
   assert.ok(!/heading="Last contact"/.test(src))
 })
 
-test('clients: Contact History is navy, fills its row, scrolls internally, server-paged (source guard)', () => {
+test('clients: Contact History is navy, fills its row, scrolls internally, and is a glance not an archive (source guard)', () => {
   const src = readFileSync(new URL('../../components/portal/contact-history.tsx', import.meta.url), 'utf8')
   assert.ok(/variant="feature"/.test(src))
   assert.ok(/overflow-auto/.test(src))
   assert.ok(/flex-1 overflow-auto/.test(src))
-  assert.ok(/pageSize/.test(src))
+  // Deliberate reversal: this pane answers "when did we last speak, and what was the
+  // last contact message". The per-message archive was removed, so a paged history
+  // read must not come back — it is what made the warehouse store one row per message.
+  // (Asserted on the CODE, not on prose: the header explains the removal in words.)
+  assert.ok(!/viewAll/.test(src), 'no archive toggle')
+  assert.ok(!/setPage\(/.test(src), 'no archive paging state')
+  assert.ok(!/pageSize/.test(src), 'no paged history query')
 })
 
 test('clients: CORE Clients working pane is the balanced relationship workspace (source guard)', () => {
