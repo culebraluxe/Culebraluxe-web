@@ -77,7 +77,13 @@ export default async function TechPage({
 
   return (
     <>
-      <div className="flex justify-end px-4 pt-3 lg:px-6">
+      <div className="flex justify-end gap-5 px-4 pt-3 lg:px-6">
+        <Link
+          href="/portal/tech/queues"
+          className="text-xs font-medium uppercase tracking-[0.12em] text-[#c6a15b] hover:text-[#a8863f]"
+        >
+          Engineering Queues →
+        </Link>
         <Link
           href="/portal/tech/app-errors"
           className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
