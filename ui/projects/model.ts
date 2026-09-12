@@ -1,3 +1,5 @@
+import type { ProjectCalendarItem } from "./secondary-projection"
+
 export type ProjectDomainKey =
   | "properties"
   | "people"
@@ -85,7 +87,7 @@ export type ProjectPlan = {
   nextAction?: string
   nextActionDetail?: string
   blocker?: string
-  calendarItems?: Array<{ id: string; title: string; startAt: string; status: string; category: string; owner: string | null }>
+  calendarItems?: ProjectCalendarItem[]
   documents?: Array<{ id: string; title: string; state: string; propertyId: string | null; createdAt: string }>
   activity?: Array<{ id: string; channel: string; direction: string | null; occurredAt: string; occurredAtLabel: string; title: string | null; summary: string | null; personName: string | null; propertyName: string | null }>
   workNodes: ProjectWorkNode[]

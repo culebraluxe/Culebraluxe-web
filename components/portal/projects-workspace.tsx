@@ -44,6 +44,7 @@ import {
   PROJECTS_SCROLL_CLASS,
   PROJECTS_SURFACE,
   ProjectsWorkspaceController,
+  mapProjectCalendarToEvents,
 } from "@/ui/projects"
 import { usePageController } from "@/ui/runtime"
 import { Tree } from "react-arborist"
@@ -54,6 +55,7 @@ import {
   selectedTreeNodeId,
   type ProjectTreeNode,
 } from "@/ui/projects/tree-projection"
+import { FullCalendarCandidate } from "@/components/portal/fullcalendar-candidate"
 import { instantiateProjectAction, updateProjectStatusAction } from "@/app/portal/projects/actions"
 import { updateWbsItemAction } from "@/app/portal/wbs/actions"
 
@@ -465,19 +467,15 @@ function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
 }
 
 function ProjectCalendar({ project }: { project: ProjectPlan }) {
-  const items = project.calendarItems ?? []
-  if (!items.length) return <ProjectionState view="calendar" provenance={project.provenance} />
+  const eventSource = project.calendarItems ?? []
+  const events = useMemo(() => mapProjectCalendarToEvents(eventSource), [eventSource])
+  // The month calendar renders even with zero dated items, on purpose: this pane
+  // is the project's calendar home, and an empty month reads as "no dated work
+  // yet" — it must not look like the pane failed to load. Dated items come from
+  // the project's own WBS due dates (ui/projects/secondary-projection).
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
-      <ul className="divide-y divide-[var(--portal-panel-border)]/70">
-        {items.map((item) => (
-          <li key={item.id} className="flex items-center gap-3 px-2 py-2.5">
-            <time dateTime={item.startAt} className="w-24 shrink-0 text-[11px] font-medium text-[var(--portal-gold-muted)]">{new Date(item.startAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>
-            <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--portal-navy)]">{item.title}</span>
-            <span className="shrink-0 text-[10px] font-light text-black/40">{item.owner ?? "Unassigned"}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="min-h-0 flex-1">
+      <FullCalendarCandidate events={events} heading="Calendar" />
     </div>
   )
 }
