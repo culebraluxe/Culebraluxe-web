@@ -17,8 +17,22 @@
 
 import { useMemo, useState } from 'react'
 
+import type { StoryBoardCockpitData, StoryLifecycle } from '@/lib/storyboard-data'
+import type { StoryboardStory } from '@/db/storyboard'
+
 import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
+
+/**
+ * What the route loads for us. Tiles and the story log come from ONE structure
+ * (cockpit.kpis + cockpit.panels) so they can never disagree on screen, and the
+ * Work Bench comes from `storyboard_active_work` — the table that already existed
+ * and already orders the day's work (`listActiveWork`).
+ */
+export type EngineeringQueuesPageProps = {
+  cockpit: StoryBoardCockpitData
+  activeWork: StoryboardStory[]
+}
 
 const QUEUES: Array<{
   key: QueueKey
@@ -69,11 +83,12 @@ const OUTCOME: Record<RunOutcome, string> = {
   INTERRUPTED: 'bg-slate-500/15 text-slate-300 ring-slate-400/30',
 }
 
-export function EngineeringQueuesPage() {
+export function EngineeringQueuesPage({ cockpit, activeWork }: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
   const [cards, setCards] = useState<QueueCard[]>(model.cards)
   const [selected, setSelected] = useState<string | null>(null)
-  const [showLifecycle, setShowLifecycle] = useState(false)
+  // The story log is the thing the captain is looking FOR, so it starts open.
+  const [showLifecycle, setShowLifecycle] = useState(true)
 
   /** The ownership switch: one card, one queue. Never two. */
   function move(id: string, to: QueueKey) {
@@ -89,6 +104,18 @@ export function EngineeringQueuesPage() {
   const byQueue = (key: QueueKey) => cards.filter((c) => c.queue === key)
   const stats = model.stats
 
+  // Tiles are DERIVED from the cockpit projection, not typed by hand: the same
+  // numbers that fill the story log below fill these, so the top strip and the
+  // bottom boxes cannot drift apart on screen.
+  const tiles = [
+    { label: 'TOTAL STORIES', value: String(cockpit.kpis.total), caption: 'All canonical rows' },
+    { label: 'ACTIVE QUEUE', value: String(activeWork.length), caption: 'Selected today — the Work Bench' },
+    { label: 'OPEN', value: String(cockpit.kpis.open), caption: 'Current work queue' },
+    { label: 'BACKLOG', value: String(cockpit.kpis.backlog), caption: 'Current-version planned' },
+    { label: 'CLOSED', value: String(cockpit.kpis.complete), caption: 'Finished history' },
+    { label: 'COMPLETION', value: `${cockpit.kpis.completionPercent.toFixed(1)}%`, caption: 'Net-net' },
+  ]
+
   return (
     <div className="min-h-screen bg-[#0b1220] px-5 py-6 text-slate-200">
       <header className="mb-5">
@@ -99,13 +126,51 @@ export function EngineeringQueuesPage() {
       </header>
 
       <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {model.tiles.map((tile) => (
+        {tiles.map((tile) => (
           <div key={tile.label} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
             <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">{tile.label}</p>
             <p className="mt-0.5 font-serif text-xl text-white">{tile.value}</p>
             <p className="text-[10px] text-slate-500">{tile.caption}</p>
           </div>
         ))}
+      </section>
+
+      {/* WORK BENCH — the human lane. Real: `storyboard_active_work`, in work_order. */}
+      <section className="mb-4 rounded-lg border border-amber-400/25 bg-amber-400/[0.04] px-4 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-amber-200">
+            WORK BENCH — ACTIVE WORK QUEUE{' '}
+            <span className="font-normal text-slate-400">({activeWork.length})</span>
+          </p>
+          <p className="text-[10px] text-slate-400">
+            Explicitly selected today · my hands, not the engine&apos;s
+          </p>
+        </div>
+        {activeWork.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-500">
+            Nothing on the bench. Pick a story out of the log below.
+          </p>
+        ) : (
+          <ul className="mt-2 grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
+            {activeWork.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center gap-2 rounded border border-white/10 bg-white/[0.02] px-2.5 py-1.5"
+              >
+                <span className="w-[10.5rem] shrink-0 truncate font-mono text-[11px] text-slate-400">
+                  {s.id}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px] font-light text-slate-200">
+                  {s.title}
+                </span>
+                <span className="shrink-0 text-[10px] text-slate-500">{s.status}</span>
+                <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+                  {Math.round(s.completion)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <StatsStrip stats={stats} />
@@ -156,15 +221,17 @@ export function EngineeringQueuesPage() {
         })}
       </section>
 
-      <LifecycleBand
-        buckets={model.lifecycle}
+      <StoryLog
+        panels={cockpit.panels}
         open={showLifecycle}
         onToggle={() => setShowLifecycle((v) => !v)}
       />
 
       <p className="mt-4 text-[11px] text-slate-500">
-        Layout pass — data is static (fixture) and every number shown above was read from PROD on{' '}
-        {stats.asOf}. The seam is <code className="text-slate-400">loadEngineeringQueues()</code>.
+        Tiles, Work Bench and Story Log are LIVE from PROD (as of {stats.asOf}): tiles and boxes come from
+        one projection so they cannot disagree, the bench is <code className="text-slate-400">storyboard_active_work</code> in
+        work order. The four queue cards in the middle are still a labelled SAMPLE — wiring them is{' '}
+        <code className="text-slate-400">loadEngineeringQueues()</code>.
       </p>
     </div>
   )
@@ -277,12 +344,23 @@ function QueueCardView({
   )
 }
 
-function LifecycleBand({
-  buckets,
+const LIFECYCLE_LABELS: Array<{ key: StoryLifecycle; label: string }> = [
+  { key: 'open', label: 'CURRENT WORK QUEUE' },
+  { key: 'backlog', label: 'CURRENT-VERSION WAITING' },
+  { key: 'closed', label: 'FINISHED HISTORY' },
+  { key: 'next-version', label: 'INTENTIONALLY FUTURE' },
+]
+
+/**
+ * The story log — the captain's four boxes, from the SAME projection that fills
+ * the tiles above (cockpit.panels), grouped by workstream. Real rows, real order.
+ */
+function StoryLog({
+  panels,
   open,
   onToggle,
 }: {
-  buckets: ReturnType<typeof loadEngineeringQueues>['lifecycle']
+  panels: StoryBoardCockpitData['panels']
   open: boolean
   onToggle: () => void
 }) {
@@ -294,42 +372,53 @@ function LifecycleBand({
         className="flex w-full items-center justify-between gap-4 text-left"
       >
         <span className="text-[11px] font-semibold tracking-[0.16em] text-slate-300">
-          FULL LIFECYCLE — {open ? 'hide' : 'show'} the canonical buckets
+          STORY LOG — {open ? 'hide' : 'show'} the four buckets
         </span>
         <span className="text-[11px] text-slate-500">{open ? '▲' : '▼'}</span>
       </button>
-      <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {buckets.map((b) => (
-          <div key={b.key} className="rounded border border-white/10 px-3 py-2">
-            <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">{b.label}</p>
-            <p className="mt-0.5 flex items-baseline gap-2">
-              <span className="font-serif text-lg text-white">{b.count}</span>
-              <span className="text-[10px] text-slate-500">{b.caption}</span>
-            </p>
-          </div>
-        ))}
-      </div>
-      {open ? (
-        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-4">
-          {buckets.map((b) => (
-            <div key={`${b.key}-sample`} className="rounded border border-white/10 px-3 py-2">
-              <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">{b.label}</p>
-              <ul className="mt-1.5 space-y-1.5">
-                {b.sample.map((s) => (
-                  <li key={s.id} className="text-[11px] leading-snug">
-                    <span className="font-mono text-slate-400">{s.id}</span>{' '}
-                    <span className="font-light text-slate-300">{s.title}</span>
-                    <span className="ml-1 text-[10px] text-slate-500">{s.status}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-1.5 text-[10px] text-slate-500">
-                {b.count - b.sample.length > 0 ? `+ ${b.count - b.sample.length} more` : ''}
-              </p>
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-4">
+        {LIFECYCLE_LABELS.map(({ key, label }) => {
+          const panel = panels[key]
+          return (
+            <div key={key} className="flex flex-col rounded border border-white/10">
+              <div className="border-b border-white/10 px-3 py-2">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-300">{label}</p>
+                <p className="text-[10px] text-slate-500">{panel?.count ?? 0} stories</p>
+              </div>
+              {open ? (
+                <div className="max-h-[540px] overflow-y-auto px-3 py-2">
+                  {(panel?.groups ?? []).map((g) => (
+                    <div key={g.group} className="mb-2 last:mb-0">
+                      <p className="text-[10px] font-semibold tracking-[0.12em] text-[#c6a15b]/80">
+                        {g.group}
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {g.stories.map((s) => (
+                          <li key={s.id} className="rounded border border-white/5 bg-white/[0.02] px-2 py-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate font-mono text-[10px] text-slate-400">{s.id}</span>
+                              <span className="shrink-0 text-[10px] text-slate-500">{s.status}</span>
+                            </div>
+                            <p className="truncate text-[11px] font-light text-slate-300" title={s.title}>
+                              {s.title}
+                            </p>
+                            <p className="text-[10px] text-slate-500">
+                              {s.priority} · {Math.round(s.completion)}%
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                  {(panel?.count ?? 0) === 0 ? (
+                    <p className="text-[11px] text-slate-500">Empty</p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-          ))}
-        </div>
-      ) : null}
+          )
+        })}
+      </div>
     </section>
   )
 }
