@@ -11,7 +11,7 @@ import {
   resolveHandlePerson,
 } from '../lib/relationship-intel/apple-message-materializer'
 import { getRelationshipEvidenceRows } from './relationship-evidence'
-import { createInteraction, createInteractionsBatch } from './interactions'
+import { upsertLatestInteraction } from './interactions'
 import { landImessage, landImessageBatch } from './landing'
 import { refreshClientReadModels } from './client-read-models'
 import type { CreateInteractionInput } from '../lib/crm-types'
@@ -45,7 +45,13 @@ export type AppleMessageMaterializeResult = {
   exactLinkedHandles: number
   unmatchedOrAmbiguousHandles: number
   eventsSeen: number
+  /** Raw messages genuinely new in l_imessage (ODS keeps everything). */
+  landed: number
+  /** Warehouse source rows created. */
   inserted: number
+  /** Warehouse source rows refreshed because a newer message arrived. */
+  updated: number
+  /** Source rows already carrying the newest message. */
   replayed: number
   skippedNoTimestamp: number
   skippedGroupChat: number
@@ -54,7 +60,7 @@ export type AppleMessageMaterializeResult = {
 
 export type AppleMessageMaterializeProgress = Pick<
   AppleMessageMaterializeResult,
-  'eventsSeen' | 'inserted' | 'replayed' | 'skippedNoTimestamp' | 'skippedGroupChat' | 'errors'
+  'eventsSeen' | 'landed' | 'inserted' | 'updated' | 'replayed' | 'skippedNoTimestamp' | 'skippedGroupChat' | 'errors'
 > & { processed: number }
 
 export async function materializeAppleMessages(
@@ -74,7 +80,9 @@ export async function materializeAppleMessages(
     exactLinkedHandles: 0,
     unmatchedOrAmbiguousHandles: 0,
     eventsSeen: exportData.messages.length,
+    landed: 0,
     inserted: 0,
+    updated: 0,
     replayed: 0,
     skippedNoTimestamp: 0,
     skippedGroupChat: 0,
@@ -85,7 +93,9 @@ export async function materializeAppleMessages(
     options.onProgress?.({
       processed,
       eventsSeen: result.eventsSeen,
+      landed: result.landed,
       inserted: result.inserted,
+      updated: result.updated,
       replayed: result.replayed,
       skippedNoTimestamp: result.skippedNoTimestamp,
       skippedGroupChat: result.skippedGroupChat,
@@ -118,51 +128,44 @@ export async function materializeAppleMessages(
   }
 
   // ---------------------------------------------------------------------------
-  // BOUNDED BATCHES, not one round trip per message.
+  // ODS TAKES EVERYTHING, THE WAREHOUSE TAKES WHAT THE SCREEN NEEDS.
   //
-  // This loop used to await landImessage() then createInteraction() for EVERY
-  // message. Measured over the pooled Neon driver: 68.7ms per round trip, and the
-  // interaction write costs a second trip whenever the row already exists, so a
-  // 93,000-message store spent hours in pure latency - the database does a
-  // 20,000-row set-based statement in 71ms. Rows are now accumulated and written
-  // in chunks, which is the same paradigm the mail pipeline uses.
+  // Every message lands in l_imessage - that is the raw intake, and it is what makes
+  // a lossy warehouse safe, because the detail is always re-derivable. Landing is
+  // batched (measured: one round trip is 68.7ms, so per-row landing of 93,000
+  // messages was hours of pure latency).
   //
-  // A chunk that fails falls back to the single-row path for that chunk only, so
-  // one bad row can never lose the rest and the previous error accounting is kept.
+  // The warehouse is cherry-picked. The Contact History pane shows ONE row per
+  // source carrying the last-contact time and the last message, so a message channel
+  // materializes ONE interaction per Person x source - the NEWEST message - not one
+  // per message. Ami's 5,519 messages are 4 source rows.
+  //
+  // A landing batch that fails falls back to the single-row path for that batch only,
+  // so one bad row can never lose the rest.
   // ---------------------------------------------------------------------------
   const CHUNK = 500
-  type Pending = { interaction: CreateInteractionInput; landing: LandedImessage }
-  let pending: Pending[] = []
+  let pendingLanding: LandedImessage[] = []
 
-  const flush = async (): Promise<void> => {
-    if (pending.length === 0) return
-    const batch = pending
-    pending = []
+  const flushLanding = async (): Promise<void> => {
+    if (pendingLanding.length === 0) return
+    const batch = pendingLanding
+    pendingLanding = []
     try {
-      await landImessageBatch(
-        batch.map((item) => item.landing),
-        execute,
-      )
-      const { inserted: created, rejected } = await createInteractionsBatch(
-        batch.map((item) => item.interaction),
-        execute,
-      )
-      result.inserted += created
-      result.errors += rejected
-      result.replayed += batch.length - created - rejected
+      result.landed += await landImessageBatch(batch, execute)
     } catch {
       for (const item of batch) {
         try {
-          await landImessage(item.landing, execute)
-          const { created } = await createInteraction(item.interaction, execute)
-          if (created) result.inserted += 1
-          else result.replayed += 1
+          const inserted = await landImessage(item, execute)
+          if (inserted) result.landed += 1
         } catch {
           result.errors += 1
         }
       }
     }
   }
+
+  /** The newest message seen for each Person x source, in memory only. */
+  const latestBySource = new Map<string, CreateInteractionInput>()
 
   for (const handle of exportData.handles) {
     const resolved = resolveHandlePerson(byIdentityKey, handle.id)
@@ -187,28 +190,29 @@ export async function materializeAppleMessages(
         continue
       }
       try {
-        pending.push({
-          interaction: mapAppleMessageToInteraction(
-            m,
-            resolved.canonicalPersonId,
-            exportData.sourceAccount,
-          ),
-          // ODS landing FIRST (captain's model: landing -> promote -> warehouse).
-          // The source record lands in l_imessage before anything is promoted, so a
-          // full load is re-derivable and replay-safe on (source_account, guid).
-          landing: {
-            sourceAccount: exportData.sourceAccount,
-            sourceMessageId: m.guid,
-            conversationId: m.chatGuid,
-            handle: m.handleValue,
-            direction: m.isFromMe ? 'outgoing' : 'incoming',
-            service: m.service,
-            sentAt: m.dateISO,
-            text: m.text,
-            raw: m,
-          },
+        const input = mapAppleMessageToInteraction(
+          m,
+          resolved.canonicalPersonId,
+          exportData.sourceAccount,
+        )
+        pendingLanding.push({
+          sourceAccount: exportData.sourceAccount,
+          sourceMessageId: m.guid,
+          conversationId: m.chatGuid,
+          handle: m.handleValue,
+          direction: m.isFromMe ? 'outgoing' : 'incoming',
+          service: m.service,
+          sentAt: m.dateISO,
+          text: m.text,
+          raw: m,
         })
-        if (pending.length >= CHUNK) await flush()
+        if (pendingLanding.length >= CHUNK) await flushLanding()
+
+        const key = `${resolved.canonicalPersonId}\u0000${input.channel}`
+        const current = latestBySource.get(key)
+        if (!current || String(input.occurredAt) > String(current.occurredAt)) {
+          latestBySource.set(key, input)
+        }
       } catch {
         result.errors += 1
       }
@@ -216,13 +220,35 @@ export async function materializeAppleMessages(
     }
   }
 
-  await flush()
+  await flushLanding()
+
+  // The cherry-pick: one interaction per Person x source, keyed on the source rather
+  // than the message so each run updates that row instead of appending another.
+  for (const input of latestBySource.values()) {
+    try {
+      const outcome = await upsertLatestInteraction(
+        {
+          ...input,
+          sourceSystem: APPLE_MESSAGES_SOURCE,
+          sourceExternalId: `latest:${input.personId}:${input.channel}`,
+        },
+        execute,
+      )
+      if (outcome === 'inserted') result.inserted += 1
+      else if (outcome === 'updated') result.updated += 1
+      else result.replayed += 1
+    } catch {
+      result.errors += 1
+    }
+  }
 
   if (progressEvery > 0 && processed % progressEvery !== 0) {
     options.onProgress?.({
       processed,
       eventsSeen: result.eventsSeen,
+      landed: result.landed,
       inserted: result.inserted,
+      updated: result.updated,
       replayed: result.replayed,
       skippedNoTimestamp: result.skippedNoTimestamp,
       skippedGroupChat: result.skippedGroupChat,
@@ -230,7 +256,7 @@ export async function materializeAppleMessages(
     })
   }
 
-  if (result.inserted > 0) {
+  if (result.inserted > 0 || result.updated > 0) {
     await refresh()
   }
 

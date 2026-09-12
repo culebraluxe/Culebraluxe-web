@@ -248,81 +248,69 @@ export async function createInteraction(
 }
 
 /**
- * Set-based interaction write for a bounded batch.
+ * The warehouse grain the screen contract actually needs for a message channel:
+ * ONE row per Person x source carrying the NEWEST message, not one row per message.
  *
- * createInteraction pays one round trip for the insert and, when the row already
- * exists, a SECOND round trip to read it back. At 68.7ms per round trip (measured
- * over the pooled Neon driver) that is what turns a 93,000-message store into
- * hours. This form answers the only question a bulk materializer asks - how many
- * were genuinely new - in ONE statement, and a row it cannot accept is counted
- * instead of thrown, matching the single-row contract.
+ * ODS keeps every message (l_imessage is the raw intake and the detail is
+ * re-derivable from it). The warehouse is cherry-picked: the pane shows a source
+ * row with a last-contact time and the last contact message, so a 5,519-message
+ * relationship is four source rows, not 5,519 interactions.
  *
- * Replay-safe on the same unique partial index (source_system, source_external_id).
+ * Identity is deliberately per source rather than per event
+ * (`latest:<personId>:<channel>`), so each run UPDATES the same row instead of
+ * appending a new one, and an older message can never overwrite a newer one.
  */
-export async function createInteractionsBatch(
-  inputs: readonly CreateInteractionInput[],
+export async function upsertLatestInteraction(
+  input: CreateInteractionInput,
   execute: QueryExecutor = sql,
-): Promise<{ inserted: number; rejected: number }> {
-  const accepted: CreateInteractionInput[] = []
-  let rejected = 0
+): Promise<'inserted' | 'updated' | 'ignored'> {
+  validateSourceIdentity(input)
 
-  for (const input of inputs) {
-    try {
-      validateSourceIdentity(input)
-      if (!input.personId || !input.eventType.trim()) {
-        throw new Error('personId and eventType are required.')
-      }
-      if (
-        input.durationSeconds !== undefined &&
-        (!Number.isInteger(input.durationSeconds) || input.durationSeconds < 0)
-      ) {
-        throw new Error('durationSeconds must be a non-negative integer.')
-      }
-      accepted.push(input)
-    } catch {
-      rejected += 1
-    }
+  if (!input.personId || !input.eventType.trim()) {
+    throw new Error('personId and eventType are required.')
   }
 
-  if (accepted.length === 0) return { inserted: 0, rejected }
-
-  const occurredAt = accepted.map((input) =>
-    input.occurredAt instanceof Date ? input.occurredAt.toISOString() : input.occurredAt,
-  )
+  const occurredAt =
+    input.occurredAt instanceof Date ? input.occurredAt.toISOString() : input.occurredAt
+  const sourceSystem = input.sourceSystem?.trim() || null
+  const sourceExternalId = input.sourceExternalId?.trim() || null
 
   const rows = (await execute`
     insert into interaction (
       person_id, property_id, deal_id, channel, event_type, direction, occurred_at,
       title, summary, duration_seconds, source_system, source_external_id, source_metadata
-    )
-    select
-      t.person_id, t.property_id, t.deal_id, t.channel, t.event_type, t.direction,
-      t.occurred_at, t.title, t.summary, t.duration_seconds, t.source_system,
-      t.source_external_id, (t.source_metadata)::jsonb
-    from unnest(
-      ${accepted.map((input) => input.personId)}::uuid[],
-      ${accepted.map((input) => input.propertyId ?? null)}::uuid[],
-      ${accepted.map((input) => input.dealId ?? null)}::uuid[],
-      ${accepted.map((input) => input.channel)}::text[],
-      ${accepted.map((input) => input.eventType.trim())}::text[],
-      ${accepted.map((input) => input.direction ?? null)}::text[],
-      ${occurredAt}::timestamptz[],
-      ${accepted.map((input) => input.title ?? null)}::text[],
-      ${accepted.map((input) => input.summary ?? null)}::text[],
-      ${accepted.map((input) => input.durationSeconds ?? null)}::int[],
-      ${accepted.map((input) => input.sourceSystem?.trim() || null)}::text[],
-      ${accepted.map((input) => input.sourceExternalId?.trim() || null)}::text[],
-      ${accepted.map((input) => JSON.stringify(input.sourceMetadata ?? {}))}::text[]
-    ) as t(
-      person_id, property_id, deal_id, channel, event_type, direction, occurred_at,
-      title, summary, duration_seconds, source_system, source_external_id, source_metadata
+    ) values (
+      ${input.personId},
+      ${input.propertyId ?? null},
+      ${input.dealId ?? null},
+      ${input.channel},
+      ${input.eventType.trim()},
+      ${input.direction ?? null},
+      ${occurredAt},
+      ${input.title ?? null},
+      ${input.summary ?? null},
+      ${input.durationSeconds ?? null},
+      ${sourceSystem},
+      ${sourceExternalId},
+      ${JSON.stringify(input.sourceMetadata ?? {})}::jsonb
     )
     on conflict (source_system, source_external_id)
       where source_system is not null
         and source_external_id is not null
-    do nothing
-    returning id
-  `) as unknown as unknown[]
+    do update set
+      person_id = excluded.person_id,
+      channel = excluded.channel,
+      event_type = excluded.event_type,
+      direction = excluded.direction,
+      occurred_at = excluded.occurred_at,
+      title = excluded.title,
+      summary = excluded.summary,
+      source_metadata = excluded.source_metadata
+    where interaction.occurred_at < excluded.occurred_at
+    returning id, (xmax = 0) as inserted
+  `) as unknown as Array<{ inserted: boolean }>
 
-  return { inserted: Array.isArray(rows) ? rows.length : 0, rejected }
+  const row = rows[0]
+  if (!row) return 'ignored' // an older message than the row already stored
+  return row.inserted ? 'inserted' : 'updated'
 }

@@ -12,7 +12,7 @@ import {
 import { upsertRelationshipEvidence, recordReconcileDecision, getRelationshipEvidenceRows } from '../db/relationship-evidence'
 import { reconcileEvidence } from '../lib/relationship-intel/reconcile'
 import { createInMemoryPersonLookup, mapLimit } from '../lib/relationship-intel/inmemory-lookup'
-import { createInteraction } from '../db/interactions'
+import { upsertLatestInteraction } from '../db/interactions'
 import { landCall } from '../db/landing'
 import type { QueryExecutor } from '../db/query-executor'
 import { createPoolExecutor } from './lib/pool-executor'
@@ -103,6 +103,7 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
   }
 
   let inserted = 0
+  let updated = 0
   let replayed = 0
   let skippedUnlinked = 0
   let skippedNoDate = 0
@@ -120,7 +121,12 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
     try {
       const duration = call.duration == null ? undefined : Math.max(0, Math.round(Number(call.duration)))
       const eventType = source === APPLE_FACETIME_SOURCE ? 'facetime_call' : 'phone_call'
-      const result = await createInteraction({
+      // THE WAREHOUSE GRAIN: one row per Person x source, carrying the NEWEST call,
+      // not one per call. ODS keeps every call; the pane shows one Phone row and one
+      // FaceTime row, each with its last-contact time and context. Keyed on the
+      // source so each run updates that row instead of appending another, and an
+      // older call can never overwrite a newer one.
+      const outcome = await upsertLatestInteraction({
         personId,
         channel: 'call',
         eventType,
@@ -128,7 +134,7 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
         occurredAt: call.dateISO,
         durationSeconds: Number.isFinite(duration) ? duration : undefined,
         sourceSystem: source,
-        sourceExternalId: call.uniqueId || `row:${call.rowid}`,
+        sourceExternalId: `latest:${personId}:call`,
         sourceMetadata: {
           address,
           answered: call.answered == null ? null : Boolean(call.answered),
@@ -137,14 +143,15 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
           countryCode: call.countryCode ?? null,
         },
       }, execute)
-      if (result.created) inserted += 1
+      if (outcome === 'inserted') inserted += 1
+      else if (outcome === 'updated') updated += 1
       else replayed += 1
     } catch {
       errors += 1
     }
   }
 
-  if (evidenceBuilds.length > 0 || inserted > 0) await refresh(execute)
+  if (evidenceBuilds.length > 0 || inserted > 0 || updated > 0) await refresh(execute)
 
   console.log('=== APPLE CALL HISTORY INTAKE ===')
   console.log('env:', target)
@@ -154,6 +161,7 @@ async function run(target: EnvTarget, file: string, execute: QueryExecutor) {
   console.log('evidence rows built:', evidenceBuilds.length)
   console.log('reconcile tally:', JSON.stringify(tally))
   console.log('interactions inserted:', inserted)
+  console.log('interactions updated:', updated)
   console.log('interactions replayed:', replayed)
   console.log('skipped unlinked:', skippedUnlinked)
   console.log('skipped no date:', skippedNoDate)

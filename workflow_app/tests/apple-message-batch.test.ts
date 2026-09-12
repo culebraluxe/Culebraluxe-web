@@ -2,15 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { materializeAppleMessages } from '../../db/apple-message-materialization'
-import { createInteractionsBatch } from '../../db/interactions'
 import type { QueryExecutor, QueryRow } from '../../db/query-executor'
 import type { AppleMessagesExport } from '../../lib/relationship-intel/apple-messages'
 
 // ---------------------------------------------------------------------------
-// The 5-hour bug: this loop wrote one row at a time, so a 93,000-message store
-// paid ~186,000 sequential round trips (measured at 68.7ms each) for work the
-// database finishes in ~70ms. These tests pin the fix: the number of STATEMENTS
-// must scale with chunks, not with messages.
+// ODS takes everything; the warehouse takes what the screen contract needs.
+//
+// Two separate bugs are pinned here:
+//   1. LOGISTICS - landing used to be one round trip per message (68.7ms each,
+//      measured), so a 93,000-message store was hours of pure latency.
+//   2. GRAIN - every message used to become a warehouse interaction, so Ami's
+//      5,519 messages became 5,519 rows to feed a pane that shows 4.
 // ---------------------------------------------------------------------------
 
 const MESSAGES = 1_200
@@ -25,22 +27,24 @@ function buildExport(): AppleMessagesExport {
     handleValue: '+17875550134',
     chatGuid: 'iMessage;-;+17875550134',
     isFromMe: index % 2 === 0,
-    dateISO: '2026-08-01T12:00:00.000Z',
+    // Ascending dates, so the newest message is the last one processed.
+    dateISO: new Date(Date.UTC(2026, 7, 1, 0, 0, index)).toISOString(),
     service: 'iMessage',
     text: `message ${index + 1}`,
   }))
   return { sourceAccount: 'lisapenfield@icloud.com', handles, messages } as unknown as AppleMessagesExport
 }
 
-/** Counts statements and answers each shape the materializer needs. */
-function fakeExecutor(options: { alreadyLanded?: boolean } = {}) {
-  const statements: string[] = []
-  const counts = { landedRows: 0, interactionRows: 0 }
+/** Records each statement with its kind and text, and answers the shapes needed. */
+function fakeExecutor(options: { alreadyLanded?: boolean; upsertReturnsRow?: boolean } = {}) {
+  const kinds: string[] = []
+  const sql: Record<string, string> = {}
+  const counts = { landedRows: 0, latestUpserts: 0 }
 
   const execute = (async (strings: TemplateStringsArray, ...params: unknown[]) => {
     const sqlText = strings.join(' $ ').replace(/\s+/g, ' ')
     if (sqlText.includes('integration_relationship_evidence')) {
-      statements.push('evidence')
+      kinds.push('evidence')
       return [
         {
           id: 'ev-1',
@@ -54,97 +58,65 @@ function fakeExecutor(options: { alreadyLanded?: boolean } = {}) {
       ] as unknown as QueryRow[]
     }
     if (sqlText.includes('insert into l_imessage')) {
-      statements.push('land')
-      const first = params[0] as unknown as string[]
-      counts.landedRows += first.length
+      kinds.push('land')
+      const ids = params[0] as unknown as string[]
+      counts.landedRows += ids.length
       if (options.alreadyLanded) return [] as QueryRow[]
-      return first.map(() => ({ id: 'row' })) as unknown as QueryRow[]
+      return ids.map(() => ({ id: 'row' })) as unknown as QueryRow[]
     }
     if (sqlText.includes('insert into interaction')) {
-      statements.push('interaction')
-      const first = params[0] as unknown as string[]
-      counts.interactionRows += first.length
-      if (options.alreadyLanded) return [] as QueryRow[]
-      return first.map(() => ({ id: 'row' })) as unknown as QueryRow[]
+      kinds.push('latest')
+      sql.latest = sqlText
+      counts.latestUpserts += 1
+      if (options.upsertReturnsRow === false) return [] as QueryRow[]
+      return [{ inserted: true }] as unknown as QueryRow[]
     }
     if (sqlText.includes('refresh materialized view')) {
-      statements.push('refresh')
+      kinds.push('refresh')
       return [] as QueryRow[]
     }
-    statements.push(`unexpected: ${sqlText.slice(0, 60)}`)
+    kinds.push(`unexpected: ${sqlText.slice(0, 60)}`)
     return [] as QueryRow[]
   }) as QueryExecutor
 
-  return { execute, statements, counts }
+  return { execute, kinds, sql, counts }
 }
 
-test('materialization writes in chunks, not one round trip per message', async () => {
-  const { execute, statements, counts } = fakeExecutor()
+test('every message lands in ODS, but only the newest per source reaches the warehouse', async () => {
+  const { execute, kinds, sql } = fakeExecutor()
   const result = await materializeAppleMessages(buildExport(), execute, { refresh: async () => {} })
 
-  const land = statements.filter((s) => s === 'land').length
-  const interaction = statements.filter((s) => s === 'interaction').length
-  const expectedChunks = Math.ceil(MESSAGES / CHUNK)
-
   assert.equal(result.eventsSeen, MESSAGES)
-  assert.equal(result.inserted, MESSAGES)
+  assert.equal(result.landed, MESSAGES, 'the raw intake keeps every message')
+  assert.equal(result.inserted, 1, 'ONE warehouse row for one Person x one source')
   assert.equal(result.errors, 0)
-  assert.equal(counts.landedRows, MESSAGES, 'every message still lands')
-  assert.equal(counts.interactionRows, MESSAGES, 'every message still materializes')
-  assert.equal(land, expectedChunks, `landing statements should be ${expectedChunks}, not ${MESSAGES}`)
-  assert.equal(interaction, expectedChunks, `interaction statements should be ${expectedChunks}`)
-  // The whole point: statements scale with chunks (a few), never with messages.
+
+  const land = kinds.filter((kind) => kind === 'land').length
+  const latest = kinds.filter((kind) => kind === 'latest').length
+  assert.equal(land, Math.ceil(MESSAGES / CHUNK), `landing is chunked, not ${MESSAGES} statements`)
+  assert.equal(latest, 1, `expected one warehouse write, got ${latest}`)
+  assert.ok(kinds.length < 20, `expected a handful of statements, got ${kinds.length}`)
+
+  // The upsert must keep the newest message and never let an older one overwrite it.
+  assert.ok(sql.latest?.includes('do update'), 'the warehouse write updates rather than appends')
   assert.ok(
-    statements.length < 20,
-    `expected a handful of statements for ${MESSAGES} messages, got ${statements.length}`,
+    sql.latest?.includes('interaction.occurred_at < excluded.occurred_at'),
+    'an older message can never overwrite a newer one',
+  )
+  assert.ok(
+    sql.latest?.includes('on conflict (source_system, source_external_id)'),
+    'the grain is the source, so each run touches the same row',
   )
 })
 
-test('re-running is replay-safe and still costs a handful of statements', async () => {
-  const { execute, statements } = fakeExecutor({ alreadyLanded: true })
-  const result = await materializeAppleMessages(buildExport(), execute)
+test('a re-run lands nothing new and reports the source row as already current', async () => {
+  const { execute, kinds } = fakeExecutor({ alreadyLanded: true, upsertReturnsRow: false })
+  const result = await materializeAppleMessages(buildExport(), execute, { refresh: async () => {} })
 
-  assert.equal(result.inserted, 0, 'nothing new on a second run')
-  assert.equal(result.replayed, MESSAGES, 'every message is recognised as already present')
-  assert.ok(statements.length < 20, `replay should not fan out per row, got ${statements.length}`)
-})
-
-test('createInteractionsBatch counts what it cannot accept and still writes the rest', async () => {
-  const statements: string[] = []
-  const execute = (async (strings: TemplateStringsArray, ...params: unknown[]) => {
-    statements.push(strings.join(' ').replace(/\s+/g, ' ').trim())
-    const ids = params[0] as unknown as string[]
-    return ids.map(() => ({ id: 'row' })) as unknown as QueryRow[]
-  }) as QueryExecutor
-
-  const base = {
-    personId: 'p1',
-    channel: 'imessage',
-    eventType: 'message',
-    occurredAt: '2026-08-01T12:00:00.000Z',
-    sourceSystem: 'apple_messages',
-    sourceExternalId: 'g1',
-    sourceMetadata: {},
-  }
-
-  const result = await createInteractionsBatch(
-    [
-      base,
-      { ...base, sourceExternalId: 'g2' },
-      // A HALF identity is the combination the single-row form refuses; both absent
-      // is legitimate (a manual interaction), so the batch must match that exactly.
-      { ...base, sourceExternalId: undefined },
-      { ...base, personId: '' },
-    ],
-    execute,
-  )
-
-  assert.equal(result.inserted, 2)
-  assert.equal(result.rejected, 2)
-  assert.equal(statements.length, 1, 'one statement for the whole accepted batch')
-  // The batch is one set-based statement, not one per row.
-  assert.ok(statements[0].includes('unnest('), 'the batch uses unnest')
-  assert.ok(statements[0].includes('do nothing'), 'and stays replay-safe')
+  assert.equal(result.landed, 0, 'nothing new in the raw intake')
+  assert.equal(result.inserted, 0)
+  assert.equal(result.replayed, 1, 'the source row already carried the newest message')
+  assert.ok(kinds.length < 20, `replay should not fan out per row, got ${kinds.length}`)
 })
 
 test('nothing is materialized without an authoritative Person link', async () => {

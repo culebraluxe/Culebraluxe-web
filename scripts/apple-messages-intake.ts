@@ -149,8 +149,10 @@ export type AppleMessagesIntakeResult = {
   exactLinkedHandles: number
   unmatchedOrReviewHandles: number
   eventsSeen: number
-  interactionsInserted: number
-  interactionsReplayed: number
+  landed: number
+  sourceRowsInserted: number
+  sourceRowsUpdated: number
+  sourceRowsCurrent: number
   skippedNoTimestamp: number
   skippedGroupChat: number
   errors: number
@@ -218,7 +220,9 @@ export async function runAppleMessagesIntake(
   const materialized = options.evidenceOnly
     ? {
         eventsSeen: 0,
+        landed: 0,
         inserted: 0,
+        updated: 0,
         replayed: 0,
         skippedNoTimestamp: 0,
         skippedGroupChat: 0,
@@ -287,8 +291,10 @@ export async function runAppleMessagesIntake(
     exactLinkedHandles,
     unmatchedOrReviewHandles,
     eventsSeen: materialized.eventsSeen,
-    interactionsInserted: materialized.inserted,
-    interactionsReplayed: materialized.replayed,
+    landed: materialized.landed,
+    sourceRowsInserted: materialized.inserted,
+    sourceRowsUpdated: materialized.updated,
+    sourceRowsCurrent: materialized.replayed,
     skippedNoTimestamp: materialized.skippedNoTimestamp,
     skippedGroupChat: materialized.skippedGroupChat,
     errors: materialized.errors,
@@ -311,8 +317,10 @@ function printTally(r: AppleMessagesIntakeResult) {
   out('exact-linked handles:', r.exactLinkedHandles)
   out('unmatched/review handles:', r.unmatchedOrReviewHandles)
   out('events seen:', r.eventsSeen)
-  out('interactions inserted:', r.interactionsInserted)
-  out('interactions replayed:', r.interactionsReplayed)
+  out('landed into ODS (l_imessage):', r.landed)
+  out('warehouse source rows inserted:', r.sourceRowsInserted)
+  out('warehouse source rows updated:', r.sourceRowsUpdated)
+  out('warehouse source rows already current:', r.sourceRowsCurrent)
   out('skipped no timestamp:', r.skippedNoTimestamp)
   out('skipped group chat:', r.skippedGroupChat)
   out('errors:', r.errors)
