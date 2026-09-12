@@ -95,6 +95,27 @@ test('dependencyStoryIds extracts story-ID-like tokens, deduped, case-insensitiv
   assert.deepEqual(dependencyStoryIds('after 2026-08-21 M-1'), [])
 })
 
+test('dependencyStoryIds resolves the board OWN id shapes (multi-segment)', () => {
+  // 2026-09-12 — these all parsed to a tail fragment before (WORKSPACE-14,
+  // DEBT-07, SYNC-01), which is not a board id, so the documented "unverifiable
+  // references never block" rule silently turned every one of them into nothing.
+  // Measured on PROD before the fix: dependencies blocked 0 of 180 rows.
+  assert.deepEqual(dependencyStoryIds('PROJECTS-WORKSPACE-14'), ['PROJECTS-WORKSPACE-14'])
+  assert.deepEqual(dependencyStoryIds('TECH-DEBT-07'), ['TECH-DEBT-07'])
+  assert.deepEqual(dependencyStoryIds('HARD: ENG-FORGE-V5-12 and ENG-FORGE-V5-19'), [
+    'ENG-FORGE-V5-12',
+    'ENG-FORGE-V5-19',
+  ])
+  assert.deepEqual(
+    dependencyStoryIds('PROJECTS-WORKSPACE-01, PROJECTS-WORKSPACE-02'),
+    ['PROJECTS-WORKSPACE-01', 'PROJECTS-WORKSPACE-02'],
+  )
+  assert.deepEqual(dependencyStoryIds('ENG-DB-RESILIENCE-01'), ['ENG-DB-RESILIENCE-01'])
+  // Still no false positives on prose or numbers.
+  assert.deepEqual(dependencyStoryIds('ready in 2026-09-12T00:00Z'), [])
+  assert.deepEqual(dependencyStoryIds('the A-1 and M-2 tickets'), [])
+})
+
 test('non-actionable statuses are excluded from Next Work', () => {
   const selection = selectNextWork([
     story({ id: 'PLANNED', status: 'Planned' }),

@@ -502,6 +502,9 @@ export function filterStories(
 //     Failed, Deferred and Hold are not actionable
 //   - every board story referenced in `dependencies` is Complete. References
 //     to stories the board does not know are unverifiable and never block.
+//     The FIELD means exactly one thing: the ids this story WAITS FOR. Anything
+//     id-shaped in it is read as a hard wait, so context, "unlocks" and soft
+//     ordering belong in `notes` (see STORY_ID_TOKEN below for why this matters).
 //
 // Ordering (deterministic): batch ascending (unbatched last) → priority rank
 // (ENG-16 ladder) → planned start (earliest first, unplanned last) → id.
@@ -527,8 +530,22 @@ export function isStoryActionable(story: StoryRecord): boolean {
   return story.rollup && ACTIONABLE_STATUSES.has(story.status)
 }
 
-/** Story-ID-like tokens inside free-text dependency notes (e.g. CRM-14B). */
-const STORY_ID_TOKEN = /[A-Z]{2,}-\d+[A-Z]?/g
+/**
+ * Story-ID-like tokens inside free-text dependency notes (e.g. CRM-14B).
+ *
+ * 2026-09-12 — THIS USED TO BE UNRESOLVABLE FOR MOST OF THE BOARD.
+ * The shipped pattern was `[A-Z]{2,}-\d+[A-Z]?`, which only matches a single
+ * leading letter group. So `PROJECTS-WORKSPACE-14` parsed as `WORKSPACE-14`,
+ * `TECH-DEBT-07` as `DEBT-07` and `ENG-FORGE-SYNC-01` as `SYNC-01` — none of which
+ * is a board id, and the documented rule is that unverifiable references never
+ * block. Measured against PROD before the fix: dependencies blocked ZERO of 180
+ * rows, i.e. every multi-segment dependency on this board was decorative.
+ *
+ * The fix matches multi-segment ids, and the FIELD now has exactly one meaning:
+ * the ids this story WAITS FOR. Context, "unlocks", "companions" and soft ordering
+ * belong in `notes` — because anything id-shaped here is read as a hard wait.
+ */
+const STORY_ID_TOKEN = /\b[A-Z]{2,}[A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+[A-Z]?\b/g
 
 export function dependencyStoryIds(dependencies: string | null): string[] {
   if (!dependencies) return []
