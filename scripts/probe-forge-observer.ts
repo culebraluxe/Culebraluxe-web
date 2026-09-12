@@ -40,6 +40,7 @@ import {
 import type { SmithExecutionContract } from '../workflow_app/forge/smith-contract'
 
 const APPLY = process.argv.includes('--apply')
+const CLEANUP = process.argv.includes('--cleanup')
 const PROBE_STORY = 'FORGE-OBSERVER-PROBE'
 const SHA = 'f'.repeat(40)
 const ALLOWED = 'workflow_app/forge/agent-runtime-role-runner.ts'
@@ -78,6 +79,40 @@ async function main(): Promise<void> {
   if (target !== 'prod') {
     console.error('FAIL CLOSED: this probe must write to PROD; set APP_ENV=production.')
     process.exit(1)
+  }
+
+  // The counterpart to --apply, so "keep the rows or clean them up" is a one-line
+  // decision instead of a hand-written DELETE. Removes ONLY this probe's rows: the
+  // synthetic story id prefix is the filter, so no real execution evidence is ever
+  // touched. Once a real lane has run, its own observer events make these redundant
+  // and this is the command that retires them.
+  if (CLEANUP) {
+    const probePrefix = `${PROBE_STORY}:%`
+    const before = (await sql`
+      select count(*)::int as n from workflow_execution_trace_event
+       where source_system = 'forge_observer' and source_event_id like ${probePrefix}
+    `) as unknown as Array<{ n: number }>
+    const existing = before[0]?.n ?? 0
+    // Same dry-run discipline as the write path: --cleanup alone only reports.
+    if (!APPLY) {
+      console.log(
+        `\nDRY RUN: would remove ${existing} probe rows where source_event_id like ${probePrefix}. ` +
+          'Re-run with --cleanup --apply.',
+      )
+      return
+    }
+    const deleted = await sql`
+      delete from workflow_execution_trace_event
+       where source_system = 'forge_observer' and source_event_id like ${probePrefix}
+      returning id
+    `
+    console.log(`\nprobe rows before: ${existing}   deleted: ${deleted.length}`)
+    const after = (await sql`
+      select count(*)::int as n from workflow_execution_trace_event
+       where source_system = 'forge_observer'
+    `) as unknown as Array<{ n: number }>
+    console.log(`forge_observer rows remaining: ${after[0]?.n ?? 0}`)
+    return
   }
 
   const sink = createPersistentTraceSink({ write, traceId: 'probe-trace' })
