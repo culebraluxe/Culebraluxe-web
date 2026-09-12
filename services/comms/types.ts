@@ -1,4 +1,4 @@
-import type { CommsChannel } from '../../lib/relationship-intel/channels'
+import type { CommsMomentChannel, CommsSourceChannel } from '../../lib/relationship-intel/channels'
 import type { ServiceEnvelopeFor, ServiceOperationName } from '../core'
 
 // ---------------------------------------------------------------------------
@@ -28,10 +28,13 @@ export type CommsAggregateDto = {
 }
 
 export type CommsSourceDto = {
-  /** The raw evidence/MV source, kept for traceability. */
+  /** The raw warehouse source, kept for traceability (apple_calls, apple_facetime, ...). */
   source: string
-  /** The canonical channel the UI renders: apple_calls -> call, apple_facetime -> meeting. */
-  channel: CommsChannel
+  /**
+   * The source ROW the pane renders. FaceTime and Phone are deliberately separate
+   * rows, so the two Apple call sources are NOT merged here.
+   */
+  channel: CommsSourceChannel
   label: string
   firstObservedAt: string | null
   lastContactAt: string | null
@@ -50,7 +53,9 @@ export type CommsSourceDto = {
 
 export type CommsMomentDto = {
   id: string
-  channel: CommsChannel
+  /** Canonical moment channel from interaction.channel — the pane's channelMeta vocabulary. */
+  channel: CommsMomentChannel | null
+  /** The raw interaction source system, kept for traceability. */
   sourceSystem: string | null
   direction: 'inbound' | 'outbound' | null
   occurredAt: string

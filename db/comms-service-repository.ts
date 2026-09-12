@@ -133,6 +133,7 @@ export class SqlCommsRepository implements CommsRepository {
 
     const moments: CommsMomentRecord[] = rows.map((row) => ({
       id: String(row.id),
+      channel: text(row.channel),
       sourceSystem: text(row.source_system),
       direction: direction(row.direction),
       occurredAt: iso(row.occurred_at) ?? '',

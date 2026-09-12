@@ -27,6 +27,8 @@ export type CommsSourceRecord = {
 
 export type CommsMomentRecord = {
   id: string
+  /** The canonical interaction channel, as stored. */
+  channel: string | null
   sourceSystem: string | null
   direction: 'inbound' | 'outbound' | null
   occurredAt: string

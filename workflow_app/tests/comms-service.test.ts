@@ -33,8 +33,9 @@ const SOURCE = (source: string, totalCount: number): CommsSourceRecord => ({
   lastContextDirection: 'inbound',
 })
 
-const MOMENT = (id: string, sourceSystem: string): CommsMomentRecord => ({
+const MOMENT = (id: string, channel: string, sourceSystem: string): CommsMomentRecord => ({
   id,
+  channel,
   sourceSystem,
   direction: 'inbound',
   occurredAt: '2026-09-10T12:00:00.000Z',
@@ -76,7 +77,10 @@ function harness(overrides: Partial<CommsRepository> = {}) {
     lastContact: async () => ({ at: '2026-09-10T00:00:00.000Z', label: 'Sep 10, 2026' }),
     moments: async (_personId, limit, offset): Promise<CommsMomentPage> => {
       calls.push({ limit, offset })
-      return { moments: [MOMENT('m1', 'icloud_mail'), MOMENT('m2', 'apple_messages')], total: 42 }
+      return {
+        moments: [MOMENT('m1', 'email', 'icloud_mail'), MOMENT('m2', 'imessage', 'apple_messages')],
+        total: 42,
+      }
     },
     ...overrides,
   }
@@ -99,16 +103,18 @@ test('comms.panel maps every raw source to a canonical channel the pane can rend
 
   const bySource = new Map(res.value.sources.map((source) => [source.source, source]))
   // The bug this service exists to fix: the read model emits apple_calls and
-  // apple_facetime, which the pane's icon map does not know.
+  // apple_facetime, which the pane's slot list does not know by those names.
+  // Phone and FaceTime stay SEPARATE rows — they are different things, and the
+  // pane's phone slot deliberately excludes facetime.
   assert.equal(bySource.get('apple_calls')?.channel, 'call')
-  assert.equal(bySource.get('apple_calls')?.label, 'Call')
-  assert.equal(bySource.get('apple_facetime')?.channel, 'meeting')
-  assert.equal(bySource.get('apple_facetime')?.label, 'Meeting')
+  assert.equal(bySource.get('apple_calls')?.label, 'Phone')
+  assert.equal(bySource.get('apple_facetime')?.channel, 'facetime')
+  assert.equal(bySource.get('apple_facetime')?.label, 'FaceTime')
   assert.equal(bySource.get('icloud_mail')?.channel, 'email')
-  // Canonical channel order, so Call is above Email above Meeting.
+  // Slot order, so Phone is above Email above FaceTime.
   assert.deepEqual(
     res.value.sources.map((source) => source.channel),
-    ['call', 'email', 'meeting'],
+    ['call', 'email', 'facetime'],
   )
 })
 
@@ -127,7 +133,7 @@ test('comms.panel summarizes the header over evidence and keeps bulk out of mean
   assert.equal(aggregate.lastContactAt, '2026-09-10T00:00:00.000Z')
   assert.equal(aggregate.lastContactLabel, 'Sep 10, 2026')
   assert.equal(aggregate.activeSourceCount, 3)
-  assert.equal(aggregate.sourceCount, 8)
+  assert.equal(aggregate.sourceCount, 6)
 })
 
 test('comms.panel maps each moment onto a canonical channel from its source system', async () => {
@@ -182,6 +188,44 @@ test('an unknown source becomes other rather than being dropped', async () => {
   assert.equal(res.value.sources.length, 1)
   assert.equal(res.value.sources[0].channel, 'other')
   assert.equal(res.value.sources[0].label, 'Other')
+})
+
+/** The distinction the captain called out: a call and a FaceTime are not the same. */
+test('FaceTime stays its own source row and is never folded into Phone', async () => {
+  const { service } = harness()
+  const res = await service.execute({ operation: 'comms.panel', payload: { personId: 'p1' }, context })
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  const channels = res.value.sources.map((source) => source.channel)
+  assert.ok(channels.includes('call'), 'Phone row present')
+  assert.ok(channels.includes('facetime'), 'FaceTime row present')
+  assert.equal(
+    channels.filter((channel) => channel === 'call').length,
+    1,
+    'Phone and FaceTime must not collapse into one row',
+  )
+})
+
+/** Moments carry the interaction's own channel; it is not re-derived from the source. */
+test('a moment channel comes from the interaction, not from its source system', async () => {
+  const { service } = harness({
+    // apple_messages as a SOURCE would map to imessage; the interaction says sms.
+    moments: async () => ({ moments: [MOMENT('m1', 'sms', 'apple_messages')], total: 1 }),
+  })
+  const res = await service.execute({ operation: 'comms.panel', payload: { personId: 'p1' }, context })
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.equal(res.value.moments[0].channel, 'sms')
+})
+
+test('a moment channel outside the pane vocabulary is null, never a wrong guess', async () => {
+  const { service } = harness({
+    moments: async () => ({ moments: [MOMENT('m1', 'carrier_pigeon', 'x')], total: 1 }),
+  })
+  const res = await service.execute({ operation: 'comms.panel', payload: { personId: 'p1' }, context })
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.equal(res.value.moments[0].channel, null)
 })
 
 /** The architectural rule, enforced in a test: COMMS never reads an ODS table. */

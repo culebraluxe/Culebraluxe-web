@@ -3,7 +3,12 @@ import {
   type ServiceInfrastructure,
   type ServiceOperationDefinitions,
 } from '../core'
-import { CHANNEL_LABELS, PANEL_CHANNELS, channelForSource } from '../../lib/relationship-intel/channels'
+import {
+  COMMS_SOURCE_SLOT_COUNT,
+  momentChannelFor,
+  sourceChannelFor,
+  sourceChannelLabel,
+} from '../../lib/relationship-intel/channels'
 import { summarizeRelationshipEvidence } from '../../lib/relationship-intel/relationship-context'
 import type { CommsMomentRecord, CommsRepository, CommsSourceRecord } from './repository'
 import {
@@ -22,15 +27,25 @@ function clampInt(value: number | undefined, min: number, max: number, fallback:
   return Math.min(Math.max(Math.trunc(value), min), max)
 }
 
+/**
+ * A source row, under the pane's SOURCE_SLOTS vocabulary. FaceTime and Phone stay
+ * separate rows: they are different things and the pane deliberately excludes
+ * FaceTime from the Phone slot.
+ */
 function toSourceDto(record: CommsSourceRecord): CommsSourceDto {
-  const channel = channelForSource(record.source)
-  return { ...record, channel, label: CHANNEL_LABELS[channel] }
+  const channel = sourceChannelFor(record.source)
+  return { ...record, channel, label: sourceChannelLabel(channel) }
 }
 
+/**
+ * A moment, under the pane's channelMeta vocabulary. The channel is the
+ * interaction's OWN channel, already canonical in the warehouse; it is never
+ * re-derived from the source system, which is what produced unmappable values.
+ */
 function toMomentDto(record: CommsMomentRecord): CommsMomentDto {
   return {
     id: record.id,
-    channel: channelForSource(record.sourceSystem ?? ''),
+    channel: momentChannelFor(record.channel),
     sourceSystem: record.sourceSystem,
     direction: record.direction,
     occurredAt: record.occurredAt,
@@ -39,10 +54,12 @@ function toMomentDto(record: CommsMomentRecord): CommsMomentDto {
   }
 }
 
-/** Panel order is the canonical channel order, so Call always sits above Email. */
-function channelOrder(channel: string): number {
-  const index = PANEL_CHANNELS.indexOf(channel as (typeof PANEL_CHANNELS)[number])
-  return index === -1 ? PANEL_CHANNELS.length : index
+/** Panel order follows the pane's slot order, so Phone sits above FaceTime. */
+const SOURCE_ORDER = ['call', 'imessage', 'whatsapp', 'email', 'facetime', 'calendar', 'other']
+
+function sourceOrder(channel: string): number {
+  const index = SOURCE_ORDER.indexOf(channel)
+  return index === -1 ? SOURCE_ORDER.length : index
 }
 
 /**
@@ -91,7 +108,7 @@ export class CommsService extends BaseService<CommsOperationMap> {
               .map(toSourceDto)
               .sort(
                 (a, b) =>
-                  channelOrder(a.channel) - channelOrder(b.channel) || a.source.localeCompare(b.source),
+                  sourceOrder(a.channel) - sourceOrder(b.channel) || a.source.localeCompare(b.source),
               ),
             moments: page.moments.map(toMomentDto),
             momentCount: page.total,
@@ -132,7 +149,7 @@ export class CommsService extends BaseService<CommsOperationMap> {
   ): CommsAggregateDto {
     const summary = summarizeRelationshipEvidence(evidence)
     const activeChannels = new Set(
-      sources.filter((source) => source.totalCount > 0).map((source) => channelForSource(source.source)),
+      sources.filter((source) => source.totalCount > 0).map((source) => sourceChannelFor(source.source)),
     )
     return {
       observedCount: summary.observedCommunicationCount,
@@ -145,7 +162,7 @@ export class CommsService extends BaseService<CommsOperationMap> {
       lastContactAt: lastContact.at ?? summary.lastMeaningfulContactAt,
       lastContactLabel: lastContact.label,
       activeSourceCount: activeChannels.size,
-      sourceCount: PANEL_CHANNELS.length,
+      sourceCount: COMMS_SOURCE_SLOT_COUNT,
     }
   }
 
