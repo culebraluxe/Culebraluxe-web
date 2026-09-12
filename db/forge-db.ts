@@ -121,6 +121,85 @@ export function forgeDbTargetForUrl(
 const pools = new Map<ForgeDbTarget, Pool>()
 
 /**
+ * Process-local, dependency-free telemetry: enough to answer "is the pool
+ * saturated / are queries slow / is anything failing" without pulling in a metrics
+ * library. Counters are process-wide (the pool registry is), and every one is a
+ * plain increment on the query path, so the cost of being observable is a
+ * performance.now() pair.
+ */
+type ForgeDbMetrics = {
+  queries: number
+  queryErrors: number
+  queryTotalMs: number
+  queryMaxMs: number
+  /** Pool acquisitions (transactions take a client; single queries do not). */
+  acquisitions: number
+  acquireTotalMs: number
+  acquireMaxMs: number
+}
+
+const metrics: ForgeDbMetrics = {
+  queries: 0,
+  queryErrors: 0,
+  queryTotalMs: 0,
+  queryMaxMs: 0,
+  acquisitions: 0,
+  acquireTotalMs: 0,
+  acquireMaxMs: 0,
+}
+
+function recordQuery(durationMs: number, failed: boolean): void {
+  metrics.queries += 1
+  if (failed) metrics.queryErrors += 1
+  metrics.queryTotalMs += durationMs
+  if (durationMs > metrics.queryMaxMs) metrics.queryMaxMs = durationMs
+}
+
+function recordAcquisition(durationMs: number): void {
+  metrics.acquisitions += 1
+  metrics.acquireTotalMs += durationMs
+  if (durationMs > metrics.acquireMaxMs) metrics.acquireMaxMs = durationMs
+}
+
+/** Time one database round trip, recording failure as well as success. */
+async function timed<T>(run: () => Promise<T>): Promise<T> {
+  const started = performance.now()
+  try {
+    const result = await run()
+    recordQuery(performance.now() - started, false)
+    return result
+  } catch (error) {
+    recordQuery(performance.now() - started, true)
+    throw error
+  }
+}
+
+const round = (value: number): number => Math.round(value * 100) / 100
+const average = (total: number, count: number): number =>
+  count === 0 ? 0 : round(total / count)
+
+/** A snapshot for an operator: pool saturation, throughput and latency. */
+export function forgeDbMetrics(): {
+  queries: number
+  queryErrors: number
+  queryAvgMs: number
+  queryMaxMs: number
+  acquisitions: number
+  acquireAvgMs: number
+  acquireMaxMs: number
+} {
+  return {
+    queries: metrics.queries,
+    queryErrors: metrics.queryErrors,
+    queryAvgMs: average(metrics.queryTotalMs, metrics.queries),
+    queryMaxMs: round(metrics.queryMaxMs),
+    acquisitions: metrics.acquisitions,
+    acquireAvgMs: average(metrics.acquireTotalMs, metrics.acquisitions),
+    acquireMaxMs: round(metrics.acquireMaxMs),
+  }
+}
+
+/**
  * The shared pool for a target. Lazy: the first call creates it and later calls
  * return the SAME pool, so the process holds one pool per target.
  */
@@ -162,7 +241,7 @@ async function runAgainst(
 ): Promise<QueryRow[]> {
   const flattened = flattenSqlTemplate(strings, values)
   const query = toPgQuery(flattened.strings, flattened.values)
-  const result = await pool.query(query.text, query.values)
+  const result = await timed(() => pool.query(query.text, query.values))
   return result.rows as QueryRow[]
 }
 
@@ -190,7 +269,9 @@ export async function withForgeTransaction<T>(
   target?: ForgeDbTarget,
 ): Promise<T> {
   const pool = forgeDbPool(target)
+  const acquireStarted = performance.now()
   const client: PoolClient = await pool.connect()
+  recordAcquisition(performance.now() - acquireStarted)
   try {
     await client.query('BEGIN')
     const tx = ((strings: TemplateStringsArray, ...values: unknown[]) =>
@@ -223,7 +304,7 @@ async function runAgainstClient(
 ): Promise<QueryRow[]> {
   const flattened = flattenSqlTemplate(strings, values)
   const query = toPgQuery(flattened.strings, flattened.values)
-  const result = await client.query(query.text, query.values)
+  const result = await timed(() => client.query(query.text, query.values))
   return result.rows as QueryRow[]
 }
 
@@ -249,12 +330,10 @@ export function forgeDbForTarget(target: ForgeDbTarget) {
     query: <T extends QueryResultRow = QueryResultRow>(
       text: string,
       params: unknown[] = [],
-    ): Promise<QueryResult<T>> => pool().query<T>(text, params),
+    ): Promise<QueryResult<T>> => timed(() => pool().query<T>(text, params)),
     /** Raw text + params → rows only. */
-    runText: (text: string, params: unknown[] = []) => {
-      const p = pool()
-      return p.query(text, params).then((r) => r.rows as QueryRow[])
-    },
+    runText: (text: string, params: unknown[] = []) =>
+      timed(() => pool().query(text, params)).then((r) => r.rows as QueryRow[]),
     transaction: <T>(cb: (tx: ForgeDbTx) => Promise<T>) => withForgeTransaction(cb, target),
     stats: () => poolStats(target),
     end: () => endForgeDb(target),
@@ -273,6 +352,7 @@ function poolStats(target?: ForgeDbTarget) {
     totalCount: pool?.totalCount ?? 0,
     idleCount: pool?.idleCount ?? 0,
     waitingCount: pool?.waitingCount ?? 0,
+    ...forgeDbMetrics(),
   }
 }
 
@@ -304,12 +384,11 @@ export const forgeDb = {
   sql: ((strings: TemplateStringsArray, ...values: unknown[]) =>
     runAgainst(forgeDbPool(), strings, values)) as QueryExecutor,
   runText: (text: string, params: unknown[] = []) =>
-    forgeDbPool()
-      .query(text, params)
-      .then((r) => r.rows as QueryRow[]),
+    timed(() => forgeDbPool().query(text, params)).then((r) => r.rows as QueryRow[]),
   transaction: withForgeTransaction,
   forTarget: forgeDbForTarget,
   stats: () => poolStats(),
+  metrics: forgeDbMetrics,
   end: () => endForgeDb(),
 }
 
