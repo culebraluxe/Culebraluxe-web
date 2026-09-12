@@ -240,6 +240,26 @@ def has_message_id_header(db: sqlite3.Connection) -> bool:
     return "message_id_header" in columns(db, "message_global_data")
 
 
+def cursor_in_window(
+    cursor_date: float | None, cursor_rowid: int | None, since_store: float, before_store: float | None
+) -> bool:
+    """A cursor only means anything inside the current window.
+
+    Bands slide with "now", so a checkpoint written yesterday already sits outside
+    today's window. Applying it would match no rows at all and return an empty page,
+    which the runner would faithfully record as a completed band - a silent no-op that
+    looks like success. Outside the window we start again; landing is replay-safe, so
+    re-reading costs only time.
+    """
+    if cursor_date is None or cursor_rowid is None:
+        return False
+    if cursor_date < since_store:
+        return False
+    if before_store is not None and cursor_date > before_store:
+        return False
+    return True
+
+
 def build_page_query(
     inbox_ids: list[int], sent_ids: list[int], has_header: bool
 ) -> tuple[str, list[int]]:
@@ -359,6 +379,9 @@ def main() -> None:
         )
         cursor_date = args.cursor_date
         cursor_rowid = args.cursor_rowid
+        if not cursor_in_window(cursor_date, cursor_rowid, since_store, before_store):
+            cursor_date = None
+            cursor_rowid = None
         params: list[Any] = [*prefix, since_store, before_store, before_store]
         params.extend([cursor_date, cursor_date, cursor_date, cursor_rowid, limit])
         rows = db.execute(sql, params).fetchall()

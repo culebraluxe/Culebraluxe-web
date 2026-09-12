@@ -1,8 +1,14 @@
 // Bounded Apple Mail metadata intake using Mail's local Envelope Index SQLite DB.
 //
-// Reads only Inbox/Sent metadata for ICLOUD_MAIL_ADDRESS. No bodies, snippets,
-// attachments, or raw MIME. Mail.app scripting is used only to resolve the account
-// UUID from its configured address; message reads never cross the AppleEvent bridge.
+// Reads only Inbox/Sent metadata for every account in MAIL_APP_ACCOUNTS. No bodies,
+// snippets, attachments, or raw MIME. Mail.app scripting is used only to resolve each
+// account UUID from its configured address; message reads never cross the AppleEvent
+// bridge.
+//
+// The recurring command is one newest band, which is cheap and re-read every run so a
+// sync picks up mail that has arrived since. Landing is replay-safe, so re-reading a
+// window lands only what is genuinely new; if a run is ever suspect, wipe the landing
+// table and re-land rather than trying to reconcile it.
 //
 // The window is read in DISCRETE BANDS: 0-1 is the last month, 1-3 is the two
 // months before that, then 3-6 and 6-12. Each band owns half-open
@@ -203,6 +209,22 @@ async function extractPage(input: {
   return parsed as ExtractPage
 }
 
+function configuredAccounts(): string[] {
+  const configured = process.env.MAIL_APP_ACCOUNTS?.trim()
+  const raw = configured
+    ? configured.split(',')
+    : [
+        process.env.APPLE_MAILBOX_ADDRESS?.trim() ||
+          process.env.ICLOUD_MAIL_ADDRESS?.trim() ||
+          '',
+      ]
+  const accounts = raw.map((entry) => entry.trim().toLowerCase()).filter(Boolean)
+  if (accounts.length === 0) {
+    throw new Error('MAIL_APP_ACCOUNTS is set but lists no accounts, and no fallback address is configured')
+  }
+  return [...new Set(accounts)]
+}
+
 function checkpointPath(account: string, band: Band): string {
   const safe = account.toLowerCase().replace(/[^a-z0-9._-]+/g, '_')
   // The band is part of the checkpoint identity: a band that has finished is
@@ -256,10 +278,11 @@ async function intake(target: EnvTarget, account: string, accountId: string, ban
   if (checkpoint && (checkpoint.account !== account || checkpoint.accountId !== accountId || checkpoint.band !== band)) {
     throw new Error(`Checkpoint does not match the current source: ${path}`)
   }
-  if (checkpoint?.complete) {
-    console.log(`Apple Mail band ${band} (${BAND_LABEL[band]}) already complete. checkpoint=${path}`)
-    return
-  }
+  // Deliberately NOT skipping a band marked complete. Every band slides with "now",
+  // so the newest band must be re-read to pick up mail that arrived since the last
+  // run; landing is replay-safe, so the only cost is the read. The checkpoint earns
+  // its keep by resuming an interrupted run, and the extractor discards a cursor
+  // that has fallen outside the current window.
 
   const pool = createPoolExecutor(targetDatabaseUrl(target))
   try {
@@ -356,21 +379,48 @@ async function main() {
   const target = parseTarget(process.argv[2])
   const band = parseBand()
   const pageSize = Math.min(parsePositiveInt('--page-size', 500), 1000)
-  const account = requiredEnv('ICLOUD_MAIL_ADDRESS').toLowerCase()
-  const accountId = await resolveAccountId(account)
+  const only = option('--account')
+  // Every account in MAIL_APP_ACCOUNTS, the same list the previous reader used, so
+  // the A/B sources (two Gmail, one iCloud, three very different mailbox sizes) are
+  // all read by one command.
+  const accounts = only ? [only.trim().toLowerCase()] : configuredAccounts()
+  const bands: readonly Band[] = band === 'all' ? BANDS : [band]
 
-  if (process.argv.includes('--verify')) {
-    // Verification is a read-only probe; against --band=all it checks the newest band.
-    await verify(account, accountId, band === 'all' ? BANDS[0] : band, pageSize)
-    return
+  const failures: string[] = []
+  for (const account of accounts) {
+    let accountId: string
+    try {
+      accountId = await resolveAccountId(account)
+    } catch (error) {
+      // One account that is not configured in Mail.app, or that Mail refuses to
+      // answer for, must not stop the others: a daily sync that dies on the first
+      // account is useless. Report it and keep going, then exit non-zero.
+      failures.push(`${account}: ${error instanceof Error ? error.message : String(error)}`)
+      continue
+    }
+
+    if (process.argv.includes('--verify')) {
+      try {
+        await verify(account, accountId, bands[0], pageSize)
+      } catch (error) {
+        failures.push(`${account} verify: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      continue
+    }
+
+    for (const current of bands) {
+      try {
+        await intake(target, account, accountId, current)
+      } catch (error) {
+        failures.push(`${account} band ${current}: ${error instanceof Error ? error.message : String(error)}`)
+        break
+      }
+    }
   }
 
-  // Newest band first, so the most useful mail lands first and widening outward
-  // is a separate, resumable decision. A failure stops the walk rather than
-  // silently skipping a band; rerun to resume from that band's checkpoint.
-  const bands: readonly Band[] = band === 'all' ? BANDS : [band]
-  for (const current of bands) {
-    await intake(target, account, accountId, current)
+  if (failures.length > 0) {
+    for (const failure of failures) console.error(`applemail FAILED ${failure}`)
+    process.exitCode = 1
   }
 }
 
