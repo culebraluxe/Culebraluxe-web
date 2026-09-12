@@ -47,24 +47,6 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
 
   cards: [
     {
-      id: 'CRM-28',
-      title: 'P&S Amendment -> Canonical Term Delta + Timer Reschedule',
-      workstream: 'CRM / INTAKE',
-      status: 'Planned',
-      priority: 'MEDIUM-HIGH',
-      completion: 0,
-      queue: 'bench',
-    },
-    {
-      id: 'PROJECTS-WORKSPACE-14',
-      title: 'DEV/PROD rollout and real-project acceptance',
-      workstream: 'FRAMEWORKS',
-      status: 'Planned',
-      priority: 'CRITICAL',
-      completion: 0,
-      queue: 'bench',
-    },
-    {
       id: 'FORGE-PARITY-DEFAULTS-01',
       title: 'Parity axis six: column defaults',
       workstream: 'FRAMEWORKS',

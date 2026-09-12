@@ -48,19 +48,15 @@ const QUEUES: Array<{
   ring: string
   dot: string
 }> = [
-  {
-    key: 'bench',
-    label: 'WORK BENCH',
-    owner: 'HUMAN',
-    hint: 'What I am working on today',
-    ring: 'border-amber-400/30',
-    dot: 'bg-amber-400',
-  },
+  // The WORK BENCH is NOT here on purpose: it is the band ABOVE this line (the
+  // human lane, storyboard_active_work). Having it in both places was the name
+  // collision that made the captain's head spin — the same 12 stories twice.
+  // The line is the ENGINE's pipeline only, in his words: queued -> running -> done.
   {
     key: 'ready',
-    label: 'ENGINE READY',
+    label: 'ENGINE QUEUED',
     owner: 'ENGINE',
-    hint: 'Marked to hand to Forge',
+    hint: 'Handed to Forge — queued, not started',
     ring: 'border-sky-400/30',
     dot: 'bg-sky-400',
   },
@@ -100,6 +96,9 @@ export function EngineeringQueuesPage({
   const model = useMemo(() => loadEngineeringQueues(), [])
   const [cards, setCards] = useState<QueueCard[]>(model.cards)
   const [selected, setSelected] = useState<string | null>(null)
+  // Drag state: which card is in hand. Local only — the MOVE is a demo of the
+  // mechanic, not a write. When this is wired the drop becomes a real mutation.
+  const [dragging, setDragging] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
 
@@ -201,14 +200,27 @@ export function EngineeringQueuesPage({
           are the engine's. HOLD is a RESULT badge, not a column. */}
       <p className="mb-2 text-[11px] font-semibold tracking-[0.16em] text-white">
         FORGE ENGINE FACTORY LINE
+        <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
+          queued → running → results · drag a card between them
+        </span>
       </p>
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {QUEUES.map((queue) => {
           const items = byQueue(queue.key)
           return (
             <div
               key={queue.key}
-              className={`flex min-h-[420px] flex-col rounded-lg border ${queue.ring} bg-white/[0.02]`}
+              onDragOver={(e) => {
+                if (dragging) e.preventDefault()
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragging) move(dragging, queue.key)
+                setDragging(null)
+              }}
+              className={`flex min-h-[420px] flex-col rounded-lg border ${queue.ring} ${
+                dragging ? 'bg-white/[0.05] ring-1 ring-[#c6a15b]/40' : 'bg-white/[0.02]'
+              }`}
             >
               <div className="flex items-start justify-between gap-2 border-b border-white/10 px-3 py-2">
                 <div>
@@ -239,6 +251,8 @@ export function EngineeringQueuesPage({
                       onSelect={() => setSelected(card.id)}
                       onMove={(to) => move(card.id, to)}
                       onOpen={() => openRecorder(card)}
+                      onDragStart={() => setDragging(card.id)}
+                      onDragEnd={() => setDragging(null)}
                     />
                   ))
                 )}
@@ -257,8 +271,9 @@ export function EngineeringQueuesPage({
       <p className="mt-4 text-[11px] text-slate-500">
         Tiles, Work Bench and Story Log are LIVE from PROD (as of {stats.asOf}): tiles and boxes come from
         one projection so they cannot disagree, the bench is <code className="text-slate-400">storyboard_active_work</code> in
-        work order. The four queue cards in the middle are still a labelled SAMPLE — wiring them is{' '}
-        <code className="text-slate-400">loadEngineeringQueues()</code>.
+        work order. The three ENGINE columns are still a labelled SAMPLE and the drag between them is a
+        local demo of the mechanic — wiring them is <code className="text-slate-400">agent_work_item</code> and{' '}
+        <code className="text-slate-400">storyboard_story_run</code>.
       </p>
     </div>
   )
@@ -307,20 +322,27 @@ function QueueCardView({
   onSelect,
   onMove,
   onOpen,
+  onDragStart,
+  onDragEnd,
 }: {
   card: QueueCard
   selected: boolean
   onSelect: () => void
   onMove: (to: QueueKey) => void
   onOpen: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
 }) {
   const isResult = card.queue === 'results'
   return (
     <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onSelect}
       onDoubleClick={isResult ? onOpen : undefined}
-      title={isResult ? 'Double-click for the Flight Recorder' : undefined}
-      className={`cursor-pointer rounded border px-3 py-2 transition ${
+      title={isResult ? 'Drag to move · double-click for the Flight Recorder' : 'Drag to move'}
+      className={`cursor-grab rounded border px-3 py-2 transition active:cursor-grabbing ${
         selected ? 'border-[#c6a15b]/60 bg-[#c6a15b]/[0.06]' : 'border-white/10 bg-white/[0.02] hover:border-white/20'
       }`}
     >
