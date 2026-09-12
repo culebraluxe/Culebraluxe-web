@@ -58,7 +58,13 @@ test('each role has its own surface family with no cross-contamination', () => {
 
   assert.ok(PROJECTS_SURFACE.navigator.background.includes('--portal-navy'))
   assert.ok(PROJECTS_SURFACE.inspector.background.includes('--portal-ivory'))
-  assert.ok(PROJECTS_SURFACE.canvas.background.includes('--portal-panel-bg'))
+  // The canvas moved to navy by HUMAN GATE decision (Chris, 2026-09-12: "we can
+  // make pane navy blue too"), to match the navy widget panes. It keeps its own
+  // family and class, so the three panes still read as three distinct surfaces —
+  // only its background/text tokens moved. Changing it back means changing both
+  // this assertion and ui/projects/visual-system.ts, deliberately.
+  assert.ok(PROJECTS_SURFACE.canvas.background.includes('--portal-navy'))
+  assert.ok(PROJECTS_SURFACE.canvas.text.includes('--portal-on-navy'))
 })
 
 test('surface classes never leak one role token into another role', () => {
@@ -76,6 +82,13 @@ test('primitive class builders return token-driven, non-empty classes', () => {
   assert.ok(row.length > 0)
   assert.ok(row.includes('rounded-[var(--portal-tab-radius)]'))
   assert.notEqual(row, rowSelected)
+
+  // Selected state is SURFACE-AWARE: a navy tint is invisible on the navy canvas,
+  // so the midnight variant lifts with white instead.
+  const navySelected = PROJECTS_PRIMITIVES.row({ selected: true, surface: 'navy' })
+  assert.notEqual(navySelected, rowSelected)
+  assert.ok(navySelected.includes('bg-white/12'))
+  assert.ok(!navySelected.includes('--portal-navy)/[0.06]'))
 
   const input = PROJECTS_PRIMITIVES.input()
   const navyInput = PROJECTS_PRIMITIVES.input({ surface: 'navy' })

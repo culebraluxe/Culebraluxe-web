@@ -52,9 +52,14 @@ const PANE_BASE =
   "portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
 
 /**
- * Per-role surface family. The navigator is navy, the canvas is the glass work
+ * Per-role surface family. The navigator is navy, the canvas is the MIDNIGHT work
  * surface, and the inspector is the persistent ivory column. Roles never
  * cross-contaminate: each family owns exactly one class + background token.
+ *
+ * The canvas was a light glass surface until the human gate (Chris, 2026-09-12)
+ * asked for it to match the navy widget panes — "we can make pane navy blue too".
+ * The role kept its own family and class so the three panes still read as three
+ * distinct surfaces; only its background/text tokens moved to navy.
  */
 export const PROJECTS_SURFACE = {
   navigator: {
@@ -66,8 +71,8 @@ export const PROJECTS_SURFACE = {
   canvas: {
     family: "canvas",
     className: `${PANE_BASE} projects-pane projects-pane-canvas`,
-    background: "var(--portal-panel-bg)",
-    text: "var(--portal-text)",
+    background: "color-mix(in srgb, var(--portal-navy) 94%, transparent)",
+    text: "var(--portal-on-navy)",
   },
   inspector: {
     family: "ivory",
@@ -89,8 +94,12 @@ export const PROJECTS_PRIMITIVES = {
   row({ selected = false, surface = "canvas" }: { selected?: boolean; surface?: ProjectsPrimitiveSurface } = {}): string {
     const base =
       "flex w-full items-center gap-2 rounded-[var(--portal-tab-radius)] px-2 py-2 text-left transition"
+    // The selected state is surface-aware: a navy tint on the navy canvas would be
+    // invisible, so the midnight surface lifts with white instead.
     const state = selected
-      ? "bg-[var(--portal-navy)]/[0.06] ring-1 ring-inset ring-[var(--portal-navy)]/10"
+      ? surface === "navy"
+        ? "bg-white/12 ring-1 ring-inset ring-white/20"
+        : "bg-[var(--portal-navy)]/[0.06] ring-1 ring-inset ring-[var(--portal-navy)]/10"
       : surface === "navy"
         ? "hover:bg-white/10"
         : "hover:bg-white/40"
