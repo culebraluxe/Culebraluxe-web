@@ -45,6 +45,7 @@ import {
   PROJECTS_SURFACE,
   ProjectsWorkspaceController,
   mapProjectCalendarToEvents,
+  mapProjectToTimeline,
 } from "@/ui/projects"
 import { usePageController } from "@/ui/runtime"
 import { Tree } from "react-arborist"
@@ -56,6 +57,7 @@ import {
   type ProjectTreeNode,
 } from "@/ui/projects/tree-projection"
 import { FullCalendarCandidate } from "@/components/portal/fullcalendar-candidate"
+import { ProjectTimeline } from "@/components/portal/project-timeline"
 import { instantiateProjectAction, updateProjectStatusAction } from "@/app/portal/projects/actions"
 import { updateWbsItemAction } from "@/app/portal/wbs/actions"
 
@@ -466,6 +468,27 @@ function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
   )
 }
 
+/** Timeline tab — the project's WBS structure as a Gantt. `readonly` and fed by a
+ *  pure projection; when the work items carry no due dates the projection uses a
+ *  sample schedule and we SAY SO here rather than passing invented dates off as
+ *  project facts (ui/projects/timeline-projection). */
+function ProjectTimelineTab({ project }: { project: ProjectPlan }) {
+  const { tasks, links, synthetic } = useMemo(() => mapProjectToTimeline(project), [project])
+  if (tasks.length === 0) return <ProjectionState view="timeline" provenance={project.provenance} />
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="min-h-0 flex-1">
+        <ProjectTimeline tasks={tasks} links={links} />
+      </div>
+      {synthetic ? (
+        <p className="shrink-0 text-[11px] font-light text-black/45">
+          Sample schedule — bars use placeholder dates because these work items have no due dates yet.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function ProjectCalendar({ project }: { project: ProjectPlan }) {
   const eventSource = project.calendarItems ?? []
   const events = useMemo(() => mapProjectCalendarToEvents(eventSource), [eventSource])
@@ -655,6 +678,8 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
           <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
             {activeView === "work-plan" ? (
               <WorkPlan project={project} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
+            ) : activeView === "timeline" ? (
+              <ProjectTimelineTab project={project} />
             ) : activeView === "calendar" ? (
               <ProjectCalendar project={project} />
             ) : activeView === "documents" ? (

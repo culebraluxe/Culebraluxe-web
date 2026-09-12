@@ -22,6 +22,7 @@ export {
   mapProjectCalendarToEvents,
   type ProjectCalendarItem,
 } from "./secondary-projection"
+export { mapProjectToTimeline, type ProjectTimeline as ProjectTimelineModel } from "./timeline-projection"
 export type {
   ProjectDomain,
   ProjectDomainKey,

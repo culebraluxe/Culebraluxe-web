@@ -684,3 +684,50 @@
   border-radius: var(--portal-panel-radius);
   overflow: hidden;
 }
+
+/* PROJECTS-TIMELINE — CulebraLuxe skin for the SVAR Gantt (Timeline tab).
+   SVAR widgets are variable-driven, but the theme wrapper declares all of its
+   --wx-* variables ON .wx-willow-theme itself — so an override on this container
+   alone is silently beaten by the theme's own block. Both selectors are listed:
+   the theme-scoped one is what actually takes effect, and the bare container rule
+   covers any SVAR widget rendered outside a theme wrapper. Same approach as
+   .cue-fc above — restrained navy + gold, portal typography, subtle borders, and
+   no per-widget markup hacks. Every variable below is one the packages define, so
+   none of this is a silent no-op. */
+.project-timeline,
+.project-timeline .wx-willow-theme {
+  /* Core surfaces + typography (editorial: the portal's serif) */
+  --wx-color-primary: #030f23;
+  --wx-color-primary-font: #ffffff;
+  --wx-color-primary-selected: rgba(198, 161, 91, 0.18);
+  --wx-color-font: #030f23;
+  --wx-color-font-alt: #66707b;
+  --wx-color-link: #c6a15b;
+  --wx-background: transparent;
+  --wx-background-alt: rgba(3, 15, 35, 0.03);
+  --wx-background-hover: rgba(198, 161, 91, 0.1);
+  --wx-border: 1px solid rgba(3, 15, 35, 0.14);
+  --wx-border-medium: 1px solid rgba(3, 15, 35, 0.1);
+  --wx-border-color: rgba(3, 15, 35, 0.14);
+  --wx-border-radius: 4px;
+  --wx-radius-major: var(--portal-panel-radius);
+  --wx-font-family: var(--font-cormorant), Georgia, serif;
+
+  /* Gantt specifics: gold bars (work in flight), navy summaries, quiet links */
+  --wx-gantt-task-color: #c6a15b;
+  --wx-gantt-task-fill-color: #c6a15b;
+  --wx-gantt-task-border-color: #b08f4d;
+  --wx-gantt-summary-color: #030f23;
+  --wx-gantt-summary-fill-color: #030f23;
+  --wx-gantt-summary-border-color: #030f23;
+  --wx-gantt-summary-font-color: #ffffff;
+  --wx-gantt-milestone-color: #030f23;
+  --wx-gantt-border-color: rgba(3, 15, 35, 0.12);
+  --wx-gantt-link-color: rgba(3, 15, 35, 0.45);
+  --wx-gantt-link-marker-background: #030f23;
+  --wx-gantt-link-marker-color: #ffffff;
+  --wx-gantt-select-color: rgba(198, 161, 91, 0.2);
+  --wx-gantt-marker-color: #c6a15b;
+  --wx-gantt-marker-font-color: #030f23;
+  --wx-gantt-holiday-background: rgba(3, 15, 35, 0.03);
+}

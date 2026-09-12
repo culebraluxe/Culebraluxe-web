@@ -36,6 +36,24 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.1.0
         version: 1.1.0
+      '@svar-ui/react-core':
+        specifier: ^2.6.1
+        version: 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-filemanager':
+        specifier: ^2.6.0
+        version: 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-filter':
+        specifier: ^2.6.1
+        version: 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-gantt':
+        specifier: ^2.7.3
+        version: 2.7.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-grid':
+        specifier: ^2.7.4
+        version: 2.7.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-kanban':
+        specifier: ^2.6.0
+        version: 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/react-virtual':
         specifier: ^3.14.10
         version: 3.14.10(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1680,6 +1698,267 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
+  '@svar-ui/comments-locales@2.6.0':
+    resolution: {integrity: sha512-ctpmaE0BN2sXRc9MuCMzIut/2Piudnsxno7RoadJ8uIe3bZGRRSZfDW+kJ5pWgYmgdofLlWawTr3PCNjxt7R3w==}
+
+  '@svar-ui/comments-locales@2.6.1':
+    resolution: {integrity: sha512-jouLSwt0rPp2818bHftsb37aU8ERsyBney8XVUHhnWrsIaGJy/0TSOCw6YqN3cae6SQBd6KBO+P1+hBcDEsmUg==}
+
+  '@svar-ui/core-locales@2.6.0':
+    resolution: {integrity: sha512-Sma/BkR3we76Ix/67NmSh511yvtKVpi8LFK06ZbWSiC3xEsCSoKsJ5AtLmi8dxaXPa5HuCWI/jMwJsKRwQ0F2Q==}
+
+  '@svar-ui/core-locales@2.6.1':
+    resolution: {integrity: sha512-18xu7qn8Bxwi2EHguVV3Xya5kS+A+6Gnuo2wl55dofp9y948iZ5z7HIRh1+Mj1BgzbdVt6+B04JOCDMLJXyjtg==}
+
+  '@svar-ui/editor-locales@2.6.0':
+    resolution: {integrity: sha512-xgLLHMi1rvIor+X9u3JChNEkjztZZxpwfpsUocUBIZ07jKqu+h0a/4Vqyue9ZMq3gIq2oyo+HP5Q9Ydb44CrqQ==}
+
+  '@svar-ui/editor-locales@2.6.1':
+    resolution: {integrity: sha512-HFEB43W+AEUjoBh3ZsrlLFFTVh8WYPVpZeOiCfptS5hS0qC8pEnqaXtreM6TM1g3W5VHHOR+sXsWkIxAoeKVvg==}
+
+  '@svar-ui/excel-import-locales@2.6.0':
+    resolution: {integrity: sha512-zFc0N3KAiB2taAcHy28ELpSuSMUmhBm9roByY0zeRJrbcpes/T2eqyYod+QAxub2lDv0So79/OGCVF0Pm1WyDw==}
+
+  '@svar-ui/excel-import-store@2.6.0':
+    resolution: {integrity: sha512-ftmZs2wyrc/Rytn8TirEI0ny7rrf6hQqxlYcDsHNyJ3quJrSNgnYyEWGEt4deXiDcBTcZFN4IEydCH03Tf03Jg==}
+
+  '@svar-ui/export-popup-locales@2.6.0':
+    resolution: {integrity: sha512-NGCBdGMeprgE2wkWw/Dl3O/lrNjWXbYm3UmbMlKN84GmtwtutKCBspNiGGCGlrUgpy0SVhqN+EFpDMg2M4Avzw==}
+
+  '@svar-ui/filemanager-data-provider@2.6.0':
+    resolution: {integrity: sha512-H0cVpLblqPItF4zLmk1ZetTT7TDvE+sl2TVlQC3Wm3PzZrq32aSYfMDEoqliUWHaBRP2Lt1klSX9rPQGV2k8Sw==}
+
+  '@svar-ui/filemanager-locales@2.6.0':
+    resolution: {integrity: sha512-+gZPuAP2NUm3G/JPSCpd1pSS+VuFgSC1nu908xKk2KnwrU+NxIVUDvydMs0+P03AQPjcq0+ou3qwqK3OvrigSg==}
+
+  '@svar-ui/filemanager-store@2.6.0':
+    resolution: {integrity: sha512-59fbDTpHDr7DzgXCTw+2aLLkVXR8Yg8Y5nMUImkuNf0ekD5eb0vfthwH8I2FqqhW3bupGfgGEFscRWTupBNq4w==}
+
+  '@svar-ui/filter-locales@2.6.0':
+    resolution: {integrity: sha512-EQAadVLtpCMjch38T+EcgkX8GXt72MwT04DOSL0G4ZG2roTzgOEKsUV53tfZFiFyamUFnQRY2Hs9IEZApfHzLQ==}
+
+  '@svar-ui/filter-locales@2.6.1':
+    resolution: {integrity: sha512-m963r4TnZxiZ6XzfJYvSmiYcmgSgKhkzpOVcUP25AviWle1oPulyv4Qe28Rak3JaAOFAHQAf0EucoaSMJzvK6A==}
+
+  '@svar-ui/filter-store@2.6.0':
+    resolution: {integrity: sha512-IJzSTMSCyFDP5uF3ZskJODqeXQSn2v8bj8LCHEeCYv8lSVAWXis6iJ8ZBusf95OtV+omO5jpTe6ugZYZpaFTrA==}
+
+  '@svar-ui/filter-store@2.6.1':
+    resolution: {integrity: sha512-2UHeXuNYN56MokBhB48EJ7KvKDVAJbRP2nIbE6t7lbsnWhRsBGxPc4jjUQn/9K+MTGkxrzPrOfeoH8L4p3Hy5g==}
+
+  '@svar-ui/gantt-data-provider@2.7.2':
+    resolution: {integrity: sha512-4j+fWq0y7+qfBcu0R5YS13M1u9fKJiH9YQt/81fRRFcRu12Rvpi/HDXeOVpE/APvsM8NoHJdd5kKK6f59qmE+w==}
+
+  '@svar-ui/gantt-locales@2.7.2':
+    resolution: {integrity: sha512-yEihUiPx9dgr0FLfAoNpgS6QcVjYLqdW2TbyilZ0UaA3YLORly9lbmCI0PPnAALa73ws0qUy2AYaL1nTq0T4/w==}
+
+  '@svar-ui/gantt-store@2.7.2':
+    resolution: {integrity: sha512-krax1GzUWBOTcMVTaaqYlMuJ5lNBkzA6VIhNCnHq+0kFnHg52Hx+D0MQnMkSOUyFA2w0SoiYvUYuAGiQx4eA9A==}
+
+  '@svar-ui/grid-data-provider@2.7.0':
+    resolution: {integrity: sha512-bLhxYwGVjWnC3NbvGeYoOJ3Kv7/qhbEIJeXZhwGQZLYEYUaYrkgmz2pCVmzSt2EfPLG4YlUMf3y+Afz0EoE86g==}
+
+  '@svar-ui/grid-data-provider@2.7.3':
+    resolution: {integrity: sha512-MFobgoczW6wBPjKq8fTORlJEEn2f6jHKWH1h3pC6qmcKr8GRA+TaRaFPVcI2iD5pOc+h/JZxuKE6L+x99S2Uwg==}
+
+  '@svar-ui/grid-locales@2.7.0':
+    resolution: {integrity: sha512-/y4aR6CEbIAsV2YTeLRPfGXTIKYBWqrKc485LN2xkT6jPilT5i1QST1BRn+S2ANC9p83MXCNVLJxAoR+3glsBw==}
+
+  '@svar-ui/grid-locales@2.7.3':
+    resolution: {integrity: sha512-bgB2TfSKjY7mYeTzJjCyOoPco7boz+SQ0xFFsnRp849QN5sJoJEtOl/xnzbR58bLdxq57ne5Z708ozxXDT36lQ==}
+
+  '@svar-ui/grid-store@2.7.0':
+    resolution: {integrity: sha512-m23KKQPuEyDfXiD+nLe7LCGX2+zRhbGUxIUzjAnInqhtjAM0HyhWsQpuZzzXhSdUyFYje5haStffUoK6rrpq6Q==}
+
+  '@svar-ui/grid-store@2.7.3':
+    resolution: {integrity: sha512-YVmLnFLq7P3ACAos0EiMYHLQbnmjaukmUaMoraTG8vhFsI5BwVaeSFdeC9MQIjbIMlxn/uMA0eEXmZuSxHk2hA==}
+
+  '@svar-ui/kanban-locales@2.6.0':
+    resolution: {integrity: sha512-WchNgOChoCn6V+pw4/uGHLHarAjpwDLS5KgWHsT1PzvxtSuuY1L0hJbuiNjab38aQTEniRvfkAmsRZN4VkcNpA==}
+
+  '@svar-ui/kanban-provider@2.6.0':
+    resolution: {integrity: sha512-JUVY1NtzMMmyHe6JJh6yW8UQ8WR+z/2AYAJ6W/KKcgSWVBsJVPnbM1ITgKxUqFxDghOCRu7wobV7l9mCBvhA7g==}
+
+  '@svar-ui/kanban-store@2.6.0':
+    resolution: {integrity: sha512-mA3rQ1O+o5i1TowAk/jtnpkquilun5JLtWxz8k3ilQnokKEUVY7LgTrwAZgkry+0GO3eT3OcT5iZ3Jowat0hTw==}
+
+  '@svar-ui/lib-data-provider@1.7.1':
+    resolution: {integrity: sha512-5Bi9ywngcMTKpGtan0s7q8ivd84Bp0ZnRP+5bLZg6oiRB7YMyN5D5X+apc3CWDAnG4zZn3en4YwS2qc/aHIIuQ==}
+
+  '@svar-ui/lib-data-provider@1.7.2':
+    resolution: {integrity: sha512-Od93Iiy0vBwVzgJm25WdizH3d4Xlli/HAA2kqoUj1pzeZ2SWBeFzvE59iihQz8NuIlfAtQJ6MMe168458T+2lQ==}
+
+  '@svar-ui/lib-data-provider@1.7.3':
+    resolution: {integrity: sha512-+UAM1VybQco5N52iv6rVcDwOJ5G1qE+V+nvaoBHx41H05w4TZTFJL+UnRy99NDLrVbLoCWhoH3L8vyNmZVjTvw==}
+
+  '@svar-ui/lib-dom@0.11.1':
+    resolution: {integrity: sha512-4wgerhDVttvrQ9t6OjHur34Of+VVr2VygA16HHGcWHytgdnOuGgfZb5PeBEhCJw/pO3RKfJvBHbaMIzL4IR//g==}
+
+  '@svar-ui/lib-dom@0.12.1':
+    resolution: {integrity: sha512-srvDleQqR6stBBDijCgzDHMFTTffI6sv3XCpNPKmurrnE83L1MDNqezqg6j3+0dUVPd4AAEGOez2DvK6byblTQ==}
+
+  '@svar-ui/lib-dom@0.12.2':
+    resolution: {integrity: sha512-tV9sJ7Xpedxf1dttTc8I190eqlP0UsassUw48uW3JuEQR0G3IRfmH53/X+mYEooc7bcpZDkzYukWEqJeEq9UlQ==}
+
+  '@svar-ui/lib-dom@0.13.1':
+    resolution: {integrity: sha512-e9+RIEkppVkAUJqfHEr7KmiVXi3uf+qddr513h5mhgSx3PNYtG9eHwtI8OQf4JMc6Hvuu3y0iv+fL6jqE340yw==}
+
+  '@svar-ui/lib-dom@0.14.0':
+    resolution: {integrity: sha512-9uao5ebcQmuW0RoMu1LCesPsZ7i6G3xIvYAQzX/aeg662Yy/ETsNVy1pXoSa2q5v6ccAMjVxFrFCYReK7fzaJQ==}
+
+  '@svar-ui/lib-react@1.2.2':
+    resolution: {integrity: sha512-bB+Vou2NM0JhMuFW03MsjjoV5Y3xcFfuuK48+7uzUC9Ui1oSWpCK+txOZ+dnUFJISSVjSsXuF34AzMw/2CA63w==}
+
+  '@svar-ui/lib-react@1.3.0':
+    resolution: {integrity: sha512-jVcREYAMAXOhZB/lbMmLteGKIZoUW3rzmoXCMcFLGcHIGUH7AjFrKOAG/SJvgV0grcG9XyuRTG3jp++6NIGtuw==}
+
+  '@svar-ui/lib-state@1.9.6':
+    resolution: {integrity: sha512-twoHa8wZvzdxtES68s6Wnp4Xi1WivScNaFFK6sJ6WDgqVYOzJw0ZhVVrdwHQgieLITTKl/DYh/U3nuqtMetKYw==}
+
+  '@svar-ui/lib-state@1.9.7':
+    resolution: {integrity: sha512-nxRdk+54m1RJjGT2yDH7NjxAM5KECxA39kdTZezEIj1ixykyefssB9BrgxKy2jIseYxJMtd6lPZvQ3SZXuvn2g==}
+
+  '@svar-ui/react-comments@2.6.0':
+    resolution: {integrity: sha512-58V9iqxC3RtRB4M37B9EE4c0RdZJ/VW5uA4yIIbuctdHOLbRDhp0WsVwBhQSMF16VXbxwDY5LL3v32TkPWRyZA==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-comments@2.6.1':
+    resolution: {integrity: sha512-bdO8DHIZ/qpQNXeZzNuU2cbUsiyen+bc2/sS9h7PLzCSeeGmKwAyHeTyO06WvsVxUgQSBAfp2Eom+xFNDaQcXw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-core@2.6.0':
+    resolution: {integrity: sha512-9y3SfwZjGDgMxfJYZvnT4UA9ebPuIyKiGmVQR2vqvJQ4qxiXuXLPDxIxV08tDcPM57j+fN1bWRMaZLmg50ucoQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-core@2.6.1':
+    resolution: {integrity: sha512-1b0R+n4r/XLM2FC4mAxhyRYCI79HdrDbfe0nsOr/uJ0Ty+wxEfWglamCf6yJSM2tvmpGJQ388flDIXPbzep4Fg==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-editor@2.6.0':
+    resolution: {integrity: sha512-pSx2bIPOjdJJAkaypeogXNCLblBHbk1/wRB6WV8tQEGbZUhhSYBL+h+T9LlUeUA7PH2DCS4NSak1WPzTy3PN0g==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-editor@2.6.1':
+    resolution: {integrity: sha512-r/POft5rvYx43DGHHuC3yKJKani0i+jqKbWFH+j5IWUhWjnkEqdpcToehGzoXob7gyl7VuzGMQQFu8DzUcyNrw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-excel-import@2.6.0':
+    resolution: {integrity: sha512-gdX9PEk9WjPMS3TnaU+YMoxRQEnSYRypMFlOXqpEkw1qcJjlST7h7E/+Z2tKgkVKats3KUWOXNZu0kjn9zbg6A==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-export-popup@2.6.0':
+    resolution: {integrity: sha512-X86NLNEBfnvtlo3FOQHFVuhOy5xfcXlvhBUhrrh5ru88f4H2zBwWj/xlovn8saNTCHMfsBtsae/dARkCQqYDyQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-filemanager@2.6.0':
+    resolution: {integrity: sha512-1wCRpeRK8+q7y94N9J6TganH6VQG3hd2ySdwDrwc5zbKmNUdC1f/U2fHn0/8SewWJZz0HH99vw/63o7eggSSEg==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-filter@2.6.0':
+    resolution: {integrity: sha512-E4PlRzA9KoW4DmB7XDZ8uAwJHNYP2rwUq/H2KFnUKZZ4j3U4JuTvvho6lk8NbRZonIu4S5Jqj50YLUT4N1vhBw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-filter@2.6.1':
+    resolution: {integrity: sha512-GBwReaJUa7Qb7EZTJroxjzm7NIGsAEFuDoTrmJqwkcmwFB+WBukQa/2Z0mf5Ya4t4/ldt1sfOzNWlbFhMo8FTA==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-gantt@2.7.3':
+    resolution: {integrity: sha512-1kLEXrfJ3fkXp5NCvMHIpsjdEphy0EC5ce2nphs8GOFlsiSp6nRau+GY0Go6ivGDPdcchPkZ8a0Q1iKk3HtyRA==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-grid@2.7.0':
+    resolution: {integrity: sha512-JUWPlM5gtW3xe7qVoiT16f1/NusRSSBga5or5N43IzxwbDRBRkqBs2GNzV8lTpJwjpVK+5wUtA0OhYPiia551w==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-grid@2.7.4':
+    resolution: {integrity: sha512-m3AbGuQNeEnniDcyBesEOg+IirwW5NasJQCfJd7jIFhUyfQ79w+crSnLbinEVS59/OKGrqkmxnLDcDwEKbu4rg==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-kanban@2.6.0':
+    resolution: {integrity: sha512-n+XcTUjQtDxBLtj6k+nfBsCCoGQ41omlmp9Ep9CNuvIA1IhrktQzdC+f+uogM8D1ZouOixuwDZUwuuuBj9T+cA==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-menu@2.6.0':
+    resolution: {integrity: sha512-2Z95S2gzqgxWEAXw8AMMkZ/NITLseXH+7lgdyT23E1/RYMOQhjOdjl3GBeIBHWpN8UUFGtd63ULZrwA8cMViSQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-menu@2.6.1':
+    resolution: {integrity: sha512-/wu6vaLVPN2AJp8r+axIkjaSpoZOAgE46CRsdM2d0yc+hbJdeMo997LXZTGQzBziwLZttW1DDwOvL+uLIeTOug==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-tasklist@2.6.0':
+    resolution: {integrity: sha512-oIU1wpT2kZujZkPjin2GQVnb1+5EYQp7flO8LsOf+R8043WHucUGtnJn4bmrRDujjklWZa+ySXEhfrGYj7vu5A==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-tasklist@2.6.1':
+    resolution: {integrity: sha512-U06UHYwL1J6XXMLsHrTvs/wWUXEm3ZC+Ca1hC5Ns0vvnscdE6cSRPqC1Xl2JGKu/cem0sHimEVi7SW4Q2NWczw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-toolbar@2.6.0':
+    resolution: {integrity: sha512-Jt4fg5OifGub6claWKwJTx2jBTBRIwpEXvSUQ5h/PVG6IGQpeyJgaqbPHsILw3oM/QZkdax8nxOZ+RoI2efEsQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-toolbar@2.6.1':
+    resolution: {integrity: sha512-jSxcTW8WNgpSgkxicGyu76cKjVuwwxOvdDXJqQpLnxIIdN/RNeWuY8ak4sD0IqhCOp7AicgfPg2t+K4YUp+LMQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-uploader@2.6.0':
+    resolution: {integrity: sha512-UJIeXKIyvukZDZKmre9abxRW4XPS1XYNzr3FwViTkp71aCoSSYKy7KuxKIgyz3I9ZutO+8XKe6I9M5DkXXh2UQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/tasklist-locales@2.6.0':
+    resolution: {integrity: sha512-0VxhXVJJPFrfWiyLin5QrdRbp/9ESK74S3y7vmTmha17hLnI9kiz7+CNT4K4B98mSyS2KzD2BrPej5bhsZ7f8w==}
+
+  '@svar-ui/tasklist-locales@2.6.1':
+    resolution: {integrity: sha512-ewGvdmALpEJR3CpzlNX8aDL2JPmeyF1EweRBoI0jQmp7bIpYDIlpTWStmGwDEwQ5SgvUTJylFyIj6baPf2RBlw==}
+
+  '@svar-ui/uploader-locales@2.5.3':
+    resolution: {integrity: sha512-PvYQj/vyp9BEDtBuT1v2pVLUiffcDrhaobOFqQ5Q0qhfSCm3Xb3EW0vDlbomQMowwa+zF4+B35B2FNg6+K79XA==}
+
   '@swc/helpers@0.5.15':
     resolution: {integrity: sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g==}
 
@@ -2102,6 +2381,9 @@ packages:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
     engines: {node: '>= 12'}
 
+  date-fns@3.6.0:
+    resolution: {integrity: sha512-fRHTG8g/Gif+kSh50gaGEdToemgfj74aRX3swtiouboip5JDLAyDE9F11nHMIcvOaXeOC6D7SpNhi7uFyB7Uww==}
+
   date-fns@4.1.0:
     resolution: {integrity: sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg==}
 
@@ -2318,6 +2600,9 @@ packages:
   fetch-blob@3.2.0:
     resolution: {integrity: sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==}
     engines: {node: ^12.20 || >= 14.13}
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   figures@6.1.0:
     resolution: {integrity: sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg==}
@@ -3206,6 +3491,10 @@ packages:
     resolution: {integrity: sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ==}
     engines: {node: '>=0.10.0'}
 
+  readable-stream@3.6.2:
+    resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
+    engines: {node: '>= 6'}
+
   real-require@0.2.0:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
@@ -3281,6 +3570,9 @@ packages:
 
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
+
+  safe-buffer@5.2.1:
+    resolution: {integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==}
 
   safe-regex@2.1.1:
     resolution: {integrity: sha512-rx+x8AMzKb5Q5lQ95Zoi6ZbJqwCLkqi3XuJXp5P3rT8OEc6sZCJG5AE5dU3lsgRr/F4Bs31jSlVN+j5KrsGu9A==}
@@ -3421,6 +3713,9 @@ packages:
     resolution: {integrity: sha512-GaPUh5gfdrYzqeVNZvUfT23vYYxXzKYidUcnMtJg/3rxRV63EFZy3k6xfKlmfeJD0176lnUV/Usr3XcwSvFzpg==}
     engines: {node: '>=20'}
 
+  string_decoder@1.3.0:
+    resolution: {integrity: sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==}
+
   stringify-object@5.0.0:
     resolution: {integrity: sha512-zaJYxz2FtcMb4f+g60KsRNFOpVMUyuJgA51Zi5Z1DOTC3S59+OQiVOzE9GZt0x72uBGWKsQIuBKeF9iusmKFsg==}
     engines: {node: '>=14.16'}
@@ -3524,6 +3819,9 @@ packages:
     resolution: {integrity: sha512-e2zZ96wSChazBsbENf/Pcm/4swHt2cEKQ92rhUjkL9GCKiTDJIaTBenjE/m9DXi0QBmTMDkFDdOomUy20A1tDQ==}
     engines: {node: '>=20'}
 
+  through2@3.0.2:
+    resolution: {integrity: sha512-enaDQ4MUyP2W6ZyT6EsMzqBPZaM/avg8iuo+l2d3QCs0J+6RaqkHV/2/lOwDTueBHeJ/2LG9lrLW3d5rWPucuQ==}
+
   tiny-invariant@1.3.3:
     resolution: {integrity: sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==}
 
@@ -3574,6 +3872,9 @@ packages:
 
   tw-animate-css@1.4.0:
     resolution: {integrity: sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ==}
+
+  txml@5.2.1:
+    resolution: {integrity: sha512-MGKvU6UjehglVhfQAtW/sxeqAky64fJGHAkaxXROh13quYOgKE71C1VPKhKGR8M+AhMWEdz/aaPL/rxpJ9fmKw==}
 
   type-fest@5.7.0:
     resolution: {integrity: sha512-1URUxUqfHFM1c+zfSPsa3gnkO7Aq21qyH75SIduNYz4SzY964rn1X2vCMQaHSHhktiw+0kPa2iyb6PUpXqB6Vg==}
@@ -3696,6 +3997,12 @@ packages:
   wsl-utils@0.3.1:
     resolution: {integrity: sha512-g/eziiSUNBSsdDJtCLB8bdYEUMj4jR7AGeUo96p/3dTafgjHhpF4RiCFPiRILwjQoDXx5MqkBr4fwWtR3Ky4Wg==}
     engines: {node: '>=20'}
+
+  xlsx-reader-lite@0.1.0:
+    resolution: {integrity: sha512-garyGV1U9KsB6aiOmwPYgqd7uEaiHOoDpm6nPuzQjUN6a6IxDFHFE1Cl4s4y8xnm8pI3bHbvsyCjhKTvCcYbDA==}
+
+  xlsx-writer-lite@0.2.0:
+    resolution: {integrity: sha512-5jEtri8cd9fZWkuqOqGjMdkkng5L0brk5jMybF5btt5kZbPTRPbjo2TLlvO7RbswUKqfESKkeHfrTRj8P0FkbA==}
 
   y18n@4.0.3:
     resolution: {integrity: sha512-JKhqTOwSrqNA1NY5lSztJ1GrBiUodLMmIZuLiDaMRJ+itFd+ABVE8XBjOvIWL+rSqNDC74LCSFmlb/U4UZ4hJQ==}
@@ -5117,6 +5424,388 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
+  '@svar-ui/comments-locales@2.6.0': {}
+
+  '@svar-ui/comments-locales@2.6.1': {}
+
+  '@svar-ui/core-locales@2.6.0': {}
+
+  '@svar-ui/core-locales@2.6.1': {}
+
+  '@svar-ui/editor-locales@2.6.0': {}
+
+  '@svar-ui/editor-locales@2.6.1': {}
+
+  '@svar-ui/excel-import-locales@2.6.0': {}
+
+  '@svar-ui/excel-import-store@2.6.0':
+    dependencies:
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-state': 1.9.7
+      xlsx-reader-lite: 0.1.0
+
+  '@svar-ui/export-popup-locales@2.6.0': {}
+
+  '@svar-ui/filemanager-data-provider@2.6.0':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.1
+
+  '@svar-ui/filemanager-locales@2.6.0': {}
+
+  '@svar-ui/filemanager-store@2.6.0':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.7
+
+  '@svar-ui/filter-locales@2.6.0': {}
+
+  '@svar-ui/filter-locales@2.6.1': {}
+
+  '@svar-ui/filter-store@2.6.0':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/filter-store@2.6.1':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/gantt-data-provider@2.7.2':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.1
+
+  '@svar-ui/gantt-locales@2.7.2': {}
+
+  '@svar-ui/gantt-store@2.7.2':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.7
+      date-fns: 3.6.0
+
+  '@svar-ui/grid-data-provider@2.7.0':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.2
+
+  '@svar-ui/grid-data-provider@2.7.3':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.2
+
+  '@svar-ui/grid-locales@2.7.0': {}
+
+  '@svar-ui/grid-locales@2.7.3': {}
+
+  '@svar-ui/grid-store@2.7.0':
+    dependencies:
+      '@svar-ui/lib-dom': 0.12.1
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/grid-store@2.7.3':
+    dependencies:
+      '@svar-ui/lib-dom': 0.12.1
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/kanban-locales@2.6.0': {}
+
+  '@svar-ui/kanban-provider@2.6.0': {}
+
+  '@svar-ui/kanban-store@2.6.0':
+    dependencies:
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-state': 1.9.7
+
+  '@svar-ui/lib-data-provider@1.7.1':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/lib-data-provider@1.7.2':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/lib-data-provider@1.7.3':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/lib-dom@0.11.1': {}
+
+  '@svar-ui/lib-dom@0.12.1': {}
+
+  '@svar-ui/lib-dom@0.12.2': {}
+
+  '@svar-ui/lib-dom@0.13.1': {}
+
+  '@svar-ui/lib-dom@0.14.0': {}
+
+  '@svar-ui/lib-react@1.2.2':
+    dependencies:
+      '@svar-ui/lib-dom': 0.11.1
+
+  '@svar-ui/lib-react@1.3.0':
+    dependencies:
+      '@svar-ui/lib-dom': 0.12.2
+
+  '@svar-ui/lib-state@1.9.6': {}
+
+  '@svar-ui/lib-state@1.9.7': {}
+
+  '@svar-ui/react-comments@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/comments-locales': 2.6.0
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/lib-data-provider': 1.7.1
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-comments@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/comments-locales': 2.6.1
+      '@svar-ui/core-locales': 2.6.1
+      '@svar-ui/lib-data-provider': 1.7.3
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-core@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.2.2
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-core@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.1
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-react': 1.2.2
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-editor@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/editor-locales': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-comments': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-tasklist': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-toolbar': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-editor@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/editor-locales': 2.6.1
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-comments': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-tasklist': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-toolbar': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-excel-import@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/excel-import-locales': 2.6.0
+      '@svar-ui/excel-import-store': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-export-popup@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/export-popup-locales': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-filemanager@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/filemanager-data-provider': 2.6.0
+      '@svar-ui/filemanager-locales': 2.6.0
+      '@svar-ui/filemanager-store': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-grid': 2.7.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-uploader': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-filter@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/filter-locales': 2.6.0
+      '@svar-ui/filter-store': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-filter@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/filter-locales': 2.6.1
+      '@svar-ui/filter-store': 2.6.1
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-gantt@2.7.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.1
+      '@svar-ui/gantt-data-provider': 2.7.2
+      '@svar-ui/gantt-locales': 2.7.2
+      '@svar-ui/gantt-store': 2.7.2
+      '@svar-ui/grid-store': 2.7.3
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-comments': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-editor': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-filter': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-grid': 2.7.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-tasklist': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-toolbar': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      date-fns: 3.6.0
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-grid@2.7.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/grid-data-provider': 2.7.0
+      '@svar-ui/grid-locales': 2.7.0
+      '@svar-ui/grid-store': 2.7.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-editor': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-filter': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-grid@2.7.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/grid-data-provider': 2.7.3
+      '@svar-ui/grid-locales': 2.7.3
+      '@svar-ui/grid-store': 2.7.3
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-editor': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-filter': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-kanban@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/kanban-locales': 2.6.0
+      '@svar-ui/kanban-provider': 2.6.0
+      '@svar-ui/kanban-store': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-react': 1.3.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-editor': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-excel-import': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-export-popup': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-menu': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/react-toolbar': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+      xlsx-writer-lite: 0.2.0
+
+  '@svar-ui/react-menu@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-menu@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.1
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-tasklist@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.1
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/tasklist-locales': 2.6.0
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-tasklist@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.3
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/lib-state': 1.9.7
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/tasklist-locales': 2.6.1
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-toolbar@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-toolbar@2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.1
+      '@svar-ui/lib-dom': 0.14.0
+      '@svar-ui/react-core': 2.6.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/react-uploader@2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@svar-ui/core-locales': 2.6.0
+      '@svar-ui/lib-dom': 0.13.1
+      '@svar-ui/react-core': 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@svar-ui/uploader-locales': 2.5.3
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@svar-ui/tasklist-locales@2.6.0': {}
+
+  '@svar-ui/tasklist-locales@2.6.1': {}
+
+  '@svar-ui/uploader-locales@2.5.3': {}
+
   '@swc/helpers@0.5.15':
     dependencies:
       tslib: 2.8.1
@@ -5465,6 +6154,8 @@ snapshots:
 
   data-uri-to-buffer@4.0.1: {}
 
+  date-fns@3.6.0: {}
+
   date-fns@4.1.0:
     optional: true
 
@@ -5732,6 +6423,8 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
+
+  fflate@0.8.3: {}
 
   figures@6.1.0:
     dependencies:
@@ -6572,6 +7265,12 @@ snapshots:
 
   react@19.2.4: {}
 
+  readable-stream@3.6.2:
+    dependencies:
+      inherits: 2.0.4
+      string_decoder: 1.3.0
+      util-deprecate: 1.0.2
+
   real-require@0.2.0: {}
 
   real-require@1.0.0: {}
@@ -6643,6 +7342,8 @@ snapshots:
   run-parallel@1.2.0:
     dependencies:
       queue-microtask: 1.2.3
+
+  safe-buffer@5.2.1: {}
 
   safe-regex@2.1.1:
     dependencies:
@@ -6850,6 +7551,10 @@ snapshots:
       get-east-asian-width: 1.6.0
       strip-ansi: 7.2.0
 
+  string_decoder@1.3.0:
+    dependencies:
+      safe-buffer: 5.2.1
+
   stringify-object@5.0.0:
     dependencies:
       get-own-enumerable-keys: 1.0.0
@@ -6923,6 +7628,11 @@ snapshots:
     dependencies:
       real-require: 1.0.0
 
+  through2@3.0.2:
+    dependencies:
+      inherits: 2.0.4
+      readable-stream: 3.6.2
+
   tiny-invariant@1.3.3: {}
 
   tinyglobby@0.2.17:
@@ -6975,6 +7685,10 @@ snapshots:
       fsevents: 2.3.3
 
   tw-animate-css@1.4.0: {}
+
+  txml@5.2.1:
+    dependencies:
+      through2: 3.0.2
 
   type-fest@5.7.0:
     dependencies:
@@ -7071,6 +7785,15 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
       powershell-utils: 0.1.0
+
+  xlsx-reader-lite@0.1.0:
+    dependencies:
+      fflate: 0.8.3
+      txml: 5.2.1
+
+  xlsx-writer-lite@0.2.0:
+    dependencies:
+      fflate: 0.8.3
 
   y18n@4.0.3: {}
 
