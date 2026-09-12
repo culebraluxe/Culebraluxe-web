@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { neon } from '@neondatabase/serverless'
 import type { QueryExecutor, QueryRow } from './query-executor'
 import { captureError, setErrorExecutor } from './app-error'
 import { declareControlPlane, describeControlPlane } from '../lib/execution-target'
+import { forgeDb, forgeDbConnectionString } from './forge-db'
+import { flattenSqlTemplate } from './sql-template'
 
 // ---------------------------------------------------------------------------
 // DB-HARDEN-01 — Single application Database Gateway.
@@ -283,15 +284,26 @@ type SqlExecutor = QueryExecutor
  * intact. The driver object is stateless — no connection is opened until a
  * query actually runs.
  */
-function createExecutorSafely(): SqlExecutor | null {
+/**
+ * The real executor is ForgeDB's pooled one (db/forge-db.ts) — the single pool for
+ * the whole application. This module no longer creates a driver of its own: it
+ * used to build a Neon HTTP executor at module load, which is why the app and
+ * every operator script held separate connections and separate ideas of which
+ * database they were on.
+ *
+ * Resolution stays per call rather than cached, because configuration can change
+ * between calls in tests and in the worker. A missing/unusable configuration
+ * returns null, which is what keeps "importing this module never throws" true and
+ * makes a query report DATABASE_UNAVAILABLE instead of crashing at import.
+ */
+function resolvePooledExecutor(): SqlExecutor | null {
   try {
-    return neon(getDatabaseUrl()) as unknown as SqlExecutor
+    forgeDbConnectionString(declareControlPlane().target)
+    return forgeDb.sql as unknown as SqlExecutor
   } catch {
-    return null // missing/invalid config — import never throws
+    return null // not configured — surfaced on use, never at import
   }
 }
-
-const SQL_EXECUTOR: SqlExecutor | null = createExecutorSafely()
 
 // Test-only fault-injection hook. When set, every gateway query routes through
 // this executor instead of Neon, so tests can deliberately produce
@@ -322,7 +334,7 @@ function getExecutor(): SqlExecutor | null {
   if (testExecutor) return testExecutor
   const fault = devFaultCode()
   if (fault) return faultExecutorFor(fault)
-  return SQL_EXECUTOR
+  return resolvePooledExecutor()
 }
 
 /** DEV-only fault-injection for runtime isolation proofs (section 11). Set
@@ -395,7 +407,7 @@ export class DatabaseGateway {
     try {
       const run =
         testTransaction ??
-        (await import('../lib/neon-interactive')).withTransaction
+        ((inner: (tx: QueryExecutor) => Promise<T>) => forgeDb.transaction(inner))
       const data = await run(cb)
       return { ok: true, data }
     } catch (e) {
@@ -479,73 +491,13 @@ export async function sqlNoCapture(
  * executor (Neon or the gateway) when it is interpolated, which is where the
  * "database not configured" failure correctly surfaces.
  */
-const SQL_FRAGMENT = Symbol('culebraluxe.sql-fragment')
-
-type SqlFragment = {
-  readonly [SQL_FRAGMENT]: true
-  readonly strings: readonly string[]
-  readonly values: readonly unknown[]
-}
-
-function isSqlFragment(value: unknown): value is SqlFragment {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as SqlFragment)[SQL_FRAGMENT] === true
-  )
-}
-
-function toTemplateStrings(parts: string[]): TemplateStringsArray {
-  const template = [...parts] as unknown as TemplateStringsArray
-  Object.defineProperty(template, 'raw', { value: [...parts] })
-  return template
-}
-
 /**
- * Recursively compose structural fragments into the parent template before it
- * reaches Neon. Fragment SQL becomes part of the template strings; fragment
- * values remain ordinary positional bind parameters.
+ * Safe structural-SQL fragment builder — MOVED to db/sql-template.ts so ForgeDB
+ * and this gateway share ONE fragment encoding. Two symbols would mean a fragment
+ * built by one and interpolated into the other is silently bound as a parameter.
+ * Re-exported here because `raw` is part of this module's public contract.
  */
-function flattenSqlTemplate(
-  strings: readonly string[],
-  values: readonly unknown[],
-): { strings: TemplateStringsArray; values: unknown[] } {
-  const flattenedStrings = [strings[0] ?? '']
-  const flattenedValues: unknown[] = []
-
-  for (let index = 0; index < values.length; index++) {
-    const value = values[index]
-    const following = strings[index + 1] ?? ''
-
-    if (!isSqlFragment(value)) {
-      flattenedValues.push(value)
-      flattenedStrings.push(following)
-      continue
-    }
-
-    const nested = flattenSqlTemplate(value.strings, value.values)
-    flattenedStrings[flattenedStrings.length - 1] += nested.strings[0] ?? ''
-
-    for (let nestedIndex = 0; nestedIndex < nested.values.length; nestedIndex++) {
-      flattenedValues.push(nested.values[nestedIndex])
-      flattenedStrings.push(nested.strings[nestedIndex + 1] ?? '')
-    }
-
-    flattenedStrings[flattenedStrings.length - 1] += following
-  }
-
-  return {
-    strings: toTemplateStrings(flattenedStrings),
-    values: flattenedValues,
-  }
-}
-
-export function raw(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): SqlFragment {
-  return { [SQL_FRAGMENT]: true, strings, values }
-}
+export { raw } from './sql-template'
 
 function configFailure(): DbFailure {
   return {

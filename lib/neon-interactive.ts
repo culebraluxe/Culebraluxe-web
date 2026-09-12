@@ -1,83 +1,43 @@
 import type { QueryExecutor } from '../db/query-executor'
+import { forgeDb, forgeDbPool } from '../db/forge-db'
+import { flattenSqlTemplate, toPgQuery } from '../db/sql-template'
 
 // ---------------------------------------------------------------------------
-// Shared interactive-transaction adapter for the Neon database.
+// Interactive-transaction adapter — now a THIN LAYER OVER ForgeDB.
 //
-// The Neon HTTP driver (`neon()`) exposes a batch-only `transaction()`; it
-// cannot run interactive multi-statement transactions where one query's result
-// feeds the next (the workflow engine and the canonical command receipts both
-// require this). This module backs interactive transactions with the WebSocket
-// `Pool` driver instead, and presents the same Neon-shaped tagged-template
-// surface (including nested-fragment flattening and lazy thenables).
+// This module used to justify its own WebSocket pool with "the Neon HTTP driver
+// exposes a batch-only transaction()". That reason died with the driver: ForgeDB
+// (`db/forge-db.ts`) owns the application's single `pg.Pool`, and interactive
+// transactions run on one pooled client with real BEGIN/COMMIT/ROLLBACK.
 //
-// The Pool is created lazily so importing this module never requires a
-// DATABASE_URL (important for tests and module-load safety).
+// It also carried a COPY of the environment-resolution rule with a "Keep in sync
+// with db/database-gateway.getDatabaseUrl / resolveDbTarget" comment — the exact
+// shape of bug this change exists to remove. Two copies of "which database" can
+// disagree; now there is one, in lib/execution-target.ts.
+//
+// The exported surface is unchanged (`interactiveSql`, `withTransaction`,
+// `flatten`, `makeQueryFn`) because callers across `db/` and `workflow_app/` use
+// it as a tagged template.
 // ---------------------------------------------------------------------------
 
-let poolPromise: Promise<any> | null = null
-
-function getPool(): Promise<any> {
-  if (!poolPromise) {
-    poolPromise = (async () => {
-      const { Pool } = await import('@neondatabase/serverless')
-      // Resolve the connection URL here rather than importing db/ — a db import
-      // would create a database-gateway <-> neon-interactive dependency cycle
-      // (the gateway lazily delegates transactions here). Keep in sync with
-      // db/database-gateway.getDatabaseUrl / resolveDbTarget.
-      const vercelEnv = process.env.VERCEL_ENV
-      const target =
-        vercelEnv === 'production'
-          ? 'prod'
-          : vercelEnv === 'preview' || vercelEnv === 'development'
-            ? 'dev'
-            : (process.env.APP_ENV ?? 'development') === 'production'
-              ? 'prod'
-              : 'dev'
-      const url = target === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
-      if (!url) throw new Error(`neon-interactive: DATABASE_URL_${target.toUpperCase()} not configured`)
-      return new Pool({ connectionString: url })
-    })()
-  }
-  return poolPromise
-}
-
-type Fragment = { strings: readonly string[]; values: any[] }
-
-function isFragment(v: unknown): v is Fragment {
-  return (
-    v != null &&
-    typeof v === 'object' &&
-    Array.isArray((v as Fragment).strings) &&
-    Array.isArray((v as Fragment).values)
-  )
-}
-
+/**
+ * Flatten a template (including nested fragments) into text + positional params.
+ * Kept as this module's export for compatibility; the implementation is shared
+ * with ForgeDB so a fragment cannot mean two different things.
+ */
 export function flatten(
   strings: readonly string[],
   values: any[],
 ): { text: string; params: any[] } {
-  let text = ''
-  const params: any[] = []
-  const walk = (s: readonly string[], v: any[]) => {
-    for (let i = 0; i < s.length; i++) {
-      text += s[i]
-      if (i < v.length) {
-        const val = v[i]
-        if (isFragment(val)) {
-          walk(val.strings, val.values)
-        } else {
-          params.push(val)
-          text += '$' + params.length
-        }
-      }
-    }
-  }
-  walk(strings, values)
-  return { text, params }
+  // Opts into the structural fragment shape this module has always accepted.
+  const flat = flattenSqlTemplate(strings, values, { acceptStructuralFragments: true })
+  const query = toPgQuery(flat.strings, flat.values)
+  return { text: query.text, params: query.values }
 }
 
 type Row = Record<string, any>
 
+/** Neon-shaped lazy tagged handle: matches callers that await the result. */
 export function makeQueryFn(run: (text: string, params: any[]) => Promise<Row[]>) {
   const fn: any = (strings: TemplateStringsArray, ...values: any[]) => {
     const { text, params } = flatten(strings, values)
@@ -94,37 +54,20 @@ export function makeQueryFn(run: (text: string, params: any[]) => Promise<Row[]>
 }
 
 const runQuery = (text: string, params: any[]) =>
-  getPool().then((pool) =>
-    pool.query(text, params).then((r: any) => r.rows as Row[]),
-  )
+  forgeDbPool()
+    .query(text, params)
+    .then((r) => r.rows as Row[])
 
-/** Neon-shaped tagged-template handle for single queries + `begin`. */
+/** Tagged-template handle for single queries + `begin`, on the shared pool. */
 export const interactiveSql: QueryExecutor & {
   begin: (cb: (tx: QueryExecutor) => Promise<unknown>) => Promise<unknown>
 } = makeQueryFn(runQuery)
 
-interactiveSql.begin = async (cb) => {
-  const pool = await getPool()
-  const client = await pool.connect()
-  const tx = makeQueryFn((text, params) =>
-    client.query(text, params).then((r: any) => r.rows as Row[]),
-  )
-  try {
-    await client.query('BEGIN')
-    const result = await cb(tx)
-    await client.query('COMMIT')
-    return result
-  } catch (err) {
-    await client.query('ROLLBACK')
-    throw err
-  } finally {
-    client.release()
-  }
-}
+interactiveSql.begin = (cb) => forgeDb.transaction(cb)
 
 /** Run an application command's interactive transaction body. */
 export async function withTransaction<T>(
   cb: (tx: QueryExecutor) => Promise<T>,
 ): Promise<T> {
-  return interactiveSql.begin(cb) as Promise<T>
+  return forgeDb.transaction(cb)
 }
