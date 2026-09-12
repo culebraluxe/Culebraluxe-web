@@ -1,12 +1,28 @@
 // Read-only: print the Forge run-effectiveness scorecard (the first Maestro pull).
 // Usage: pnpm forge:scorecard [windowDays]
 import { computeForgeScorecard } from '../workflow_app/forge/forge-scorecard'
-import { sql } from '../db/client'
+import { resolveDbTarget, sql } from '../db/client'
 
 const pct = (v: number | null) => (v === null ? 'n/a' : `${(v * 100).toFixed(1)}%`)
 const n = (v: number | null) => (v === null ? 'n/a' : String(v))
 
 async function main() {
+  // CAPTAIN'S RULE (2026-09-12): all Forge execution and reporting runs against
+  // PROD — prod stories, prod database, prod logs. This script used to inherit
+  // whatever APP_ENV said and therefore read DEV by default, which is why the
+  // OBSERVER LAYER line read empty in every window and why the board's numbers
+  // came from a database that is expected to be discarded. Fail closed rather
+  // than describe the wrong fleet: a scorecard that can silently report DEV is
+  // worse than no scorecard. `pnpm forge:scorecard` sets APP_ENV for you.
+  const dbTarget = resolveDbTarget()
+  if (dbTarget !== 'prod') {
+    console.error(
+      `forge:scorecard must read PROD: this process resolved its database to ${dbTarget.toUpperCase()}. ` +
+        'Run it as `pnpm forge:scorecard` (APP_ENV=production) or prefix the command with APP_ENV=production.',
+    )
+    process.exit(1)
+  }
+
   const days = Number(process.argv[2] ?? 30)
   const s = await computeForgeScorecard(sql, days)
   const o = s.outcomes

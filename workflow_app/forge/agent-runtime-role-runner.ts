@@ -43,7 +43,8 @@ import {
 } from '../../db/forge-split-children'
 import { splitJoinHoldReasons } from './split-join'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
-import { parseExecutionEnvironment } from '../../lib/execution-target'
+import { resolveDbTarget } from '../../db/client'
+import { assertForgeExecutionTarget, assertForgeLaneMayStart } from './forge-execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { assessArchitectBrief } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
@@ -153,6 +154,26 @@ export function createAgentRuntimeForgeRoleRunner(
   })
 
   return async (nodeId, task) => {
+    // ---------------------------------------------------------------------
+    // ENG-FORGE-SYNC-GUARD-01 — a lane cannot start anywhere but PROD.
+    //
+    // FIRST statement on purpose. `driveForgeStory` calls this runner for every
+    // node of every lane (forge-executor.ts:222), so this is the choke point
+    // where "do not claim a task, spawn OpenCode or provision a worktree" can
+    // actually be guaranteed. What stood here before was a
+    // `parseExecutionEnvironment(..., 'DEV')` default: silence meant DEV, the
+    // work item recorded DEV, and the mismatch stayed invisible until the board
+    // disagreed with git.
+    // ---------------------------------------------------------------------
+    if (options.executionEnvironment) {
+      // A caller-declared target is still a claim about where this lane runs.
+      assertForgeExecutionTarget(options.executionEnvironment)
+    }
+    const laneTarget = assertForgeLaneMayStart({
+      env: process.env,
+      controlPlane: resolveDbTarget(),
+    })
+
     const subjectRows = await interactiveSql`
       select subject_id
       from process_instances
@@ -406,10 +427,9 @@ export function createAgentRuntimeForgeRoleRunner(
     }
     if (!lane.envelope) throw new Error(`Forge ${nodeId} produced no execution envelope`)
 
-    const target = parseExecutionEnvironment(
-      options.executionEnvironment ?? process.env.EXECUTION_ENV,
-      'DEV',
-    )
+    // Resolved and asserted ONCE at lane start (top of this function): the work
+    // item, the trace events and the run all carry this same value.
+    const target = laneTarget
     const queued = await work.enqueue({
       storyId: resolvedStory.id,
       ...lane.envelope,

@@ -1,5 +1,7 @@
 import { createAgentRuntimeForgeRoleRunner } from '../workflow_app/forge/agent-runtime-role-runner'
 import { driveForgeStory } from '../workflow_app/forge/forge-executor'
+import { resolveDbTarget } from '../db/client'
+import { assertForgeLaneMayStart } from '../workflow_app/forge/forge-execution-target'
 import {
   detectForgeDualWrite,
   parseForgeRoutingBrain,
@@ -34,6 +36,20 @@ async function main(): Promise<void> {
   if (!['FEATURE', 'BUG', 'HOTFIX', 'RESEARCH', 'MIGRATION'].includes(workType)) {
     throw new Error(`invalid --work-type ${JSON.stringify(workType)}`)
   }
+
+  // ENG-FORGE-SYNC-GUARD-01 — fail closed BEFORE the ready gate, before any board
+  // read and before a work item exists.
+  //
+  // This script is the entry point that made "DEV keeps getting Forge data" real:
+  // it launched with `process.env.EXECUTION_ENV ?? 'DEV'`, so a bare
+  // `pnpm forge:engine --story X` ran the lane as DEV, and with APP_ENV unset the
+  // control-plane rows also resolved to the DEV database. Both halves are now
+  // asserted here, and `pnpm forge:engine` sets both variables so the normal path
+  // is PROD rather than merely permitted to be.
+  const laneTarget = assertForgeLaneMayStart({
+    env: process.env,
+    controlPlane: resolveDbTarget(),
+  })
 
   const brain = parseForgeRoutingBrain()
   const engineActive = Boolean(await findActiveForgeInstance(storyId))
@@ -73,7 +89,7 @@ async function main(): Promise<void> {
     start: { workType: workType as 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' },
     runner: createAgentRuntimeForgeRoleRunner({
       workerId,
-      executionEnvironment: process.env.EXECUTION_ENV ?? 'DEV',
+      executionEnvironment: laneTarget,
     }),
     workerId,
     // SPLIT concurrency: default 2 (the lane is enabled by default now).

@@ -19,10 +19,30 @@
 // scripts/forge-board-sync.ts.
 // ---------------------------------------------------------------------------
 
-import type { ExecutionEnvironment } from '../../lib/execution-target'
+// ---------------------------------------------------------------------------
+// The PROD-only guard MOVED to forge-execution-target.ts (ENG-FORGE-SYNC-GUARD-01).
+// It used to live here, which meant it protected the board sync and nothing else
+// while the engine and role runner defaulted their target to DEV. Imported for
+// local use AND re-exported, so this module's existing importers (the sync script
+// and its tests) keep working unchanged.
+// ---------------------------------------------------------------------------
+import {
+  FORGE_EXECUTION_ENVIRONMENT,
+  ForgeEnvironmentError,
+  assertForgeExecutionTarget,
+  assertForgeLaneMayStart,
+  normalizeExecutionTarget,
+  resolveForgeExecutionTarget,
+} from './forge-execution-target'
 
-/** Forge executes against PROD. This is a rule, not a default. */
-export const FORGE_EXECUTION_ENVIRONMENT: ExecutionEnvironment = 'PROD'
+export {
+  FORGE_EXECUTION_ENVIRONMENT,
+  ForgeEnvironmentError,
+  assertForgeExecutionTarget,
+  assertForgeLaneMayStart,
+  normalizeExecutionTarget,
+  resolveForgeExecutionTarget,
+}
 
 /**
  * Statuses a human parks a story in on purpose. Shipped code does NOT repeal
@@ -31,45 +51,6 @@ export const FORGE_EXECUTION_ENVIRONMENT: ExecutionEnvironment = 'PROD'
  */
 export const SYNC_PROTECTED_STATUSES: ReadonlySet<string> = new Set(['Hold', 'Deferred'])
 
-export class ForgeEnvironmentError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ForgeEnvironmentError'
-  }
-}
-
-/**
- * Fail closed: a Forge run may only execute against PROD. `TEST` is permitted
- * only when the caller explicitly declares it a test context, so unit tests can
- * exercise the guard without pretending to be production.
- *
- * Aliases match the canonical seam in lib/execution-target.ts (PRODUCTION and
- * DEVELOPMENT are accepted there, so they are accepted here).
- */
-export function assertForgeExecutionTarget(
-  target: string | null | undefined,
-  options?: { allowEnvironment?: ExecutionEnvironment },
-): ExecutionEnvironment {
-  const normalized = normalizeExecutionTarget(target)
-  if (normalized === FORGE_EXECUTION_ENVIRONMENT) return 'PROD'
-  if (options?.allowEnvironment && normalized === options.allowEnvironment) {
-    return options.allowEnvironment
-  }
-  throw new ForgeEnvironmentError(
-    `Forge runs against PROD only: resolved execution target was ${JSON.stringify(target ?? null)}. ` +
-      'Refusing to launch (fail closed). See docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md section 0.',
-  )
-}
-
-/** Canonicalize a raw execution-environment token; unknown values stay as-is. */
-export function normalizeExecutionTarget(
-  target: string | null | undefined,
-): string {
-  const raw = (target ?? '').trim().toUpperCase()
-  if (raw === 'PRODUCTION') return 'PROD'
-  if (raw === 'DEVELOPMENT') return 'DEV'
-  return raw
-}
 
 // --- 1. Run provenance ------------------------------------------------------
 
