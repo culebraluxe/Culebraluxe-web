@@ -249,8 +249,11 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
     // configuration would resolve to the production database. The invoker
     // already guards before calling execute; this is the second, adapter-level
     // barrier directly before the harness process is started.
-    const target = (context.executionEnvironment ?? 'DEV') as never
-    const { assertExecutionTargetSafe, buildChildProcessEnv, verifyWorkspaceEnvFile } = await import('../../lib/execution-target')
+    //
+    // EXPLICIT (2026-09-12): the target comes from the caller, or from an explicit
+    // environment declaration — never from a literal 'DEV' fallback.
+    const { assertExecutionTargetSafe, buildChildProcessEnv, verifyWorkspaceEnvFile, resolveExecutionTarget } = await import('../../lib/execution-target')
+    const target = (context.executionEnvironment ?? resolveExecutionTarget()) as never
     assertExecutionTargetSafe(target)
     // ENG-21 — the harness operates in the worker's ISOLATED worktree when the
     // invoker provisioned one (context.executionWorkspace); otherwise the

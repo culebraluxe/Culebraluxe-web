@@ -135,10 +135,19 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
       continue
     }
 
+    // EXPLICIT (2026-09-12): a work item whose execution environment was never
+    // recorded is not "DEV by default" — it is UNKNOWN, and enqueueing work against
+    // an unknown target is how the DEV database accumulated Forge runs. Skip it and
+    // say so rather than guess where the work executes.
+    const executionTarget = item.executionEnvironment ?? null
+    if (!executionTarget) {
+      console.log('hydrate skip', item.storyId, 'work item has no declared execution environment')
+      continue
+    }
     const contract = gateSmithEnvelope({
       lane,
       story: merged,
-      executionTarget: item.executionEnvironment ?? 'DEV',
+      executionTarget,
       envelope: decision.envelope,
       registry,
     })
@@ -160,7 +169,7 @@ export async function hydrateBareReadyItems(deps: HydrateDeps): Promise<string[]
       priority: item.priority,
       maxAttempts: decision.envelope.maxAttempts,
       executionPolicy: item.executionPolicy || 'Unattended OK',
-      executionEnvironment: item.executionEnvironment ?? 'DEV',
+      executionEnvironment: executionTarget,
     })
     stamped.push(`${item.storyId}:${lane}`)
   }

@@ -69,6 +69,7 @@ import {
 import {
   assertExecutionTargetSafe,
   buildChildProcessEnv,
+  resolveExecutionTarget,
   verifyWorkspaceEnvFile,
 } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
@@ -268,7 +269,11 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // execution target whose application/domain DB configuration would resolve
     // to the production database. Second barrier directly before the harness
     // process is started (the invoker guards before calling execute).
-    const target = (context.executionEnvironment ?? 'DEV') as never
+    //
+    // EXPLICIT (2026-09-12): the target comes from the caller, or from an explicit
+    // environment declaration. It used to be `?? 'DEV'`, so an undeclared harness
+    // silently ran as DEV; now it refuses through the resolver instead.
+    const target = (context.executionEnvironment ?? resolveExecutionTarget()) as never
     assertExecutionTargetSafe(target)
 
     // ENG-FORGE-V5-01: OpenCode runs INSIDE the Forge-provisioned isolated

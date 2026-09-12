@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { neon } from '@neondatabase/serverless'
 import type { QueryExecutor, QueryRow } from './query-executor'
 import { captureError, setErrorExecutor } from './app-error'
+import { declareControlPlane, describeControlPlane } from '../lib/execution-target'
 
 // ---------------------------------------------------------------------------
 // DB-HARDEN-01 — Single application Database Gateway.
@@ -43,8 +44,8 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: DbFailure }
 
 export class DbConfigError extends Error {
   readonly kind: DbFailureKind = 'DATABASE_UNAVAILABLE'
-  constructor(appEnv: string) {
-    super(`Database URL is not configured for APP_ENV="${appEnv}"`)
+  constructor(appEnv: string, reason?: string) {
+    super(reason ?? `Database URL is not configured for APP_ENV="${appEnv}"`)
   }
 }
 
@@ -192,11 +193,17 @@ export type DbTarget = 'prod' | 'dev'
  *     otherwise                     -> dev
  */
 export function resolveDbTarget(env: NodeJS.ProcessEnv = process.env): DbTarget {
-  const vercelEnv = env.VERCEL_ENV
-  if (vercelEnv === 'production') return 'prod'
-  if (vercelEnv === 'preview' || vercelEnv === 'development') return 'dev'
-  const appEnv = env.APP_ENV ?? 'development'
-  return appEnv === 'production' ? 'prod' : 'dev'
+  // DELEGATED to the one environment declaration (lib/execution-target.ts). This
+  // used to end with `env.APP_ENV ?? 'development'`, a DEV default, which is how a
+  // Forge/board script invoked without APP_ENV silently wrote the DEV database
+  // while the PROD board was the intended target. There is no implicit target now:
+  // undeclared refuses, in the gateway's own error type because every caller
+  // already fails closed on DbConfigError.
+  try {
+    return declareControlPlane(env).target
+  } catch (error) {
+    throw new DbConfigError('(undeclared)', (error as Error)?.message ?? String(error))
+  }
 }
 
 export function getDatabaseUrl(): string {
@@ -208,22 +215,39 @@ export function getDatabaseUrl(): string {
   return url
 }
 
+/**
+ * The declared application environment, for log lines and failure labels.
+ *
+ * TOTAL, deliberately: a reporter must never throw. This used to call the strict
+ * resolver, so when the environment was undeclared the gateway's own failure
+ * logging raised a config error and masked the database failure it was describing
+ * (caught by workflow_app/tests/db-gateway.test.ts). Strict resolution belongs to
+ * connecting; describing belongs here.
+ */
 function appEnvLabel(): string {
-  return resolveDbTarget() === 'prod' ? 'production' : 'development'
+  const described = describeControlPlane()
+  return described.appEnv ?? 'undeclared'
 }
 
 /**
- * Safe, credential-free diagnostic: the resolved database target and the Neon
+ * Safe, credential-free diagnostic: the declared database target and the Neon
  * branch token parsed from the connection HOST only (never the password/user).
  * Lets an operator confirm which branch a deployment is actually reading.
+ *
+ * TOTAL: an undeclared environment is REPORTED as undeclared (`target: null` plus
+ * a reason) rather than thrown, because this is the function an operator calls
+ * precisely when they suspect the environment is wrong.
  */
 export function dbTargetInfo(): {
-  target: DbTarget
+  target: DbTarget | null
   vercelEnv: string | undefined
   appEnv: string | undefined
+  declaredBy: 'VERCEL_ENV' | 'APP_ENV' | null
+  undeclaredReason: string | null
   neonBranch: string | null
 } {
-  const target = resolveDbTarget()
+  const described = describeControlPlane()
+  const target = described.target
   const url =
     target === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
   let neonBranch: string | null = null
@@ -240,6 +264,8 @@ export function dbTargetInfo(): {
   }
   return {
     target,
+    declaredBy: described.declaredBy,
+    undeclaredReason: described.reason,
     vercelEnv: process.env.VERCEL_ENV,
     appEnv: process.env.APP_ENV,
     neonBranch,

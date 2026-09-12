@@ -1,6 +1,5 @@
 import { createAgentRuntimeForgeRoleRunner } from '../workflow_app/forge/agent-runtime-role-runner'
 import { driveForgeStory } from '../workflow_app/forge/forge-executor'
-import { resolveDbTarget } from '../db/client'
 import { assertForgeLaneMayStart } from '../workflow_app/forge/forge-execution-target'
 import {
   detectForgeDualWrite,
@@ -46,10 +45,7 @@ async function main(): Promise<void> {
   // control-plane rows also resolved to the DEV database. Both halves are now
   // asserted here, and `pnpm forge:engine` sets both variables so the normal path
   // is PROD rather than merely permitted to be.
-  const laneTarget = assertForgeLaneMayStart({
-    env: process.env,
-    controlPlane: resolveDbTarget(),
-  })
+  const laneTarget = assertForgeLaneMayStart({ env: process.env })
 
   const brain = parseForgeRoutingBrain()
   const engineActive = Boolean(await findActiveForgeInstance(storyId))

@@ -43,7 +43,6 @@ import {
 } from '../../db/forge-split-children'
 import { splitJoinHoldReasons } from './split-join'
 import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
-import { resolveDbTarget } from '../../db/client'
 import { assertForgeExecutionTarget, assertForgeLaneMayStart } from './forge-execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { assessArchitectBrief } from './forge-shaping'
@@ -169,10 +168,7 @@ export function createAgentRuntimeForgeRoleRunner(
       // A caller-declared target is still a claim about where this lane runs.
       assertForgeExecutionTarget(options.executionEnvironment)
     }
-    const laneTarget = assertForgeLaneMayStart({
-      env: process.env,
-      controlPlane: resolveDbTarget(),
-    })
+    const laneTarget = assertForgeLaneMayStart({ env: process.env })
 
     const subjectRows = await interactiveSql`
       select subject_id

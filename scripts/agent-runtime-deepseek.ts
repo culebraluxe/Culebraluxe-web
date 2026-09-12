@@ -44,7 +44,7 @@ import {
 import { interactiveSql } from '../lib/neon-interactive'
 import {
   assertExecutionTargetSafe,
-  parseExecutionEnvironment,
+  resolveExecutionTarget,
   verifyWorkspaceEnvFile,
 } from '../lib/execution-target'
 import { enqueueAgentWorkCommand, escalateAgentWorkFailure } from '../db/agent-work'
@@ -67,11 +67,15 @@ async function main(): Promise<void> {
   const instructions = process.argv[4] ??
     'ENG-20 smoke: implement the story exactly as written. Verify, then commit locally. Never push.'
 
-  // Resolve the INTENDED execution target (explicit EXECUTION_ENV, default DEV
-  // for the SDLC DeepSeek path) and FAIL-FAST if the application/domain DB
+  // Resolve the INTENDED execution target (explicit EXECUTION_ENV or a declared
+  // APP_ENV; NO 'DEV' default) and FAIL-FAST if the application/domain DB
   // configuration would resolve a non-PROD target to the production database.
-  const target = parseExecutionEnvironment(process.env.EXECUTION_ENV, 'DEV')
-  console.log('execution target:', target, '| control plane: APP_ENV=' + (process.env.APP_ENV ?? 'development'))
+  const target = resolveExecutionTarget()
+  console.log(
+    'execution target:',
+    target,
+    '| control plane: APP_ENV=' + JSON.stringify(process.env.APP_ENV ?? null),
+  )
   assertExecutionTargetSafe(target)
   // DEV-safety: verify the workspace .env.local (the config any spawned test
   // process would read) cannot resolve a DEV execution to the PROD application

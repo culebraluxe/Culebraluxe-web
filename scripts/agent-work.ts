@@ -250,7 +250,7 @@ async function runClaimCommand(): Promise<void> {
   const { interactiveSql } = await import('../lib/neon-interactive')
   const {
     assertExecutionTargetSafe,
-    parseExecutionEnvironment,
+    resolveExecutionTarget,
     verifyWorkspaceEnvFile,
   } = await import('../lib/execution-target')
   const { resolve } = await import('node:path')
@@ -315,7 +315,9 @@ async function runClaimCommand(): Promise<void> {
     process.exit(1)
   }
 
-  const target = parseExecutionEnvironment(process.env.EXECUTION_ENV, 'DEV')
+  // EXPLICIT (2026-09-12): no 'DEV' fallback. An undeclared execution target
+  // refuses through the resolver rather than quietly running the SDLC as DEV.
+  const target = resolveExecutionTarget()
   assertExecutionTargetSafe(target)
   verifyWorkspaceEnvFile(resolve(process.cwd()), target)
 

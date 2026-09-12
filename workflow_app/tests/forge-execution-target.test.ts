@@ -107,19 +107,19 @@ describe('ENG-FORGE-SYNC-GUARD-01 lane-start guard', () => {
 
   it('lets a lane start only when BOTH the target and the control plane are PROD', () => {
     assert.equal(
-      assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'PROD' }, controlPlane: 'prod' }),
+      assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'PROD', APP_ENV: 'production' } }),
       'PROD',
     )
-    // resolveDbTarget() returns the lowercase form; both spellings are accepted.
+    // Serverless: Vercel declares the control plane, EXECUTION_ENV declares the work.
     assert.equal(
-      assertForgeLaneMayStart({ env: { APP_ENV: 'production' }, controlPlane: 'PROD' }),
+      assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'PROD', VERCEL_ENV: 'production' } }),
       'PROD',
     )
   })
 
   it('refuses a PROD lane whose control plane resolved to DEV (the DEV-data direction)', () => {
     assert.throws(
-      () => assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'PROD' }, controlPlane: 'dev' }),
+      () => assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'PROD', APP_ENV: 'development' } }),
       (error: unknown) => {
         assert.ok(error instanceof Error)
         assert.match(error.message, /control plane must be PROD/)
@@ -132,9 +132,23 @@ describe('ENG-FORGE-SYNC-GUARD-01 lane-start guard', () => {
 
   it('refuses a DEV lane even when the control plane is PROD', () => {
     assert.throws(
-      () => assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'DEV' }, controlPlane: 'prod' }),
+      () => assertForgeLaneMayStart({ env: { EXECUTION_ENV: 'DEV', APP_ENV: 'production' } }),
       (error: unknown) => {
         assert.ok(error instanceof Error)
+        assert.match(error.message, /Forge runs against PROD only/)
+        return true
+      },
+    )
+  })
+
+  it('owns its own error type when NOTHING is declared (no argument-order trap)', () => {
+    // The guard takes the environment and derives both halves, so an undeclared
+    // environment is a ForgeEnvironmentError from this module — not a database
+    // config error raised by evaluating a caller's argument first.
+    assert.throws(
+      () => assertForgeLaneMayStart({ env: {} }),
+      (error: unknown) => {
+        assert.ok(error instanceof ForgeEnvironmentError)
         assert.match(error.message, /Forge runs against PROD only/)
         return true
       },

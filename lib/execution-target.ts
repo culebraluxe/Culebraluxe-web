@@ -73,22 +73,127 @@ export function parseExecutionEnvironment(
 
 /**
  * Resolve the INTENDED execution target from process configuration.
- * Precedence: explicit EXECUTION_ENV, then a conservative APP_ENV mapping,
- * then fail closed. The control-plane database is intentionally NOT consulted
- * (the execution target must never be inferred from where the row lives).
+ *
+ * EXPLICIT ONLY. `EXECUTION_ENV` is the canonical declaration; a declared
+ * `APP_ENV` is an explicit answer to the same question and is accepted. What is
+ * NOT accepted is silence: this used to map an absent APP_ENV to 'DEV', which is
+ * how a Forge lane could run with no environment named anywhere and still have an
+ * answer. Silence now throws, naming the variable to set.
+ *
+ * The control-plane database is still intentionally NOT consulted (the execution
+ * target must never be inferred from where the row lives).
  */
-export function resolveExecutionTarget(): ExecutionEnvironment {
-  if (process.env.EXECUTION_ENV) {
-    return parseExecutionEnvironment(process.env.EXECUTION_ENV)
+export function resolveExecutionTarget(
+  env: NodeJS.ProcessEnv = process.env,
+): ExecutionEnvironment {
+  if (env.EXECUTION_ENV && env.EXECUTION_ENV.trim()) {
+    return parseExecutionEnvironment(env.EXECUTION_ENV)
   }
-  const appEnv = (process.env.APP_ENV ?? 'development').trim().toLowerCase()
+  const appEnv = (env.APP_ENV ?? '').trim().toLowerCase()
   if (appEnv === 'production' || appEnv === 'prod') return 'PROD'
-  if (appEnv === 'development' || appEnv === 'dev' || appEnv === '') return 'DEV'
+  if (appEnv === 'development' || appEnv === 'dev') return 'DEV'
   if (appEnv === 'test' || appEnv === 'testing') return 'TEST'
   throw new ExecutionTargetError(
-    `cannot resolve execution target from APP_ENV=${JSON.stringify(appEnv)}; set EXECUTION_ENV explicitly`,
+    'execution environment is not declared: set EXECUTION_ENV (DEV|PROD|TEST|LOCAL) or APP_ENV ' +
+      `(production|development|test). Got EXECUTION_ENV=${JSON.stringify(
+        env.EXECUTION_ENV ?? null,
+      )} APP_ENV=${JSON.stringify(env.APP_ENV ?? null)}. ` +
+      'There is no default: an undeclared environment is refused so a lane can never land somewhere unnamed.',
   )
 }
+
+/**
+ * Which database/branch this process is DECLARED to use — the single answer to
+ * the control-plane question, with no default.
+ *
+ * `VERCEL_ENV` wins because Vercel sets it and a deployment's environment is not
+ * a matter of local opinion. Otherwise `APP_ENV` must say so explicitly. This is
+ * the one place the rule lives; db/database-gateway.ts delegates here rather than
+ * repeating it, so "which database" cannot drift between callers.
+ */
+export type DeclaredControlPlane = {
+  /** production | development | test — the application environment as declared. */
+  appEnv: 'production' | 'development' | 'test'
+  /** The database/branch the declaration points at. */
+  target: 'prod' | 'dev'
+  /** Which variable answered, so a report can say why. */
+  declaredBy: 'VERCEL_ENV' | 'APP_ENV'
+}
+
+/**
+ * A TOTAL description of the control-plane declaration: it always answers, and it
+ * never throws. Diagnostics (log lines, status panels, `pnpm env:where`) must use
+ * this — a reporter that can throw while reporting a failure masks the failure it
+ * was describing, which is exactly what happened when the strict resolver was
+ * called from the gateway's own error logging.
+ */
+export type ControlPlaneDescription = {
+  appEnv: 'production' | 'development' | 'test' | null
+  target: 'prod' | 'dev' | null
+  declaredBy: 'VERCEL_ENV' | 'APP_ENV' | null
+  /** Why it is undeclared — human text for a log, never a throw. */
+  reason: string | null
+}
+
+export function describeControlPlane(env: NodeJS.ProcessEnv = process.env): ControlPlaneDescription {
+  const vercelEnv = (env.VERCEL_ENV ?? '').trim().toLowerCase()
+  if (vercelEnv === 'production') {
+    return { appEnv: 'production', target: 'prod', declaredBy: 'VERCEL_ENV', reason: null }
+  }
+  if (vercelEnv === 'preview' || vercelEnv === 'development') {
+    return { appEnv: 'development', target: 'dev', declaredBy: 'VERCEL_ENV', reason: null }
+  }
+
+  const appEnv = (env.APP_ENV ?? '').trim().toLowerCase()
+  if (appEnv === 'production' || appEnv === 'prod') {
+    return { appEnv: 'production', target: 'prod', declaredBy: 'APP_ENV', reason: null }
+  }
+  if (appEnv === 'development' || appEnv === 'dev') {
+    return { appEnv: 'development', target: 'dev', declaredBy: 'APP_ENV', reason: null }
+  }
+  if (appEnv === 'test' || appEnv === 'testing') {
+    return { appEnv: 'test', target: 'dev', declaredBy: 'APP_ENV', reason: null }
+  }
+
+  return {
+    appEnv: null,
+    target: null,
+    declaredBy: null,
+    reason:
+      'control-plane environment is not declared: set APP_ENV (production|development|test) or run ' +
+      `under Vercel (VERCEL_ENV). Got VERCEL_ENV=${JSON.stringify(
+        env.VERCEL_ENV ?? null,
+      )} APP_ENV=${JSON.stringify(env.APP_ENV ?? null)}. ` +
+      'There is no default: resolving to DEV because nobody said otherwise is how Forge runs ended up in the DEV database while the board lived in PROD.',
+  }
+}
+
+export function declareControlPlane(env: NodeJS.ProcessEnv = process.env): DeclaredControlPlane {
+  const described = describeControlPlane(env)
+  if (!described.target || !described.appEnv || !described.declaredBy) {
+    throw new ExecutionTargetError(described.reason ?? 'control-plane environment is not declared')
+  }
+  return {
+    appEnv: described.appEnv,
+    target: described.target,
+    declaredBy: described.declaredBy,
+  }
+}
+
+/**
+ * The declared environment, both halves, for a process that needs the whole
+ * picture: which database, and where work executes. Both must be declared; the
+ * execution half may be answered by the control-plane declaration when that is
+ * itself explicit (APP_ENV=production means PROD work), but never by silence.
+ */
+export function resolveEnvironmentContext(env: NodeJS.ProcessEnv = process.env): {
+  controlPlane: DeclaredControlPlane
+  executionTarget: ExecutionEnvironment
+} {
+  const controlPlane = declareControlPlane(env)
+  return { controlPlane, executionTarget: resolveExecutionTarget(env) }
+}
+
 
 /**
  * The application/domain database URL the intended execution target SHOULD use.

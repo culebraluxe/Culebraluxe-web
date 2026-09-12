@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExecutionEnvironment } from '../../lib/execution-target'
+import { describeControlPlane } from '../../lib/execution-target'
 
 /** Forge executes against PROD. This is a rule, not a default. */
 export const FORGE_EXECUTION_ENVIRONMENT: ExecutionEnvironment = 'PROD'
@@ -88,26 +89,27 @@ export function resolveForgeExecutionTarget(
  *
  *   1. the EXECUTION target must be PROD — the worker, the work item and the
  *      OpenCode run all name the environment they ran in;
- *   2. the resolved CONTROL-PLANE database must be PROD — a lane that runs PROD
- *      resources while reading and writing the DEV board produces evidence
- *      nobody can trust, which is the WS-series failure in mirror image.
+ *   2. the declared CONTROL PLANE must be PROD — a lane that runs PROD resources
+ *      while reading and writing the DEV board produces evidence nobody can
+ *      trust, which is the WS-series failure in mirror image.
  *
- * `controlPlane` is passed in rather than imported so this stays pure: callers
- * supply `resolveDbTarget()` from db/client, which is the canonical answer to
- * "which database did this process actually resolve".
+ * It takes the environment and derives BOTH halves itself. That is deliberate:
+ * an earlier revision took the resolved control plane as an argument, so the
+ * caller's `resolveDbTarget()` was evaluated before the guard ran and threw its
+ * own error first — the story's contract (a ForgeEnvironmentError from this
+ * guard) silently became a database config error depending on argument order.
+ * The declaration description is total, so the execution check below always wins
+ * when both are wrong.
  */
-export function assertForgeLaneMayStart(input: {
-  env: NodeJS.ProcessEnv
-  /** The control-plane database this process resolved (db/client resolveDbTarget()). */
-  controlPlane: string
-}): ExecutionEnvironment {
+export function assertForgeLaneMayStart(input: { env: NodeJS.ProcessEnv }): ExecutionEnvironment {
   const target = resolveForgeExecutionTarget(input.env)
-  const control = normalizeExecutionTarget(input.controlPlane)
-  if (control !== FORGE_EXECUTION_ENVIRONMENT) {
+  const control = describeControlPlane(input.env)
+  if (control.target !== 'prod') {
     throw new ForgeEnvironmentError(
-      `Forge control plane must be PROD: this process resolved its database to ${JSON.stringify(
-        input.controlPlane,
-      )}. A lane that runs PROD resources while writing the DEV board produces evidence nobody can trust. ` +
+      `Forge control plane must be PROD: the environment resolved to ${JSON.stringify(
+        control.target,
+      )} ${control.declaredBy ? `(declared by ${control.declaredBy})` : '(undeclared)'}. ` +
+        'A lane that runs PROD resources while reading and writing a non-PROD board produces evidence nobody can trust. ' +
         'Run with APP_ENV=production (see docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md section 0).',
     )
   }
