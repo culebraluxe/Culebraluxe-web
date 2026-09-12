@@ -57,14 +57,20 @@ export function recordScopeCheck(
 export function recordHold(
   sink: TraceSink,
   base: RecordBase,
-  input: { reasons: string[]; sha?: string },
+  input: { reasons: string[]; sha?: string; retryHash?: string | null },
 ): TraceEvent {
   return emit(sink, base, {
     kind: 'hold',
     sha: input.sha,
     verdict: 'deny',
     reason: input.reasons.join('; '),
-    detail: { reasonCount: input.reasons.length },
+    detail: {
+      reasonCount: input.reasons.length,
+      // RETRY_UNCHANGED_INPUT reads this (forge-alerts/rules.ts). Only set when a
+      // real miss list produced it: a constant hash on every HOLD would make two
+      // unrelated HOLDs look like a repeated no-op retry.
+      ...(input.retryHash ? { retryHash: input.retryHash } : {}),
+    },
   })
 }
 

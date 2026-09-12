@@ -50,15 +50,18 @@ import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
-import { scopeViolations, type SmithExecutionContract } from './smith-contract'
+import type { SmithExecutionContract } from './smith-contract'
+import { createPersistentTraceSink } from './forge-observer'
 import {
-  createPersistentTraceSink,
-  recordAlert,
-  recordRunEnd,
-  recordRunStart,
-  recordScopeCheck,
-} from './forge-observer'
-import { evaluateAlerts } from './forge-alerts'
+  drainAlerts,
+  observeAttemptBegin,
+  observeAttemptEnd,
+  observeCandidateCommit,
+  observeHold,
+  observeMeasurementGap,
+  observeRouteHold,
+  type AttemptStatus,
+} from './forge-observer-seam'
 import { recordTraceEvent } from '../../db/workflow-trace'
 import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
 import { deriveWorktreePath } from '../../lib/worker-workspace/provisioner'
@@ -325,6 +328,30 @@ export function createAgentRuntimeForgeRoleRunner(
     const executesLeadWorkOrders =
       (plan.lane === 'smith' && nodeId !== 'smith_split_work') || nodeId === 'lead_solo_implement'
     const acceptedLeadPlan = executesLeadWorkOrders ? (acceptedRouting?.assignments[0]?.plan ?? null) : null
+    // ENG-FORGE-OBS-SERIAL-01: the SERIAL lane's declared scope.
+    //
+    // A split child is handed the assignment it must execute; the serial Smith /
+    // lead_solo_implement lane executes the SAME accepted assignment (the line
+    // above reads assignments[0].plan) but its contract was never built, so
+    // `isChangeAllowed` had no caller on the path that runs every story — the same
+    // defect ENG-FORGE-SPLIT-01 fixed for children (see smith-contract.ts).
+    //
+    // MEASUREMENT ONLY. This contract exists to judge the candidate, not to gate
+    // it: turning serial declared-scope into a HOLD would add a new gate to the
+    // lane every story runs, and this story's scope says not to change HOLD
+    // policy. An unbuildable contract is skipped for the same reason.
+    const serialAssignment = executesLeadWorkOrders ? (acceptedRouting?.assignments[0] ?? null) : null
+    let serialAssignmentContract: SmithExecutionContract | null = null
+    if (serialAssignment) {
+      const builtSerial = smithContractFromAssignment({
+        storyId: resolvedStory.id,
+        nodeId,
+        attempt: attempt + 1,
+        assignment: serialAssignment,
+        siblings: (acceptedRouting?.assignments ?? []).filter((a) => a.id !== serialAssignment.id),
+      })
+      if (builtSerial.errors.length === 0) serialAssignmentContract = builtSerial.contract
+    }
     // When Astra routing governs PRE, the legacy lead_pre evidence contract
     // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:
     // on a live run the model obeyed the longer legacy text, emitted no LEAD_ROUTING
@@ -510,26 +537,26 @@ export function createAgentRuntimeForgeRoleRunner(
       worktreePath: process.cwd(),
       baseCommit: workspaces?.baseRef ?? 'origin/main',
     }
-    recordRunStart(forgeObserverSink, observerAttempt, { role: nodeId })
-    const attemptStatus = /hold/i.test(result.evidence.resultStatus)
+    const candidateSha =
+      typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
+        ? evidence.candidateSha
+        : undefined
+    observeAttemptBegin(forgeObserverSink, observerAttempt, {
+      role: nodeId,
+      // The Lead's chosen route rides run.start (an event kind already in the
+      // union) rather than a new `lead.decide` kind.
+      route: evidence.leadDecision ?? null,
+    })
+    const attemptStatus: AttemptStatus = /hold/i.test(result.evidence.resultStatus)
       ? 'interrupted'
       : /pass|success|complete/i.test(result.evidence.resultStatus)
         ? 'completed'
         : 'failed'
-    recordRunEnd(forgeObserverSink, observerAttempt, {
+    observeAttemptEnd(forgeObserverSink, observerAttempt, {
       status: attemptStatus,
-      sha:
-        typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
-          ? evidence.candidateSha
-          : undefined,
+      sha: candidateSha,
+      storyId: resolvedStory.id,
     })
-    for (const alert of evaluateAlerts(forgeObserverSink.list(resolvedStory.id))) {
-      recordAlert(forgeObserverSink, observerAttempt, {
-        code: alert.code,
-        severity: alert.severity,
-        reason: alert.reason,
-      })
-    }
     // Provenance (ENG-FORGE-SPLIT-01): a split child's candidate SHA is recorded
     // against ITS OWN work item, so the join can never credit a sibling's SHA or
     // the parent checkout's. No silent catch: if the write fails the run fails
@@ -548,10 +575,11 @@ export function createAgentRuntimeForgeRoleRunner(
           baseRef: workspaces?.baseRef ?? 'origin/main',
           candidateSha: evidence.candidateSha,
         })
-        const violations = scopeViolations(splitAssignmentContract, changedFiles)
-        // OBSERVER (phase 1): record the scope verdict BEFORE the HOLD below
-        // decides, so a denied candidate leaves a trace even though it throws.
-        // The sink cannot throw, so this can never change the outcome.
+        // OBSERVER (phase 1): record the candidate's commit and scope verdict
+        // BEFORE the HOLD below decides, so a denied candidate leaves a trace even
+        // though it throws. The sink cannot throw, so this can never change the
+        // outcome — and the HOLD below is still the runner's own throw, never an
+        // Alert recommendation.
         const observerIdentity = {
           storyId: resolvedStory.id,
           processInstanceId: task.processInstanceId,
@@ -561,25 +589,77 @@ export function createAgentRuntimeForgeRoleRunner(
           worktreePath: cwd,
           baseCommit: workspaces?.baseRef ?? 'origin/main',
         }
-        recordScopeCheck(forgeObserverSink, observerIdentity, {
-          sha: evidence.candidateSha,
-          paths: changedFiles,
-          violations,
+        const observed = observeCandidateCommit(forgeObserverSink, observerIdentity, {
+          candidateSha: evidence.candidateSha,
+          changedFiles,
+          contract: splitAssignmentContract,
         })
-        for (const alert of evaluateAlerts(forgeObserverSink.list(resolvedStory.id))) {
-          recordAlert(forgeObserverSink, observerIdentity, {
-            code: alert.code,
-            severity: alert.severity,
-            reason: alert.reason,
+        drainAlerts(forgeObserverSink, observerIdentity, resolvedStory.id)
+        if (observed.violations.length > 0) {
+          const reason =
+            `candidate ${evidence.candidateSha.slice(0, 12)} touched files outside its assignment ` +
+            `(${splitAssignmentContract.identity.owner}): ${observed.violations.join(', ')}`
+          observeHold(forgeObserverSink, observerIdentity, {
+            reasons: [reason],
+            sha: evidence.candidateSha,
           })
-        }
-        if (violations.length > 0) {
-          throw new Error(
-            `Forge ${nodeId} HOLD: candidate ${evidence.candidateSha.slice(0, 12)} touched files outside its assignment (${splitAssignmentContract.identity.owner}): ${violations.join(', ')}`,
-          )
+          throw new Error(`Forge ${nodeId} HOLD: ${reason}`)
         }
       }
       await recordSplitChildCandidate(durableClaim.id, evidence.candidateSha)
+    }
+
+    // ENG-FORGE-OBS-SERIAL-01 — the SERIAL lane (`smith`, `lead_solo_implement`),
+    // which is the path that actually runs every story.
+    //
+    // Same candidate facts the split children get: the commit, and a SCOPE_CHECK
+    // against the assignment the Lead accepted for this lane.
+    //
+    // RECORD-ONLY, deliberately. A split child HOLDs on a violation because its
+    // contract was accepted as the child's boundary and the join depends on it.
+    // This lane measured nothing at all before, so enforcing declared scope here
+    // would introduce a NEW gate on the lane every story runs — a HOLD-policy
+    // change, which this story's scope forbids. The violation is therefore
+    // surfaced (trace + SCOPE_DENIED alert) so turning enforcement on becomes a
+    // decision made from evidence instead of a leap. That trade is the one open
+    // question in this story; see the FORGE HOLES work order, story 1.
+    if (executesLeadWorkOrders && candidateSha) {
+      const cwd = workspaces?.worktreesRoot
+        ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
+        : process.cwd()
+      const serialIdentity = {
+        storyId: resolvedStory.id,
+        processInstanceId: task.processInstanceId,
+        taskId: durableClaim.id,
+        nodeId,
+        attempt: attempt + 1,
+        worktreePath: cwd,
+        baseCommit: workspaces?.baseRef ?? 'origin/main',
+      }
+      try {
+        const changedFiles = await changedFilesForCandidate({
+          cwd,
+          baseRef: workspaces?.baseRef ?? 'origin/main',
+          candidateSha,
+        })
+        observeCandidateCommit(forgeObserverSink, serialIdentity, {
+          candidateSha,
+          changedFiles,
+          contract: serialAssignmentContract,
+        })
+        drainAlerts(forgeObserverSink, serialIdentity, resolvedStory.id)
+      } catch (error) {
+        // Observer only: an unresolvable diff must not fail a run the runner has
+        // already accepted (the split lane stays fail-closed because its diff is a
+        // JOIN precondition). The gap is recorded rather than swallowed — an
+        // observer that silently fails to observe is how this lane went dark.
+        observeMeasurementGap(forgeObserverSink, serialIdentity, {
+          what: 'SERIAL_SCOPE',
+          reason: `candidate ${candidateSha.slice(0, 12)} diff unreadable: ${String(
+            (error as Error)?.message ?? error,
+          )}`,
+        })
+      }
     }
     // LEAD routing (Astra handoff): the AI proposes, code accepts or returns
     // corrections — it never silently reroutes. The validated proposal is the
@@ -588,6 +668,19 @@ export function createAgentRuntimeForgeRoleRunner(
     const routingReview = nodeId === 'lead_pre' ? reviewLeadProposal(parseLeadRouting(raw), leadRoutingContext) : null
     if (routingReview?.ok) {
       Object.assign(evidence, leadRoutingFacts(routingReview))
+    }
+    // A Lead who DECIDES HOLD is a valid routing outcome (`reviewLeadProposal`
+    // returns ok for it), so nothing throws and the engine advances on the
+    // decision. Before this, the trace showed the lane completing with no record
+    // of the hold it had just decided — a Lead PRE HOLD with no HOLD event.
+    // Recorded only: the engine still owns what happens next.
+    if (routingReview?.ok && routingReview.proposal.decision === 'HOLD') {
+      observeRouteHold(
+        forgeObserverSink,
+        observerAttempt,
+        routingReview.proposal.reason || routingReview.proposal.sizeReason || 'no reason given',
+      )
+      drainAlerts(forgeObserverSink, observerAttempt, resolvedStory.id)
     }
 
     // Write-on-exit to Neon from the role's ACTUAL output (never gated on a model
@@ -729,6 +822,16 @@ export function createAgentRuntimeForgeRoleRunner(
       )
       continue
     }
+    // The runner's OWN throw is the authority here — never an Alert. Recording it
+    // is what the serial lane never did: a Smith / Lead / QA HOLD left no durable
+    // trace at all. `miss` doubles as the retry hash, so a second attempt that
+    // changed nothing becomes visible as RETRY_UNCHANGED_INPUT instead of looking
+    // like an unrelated retry.
+    observeHold(forgeObserverSink, observerAttempt, {
+      reasons: miss,
+      sha: candidateSha,
+      missReasons: miss,
+    })
     throw new Error(
       `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}`,
     )
