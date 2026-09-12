@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Gantt, Willow } from '@svar-ui/react-gantt'
+import { Gantt, WillowDark } from '@svar-ui/react-gantt'
 import type { ILink, ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
 
@@ -42,18 +42,18 @@ export function ProjectTimeline({ tasks, links }: { tasks: ITask[]; links: ILink
   }, [])
 
   return (
-    <div className="project-timeline flex h-full min-h-0 w-full flex-col">
-      <Willow>
+    <div className="portal-svar-midnight project-timeline flex h-full min-h-0 w-full flex-col">
+      <WillowDark>
         <div className="min-h-[24rem] flex-1 lg:min-h-0">
           {mounted ? (
             <Gantt tasks={tasks} links={links} readonly cellWidth={38} />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm font-light text-black/40">
+            <div className="flex h-full items-center justify-center text-sm font-light text-white/50">
               Loading timeline…
             </div>
           )}
         </div>
-      </Willow>
+      </WillowDark>
     </div>
   )
 }

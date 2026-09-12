@@ -45,6 +45,7 @@ import {
   PROJECTS_SURFACE,
   ProjectsWorkspaceController,
   mapProjectCalendarToEvents,
+  mapProjectToFileTree,
   mapProjectToTimeline,
 } from "@/ui/projects"
 import { usePageController } from "@/ui/runtime"
@@ -57,6 +58,7 @@ import {
   type ProjectTreeNode,
 } from "@/ui/projects/tree-projection"
 import { FullCalendarCandidate } from "@/components/portal/fullcalendar-candidate"
+import { ProjectFilemanager } from "@/components/portal/project-filemanager"
 import { ProjectTimeline } from "@/components/portal/project-timeline"
 import { instantiateProjectAction, updateProjectStatusAction } from "@/app/portal/projects/actions"
 import { updateWbsItemAction } from "@/app/portal/wbs/actions"
@@ -124,8 +126,8 @@ const VIEW_LABEL: Record<ProjectWorkspaceView, string> = {
   "work-plan": "Work Plan",
   timeline: "Timeline",
   calendar: "Calendar",
-  documents: "Documents",
   financials: "Financials",
+  documents: "Documents",
   activity: "Activity",
 }
 const VIEWS = Object.keys(VIEW_LABEL) as ProjectWorkspaceView[]
@@ -503,20 +505,25 @@ function ProjectCalendar({ project }: { project: ProjectPlan }) {
   )
 }
 
+/** Documents tab — the project's papers as a file cabinet (SVAR Filemanager).
+ *  It shows the project's REAL linked documents when it has any, and a sample
+ *  cabinet when it does not — flagged, and disclosed below, so placeholder files
+ *  are never mistaken for the client's actual papers. */
 function ProjectDocuments({ project }: { project: ProjectPlan }) {
-  const documents = project.documents ?? []
-  if (!documents.length) return <ProjectionState view="documents" provenance={project.provenance} />
+  const { files, synthetic } = useMemo(() => mapProjectToFileTree(project), [project])
+  const unlinked = project.provenance?.documents === "unlinked"
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
-      <ul className="divide-y divide-[var(--portal-panel-border)]/70">
-        {documents.map((document) => (
-          <li key={document.id} className="flex items-center gap-3 px-2 py-2.5">
-            <FileText className="h-4 w-4 shrink-0 text-[var(--portal-gold-muted)]" aria-hidden />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--portal-navy)]">{document.title}</span>
-            <span className="shrink-0 text-[10px] font-medium uppercase text-black/40">{document.state}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="min-h-0 flex-1">
+        <ProjectFilemanager files={files} />
+      </div>
+      {synthetic ? (
+        <p className="shrink-0 text-[11px] font-light text-black/45">
+          {unlinked
+            ? "This project is not anchored to a property, so no documents can be linked yet. Showing a sample cabinet."
+            : "Sample cabinet — no documents are linked to this project yet, so these are placeholder files."}
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -23,6 +23,7 @@ export {
   type ProjectCalendarItem,
 } from "./secondary-projection"
 export { mapProjectToTimeline, type ProjectTimeline as ProjectTimelineModel } from "./timeline-projection"
+export { mapProjectToFileTree, type ProjectDocuments } from "./documents-projection"
 export type {
   ProjectDomain,
   ProjectDomainKey,
