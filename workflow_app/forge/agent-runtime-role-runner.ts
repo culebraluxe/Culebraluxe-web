@@ -62,6 +62,7 @@ import {
   observeRouteHold,
   type AttemptStatus,
 } from './forge-observer-seam'
+import { serialLaunchDoor, serialScopeMissReasons } from './forge-serial-doors'
 import { recordTraceEvent } from '../../db/workflow-trace'
 import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
 import { deriveWorktreePath } from '../../lib/worker-workspace/provisioner'
@@ -369,21 +370,21 @@ export function createAgentRuntimeForgeRoleRunner(
       })
       if (builtSerial.errors.length === 0) serialAssignmentContract = builtSerial.contract
     }
-    // SERIAL SMITH LANE — no accepted Lead assignment means NO LANE.
+    // ---------------------------------------------------------------------
+    // DOOR 1 — SERIAL SMITH LAUNCH (FORGE-SMITH-DOOR-01)
     //
-    // Captain, 2026-09-12: "Lead can make those decisions, not Smith." This lane
-    // used to fall back to the WORK-DECOMPOSITION directive when the Lead had routed
-    // nothing, which let a Smith size, chunk and effectively choose its own work —
-    // the same door the split lane already closed (a child that cannot be tied to an
-    // accepted assignment HOLDs before launch). Closed here too, and it fails closed
-    // by NAME so the missing artifact is obvious rather than silently absorbed.
-    if (plan.lane === 'smith' && executesLeadWorkOrders && !serialAssignment) {
-      throw new Error(
-        `Forge ${nodeId} HOLD: no accepted Lead assignment for the serial Smith lane. ` +
-          'Smith does not choose its own scope — the Lead routes the work orders (LEAD_ROUTING) ' +
-          'before this lane may run.',
-      )
-    }
+    // Captain: "Lead can make those decisions, not Smith." A lane that executes
+    // work orders cannot start without an accepted Lead assignment; this lane used
+    // to fall back to the WORK-DECOMPOSITION directive, which let Smith size, chunk
+    // and effectively choose its own work. The rule lives in forge-serial-doors.ts
+    // so it cannot drift from the scope door below (they were two separate commits
+    // and Grok's review flagged exactly that drift risk).
+    // ---------------------------------------------------------------------
+    const launchDoor = serialLaunchDoor({
+      nodeId,
+      hasAcceptedAssignment: Boolean(serialAssignment),
+    })
+    if (!launchDoor.allowed) throw new Error(String(launchDoor.reason))
 
     // When Astra routing governs PRE, the legacy lead_pre evidence contract
     // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:
@@ -652,14 +653,14 @@ export function createAgentRuntimeForgeRoleRunner(
     // Same candidate facts the split children get: the commit, and a SCOPE_CHECK
     // against the assignment the Lead accepted for this lane.
     //
-    // RECORD-ONLY, deliberately. A split child HOLDs on a violation because its
-    // contract was accepted as the child's boundary and the join depends on it.
-    // This lane measured nothing at all before, so enforcing declared scope here
-    // would introduce a NEW gate on the lane every story runs — a HOLD-policy
-    // change, which this story's scope forbids. The violation is therefore
-    // surfaced (trace + SCOPE_DENIED alert) so turning enforcement on becomes a
-    // decision made from evidence instead of a leap. That trade is the one open
-    // question in this story; see the FORGE HOLES work order, story 1.
+    // DOOR 2 — SERIAL SMITH SCOPE (FORGE-SMITH-DOOR-01)
+    //
+    // The lane that runs every story: it records the candidate's commit and a
+    // SCOPE_CHECK against the assignment the Lead accepted, and a violation is a
+    // MISS, not a note — the self-heal reprompt names the exact paths and only
+    // exhaustion is a HOLD, thrown by the runner below rather than by an Alert.
+    // (Until b484301 this lane enforced nothing; door 1 above now guarantees the
+    // contract exists, so "no assignment → nothing to enforce" is unreachable here.)
     if (executesLeadWorkOrders && candidateSha) {
       const cwd = workspaces?.worktreesRoot
         ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
@@ -695,9 +696,7 @@ export function createAgentRuntimeForgeRoleRunner(
         // HOLD — thrown by the runner below, never by an Alert recommendation.
         if (observed.violations.length > 0) {
           const owner = serialAssignmentContract?.identity.owner ?? 'the accepted assignment'
-          serialScopeMiss = observed.violations.map(
-            (path: string) => `smith-scope:${path} is outside ${owner}`,
-          )
+          serialScopeMiss = serialScopeMissReasons(observed.violations, owner)
         }
       } catch (error) {
         // Observer only: an unresolvable diff must not fail a run the runner has
