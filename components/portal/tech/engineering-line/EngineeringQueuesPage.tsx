@@ -99,6 +99,9 @@ export function EngineeringQueuesPage({
   // Drag state: which card is in hand. Local only — the MOVE is a demo of the
   // mechanic, not a write. When this is wired the drop becomes a real mutation.
   const [dragging, setDragging] = useState<string | null>(null)
+  // A story on the bench being dragged toward the line (a different kind of thing
+  // from a queue card: it becomes an engine card when it lands).
+  const [draggingStory, setDraggingStory] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
 
@@ -113,23 +116,32 @@ export function EngineeringQueuesPage({
     window.open(`/portal/tech/flight-recorder/${card.instanceId}`, '_blank', 'noopener')
   }
 
-  /** The gate: the spec is done, hand this story to the engine. Local demo. */
-  function markGoodToGo() {
-    if (!selectedStory) return
-    const already = cards.some((c) => c.id === selectedStory.id && c.queue === 'ready')
-    if (already) return
+  /** The gate: the spec is done, hand this story to the engine. Local demo.
+   *  Reachable two ways — the GOOD TO GO button, or by dragging the story off the
+   *  bench and dropping it on the line. Same action, two routes: the hand or the
+   *  button, whichever is closer. */
+  function handToEngine(storyId: string) {
+    const story = activeWork.find((s) => s.id === storyId)
+    if (!story) return
+    if (cards.some((c) => c.id === story.id && c.queue === 'ready')) return
     setCards((prev) => [
       ...prev,
       {
-        id: selectedStory.id,
-        title: selectedStory.title,
-        workstream: String(selectedStory.workstream ?? 'OTHER'),
-        status: selectedStory.status,
-        priority: selectedStory.priority,
-        completion: selectedStory.completion,
+        id: story.id,
+        title: story.title,
+        workstream: String(story.workstream ?? 'OTHER'),
+        status: story.status,
+        priority: story.priority,
+        completion: story.completion,
         queue: 'ready',
       },
     ])
+    setSelected(story.id)
+  }
+
+  function markGoodToGo() {
+    if (!selectedStory) return
+    handToEngine(selectedStory.id)
   }
 
   const selectedIsQueued = Boolean(
@@ -202,6 +214,8 @@ export function EngineeringQueuesPage({
             activeQueue={activeWork}
             selectedId={selectedStory?.id ?? null}
             basePath="/portal/tech"
+            onRowDragStart={setDraggingStory}
+            onRowDragEnd={() => setDraggingStory(null)}
           />
           <div className="space-y-3">
             {/* THE GATE. The Work Bench is the human lane (researching today); this is
@@ -257,15 +271,17 @@ export function EngineeringQueuesPage({
             <div
               key={queue.key}
               onDragOver={(e) => {
-                if (dragging) e.preventDefault()
+                if (dragging || draggingStory) e.preventDefault()
               }}
               onDrop={(e) => {
                 e.preventDefault()
-                if (dragging) move(dragging, queue.key)
+                if (draggingStory) handToEngine(draggingStory)
+                else if (dragging) move(dragging, queue.key)
                 setDragging(null)
+                setDraggingStory(null)
               }}
               className={`flex min-h-[420px] flex-col rounded-lg border ${queue.ring} ${
-                dragging ? 'bg-white/[0.05] ring-1 ring-[#c6a15b]/40' : 'bg-white/[0.02]'
+                dragging || draggingStory ? 'bg-white/[0.05] ring-1 ring-[#c6a15b]/40' : 'bg-white/[0.02]'
               }`}
             >
               <div className="flex items-start justify-between gap-2 border-b border-white/10 px-3 py-2">

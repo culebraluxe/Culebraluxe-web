@@ -46,11 +46,22 @@ export function ActiveQueue({
   activeQueue,
   selectedId,
   basePath = "/portal/tech",
+  onRowDragStart,
+  onRowDragEnd,
 }: {
   activeQueue: StoryRecord[]
   selectedId: string | null
   /** Where selecting a story navigates to. Defaults to the TECH landing page. */
   basePath?: string
+  /**
+   * Make the rows draggable. Pass a handler to enable it: the caller owns the
+   * drag state and the drop target (the Cockpit drops a bench story into ENGINE
+   * QUEUED, which is the same thing as pressing GOOD TO GO — just by hand).
+   * Optional on purpose, so the original TECH page and every other caller is
+   * unchanged.
+   */
+  onRowDragStart?: (storyId: string) => void
+  onRowDragEnd?: () => void
 }) {
   return (
     <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
@@ -80,7 +91,12 @@ export function ActiveQueue({
               return (
                 <div
                   key={story.id}
+                  draggable={Boolean(onRowDragStart)}
+                  onDragStart={onRowDragStart ? () => onRowDragStart(story.id) : undefined}
+                  onDragEnd={onRowDragEnd}
                   className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition ${
+                    onRowDragStart ? "cursor-grab active:cursor-grabbing" : ""
+                  } ${
                     active
                       ? "border-[var(--portal-gold)]/60 bg-[var(--portal-gold-pale)] shadow-[0_0_0_1px_rgba(198,161,91,0.25)]"
                       : "border-white/10 bg-white/[0.03] hover:border-[var(--portal-gold)]/30"
