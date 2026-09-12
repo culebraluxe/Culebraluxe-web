@@ -164,9 +164,12 @@ export function EngineeringQueuesPage({
           there is exactly ONE implementation of "what the heck is this story". */}
       <section className="mb-4">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-slate-300">
-            BENCH — scope today&apos;s work{' '}
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-white">
+            WORKBENCH{' '}
             <span className="font-normal text-[#c6a15b]">({activeWork.length})</span>
+            <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
+              scope today&apos;s work
+            </span>
           </p>
           <p className="text-[10px] text-slate-400">
             my hands, not the engine&apos;s · pick one to read it
@@ -196,8 +199,8 @@ export function EngineeringQueuesPage({
       {/* LINE — the four queues, the captain's own names: WORK BENCH (human) is the
           leftmost because ownership is the point; ENGINE READY / RUNNING / RESULTS
           are the engine's. HOLD is a RESULT badge, not a column. */}
-      <p className="mb-2 text-[11px] font-semibold tracking-[0.16em] text-slate-300">
-        LINE — the four queues
+      <p className="mb-2 text-[11px] font-semibold tracking-[0.16em] text-white">
+        FORGE ENGINE FACTORY LINE
       </p>
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {QUEUES.map((queue) => {
@@ -368,11 +371,14 @@ function QueueCardView({
   )
 }
 
-const LIFECYCLE_LABELS: Array<{ key: StoryLifecycle; label: string }> = [
-  { key: 'open', label: 'CURRENT WORK QUEUE' },
-  { key: 'backlog', label: 'CURRENT-VERSION WAITING' },
-  { key: 'closed', label: 'FINISHED HISTORY' },
-  { key: 'next-version', label: 'INTENTIONALLY FUTURE' },
+const LIFECYCLE_LABELS: Array<{ key: StoryLifecycle; label: string; long: string }> = [
+  // HIS labels first (OPEN / BACKLOG / CLOSED / NEXT VERSION — the 2x2 grid his brain
+  // locked onto after two weeks), the descriptive names demoted to the caption so
+  // nothing is lost and nothing was silently renamed.
+  { key: 'open', label: 'OPEN', long: 'Current Work Queue' },
+  { key: 'backlog', label: 'BACKLOG', long: 'Current-Version Waiting' },
+  { key: 'closed', label: 'CLOSED', long: 'Finished History' },
+  { key: 'next-version', label: 'NEXT VERSION', long: 'Intentionally Future' },
 ]
 
 /**
@@ -395,19 +401,22 @@ function StoryLog({
         onClick={onToggle}
         className="flex w-full items-center justify-between gap-4 text-left"
       >
-        <span className="text-[11px] font-semibold tracking-[0.16em] text-slate-300">
-          UNIVERSE — what exists · STORY LOG {open ? '(hide)' : '(show)'}
+        <span className="text-[11px] font-semibold tracking-[0.16em] text-white">
+          STORY BACKLOG {open ? '(hide)' : '(show)'}
+          <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">open · backlog · closed · next version</span>
         </span>
         <span className="text-[11px] text-slate-500">{open ? '▲' : '▼'}</span>
       </button>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {LIFECYCLE_LABELS.map(({ key, label }) => {
+        {LIFECYCLE_LABELS.map(({ key, label, long }) => {
           const panel = panels[key]
           return (
             <div key={key} className="flex flex-col rounded border border-white/10">
               <div className="border-b border-white/10 px-3 py-2">
-                <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-300">{label}</p>
-                <p className="text-[10px] text-slate-500">{panel?.count ?? 0} stories</p>
+                <p className="font-serif text-sm font-semibold tracking-[0.06em] text-white">{label}</p>
+                <p className="text-[10px] text-slate-500">
+                  {long} · {panel?.count ?? 0}
+                </p>
               </div>
               {open ? (
                 <div className="max-h-[540px] overflow-y-auto px-3 py-2">
