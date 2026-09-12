@@ -161,7 +161,7 @@ export function EngineeringQueuesPage({
             my hands, not the engine&apos;s · pick one to read it
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <ActiveQueue
             activeQueue={activeWork}
             selectedId={selectedStory?.id ?? null}
@@ -182,7 +182,7 @@ export function EngineeringQueuesPage({
 
       <StatsStrip stats={stats} />
 
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {QUEUES.map((queue) => {
           const items = byQueue(queue.key)
           return (
@@ -383,7 +383,7 @@ function StoryLog({
         </span>
         <span className="text-[11px] text-slate-500">{open ? '▲' : '▼'}</span>
       </button>
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-4">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {LIFECYCLE_LABELS.map(({ key, label }) => {
           const panel = panels[key]
           return (
