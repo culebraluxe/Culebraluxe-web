@@ -46,6 +46,9 @@ export const COMMS_SOURCE_SLOT_COUNT = COMMS_SOURCE_CHANNELS.length
 /** The moment vocabulary. Mirrors channelMeta in the pane. */
 export const COMMS_MOMENT_CHANNELS = [
   'call',
+  // A FaceTime is a distinct moment, not a phone call. The pane's channelMeta
+  // needs this entry too, or the fact is lost between warehouse and screen.
+  'facetime',
   'email',
   'imessage',
   'sms',
@@ -59,6 +62,7 @@ export type CommsMomentChannel = (typeof COMMS_MOMENT_CHANNELS)[number]
 
 const MOMENT_LABELS: Record<CommsMomentChannel, string> = {
   call: 'Call',
+  facetime: 'FaceTime',
   email: 'Email',
   imessage: 'iMessage',
   sms: 'SMS',
@@ -66,6 +70,25 @@ const MOMENT_LABELS: Record<CommsMomentChannel, string> = {
   meeting: 'Meeting',
   showing: 'Showing',
   note: 'Note',
+}
+
+/**
+ * The intake already delineated a video call from a phone call, and the warehouse
+ * preserved it: scripts/apple-calls-intake.ts writes source_system
+ * 'apple_facetime' and event_type 'facetime_call' for a FaceTime, and 'apple_calls'
+ * / 'phone_call' otherwise (lib/relationship-intel/apple-calls.ts isFaceTimeCall,
+ * driven by the provider/call type Apple reports). Both are stored with
+ * channel 'call', so the distinction has to be read back from those fields rather
+ * than inferred from the channel. Measured in PROD: 4,661 phone_call rows and 85
+ * facetime_call rows.
+ */
+export function isFaceTimeInteraction(input: {
+  sourceSystem?: string | null
+  eventType?: string | null
+}): boolean {
+  const source = key(input.sourceSystem ?? '')
+  const event = key(input.eventType ?? '')
+  return source === 'apple_facetime' || event === 'facetime_call'
 }
 
 /**

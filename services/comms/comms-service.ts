@@ -5,6 +5,7 @@ import {
 } from '../core'
 import {
   COMMS_SOURCE_SLOT_COUNT,
+  isFaceTimeInteraction,
   momentChannelFor,
   sourceChannelFor,
   sourceChannelLabel,
@@ -38,14 +39,20 @@ function toSourceDto(record: CommsSourceRecord): CommsSourceDto {
 }
 
 /**
- * A moment, under the pane's channelMeta vocabulary. The channel is the
- * interaction's OWN channel, already canonical in the warehouse; it is never
- * re-derived from the source system, which is what produced unmappable values.
+ * A moment, under the pane's channelMeta vocabulary.
+ *
+ * The channel is the interaction's OWN channel — already canonical in the
+ * warehouse and never re-derived from the source system (that is what produced
+ * unmappable values). The one exception is a call: both phone and FaceTime store
+ * channel 'call', so the phone-vs-FaceTime delineation the intake recorded
+ * (source_system apple_facetime / event_type facetime_call) is read back here.
  */
 function toMomentDto(record: CommsMomentRecord): CommsMomentDto {
+  const stored = momentChannelFor(record.channel)
+  const channel = stored === 'call' && isFaceTimeInteraction(record) ? 'facetime' : stored
   return {
     id: record.id,
-    channel: momentChannelFor(record.channel),
+    channel,
     sourceSystem: record.sourceSystem,
     direction: record.direction,
     occurredAt: record.occurredAt,

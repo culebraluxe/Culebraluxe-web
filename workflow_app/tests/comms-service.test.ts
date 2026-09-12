@@ -33,9 +33,15 @@ const SOURCE = (source: string, totalCount: number): CommsSourceRecord => ({
   lastContextDirection: 'inbound',
 })
 
-const MOMENT = (id: string, channel: string, sourceSystem: string): CommsMomentRecord => ({
+const MOMENT = (
+  id: string,
+  channel: string,
+  sourceSystem: string,
+  eventType: string | null = null,
+): CommsMomentRecord => ({
   id,
   channel,
+  eventType,
   sourceSystem,
   direction: 'inbound',
   occurredAt: '2026-09-10T12:00:00.000Z',
@@ -226,6 +232,44 @@ test('a moment channel outside the pane vocabulary is null, never a wrong guess'
   assert.equal(res.ok, true)
   if (!res.ok) return
   assert.equal(res.value.moments[0].channel, null)
+})
+
+/** The delineation the intake recorded, read back: both store channel 'call'. */
+test('a FaceTime call is a facetime moment, a phone call stays a call', async () => {
+  const { service } = harness({
+    moments: async () => ({
+      moments: [
+        MOMENT('m1', 'call', 'apple_calls', 'phone_call'),
+        MOMENT('m2', 'call', 'apple_facetime', 'facetime_call'),
+        // event_type alone is enough, whichever source system carried it.
+        MOMENT('m3', 'call', 'apple_calls', 'facetime_call'),
+      ],
+      total: 3,
+    }),
+  })
+  const res = await service.execute({ operation: 'comms.panel', payload: { personId: 'p1' }, context })
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.deepEqual(
+    res.value.moments.map((moment) => moment.channel),
+    ['call', 'facetime', 'facetime'],
+  )
+})
+
+test('a FaceTime interaction is not counted as a phone call, and vice versa', async () => {
+  const { service } = harness({
+    moments: async () => ({
+      moments: [MOMENT('m1', 'call', 'apple_calls'), MOMENT('m2', 'call', 'apple_facetime')],
+      total: 2,
+    }),
+  })
+  const res = await service.execute({ operation: 'comms.panel', payload: { personId: 'p1' }, context })
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  const calls = res.value.moments.filter((moment) => moment.channel === 'call')
+  const faceTimes = res.value.moments.filter((moment) => moment.channel === 'facetime')
+  assert.equal(calls.length, 1, 'only the phone call counts as a call')
+  assert.equal(faceTimes.length, 1, 'the FaceTime is its own moment')
 })
 
 /** The architectural rule, enforced in a test: COMMS never reads an ODS table. */

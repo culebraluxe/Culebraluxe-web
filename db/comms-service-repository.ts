@@ -120,7 +120,7 @@ export class SqlCommsRepository implements CommsRepository {
 
   async moments(personId: string, limit: number, offset: number): Promise<CommsMomentPage> {
     const rows = (await this.execute`
-      select id, channel, source_system, direction, occurred_at, title, summary
+      select id, channel, event_type, source_system, direction, occurred_at, title, summary
         from interaction
        where person_id = ${personId}
        order by occurred_at desc, id desc
@@ -134,6 +134,7 @@ export class SqlCommsRepository implements CommsRepository {
     const moments: CommsMomentRecord[] = rows.map((row) => ({
       id: String(row.id),
       channel: text(row.channel),
+      eventType: text(row.event_type),
       sourceSystem: text(row.source_system),
       direction: direction(row.direction),
       occurredAt: iso(row.occurred_at) ?? '',

@@ -49,6 +49,10 @@ function channelMeta(channel: string): { label: string; Icon: LucideIcon } {
   switch (channel) {
     case "call":
       return { label: "Call", Icon: Phone }
+    // A FaceTime is a distinct moment: the warehouse stores both as channel
+    // 'call' and the service reads the delineation back from event_type.
+    case "facetime":
+      return { label: "FaceTime", Icon: Video }
     case "email":
       return { label: "Email", Icon: Mail }
     case "imessage":

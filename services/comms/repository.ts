@@ -27,8 +27,10 @@ export type CommsSourceRecord = {
 
 export type CommsMomentRecord = {
   id: string
-  /** The canonical interaction channel, as stored. */
+  /** The canonical interaction channel, as stored ('call' covers phone AND FaceTime). */
   channel: string | null
+  /** The interaction event type — 'phone_call' vs 'facetime_call' — the delineation. */
+  eventType: string | null
   sourceSystem: string | null
   direction: 'inbound' | 'outbound' | null
   occurredAt: string
