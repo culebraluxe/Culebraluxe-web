@@ -11,9 +11,11 @@ import {
   resolveHandlePerson,
 } from '../lib/relationship-intel/apple-message-materializer'
 import { getRelationshipEvidenceRows } from './relationship-evidence'
-import { createInteraction } from './interactions'
-import { landImessage } from './landing'
+import { createInteraction, createInteractionsBatch } from './interactions'
+import { landImessage, landImessageBatch } from './landing'
 import { refreshClientReadModels } from './client-read-models'
+import type { CreateInteractionInput } from '../lib/crm-types'
+import type { LandedImessage } from './landing'
 
 // ---------------------------------------------------------------------------
 // REL-INTEL — Apple Messages EVENT materialization into canonical interaction.
@@ -115,6 +117,53 @@ export async function materializeAppleMessages(
     byHandle.set(m.handleId, arr)
   }
 
+  // ---------------------------------------------------------------------------
+  // BOUNDED BATCHES, not one round trip per message.
+  //
+  // This loop used to await landImessage() then createInteraction() for EVERY
+  // message. Measured over the pooled Neon driver: 68.7ms per round trip, and the
+  // interaction write costs a second trip whenever the row already exists, so a
+  // 93,000-message store spent hours in pure latency - the database does a
+  // 20,000-row set-based statement in 71ms. Rows are now accumulated and written
+  // in chunks, which is the same paradigm the mail pipeline uses.
+  //
+  // A chunk that fails falls back to the single-row path for that chunk only, so
+  // one bad row can never lose the rest and the previous error accounting is kept.
+  // ---------------------------------------------------------------------------
+  const CHUNK = 500
+  type Pending = { interaction: CreateInteractionInput; landing: LandedImessage }
+  let pending: Pending[] = []
+
+  const flush = async (): Promise<void> => {
+    if (pending.length === 0) return
+    const batch = pending
+    pending = []
+    try {
+      await landImessageBatch(
+        batch.map((item) => item.landing),
+        execute,
+      )
+      const { inserted: created, rejected } = await createInteractionsBatch(
+        batch.map((item) => item.interaction),
+        execute,
+      )
+      result.inserted += created
+      result.errors += rejected
+      result.replayed += batch.length - created - rejected
+    } catch {
+      for (const item of batch) {
+        try {
+          await landImessage(item.landing, execute)
+          const { created } = await createInteraction(item.interaction, execute)
+          if (created) result.inserted += 1
+          else result.replayed += 1
+        } catch {
+          result.errors += 1
+        }
+      }
+    }
+  }
+
   for (const handle of exportData.handles) {
     const resolved = resolveHandlePerson(byIdentityKey, handle.id)
     if (!resolved.ok) {
@@ -138,16 +187,16 @@ export async function materializeAppleMessages(
         continue
       }
       try {
-        const input = mapAppleMessageToInteraction(
-          m,
-          resolved.canonicalPersonId,
-          exportData.sourceAccount,
-        )
-        // ODS landing FIRST (captain's model: landing -> promote -> warehouse).
-        // The source record lands in l_imessage before anything is promoted, so a
-        // full load is re-derivable and replay-safe on (source_account, guid).
-        await landImessage(
-          {
+        pending.push({
+          interaction: mapAppleMessageToInteraction(
+            m,
+            resolved.canonicalPersonId,
+            exportData.sourceAccount,
+          ),
+          // ODS landing FIRST (captain's model: landing -> promote -> warehouse).
+          // The source record lands in l_imessage before anything is promoted, so a
+          // full load is re-derivable and replay-safe on (source_account, guid).
+          landing: {
             sourceAccount: exportData.sourceAccount,
             sourceMessageId: m.guid,
             conversationId: m.chatGuid,
@@ -158,17 +207,16 @@ export async function materializeAppleMessages(
             text: m.text,
             raw: m,
           },
-          execute,
-        )
-        const { created } = await createInteraction(input, execute)
-        if (created) result.inserted += 1
-        else result.replayed += 1
+        })
+        if (pending.length >= CHUNK) await flush()
       } catch {
         result.errors += 1
       }
       reportProgress()
     }
   }
+
+  await flush()
 
   if (progressEvery > 0 && processed % progressEvery !== 0) {
     options.onProgress?.({

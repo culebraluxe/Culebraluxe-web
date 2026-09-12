@@ -73,6 +73,52 @@ export async function landImessage(
   return Array.isArray(rows) && rows.length > 0
 }
 
+/**
+ * Set-based landing for a bounded batch of records.
+ *
+ * The single-row form pays ONE ROUND TRIP PER MESSAGE. Measured on this Mac over
+ * the pooled Neon driver: 68.7ms per round trip, which is what the iMessage
+ * materializer's 5 hours is actually made of (93,000 messages x 2 writes =
+ * 186,000 trips), NOT database work - one set-based statement over 20,000 rows
+ * takes 71ms in total. Batching at 500 per statement turns 93,000 trips into 186.
+ *
+ * Replay-safe exactly like the single-row form: `on conflict do nothing`, so
+ * `returning` yields only the rows that were genuinely new.
+ */
+export async function landImessageBatch(
+  inputs: readonly LandedImessage[],
+  execute?: QueryExecutor,
+): Promise<number> {
+  if (inputs.length === 0) return 0
+  const q = execute ?? (await executor())
+  const rows = (await q`
+    insert into l_imessage (
+      source_account, source_message_id, conversation_id, handle,
+      direction, service, sent_at, text_content, raw
+    )
+    select
+      t.source_account, t.source_message_id, t.conversation_id, t.handle,
+      t.direction, t.service, t.sent_at, t.text_content, (t.raw)::jsonb
+    from unnest(
+      ${inputs.map((input) => input.sourceAccount)}::text[],
+      ${inputs.map((input) => input.sourceMessageId)}::text[],
+      ${inputs.map((input) => input.conversationId ?? null)}::text[],
+      ${inputs.map((input) => input.handle ?? null)}::text[],
+      ${inputs.map((input) => input.direction ?? null)}::text[],
+      ${inputs.map((input) => input.service ?? null)}::text[],
+      ${inputs.map((input) => input.sentAt ?? null)}::timestamptz[],
+      ${inputs.map((input) => input.text ?? null)}::text[],
+      ${inputs.map((input) => JSON.stringify(input.raw ?? null))}::text[]
+    ) as t(
+      source_account, source_message_id, conversation_id, handle,
+      direction, service, sent_at, text_content, raw
+    )
+    on conflict (coalesce(source_account, ''), source_message_id) do nothing
+    returning id
+  `) as unknown as unknown[]
+  return Array.isArray(rows) ? rows.length : 0
+}
+
 export type LandedEmail = {
   sourceAccount: string | null
   sourceMessageId: string
