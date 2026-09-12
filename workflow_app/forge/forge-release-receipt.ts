@@ -16,7 +16,7 @@
 // Pure module: no database, no network, no filesystem.
 // ---------------------------------------------------------------------------
 
-export type ReleaseReceiptKind = 'deployment' | 'production_verification'
+export type ReleaseReceiptKind = 'deployment' | 'production_verification' | 'integration'
 
 /** Mirrors AgentRunEvidence.releaseEvidence exactly. */
 export type ReleaseEvidence = {
@@ -71,10 +71,20 @@ export type ReceiptAssessment = { ok: boolean; reason: string | null }
 /**
  * Validate a release receipt in isolation. FAIL CLOSED: an absent, malformed or
  * placeholder receipt is never acceptable evidence.
+ *
+ * 'integration' is the release-engineer attestation (TECH-DEBT-07, dialed back
+ * 2026-09-12): the artifact sha is contained in the integration ref and a build
+ * actually ran and exited 0. It is validated by the same rules as any other kind —
+ * real sha, non-placeholder id, explicit success — and its `integration:` id prefix
+ * keeps it distinguishable from a deployment receipt.
  */
 export function assessReleaseReceipt(receipt: ReleaseEvidence | null | undefined): ReceiptAssessment {
   if (!receipt) return { ok: false, reason: 'no release receipt was provided' }
-  if (receipt.kind !== 'deployment' && receipt.kind !== 'production_verification') {
+  if (
+    receipt.kind !== 'deployment' &&
+    receipt.kind !== 'production_verification' &&
+    receipt.kind !== 'integration'
+  ) {
     return { ok: false, reason: `release receipt kind is not recognized: ${JSON.stringify(receipt.kind)}` }
   }
   if (!isCommitSha(receipt.artifactSha)) {

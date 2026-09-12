@@ -274,16 +274,21 @@ export function forgeEvidenceFromAgentResult(input: {
       const published = commitSha(current.publishedSha)
       const receipt = result.releaseEvidence
       const deployed = commitSha(receipt?.artifactSha)
-      const exact = Boolean(
-        clean &&
-          published &&
-          receipt?.kind === 'deployment' &&
-          receipt.success &&
+      // TECH-DEBT-07 (dialed back 2026-09-12): a provider deployment id is a HUMAN
+      // domain — nothing here can observe Vercel's deploy state — so a story that does
+      // NOT require a deployment is released on the release-engineer attestation
+      // (integration + a build that actually ran + the git sha). A story that DOES
+      // require a deployment still needs a real deployment receipt, unchanged.
+      const receiptKindOk = Boolean(
+        receipt?.success &&
           receipt.receiptId.trim() &&
-          // A placeholder id ("n/a", "test", "tbd") is not a receipt. TECH-DEBT-07.
+          // A placeholder id ("n/a", "test", "tbd") is not evidence of anything.
           !isPlaceholderReceiptId(receipt.receiptId) &&
-          deployed === published,
+          (current.deploymentRequired
+            ? receipt.kind === 'deployment'
+            : receipt.kind === 'deployment' || receipt.kind === 'integration'),
       )
+      const exact = Boolean(clean && published && receiptKindOk && deployed === published)
       return {
         ...marked,
         deploymentSucceeded: exact,

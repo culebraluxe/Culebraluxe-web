@@ -104,7 +104,7 @@ export interface AgentRunEvidence {
   commitHash: string | null
   assayEvidence?: AssayEvidence | null
   releaseEvidence?: {
-    kind: 'deployment' | 'production_verification'
+    kind: 'deployment' | 'production_verification' | 'integration'
     artifactSha: string
     receiptId: string
     success: boolean
