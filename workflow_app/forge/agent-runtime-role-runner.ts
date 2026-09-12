@@ -557,6 +557,9 @@ export function createAgentRuntimeForgeRoleRunner(
       typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
         ? evidence.candidateSha
         : undefined
+    // ENG-FORGE-OBS-SERIAL-01 box 1 — what the SERIAL lane's candidate did outside
+    // its accepted assignment, carried to the HOLD/self-heal assembly below.
+    let serialScopeMiss: string[] = []
     observeAttemptBegin(forgeObserverSink, observerAttempt, {
       role: nodeId,
       // The Lead's chosen route rides run.start (an event kind already in the
@@ -658,12 +661,26 @@ export function createAgentRuntimeForgeRoleRunner(
           baseRef: workspaces?.baseRef ?? 'origin/main',
           candidateSha,
         })
-        observeCandidateCommit(forgeObserverSink, serialIdentity, {
+        const observed = observeCandidateCommit(forgeObserverSink, serialIdentity, {
           candidateSha,
           changedFiles,
           contract: serialAssignmentContract,
         })
         drainAlerts(forgeObserverSink, serialIdentity, resolvedStory.id)
+        // ENG-FORGE-OBS-SERIAL-01 box 1 — the violation is now a MISS, not a note.
+        //
+        // The lane used to accept any candidate: declared scope was measured but not
+        // enforced, so a Smith that wandered out of its assignment still handed over
+        // work (the same missing lock ENG-FORGE-SPLIT-01 found on the split path).
+        // The miss rides the existing bounded self-heal, so attempt 2 gets a
+        // corrective directive naming the exact paths, and only exhaustion is a real
+        // HOLD — thrown by the runner below, never by an Alert recommendation.
+        if (observed.violations.length > 0) {
+          const owner = serialAssignmentContract?.identity.owner ?? 'the accepted assignment'
+          serialScopeMiss = observed.violations.map(
+            (path: string) => `smith-scope:${path} is outside ${owner}`,
+          )
+        }
       } catch (error) {
         // Observer only: an unresolvable diff must not fail a run the runner has
         // already accepted (the split lane stays fail-closed because its diff is a
@@ -812,6 +829,9 @@ export function createAgentRuntimeForgeRoleRunner(
         }
       }
       miss.push(...missing)
+      // The serial lane's scope violation joins the same HOLD path as every other
+      // gate: reprompt with the named paths, or throw on the final attempt.
+      miss.push(...serialScopeMiss)
     }
 
     if (miss.length === 0) {
