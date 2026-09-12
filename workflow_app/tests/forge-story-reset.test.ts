@@ -1,12 +1,17 @@
 // ---------------------------------------------------------------------------
-// ENG-FORGE-V14 — reset safety: pure argv/env resolution + the PROD --force
-// gate. resolveStoryResetConfig is exercised with NO DB and NO child process:
-// the resolver is side-effect free by contract. Cases:
-//   - prod without --force refuses (reset AND recover)
-//   - prod with --force ok
-//   - dev default and dev explicit stay force-free
-//   - unknown mode/target and missing url error
-//   - --force is position-independent
+// ENG-FORGE-V14 — reset safety: pure argv/env resolution + the PROD --force gate.
+// resolveStoryResetConfig is exercised with NO DB and NO child process: the
+// resolver is side-effect free by contract.
+//
+// 2026-09-12 — THE TARGET IS NO LONGER A CHOICE. Captain: "always PROD but this
+// should be domain responsibility of the Pool Manager — it should not even have the
+// ability to make that choice." So these cases pin the new contract:
+//   - the environment comes from the ONE declaration, never from a positional;
+//   - a positional target is refused BY NAME, saying who owns the decision;
+//   - a DEV declaration is refused outright;
+//   - an undeclared environment is refused with the declaration's own reason;
+//   - PROD still requires --force (that gate is about a destructive act);
+//   - --force stays position-independent.
 // ---------------------------------------------------------------------------
 
 import { test } from 'node:test'
@@ -24,113 +29,87 @@ function resolve(
   return resolveStoryResetConfig(['node', 'scripts/forge-story-reset.ts', ...tail], env)
 }
 
-const ENV = { DATABASE_URL_PROD: 'postgres://prod', DATABASE_URL_DEV: 'postgres://dev' }
+const PROD_ENV = { DATABASE_URL_PROD: 'postgres://prod', APP_ENV: 'production' }
+const DEV_ENV = { DATABASE_URL_DEV: 'postgres://dev', APP_ENV: 'development' }
 
-test('reset safety: prod without --force refuses', () => {
-  const cfg = resolve(['story-1', 'reset', 'prod'], ENV)
+test('reset safety: PROD requires --force (destructive act stays deliberate)', () => {
+  const cfg = resolve(['story-1', 'reset'], PROD_ENV)
   assert.equal(cfg.ok, false)
-  assert.ok('error' in cfg && /--force/.test(cfg.error), `error should name --force: ${cfg.error}`)
+  if (cfg.ok) return
+  assert.match(cfg.error, /--force/)
 })
 
-test('reset safety: recover prod is gated identically', () => {
-  const cfg = resolve(['story-1', 'recover', 'prod'], ENV)
-  assert.equal(cfg.ok, false)
-  assert.ok('error' in cfg && /--force/.test(cfg.error))
-})
-
-test('reset safety: prod with --force resolves ok', () => {
-  const cfg = resolve(['story-1', 'reset', 'prod', '--force'], ENV)
+test('reset safety: PROD + --force resolves, and the target came from the declaration', () => {
+  const cfg = resolve(['story-1', 'reset', '--force'], PROD_ENV)
   assert.equal(cfg.ok, true)
   if (!cfg.ok) return
   assert.equal(cfg.story, 'story-1')
   assert.equal(cfg.mode, 'reset')
   assert.equal(cfg.target, 'prod')
   assert.equal(cfg.force, true)
-  assert.equal(cfg.url, ENV.DATABASE_URL_PROD)
 })
 
-test('reset safety: recover prod with --force resolves ok', () => {
-  const cfg = resolve(['story-1', 'recover', 'prod', '--force'], ENV)
-  assert.equal(cfg.ok, true)
-  if (!cfg.ok) return
-  assert.equal(cfg.mode, 'recover')
-  assert.equal(cfg.target, 'prod')
-  assert.equal(cfg.url, ENV.DATABASE_URL_PROD)
+test('reset safety: recover on PROD is gated identically', () => {
+  assert.equal(resolve(['story-1', 'recover'], PROD_ENV).ok, false)
+  const ok = resolve(['story-1', 'recover', '--force'], PROD_ENV)
+  assert.equal(ok.ok, true)
+  if (!ok.ok) return
+  assert.equal(ok.mode, 'recover')
+  assert.equal(ok.target, 'prod')
 })
 
-test('reset safety: dev default and dev explicit stay force-free', () => {
-  const devDefault = resolve(['story-1'], ENV)
-  assert.equal(devDefault.ok, true)
-  if (!devDefault.ok) return
-  assert.equal(devDefault.target, 'dev')
-  assert.equal(devDefault.force, false)
-  assert.equal(devDefault.url, ENV.DATABASE_URL_DEV)
-
-  const devExplicit = resolve(['story-1', 'reset', 'dev'], ENV)
-  assert.equal(devExplicit.ok, true)
-  if (!devExplicit.ok) return
-  assert.equal(devExplicit.target, 'dev')
-  assert.equal(devExplicit.force, false)
-  assert.equal(devExplicit.mode, 'reset')
+test('reset safety: a positional target is REFUSED and names the pool manager', () => {
+  for (const attempt of ['prod', 'dev']) {
+    const cfg = resolve(['story-1', 'reset', attempt, '--force'], PROD_ENV)
+    assert.equal(cfg.ok, false, `positional ${attempt} must not be accepted`)
+    if (cfg.ok) continue
+    assert.match(cfg.error, /not a choice/)
+    assert.match(cfg.error, /pool manager/)
+  }
 })
 
-test('reset safety: production APP_ENV defaults to prod and still requires --force', () => {
-  const prodDefault = resolve(['story-1'], { ...ENV, APP_ENV: 'production' })
-  assert.equal(prodDefault.ok, false)
-  assert.ok('error' in prodDefault && /--force/.test(prodDefault.error))
-
-  const forced = resolve(['story-1', '--force'], { ...ENV, APP_ENV: 'production' })
-  assert.equal(forced.ok, true)
-  if (!forced.ok) return
-  assert.equal(forced.target, 'prod')
-  assert.equal(forced.mode, 'reset')
+test('reset safety: a DEV declaration is refused outright', () => {
+  const cfg = resolve(['story-1', 'reset', '--force'], DEV_ENV)
+  assert.equal(cfg.ok, false)
+  if (cfg.ok) return
+  assert.match(cfg.error, /refusing to run against DEV/)
+  assert.match(cfg.error, /pool manager/)
 })
 
-test('reset safety: unknown mode and unknown target error', () => {
-  const badMode = resolve(['story-1', 'frobnicate', 'dev'], ENV)
-  assert.equal(badMode.ok, false)
-  assert.ok('error' in badMode && /unknown mode/.test(badMode.error))
-
-  const badTarget = resolve(['story-1', 'reset', 'staging'], ENV)
-  assert.equal(badTarget.ok, false)
-  assert.ok('error' in badTarget && /unknown target/.test(badTarget.error))
+test('reset safety: an undeclared environment is refused with the declaration reason', () => {
+  const cfg = resolve(['story-1', 'reset', '--force'], {})
+  assert.equal(cfg.ok, false)
+  if (cfg.ok) return
+  assert.match(cfg.error, /not declared/)
+  // The reason must name the variables that would fix it.
+  assert.match(cfg.error, /APP_ENV/)
 })
 
-test('reset safety: missing story and missing url error', () => {
-  const noStory = resolve([], ENV)
-  assert.equal(noStory.ok, false)
-  assert.ok('error' in noStory && /usage: forge-story-reset/.test(noStory.error))
+test('reset safety: an unknown mode is refused before anything else', () => {
+  const cfg = resolve(['story-1', 'obliterate', '--force'], PROD_ENV)
+  assert.equal(cfg.ok, false)
+  if (cfg.ok) return
+  assert.match(cfg.error, /unknown mode/)
+})
 
-  const noProdUrl = resolve(['story-1', 'reset', 'prod', '--force'], {
-    DATABASE_URL_DEV: 'postgres://dev',
-  })
-  assert.equal(noProdUrl.ok, false)
-  assert.ok('error' in noProdUrl && /no PROD DATABASE_URL/.test(noProdUrl.error))
+test('reset safety: no story id prints usage', () => {
+  const cfg = resolve([], PROD_ENV)
+  assert.equal(cfg.ok, false)
+  if (cfg.ok) return
+  assert.match(cfg.error, /usage:/)
+})
 
-  const noDevUrl = resolve(['story-1', 'reset', 'dev'], {
-    DATABASE_URL_PROD: 'postgres://prod',
-  })
-  assert.equal(noDevUrl.ok, false)
-  assert.ok('error' in noDevUrl && /no DEV DATABASE_URL/.test(noDevUrl.error))
+test('reset safety: a declared PROD with no url configured is refused', () => {
+  const cfg = resolve(['story-1', 'reset', '--force'], { APP_ENV: 'production' })
+  assert.equal(cfg.ok, false)
+  if (cfg.ok) return
+  assert.match(cfg.error, /DATABASE_URL_PROD is not configured/)
 })
 
 test('reset safety: --force is position-independent', () => {
-  const leading = resolve(['--force', 'story-1', 'reset', 'prod'], ENV)
-  assert.equal(leading.ok, true)
-  if (!leading.ok) return
-  assert.equal(leading.target, 'prod')
-  assert.equal(leading.mode, 'reset')
-  assert.equal(leading.story, 'story-1')
-
-  const midReset = resolve(['story-1', '--force', 'reset', 'prod'], ENV)
-  assert.equal(midReset.ok, true)
-  if (!midReset.ok) return
-  assert.equal(midReset.mode, 'reset')
-  assert.equal(midReset.target, 'prod')
-
-  const midRecover = resolve(['story-1', 'recover', '--force', 'prod'], ENV)
-  assert.equal(midRecover.ok, true)
-  if (!midRecover.ok) return
-  assert.equal(midRecover.mode, 'recover')
-  assert.equal(midRecover.target, 'prod')
+  const cfg = resolve(['--force', 'story-1'], PROD_ENV)
+  assert.equal(cfg.ok, true)
+  if (!cfg.ok) return
+  assert.equal(cfg.story, 'story-1')
+  assert.equal(cfg.mode, 'reset', 'mode defaults to reset')
 })

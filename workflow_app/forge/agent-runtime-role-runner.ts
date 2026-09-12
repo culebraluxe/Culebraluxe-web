@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
-import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective, buildSmithWorkDecompositionDirective } from '../../agent-runtime/run-guardrails'
+import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective } from '../../agent-runtime/run-guardrails'
 import {
   FileContextLessonStore,
   buildContextLessonDirective,
@@ -369,6 +369,22 @@ export function createAgentRuntimeForgeRoleRunner(
       })
       if (builtSerial.errors.length === 0) serialAssignmentContract = builtSerial.contract
     }
+    // SERIAL SMITH LANE — no accepted Lead assignment means NO LANE.
+    //
+    // Captain, 2026-09-12: "Lead can make those decisions, not Smith." This lane
+    // used to fall back to the WORK-DECOMPOSITION directive when the Lead had routed
+    // nothing, which let a Smith size, chunk and effectively choose its own work —
+    // the same door the split lane already closed (a child that cannot be tied to an
+    // accepted assignment HOLDs before launch). Closed here too, and it fails closed
+    // by NAME so the missing artifact is obvious rather than silently absorbed.
+    if (plan.lane === 'smith' && executesLeadWorkOrders && !serialAssignment) {
+      throw new Error(
+        `Forge ${nodeId} HOLD: no accepted Lead assignment for the serial Smith lane. ` +
+          'Smith does not choose its own scope — the Lead routes the work orders (LEAD_ROUTING) ' +
+          'before this lane may run.',
+      )
+    }
+
     // When Astra routing governs PRE, the legacy lead_pre evidence contract
     // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:
     // on a live run the model obeyed the longer legacy text, emitted no LEAD_ROUTING
@@ -394,7 +410,9 @@ export function createAgentRuntimeForgeRoleRunner(
         : plan.lane === 'smith'
           ? acceptedLeadPlan
             ? renderSmithWorkOrders(acceptedLeadPlan)
-            : buildSmithWorkDecompositionDirective()
+            : // Unreachable: the serial-lane guard above HOLDs when the Lead has
+              // routed nothing. Smith never sizes or scopes its own work.
+              null
           : nodeId === 'lead_solo_implement' && acceptedLeadPlan
             ? renderSmithWorkOrders(acceptedLeadPlan)
             : null,

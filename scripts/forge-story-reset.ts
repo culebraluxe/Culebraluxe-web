@@ -10,15 +10,16 @@
 //                        cancel leftover Running/Claimed agent_work_items.
 //
 // Usage:
-//   node --env-file=.env.local --import tsx scripts/forge-story-reset.ts \
-//        <story-id> [reset|recover] [dev|prod] [--force]
+//   node --import tsx --env-file=.env.local scripts/forge-story-reset.ts \
+//        <story-id> [reset|recover] [--force]
 //
-// Safe: only touches the named story's engine rows. PROD is explicit (default
-// target follows APP_ENV) and is REFUSED unless --force is passed. Always run
-// reset when you want a clean re-run; use recover to continue a partial run
-// whose worker died.
+// Safe: only touches the named story's engine rows. The DATABASE TARGET IS NOT A
+// CHOICE: the pool manager (ForgeDB + the ONE environment declaration) decides it,
+// and this tool refuses to run anywhere that is not PROD. --force is still required,
+// because a destructive act should be deliberate. Always run reset when you want a
+// clean re-run; use recover to continue a partial run whose worker died.
 // ---------------------------------------------------------------------------
-import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
+import { forgeDb } from '../db/forge-db'
 import { resolveStoryResetConfig } from './forge-story-reset-config'
 
 const config = resolveStoryResetConfig(process.argv, process.env)
@@ -26,10 +27,10 @@ if (!config.ok) {
   console.error(config.error)
   process.exit(2)
 }
-const { story, mode, target, url } = config
+const { story, mode, target } = config
 
 async function main(): Promise<void> {
-  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
+  const pool = forgeDb.forTarget(target)
   try {
     if (mode === 'reset') {
       // 1. Abort any non-terminal engine instance for the story.
