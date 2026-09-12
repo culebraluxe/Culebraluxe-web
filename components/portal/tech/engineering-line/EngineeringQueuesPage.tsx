@@ -17,8 +17,9 @@
 
 import { useMemo, useState } from 'react'
 
-import type { StoryBoardCockpitData, StoryLifecycle } from '@/lib/storyboard-data'
-import type { StoryboardStory } from '@/db/storyboard'
+import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
+import type { StoryboardStory, StoryRun } from '@/db/storyboard'
+import { ActiveQueue, RunHistory, StoryDetail } from '@/components/portal/tech/engineering-cockpit'
 
 import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
@@ -32,6 +33,11 @@ import type { QueueCard, QueueKey, RunOutcome } from './types'
 export type EngineeringQueuesPageProps = {
   cockpit: StoryBoardCockpitData
   activeWork: StoryboardStory[]
+  /** The story the Bench detail pane is showing. */
+  selectedStory: StoryRecord | null
+  selectedIsActive: boolean
+  runs: StoryRun[]
+  freshness: string
 }
 
 const QUEUES: Array<{
@@ -83,7 +89,14 @@ const OUTCOME: Record<RunOutcome, string> = {
   INTERRUPTED: 'bg-slate-500/15 text-slate-300 ring-slate-400/30',
 }
 
-export function EngineeringQueuesPage({ cockpit, activeWork }: EngineeringQueuesPageProps) {
+export function EngineeringQueuesPage({
+  cockpit,
+  activeWork,
+  selectedStory,
+  selectedIsActive,
+  runs,
+  freshness,
+}: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
   const [cards, setCards] = useState<QueueCard[]>(model.cards)
   const [selected, setSelected] = useState<string | null>(null)
@@ -122,7 +135,7 @@ export function EngineeringQueuesPage({ cockpit, activeWork }: EngineeringQueues
         <p className="text-[11px] font-semibold tracking-[0.22em] text-[#c6a15b]">{model.eyebrow}</p>
         <h1 className="mt-1 font-serif text-2xl font-semibold text-white">{model.title}</h1>
         <p className="mt-1 max-w-3xl text-sm font-light text-slate-400">{model.subtitle}</p>
-        <p className="mt-1 text-[11px] text-slate-500">Story data as of {model.asOf}</p>
+        <p className="mt-1 text-[11px] text-slate-500">Story data as of {freshness}</p>
       </header>
 
       <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -135,42 +148,36 @@ export function EngineeringQueuesPage({ cockpit, activeWork }: EngineeringQueues
         ))}
       </section>
 
-      {/* WORK BENCH — the human lane. Real: `storyboard_active_work`, in work_order. */}
-      <section className="mb-4 rounded-lg border border-amber-400/25 bg-amber-400/[0.04] px-4 py-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
+      {/* WORK BENCH — the piece the captain uses most: the queue on the LEFT, the
+          selected story's full detail on the RIGHT, run history beneath it. It
+          reuses ActiveQueue / StoryDetail / RunHistory from the TECH cockpit, so
+          there is exactly ONE implementation of "what the heck is this story". */}
+      <section className="mb-4">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[11px] font-semibold tracking-[0.16em] text-amber-200">
-            WORK BENCH — ACTIVE WORK QUEUE{' '}
-            <span className="font-normal text-slate-400">({activeWork.length})</span>
+            WORK BENCH — {activeWork.length} selected
           </p>
           <p className="text-[10px] text-slate-400">
-            Explicitly selected today · my hands, not the engine&apos;s
+            my hands, not the engine&apos;s · pick one to read it
           </p>
         </div>
-        {activeWork.length === 0 ? (
-          <p className="mt-2 text-xs text-slate-500">
-            Nothing on the bench. Pick a story out of the log below.
-          </p>
-        ) : (
-          <ul className="mt-2 grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
-            {activeWork.map((s) => (
-              <li
-                key={s.id}
-                className="flex items-center gap-2 rounded border border-white/10 bg-white/[0.02] px-2.5 py-1.5"
-              >
-                <span className="w-[10.5rem] shrink-0 truncate font-mono text-[11px] text-slate-400">
-                  {s.id}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[11px] font-light text-slate-200">
-                  {s.title}
-                </span>
-                <span className="shrink-0 text-[10px] text-slate-500">{s.status}</span>
-                <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
-                  {Math.round(s.completion)}%
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <ActiveQueue
+            activeQueue={activeWork}
+            selectedId={selectedStory?.id ?? null}
+            basePath="/portal/tech/queues"
+          />
+          <div className="space-y-3">
+            {selectedStory ? (
+              <StoryDetail story={selectedStory} isActive={selectedIsActive} />
+            ) : (
+              <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-xs italic text-slate-500">
+                Select a story from the Work Bench to inspect it
+              </p>
+            )}
+            <RunHistory storyId={selectedStory?.id ?? null} runs={runs} />
+          </div>
+        </div>
       </section>
 
       <StatsStrip stats={stats} />

@@ -42,12 +42,15 @@ import { setActiveWorkAction } from "@/app/portal/tech/actions"
 // storyboard_story_run.
 // ---------------------------------------------------------------------------
 
-function ActiveQueue({
+export function ActiveQueue({
   activeQueue,
   selectedId,
+  basePath = "/portal/tech",
 }: {
   activeQueue: StoryRecord[]
   selectedId: string | null
+  /** Where selecting a story navigates to. Defaults to the TECH landing page. */
+  basePath?: string
 }) {
   return (
     <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
@@ -89,7 +92,7 @@ function ActiveQueue({
                     }`}
                   />
                   <Link
-                    href={`/portal/tech?story=${encodeURIComponent(story.id)}`}
+                    href={`${basePath}?story=${encodeURIComponent(story.id)}`}
                     className="flex min-w-0 flex-1 items-center gap-2"
                   >
                     <span className="w-16 shrink-0 truncate font-mono text-[11px] text-[var(--portal-on-navy)]">
@@ -125,7 +128,7 @@ function ActiveQueue({
   )
 }
 
-function StoryDetail({ story, isActive }: { story: StoryRecord; isActive: boolean }) {
+export function StoryDetail({ story, isActive }: { story: StoryRecord; isActive: boolean }) {
   const domain = storyDomainOf(story)
   const domainLabel = domain === 'UNCLASSIFIED' ? 'UNCLASSIFIED' : storyDomainName(domain)
   const spec = [
@@ -230,7 +233,7 @@ function RunResultIcon({ result }: { result: string | null }) {
   return <Check size={12} className="text-white/40" />
 }
 
-function RunHistory({ storyId, runs }: { storyId: string | null; runs: StoryRun[] }) {
+export function RunHistory({ storyId, runs }: { storyId: string | null; runs: StoryRun[] }) {
   return (
     <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
       <div className="flex items-baseline justify-between gap-3 border-b border-white/10 px-4 py-3">

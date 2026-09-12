@@ -6,6 +6,7 @@ import { StoryBoardNotReady } from "@/components/portal/story-board"
 import {
   listActiveWork,
   listStoryExecutionSummaries,
+  listStoryRuns,
   listStoryboardStories,
 } from "@/db/storyboard"
 import { buildStoryBoardCockpit, buildStoryBoardModel } from "@/lib/storyboard-data"
@@ -31,13 +32,21 @@ export const dynamic = "force-dynamic"
 // When this earns its place it REPLACES /portal/tech, and command-center +
 // command-console + runtime-inspector come down with it. Grok's Engineering Line
 // reference at /portal/tech/line stays frozen and untouched for comparison.
-export default async function EngineeringQueuesRoute() {
+export default async function EngineeringQueuesRoute({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
   if (!access.ok) redirect(access.redirectTo)
 
-  const [stories, executions] = await Promise.all([
+  const params = await searchParams
+  const requestedId = typeof params.story === "string" ? params.story : null
+
+  const [stories, executions, activeWork] = await Promise.all([
     listStoryboardStories(),
     listStoryExecutionSummaries(),
+    listActiveWork(),
   ])
   if (!stories) return <StoryBoardNotReady />
 
@@ -49,7 +58,18 @@ export default async function EngineeringQueuesRoute() {
 
   const model = buildStoryBoardModel(withExecution)
   const cockpit = buildStoryBoardCockpit(model)
-  const activeWork = await listActiveWork()
+
+  // The Work Bench always has a story selected, so the detail pane is never a
+  // blank rectangle: an explicit ?story wins, otherwise the first bench item.
+  const fallbackId = activeWork[0]?.id ?? withExecution[0]?.id ?? null
+  const validId =
+    requestedId && withExecution.some((s) => s.id === requestedId) ? requestedId : fallbackId
+  const selectedStory = validId
+    ? (withExecution.find((s) => s.id === validId) ?? null)
+    : null
+  const selectedIsActive = Boolean(validId && activeWork.some((s) => s.id === validId))
+  const runs = validId ? await listStoryRuns(validId) : []
+  const freshness = `${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`
 
   return (
     <Suspense
@@ -59,7 +79,14 @@ export default async function EngineeringQueuesRoute() {
         </div>
       }
     >
-      <EngineeringQueuesPage cockpit={cockpit} activeWork={activeWork} />
+      <EngineeringQueuesPage
+        cockpit={cockpit}
+        activeWork={activeWork}
+        selectedStory={selectedStory}
+        selectedIsActive={selectedIsActive}
+        runs={runs}
+        freshness={freshness}
+      />
     </Suspense>
   )
 }
