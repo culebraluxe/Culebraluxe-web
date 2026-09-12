@@ -201,7 +201,7 @@ export function EngineeringQueuesPage({
           <ActiveQueue
             activeQueue={activeWork}
             selectedId={selectedStory?.id ?? null}
-            basePath="/portal/tech/queues"
+            basePath="/portal/tech"
           />
           <div className="space-y-3">
             {/* THE GATE. The Work Bench is the human lane (researching today); this is

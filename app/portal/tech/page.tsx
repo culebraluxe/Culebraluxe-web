@@ -1,14 +1,12 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
-import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
+import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line"
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
-import { GatewayControl } from "@/components/portal/tech/gateway-control"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { listForgeConvergence } from "@/db/forge-convergence"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { DEFAULT_FORGE_TEAM, listForgeTeamAssignments } from "@/agent-runtime/team"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -66,24 +64,9 @@ export default async function TechPage({
     withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
     new Date().toISOString()
 
-  const routes = listForgeTeamAssignments().map((assignment) => ({
-    position: assignment.position,
-    profile: assignment.profile,
-    player: assignment.player.name,
-    harness: assignment.harness.name,
-    field: assignment.field.name,
-    provider: assignment.player.provider,
-  }))
-
   return (
-    <>
-      <div className="flex justify-end gap-5 px-4 pt-3 lg:px-6">
-        <Link
-          href="/portal/tech/queues"
-          className="text-xs font-medium uppercase tracking-[0.12em] text-[#c6a15b] hover:text-[#a8863f]"
-        >
-          Engineering Queues →
-        </Link>
+    <div className="min-h-screen bg-[#0b1220]">
+      <div className="flex justify-end px-4 pt-3 lg:px-6">
         <Link
           href="/portal/tech/app-errors"
           className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
@@ -91,16 +74,17 @@ export default async function TechPage({
           App Error Capture →
         </Link>
       </div>
-      <GatewayControl teamName={DEFAULT_FORGE_TEAM.name} routes={routes} />
-      <EngineeringCockpit
+      <EngineeringQueuesPage
         cockpit={cockpit}
-        activeQueue={activeQueue}
+        activeWork={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}
         runs={runs}
         freshness={freshness}
       />
-      <ForgeConvergenceView items={convergence} />
-    </>
+      <div className="px-5 pb-8">
+        <ForgeConvergenceView items={convergence} />
+      </div>
+    </div>
   )
 }

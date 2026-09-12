@@ -20,7 +20,7 @@ import type { EngineeringQueuesModel } from './types'
 
 export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
   eyebrow: 'TECH / ENGINEERING',
-  title: 'Engineering Queues',
+  title: 'Engineering Cockpit',
   subtitle:
     'One screen: what you are working on, what the engine has been given, what it is running, and how the last runs ended.',
   asOf: '2026-09-12 18:38 UTC',
