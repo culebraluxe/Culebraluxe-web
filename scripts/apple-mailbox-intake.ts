@@ -265,30 +265,42 @@ export async function landMailRecord(
   )
 }
 
+export type MailboxAccountFailure = { account: string; message: string }
+export type MailboxIntakeOutcome = { results: MailboxRunStats[]; failures: MailboxAccountFailure[] }
+
 export async function runMailboxIntake(
   target: EnvTarget,
   execute: QueryExecutor,
   opts: { accounts: string[]; kinds: AppleMailboxKind[]; since?: string },
-): Promise<MailboxRunStats[]> {
+): Promise<MailboxIntakeOutcome> {
   const since = opts.since ?? mailboxWindow()
   console.log(
     `mailbox intake: target=${target} accounts=${opts.accounts.join(',')} mailboxes=${opts.kinds.join(',')} window=${since} page_size=${APPLE_PAGE_SIZE}`,
   )
 
   const results: MailboxRunStats[] = []
+  const failures: MailboxAccountFailure[] = []
   for (const account of opts.accounts) {
-    const transport = createMailTransport(account, { since })
-    const land = (record: AppleLocalMailRecord) => landMailRecord(record, account, execute)
-    const loadCheckpoint = (shardKey: string): Promise<IntakeCheckpoint | null> =>
-      getIntakeCheckpoint(APPLE_MAIL_INTAKE_SOURCE, account, shardKey, execute)
-    const saveCheckpoint = async (checkpoint: SaveIntakeCheckpointInput): Promise<void> => {
-      await saveIntakeCheckpoint(checkpoint, execute)
-    }
+    // One unresponsive mailbox must not abort every other account: report it and
+    // move on. Nothing already landed is touched, and the run still exits non-zero.
+    try {
+      const transport = createMailTransport(account, { since })
+      const land = (record: AppleLocalMailRecord) => landMailRecord(record, account, execute)
+      const loadCheckpoint = (shardKey: string): Promise<IntakeCheckpoint | null> =>
+        getIntakeCheckpoint(APPLE_MAIL_INTAKE_SOURCE, account, shardKey, execute)
+      const saveCheckpoint = async (checkpoint: SaveIntakeCheckpointInput): Promise<void> => {
+        await saveIntakeCheckpoint(checkpoint, execute)
+      }
 
-    for (const kind of opts.kinds) {
-      results.push(
-        await runAppleMailboxShard({ transport, sourceAccount: account, land, loadCheckpoint, saveCheckpoint }, kind),
-      )
+      for (const kind of opts.kinds) {
+        results.push(
+          await runAppleMailboxShard({ transport, sourceAccount: account, land, loadCheckpoint, saveCheckpoint }, kind),
+        )
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      failures.push({ account, message })
+      console.error(`mailbox [${account}] FAILED: ${message} - continuing with the remaining accounts`)
     }
   }
 
@@ -304,9 +316,10 @@ export async function runMailboxIntake(
   )
   console.log(
     `mailbox intake complete: source=${APPLE_MAIL_INTAKE_SOURCE} accounts=${opts.accounts.length} shards=${results.length} ` +
-      `pages=${totals.pages} records_seen=${totals.seen} landed=${totals.landed} replayed=${totals.replayed} errors=${totals.errors}`,
+      `failed_accounts=${failures.length} pages=${totals.pages} records_seen=${totals.seen} landed=${totals.landed} ` +
+      `replayed=${totals.replayed} errors=${totals.errors}`,
   )
-  return results
+  return { results, failures }
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -340,23 +353,31 @@ async function main(): Promise<void> {
 
   // Verify never opens a database connection: it must perform zero writes.
   if (args.includes('--verify')) {
+    let failed = 0
     for (const account of accounts) {
-      const transport = createMailTransport(account, { since })
-      const result = await runMailboxVerify(transport, account, kinds[0])
-      console.log(
-        `verify [${result.account}] mailbox=${result.mailboxKind} received=${result.received} complete=${result.complete} | 0 database writes`,
-      )
+      try {
+        const transport = createMailTransport(account, { since })
+        const result = await runMailboxVerify(transport, account, kinds[0])
+        console.log(
+          `verify [${result.account}] mailbox=${result.mailboxKind} received=${result.received} complete=${result.complete} | 0 database writes`,
+        )
+      } catch (error) {
+        failed += 1
+        console.error(`verify [${account}] FAILED: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
+    if (failed > 0) throw new Error(`${failed} account(s) could not be read from Mail.app`)
     return
   }
 
   const pool = createPoolExecutor(targetDatabaseUrl(target))
   try {
-    const results = await runMailboxIntake(target, pool.execute, { accounts, kinds, since })
+    const { results, failures } = await runMailboxIntake(target, pool.execute, { accounts, kinds, since })
     const errors = results.reduce((n, r) => n + r.errors, 0)
-    if (errors > 0) {
+    if (errors > 0 || failures.length > 0) {
       throw new Error(
-        `mailbox intake finished with ${errors} record error(s). The affected pages were still checkpointed; re-run to retry.`,
+        `mailbox intake finished with ${errors} record error(s) and ${failures.length} failed account(s). ` +
+          'The affected pages were still checkpointed; re-run to retry.',
       )
     }
   } finally {

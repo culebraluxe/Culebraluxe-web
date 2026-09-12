@@ -41,6 +41,14 @@ function progress(value) {
   write($.NSFileHandle.fileHandleWithStandardError, value + '\n')
 }
 
+// THE ROOT CAUSE of "An error occurred" / AppleEvent timeouts on big mailboxes:
+// `mailbox.messages()` (a METHOD call) tries to materialise the entire message
+// collection as one array. On penfield33@gmail.com's INBOX that is 163,683
+// messages and the AppleEvent fails outright. `mailbox.messages` (a PROPERTY
+// access) returns a specifier instead, so `.length` and `[index]` are cheap.
+// Measured on this Mac: messages().length -> "An error occurred";
+// messages.length -> 163683 in well under a second. Never call messages().
+
 // ---------------------------------------------------------------------------
 // BOUNDED PAGING.
 //
@@ -121,7 +129,9 @@ function parseCursorMap(raw) {
 // SKIPPED and named rather than allowed to abort every other account's pull.
 function openMailbox(mailbox) {
   try {
-    const messages = mailbox.messages()
+    // PROPERTY access, not messages(): the method call materialises the whole
+    // collection and fails once a mailbox is large (see note above).
+    const messages = mailbox.messages
     const total = messages.length
     if (typeof total !== 'number') return null
     return { messages, total }
@@ -140,14 +150,29 @@ function run(argv) {
   if (!outputHandle) throw new Error('Unable to open Mail metadata output file')
 
   const Mail = Application('Mail')
-  // A slow or wedged Mail.app must not abort the whole pull: enumerating accounts
-  // can itself time out (-1712) before any mailbox is opened.
-  const accounts = safe(() => Mail.accounts(), [])
-  const account = accounts.find((candidate) =>
+
+  // Do NOT swallow a failure here. Swallowing it turned a Mail.app timeout into a
+  // misleading "no enabled account ... Available: (empty)" before; the real
+  // reason has to survive.
+  let accounts = null
+  let accountsError = null
+  try {
+    accounts = Mail.accounts()
+  } catch (error) {
+    accountsError = error
+  }
+  if (accountsError) {
+    throw new Error(
+      'Mail.app did not respond while listing accounts (' + String(accountsError) + '). ' +
+      'Mail.app must be running and responsive; if it is still downloading or reindexing, let it settle and retry.',
+    )
+  }
+  const availableAccounts = accounts || []
+  const account = availableAccounts.find((candidate) =>
     safe(() => candidate.emailAddresses(), []).map(normalized).includes(targetAddress),
   )
   if (!account) {
-    const available = accounts.flatMap((candidate) => safe(() => candidate.emailAddresses(), []))
+    const available = availableAccounts.flatMap((candidate) => safe(() => candidate.emailAddresses(), []))
     throw new Error(
       'Mail.app has no enabled account for ' + targetAddress +
       '. Available account addresses: ' + available.join(', '),
