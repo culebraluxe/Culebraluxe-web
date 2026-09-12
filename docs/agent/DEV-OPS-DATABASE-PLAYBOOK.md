@@ -82,16 +82,23 @@ at the existing page versions, and only subsequent writes diverge. That is a
 | portable across clouds | no | yes | no (Neon-only) |
 | selective / partial | no | **yes** | no (whole DB) |
 
-CLI (requires `neonctl auth` — not currently configured on this machine):
+**The procedure lives in `docs/agent/SOP-DEV-REFRESH.md`** (cadence, pre-flight
+backup branch, the command, post-flight checks, rollback). Short version:
 
 ```sh
-neonctl branches list   --project-id <project>          # find the prod/dev branch ids
-neonctl branches create --name dev-refresh --parent <prod-branch-id>
-# then repoint DATABASE_URL_DEV at the new branch's connection string
+neonctl branches restore dev production --project-id snowy-salad-48970537
 ```
 
+`restore <target> <source>` resets the DEV branch **in place**, so it keeps its own
+endpoint and **`DATABASE_URL_DEV` does not change** — no connection string to repoint.
+(The older `branches create --parent` + repoint sequence works too, but leaves you
+maintaining a URL for no benefit.) `neonctl` is already authenticated on the captain's
+machine; `NEON_API_KEY` is not needed in `.env.local`.
+
 After any reset: `pnpm db:seed:projects` to restore DEV-only work, then
-`pnpm db:parity` to confirm, then smoke the portal.
+`pnpm db:parity`, then smoke the portal. Two caveats: PARITY OK after a reset is green
+BY CONSTRUCTION (it proves nothing until the next code change), and DEV inherits
+PROD's `schema_migration` ledger, so DEV stops being a record of what DEV applied.
 
 
 `scripts/pull-prod-to-dev.mjs` (table-by-table) is the **fallback** for the rare
