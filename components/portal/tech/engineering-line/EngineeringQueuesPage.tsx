@@ -113,6 +113,29 @@ export function EngineeringQueuesPage({
     window.open(`/portal/tech/flight-recorder/${card.instanceId}`, '_blank', 'noopener')
   }
 
+  /** The gate: the spec is done, hand this story to the engine. Local demo. */
+  function markGoodToGo() {
+    if (!selectedStory) return
+    const already = cards.some((c) => c.id === selectedStory.id && c.queue === 'ready')
+    if (already) return
+    setCards((prev) => [
+      ...prev,
+      {
+        id: selectedStory.id,
+        title: selectedStory.title,
+        workstream: String(selectedStory.workstream ?? 'OTHER'),
+        status: selectedStory.status,
+        priority: selectedStory.priority,
+        completion: selectedStory.completion,
+        queue: 'ready',
+      },
+    ])
+  }
+
+  const selectedIsQueued = Boolean(
+    selectedStory && cards.some((c) => c.id === selectedStory.id && c.queue === 'ready'),
+  )
+
   const byQueue = (key: QueueKey) => cards.filter((c) => c.queue === key)
   const stats = model.stats
 
@@ -181,6 +204,29 @@ export function EngineeringQueuesPage({
             basePath="/portal/tech/queues"
           />
           <div className="space-y-3">
+            {/* THE GATE. The Work Bench is the human lane (researching today); this is
+                where a story stops being mine and becomes the engine's: spec done,
+                hand it over. One direction, one click — and it lands in ENGINE QUEUED. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#c6a15b]/30 bg-[#c6a15b]/[0.05] px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold tracking-[0.16em] text-[#e0c489]">GOOD TO GO</p>
+                <p className="truncate text-[10px] text-slate-400">
+                  {selectedStory
+                    ? selectedIsQueued
+                      ? `${selectedStory.id} is already waiting for the engine`
+                      : `${selectedStory.id} — spec done, hand it to the engine`
+                    : 'pick a story on the bench'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={markGoodToGo}
+                disabled={!selectedStory || selectedIsQueued}
+                className="shrink-0 rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {selectedIsQueued ? 'Queued' : 'Good to go →'}
+              </button>
+            </div>
             {selectedStory ? (
               <StoryDetail story={selectedStory} isActive={selectedIsActive} />
             ) : (
