@@ -27,16 +27,47 @@ async function executor(): Promise<QueryExecutor> {
  * (`index + 1`) to match the enqueue, which allocates `parallel_slot = index + 1`.
  * Two writers using different conventions for the same column produced a duplicate
  * (story, group, slot) and a 23505 on a live run — keep them in step.
+ *
+ * FORGE-PARITY-CHECK-01 — the group is written HERE too, and that is the fix, not
+ * cosmetics. This UPDATE used to set `split_assignment` and `parallel_slot` only, so
+ * the row's shape depended on whether the row it updated already carried a group.
+ * A row without one came out as `parallel_group_id IS NULL` with a slot and an
+ * assignment set — precisely the shape PROD's
+ * `agent_work_item_parallel_shape_check` refuses and DEV (which had no such
+ * constraint) accepted. Two such rows were sitting in DEV as the fingerprint of
+ * this path. The enqueue and this writer now set the SAME tuple from the same
+ * source, so a child row can never come out half-grouped.
  */
 export async function recordSplitChildAssignment(
   workItemId: string,
-  input: { assignmentId: string; index: number },
+  input: { assignmentId: string; index: number; groupId: string },
   execute?: QueryExecutor,
 ): Promise<void> {
   const q = execute ?? (await executor())
+  const assignmentId = input.assignmentId?.trim()
+  const groupId = input.groupId?.trim()
+  // Fail by NAME rather than writing a row the other environment rejects: a
+  // half-grouped child is worse than a loud refusal, because on PROD it becomes a
+  // 23514 deep inside a run and on DEV it becomes silent drift.
+  if (!assignmentId) {
+    throw new Error('recordSplitChildAssignment: assignmentId is required for a split child')
+  }
+  if (!groupId) {
+    throw new Error(
+      'recordSplitChildAssignment: groupId is required — a slot without a parallel group is a ' +
+        'shape agent_work_item_parallel_shape_check refuses',
+    )
+  }
+  if (!Number.isInteger(input.index) || input.index < 0) {
+    throw new Error(
+      `recordSplitChildAssignment: index must be a 0-based integer (got ${String(input.index)}) — ` +
+        'the stored slot is index + 1, so a negative index would write slot <= 0',
+    )
+  }
   await q`
     update agent_work_item
-    set split_assignment = ${input.assignmentId},
+    set split_assignment = ${assignmentId},
+        parallel_group_id = ${groupId},
         parallel_slot = ${input.index + 1},
         updated_at = now()
     where id = ${workItemId}

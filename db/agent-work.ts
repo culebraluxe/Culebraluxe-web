@@ -506,7 +506,37 @@ export async function enqueueAgentWorkCommand(
   execute?: QueryExecutor,
 ): Promise<AgentWorkItem> {
   const q = execute ?? (await executor())
-  // One story = one durable command. A Ready story already has a Ready work
+
+  // FORGE-PARITY-CHECK-01 — the structural half of the parallel-shape rule, in
+  // code, so a bad call fails by NAME instead of depending on which database you
+  // are pointed at. PROD enforces the full shape with
+  // `agent_work_item_parallel_shape_check` (and DEV has the same constraint now),
+  // but the rule used to live ONLY in that constraint: a caller that set a slot
+  // without a group wrote a row PROD refused and DEV accepted, which is how two
+  // malformed rows came to exist in DEV (see db/forge-split-children.ts, which had
+  // the same hole through an UPDATE). The NUMERIC bounds (slot 1..3, size 2..3)
+  // deliberately stay the database's business: repeating them here would create a
+  // second owner of one policy, which is the drift class this work removes.
+  if (input.parallelSlot != null) {
+    if (!input.parallelGroupId) {
+      throw new Error(
+        `enqueueAgentWorkCommand: parallelSlot ${input.parallelSlot} without parallelGroupId — a slot ` +
+          'with no group is a shape agent_work_item_parallel_shape_check refuses',
+      )
+    }
+    if (!Number.isInteger(input.parallelSlot) || input.parallelSlot < 1) {
+      throw new Error(
+        `enqueueAgentWorkCommand: parallelSlot must be a 1-based integer (got ${String(input.parallelSlot)})`,
+      )
+    }
+  }
+  if (input.parallelGroupId != null && input.parallelSlot == null) {
+    throw new Error(
+      'enqueueAgentWorkCommand: parallelGroupId without parallelSlot — every row in a parallel group ' +
+        'must declare its slot',
+    )
+  }
+
   // item created by the DB dispatch trigger (migration 025); the console
   // "Queue command" action UPSERTS that row with the command envelope rather
   // than creating a second queue row. Duplicate protection (one active per

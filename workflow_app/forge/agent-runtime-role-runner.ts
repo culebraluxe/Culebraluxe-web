@@ -487,13 +487,20 @@ export function createAgentRuntimeForgeRoleRunner(
         `Forge engine task ${task.taskId} claimed agent work item ${queued.id}, but the durable row could not be reloaded`,
       )
     }
-    if (splitChildContract?.assignment && splitChildContract.index !== null) {
+    if (
+      splitChildContract?.assignment &&
+      splitChildContract.index !== null &&
+      splitChildContract.index !== undefined
+    ) {
       // Provenance (ENG-FORGE-SPLIT-01): tie this child's durable row to the ONE
       // accepted assignment it owns before it runs, so the join can be accounted
       // per child. No silent catch — an untraceable child must not be admitted.
       await recordSplitChildAssignment(durableClaim.id, {
         assignmentId: splitChildContract.assignment.id,
         index: splitChildContract.index,
+        // Same source as the enqueue's `parallelGroupId` above: one process
+        // instance = one fan-out group, so both writers set an identical tuple.
+        groupId: task.processInstanceId,
       })
     }
 
