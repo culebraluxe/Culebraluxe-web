@@ -1,0 +1,73 @@
+ObjC.import('Foundation')
+
+// Resolve a configured Mail.app account address to its account UUID.
+//
+// This exists so the Envelope Index extractor can scope its SQL to one account
+// WITHOUT walking any mailbox. `account.id()` is the same authority that Mail
+// encodes in `mailboxes.url` (for example
+// "imap://84658466-EE86-4B37-A64F-EE3D38356A57/INBOX"), which is what the
+// extractor matches on. It never enumerates messages.
+//
+// Usage:  osascript -l JavaScript apple-mail-account-id.jxa <address>
+// stdout: the account UUID and nothing else (the caller trims it).
+// stderr: human-readable failure detail.
+
+function safe(read, fallback = null) {
+  try {
+    const value = read()
+    return value === undefined || value === null ? fallback : value
+  } catch (_) {
+    return fallback
+  }
+}
+
+function normalized(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function writeStdout(text) {
+  const handle = $.NSFileHandle.fileHandleWithStandardOutput
+  handle.writeData($(text).dataUsingEncoding($.NSUTF8StringEncoding))
+}
+
+function progress(value) {
+  const handle = $.NSFileHandle.fileHandleWithStandardError
+  handle.writeData($(value + '\n').dataUsingEncoding($.NSUTF8StringEncoding))
+}
+
+function run(argv) {
+  const wanted = normalized(argv && argv[0])
+  if (!wanted) {
+    progress('Usage: apple-mail-account-id.jxa <email address>')
+    throw new Error('missing account address argument')
+  }
+
+  const Mail = Application('Mail')
+  const accounts = safe(() => Mail.accounts(), [])
+  if (!accounts || typeof accounts.length !== 'number') {
+    throw new Error('Mail.app returned no account collection')
+  }
+
+  const matches = []
+  const configured = []
+  for (let i = 0; i < accounts.length; i++) {
+    const account = accounts[i]
+    const raw = safe(() => account.emailAddresses(), [])
+    const list = (Array.isArray(raw) ? raw : [raw]).map(normalized).filter((value) => value)
+    for (const address of list) configured.push(address)
+    if (list.indexOf(wanted) === -1) continue
+    const id = safe(() => account.id(), null)
+    if (id) matches.push(String(id))
+  }
+
+  if (matches.length === 0) {
+    throw new Error(
+      `No Mail.app account is configured with the address ${wanted}. Configured: ${configured.join(', ') || '(none)'}`,
+    )
+  }
+  if (matches.length > 1) {
+    throw new Error(`Multiple Mail.app accounts match ${wanted}: ${matches.join(', ')}`)
+  }
+
+  writeStdout(matches[0])
+}
