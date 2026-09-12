@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Gantt, WillowDark } from '@svar-ui/react-gantt'
 import type { ILink, ITask } from '@svar-ui/react-gantt'
+
+import { TIMELINE_COLUMNS } from '@/ui/projects/timeline-projection'
 import '@svar-ui/react-gantt/all.css'
 
 // ---------------------------------------------------------------------------
@@ -44,9 +46,11 @@ export function ProjectTimeline({ tasks, links }: { tasks: ITask[]; links: ILink
   return (
     <div className="portal-svar-midnight project-timeline flex h-full min-h-0 w-full flex-col">
       <WillowDark>
+        {/* flex-1 now means something: globals.css gives the theme wrapper a definite
+            height and makes it a flex column (it ships with neither). */}
         <div className="min-h-[24rem] flex-1 lg:min-h-0">
           {mounted ? (
-            <Gantt tasks={tasks} links={links} readonly cellWidth={38} />
+            <Gantt tasks={tasks} links={links} columns={TIMELINE_COLUMNS} readonly cellWidth={38} />
           ) : (
             <div className="flex h-full items-center justify-center text-sm font-light text-white/50">
               Loading timeline…

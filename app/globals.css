@@ -744,6 +744,21 @@
   --wx-gantt-holiday-background: rgba(255, 255, 255, 0.03);
 }
 
+/* The SVAR theme wrapper (div.wx-theme.wx-willow-dark-theme) carries NO height rule
+   of its own — the vendor's theme docs claim it renders with height:100%, the shipped
+   CSS does not do it and the component sets no inline height either. The consequence
+   is not cosmetic: the wrapper is an auto-height block, so a `flex-1` child inside it
+   is a no-op, the widget sizes to its content, and the pane's remaining height goes
+   unused — that is why the Gantt sat at its min-height floor with empty space below.
+   Give the wrapper the container's height, and make it a flex column so the widget
+   inside can actually flex into the space. Applies to every SVAR widget pane. */
+.portal-svar-midnight > .wx-theme {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 /* The panes themselves read as midnight panels: navy ground, hairline gold edge. */
 .project-timeline,
 .project-filemanager {

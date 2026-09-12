@@ -3,7 +3,7 @@ import { renderToString } from 'react-dom/server'
 import { Gantt } from '@svar-ui/react-gantt'
 import { Filemanager } from '@svar-ui/react-filemanager'
 
-import { mapProjectToTimeline } from '../ui/projects/timeline-projection'
+import { mapProjectToTimeline, TIMELINE_COLUMNS } from '../ui/projects/timeline-projection'
 import { mapProjectToFileTree } from '../ui/projects/documents-projection'
 import type { ProjectPlan, ProjectWorkNode } from '../ui/projects/model'
 
@@ -42,8 +42,17 @@ function check(name: string, render: () => string): void {
   }
 }
 
+// Renders the SAME configuration the app ships, including its column set — a check
+// that passes different props than production is testing a fiction.
 const gantt = (tasks: unknown[], links: unknown[]): (() => string) => () =>
-  renderToString(React.createElement(Gantt as never, { tasks, links, readonly: true } as never))
+  renderToString(
+    React.createElement(Gantt as never, {
+      tasks,
+      links,
+      columns: TIMELINE_COLUMNS,
+      readonly: true,
+    } as never),
+  )
 
 const filemanager = (data: unknown[]): (() => string) => () =>
   renderToString(React.createElement(Filemanager as never, { data, readonly: true } as never))

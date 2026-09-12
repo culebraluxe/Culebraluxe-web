@@ -1,4 +1,4 @@
-import type { ILink, ITask } from '@svar-ui/react-gantt'
+import type { IColumnConfig, ILink, ITask } from '@svar-ui/react-gantt'
 
 import type { ProjectPlan } from './model'
 
@@ -25,6 +25,23 @@ import type { ProjectPlan } from './model'
 /** Sample-schedule anchor used only when a project has no real dates yet. */
 const SAMPLE_SCHEDULE_START = new Date(2026, 8, 1)
 const TASK_DAYS = 3
+
+/**
+ * The Gantt's grid columns, tighter than the vendor defaults (text 183, start 120,
+ * duration 100). The task-name column flexes into whatever is left, so every pixel
+ * spent on a date column is a pixel the timeline chart does not get — and the chart
+ * is the point of this tab. `add-task` is omitted: the widget is readonly, which
+ * removes it anyway.
+ *
+ * It lives here, not in the component, so the headless acceptance check
+ * (`pnpm check:widgets`) renders the SAME configuration the app ships. A check that
+ * renders different props than production is testing a fiction.
+ */
+export const TIMELINE_COLUMNS: IColumnConfig[] = [
+  { id: 'text', header: 'Work item', width: 150, flexgrow: 1, sort: true },
+  { id: 'start', header: 'Start', width: 86, align: 'center', sort: true },
+  { id: 'duration', header: 'Days', width: 62, align: 'center', sort: true },
+]
 
 export type ProjectTimeline = {
   tasks: ITask[]
