@@ -90,7 +90,7 @@
     "forge:tools": "node --import tsx scripts/forge-tools.ts",
     "rw:map": "ripwire . --exclude=.next --exclude=node_modules --exclude=gsd-core --exclude=praxis --exclude=claude-orchestrate --report",
     "rw:for": "bash scripts/ripwire-task.sh",
-    "check:gantt": "tsx scripts/check-gantt-render.mts",
+    "check:widgets": "tsx scripts/check-svar-widgets.mts",
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
