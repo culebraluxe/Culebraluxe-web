@@ -2,10 +2,18 @@
 
 This is the **boot sheet for a fresh engineering session**. It is not a handoff and it is not the architecture source of truth.
 
-- **ARCH-01 in Neon** = architecture authority / what the system is.
-- **SOP-01 in Neon** = operating authority / how the system is run.
+- **`ARCH-HANDOFF` in Neon** (title "ARCH1 — Architecture Handoff — READ FIRST") = architecture authority / what the system is.
+- **`SOP1` in Neon** (title "SOP1 — Pippin Forge Watch SOP") = operating authority / how the system is run.
+- **`DEEP1` in Neon** (title "DEEP1 — Data Pipeline Doctrine … READ SECOND") = data-pipeline authority / how data travels from intake to screen. Read it second, after ARCH-HANDOFF.
 - **This file** = what is available in the workshop and how to choose among it.
 - **Git + Neon live state** = what is actually true right now.
+
+> **Story ids, so nobody hunts again:** the board ids are `ARCH-HANDOFF`, `SOP1` and `DEEP1`.
+> Earlier revisions of this file called the first two "ARCH-01" and "SOP-01", which match
+> no row — searching for them returns nothing. All three are reference stories:
+> `workstream = ARCH`, `rollup = false`, so they never create an agent work item.
+> ARCH-HANDOFF and SOP1 were last written before a lot changed; treat their content as
+> authoritative only where it does not contradict Git + live Neon state.
 
 Before substantial work, inspect current Git and relevant Neon Story / Story Run / Forge evidence. Do not assume the live status snapshot below is newer than the repository or database.
 
@@ -290,7 +298,7 @@ This is a **snapshot, not authority**. Verify newer truth in Git + Neon before a
 When handed a pile of work with the HELM:
 
 1. Read this file.
-2. Read/retrieve `ARCH-01` and `SOP-01` from Neon when relevant.
+2. Retrieve the reference stories from Neon when relevant: `ARCH-HANDOFF` (architecture), `SOP1` (operations), `DEEP1` (data pipeline: ODS -> warehouse -> screen, and the traps in it).
 3. Inspect current Git HEAD/status/recent commits and the relevant source surfaces.
 4. Inspect relevant Neon Story, Story Run, Forge task/evidence/artifact state when the work touches Forge or active workflows.
 5. Decide DIRECT/SOLO vs FORGE vs HOLD before spending heavily.
@@ -300,6 +308,6 @@ When handed a pile of work with the HELM:
 
 A useful HELM prompt is intentionally small:
 
-> **You have the HELM. Read `docs/agent/FORGE-WORKSHOP.md`, consult ARCH-01/SOP-01 and live Git/Neon state as needed. Here is the work. Use any part of the workshop you want. You own the outcome, time, risk and widget spend. Choose the operating mode and execute.**
+> **You have the HELM. Read `docs/agent/FORGE-WORKSHOP.md`, consult ARCH-HANDOFF / SOP1 / DEEP1 and live Git/Neon state as needed. Here is the work. Use any part of the workshop you want. You own the outcome, time, risk and widget spend. Choose the operating mode and execute.**
 
 The desired behavior is not "always use Forge." The desired behavior is **use the cheapest operating mode that still controls the risk, and change modes when reality says you should.**
