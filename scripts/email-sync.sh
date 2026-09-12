@@ -40,4 +40,12 @@ rm -f /tmp/culebraluxe-mail-band.$$
 log "PROD mailbox intake start (local Mail.app Envelope Index -> L table), band=$BAND"
 node --env-file=.env.local --import tsx scripts/apple-mail-envelope-intake.ts prod --band="$BAND"
 log "PROD mailbox intake success"
+
+# PROMOTION — the one place an ODS (l_) table is read. Turns the landed source
+# evidence into warehouse relationship memory: evidence reconciled to a canonical
+# Person, then the canonical interaction the CRM pane reads, then a refresh of the
+# client read models. Idempotent, so a re-run lands nothing twice.
+log "PROD mail promotion start (l_applemail -> warehouse)"
+node --env-file=.env.local --import tsx scripts/promote-applemail.ts prod --days="${MAIL_PROMOTE_DAYS:-90}"
+log "PROD mail promotion success"
 log "sync complete"
