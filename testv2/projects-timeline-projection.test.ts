@@ -35,14 +35,51 @@ const ymd = (value: Date | undefined): string => {
 
 test('a real due date lands on its own calendar date, not the day before (UTC-4 trap)', () => {
   // WBS due dates persist as UTC midnight. Reading local parts of that instant
-  // would put every deadline a day early in Puerto Rico.
+  // would put every deadline a day early in Puerto Rico. The due date is the
+  // FINISH, so a 3-day task due 2026-09-10 starts 2026-09-08.
   const { tasks, synthetic } = mapProjectToTimeline(
     plan([node('a', 'Listing Agreement', { dueAt: '2026-09-10T00:00:00.000Z' })]),
   )
   const task = tasks.find((t) => t.text === 'Listing Agreement')
   assert.ok(task)
   assert.equal(synthetic, false)
-  assert.equal(ymd(task.end), '2026-09-10')
+  assert.equal(ymd(task.start), '2026-09-08')
+  assert.equal(task.duration, 3)
+})
+
+test('ONLY tasks that have children are marked open (an open leaf crashes the Gantt)', () => {
+  // Regression. The Gantt treats `open` as "expanded": an expanded task with no
+  // children is cleared to `data: null`, and its toArray() then recurses into
+  // `task.data` with NO null guard and throws
+  // "Cannot read properties of null (reading 'forEach')". That is exactly how the
+  // Timeline pane blew up in the browser the first time it shipped.
+  const { tasks } = mapProjectToTimeline(
+    plan([
+      node('agreement', 'Listing Agreement', { children: [node('sig', 'Seller Signature')] }),
+      node('media', 'Cabinet + Photos'),
+    ]),
+  )
+
+  const hasChildren = (id: unknown) => tasks.some((candidate) => candidate.parent === id)
+  for (const task of tasks) {
+    if (task.open !== true) continue
+    assert.ok(hasChildren(task.id), `task ${String(task.id)} is marked open but has no children`)
+  }
+
+  // The branch is open; the leaves are not.
+  assert.equal(tasks.find((t) => t.text === 'Listing Agreement')?.open, true)
+  assert.equal(tasks.find((t) => t.text === 'Cabinet + Photos')?.open, undefined)
+  assert.equal(tasks.find((t) => t.text === 'Seller Signature')?.open, undefined)
+})
+
+test('no task supplies both an end and a duration', () => {
+  // The Gantt derives end from start+duration; supplying both is a redundant path
+  // through its date normalization.
+  const { tasks } = mapProjectToTimeline(
+    plan([node('a', 'A', { dueAt: '2026-09-10T00:00:00.000Z' }), node('b', 'B')]),
+  )
+  assert.ok(tasks.length > 0)
+  assert.ok(tasks.every((task) => task.end === undefined))
 })
 
 test('the project is the root summary and carries its REAL progress', () => {

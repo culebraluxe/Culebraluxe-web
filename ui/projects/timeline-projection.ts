@@ -67,18 +67,21 @@ function dateOnly(value: string | undefined): Date | null {
 /**
  * Schedule one work node: end on its real due date when it has one, otherwise
  * lay it onto the sample schedule in plan order.
+ *
+ * Returns `duration`, never `end`: the Gantt derives the end from start+duration,
+ * and supplying both is a redundant path through its date normalization.
  */
 function scheduleFor(
   index: number,
   dueAt: string | undefined,
   anchor: Date,
-): { start: Date; end: Date; duration: number } {
-  const end = dateOnly(dueAt)
-  if (end) {
-    return { start: addDays(end, -(TASK_DAYS - 1)), end, duration: TASK_DAYS }
+): { start: Date; duration: number } {
+  const due = dateOnly(dueAt)
+  if (due) {
+    // The due date is the FINISH, so the task starts TASK_DAYS-1 earlier.
+    return { start: addDays(due, -(TASK_DAYS - 1)), duration: TASK_DAYS }
   }
-  const start = addDays(anchor, index * TASK_DAYS)
-  return { start, end: addDays(start, TASK_DAYS - 1), duration: TASK_DAYS }
+  return { start: addDays(anchor, index * TASK_DAYS), duration: TASK_DAYS }
 }
 
 export function mapProjectToTimeline(project: ProjectPlan): ProjectTimeline {
@@ -98,6 +101,14 @@ export function mapProjectToTimeline(project: ProjectPlan): ProjectTimeline {
 
   // The project itself is the root summary, so the task list carries context.
   // Its progress is REAL (the projection already computed it from persisted WBS).
+  //
+  // `open: true` belongs ONLY on a task that actually has children. This is not
+  // cosmetic: `open` marks a task as EXPANDED, and the Gantt clears an expanded
+  // task that has no children to `data: null`. Its own `toArray()` then recurses
+  // into `task.data` WITHOUT a null guard and throws
+  // "Cannot read properties of null (reading 'forEach')" — which is exactly how
+  // this pane first blew up in the browser. Leaf tasks must never be marked open.
+  // There is a regression test for this invariant.
   const tasks: ITask[] = [
     {
       id: 1,
@@ -114,17 +125,17 @@ export function mapProjectToTimeline(project: ProjectPlan): ProjectTimeline {
 
   nodes.forEach((node, index) => {
     const id = nextId++
-    const { start, end, duration } = scheduleFor(index, node.dueAt, anchor)
+    const { start, duration } = scheduleFor(index, node.dueAt, anchor)
+    const isBranch = (node.children?.length ?? 0) > 0
     tasks.push({
       id,
       text: node.title,
-      type: node.children && node.children.length > 0 ? 'summary' : 'task',
+      type: isBranch ? 'summary' : 'task',
       parent: 1,
       start,
-      end,
       duration,
       progress: PROGRESS_BY_STATUS[node.status] ?? 0,
-      open: true,
+      ...(isBranch ? { open: true } : {}),
       // The inspector's note is real; `details` is the Gantt's own field for it.
       ...(node.note ? { details: node.note } : {}),
     })
@@ -139,7 +150,6 @@ export function mapProjectToTimeline(project: ProjectPlan): ProjectTimeline {
         type: 'task',
         parent: id,
         start: scheduled.start,
-        end: scheduled.end,
         duration: scheduled.duration,
         progress: PROGRESS_BY_STATUS[child.status] ?? 0,
         ...(child.note ? { details: child.note } : {}),
