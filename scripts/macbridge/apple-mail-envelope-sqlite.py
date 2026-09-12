@@ -30,6 +30,7 @@ MAIL_ROOT = Path.home() / "Library" / "Mail"
 MAILBOX_URL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)/(.*)$")
 INBOX_LEAVES = {"inbox"}
 SENT_LEAVES = {"sent", "sent mail", "sent messages", "sent items"}
+MESSAGE_ID_HEADER = re.compile(r"<([^<>]+)>")
 
 
 def fail(message: str, code: int = 2) -> "NoReturn":
@@ -215,8 +216,32 @@ def band_window(band: str) -> tuple[datetime, datetime | None]:
     return since, before
 
 
+def normalize_message_id_header(value: Any) -> str | None:
+    """The RFC Message-ID, without the angle brackets Mail stores it in.
+
+    Mail keeps it in message_global_data.message_id_header, for example
+    "<2F48AB70-F8A4-405F-AD33-E8C16F00A32D@gmail.com>". The replay identity strips
+    the brackets, which is what the rows already in l_applemail hold, so the two
+    agree. messages.message_id is an INTEGER and is never an identity.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = MESSAGE_ID_HEADER.search(text)
+    if match:
+        return match.group(1).strip() or None
+    return text.split()[0] if text.split() else None
+
+
+def has_message_id_header(db: sqlite3.Connection) -> bool:
+    tables = {str(row[0]) for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "message_global_data" not in tables:
+        return False
+    return "message_id_header" in columns(db, "message_global_data")
+
+
 def build_page_query(
-    inbox_ids: list[int], sent_ids: list[int], has_message_id: bool
+    inbox_ids: list[int], sent_ids: list[int], has_header: bool
 ) -> tuple[str, list[int]]:
     all_ids = inbox_ids + sent_ids
     all_ph = ",".join("?" for _ in all_ids)
@@ -226,20 +251,31 @@ def build_page_query(
         "THEN COALESCE(NULLIF(m.date_sent,0), m.date_received) "
         "ELSE COALESCE(NULLIF(m.date_received,0), m.date_sent) END"
     )
-    message_id_expr = "m.message_id" if has_message_id else "NULL"
+    # The RFC Message-ID lives in message_global_data, keyed by
+    # messages.global_message_id. messages.message_id is an INTEGER, shared by the
+    # same mail sitting in different mailboxes, and matches nothing Mail's
+    # AppleEvent bridge reports - using it as an identity double-lands every
+    # message, which is exactly what it did.
+    if has_header:
+        header_join = "LEFT JOIN message_global_data g ON g.ROWID = m.global_message_id"
+        header_expr = "g.message_id_header"
+    else:
+        header_join = ""
+        header_expr = "NULL"
     sql = f"""
         WITH base AS (
             SELECT
                 m.ROWID AS rowid,
                 m.mailbox AS mailbox_id,
                 {occurred_expr} AS occurred_store,
-                {message_id_expr} AS message_id,
+                {header_expr} AS message_id_header,
                 COALESCE(a.address, '') AS sender_address,
                 COALESCE(a.comment, '') AS sender_name,
                 COALESCE(s.subject, '') AS subject
             FROM messages m
             LEFT JOIN addresses a ON m.sender = a.ROWID
             LEFT JOIN subjects s ON m.subject = s.ROWID
+            {header_join}
             WHERE m.mailbox IN ({all_ph})
               {{deleted_filter}}
         )
@@ -315,7 +351,8 @@ def main() -> None:
         before_store = unix_to_store(before_iso.timestamp(), epoch) if before_iso else None
 
         has_message_id = "message_id" in schema["messages"]
-        sql, prefix = build_page_query(inbox_ids, sent_ids, has_message_id)
+        has_header = has_message_id_header(db)
+        sql, prefix = build_page_query(inbox_ids, sent_ids, has_header)
         sql = sql.replace(
             "{deleted_filter}",
             "AND COALESCE(m.deleted,0)=0" if "deleted" in schema["messages"] else "",
@@ -340,7 +377,7 @@ def main() -> None:
                 "mailbox": kind,
                 "mailboxName": mailbox_names.get(mailbox_id, kind),
                 "localId": rowid,
-                "messageId": (str(row["message_id"]).strip() if row["message_id"] else None),
+                "messageId": normalize_message_id_header(row["message_id_header"]),
                 "occurredAt": store_to_iso(row["occurred_store"], epoch),
                 "sender": sender,
                 "to": recipient_data["to"],
