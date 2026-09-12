@@ -8,7 +8,7 @@
 //
 // Idempotent: marker-guarded. Dry-run unless --apply.
 
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
 const NOTE =
@@ -22,7 +22,7 @@ for (const [label, url] of [
   ['PROD', process.env.DATABASE_URL_PROD],
   ['DEV', process.env.DATABASE_URL_DEV],
 ]) {
-  const pool = new Pool({ connectionString: url })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
   const needNote = await pool.query(
     `select count(*)::int n from storyboard_story
       where id like 'PROJECTS-WORKSPACE-%' and coalesce(notes,'') not like $1`,

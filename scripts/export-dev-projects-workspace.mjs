@@ -5,16 +5,16 @@
 // The Projects screen work (projects, WBS items, their entity anchors) only
 // exists on DEV. Before pulling PROD down onto DEV we preserve it here so the
 // workspace work is not lost:
-//   node --env-file=.env.local scripts/export-dev-projects-workspace.mjs
-//   node --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/export-dev-projects-workspace.mjs
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev
 //
 // Output: db/seeds/dev-projects-workspace.sql (idempotent: on conflict do nothing)
 // ---------------------------------------------------------------------------
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 
-const dev = new Pool({ connectionString: process.env.DATABASE_URL_DEV })
-const prod = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
+const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 const OUT = 'db/seeds/dev-projects-workspace.sql'
 
 const lit = (v) => {

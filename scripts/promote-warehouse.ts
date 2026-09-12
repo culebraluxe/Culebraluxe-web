@@ -23,7 +23,7 @@
 //   node --env-file=.env.local --import tsx scripts/promote-warehouse.ts --env prod --apply
 // ---------------------------------------------------------------------------
 import { randomUUID } from 'node:crypto'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 
 const argv = process.argv.slice(2)
 const flag = (n: string) => {
@@ -55,7 +55,7 @@ if (!url) {
   console.error(`No DATABASE_URL_${ENV.toUpperCase()} configured (fail closed)`)
   process.exit(2)
 }
-const pool = new Pool({ connectionString: url, ssl: true })
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
 
 type LandingPerson = {
   id: string

@@ -16,7 +16,7 @@
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 
 import { resolveDbTarget } from '../db/database-gateway'
 import type { QueryExecutor, QueryRow } from '../db/query-executor'
@@ -77,7 +77,7 @@ async function main() {
   if (!url) {
     throw new Error('DATABASE_URL_PROD is not configured; refusing to run (fail closed).')
   }
-  const pool = new Pool({ connectionString: url })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
 
   /**
    * Writes go through the SAME connection the evidence was read from, so the

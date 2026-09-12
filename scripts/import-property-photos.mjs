@@ -3,7 +3,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
-import { neon } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const SUPPORTED_IMAGE_TYPES = new Map([
   ['.jpg', 'image/jpeg'],
@@ -46,7 +46,7 @@ function naturalFilenameCompare(left, right) {
 
 function usage() {
   return `Usage:
-  node --env-file=.env.local scripts/import-property-photos.mjs \\
+  node --import tsx --env-file=.env.local --env-file=.env.local scripts/import-property-photos.mjs \\
     --property-id <uuid> \\
     --dir "/absolute/path/to/photos" \\
     [--hero "filename.jpg"] \\
@@ -171,7 +171,7 @@ function getDatabaseUrl() {
 }
 
 async function importPhotos(options, plan) {
-  const sql = neon(getDatabaseUrl())
+  const sql = forgeDb.forTarget(forgeDbTargetForUrl(getDatabaseUrl())).sql
 
   const propertyRows = await sql`
     SELECT id, name, slug

@@ -18,7 +18,7 @@
 // its own body still connects to whatever environment was set when the gateway was imported —
 // while dbTargetInfo() cheerfully reports the new target. That trap is DEEP1 section 6, and it
 // has already written to the wrong branch once.
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 
 import { createPoolExecutor } from './lib/pool-executor'
 import { getStoryboardStory, updateStoryboardStory } from '../db/storyboard'

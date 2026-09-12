@@ -10,11 +10,11 @@
 // Everything not listed stays "pre-baseline / unrecorded" — which migration-status
 // reports honestly rather than pretending to know.
 //
-//   node --env-file=.env.local scripts/migration-ledger-baseline.mjs
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/migration-ledger-baseline.mjs
 // ---------------------------------------------------------------------------
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const BASELINE_NOTE =
   '2026-09-10 baseline: DEV and PROD verified identical across tables, columns, indexes and FKs (pnpm db:parity). Pre-baseline application history is unknown and intentionally not claimed.'
@@ -53,8 +53,8 @@ const DEV_PRESENT_AT_BASELINE = [
 const checksumOf = async (file) =>
   `sha256:${createHash('sha256').update(await readFile(file, 'utf8')).digest('hex')}`
 
-const dev = new Pool({ connectionString: process.env.DATABASE_URL_DEV })
-const prod = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
+const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 async function upsert(pool, filename, checksum, target, note) {
   await pool.query(

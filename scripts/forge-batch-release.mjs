@@ -9,18 +9,18 @@
 // released deliberately (and, once deploy receipts exist, verified for real).
 //
 // Usage:
-//   node --env-file=.env.local scripts/forge-batch-release.mjs               # list
-//   node --env-file=.env.local scripts/forge-batch-release.mjs --batch 1     # one slice
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-batch-release.mjs               # list
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-batch-release.mjs --batch 1     # one slice
 // ---------------------------------------------------------------------------
 
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const argv = process.argv.slice(2)
 const only = argv.includes('--batch') ? Number(argv[argv.indexOf('--batch') + 1]) : null
 const target = (argv.includes('--target') ? argv[argv.indexOf('--target') + 1] : 'prod') === 'dev' ? 'dev' : 'prod'
 const url = target === 'dev' ? process.env.DATABASE_URL_DEV : process.env.DATABASE_URL_PROD
 
-const pool = new Pool({ connectionString: url })
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
 const rows = await pool.query(
   `select s.id, s.batch, s.status, s.batch_deploy,
           e.qa_passed, e.published_sha, e.deployment_deferred_to_batch,

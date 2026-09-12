@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { basename, relative, resolve, sep } from 'node:path'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../../db/forge-db'
 import { checkSchemaParity } from './schema-parity'
 
 export type ForgeReleaseTarget = 'dev' | 'prod'
@@ -84,7 +84,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
   return {
     async applyMigrations(input) {
       const migrations = await migrationContents(input.repoRoot, input.migrationFiles)
-      const pool = new Pool({ connectionString: databaseUrl(input.target) })
+      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
       const completed: string[] = []
       try {
         for (const migration of migrations) {
@@ -149,7 +149,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
 
     async verifyMigrations(input) {
       const migrations = await migrationContents(input.repoRoot, input.migrationFiles)
-      const pool = new Pool({ connectionString: databaseUrl(input.target) })
+      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
       try {
         for (const migration of migrations) {
           const result = await pool.query(
@@ -220,7 +220,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
 
     async refreshDerived(input) {
       if (input.models.length === 0) throw new Error('derivedRefreshRequired=true but derivedModels is empty')
-      const pool = new Pool({ connectionString: databaseUrl(input.target) })
+      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
       try {
         for (const model of input.models) {
           try {
@@ -255,7 +255,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
     },
 
     async verifyDerived(input) {
-      const pool = new Pool({ connectionString: databaseUrl(input.target) })
+      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
       try {
         for (const model of input.models) {
           const name = model.includes('.') ? model.split('.')[1] : model

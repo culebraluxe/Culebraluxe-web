@@ -75,8 +75,8 @@
     "mq:worker:prod": "APP_ENV=production node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/mq-worker.ts",
     "workflow": "node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/workflow-cli.ts",
     "db:parity": "node --env-file=.env.local --import tsx scripts/check-schema-parity.ts",
-    "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
-    "db:migrations": "node --env-file=.env.local scripts/migration-status.mjs",
+    "db:migrate": "node --import tsx --env-file=.env.local scripts/apply-migration.mjs",
+    "db:migrations": "node --import tsx --env-file=.env.local scripts/migration-status.mjs",
     "verify:public-reads": "node --env-file=.env.local --import tsx scripts/verify-public-reads-service.ts",
     "verify:forms": "node --env-file=.env.local --import tsx scripts/verify-forms-service.ts",
     "verify:forms:e2e": "node --env-file=.env.local --import tsx scripts/verify-listing-client-fill.ts",
@@ -93,9 +93,9 @@
     "rw:for": "bash scripts/ripwire-task.sh",
     "check:widgets": "tsx scripts/check-svar-widgets.mts",
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
-    "db:pull:dev": "node --env-file=.env.local scripts/pull-prod-to-dev.mjs",
-    "db:export:projects": "node --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
-    "db:seed:projects": "node --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev"
+    "db:pull:dev": "node --import tsx --env-file=.env.local scripts/pull-prod-to-dev.mjs",
+    "db:export:projects": "node --import tsx --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
+    "db:seed:projects": "node --import tsx --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

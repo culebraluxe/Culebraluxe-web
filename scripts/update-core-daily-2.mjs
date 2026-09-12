@@ -1,7 +1,7 @@
 // CORE-DAILY — truthful Production Story Board update (session 2).
-// Run: node --env-file=.env.local scripts/update-core-daily-2.mjs
-import { Pool } from '@neondatabase/serverless'
-const pool = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+// Run: node --import tsx --env-file=.env.local --env-file=.env.local scripts/update-core-daily-2.mjs
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const SHA = '81f0dd0' // filled after commit
 const COMMON = `session-2 commit ${SHA} | migrations 075/076/077 applied+proven in DEV | tsc clean | next build exit 0 | git diff clean`

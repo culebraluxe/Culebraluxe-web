@@ -23,7 +23,7 @@
 // The rebuild is atomic in a single DB transaction so a failed projection cannot
 // leave a half-current population.
 // ---------------------------------------------------------------------------
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 import { fileURLToPath } from 'node:url'
 import { resolve as resolvePath } from 'node:path'
 
@@ -243,7 +243,7 @@ async function runMain() {
     process.exit(2)
   }
 
-  const pool = new Pool({ connectionString: url, ssl: true })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
   try {
     const accountRows = await pool.query(
       `select distinct source_account from integration_intake_batch where source = $1 and source_account <> '' order by source_account`,
@@ -279,22 +279,16 @@ async function runMain() {
     )
     const existingBefore = Number(before.rows[0]?.n ?? 0)
 
-    const client = await pool.connect()
-    try {
-      await client.query('begin')
-      await client.query(L_PERSON_UPSERT_SQL, [batchId, SOURCE])
-      await client.query(PRUNE_SQL, [batchId, SOURCE, sourceAccount])
+    // ForgeDB owns the transaction: one pooled client, BEGIN/COMMIT/ROLLBACK and
+    // the rollback-on-throw, instead of this script holding a client of its own.
+    await pool.transaction(async (tx) => {
+      await tx.query(L_PERSON_UPSERT_SQL, [batchId, SOURCE])
+      await tx.query(PRUNE_SQL, [batchId, SOURCE, sourceAccount])
       // Addresses land in l_property (the landing place record), where they fork by
       // label — Home is the legal address, Work is the physical property. Identity
       // (phones/emails) already lives on the l_person row itself.
-      await client.query(L_PROPERTY_SQL, [batchId, SOURCE])
-      await client.query('commit')
-    } catch (err) {
-      await client.query('rollback')
-      throw err
-    } finally {
-      client.release()
-    }
+      await tx.query(L_PROPERTY_SQL, [batchId, SOURCE])
+    })
 
     const after = await pool.query(
       `select count(distinct source_contact_id)::int as n from l_person where source = $1 and source_account = $2`,

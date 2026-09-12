@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl, type ForgeDbHandle } from '../db/forge-db'
 import {
   APPLE_CONTACTS_ADAPTER,
   APPLE_CONTACTS_ADAPTER_VERSION,
@@ -74,7 +74,7 @@ async function runMain() {
     console.error('PROD load selected but the configured connection is the DEV URL (fail closed)')
     process.exit(2)
   }
-  const pool = new Pool({ connectionString: url, ssl: true })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
   const q = makeExecutor(pool)
   let errorCount = 0
   try {
@@ -96,14 +96,14 @@ if (isMain) {
   })
 }
 
-/** Tagged-template QueryExecutor over the Neon WebSocket pool. */
-function makeExecutor(pool: Pool): QueryExecutor {
+/** Tagged-template QueryExecutor over the shared ForgeDB pool. */
+function makeExecutor(pool: ForgeDbHandle): QueryExecutor {
   return ((strings, ...params) => {
     const text = strings.reduce(
       (acc, s, i) => acc + s + (i < params.length ? `$${i + 1}` : ''),
       '',
     )
-    return pool.query({ text, values: params }).then((r) => r.rows as never[])
+    return pool.query(text, params).then((r) => r.rows as never[])
   }) as QueryExecutor
 }
 

@@ -3,7 +3,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
-import { neon } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const SUPPORTED_IMAGE_TYPES = new Map([
   ['.jpg', 'image/jpeg'],
@@ -74,7 +74,7 @@ const naturalCollator = new Intl.Collator('en', {
 
 function usage() {
   return `Usage:
-  node --env-file=.env.local scripts/import-guide-images.mjs \\
+  node --import tsx --env-file=.env.local --env-file=.env.local scripts/import-guide-images.mjs \\
     --dir "/absolute/path/to/public/images/guide" \\
     [--replace] \\
     [--dry-run]
@@ -512,7 +512,7 @@ async function main() {
     return
   }
 
-  const sql = neon(getDatabaseUrl())
+  const sql = forgeDb.forTarget(forgeDbTargetForUrl(getDatabaseUrl())).sql
   const verified = await verifyPlanAgainstDatabase(
     sql,
     assignments,

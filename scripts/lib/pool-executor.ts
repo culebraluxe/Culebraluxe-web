@@ -1,19 +1,25 @@
-// REL-INTEL — WebSocket Pool-backed QueryExecutor adapter for DEV load tooling.
-// The app's default `sql` executor (db/client) is the Neon HTTP driver, which is
-// slow for thousands of sequential upserts/lookups. These dev-only load scripts
-// use a persistent pooled connection instead. Equivalent tagged-template SQL;
-// never used by app runtime code.
-import { Pool } from '@neondatabase/serverless'
+// OPERATOR TOOLING — pooled QueryExecutor adapter, backed by ForgeDB.
+//
+// This used to create its own WebSocket Pool "for DEV load tooling", which made it
+// a second place that decided its own connection and its own environment. It now
+// adopts the application's single pool: the caller's url is mapped to the target
+// ForgeDB already owns, and a url we do not own REFUSES rather than opening a
+// private connection.
+import { forgeDb, forgeDbTargetForUrl, type ForgeDbTarget } from '../../db/forge-db'
 import type { QueryExecutor } from '../../db/query-executor'
 
-export function createPoolExecutor(url: string): { execute: QueryExecutor; end: () => Promise<void> } {
-  const pool = new Pool({ connectionString: url })
-  const execute: QueryExecutor = (strings, ...params) => {
-    let text = strings[0]
-    for (let i = 0; i < params.length; i++) {
-      text += `$${i + 1}${strings[i + 1] ?? ''}`
-    }
-    return pool.query(text, params).then((r) => r.rows)
+export type PoolExecutor = {
+  execute: QueryExecutor
+  end: () => Promise<void>
+}
+
+export function createPoolExecutor(
+  urlOrTarget: string,
+  target?: ForgeDbTarget,
+): PoolExecutor {
+  const handle = forgeDb.forTarget(target ?? forgeDbTargetForUrl(urlOrTarget))
+  return {
+    execute: handle.sql as QueryExecutor,
+    end: () => handle.end(),
   }
-  return { execute, end: () => pool.end() }
 }

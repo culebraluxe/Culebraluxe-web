@@ -10,11 +10,12 @@
 //   2. if anything constructs a pool/client of its own outside db/forge-db.ts;
 //   3. if the set of files still importing the old Neon driver GROWS.
 //
-// Rule 3 is a RATCHET, not an exemption. 37 files imported the Neon driver when the
-// wrapper landed — each one deciding its own environment — so they are frozen below
-// and the list may only SHRINK. Removing an entry means migrating that file to
-// ForgeDB; ADDING one is a failure, so the sprawl cannot resume while the
-// remainder is swept. `workflow_engine/**` is captain-owned: reported, never edited.
+// Rule 3 is a RATCHET, not an exemption. 38 files imported the Neon driver when the
+// wrapper landed — each one deciding its own environment — so they were frozen in a
+// list that may only SHRINK. The 2026-09-12 sweep migrated every one of them, so the
+// list now holds a single entry: `workflow_engine/lib/workflow/db.ts`, which is
+// captain-owned and is REPORTED here, never edited. ADDING an entry is a failure, so
+// the sprawl cannot resume.
 // ---------------------------------------------------------------------------
 
 import { test } from 'node:test'
@@ -45,49 +46,13 @@ const SOURCE_EXT = /\.(ts|tsx|mts|cts|mjs|cjs|js|jsx)$/
 const POOL_OWNER = 'db/forge-db.ts'
 
 /**
- * FROZEN — files that still import `@neondatabase/serverless` from before the
- * wrapper existed. May only shrink.
+ * FROZEN — the last file still importing the old Neon driver.
+ *
+ * `workflow_engine/lib/workflow/db.ts` is CAPTAIN-OWNED (see AGENTS.md: report,
+ * never edit), so it is reported here rather than migrated. Everything else was
+ * swept to ForgeDB on 2026-09-12. This list may only shrink.
  */
-const FROZEN_NEON_IMPORTERS: readonly string[] = `scripts/apply-migration.mjs
-scripts/audit-phone-identities.ts
-scripts/backfill-cost-widgets.ts
-scripts/create-deep1-story.ts
-scripts/export-dev-projects-workspace.mjs
-scripts/fix-person-name-order-julio-pimentel-ortiz.mjs
-scripts/forge-batch-release.mjs
-scripts/forge-board-sync.ts
-scripts/forge-holes-board.mjs
-scripts/forge-human-gate-pass.mjs
-scripts/forge-story-reset.ts
-scripts/import-guide-images.mjs
-scripts/import-missing-guide-images.mjs
-scripts/import-property-document.mjs
-scripts/import-property-photos.mjs
-scripts/lib/pool-executor.ts
-scripts/load-apple-contacts.ts
-scripts/migration-ledger-baseline.mjs
-scripts/migration-status.mjs
-scripts/project-apple-contacts.ts
-scripts/projects-workspace-board.mjs
-scripts/projects-workspace-scope-note.mjs
-scripts/promote-warehouse.ts
-scripts/pull-prod-to-dev.mjs
-scripts/rel-intel-nav-close.mjs
-scripts/seed-forge-sdlc.ts
-scripts/sync-forge-history.ts
-scripts/update-core-daily-0910.mjs
-scripts/update-core-daily-2.mjs
-scripts/update-core-daily.mjs
-scripts/update-reference-stories.ts
-scripts/update-rel-intel-stories.mjs
-scripts/workflow-cli.ts
-workflow_app/forge/release-operations.ts
-workflow_app/forge/schema-parity.ts
-workflow_app/scripts/reset-dev-workflows.ts
-workflow_engine/lib/workflow/db.ts`
-  .split('\n')
-  .map((line) => line.trim())
-  .filter(Boolean)
+const FROZEN_NEON_IMPORTERS: readonly string[] = ['workflow_engine/lib/workflow/db.ts']
 
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[]

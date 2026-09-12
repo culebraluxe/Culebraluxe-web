@@ -3,7 +3,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 
-import { neon } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const CASA_LUAR_PROPERTY_ID = '40000000-0000-4000-8000-000000000001'
 const CASA_LUAR_SLUG = 'casa-luar'
@@ -11,7 +11,7 @@ const DEFAULT_TITLE = 'Casa Luar Property Appraisal'
 
 function usage() {
   return `Usage:
-  node --env-file=.env.local scripts/import-property-document.mjs \\
+  node --import tsx --env-file=.env.local --env-file=.env.local scripts/import-property-document.mjs \\
     --property-id ${CASA_LUAR_PROPERTY_ID} \\
     --file "/absolute/path/to/appraisal.pdf" \\
     --title "${DEFAULT_TITLE}"`
@@ -92,7 +92,7 @@ async function importDocument(options) {
   }
 
   const filename = path.basename(options.file)
-  const sql = neon(getDatabaseUrl())
+  const sql = forgeDb.forTarget(forgeDbTargetForUrl(getDatabaseUrl())).sql
   const propertyRows = await sql`
     SELECT id, name, slug
     FROM property

@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
-import { neon } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const FILE_TO_SLUG = new Map([
   ['caracoles_restaurant.jpg', 'caracoles'],
@@ -84,7 +84,7 @@ async function main() {
     return
   }
 
-  const sql = neon(getDatabaseUrl())
+  const sql = forgeDb.forTarget(forgeDbTargetForUrl(getDatabaseUrl())).sql
   const verified = []
 
   for (const item of mapped) {

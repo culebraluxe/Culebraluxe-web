@@ -2,16 +2,16 @@
 // ---------------------------------------------------------------------------
 // Migration ledger status: what is recorded as applied, where, and what is not.
 //
-//   node --env-file=.env.local scripts/migration-status.mjs
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/migration-status.mjs
 //
 // "Unrecorded" is honest, not alarming: the ledger is authoritative only from
 // the 2026-09-10 baseline forward. Files that predate it show up there by design.
 // ---------------------------------------------------------------------------
 import { readdir } from 'node:fs/promises'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
-const dev = new Pool({ connectionString: process.env.DATABASE_URL_DEV })
-const prod = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
+const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 try {
   const files = (await readdir('db/migrations')).filter((f) => f.endsWith('.sql')).sort()

@@ -9,14 +9,14 @@
 // Usage:
 //   node --env-file=.env.local scripts/backfill-cost-widgets.ts [dev|prod]
 // -----------------------------------------------------------------------------
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 import { modelWidgetWeight } from '../workflow_app/forge/forge-estimator'
 
 async function main() {
   const which = (process.argv[2] ?? 'dev').toLowerCase()
   if (which !== 'dev' && which !== 'prod') throw new Error(`unknown target: ${which}`)
   const url = which === 'prod' ? process.env.DATABASE_URL_PROD : process.env.DATABASE_URL_DEV
-  const pool = new Pool({ connectionString: url })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
   try {
     const rows = await pool.query(
       `select id, model_used, started_at, ended_at, cost_widgets

@@ -15,7 +15,7 @@
 // Dry-run by default; pass --apply to write.
 // ---------------------------------------------------------------------------
 
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const MARK = 'AMENDED 2026-09-10'
 const APPLY = process.argv.includes('--apply')
@@ -263,7 +263,7 @@ const CONTEXT_REFS = {
 }
 
 async function board(url) {
-  return new Pool({ connectionString: url })
+  return forgeDb.forTarget(forgeDbTargetForUrl(url))
 }
 
 async function main() {

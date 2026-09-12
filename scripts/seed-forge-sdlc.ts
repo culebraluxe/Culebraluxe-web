@@ -11,7 +11,7 @@
 // Usage:
 //   node --env-file=.env.local --import tsx scripts/seed-forge-sdlc.ts [dev|prod]
 // -----------------------------------------------------------------------------
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 import { parseForgeSdlc, FORGE_SDLC_VERSION } from '../workflow_app/definitions/forge-sdlc'
 
 const which = (process.argv[2] ?? (process.env.APP_ENV === 'production' ? 'prod' : 'dev')).toLowerCase()
@@ -29,7 +29,7 @@ const graph = parseForgeSdlc().graph
 const version = FORGE_SDLC_VERSION
 
 async function main() {
-  const pool = new Pool({ connectionString: url })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
   try {
     // Idempotent for the ACTIVE version only (FORGE_SDLC_VERSION is the single source
     // of truth, so this script can never seed a version the engine will not start).

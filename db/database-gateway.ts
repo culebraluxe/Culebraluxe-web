@@ -19,7 +19,9 @@ import { flattenSqlTemplate } from './sql-template'
 //   - logs server-side diagnostics (incident id, operation, env, error code,
 //     safe classification) with NO credentials, NO raw SQL, NO bind values
 //
-// This is the ONLY runtime module allowed to import @neondatabase/serverless.
+// This module no longer imports a database driver at all: db/forge-db.ts owns the
+// application's single pool, and the boundary test fails the build if any other
+// module (this one included) reaches for a driver directly.
 // ---------------------------------------------------------------------------
 
 // ---------- Result / error taxonomy ----------

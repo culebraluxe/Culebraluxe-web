@@ -8,7 +8,7 @@
 // Multi-statement migration files are executed as a single simple query.
 //
 // Usage:
-//   node --env-file=.env.local scripts/apply-migration.mjs <sql-file> [prod|dev] [--force] [--note "…"]
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/apply-migration.mjs <sql-file> [prod|dev] [--force] [--note "…"]
 //
 // Default target follows APP_ENV (production -> prod, otherwise dev).
 //
@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const args = process.argv.slice(2)
 const file = args.find((a) => !a.startsWith('--') && a !== 'dev' && a !== 'prod')
@@ -40,7 +40,7 @@ if (!url) {
 
 const sql = await readFile(file, 'utf8')
 const checksum = `sha256:${createHash('sha256').update(sql).digest('hex')}`
-const pool = new Pool({ connectionString: url })
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
 
 try {
   let existing

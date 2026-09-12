@@ -1,7 +1,7 @@
 // CORE-DAILY-09 + 10 — Production Story Board completion update.
-// Run: node --env-file=.env.local scripts/update-core-daily-0910.mjs
-import { Pool } from '@neondatabase/serverless'
-const pool = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+// Run: node --import tsx --env-file=.env.local --env-file=.env.local scripts/update-core-daily-0910.mjs
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 const SHA = 'd5d3797'
 const PLAN = {
   'CORE-DAILY-09': {

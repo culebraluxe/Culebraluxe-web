@@ -10,10 +10,10 @@
 //
 // Order matters: runs first, then work items (work items reference story_run_id).
 // FK safety: a row is skipped (and reported) if a parent it needs is absent from PROD.
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 
-const dev = new Pool({ connectionString: process.env.DATABASE_URL_DEV })
-const prod = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
+const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 type Row = Record<string, unknown>
 

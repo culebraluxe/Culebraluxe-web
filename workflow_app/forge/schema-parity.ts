@@ -4,13 +4,13 @@
 // Used by:
 //   * scripts/check-schema-parity.ts            (`pnpm db:parity`, the release gate)
 //   * workflow_app/forge/release-operations.ts  (the Forge DEV_OPS gate)
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../../db/forge-db'
 import { compareSnapshots, type ParityReport, type SchemaSnapshot } from '../../lib/schema-parity'
 
 export type { ParityReport } from '../../lib/schema-parity'
 
 export async function readSchemaSnapshot(connectionString: string): Promise<SchemaSnapshot> {
-  const pool = new Pool({ connectionString })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(connectionString))
   try {
     const tables = (
       await pool.query(

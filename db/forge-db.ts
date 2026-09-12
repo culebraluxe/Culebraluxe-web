@@ -27,7 +27,7 @@
 //      idle-client errors, which are otherwise an invisible hole.
 // ---------------------------------------------------------------------------
 
-import { Pool, type PoolClient, type PoolConfig } from 'pg'
+import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg'
 
 import { captureError } from './app-error'
 import type { QueryExecutor, QueryRow } from './query-executor'
@@ -88,6 +88,36 @@ export function forgeDbConnectionString(
   return withExplicitSslMode(url)
 }
 
+/**
+ * Map one of THIS process's own connection URLs back to the target it belongs to,
+ * so a caller that already holds a URL can adopt the shared pool without
+ * re-deciding anything.
+ *
+ * Throws for a URL we do not own. That is deliberate: the point of ForgeDB is that
+ * nobody opens a connection of its own, and silently accepting an arbitrary URL
+ * would make the caller's string a second source of truth about which database is
+ * being written. Callers with a URL we do not recognise should pass an explicit
+ * target through `forgeDb.forTarget()`.
+ */
+export function forgeDbTargetForUrl(
+  url: string | null | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): ForgeDbTarget {
+  const trimmed = (url ?? '').trim()
+  if (!trimmed) {
+    throw new ForgeDbConfigError(
+      'forgeDbTargetForUrl: no url was given. A connection target must be declared, never empty.',
+    )
+  }
+  if (env.DATABASE_URL_PROD && env.DATABASE_URL_PROD.trim() === trimmed) return 'prod'
+  if (env.DATABASE_URL_DEV && env.DATABASE_URL_DEV.trim() === trimmed) return 'dev'
+  throw new ForgeDbConfigError(
+    'forgeDbTargetForUrl: this url is not DATABASE_URL_PROD or DATABASE_URL_DEV for this process, ' +
+      'so ForgeDB will not adopt it. Pass an explicit target to forgeDb.forTarget(target) instead — ' +
+      'a connection must never be opened from an arbitrary url.',
+  )
+}
+
 const pools = new Map<ForgeDbTarget, Pool>()
 
 /**
@@ -137,21 +167,36 @@ async function runAgainst(
 }
 
 /**
+ * The transaction body's executor: the tagged template PLUS the raw text+params
+ * form. The extra form exists so a call site that already has
+ * `client.query(text, params)` inside a hand-rolled BEGIN/COMMIT can move onto a
+ * ForgeDB transaction without being rewritten — the transaction itself is
+ * ForgeDB's, on one pooled client, with the rollback handled for it.
+ */
+export type ForgeDbTx = QueryExecutor & {
+  query: <T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    params?: unknown[],
+  ) => Promise<QueryResult<T>>
+}
+
+/**
  * Run `cb` inside an interactive transaction on ONE pooled client: a real
  * BEGIN/COMMIT/ROLLBACK on a single connection. A throw anywhere in `cb` rolls
  * back, and a rollback failure is captured rather than replacing the cause.
  */
 export async function withForgeTransaction<T>(
-  cb: (tx: QueryExecutor) => Promise<T>,
+  cb: (tx: ForgeDbTx) => Promise<T>,
   target?: ForgeDbTarget,
 ): Promise<T> {
   const pool = forgeDbPool(target)
   const client: PoolClient = await pool.connect()
   try {
     await client.query('BEGIN')
-    const result = await cb((strings: TemplateStringsArray, ...values: unknown[]) =>
-      runAgainstClient(client, strings, values),
-    )
+    const tx = ((strings: TemplateStringsArray, ...values: unknown[]) =>
+      runAgainstClient(client, strings, values)) as ForgeDbTx
+    tx.query = (text, params = []) => client.query(text, params)
+    const result = await cb(tx)
     await client.query('COMMIT')
     return result
   } catch (error) {
@@ -195,16 +240,29 @@ export function forgeDbForTarget(target: ForgeDbTarget) {
     pool,
     sql: (strings: TemplateStringsArray, ...values: unknown[]) =>
       runAgainst(pool(), strings, values),
-    /** Raw text + params, for the few places that build a text with `$n` by hand. */
+    /**
+     * The FULL pg result (rows + rowCount), generic over the row type so call sites
+     * that already write `pool.query<{ id: string }>(...)` keep compiling. Exists so
+     * adopting the shared pool means changing how the handle is obtained, not
+     * rewriting every result handling. New code should prefer `sql` (tagged).
+     */
+    query: <T extends QueryResultRow = QueryResultRow>(
+      text: string,
+      params: unknown[] = [],
+    ): Promise<QueryResult<T>> => pool().query<T>(text, params),
+    /** Raw text + params → rows only. */
     runText: (text: string, params: unknown[] = []) => {
       const p = pool()
       return p.query(text, params).then((r) => r.rows as QueryRow[])
     },
-    transaction: <T>(cb: (tx: QueryExecutor) => Promise<T>) => withForgeTransaction(cb, target),
+    transaction: <T>(cb: (tx: ForgeDbTx) => Promise<T>) => withForgeTransaction(cb, target),
     stats: () => poolStats(target),
     end: () => endForgeDb(target),
   }
 }
+
+/** The object `forgeDb.forTarget()` returns — the shared-pool handle. */
+export type ForgeDbHandle = ReturnType<typeof forgeDbForTarget>
 
 function poolStats(target?: ForgeDbTarget) {
   const resolved = target ?? declareControlPlane().target

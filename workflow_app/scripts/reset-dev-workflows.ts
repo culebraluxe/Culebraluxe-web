@@ -47,10 +47,12 @@ async function main(): Promise<void> {
     return
   }
 
-  const { neon } = await import('@neondatabase/serverless')
+  const { forgeDb, forgeDbTargetForUrl } = await import('../../db/forge-db')
   const { getDatabaseUrl } = await import('../../db/client')
   const exec = (s: string) =>
-    neon(getDatabaseUrl()).unsafe(s) as unknown as Promise<unknown[]>
+    forgeDb.forTarget(forgeDbTargetForUrl(getDatabaseUrl())).runText(s) as unknown as Promise<
+      unknown[]
+    >
   const results = await resetDevWorkflowsCore(exec)
   console.log('DEV workflow reset complete:')
   for (const r of results) {

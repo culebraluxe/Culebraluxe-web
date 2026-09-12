@@ -1,9 +1,9 @@
 // REL-INTEL — truthful Story Board completion update (Production).
 // Authorized by the REL-INTEL completion work order. Updates the 12 existing
 // REL-INTEL-01..12 rows (never duplicates the family). Run:
-//   node --env-file=.env.local scripts/update-rel-intel-stories.mjs
-import { Pool } from '@neondatabase/serverless'
-const pool = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/update-rel-intel-stories.mjs
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const STATUS_COMPLETION = {
   // REL-INTEL-07 has an explicit "readable on mobile" acceptance that is NOT

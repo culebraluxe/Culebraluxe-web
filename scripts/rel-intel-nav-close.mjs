@@ -2,8 +2,8 @@
 // Authorized control-plane update:
 //   1) ARCH-HANDOFF: dated superseding note for the Workflow/Forms nav decision.
 //   2) REL-INTEL-07: record the browser-verification blocker (stays Partial/90).
-import { Pool } from '@neondatabase/serverless'
-const pool = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+const pool = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 const SUPERSEDE =
   '\n\n[2026-08-25 CTO/Product Owner] SUPERSEDES the earlier continuity note that ' +

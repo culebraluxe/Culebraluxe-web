@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 
 async function main() {
 const envArgIndex = process.argv.indexOf('--env')
@@ -18,7 +18,7 @@ if (process.env.DATABASE_URL_DEV && process.env.DATABASE_URL_DEV === prodUrl) {
   process.exit(2)
 }
 
-const sql = neon(prodUrl)
+const sql = forgeDb.forTarget(forgeDbTargetForUrl(prodUrl)).sql
 
 const rows = await sql`
   with active_phone as (

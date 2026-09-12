@@ -2,8 +2,8 @@
 // ---------------------------------------------------------------------------
 // Pull PROD data down into DEV (PROD -> DEV, the safe direction).
 //
-//   node --env-file=.env.local scripts/pull-prod-to-dev.mjs            # plan only
-//   node --env-file=.env.local scripts/pull-prod-to-dev.mjs --apply    # execute
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/pull-prod-to-dev.mjs            # plan only
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/pull-prod-to-dev.mjs --apply    # execute
 //
 // PRESERVED ON DEV (never touched):
 //   authorization : app_user, app_user_role, auth_identity, security_role,
@@ -16,11 +16,11 @@
 // parent routes rows to the right partition, so copying both would duplicate).
 // Tables are deleted child-first and inserted parent-first so FKs stay valid.
 // ---------------------------------------------------------------------------
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
-const dev = new Pool({ connectionString: process.env.DATABASE_URL_DEV })
-const prod = new Pool({ connectionString: process.env.DATABASE_URL_PROD })
+const dev = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_DEV))
+const prod = forgeDb.forTarget(forgeDbTargetForUrl(process.env.DATABASE_URL_PROD))
 
 // Authorization rows are never copied, and they do NOT seed the preserve
 // closure: business tables legitimately FK to app_user/security_role/authority,

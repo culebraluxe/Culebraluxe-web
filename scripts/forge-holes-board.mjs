@@ -20,11 +20,11 @@
 // Idempotent: insert-if-absent keyed on id; the TECH-DEBT-07 amendment appends
 // only when its marker is missing. Dry-run by default — pass --apply to write.
 //
-//   node --env-file=.env.local scripts/forge-holes-board.mjs            # dry run
-//   node --env-file=.env.local scripts/forge-holes-board.mjs --apply    # write
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-holes-board.mjs            # dry run
+//   node --import tsx --env-file=.env.local --env-file=.env.local scripts/forge-holes-board.mjs --apply    # write
 // ---------------------------------------------------------------------------
 
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
 
 const APPLY = process.argv.includes('--apply')
 const WO = 'docs/agent/packets/FORGE-HOLES-WORKORDER.md'
@@ -269,7 +269,7 @@ const DEBT07_AMENDMENT =
   '- Assay: pnpm test:forge:engine && pnpm exec tsc --noEmit && git diff --check'
 
 async function main() {
-  const pool = new Pool({ connectionString: PROD_URL })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(PROD_URL))
   console.log(`target host: ${new URL(PROD_URL).host}`)
   console.log(`${APPLY ? 'APPLY' : 'DRY RUN (pass --apply to write)'} — ${STORIES.length} stories, batch ${BATCH}`)
 

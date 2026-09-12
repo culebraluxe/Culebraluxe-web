@@ -18,7 +18,7 @@
 // reset when you want a clean re-run; use recover to continue a partial run
 // whose worker died.
 // ---------------------------------------------------------------------------
-import { Pool } from '@neondatabase/serverless'
+import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db'
 import { resolveStoryResetConfig } from './forge-story-reset-config'
 
 const config = resolveStoryResetConfig(process.argv, process.env)
@@ -29,7 +29,7 @@ if (!config.ok) {
 const { story, mode, target, url } = config
 
 async function main(): Promise<void> {
-  const pool = new Pool({ connectionString: url })
+  const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
   try {
     if (mode === 'reset') {
       // 1. Abort any non-terminal engine instance for the story.
