@@ -52,14 +52,19 @@ const PANE_BASE =
   "portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
 
 /**
- * Per-role surface family. The navigator is navy, the canvas is the MIDNIGHT work
- * surface, and the inspector is the persistent ivory column. Roles never
+ * Per-role surface family. The navigator is navy, the canvas is the light glass
+ * work surface, and the inspector is the persistent ivory column. Roles never
  * cross-contaminate: each family owns exactly one class + background token.
  *
- * The canvas was a light glass surface until the human gate (Chris, 2026-09-12)
- * asked for it to match the navy widget panes — "we can make pane navy blue too".
- * The role kept its own family and class so the three panes still read as three
- * distinct surfaces; only its background/text tokens moved to navy.
+ * IMPORTANT — this object is NOT what paints the panes. The paint comes from the
+ * `.projects-pane-*` rules in app/globals.css; these fields mirror them so the
+ * geometry/visual contract is testable without a browser. Those two drifted once
+ * (2026-09-12): the canvas token was moved to navy and this suite was updated to
+ * match, while the pane kept painting light glass — so every class inside the canvas
+ * that had been switched to light-on-navy became invisible text, and the view nav
+ * disappeared. The mirror is now ASSERTED (the suite reads globals.css and checks
+ * each role's background/color against these values), so change both or the tests
+ * will tell you.
  */
 export const PROJECTS_SURFACE = {
   navigator: {
@@ -71,8 +76,8 @@ export const PROJECTS_SURFACE = {
   canvas: {
     family: "canvas",
     className: `${PANE_BASE} projects-pane projects-pane-canvas`,
-    background: "color-mix(in srgb, var(--portal-navy) 94%, transparent)",
-    text: "var(--portal-on-navy)",
+    background: "var(--portal-panel-bg)",
+    text: "var(--portal-text)",
   },
   inspector: {
     family: "ivory",

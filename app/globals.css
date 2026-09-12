@@ -647,39 +647,40 @@
   }
 }
 
-/* CAL-02 / PROJECTS — CulebraLuxe MIDNIGHT skin for the FullCalendar candidate.
+/* CAL-02 — CulebraLuxe skin for the FullCalendar candidate (Option B).
    FullCalendar v7 classic theme colors are driven by --fc-classic-* vars;
-   override them on the .cue-fc container so the calendar matches the navy widget
-   panes (dark ground, gold events, light type). The light version of this skin
-   stopped being right the moment the canvas became navy — dark text on navy is
-   unreadable, and the month grid is the one tab with no vendor theme wrapper of
-   its own to inherit from. */
+   override them on the .cue-fc container so the calendar matches the portal
+   (restrained navy + gold accent, portal typography, subtle borders).
+   NOTE: this is the LIGHT skin, because the Projects canvas is light glass. It was
+   briefly flipped to a dark palette while the canvas was navy; when the canvas went
+   back to light (human gate, 2026-09-12: keep the back panel light, let the vendor
+   widgets inside it be dark), the month grid had to come back with it. */
 .cue-fc {
-  --fc-classic-primary: #c6a15b;
-  --fc-classic-primary-foreground: #030f23;
+  --fc-classic-primary: #030f23;
+  --fc-classic-primary-foreground: #ffffff;
   --fc-classic-event: #c6a15b;
-  --fc-classic-event-contrast: #030f23;
+  --fc-classic-event-contrast: #ffffff;
   --fc-classic-background-event: #c6a15b;
-  --fc-classic-background-event-opacity: 18%;
-  --fc-classic-background-event-foreground-opacity: 75%;
-  --fc-classic-highlight: rgba(198, 161, 91, 0.16);
-  --fc-classic-today: rgba(198, 161, 91, 0.18);
+  --fc-classic-background-event-opacity: 16%;
+  --fc-classic-background-event-foreground-opacity: 60%;
+  --fc-classic-highlight: rgba(198, 161, 91, 0.12);
+  --fc-classic-today: rgba(198, 161, 91, 0.14);
   --fc-classic-now: #c6a15b;
-  --fc-classic-button: #c6a15b;
-  --fc-classic-button-border: #c6a15b;
-  --fc-classic-button-strong: #d8b877;
-  --fc-classic-button-strong-border: #d8b877;
-  --fc-classic-button-outline: rgba(198, 161, 91, 0.5);
-  --fc-classic-button-foreground: #030f23;
+  --fc-classic-button: #030f23;
+  --fc-classic-button-border: #030f23;
+  --fc-classic-button-strong: #1d2c47;
+  --fc-classic-button-strong-border: #0f1a30;
+  --fc-classic-button-outline: rgba(3, 15, 35, 0.35);
+  --fc-classic-button-foreground: #ffffff;
   --fc-classic-background: transparent;
-  --fc-classic-faint: rgba(255, 255, 255, 0.03);
-  --fc-classic-muted: rgba(255, 255, 255, 0.06);
-  --fc-classic-strong: rgba(255, 255, 255, 0.12);
-  --fc-classic-foreground: #e8edf6;
-  --fc-classic-faint-foreground: #8b9ab1;
-  --fc-classic-muted-foreground: #a7b4c7;
-  --fc-classic-border: rgba(255, 255, 255, 0.14);
-  --fc-classic-strong-border: rgba(255, 255, 255, 0.22);
+  --fc-classic-faint: rgba(3, 15, 35, 0.03);
+  --fc-classic-muted: rgba(3, 15, 35, 0.06);
+  --fc-classic-strong: rgba(3, 15, 35, 0.12);
+  --fc-classic-foreground: #030f23;
+  --fc-classic-faint-foreground: #9aa3ad;
+  --fc-classic-muted-foreground: #66707b;
+  --fc-classic-border: rgba(3, 15, 35, 0.14);
+  --fc-classic-strong-border: rgba(3, 15, 35, 0.22);
 }
 
 .cue-fc .fc {

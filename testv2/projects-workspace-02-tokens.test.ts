@@ -58,13 +58,36 @@ test('each role has its own surface family with no cross-contamination', () => {
 
   assert.ok(PROJECTS_SURFACE.navigator.background.includes('--portal-navy'))
   assert.ok(PROJECTS_SURFACE.inspector.background.includes('--portal-ivory'))
-  // The canvas moved to navy by HUMAN GATE decision (Chris, 2026-09-12: "we can
-  // make pane navy blue too"), to match the navy widget panes. It keeps its own
-  // family and class, so the three panes still read as three distinct surfaces —
-  // only its background/text tokens moved. Changing it back means changing both
-  // this assertion and ui/projects/visual-system.ts, deliberately.
-  assert.ok(PROJECTS_SURFACE.canvas.background.includes('--portal-navy'))
-  assert.ok(PROJECTS_SURFACE.canvas.text.includes('--portal-on-navy'))
+  assert.ok(PROJECTS_SURFACE.canvas.background.includes('--portal-panel-bg'))
+})
+
+test('the surface tokens mirror the CSS rules that actually paint the panes', () => {
+  // The token object is documentation + contract; app/globals.css is the paint.
+  // Those two drifted once and it shipped: the canvas token was moved to navy and
+  // this suite was updated to match, while `.projects-pane-canvas` kept painting
+  // light glass — so all the dark-on-navy classes inside the canvas became
+  // invisible, and the view nav vanished. This assertion keeps them in step: the
+  // CSS rule for each role must carry exactly the background/color the token
+  // declares, so moving a surface means editing both or failing here.
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
+
+  for (const role of PROJECTS_PANE_ORDER) {
+    const surface = PROJECTS_SURFACE[role]
+    const rule = css.match(
+      new RegExp(`\\.projects-pane\\.projects-pane-${role}\\s*\\{([^}]*)\\}`),
+    )
+    assert.ok(rule, `no .projects-pane-${role} rule found in globals.css`)
+
+    const body = rule[1].replace(/\s+/g, ' ').trim()
+    assert.ok(
+      body.includes(`background-color: ${surface.background};`),
+      `.projects-pane-${role} background drifted from the token: expected "${surface.background}" in "${body}"`,
+    )
+    assert.ok(
+      body.includes(`color: ${surface.text};`),
+      `.projects-pane-${role} text color drifted from the token: expected "${surface.text}" in "${body}"`,
+    )
+  }
 })
 
 test('surface classes never leak one role token into another role', () => {

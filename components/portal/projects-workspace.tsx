@@ -434,20 +434,20 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
       <button
         type="button"
         onClick={() => onSelectNode(selected ? null : node.id)}
-        className={PROJECTS_PRIMITIVES.row({ selected, surface: "navy" })}
+        className={PROJECTS_PRIMITIVES.row({ selected })}
       >
         <StatusIcon status={node.status} />
         <span className="min-w-0 flex-1">
-          <span className={`block ${PROJECTS_LONG_CONTENT.label.classes} text-[13.5px] text-white`}>{node.title}</span>
-          <span className="block truncate text-[10px] font-light text-white/45">{node.type}</span>
+          <span className={`block ${PROJECTS_LONG_CONTENT.label.classes} text-[13.5px] text-[var(--portal-navy)]`}>{node.title}</span>
+          <span className="block truncate text-[10px] font-light text-black/40">{node.type}</span>
         </span>
         <span className="text-right">
-          <span className="block text-[10px] font-light text-white/70">{node.dueLabel ?? "—"}</span>
-          <span className="block truncate text-[9px] font-light text-white/45">{node.owner ?? "—"}</span>
+          <span className="block text-[10px] font-light text-[var(--portal-blue-gray)]">{node.dueLabel ?? "—"}</span>
+          <span className="block truncate text-[9px] font-light text-black/40">{node.owner ?? "—"}</span>
         </span>
       </button>
       {node.children?.length ? (
-        <ul className="ml-5 border-l border-white/15 pl-1.5">
+        <ul className="ml-5 border-l border-[var(--portal-mist-3)]/70 pl-1.5">
           {node.children.map((child) => (
             <WorkPlanNode key={child.id} node={child} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
           ))}
@@ -459,8 +459,8 @@ function WorkPlanNode({ node, selectedNodeId, onSelectNode }: { node: ProjectWor
 
 function WorkPlan({ project, selectedNodeId, onSelectNode }: WorkPlanProps) {
   return (
-    <div className={`flex-1 ${PROJECTS_SCROLL_CLASS} rounded-[var(--portal-tab-radius)] border border-white/10 bg-white/5 px-1.5 py-1`}>
-      <div className="grid grid-cols-[22px_minmax(0,1fr)_72px_88px] gap-2 border-b border-white/10 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/45"><span /><span>Work item</span><span className="text-right">Due</span><span className="text-right">Owner</span></div>
+    <div className={`flex-1 ${PROJECTS_SCROLL_CLASS} rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 px-1.5 py-1`}>
+      <div className="grid grid-cols-[22px_minmax(0,1fr)_72px_88px] gap-2 border-b border-[var(--portal-panel-border)]/70 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40"><span /><span>Work item</span><span className="text-right">Due</span><span className="text-right">Owner</span></div>
       <ul className="space-y-0.5">
         {project.workNodes.map((node) => (
           <WorkPlanNode key={node.id} node={node} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
@@ -483,7 +483,7 @@ function ProjectTimelineTab({ project }: { project: ProjectPlan }) {
         <ProjectTimeline tasks={tasks} links={links} />
       </div>
       {synthetic ? (
-        <p className="shrink-0 text-[11px] font-light text-white/50">
+        <p className="shrink-0 text-[11px] font-light text-black/45">
           Sample schedule — bars use placeholder dates because these work items have no due dates yet.
         </p>
       ) : null}
@@ -518,7 +518,7 @@ function ProjectDocuments({ project }: { project: ProjectPlan }) {
         <ProjectFilemanager files={files} />
       </div>
       {synthetic ? (
-        <p className="shrink-0 text-[11px] font-light text-white/50">
+        <p className="shrink-0 text-[11px] font-light text-black/45">
           {unlinked
             ? "This project is not anchored to a property, so no documents can be linked yet. Showing a sample cabinet."
             : "Sample cabinet — no documents are linked to this project yet, so these are placeholder files."}
@@ -532,16 +532,16 @@ function ProjectActivity({ project }: { project: ProjectPlan }) {
   const activity = project.activity ?? []
   if (!activity.length) return <ProjectionState view="activity" provenance={project.provenance} />
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/10 bg-white/5 p-2">
-      <ul className="divide-y divide-white/10">
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20 p-2">
+      <ul className="divide-y divide-[var(--portal-panel-border)]/70">
         {activity.map((entry) => (
           <li key={entry.id} className="px-2 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--portal-gold-muted)]">{entry.channel}{entry.direction ? ` · ${entry.direction}` : ""}</span>
-              <time dateTime={entry.occurredAt} className="text-[10px] font-light text-white/45">{entry.occurredAtLabel}</time>
+              <time dateTime={entry.occurredAt} className="text-[10px] font-light text-black/40">{entry.occurredAtLabel}</time>
             </div>
-            <p className="mt-1 text-[13px] text-white">{entry.title ?? entry.summary ?? "Activity recorded"}</p>
-            {entry.summary && entry.title ? <p className="mt-0.5 truncate text-[11px] font-light text-white/50">{entry.summary}</p> : null}
+            <p className="mt-1 text-[13px] text-[var(--portal-navy)]">{entry.title ?? entry.summary ?? "Activity recorded"}</p>
+            {entry.summary && entry.title ? <p className="mt-0.5 truncate text-[11px] font-light text-black/45">{entry.summary}</p> : null}
           </li>
         ))}
       </ul>
@@ -592,9 +592,9 @@ function ProjectionState({
     message = `${label} is not available in this workspace yet.`
   }
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center rounded-[var(--portal-tab-radius)] border border-dashed border-white/20 bg-white/5 px-6 py-8 text-center">
-      <p className="text-sm font-light text-white/50">
-        <span className="font-medium text-[var(--portal-gold)]">{label}</span> — {message}
+    <div className="flex min-h-0 flex-1 items-center justify-center rounded-[var(--portal-tab-radius)] border border-dashed border-[var(--portal-panel-border)] bg-white/15 px-6 py-8 text-center">
+      <p className="text-sm font-light text-black/45">
+        <span className="font-medium text-[var(--portal-navy)]">{label}</span> — {message}
       </p>
     </div>
   )
@@ -616,7 +616,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
   return (
     <section className={PROJECTS_SURFACE.canvas.className}>
       {!pole || !project ? (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-light text-white/50">
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-light text-black/45">
           Choose a Pole and Project from the navigator.
         </div>
       ) : (
@@ -630,20 +630,25 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
               The giant project title, the context labels, the progress bar, the
               playbook chip and the "next action" card are gone: the navigator and
               the inspector already say which project is selected, and that chrome
-              was costing the widget its vertical space. */}
-          <div className="border-b border-white/10 px-3 pb-2 pt-3">
+              was costing the widget its vertical space.
+
+              The canvas stays LIGHT GLASS on purpose (human gate, 2026-09-12). The
+              widget panes inside it are dark on purpose too — light chrome with dark
+              objects gives each widget its own edge, where a navy-on-navy canvas made
+              the whole pane one slab. */}
+          <div className="border-b border-[var(--portal-panel-border)] px-3 pb-2 pt-3">
             <div className="flex items-center justify-between gap-2">
               <p className="min-w-0 truncate text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">
                 {project.title}
               </p>
               <div className="flex shrink-0 items-center gap-2">
-                <span className="text-[11px] font-light text-white/55">{project.progress}%</span>
+                <span className="text-[11px] font-light text-[var(--portal-blue-gray)]">{project.progress}%</span>
                 <select
                   value={project.status === "active" ? "doing" : project.status === "complete" ? "done" : project.status === "archived" ? "archived" : "open"}
                   disabled={!onStatusChange || statusPending}
                   onChange={(event) => onStatusChange?.(event.target.value as "open" | "doing" | "done" | "archived")}
                   aria-label="Project status"
-                  className="rounded-full bg-white/10 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-white/85 outline-none"
+                  className="rounded-full bg-white/50 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-navy-soft)] outline-none"
                 >
                   <option value="open">Open</option>
                   <option value="doing">In progress</option>
@@ -652,8 +657,8 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
                 </select>
               </div>
             </div>
-            <div className="mt-2 flex h-11 items-center gap-1 overflow-x-auto rounded-[var(--portal-tab-radius)] border border-white/15 bg-white/10 px-1">
-              <nav aria-label="Project workspace views" className="flex min-w-max items-center gap-1">
+            <div className="mt-2 flex h-11 items-center overflow-x-auto">
+              <nav aria-label="Project workspace views" className="portal-glass-rail h-11">
                 {VIEWS.map((view) => {
                   const isActive = view === activeView
                   return (
@@ -662,11 +667,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
                       type="button"
                       onClick={() => onSelectView(view)}
                       aria-current={isActive ? "page" : undefined}
-                      className={`rounded-[var(--portal-tab-radius)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] transition ${
-                        isActive
-                          ? "bg-[var(--portal-gold)] text-[var(--portal-navy)] shadow-sm"
-                          : "text-white/70 hover:bg-white/10"
-                      }`}
+                      className={`portal-glass-tab ${isActive ? "bg-[var(--portal-navy)] text-white shadow-sm" : ""}`}
                     >
                       {VIEW_LABEL[view]}
                     </button>
@@ -676,7 +677,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
             </div>
           </div>
           {project.blocker ? (
-            <p className="flex shrink-0 items-start gap-1.5 border-b border-white/10 px-3 py-2 text-[11.5px] font-light text-[var(--portal-gold-muted)]">
+            <p className="flex shrink-0 items-start gap-1.5 border-b border-[var(--portal-panel-border)] px-3 py-2 text-[11.5px] font-light text-[var(--portal-archive)]">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> {project.blocker}
             </p>
           ) : null}
@@ -963,7 +964,7 @@ export function ProjectsWorkspace({
         <button
           type="button"
           onClick={() => { setNewProjectError(null); setNewProjectOpen(true) }}
-          className="rounded-full bg-[var(--portal-gold)] px-3.5 py-2 text-[12px] font-medium text-[var(--portal-navy)] shadow-sm transition hover:opacity-90"
+          className="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90"
         >
           New Project
         </button>
