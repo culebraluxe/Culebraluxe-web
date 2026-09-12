@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { TraceEvent, TraceSink } from './types'
 import { createMemoryTraceSink } from './sink'
+import { traceEventsFromRows, type PersistedTraceRow } from './rehydrate'
 
 /** The shape recordTraceEvent consumes (kept structural so tests need no DB). */
 export type TraceWrite = (input: {
@@ -39,18 +40,34 @@ export type TraceWrite = (input: {
 
 export type PersistentSinkOptions = {
   write: TraceWrite
+  /**
+   * FORGE-OBS-LIST-01 — read a story's persisted history back in. Optional so a
+   * caller with no reader (tests, observer-mode) keeps the old behaviour: the
+   * sink simply stays process-local.
+   */
+  read?: TraceRead
   /** Root correlation for every event this process records. */
   traceId?: string
   /** Defaults to 'forge_observer'. */
   sourceSystem?: string
 }
 
+/** Where a story's history can be reread from, scoped to one story. */
+export type TraceRead = (key: {
+  storyId: string
+  processInstanceId: string
+}) => Promise<PersistedTraceRow[]>
+
 export function createPersistentTraceSink(
   options: PersistentSinkOptions,
-): TraceSink & { snapshot(storyId?: string): TraceEvent[] } {
+): TraceSink & {
+  snapshot(storyId?: string): TraceEvent[]
+  load(key: { storyId: string; processInstanceId: string }): Promise<number>
+} {
   const memory = createMemoryTraceSink()
   const traceId = options.traceId ?? randomUUID()
   const sourceSystem = options.sourceSystem ?? 'forge_observer'
+  const loaded = new Set<string>()
 
   return {
     append(partial) {
@@ -88,5 +105,33 @@ export function createPersistentTraceSink(
     },
     list: memory.list,
     snapshot: memory.snapshot,
+    /**
+     * FORGE-OBS-LIST-01 — the one call that makes an attempt survive a restart.
+     *
+     * Once per story per process: attempt 2 does not re-read what attempt 1 of the
+     * same process already appended. Never throws — a reader outage leaves the sink
+     * process-local, which is exactly what it was before, and never breaks a run.
+     * Returns how many events were taken in, so a caller (or a test) can tell an
+     * empty history from a failed read only by its own logs, not by a throw.
+     */
+    async load(key) {
+      if (!options.read) return 0
+      if (loaded.has(key.storyId)) return 0
+      loaded.add(key.storyId)
+      try {
+        const rows = await options.read(key)
+        const events = traceEventsFromRows(rows, key.storyId)
+        // Oldest-first: the reader orders by occurred_at, and seq ordering is what
+        // every alert rule compares against.
+        events.sort((a, b) => a.seq - b.seq)
+        memory.seed(events)
+        return events.length
+      } catch {
+        // Observer only. Silence here is deliberate: this is the recorder's own
+        // read, and a run must not depend on it.
+        loaded.delete(key.storyId)
+        return 0
+      }
+    },
   }
 }

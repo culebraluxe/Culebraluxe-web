@@ -63,7 +63,7 @@ import {
   type AttemptStatus,
 } from './forge-observer-seam'
 import { serialLaunchDoor, serialScopeMissReasons } from './forge-serial-doors'
-import { recordTraceEvent } from '../../db/workflow-trace'
+import { recordTraceEvent, listTraceEvents } from '../../db/workflow-trace'
 import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
 import { deriveWorktreePath } from '../../lib/worker-workspace/provisioner'
 import {
@@ -106,9 +106,17 @@ const LEAD_ROUTING_CAPABILITIES: LeadRoutingCapabilities = {
  *
  * One sink per process, so alert rules can compare events across attempts
  * (see RETRY_UNCHANGED_INPUT in forge-alerts/rules.ts).
+ *
+ * FORGE-OBS-LIST-01: "one per process" was also the bug. The sink starts empty on
+ * every process, so an attempt that began before a restart was invisible — the
+ * retry hash had nothing to compare against, and drainAlerts re-recorded every
+ * alert as new because its de-dupe set (sink.list) was empty too. `read` plus
+ * `load()` below gives the sink the story's persisted history back, from the SAME
+ * trace table it writes to, so the fix is not a second store.
  */
 const forgeObserverSink = createPersistentTraceSink({
   write: (input) => recordTraceEvent(input as never),
+  read: (key) => listTraceEvents({ workflowInstanceId: key.processInstanceId, limit: 5000 }),
 })
 import { interactiveSql } from '../../lib/neon-interactive'
 import type { ForgeRoleRunner } from './forge-executor'
@@ -579,6 +587,14 @@ export function createAgentRuntimeForgeRoleRunner(
     // ENG-FORGE-OBS-SERIAL-01 box 1 — what the SERIAL lane's candidate did outside
     // its accepted assignment, carried to the HOLD/self-heal assembly below.
     let serialScopeMiss: string[] = []
+    // FORGE-OBS-LIST-01 — give this process the story's history before it records
+    // anything into it. Without this, an attempt that ran before a restart is
+    // invisible to the retry hash, and every alert is re-recorded as new. Called
+    // once per story per process; never throws, and cannot gate (see the sink).
+    await forgeObserverSink.load({
+      storyId: resolvedStory.id,
+      processInstanceId: task.processInstanceId,
+    })
     observeAttemptBegin(forgeObserverSink, observerAttempt, {
       role: nodeId,
       // The Lead's chosen route rides run.start (an event kind already in the
