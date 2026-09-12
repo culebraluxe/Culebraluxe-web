@@ -132,10 +132,20 @@ export function EngineeringQueuesPage({
   return (
     <div className="min-h-screen bg-[#0b1220] px-5 py-6 text-slate-200">
       <header className="mb-5">
-        <p className="text-[11px] font-semibold tracking-[0.22em] text-[#c6a15b]">{model.eyebrow}</p>
-        <h1 className="mt-1 font-serif text-2xl font-semibold text-white">{model.title}</h1>
-        <p className="mt-1 max-w-3xl text-sm font-light text-slate-400">{model.subtitle}</p>
-        <p className="mt-1 text-[11px] text-slate-500">Story data as of {freshness}</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#c6a15b]">{model.eyebrow}</p>
+            <h1 className="mt-1 font-serif text-2xl font-semibold text-white">{model.title}</h1>
+            <p className="mt-1 max-w-3xl text-sm font-light text-slate-400">{model.subtitle}</p>
+            <p className="mt-1 text-[11px] text-slate-500">Story data as of {freshness}</p>
+          </div>
+          <a
+            href="/portal/tech/flight-recorder"
+            className="rounded-md border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#e0c489]"
+          >
+            Flight Recorder
+          </a>
+        </div>
       </header>
 
       <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -154,8 +164,9 @@ export function EngineeringQueuesPage({
           there is exactly ONE implementation of "what the heck is this story". */}
       <section className="mb-4">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-amber-200">
-            WORK BENCH — {activeWork.length} selected
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-slate-300">
+            BENCH — scope today&apos;s work{' '}
+            <span className="font-normal text-[#c6a15b]">({activeWork.length})</span>
           </p>
           <p className="text-[10px] text-slate-400">
             my hands, not the engine&apos;s · pick one to read it
@@ -182,6 +193,12 @@ export function EngineeringQueuesPage({
 
       <StatsStrip stats={stats} />
 
+      {/* LINE — the four queues, the captain's own names: WORK BENCH (human) is the
+          leftmost because ownership is the point; ENGINE READY / RUNNING / RESULTS
+          are the engine's. HOLD is a RESULT badge, not a column. */}
+      <p className="mb-2 text-[11px] font-semibold tracking-[0.16em] text-slate-300">
+        LINE — the four queues
+      </p>
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {QUEUES.map((queue) => {
           const items = byQueue(queue.key)
@@ -379,7 +396,7 @@ function StoryLog({
         className="flex w-full items-center justify-between gap-4 text-left"
       >
         <span className="text-[11px] font-semibold tracking-[0.16em] text-slate-300">
-          STORY LOG — {open ? 'hide' : 'show'} the four buckets
+          UNIVERSE — what exists · STORY LOG {open ? '(hide)' : '(show)'}
         </span>
         <span className="text-[11px] text-slate-500">{open ? '▲' : '▼'}</span>
       </button>
