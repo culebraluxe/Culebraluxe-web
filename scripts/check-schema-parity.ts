@@ -29,6 +29,8 @@ async function main() {
   for (const l of report.indexDrift) console.log(`  ${l}`)
   console.log(`fk drift    : ${report.fkDrift.length}`)
   for (const l of report.fkDrift) console.log(`  ${l}`)
+  console.log(`check drift : ${report.checkDrift.length}`)
+  for (const l of report.checkDrift) console.log(`  ${l}`)
 
   console.log(report.clean ? '\nPARITY OK' : '\nDRIFT FOUND')
   process.exit(report.clean ? 0 : 1)

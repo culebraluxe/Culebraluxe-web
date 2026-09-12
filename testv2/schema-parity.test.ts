@@ -13,6 +13,7 @@ const snap = (over: Partial<SchemaSnapshot> = {}): SchemaSnapshot => ({
     ['project.project_pkey', 'CREATE UNIQUE INDEX project_pkey ON public.project USING btree (id)'],
   ]),
   fks: new Map([['wbs_item_project_id_fkey', 'wbs_item -> project']]),
+  checks: new Map([['project.project_bounds_check', 'CHECK (id <> \'\'::text)']]),
   ...over,
 })
 
