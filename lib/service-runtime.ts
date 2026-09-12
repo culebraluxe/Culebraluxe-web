@@ -10,6 +10,7 @@ import { SqlWbsRepository } from '@/db/wbs-service-repository'
 import { SqlProjectRepository } from '@/db/project-service-repository'
 import { SqlFormInstanceRepository } from '@/db/form-service-repository'
 import { SqlVaultRepository } from '@/db/vault-service-repository'
+import { SqlCommsRepository } from '@/db/comms-service-repository'
 import { composeCoreServices } from '@/services/composition'
 import { AuthorizationService } from '@/services/entitlement'
 import { SqlAuthorizationPolicyProvider } from '@/services/entitlement/db-authorization-policy-provider'
@@ -35,6 +36,7 @@ export const coreServices = composeCoreServices(
     security: new SqlSecurityRepository(),
     wbs: new SqlWbsRepository(),
     project: new SqlProjectRepository(),
+    comms: new SqlCommsRepository(),
     form: new SqlFormInstanceRepository(),
     vault: new SqlVaultRepository(),
   },

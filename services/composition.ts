@@ -18,6 +18,7 @@ import { WbsService, type WbsRepository } from './wbs'
 import { ProjectService, type ProjectRepository } from './project'
 import { FormService, type FormRepository } from './forms'
 import { VaultService, type VaultRepository } from './vault'
+import { CommsService, type CommsRepository } from './comms'
 import {
   AuthorizationService,
   StaticAuthorizationPolicyProvider,
@@ -36,6 +37,8 @@ export type CoreServiceRepositories = {
   security: SecurityRepository
   wbs: WbsRepository
   project: ProjectRepository
+  /** Communication history for a canonical Person (the CRM Client pane). */
+  comms?: CommsRepository
   /**
    * Optional: kernels that never touch documents (security runtime, form
    * bindings, proofs) omit it. The full production runtime always provides it.
@@ -55,6 +58,8 @@ export type CoreServiceComposition = {
   security: SecurityService
   wbs: WbsService
   project: ProjectService
+  /** Present when the composition was given a Comms repository (the full runtime). */
+  comms?: CommsService
   /** Present when the composition was given a Form repository (the full runtime). */
   form?: FormService
   /** Present when the composition was given a Vault repository (the full runtime). */
@@ -130,6 +135,9 @@ export function composeCoreServices(
   const showing = registry.register(new ShowingService(repositories.showing, serviceInfrastructure))
   const wbs = registry.register(new WbsService(repositories.wbs, serviceInfrastructure))
   const project = registry.register(new ProjectService(repositories.project, serviceInfrastructure))
+  const comms = repositories.comms
+    ? registry.register(new CommsService(repositories.comms, serviceInfrastructure))
+    : undefined
   const form = repositories.form
     ? registry.register(new FormService(repositories.form, serviceInfrastructure))
     : undefined
@@ -147,6 +155,7 @@ export function composeCoreServices(
     security,
     wbs,
     project,
+    comms,
     form,
     vault,
   }
