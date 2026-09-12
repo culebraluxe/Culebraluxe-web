@@ -12,10 +12,10 @@
 //
 // Rule 3 is a RATCHET, not an exemption. 38 files imported the Neon driver when the
 // wrapper landed — each one deciding its own environment — so they were frozen in a
-// list that may only SHRINK. The 2026-09-12 sweep migrated every one of them, so the
-// list now holds a single entry: `workflow_engine/lib/workflow/db.ts`, which is
-// captain-owned and is REPORTED here, never edited. ADDING an entry is a failure, so
-// the sprawl cannot resume.
+// list that may only SHRINK. As of 2026-09-12 that list is EMPTY: every one of them
+// was swept onto ForgeDB, including `workflow_engine/lib/workflow/db.ts` (the
+// engine's own client, and the most important connection in the system) once the
+// captain unfroze it. An empty ratchet means ANY new importer fails the build.
 // ---------------------------------------------------------------------------
 
 import { test } from 'node:test'
@@ -46,13 +46,14 @@ const SOURCE_EXT = /\.(ts|tsx|mts|cts|mjs|cjs|js|jsx)$/
 const POOL_OWNER = 'db/forge-db.ts'
 
 /**
- * FROZEN — the last file still importing the old Neon driver.
+ * FROZEN — EMPTY, and it should stay that way.
  *
- * `workflow_engine/lib/workflow/db.ts` is CAPTAIN-OWNED (see AGENTS.md: report,
- * never edit), so it is reported here rather than migrated. Everything else was
- * swept to ForgeDB on 2026-09-12. This list may only shrink.
+ * This listed the files still importing the old Neon driver. `workflow_engine`'s
+ * db.ts was the last entry; the captain unfroze it on 2026-09-12 and it now uses
+ * the shared pool. With no entries, ANY file importing `@neondatabase/serverless`
+ * fails the build immediately.
  */
-const FROZEN_NEON_IMPORTERS: readonly string[] = ['workflow_engine/lib/workflow/db.ts']
+const FROZEN_NEON_IMPORTERS: readonly string[] = []
 
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[]
