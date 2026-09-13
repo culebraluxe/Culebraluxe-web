@@ -74,7 +74,13 @@ export default async function TechPage({
 
   return (
     <div className="min-h-screen bg-[#0b1220]">
-      <div className="flex justify-end px-4 pt-3 lg:px-6">
+      <div className="flex justify-end gap-4 px-4 pt-3 lg:px-6">
+        <Link
+          href="/portal/tech/runs"
+          className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
+        >
+          Run Outcomes →
+        </Link>
         <Link
           href="/portal/tech/app-errors"
           className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
