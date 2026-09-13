@@ -58,8 +58,7 @@ import { assignmentFromLead } from './agents/smith/from-lead'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
-import { commandRunner, staticSliceFromGate } from './agents/exec-command'
-import { runStaticGate } from './forge-static-gate'
+import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
 import type { SmithExecutionContract } from './smith-contract'
 import { createPersistentTraceSink } from './forge-observer'
@@ -652,7 +651,11 @@ export function createAgentRuntimeForgeRoleRunner(
       // SKIPPED arch gate is not a fail).
       assayCommands: leadRoutingContext.allowedProofs,
       runCommand: commandRunner(roleCwd),
-      runStatic: () => staticSliceFromGate(runStaticGate({ workspace: roleCwd })),
+      // The candidate worktree has the code but NO node_modules, so the hard arch
+      // gate must be pointed at the PRIMARY checkout's binaries or it silently
+      // "skips" — and a skipped arch gate is not a fail. process.cwd() is the
+      // primary checkout; roleCwd is the candidate.
+      runStatic: () => staticSliceForWorktree(roleCwd, process.cwd()),
       // A batch-sliced rollout is a RECORDED deferral, never a fake receipt.
       ...(resolvedStory.batchDeploy
         ? { deploymentDeferredToBatch: resolvedStory.batch ?? 0, deploymentRequired: false }

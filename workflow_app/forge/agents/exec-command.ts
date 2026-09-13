@@ -3,7 +3,10 @@
  * side of the contract: the agent package never spawns a process itself.
  */
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { CommandResult, StaticSlice } from './ports'
+import { runStaticGate } from '../forge-static-gate'
 import type { StaticGateResult } from '../forge-static-gate'
 
 const EXCERPT_CAP = 240
@@ -47,4 +50,27 @@ export function staticSliceFromGate(result: StaticGateResult): StaticSlice {
     semgrepFindings: result.semgrepFindings,
     knipFindings: result.knipFindings,
   }
+}
+
+/**
+ * Run the live static gate against a candidate WORKTREE, pointing at the primary
+ * checkout's binaries.
+ *
+ * The worktree has the CODE but no `node_modules`, so without this depcruise finds
+ * no tool, does not run, and "did not run" is not a failure — which makes the HARD
+ * architecture gate decorative. `toolsRoot` is the primary checkout.
+ *
+ * Only pass a binary that EXISTS: passing a path that isn't there is what
+ * false-failed this gate before (see scripts/forge-tools.ts).
+ */
+export function staticSliceForWorktree(workspace: string, toolsRoot: string): StaticSlice {
+  const depcruiseBin = resolve(toolsRoot, 'node_modules/.bin/depcruise')
+  const knipBin = resolve(toolsRoot, 'node_modules/.bin/knip')
+  return staticSliceFromGate(
+    runStaticGate({
+      workspace,
+      ...(existsSync(depcruiseBin) ? { depcruiseBin } : {}),
+      ...(existsSync(knipBin) ? { knipBin } : {}),
+    }),
+  )
 }
