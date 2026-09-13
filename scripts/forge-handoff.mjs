@@ -31,11 +31,26 @@ const arg = (name) => {
   const i = args.indexOf(`--${name}`)
   return i >= 0 ? args[i + 1] ?? null : null
 }
+// EVERY occurrence of a flag, not just the first. A repeated flag is how a caller
+// passes two values without inventing a separator.
+const values = (name) =>
+  args.reduce(
+    (acc, token, i) => (token === `--${name}` && args[i + 1] ? [...acc, args[i + 1]] : acc),
+    [],
+  )
+
+// Comma-separated OR repeated: `--surface a,b` and `--surface a --surface b` both work,
+// so nothing that used to be legal stops being legal.
 const list = (name) =>
-  (arg(name) ?? '')
-    .split(',')
+  values(name)
+    .flatMap((v) => v.split(','))
     .map((s) => s.trim())
     .filter(Boolean)
+
+// A list of COMMANDS. Never comma-split: a proof command may legitimately contain a
+// comma, and splitting one command into two produces a second command that does not
+// exist — a silent lie in a frozen-acceptance field. Repeat the flag instead.
+const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 
 const storyId = arg('story')
 const processInstanceId = arg('process')
@@ -233,7 +248,7 @@ try {
       arg('reason'),
       assignments == null ? null : Number.parseInt(assignments, 10),
       list('findings'),
-      list('merge-checks'),
+      commands('merge-checks'),
       list('scope'),
     ],
   )

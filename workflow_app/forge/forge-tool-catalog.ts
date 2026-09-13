@@ -126,10 +126,18 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'model-facing',
     purpose: 'symbol-level navigation, references, and bounded semantic edits',
     skillDoc: 'docs/agent/skills/serena.md',
-    // Registered with OpenCode 2026-09-11 and verified connected via
-    // `opencode mcp list`. Per-role authority is enforced at the lane boundary
-    // (serenaAllowedToolsForRole), never by the registration.
-    wired: true,
+    // UNREGISTERED 2026-09-13. It was registered with OpenCode on 2026-09-11 and
+    // verified via `opencode mcp list`, but OpenCode starts EVERY registered MCP
+    // server on every `opencode run` — and serena opened a browser to a "config not
+    // done" page each time, once per lane, taking over the operator's browser while
+    // other work was in progress. The registration is removed from
+    // ~/.config/opencode/opencode.json (a dated backup sits beside it).
+    //
+    // Restore it with `serena init` in the workspace followed by
+    // `opencode mcp add`, once it starts headless. Per-role authority was never
+    // delegated to the registration anyway — it is enforced at the lane boundary by
+    // serenaAllowedToolsForRole.
+    wired: false,
     // Scout stays on Ripwire; Inspector/Assay/DEV_OPS are excluded in the initial cut.
     roles: ['architect', 'lead_pre', 'lead_solo', 'lead_post', 'smith'],
     // Lead PRE is read-only. Lead SOLO/POST and Smith may mutate.

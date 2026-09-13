@@ -44,18 +44,23 @@ test('V5-23..27: every declared tool carries an honest wiring status', () => {
   assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, true, 'dependency-cruiser installed 2026-09-11')
   assert.equal(FORGE_TOOL_CATALOG.knip.wired, true, 'knip installed 2026-09-11')
   assert.equal(FORGE_TOOL_CATALOG.rtk.wired, true, 'rtk shim seam wired 2026-09-11')
-  // Registered with OpenCode and confirmed connected 2026-09-11 — verified by
-  // running `opencode mcp list`, not by assuming the add command worked.
-  assert.equal(FORGE_TOOL_CATALOG.serena.wired, true, 'serena MCP registered 2026-09-11')
+  // UNREGISTERED 2026-09-13. It was registered and confirmed connected on 2026-09-11
+  // (verified with `opencode mcp list`, not by assuming the add worked), but OpenCode
+  // starts every registered MCP server on every run, and serena opened a browser to a
+  // "config not done" page each time — once per lane, on the operator's machine, while
+  // other work was in progress. `wired` stays honest, so it is false until serena runs
+  // headless again; the catalog entry records the restore path.
+  assert.equal(FORGE_TOOL_CATALOG.serena.wired, false, 'serena MCP unregistered 2026-09-13')
 })
 
 test('V5-23..27: an unavailable tool never becomes a grant, and its degradation is explicit', () => {
-  // Every tool is now wired, so unavailability is expressed by the environment.
-  // The rule still holds: no grant without availability, and a stated fallback.
+  // Unavailability is expressed by the environment (the `available` list), while a
+  // tool we have deliberately unregistered reports THAT instead. Either way the rule
+  // holds: no grant without availability, and a stated fallback.
   const resolution = resolveForgeToolPermissions('smith', { available: ['ripwire'] })
   assert.equal(grantFor('smith', 'serena', ['ripwire']), undefined)
   const degradation = resolution.degradations.find((d) => d.tool === 'serena')
-  assert.equal(degradation?.reason, 'unavailable')
+  assert.equal(degradation?.reason, 'not-wired', 'serena is unwired, not merely absent')
   assert.match(degradation!.fallback, /ripwire/)
 })
 
