@@ -309,6 +309,9 @@ export function createAgentRuntimeForgeRoleRunner(
       ? Math.max(1, parseDeliverableRepromptBudget(process.env.FORGE_DELIVERABLE_RETRIES) + 1)
       : 1
     let correctiveNote = ''
+    // The model has no memory between attempts. This carries its OWN last reply so a
+    // retry repairs rather than rewrites (see self-heal.ts).
+    let previousReply: string | null = null
     for (let attempt = 0; attempt < totalAttempts; attempt++) {
     const plan = forgeRoleNodePlan(nodeId)
     // Trusted LEAD routing context (Astra handoff): derived from durable story +
@@ -675,6 +678,8 @@ export function createAgentRuntimeForgeRoleRunner(
     // isArchitectNode/isScoutNode/lead_pre conditionals with a role contract.
     const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
+    const priorReply = previousReply
+    previousReply = raw
     // ENG-FORGE-PHASE-AGENT: collect() is the subclass hook that FILLS evidence
     // (architect handoff parse, Lead routing, Smith candidate, Assay verdict,
     // DEV_OPS receipt). Only the effects the runner can honestly supply are
@@ -1191,6 +1196,7 @@ export function createAgentRuntimeForgeRoleRunner(
               )
             : plan.evidenceInstruction,
         rejectionReasons.length ? rejectionReasons : undefined,
+        priorReply,
       )
       continue
     }
