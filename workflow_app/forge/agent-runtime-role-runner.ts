@@ -742,6 +742,33 @@ export function createAgentRuntimeForgeRoleRunner(
     // nothing.
     Object.assign(evidence, agent.collect(evidence, raw, rolePorts))
 
+    // NO_PROGRESS GUARD (CONVERGENCE-01 Scope B), applied where the QA verdict lands.
+    //
+    // The same candidate SHA re-failing the same machine classification with no new
+    // candidate in between is a HOLD, not another repair. The pure guard and its
+    // projector already existed and NOTHING called them, so the check was inert and a
+    // failing QA could be handed another loop on an unchanged candidate — exactly the
+    // 3am spend this guard exists to stop.
+    if ((nodeId === 'qa_verify' || nodeId === 'fast_qa_verify') && evidence.qaPassed === false) {
+      try {
+        const { readStoryForgeConvergence } = await import('../../db/forge-convergence')
+        const convergence = await readStoryForgeConvergence(resolvedStory.id)
+        if (convergence.noProgress.noProgress) {
+          evidence.noProgress = true
+          const guardRunId = finishedItem?.storyRunId ?? null
+          if (guardRunId && convergence.noProgress.reason) {
+            await appendForgeRunDetail(guardRunId, convergence.noProgress.reason).catch(() => {
+              /* run-detail append is observer-only; the guard's flag still stands */
+            })
+          }
+        }
+      } catch {
+        // A safety net, not the brake: a QA FAIL still routes through the repair budget
+        // below, so an unreadable history degrades to that rather than failing the run.
+        // The database failure itself is captured at the gateway.
+      }
+    }
+
     // OBSERVER (phase 1, record-only): EVERY role attempt, not just split
     // children — this is what makes the worker-execution layer live in normal
     // traffic instead of waiting for a SPLIT. The sink cannot throw and the

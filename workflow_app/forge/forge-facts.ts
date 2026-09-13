@@ -75,6 +75,13 @@ export type ForgeGateEvidence = {
    * (the FINAL-02 deadlock). Additive: absent/undefined preserves current routing.
    */
   verificationGap?: boolean
+  /**
+   * Scope B no-progress (CONVERGENCE-01): this exact candidate SHA re-failed the same
+   * machine classification with no new candidate in between. Set by the runner from the
+   * convergence read model, and passed into `routeQaResult` so the graph HOLDs instead
+   * of paying for another repair on an unchanged candidate.
+   */
+  noProgress?: boolean
   repairAttempts?: number
   replanAttempts?: number
   failedCriteria?: string[]
@@ -267,6 +274,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
             replanAttempts: evidence.replanAttempts ?? 0,
           },
           verificationGap: evidence.verificationGap,
+          noProgress: evidence.noProgress,
         })
       : null
 

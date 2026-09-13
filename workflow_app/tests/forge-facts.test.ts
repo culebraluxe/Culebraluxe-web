@@ -97,3 +97,25 @@ test('Scope C: FAST eligibility fails closed when any release obligation appears
   // Non-FAST work is never FAST-eligible.
   assert.equal(forgeFastEligibility({ workType: 'FEATURE' }), false)
 })
+
+test('CONVERGENCE-01 Scope B: noProgress turns a QA FAIL into a HOLD, never another repair', () => {
+  // Two days of this guard existing and being called by nobody: checkNoProgress and its
+  // projector were both written and both inert, so a candidate that re-failed the same
+  // machine classification could be handed another repair loop. This pins the WIRE.
+  const failing: ForgeGateEvidence = {
+    qaPassed: false,
+    disposition: 'REPAIR',
+    repairAttempts: 0,
+    replanAttempts: 0,
+  }
+
+  // Without the guard an in-budget FAIL is repairable — that is the loop.
+  const before = projectForgeGateFacts(failing)
+  assert.equal(before.qaRepairEligible, true, 'an in-budget FAIL is normally repairable')
+
+  // With it, neither door is open, so the graph can only HOLD.
+  const after = projectForgeGateFacts({ ...failing, noProgress: true })
+  assert.equal(after.qaRepairEligible, false, 'no repair on an unchanged candidate')
+  assert.equal(after.qaReplanEligible, false, 'and no replan either')
+})
+

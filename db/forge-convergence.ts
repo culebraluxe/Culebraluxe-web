@@ -1,5 +1,10 @@
-import type { ForgeConvergenceExecution } from '../workflow_app/forge/forge-convergence'
-import { projectStoryRunsToConvergence, type ForgeNodeRun } from '../workflow_app/forge/forge-convergence-projector'
+import type { ForgeConvergenceExecution, NoProgressCheck } from '../workflow_app/forge/forge-convergence'
+import { checkNoProgress } from '../workflow_app/forge/forge-convergence'
+import {
+  buildConvergenceEvents,
+  projectStoryRunsToConvergence,
+  type ForgeNodeRun,
+} from '../workflow_app/forge/forge-convergence-projector'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
 // ---------------------------------------------------------------------------
@@ -47,6 +52,14 @@ export type StoryForgeConvergence = {
   processInstanceId: string | null
   processStatus: string | null
   executions: ForgeConvergenceExecution[]
+  /**
+   * The Scope B no-progress verdict, computed from the same runs. It is exposed here
+   * because this read already HAS the raw material, and because the guard was inert
+   * for want of exactly this: `checkNoProgress` and the projector both existed and
+   * nothing ever called them, so a candidate that re-failed the same machine
+   * classification with no new candidate could be handed another repair loop.
+   */
+  noProgress: NoProgressCheck
 }
 
 /**
@@ -97,7 +110,13 @@ export async function readStoryForgeConvergence(
     repairAttempts,
     replanAttempts,
   })
-  return { storyId, processInstanceId, processStatus, executions }
+  return {
+    storyId,
+    processInstanceId,
+    processStatus,
+    executions,
+    noProgress: checkNoProgress(buildConvergenceEvents(runs)),
+  }
 }
 
 /** Convergence for every story that has run under the Forge engine. */
