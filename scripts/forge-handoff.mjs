@@ -68,7 +68,6 @@ if (!storyId || !processInstanceId || !taskId || !nodeId) {
 }
 
 const pool = forgeDbPool()
-const pool = forgeDbPool()
 
 // ---------------------------------------------------------------------------
 // IDENTITY IS CHECKED, NOT TRUSTED.
