@@ -93,6 +93,36 @@ test('ENG-FORGE-V10: Smith candidate and Lead POST integrated candidate are exac
   )
 })
 
+test('ENG-FORGE-SHAPE-01: the Lead is handed the durable Architect findings', () => {
+  // The field is documented as the Lead shaping gate's snapshot and was never populated,
+  // so the Lead's reviewer saw zero findings and refused every valid proposal. Live on
+  // 2026-09-13 that HOLDed the smoke story twice with a perfect finding in the database.
+  const findings = [
+    {
+      id: 'F1',
+      summary: 'one bounded change',
+      required: true,
+      seams: ['workflow_app/forge/forge-role-mapping.ts'],
+      hint: 'SAME_UNIT' as const,
+    },
+  ]
+
+  const mapped = forgeEvidenceFromAgentResult({
+    nodeId: 'lead_pre',
+    result: result(),
+    current: { findings },
+  })
+  assert.deepEqual(mapped.findings, findings)
+
+  // No snapshot recorded: stay absent rather than becoming a fabricated empty list, so
+  // "nothing was recorded" and "an empty plan was recorded" remain distinguishable.
+  assert.equal(
+    forgeEvidenceFromAgentResult({ nodeId: 'lead_pre', result: result(), current: {} }).findings,
+    undefined,
+  )
+})
+
+
 test('ENG-FORGE-V10: QA pass requires structured verification of the exact candidate', () => {
   const pass = forgeEvidenceFromAgentResult({
     nodeId: 'qa_verify',
@@ -115,6 +145,12 @@ test('ENG-FORGE-V10: QA pass requires structured verification of the exact candi
   })
   assert.equal(pass.qaPassed, true)
   assert.equal(pass.qaVerifiedSha, SHA)
+  // The candidate MUST ride the evidence: `collectAssayEvidence` binds the assay to
+  // `evidence.candidateSha`. Omitting it left the deterministic Assay with NO_CANDIDATE,
+  // scored INCOMPLETE, and reported a verification GAP on every story — so no story
+  // could ever pass QA, while this row still carried a verified SHA. That is exactly
+  // why this assertion exists.
+  assert.equal(pass.candidateSha, SHA)
 
   // Scope C: the FAST lane's deterministic QA node derives the same evidence.
   const fast = forgeEvidenceFromAgentResult({
@@ -138,6 +174,7 @@ test('ENG-FORGE-V10: QA pass requires structured verification of the exact candi
   })
   assert.equal(fast.qaPassed, true)
   assert.equal(fast.qaVerifiedSha, SHA)
+  assert.equal(fast.candidateSha, SHA, 'the fast lane binds the same candidate')
 
   const mismatch = forgeEvidenceFromAgentResult({
     nodeId: 'qa_verify',

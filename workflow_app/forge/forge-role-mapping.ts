@@ -235,9 +235,28 @@ export function forgeEvidenceFromAgentResult(input: {
   const marked = parseForgeEvidenceMarker([result.notes, result.testsSummary].filter(Boolean).join('\n'))
   const clean = cleanResult(result)
   switch (nodeId) {
-    case 'lead_pre':
+    case 'lead_pre': {
+      // THE DURABLE FINDINGS SNAPSHOT — the Lead's actual input.
+      //
+      // `ForgeGateEvidence.findings` is documented as the durable Architect snapshot for
+      // the Lead shaping gate, and NOTHING populated it. So `LeadAgent.collect` read an
+      // empty list, built a RoutingContext with zero required findings, and the reviewer
+      // refused every proposal with "No required findings supplied; obtain the bounded
+      // Architect handoff" — even when the model's routing decision was valid and its
+      // evidence refs, finding ids and proof command all matched. Live on 2026-09-13 that
+      // HOLDed the smoke story after both attempts while the durable row held a perfectly
+      // good finding.
+      //
+      // It hid for so long because the runner ran its OWN review as a fallback (built from
+      // the durable row, so correct); removing that duplicate seat exposed this. The second
+      // seat was masking a broken first seat.
+      const findings =
+        Array.isArray(current.findings) && current.findings.length > 0
+          ? { findings: current.findings }
+          : {}
       return {
         ...marked,
+        ...findings,
         ...(input.leadDecision?.decision
           ? {
               leadDecision: input.leadDecision.decision as ForgeGateEvidence['leadDecision'],
@@ -245,6 +264,7 @@ export function forgeEvidenceFromAgentResult(input: {
             }
           : {}),
       }
+    }
     case 'lead_solo_implement':
     case 'smith':
     case 'smith_split_work':
@@ -260,6 +280,17 @@ export function forgeEvidenceFromAgentResult(input: {
       return { ...marked, qaReviewPassed: clean }
     case 'qa_verify':
     case 'fast_qa_verify': {
+      // THE CANDIDATE SHA MUST RIDE THE EVIDENCE.
+      //
+      // `collectAssayEvidence` reads `evidence.candidateSha` to bind the assay to the
+      // candidate. Computing it here and NOT returning it left the deterministic Assay
+      // with NO_CANDIDATE, which the adjudicator scores INCOMPLETE -> the QA lane
+      // reported a verification GAP on every story, so no story could ever pass QA.
+      //
+      // Worse, it read as a contradiction: the harness adapter passed the same candidate
+      // and its verified SHA was durable, so the row showed `qa_verified_sha` set while
+      // `qa_passed` was false. The gap branch recorded no reason, so nothing said why.
+      // Live on 2026-09-13, found by running the chain end to end.
       const candidate = commitSha(current.candidateSha)
       const verified = commitSha(result.assayEvidence?.verifiedSha)
       const exact = Boolean(
@@ -271,6 +302,7 @@ export function forgeEvidenceFromAgentResult(input: {
       )
       return {
         ...marked,
+        ...(candidate ? { candidateSha: candidate } : {}),
         qaPassed: exact,
         ...(verified ? { qaVerifiedSha: verified } : {}),
         ...(!exact ? { failureClass: 'CODE_DEFECT' as const } : {}),
