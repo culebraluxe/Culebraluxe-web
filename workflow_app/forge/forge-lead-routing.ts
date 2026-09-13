@@ -1,3 +1,4 @@
+import { lastJsonObjectMatching } from './agents/shared/json-slice'
 import { assessSmithDispatch } from './forge-dispatch-gate'
 import { dispatchabilityFor } from './forge-dispatchability'
 import type { DispatchabilityFeatures } from './forge-dispatchability'
@@ -249,62 +250,13 @@ export function parseLeadRouting(notes: string): unknown {
   // validates the proposal's structure, so accepting it here cannot route anything the
   // gate would have refused anyway.
   //
-  // Deliberately narrow: only the LAST balanced object that parses AND carries
-  // `version: 1` AND a string `decision` qualifies. That shape excludes the Architect
-  // handoff (baseRef/findings, no decision), Scout findings arrays, and prose.
-  return lastRoutingObject(notes)
-}
-
-/** The last balanced `{…}` in `text` that parses as a version-1 routing proposal. */
-function lastRoutingObject(text: string): unknown {
-  let at = text.lastIndexOf('{')
-  while (at >= 0) {
-    const slice = balancedObjectAt(text, at)
-    if (slice) {
-      try {
-        const parsed: unknown = JSON.parse(slice)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const row = parsed as Record<string, unknown>
-          if (row.version === 1 && typeof row.decision === 'string') return parsed
-        }
-      } catch {
-        /* not JSON — keep scanning left */
-      }
-    }
-    // GUARD THE PROGRESS, do not rely on the sentinel: `lastIndexOf(x, -1)` clamps
-    // `fromIndex` to 0 in JavaScript, so a reply that STARTS with `{` re-finds index 0
-    // forever — an infinite loop in a function that runs on every lead_pre. (A reply
-    // that is nothing but a JSON object is exactly that shape.)
-    if (at === 0) break
-    const next = text.lastIndexOf('{', at - 1)
-    if (next >= at) break
-    at = next
-  }
-  return null
-}
-
-/** The balanced object starting at `start`, or null. String-aware, so a brace inside
- * quoted text (a shell command, a path) does not end it early. */
-function balancedObjectAt(text: string, start: number): string | null {
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === '\\') escaped = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') inString = true
-    else if (ch === '{') depth++
-    else if (ch === '}') {
-      depth--
-      if (depth === 0) return text.slice(start, i + 1)
-    }
-  }
-  return null
+  // Deliberately narrow: only an object carrying `version: 1` and a string
+  // `decision` qualifies. That shape excludes the Architect handoff (baseRef/
+  // findings, no decision), Scout findings arrays, and prose.
+  return lastJsonObjectMatching(
+    notes,
+    (row) => row.version === 1 && typeof row.decision === 'string',
+  )
 }
 
 export function leadRoutingFacts(review: Extract<RoutingReview, { ok: true }>) {

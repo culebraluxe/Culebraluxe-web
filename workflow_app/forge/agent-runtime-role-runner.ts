@@ -57,6 +57,7 @@ import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
+import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
@@ -161,6 +162,64 @@ export type AgentRuntimeForgeRunnerOptions = {
 }
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
+
+/**
+ * The recorded FIELDS win over the reply's JSON for the top-level decision.
+ *
+ * The reply still supplies the assignment detail when a route needs a plan (SMITH /
+ * SPLIT / SOLO carry chunks, surfaces and proofs that no 8-column row should try to
+ * hold). What the fields guarantee is the DECISION itself and the reasoning around it.
+ *
+ * A HOLD recorded in fields is authoritative and clean: no assignments, no merge
+ * checks, because the reviewer refuses a HOLD that dispatches anything.
+ */
+function leadProposalFromFields(
+  parsed: unknown,
+  contract: ForgeRoleContract | null,
+): unknown {
+  if (!contract?.decision) return parsed
+
+  if (contract.decision === 'HOLD') {
+    const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+    return {
+      version: 1,
+      decision: 'HOLD',
+      size: contract.size ?? (base.size as string) ?? 'SMALL',
+      sizeReason: contract.sizeReason ?? contract.reason ?? 'recorded in fields',
+      reason: contract.reason ?? contract.sizeReason ?? 'recorded in fields',
+      assignments: [],
+      mergeChecks: [],
+    }
+  }
+
+  const base =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : null
+  if (!base) {
+    // No parseable plan and the fields ask for a route that NEEDS one. Say exactly
+    // that rather than inventing a plan the model never wrote.
+    return {
+      version: 1,
+      decision: contract.decision,
+      size: contract.size ?? 'SMALL',
+      sizeReason: contract.sizeReason ?? 'recorded in fields',
+      reason: contract.reason ?? contract.sizeReason ?? 'recorded in fields',
+      assignments: [],
+      mergeChecks: contract.mergeChecks,
+    }
+  }
+  return {
+    ...base,
+    decision: contract.decision,
+    ...(contract.size ? { size: contract.size } : {}),
+    ...(contract.sizeReason ? { sizeReason: contract.sizeReason } : {}),
+    ...(contract.reason ? { reason: contract.reason } : {}),
+    ...(contract.mergeChecks.length > 0 ? { mergeChecks: contract.mergeChecks } : {}),
+  }
+}
 
 function runtimeInterrupted(resultStatus: string, completion: number): boolean {
   return completion < 100 || /interrupted|error|cancelled/i.test(resultStatus)
@@ -898,9 +957,20 @@ export function createAgentRuntimeForgeRoleRunner(
     // routing facts. This is the LEGACY FALLBACK for the case where collect could
     // not supply findings and therefore left evidence untouched — so the
     // trusted-context validation is never skipped, but never runs twice either.
+    // The DECISION travels in FIELDS now (migration 170), written by
+    // scripts/forge-handoff.mjs. Prefer the recorded contract over parsing the reply:
+    // a marker prefix going missing must never cost a routing decision the engine
+    // already has in hand — which is exactly what cost us 18 minutes tonight.
+    const recordedContract =
+      nodeId === 'lead_pre'
+        ? await getForgeRoleContract({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
+        : null
     const routingReview =
       nodeId === 'lead_pre' && evidence.leadDecision == null
-        ? reviewLeadProposal(parseLeadRouting(raw), leadRoutingContext)
+        ? reviewLeadProposal(
+            leadProposalFromFields(parseLeadRouting(raw), recordedContract),
+            leadRoutingContext,
+          )
         : null
     if (routingReview?.ok) {
       Object.assign(evidence, leadRoutingFacts(routingReview))
