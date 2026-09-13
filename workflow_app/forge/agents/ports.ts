@@ -21,6 +21,9 @@ export type StaticSlice = {
   archRan: boolean
   archOk: boolean
   archErrors: string[]
+  /** Ride-along instruments: recorded, never verdict-flipping. */
+  semgrepFindings?: string[]
+  knipFindings?: string[]
 }
 
 export type ReleaseEvidencePort = {

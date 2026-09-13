@@ -35,7 +35,8 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
         lane: 'architect',
         evidenceInstruction:
           `${STRUCTURED_PREFIX} {"migrationRequired":false,"migrationFiles":[],"derivedRefreshRequired":false,"derivedModels":[],"deploymentRequired":true} (declare actual release obligations) ` +
-          `FORGE_FINDINGS_JSON: [{"id":"<stable-key>","summary":"one distinct finding","required":true|false,"seams":["path/prefix",...],"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}] (list EVERY distinct finding; required=true only when it must land to satisfy the ORIGINAL story)`,
+          'FORGE_ARCHITECT_HANDOFF: {"version":1,"baseRef":"<the exact sha you inspected>","findings":[{"id":"<stable-key>","required":true|false,"summary":"<one distinct finding>","preconditions":["<already-true dependency>"],"scope":["<repository-relative path that EXISTS on baseRef>","<path#symbol>"],"postconditions":["<invariant that must still hold>"],"classes":["<TypeName>"],"risks":["<concrete risk>"],"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}]} ' +
+          '(ONE un-fenced JSON line. scope must name files that EXIST on baseRef — an invented path is a HOLD, not a plan. required=true only when it must land to satisfy the ORIGINAL story. FORGE_FINDINGS_JSON is still accepted as a fallback.)',
       }
     case 'lead_pre':
       return {

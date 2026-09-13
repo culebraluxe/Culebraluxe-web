@@ -1,11 +1,7 @@
 import { fileOf, unique } from '../shared/path'
 import type { ArchitectHandoff } from '../architect-handoff'
-
-/**
- * Max seams one finding may claim. More than this is a recut, not a plan.
- * (Same value the Lead's own scope check assumes.)
- */
-export const MAX_SEAMS_PER_FINDING = 3
+// The seam ceiling has ONE definition and the live architect contract owns it.
+import { MAX_SEAMS_PER_FINDING } from '../../forge-shaping'
 
 /** Return true if `repoPath` exists as a blob or tree on `baseRef`. */
 export type SeamExists = (baseRef: string, repoPath: string) => boolean

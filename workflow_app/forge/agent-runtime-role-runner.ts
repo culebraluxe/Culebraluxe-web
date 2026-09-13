@@ -51,6 +51,8 @@ import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
+import { commandRunner, staticSliceFromGate } from './agents/exec-command'
+import { runStaticGate } from './forge-static-gate'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
 import type { SmithExecutionContract } from './smith-contract'
 import { createPersistentTraceSink } from './forge-observer'
@@ -579,17 +581,48 @@ export function createAgentRuntimeForgeRoleRunner(
     // DEV_OPS receipt). Only the effects the runner can honestly supply are
     // passed; an omitted port is skipped, and the parent gate below still HOLDs
     // when the corresponding field is absent. The parent remains the decider.
+    // The candidate's OWN worktree, computed the same way the serial and split
+    // lanes compute it. Assay commands and the static gate run THERE, never in
+    // this checkout.
+    const roleCwd = workspaces?.worktreesRoot
+      ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
+      : process.cwd()
     const rolePorts: RoleEffectPorts = {
       splitEnabled: leadRoutingContext.splitEnabled,
       maxSmiths: leadRoutingContext.maxSmiths,
       allowedProofs: leadRoutingContext.allowedProofs,
       evidenceRefs: leadRoutingContext.evidenceRefs,
       baseRef: workspaces?.baseRef ?? undefined,
+      repoDir: roleCwd,
       // Fail-closed seam check: a file the Architect names must exist on the
-      // pinned baseRef (git cat-file against the sha, in this checkout).
-      existsOnBaseRef: existsOnGitBaseRef(process.cwd()),
+      // pinned baseRef (git cat-file against the sha).
+      existsOnBaseRef: existsOnGitBaseRef(roleCwd),
+      // The Assay lane verifies with the story's FROZEN proofs, in the candidate
+      // worktree, plus the live static gate (architecture is the hard gate and a
+      // SKIPPED arch gate is not a fail).
+      assayCommands: leadRoutingContext.allowedProofs,
+      runCommand: commandRunner(roleCwd),
+      runStatic: () => staticSliceFromGate(runStaticGate({ workspace: roleCwd })),
+      // A batch-sliced rollout is a RECORDED deferral, never a fake receipt.
+      ...(resolvedStory.batchDeploy
+        ? { deploymentDeferredToBatch: resolvedStory.batch ?? 0, deploymentRequired: false }
+        : {}),
+      // NOT SUPPLIED, on purpose:
+      //   runnerDiff     — the candidate diff is computed further DOWN this run
+      //                    (serial/split lanes), so it does not exist at collect
+      //                    time; the live door-2 scope check still enforces it.
+      //   benchIntent    — no live source yet (nothing writes a bench launch cap).
+      //   releaseEvidence— must come from the real release executor. A guessed
+      //                    receipt is worse than an absent one.
     }
-    agent.collect(evidence, raw, rolePorts)
+    // A rejection is a fact about THIS attempt, never inherited state: a stale
+    // one from a previous role node would HOLD a role that did nothing wrong.
+    delete evidence.deliverableRejection
+    // collect() is PURE: it returns a new evidence object. The old
+    // marshalFindings mutated in place, so discarding this return would silently
+    // drop every field the subclasses fill — the wiring would look right and do
+    // nothing.
+    Object.assign(evidence, agent.collect(evidence, raw, rolePorts))
 
     // OBSERVER (phase 1, record-only): EVERY role attempt, not just split
     // children — this is what makes the worker-execution layer live in normal
