@@ -55,8 +55,9 @@ import { parseArchitectHandoff } from './agents/architect-handoff'
 import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
-import { assessSmithScope } from './agents/smith/scope'
 import { buildSmithDirective } from './agents/smith/prompt'
+import { buildArchitectDirective } from './forge-architect-directive'
+import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceFromGate } from './agents/exec-command'
 import { runStaticGate } from './forge-static-gate'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
@@ -427,6 +428,14 @@ export function createAgentRuntimeForgeRoleRunner(
       identityInstruction,
       branchInstruction,
       smithFindingsInstruction,
+      // The Architect's OWN directive, carrying the story's frozen proofs.
+      //
+      // The run's pinned SHA reaches the model through the ISOLATION instruction
+      // (added at provisioning, after this list is assembled), so we pass an empty
+      // baseRef: buildArchitectDirective then instructs the Architect to name the
+      // SHA it inspected, and the handoff assessor validates the claim against that
+      // SHA with git. Inventing "origin/main" here would name the WRONG object.
+      plan.lane === 'architect' ? buildArchitectDirective('', leadRoutingContext.allowedProofs) : null,
       leadRoutingGovernsPre ? null : plan.evidenceInstruction,
       repoContextInstruction,
       priorScoutInstruction,
@@ -671,12 +680,10 @@ export function createAgentRuntimeForgeRoleRunner(
               },
             }
           : {}),
-      // benchIntent is deliberately ABSENT. storyboard_active_work records membership
-      // ("selected for current work") but NO launch cap: it cannot say SOLO vs SMITH
-      // vs SPLIT vs HOLD. Every non-null value in that type IS a cap, so deriving one
-      // from membership would silently forbid SPLIT for every active story — a policy
-      // change, not an integration. This port needs either a real cap column or an
-      // explicit product decision about what a bench drop means.
+      // benchIntent is deliberately NOT supplied. Bench membership does not imply a
+      // launch cap — every non-null value in that type IS a cap, so deriving one
+      // would ban SPLIT for every active story. It stays absent until the board
+      // writes an explicit `launch_intent` (NULL = today's Lead behaviour).
     }
     // A rejection is a fact about THIS attempt, never inherited state: a stale
     // one from a previous role node would HOLD a role that did nothing wrong.
@@ -822,6 +829,27 @@ export function createAgentRuntimeForgeRoleRunner(
           contract: serialAssignmentContract,
         })
         drainAlerts(forgeObserverSink, serialIdentity, resolvedStory.id)
+        // ENG-FORGE-SMITH-EXIT — the candidate's OWN line, judged against git.
+        //
+        // The live doors stay the authority (launch = serialLaunchDoor, scope =
+        // scopeViolations inside assessSmithExit). This adds only what the live door
+        // did not have: a parsed SMITH_CANDIDATE line, a NAMED miss when it is
+        // absent, the claimed SHA vs worktree HEAD, the assignment id, and an empty
+        // diff. `runnerDiff` is git's answer and always wins over the model's claim.
+        if (serialAssignment && serialAssignmentContract) {
+          const smithExit = assessSmithExit({
+            nodeId,
+            assignmentId: serialAssignment.id,
+            contract: serialAssignmentContract,
+            notes: raw,
+            runnerDiff: {
+              candidateSha,
+              mergeBase: workspaces?.baseRef ?? 'origin/main',
+              changedPaths: changedFiles,
+            },
+          })
+          if (!smithExit.ok) serialScopeMiss = smithExit.reasons
+        }
         // ENG-FORGE-OBS-SERIAL-01 box 1 — the violation is now a MISS, not a note.
         //
         // The lane used to accept any candidate: declared scope was measured but not

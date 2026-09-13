@@ -9,8 +9,8 @@ import { parseArchitectHandoff, handoffToFindings } from './architect-handoff'
 import { assessArchitectHandoff } from './architect/assess'
 import { persistArchitectBrief } from './architect/persist'
 import { benchIntentErrors } from './bench-intent'
-import { collectSmithEvidence } from './smith-collect'
 import { collectAssayEvidence } from './assay-collect'
+import { parseFailureClass } from '../qa-classify-line'
 import { forgeRoleNodePlan } from '../forge-role-mapping'
 
 // ---------------------------------------------------------------------------
@@ -116,15 +116,14 @@ export class LeadAgent extends ForgePhaseAgent {
 export class SmithAgent extends ForgePhaseAgent {
   readonly roleName = 'smith'
 
-  collect(evidence: ForgeGateEvidence, raw: string, ports: RoleEffectPorts = {}): ForgeGateEvidence {
-    const marked = parseForgeEvidenceMarker(raw)
-    const hasAssignment = Boolean(
-      evidence.leadRouting &&
-        typeof evidence.leadRouting === 'object' &&
-        Array.isArray((evidence.leadRouting as { assignments?: unknown[] }).assignments) &&
-        ((evidence.leadRouting as { assignments: unknown[] }).assignments.length > 0),
-    )
-    return collectSmithEvidence(this.nodeId, { ...evidence, ...marked }, ports, hasAssignment)
+  /**
+   * The Smith lane's evidence comes from the RUNNER's door 2 — the candidate SHA
+   * and the live scope contract — not from this hook. `assessSmithExit` (the Smith
+   * exit gate) is called there, where the worktree diff and the real
+   * `SmithExecutionContract` exist, so collect only marshals markers.
+   */
+  collect(evidence: ForgeGateEvidence, raw: string, _ports: RoleEffectPorts = {}): ForgeGateEvidence {
+    return { ...evidence, ...parseForgeEvidenceMarker(raw) }
   }
 }
 
@@ -166,7 +165,11 @@ export class FailureClassifierAgent extends ForgePhaseAgent {
 
   collect(evidence: ForgeGateEvidence, raw: string, _ports: RoleEffectPorts = {}): ForgeGateEvidence {
     const marked = parseForgeEvidenceMarker(raw)
-    return { ...evidence, ...marked }
+    // The FAILURE_CLASS: line is THIS lane's line contract. It feeds the ENGINE
+    // enum (CODE_DEFECT…), which is deliberately NOT the taxonomy in
+    // failure-classifier.ts (BAD_IMPLEMENTATION…). Two enums, two jobs — not merged.
+    const failureClass = parseFailureClass(raw)
+    return { ...evidence, ...marked, ...(failureClass ? { failureClass } : {}) }
   }
 }
 

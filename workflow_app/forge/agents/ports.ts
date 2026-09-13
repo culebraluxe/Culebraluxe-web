@@ -40,6 +40,13 @@ export type RoleEffectPorts = {
   runStatic?: () => StaticSlice
   /** Frozen assay commands from the story / accepted assignment. */
   assayCommands?: string[]
+  /**
+   * NOT part of the required contract. Bench membership does NOT imply a launch
+   * cap — every non-null value here is a cap, so deriving one would ban SPLIT for
+   * every active story. It stays optional and unsupplied until Push-to-Line writes
+   * an explicit `launch_intent` column (NULL | SOLO | SMITH | SPLIT | HOLD);
+   * NULL means today's Lead behaviour.
+   */
   benchIntent?: BenchIntent
   splitEnabled?: boolean
   maxSmiths?: number
