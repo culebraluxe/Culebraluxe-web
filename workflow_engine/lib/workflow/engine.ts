@@ -25,6 +25,13 @@ import {
   ApplicationCommandResult,
 } from './types';
 import { evaluateCondition } from './expressions';
+// `raw` builds a SQL FRAGMENT for interpolation. The engine used to write
+// `${cond ? this.sql\`AND x\` : this.sql\`\`}` inline, which is a tagged-template
+// CALL — i.e. it EXECUTED the fragment as its own statement and interpolated the
+// RESULT. The tenant case sent the literal statement `AND tenant_id IS NULL` to
+// Postgres and died with 42601 (found by ENG-FORGE-SMOKE-01, 2026-09-12); the
+// empty case quietly executed an empty query. A fragment must be built, not run.
+import { raw } from '../../../db/sql-template';
 import {
   StaleTokenError,
   WorkflowConflictError,
@@ -1272,7 +1279,7 @@ export class WorkflowEngine {
       SELECT * FROM tasks
       WHERE status IN ('ready', 'reserved', 'in_progress')
         AND (assignee = ${userId} OR ${userId} = ANY(candidates))
-        ${tenantId ? this.sql`AND tenant_id = ${tenantId}` : this.sql``}
+        ${tenantId ? raw`AND tenant_id = ${tenantId}` : raw``}
       ORDER BY priority DESC, created_at ASC
     `;
     return rows.map((r: any) => this._mapTask(r));
@@ -1320,7 +1327,7 @@ export class WorkflowEngine {
       FROM process_instances pi
       JOIN process_definitions pd ON pd.id = pi.definition_id
       WHERE 1=1
-        ${tenantId ? this.sql`AND pi.tenant_id = ${tenantId}` : this.sql``}
+        ${tenantId ? raw`AND pi.tenant_id = ${tenantId}` : raw``}
         ${
           status
             ? Array.isArray(status)
@@ -1328,8 +1335,8 @@ export class WorkflowEngine {
               : this.sql`AND pi.status = ${status}`
             : this.sql``
         }
-        ${definitionKey ? this.sql`AND pd.key = ${definitionKey}` : this.sql``}
-        ${businessKey ? this.sql`AND pi.business_key = ${businessKey}` : this.sql``}
+        ${definitionKey ? raw`AND pd.key = ${definitionKey}` : raw``}
+        ${businessKey ? raw`AND pi.business_key = ${businessKey}` : raw``}
       ORDER BY pi.started_at DESC
       LIMIT ${limit}
       OFFSET ${offset}
@@ -2477,12 +2484,12 @@ export class WorkflowEngine {
       ? await tx`
           SELECT * FROM process_definitions
           WHERE key = ${key} AND version = ${version} AND status = 'active'
-            ${tenantId ? tx`AND tenant_id = ${tenantId}` : tx`AND tenant_id IS NULL`}
+            ${tenantId ? raw`AND tenant_id = ${tenantId}` : raw`AND tenant_id IS NULL`}
         `
       : await tx`
           SELECT * FROM process_definitions
           WHERE key = ${key} AND status = 'active'
-            ${tenantId ? tx`AND tenant_id = ${tenantId}` : tx`AND tenant_id IS NULL`}
+            ${tenantId ? raw`AND tenant_id = ${tenantId}` : raw`AND tenant_id IS NULL`}
           ORDER BY version DESC
           LIMIT 1
         `;

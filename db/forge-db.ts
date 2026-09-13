@@ -304,8 +304,22 @@ async function runAgainstClient(
 ): Promise<QueryRow[]> {
   const flattened = flattenSqlTemplate(strings, values)
   const query = toPgQuery(flattened.strings, flattened.values)
-  const result = await timed(() => client.query(query.text, query.values))
-  return result.rows as QueryRow[]
+  try {
+    const result = await timed(() => client.query(query.text, query.values))
+    return result.rows as QueryRow[]
+  } catch (error) {
+    // A pg error carries NO query text, so a one-line SQL defect becomes a
+    // stack-trace hunt — the ENG-FORGE-SMOKE-01 42601 ("syntax error at or near
+    // AND") cost exactly that. Name the statement, bounded: TEXT ONLY (our own
+    // SQL) and never parameter VALUES, which can be business data.
+    const code = String((error as { code?: string }).code ?? 'unknown')
+    const text = query.text.replace(/\s+/g, ' ').trim()
+    // eslint-disable-next-line no-console
+    console.error(
+      `[forge-db] query failed (${code}) params=${query.values.length} :: ${text.slice(0, 400)}`,
+    )
+    throw error
+  }
 }
 
 /**
