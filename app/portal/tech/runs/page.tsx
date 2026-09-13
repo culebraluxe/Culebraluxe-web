@@ -49,6 +49,35 @@ function statusTone(status: string | null, ended: boolean): string {
   return "bg-black/5 text-black/55"
 }
 
+/** How long a run has been going (or sat) since it started. */
+function ageLabel(startedAt: unknown): string {
+  const started =
+    startedAt instanceof Date ? startedAt.getTime() : new Date(String(startedAt)).getTime()
+  if (!Number.isFinite(started)) return "?"
+  const minutes = Math.max(0, Math.round((Date.now() - started) / 60000))
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
+}
+
+/**
+ * A run row only gets `ended_at` when the engine closes it, so a killed run stays
+ * open forever. Say "open + how long", never "running": the page cannot see a
+ * process, and claiming liveness it cannot verify is how a dead run reads as
+ * healthy. Past an hour it is almost certainly an interrupted run.
+ */
+const STALE_AFTER_MINUTES = 60
+
+function openRunTone(startedAt: unknown): string {
+  const started =
+    startedAt instanceof Date ? startedAt.getTime() : new Date(String(startedAt)).getTime()
+  if (!Number.isFinite(started)) return "bg-black/5 text-black/55"
+  const minutes = (Date.now() - started) / 60000
+  return minutes > STALE_AFTER_MINUTES
+    ? "bg-amber-500/10 text-amber-700"
+    : "bg-[var(--portal-navy)]/8 text-[var(--portal-navy)]"
+}
+
 export default async function TechRunsPage() {
   const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
   if (!access.ok) redirect(access.redirectTo)
@@ -96,9 +125,11 @@ export default async function TechRunsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium text-[var(--portal-navy)]">{run.storyId}</span>
                       <span
-                        className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusTone(run.resultStatus, ended)}`}
+                        className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${ended ? statusTone(run.resultStatus, ended) : openRunTone(run.startedAt)}`}
                       >
-                        {ended ? (run.resultStatus ?? "ended") : "running"}
+                        {ended
+                          ? (run.resultStatus ?? "ended")
+                          : `open ${ageLabel(run.startedAt)}`}
                       </span>
                       {run.runPhase ? (
                         <span className="text-[11px] uppercase tracking-[0.12em] text-black/40">
