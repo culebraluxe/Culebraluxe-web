@@ -27,11 +27,16 @@ export const SORTER_BUCKETS: StoryBucket[] = ['backlog', 'open', 'bench', 'engin
 export const DELIBERATE_BUCKETS: StoryBucket[] = ['closed', 'next']
 
 /**
- * Where a move may come FROM, per destination.
+ * Where a move may GO TO, per source bucket.
  *
- * ENGINE QUEUE is deliberately absent from every `from` list: nothing drags out of
- * it. RUNNING and RESULTS are not buckets at all — the engine owns them and they
- * are never a drop target.
+ * ENGINE QUEUE is deliberately an EMPTY list: nothing drags out of it. RUNNING and
+ * RESULTS are not buckets at all — the engine owns them and they are never a drop
+ * target.
+ *
+ * (This comment previously said "comes FROM, per destination", which was the exact
+ * inverse of the data below and of `canMove`. The inversion shipped: every entry
+ * to ENGINE was refused and every exit from it was allowed, so dragging a story
+ * into ENGINE QUEUE did nothing. Corrected 2026-09-12.)
  */
 export const MOVES: Record<StoryBucket, StoryBucket[]> = {
   // BACKLOG is the source pool: nothing comes back INTO it except from OPEN or the
@@ -50,7 +55,10 @@ export const MOVES: Record<StoryBucket, StoryBucket[]> = {
 }
 
 export function canMove(from: StoryBucket, to: StoryBucket): boolean {
-  return MOVES[to]?.includes(from) ?? false
+  // MOVES is keyed by SOURCE, so read the source's list of allowed targets.
+  // Reading `MOVES[to]` (the bug) inverted the whole gate: nothing could enter
+  // ENGINE and anything could leave it.
+  return MOVES[from]?.includes(to) ?? false
 }
 
 /**
