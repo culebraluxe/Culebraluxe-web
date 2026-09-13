@@ -5,12 +5,12 @@ import type { SmithExecutionPlan } from './forge-execution-shaping'
 
 export type Route = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
 export type Size = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type BenchIntent = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
+
 export type LeadAssignment = {
   id: string
   findingIds: string[]
-  /** Other assignments whose OUTPUT this assignment needs. */
   dependsOn: string[]
-  /** Existing contract/evidence references; not a claim of runtime readiness. */
   evidenceRefs: string[]
   reasoning: string
   features: DispatchabilityFeatures
@@ -23,18 +23,16 @@ export type LeadProposal = {
   sizeReason: string
   reason: string
   assignments: LeadAssignment[]
-  /** Frozen story acceptance command(s) for the integrated candidate. */
   mergeChecks: string[]
 }
 export type RoutingContext = {
   findings: Array<{ id: string; required: boolean; hint?: string; seams: string[] }>
-  /** Exact references supplied in the current Scout/Architect handoff. */
   evidenceRefs: string[]
-  /** Supplied by the trusted runtime, never by the model. */
   splitEnabled: boolean
   maxSmiths: number
-  /** Exact approved story/packet commands; not model-invented acceptance. */
   allowedProofs: string[]
+  /** Captain launch intent from the Bench. Absent/null = no cap (live default). */
+  benchIntent?: BenchIntent
 }
 export type RoutingReview =
   | { ok: false; errors: string[]; advisories: string[] }
@@ -53,11 +51,19 @@ function featuresValid(v: unknown): v is DispatchabilityFeatures {
   ) && riskKeys.every(k => Number.isInteger(v[k]) && Number(v[k]) >= 1 && Number(v[k]) <= 5)
 }
 
+function chunkSurface(c: Record<string, unknown>): unknown {
+  if (Array.isArray(c.surface)) return c.surface
+  if (Array.isArray(c.scope)) return c.scope
+  return c.surface
+}
+
 function planValidShape(v: unknown): v is SmithExecutionPlan {
   return object(v) && ['SMALL', 'MEDIUM', 'LARGE'].includes(String(v.size)) &&
     Array.isArray(v.chunks) && v.chunks.length >= 1 && v.chunks.length <= 3 &&
-    v.chunks.every(c => object(c) && Number.isInteger(c.id) && nonempty(c.outcome) &&
-      strings(c.surface) && c.surface.length > 0 && nonempty(c.invariant) && nonempty(c.proof) &&
+    v.chunks.every(c => object(c) && Number.isInteger(c.id) &&
+      (nonempty(c.outcome) || nonempty(c.postconditions)) &&
+      strings(chunkSurface(c)) && (chunkSurface(c) as string[]).length > 0 &&
+      (nonempty(c.invariant) || nonempty(c.postconditions)) && nonempty(c.proof) &&
       (c.dependsOn === undefined || (Array.isArray(c.dependsOn) && c.dependsOn.every(d => Number.isInteger(d) && d > 0))))
 }
 
@@ -70,11 +76,28 @@ export function proposalValidShape(v: unknown): v is LeadProposal {
       featuresValid(a.features) && planValidShape(a.plan))
 }
 
-/** Canonical repository-relative scope. Symbols count as their owning file for
- * concurrent write conflicts: file#a and file#b still share one merge surface. */
+function normalizeProposal(p: LeadProposal): LeadProposal {
+  return {
+    ...p,
+    assignments: p.assignments.map((a) => ({
+      ...a,
+      plan: {
+        ...a.plan,
+        chunks: a.plan.chunks.map((c) => {
+          const row = c as unknown as Record<string, unknown>
+          const surface = strings(row.surface) ? (row.surface as string[]) : strings(row.scope) ? (row.scope as string[]) : c.surface
+          const outcome = c.outcome || (typeof row.postconditions === 'string' ? row.postconditions : '')
+          const invariant = c.invariant || (typeof row.postconditions === 'string' ? row.postconditions : '')
+          return { ...c, surface, outcome, invariant }
+        }),
+      },
+    })),
+  }
+}
+
 function pathOf(scope: string): string | null {
   const p = scope.trim().split('#')[0].replace(/^\.\//, '').replace(/\/+$/, '')
-  if (!p || p.startsWith('/') || /[\\*?\[\]{}:]/.test(p) ||
+  if (!p || p.startsWith('/') || /[\\*?[\]{}:]/.test(p) ||
       p.split('/').some(s => !s || s === '.' || s === '..')) return null
   return p
 }
@@ -88,10 +111,19 @@ export const LARGE_REQUIRES_RECUT =
 export const LARGE_REQUIRES_SPLIT =
   'LARGE requires two or more bounded Smith assignments'
 
-/** The AI proposes; code accepts or returns corrections. Never silently reroute.
- * Uses the EXISTING KRAKEN gate once per assignment, not once per whole story.
- * Current XML is a sibling fork, so unfinished sibling dependencies are refused.
- */
+function benchIntentErrors(decision: string, benchIntent: BenchIntent | undefined): string[] {
+  if (!benchIntent) return []
+  if (benchIntent === 'HOLD' && decision !== 'HOLD') return ['Bench intent is HOLD — Lead may only HOLD']
+  if (benchIntent === 'SOLO' && decision !== 'SOLO' && decision !== 'HOLD') {
+    return [`Bench intent is SOLO — Lead may SOLO or HOLD, not ${decision}`]
+  }
+  if (benchIntent === 'SMITH' && decision === 'SPLIT') {
+    return ['Bench intent is SMITH — Lead may not escalate to SPLIT']
+  }
+  return []
+}
+
+/** The AI proposes; code accepts or returns corrections. Never silently reroute. */
 export function reviewLeadProposal(raw: unknown, context: RoutingContext): RoutingReview {
   const errors: string[] = []
   const advisories: string[] = []
@@ -105,7 +137,8 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     }
   }
   if (!proposalValidShape(raw)) return { ok: false, errors: ['Malformed LEAD_ROUTING proposal'], advisories }
-  const p = raw
+  const p = normalizeProposal(raw)
+  errors.push(...benchIntentErrors(p.decision, context.benchIntent))
   if (p.decision === 'HOLD') {
     if (p.assignments.length || p.mergeChecks.length) errors.push('HOLD must not dispatch assignments or checks')
     return errors.length ? { ok: false, errors, advisories } : { ok: true, proposal: p, advisories }
@@ -161,9 +194,6 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     pathsByAssignment.push(paths.filter((s): s is string => s !== null))
     const illegal = paths.filter(path => !path || !scopes.some(scope => scope && within(path, scope)))
     if (illegal.length) {
-      // Name the offending surfaces and the legal seams. The LEAD retries on this
-      // error text, so an actionable message is the difference between a self-correcting
-      // second attempt and a deterministic HOLD (observed on PROJECTS-WORKSPACE-05).
       errors.push(
         prefix +
           'chunk edits exceed the assigned Architect scope or use an invalid path: ' +
@@ -202,17 +232,12 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
   return errors.length ? { ok: false, errors, advisories } : { ok: true, proposal: p, advisories }
 }
 
-/** One JSON line avoids brace counting inside shell commands/quoted strings.
- * Duplicates are ambiguous and rejected. Invalid output uses the existing
- * bounded reprompt path, not an invented default route. */
 export function parseLeadRouting(notes: string): unknown {
   const lines = notes.split(/\r?\n/).map(s => s.trim()).filter(s => s.startsWith('LEAD_ROUTING:'))
   if (lines.length !== 1) return null
   try { return JSON.parse(lines[0].slice('LEAD_ROUTING:'.length).trim()) } catch { return null }
 }
 
-/** Narrow adapter for engine facts / dynamic-fork plan-variable. Persist the
- * same accepted proposal before advancing. This function performs NO I/O. */
 export function leadRoutingFacts(review: Extract<RoutingReview, { ok: true }>) {
   const p = review.proposal
   return {
