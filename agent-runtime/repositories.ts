@@ -24,6 +24,7 @@ import {
   setForgeRunRuntime,
 } from '../db/forge-run'
 import { markForgeStoryInProgress } from '../db/forge-story-state'
+import { harnessStartedAtMs, readHarnessUsage } from './harness-usage'
 import {
   getStoryboardStory,
   listStoryRuns,
@@ -313,6 +314,17 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     }
 
     const normalized = normalizeAgentFinishForRole(item?.role ?? null, input, context)
+    // WHAT THE RUN ACTUALLY SPENT, from the harness's own store. This is the link that
+    // was missing: the columns existed, the readers existed, and nothing ever wrote
+    // them, so every run reported "unmeasured" and the widgets fell back to an estimate.
+    // Absent when unmeasurable — never a fabricated zero.
+    const harnessUsage = (() => {
+      const startedAtMs = harnessStartedAtMs({
+        externalRunId: item?.externalRunId ?? null,
+        startedAt: item?.startedAt ?? null,
+      })
+      return startedAtMs === null ? null : readHarnessUsage({ harnessStartedAtMs: startedAtMs })
+    })()
     const machineEvidence = {
       ...runMachineEvidenceFromFinish({
         role: item?.role ?? null,
@@ -323,6 +335,16 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       }),
       // Spend vision: harness-observed model identity, never model self-report.
       modelUsed: normalized.modelUsed ?? input.modelUsed ?? null,
+      ...(harnessUsage
+        ? {
+            tokensInput: harnessUsage.tokensInput,
+            tokensOutput: harnessUsage.tokensOutput,
+            // Vendor USD, which is exactly what `cost_usd` reserves; the widget
+            // estimate stays available in `cost_widgets` (migration 133).
+            costUsd: harnessUsage.costUsd,
+            costSource: 'vendor',
+          }
+        : {}),
     }
 
     if (item?.storyRunId) {
