@@ -30,10 +30,16 @@ async function main(): Promise<void> {
   const workType = value('--work-type') ?? 'FEATURE'
   if (!storyId) {
     throw new Error(
-      'usage: forge-engine-worker --story <story-id> [--work-type FEATURE|BUG|HOTFIX|RESEARCH|MIGRATION] [--until scout|architect|lead|node:<engine-node-id>]',
+      'usage: forge-engine-worker --story <story-id> [--work-type FEATURE|FAST|BUG|HOTFIX|RESEARCH|MIGRATION] [--until scout|architect|lead|node:<engine-node-id>]',
     )
   }
-  if (!['FEATURE', 'BUG', 'HOTFIX', 'RESEARCH', 'MIGRATION'].includes(workType)) {
+  // FAST is a first-class work type: definition v6's fast_lane_entry gates on the derived
+  // `fastEligible` fact (no release obligation, no schema change, no SPLIT) and routes
+  // straight to fast_smith, skipping the Architect and Lead MODEL turns. It was missing
+  // from this whitelist, so the compiled FAST graph existed and could never be entered
+  // from the only dispatch door. A FAST story that is not eligible HOLDs by design, and
+  // FAST is deliberately not QA-applicable: its gate parks at an operator confirmation.
+  if (!['FEATURE', 'FAST', 'BUG', 'HOTFIX', 'RESEARCH', 'MIGRATION'].includes(workType)) {
     throw new Error(`invalid --work-type ${JSON.stringify(workType)}`)
   }
 
@@ -94,7 +100,7 @@ async function main(): Promise<void> {
     | null
   const stamp = (): string => new Date().toISOString().slice(11, 19)
   const result = await driveForgeStory(storyId, {
-    start: { workType: workType as 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' },
+    start: { workType: workType as 'FEATURE' | 'FAST' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' },
     runner: createAgentRuntimeForgeRoleRunner({
       workerId,
       executionEnvironment: laneTarget,
