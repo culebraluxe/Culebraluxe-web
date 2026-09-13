@@ -37,13 +37,51 @@ model's chat reply.
    the shim strips its own directory from PATH before exec, with a regression test that
    fails if that is reintroduced.
 3. Forge runs execute against PROD only. See `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md`.
+4. WARM SESSION (2026-09-13, `ENG-FORGE-WARM-SESSION-01`): one OpenCode session serves
+   every model role of ONE execution generation. Verified live: architect + both Lead
+   attempts + smith + post all ran in `ses_f636a0792ffe…` (distinct sessions for that
+   generation: 1), while the PREVIOUS generation's session stayed separate, so
+   generations cannot share a desk. The worktree marker `.forge-session.continue` holds
+   the id and each role pins it with `--session <id>`; `FORGE_SESSION_CONTINUITY=0` opts
+   out; a session that fails is dropped once. Migration 174 stores the id on the run row.
+5. Spend is per ROLE, not per session: the adapter reads the pinned session at launch and
+   on success, and the run row carries the DELTA. Measured deltas for one generation:
+   architect $0.0076, lead $0.0142 / $0.0126 / $0.0111 (cache-heavy, ~96% cache reads).
+6. The Architect no longer walks the repository when a repo index is present: the latest
+   live architect run made ZERO file reads (0 Read/Glob/Grep calls). The index injection
+   is the fix; no runner-level guard is needed.
+
+## The field contract, and how it fails (2026-09-13)
+
+Every field reader keys on `(task_id, node_id, attempt)`. Five defects each made a story
+that was planned CORRECTLY look unplanned, so it could never route:
+
+1. The identity line given to the model omitted the ATTEMPT, so on a retry the model
+   wrote `--attempt 1` while the runner read attempt 2: "no decision was recorded in
+   fields" for a row that existed.
+2. The Lead's findings read was story-wide, so earlier runs and retried attempts produced
+   duplicate finding ids and the gate refused the whole context. It is now scoped to the
+   live process instance and the newest attempt per node.
+3. The chunk command wrote an assignment with a NULL `reasoning` and the reader treats
+   that as NO assignment, so the plan read as empty. The CLI now refuses the row.
+4. Assignment and chunk ids were matched case-sensitively, so `a` and `A1` were different
+   assignments and the plan resolved to nothing.
+5. The dispatchability scale rises with DIFFICULTY, so `worker-fit 5` means "needs a
+   team". Read as praise, it HOLDs a story whose route was otherwise correct.
+
+Root cause for all five: an incomplete or mis-keyed write is SILENT. The reader returns
+null and the gate reports a missing deliverable, which reads as a model failure. When a
+gate refuses, read the ROWS for that `(task, node, attempt)` before believing the message.
 
 ## Open, in priority order
 
-1. Lead cutover: wired (fields first, one seat, bench cap no longer silent) and tested
-   DB-free; still needs a live run to confirm a fields-only story routes end to end.
+1. SPLIT dogfood: never exercised end to end. SPLIT is enabled by default
+   (`FORGE_SPLIT_ENABLED !== 'false'`), the parallel-claim path is wired, and the serial
+   flows now complete — what is missing is a purpose-made multi-surface fixture story.
+   `scripts/forge-story-reset.ts` only resets; it does not create stories.
 2. Smith authorization: the serial lane treats an unreadable diff as a measurement gap
    rather than a scope miss. Deliberate today; changing it is the captain's call.
 3. Completion atomicity: durable evidence is merged BEFORE the engine CAS
    (`forge-engine-runtime.ts`), so a losing worker's evidence is already committed.
 4. `scripts/forge-handoff.mjs` splits list flags on commas.
+
