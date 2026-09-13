@@ -150,6 +150,13 @@ import type { ForgeGateEvidence } from './forge-facts'
 export type AgentRuntimeForgeRunnerOptions = {
   workerId: string
   executionEnvironment?: string | null
+  /**
+   * Operator launch cap for THIS dispatch (migration 167, `agent_work_item.launch_intent`).
+   * Null means the Lead decides, as it always has. When set it rides the role-effect
+   * ports as `benchIntent`, where the Lead's own cap check enforces it — so the cap is
+   * applied by the same code that already owns that rule, not by a second one here.
+   */
+  launchIntent?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 }
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
@@ -642,6 +649,9 @@ export function createAgentRuntimeForgeRoleRunner(
       allowedProofs: leadRoutingContext.allowedProofs,
       evidenceRefs: leadRoutingContext.evidenceRefs,
       baseRef: workspaces?.baseRef ?? undefined,
+      // The operator's launch cap for THIS dispatch (migration 167). Absent means
+      // "the Lead decides", which is the behaviour every run has had until now.
+      ...(options.launchIntent ? { benchIntent: options.launchIntent } : {}),
       repoDir: roleCwd,
       // Fail-closed seam check: a file the Architect names must exist on the
       // pinned baseRef (git cat-file against the sha).

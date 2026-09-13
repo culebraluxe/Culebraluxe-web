@@ -7,6 +7,7 @@ import {
 } from '../workflow_app/forge/forge-routing-brain'
 import { findActiveForgeInstance } from '../workflow_app/forge/forge-engine-runtime'
 import { getStoryboardStory } from '../db/storyboard'
+import { getQueuedAgentWorkDispatch } from '../db/agent-work'
 import { markForgeStoryHumanHold } from '../db/forge-story-state'
 import { storyReadyToRunReasons } from '../workflow_app/forge/forge-ready-gate'
 
@@ -79,13 +80,25 @@ async function main(): Promise<void> {
   }
 
   const workerId = process.env.AGENT_WORKER_ID?.trim() || `forge-engine-${process.pid}`
-  const stopAfter = parseUntil(value('--until'))
+  // Migration 167 — the DISPATCH carries how far this run may go and any operator
+  // launch cap, so the Cockpit can queue "Scout only" or "Architect only" and the
+  // engine honours it on the next kick. An explicit --until still wins: a human
+  // typing a flag is being deliberate, and a queued row is a stored decision.
+  const queuedDispatch = await getQueuedAgentWorkDispatch(storyId)
+  const stopAfter = parseUntil(value('--until')) ?? parseUntil(queuedDispatch?.stopAfter ?? undefined)
+  const launchIntent = (queuedDispatch?.launchIntent ?? null) as
+    | 'SOLO'
+    | 'SMITH'
+    | 'SPLIT'
+    | 'HOLD'
+    | null
   const stamp = (): string => new Date().toISOString().slice(11, 19)
   const result = await driveForgeStory(storyId, {
     start: { workType: workType as 'FEATURE' | 'BUG' | 'HOTFIX' | 'RESEARCH' | 'MIGRATION' },
     runner: createAgentRuntimeForgeRoleRunner({
       workerId,
       executionEnvironment: laneTarget,
+      ...(launchIntent ? { launchIntent } : {}),
     }),
     workerId,
     // SPLIT concurrency: default 2 (the lane is enabled by default now).

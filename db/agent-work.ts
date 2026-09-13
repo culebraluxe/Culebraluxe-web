@@ -60,6 +60,12 @@ export type AgentWorkItem = {
   modelProfile: string | null
   /** Optional additive special instructions for this command. */
   specialInstructions: string | null
+  /** How far THIS dispatch may run (scout|architect|lead), or null for the full
+   * chain. Written by the Cockpit phase buttons; read by the worker on claim. */
+  stopAfter?: string | null
+  /** Operator launch cap for THIS dispatch (SOLO|SMITH|SPLIT|HOLD), or null
+   * meaning the Lead decides. Enforced by the Lead's own cap check. */
+  launchIntent?: string | null
   /** Runtime adapter selected for this attempt. */
   runtimeAdapter: string | null
   /** Opaque external runtime/session id correlation (never canonical truth). */
@@ -101,6 +107,12 @@ type AgentWorkRow = QueryRow & {
   max_attempts: number
   execution_policy: string
   execution_environment: string | null
+  /** How far THIS dispatch may run (scout|architect|lead), or null for the full
+   * chain. Migration 167. Absent from readers that do not select it. */
+  stop_after?: string | null
+  /** Operator launch cap for THIS dispatch (SOLO|SMITH|SPLIT|HOLD), or null
+   * meaning the Lead decides. Migration 167. */
+  launch_intent?: string | null
   created_at: string
   updated_at: string
 }
@@ -140,9 +152,63 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
     maxAttempts: row.max_attempts ?? 3,
     executionPolicy: row.execution_policy ?? 'Unattended OK',
     executionEnvironment: row.execution_environment ?? null,
+    ...(row.stop_after !== undefined ? { stopAfter: row.stop_after ?? null } : {}),
+    ...(row.launch_intent !== undefined ? { launchIntent: row.launch_intent ?? null } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+/**
+ * Set how far THIS dispatch may run and/or its launch cap, on the story's
+ * currently QUEUED item.
+ *
+ * Two facts, one row, written together because they describe one decision the
+ * operator made at hand-over. Only a `Ready` item is touched: a claimed/running
+ * item is already executing under the options it was queued with, and mutating
+ * them mid-flight would change the rules of a run already in progress.
+ */
+export async function setAgentWorkDispatchOptions(
+  storyId: string,
+  options: { stopAfter?: string | null; launchIntent?: string | null },
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update agent_work_item
+    set stop_after = ${options.stopAfter ?? null},
+        launch_intent = ${options.launchIntent ?? null},
+        updated_at = now()
+    where story_id = ${storyId}
+      and state = 'Ready'
+    returning id
+  `
+  return rows.length
+}
+
+/**
+ * The dispatch options on the story's QUEUED item (state 'Ready'), if one exists.
+ *
+ * This is what the engine worker reads on startup: `stop_after` becomes the
+ * driver's stop target ("run this one to Architect and park"), and
+ * `launch_intent` becomes the Lead's launch cap. Null means nothing is queued —
+ * the caller then keeps today's behaviour (full chain, Lead decides).
+ */
+export async function getQueuedAgentWorkDispatch(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<{ stopAfter: string | null; launchIntent: string | null } | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select stop_after, launch_intent
+    from agent_work_item
+    where story_id = ${storyId}
+      and state = 'Ready'
+    limit 1
+  `
+  const row = rows[0] as { stop_after: string | null; launch_intent: string | null } | undefined
+  if (!row) return null
+  return { stopAfter: row.stop_after ?? null, launchIntent: row.launch_intent ?? null }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +292,7 @@ export async function listAgentWorkItems(
 
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, stop_after, launch_intent, created_at, updated_at
     from agent_work_item
     order by queued_at desc, id
   `
@@ -287,7 +353,7 @@ export async function getActiveAgentWorkItem(
   const q = execute ?? (await executor())
   const rows = await q`
     select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
-      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, stop_after, launch_intent, created_at, updated_at
     from agent_work_item
     where state in ('Claimed', 'Running')
     limit 1
