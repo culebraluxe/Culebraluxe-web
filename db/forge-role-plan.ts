@@ -42,7 +42,16 @@ async function executor(): Promise<QueryExecutor> {
   return defaultExecutor
 }
 
-/** The eight dispatchability numbers, or null when any of them is missing. */
+/**
+ * The eight dispatchability numbers, or null when any of them is missing.
+ *
+ * ZERO IS NOT A VALUE. `featuresValid` in forge-lead-routing.ts requires 1..100 for
+ * semanticSurface/dependencyDepth and 1..5 for the six risk keys, so 0 cannot express
+ * "not applicable" — a reader that accepted 0 would hand the reviewer a vector it
+ * refuses, discarding an otherwise honest plan into the reply-parsing fallback. A
+ * dimension that does not apply is expressed by not recording it at all, which is
+ * exactly what this null return means.
+ */
 function featuresOf(row: Record<string, unknown>): Record<string, number> | null {
   const map: Record<string, number> = {
     semanticSurface: Number(row.semantic_surface ?? NaN),
@@ -89,7 +98,11 @@ export async function getForgeRolePlan(
   `
 
   const out: PlanAssignment[] = []
-  let size: 'SMALL' | 'MEDIUM' | 'LARGE' = 'SMALL'
+  const SIZES = ['SMALL', 'MEDIUM', 'LARGE'] as const
+  type Size = (typeof SIZES)[number]
+  const rank = (s: Size): number => SIZES.indexOf(s)
+  const asSize = (v: unknown): Size => (SIZES.includes(String(v) as Size) ? (String(v) as Size) : 'SMALL')
+  let overall: Size = 'SMALL'
   for (const a of assignments) {
     const row = a as unknown as Record<string, unknown>
     const id = String(row.assignment_id)
@@ -97,38 +110,53 @@ export async function getForgeRolePlan(
     if (!features) return null // incomplete vector: do not guess numbers the gate multiplies
     const own = chunks.filter((c) => (c as unknown as Record<string, unknown>).assignment_id === id)
     if (own.length === 0) return null
+    // MISSING STAYS MISSING. The reviewer asks whether reasoning/outcome/invariant are
+    // non-empty; substituting '(not stated)' would satisfy that check with text the
+    // Lead never wrote. That is a validation bypass, not a convenience — so an
+    // incomplete assignment returns null and the caller falls back, the same rule the
+    // dispatchability vector above already follows.
+    const reasoning = String(row.reasoning ?? '').trim()
+    if (!reasoning) return null
+    const ownChunks: PlanChunk[] = []
+    // Size belongs to the ASSIGNMENT, derived from its own chunks. The previous
+    // version kept one running maximum and then broadcast it to every sibling, so a
+    // single MEDIUM chunk promoted the whole plan — and LARGE was never read at all.
+    let ownSize: Size = 'SMALL'
+    for (const c of own) {
+      const ch = c as unknown as Record<string, unknown>
+      const post = Array.isArray(ch.postconditions) ? (ch.postconditions as string[]) : []
+      const postText = post.join('; ').trim()
+      const invariantCol = String(ch.invariant ?? '').trim()
+      // When the chunk states only postconditions, those ARE its outcome and its
+      // invariant. When it states neither, the chunk is incomplete — not '(not stated)'.
+      const outcome = postText || invariantCol
+      const invariant = invariantCol || postText
+      if (!outcome || !invariant) return null
+      const chunkSize = asSize(ch.size)
+      if (rank(chunkSize) > rank(ownSize)) ownSize = chunkSize
+      ownChunks.push({
+        id: Number(ch.chunk_id),
+        outcome,
+        surface: Array.isArray(ch.surface) ? (ch.surface as string[]) : [],
+        invariant,
+        proof: String(ch.proof ?? ''),
+        dependsOn: Array.isArray(ch.depends_on)
+          ? (ch.depends_on as string[]).map((d) => Number(d)).filter((n) => Number.isInteger(n))
+          : [],
+      })
+    }
+    if (rank(ownSize) > rank(overall)) overall = ownSize
     out.push({
       id,
       findingIds: Array.isArray(row.finding_ids) ? (row.finding_ids as string[]) : [],
+      // Assignment-level ordering is not recorded in migration 171; an honest empty
+      // list beats inventing a dependency graph. Chunk-level `dependsOn` is read above.
       dependsOn: [],
       evidenceRefs: Array.isArray(row.evidence_refs) ? (row.evidence_refs as string[]) : [],
-      reasoning: String(row.reasoning ?? '(not stated)'),
+      reasoning,
       features,
-      plan: {
-        size: 'SMALL',
-        chunks: own.map((c) => {
-          const ch = c as unknown as Record<string, unknown>
-          const post = Array.isArray(ch.postconditions) ? (ch.postconditions as string[]) : []
-          const postText = post.join('; ')
-          const chunkSize = (ch.size as string | null) ?? 'SMALL'
-          if (chunkSize === 'MEDIUM') size = 'MEDIUM'
-          return {
-            id: Number(ch.chunk_id),
-            // The reviewer wants an outcome and an invariant; when the model stated
-            // only postconditions, those ARE the outcome and the invariant. Never
-            // invent one — say it was not stated.
-            outcome: postText || String(ch.invariant ?? '') || '(not stated)',
-            surface: Array.isArray(ch.surface) ? (ch.surface as string[]) : [],
-            invariant: String(ch.invariant ?? '') || postText || '(not stated)',
-            proof: String(ch.proof ?? ''),
-            dependsOn: Array.isArray(ch.depends_on)
-              ? (ch.depends_on as string[]).map((d) => Number(d)).filter((n) => Number.isInteger(n))
-              : [],
-          }
-        }),
-      },
+      plan: { size: ownSize, chunks: ownChunks },
     })
   }
-  for (const a of out) a.plan.size = size
-  return { size, assignments: out }
+  return { size: overall, assignments: out }
 }
