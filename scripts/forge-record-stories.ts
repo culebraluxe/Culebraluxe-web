@@ -126,6 +126,24 @@ const STORIES: StoryRecord[] = [
     assayCommands:
       '- `node --import tsx --test workflow_app/tests/forge-model-turn-budget.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-DISPATCH-LEDGER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    title: 'Write the work metadata the difficulty model needs, so it can be fitted later',
+    goal:
+      'Stop computing the difficulty prediction and throwing it away: record the features, the measurement provenance, the logit, the probability, the gate and the outcome for every assessed unit, so the hand-set weights can eventually be replaced by a fit.',
+    scope:
+      'db/migrations/175_forge_dispatch_score.sql (the ledger), db/forge-dispatch-score.ts (record + label + calibration reader), workflow_app/forge/forge-difficulty-scorer.ts (the logit joins the scorer protocol; SCORER_ID), workflow_app/forge/forge-plan-difficulty.ts (scorePlanDetailed + which features were measured), workflow_app/forge/agent-runtime-role-runner.ts (record at lead_pre, label at the Smith exit).',
+    acceptance:
+      'Every assessed unit leaves one row carrying the eight features, which of them were measured rather than defaulted, the scorer id, the logit and the p_success that produced the gate verdict; the outcome attaches to that same row and never replaces a measurement with null; and the reader can return only labelled rows as the calibration set.',
+    notes:
+      'The difficulty model (forge-difficulty-scorer.ts) predicts p_success = sigma(bias + w.x) over eight features with weights its own header calls "provisional calibration food" for a fit learned from run history, and four of the eight (locRatio, contextRatio, historicalSuccess, repoSizeBucket) are documented NEUTRAL defaults. None of it was recorded: assessSmithDispatch computed difficulty {pSuccess, gate} and the number reached only a reason string, the feature vector was discarded, and the outcome was never joined to the unit assessed. A formula cannot be fitted without data, so this story starts writing it: one row per assessed unit holding the features, the measured-vs-default provenance, the scorer id, the logit, p_success, the gate, the Lead route, and (filled later) verdict, repairs, turns, wall clock, cost, tokens, files changed, LOC delta and candidate SHA. The logit was moved INTO the DifficultyScorer protocol so the recorded number always explains the recorded probability — a drift test caught the first version taking the logit from the default weights while the score came from a passed scorer. Proven against the real table inside a rolled-back transaction (prediction written, label attached, round-trip read gate=dispatch p=0.9002 logit=2.2, re-record kept one row and preserved the outcome). Deliberately not in this story: fitting the weights and filling the telemetry defaults (ENG-FORGE-CALIBRATION-01), which need ledger volume. Migration 175 applied and verified on DEV and PROD.',
+    packet: 'docs/agent/packets/ENG-FORGE-DISPATCH-LEDGER-01.md',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/forge-dispatch-ledger.test.ts`',
+  },
 ]
 
 /** The packet's blob SHA, so the row points at the document that defines it. */

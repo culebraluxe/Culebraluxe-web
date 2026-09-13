@@ -65,6 +65,12 @@ import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessGenerationTurnBudget, resolveGenerationTurnCap } from './model-turn-budget'
+import { scorePlanDetailed } from './forge-plan-difficulty'
+import { SCORER_ID } from './forge-difficulty-scorer'
+import {
+  recordForgeDispatchOutcome,
+  recordForgeDispatchScore,
+} from '../../db/forge-dispatch-score'
 import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
@@ -785,6 +791,41 @@ export function createAgentRuntimeForgeRoleRunner(
       nodeId === 'lead_pre'
         ? await getForgeRolePlan({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
         : null
+
+    // THE DISPATCH LEDGER — record what the model PREDICTED, before anyone acts on it.
+    //
+    // `forge-difficulty-scorer.ts` predicts p_success from eight features with hand-set
+    // weights, and its own header says those weights are calibration food for a fit learned
+    // from run history. Until this write existed, the features, the logit, the probability
+    // and the gate verdict were computed here and discarded, and the outcome was never
+    // joined to the unit that was assessed — so there was nothing to fit. A formula needs
+    // data; this is the data.
+    //
+    // One row per ASSIGNMENT, which is the granularity the prediction itself has (a plan's
+    // chunks contribute to one feature vector). Recording is best-effort in the sense that
+    // it never changes the route — but it is not silent: a failure here is reported rather
+    // than swallowed, because a ledger that quietly stops is worse than no ledger.
+    if (nodeId === 'lead_pre' && recordedPlan) {
+      for (const assignment of recordedPlan.assignments) {
+        const scored = scorePlanDetailed(assignment.plan)
+        await recordForgeDispatchScore({
+          storyId: resolvedStory.id,
+          processInstanceId: String(task.processInstanceId),
+          taskId: task.taskId,
+          nodeId,
+          attempt: attempt + 1,
+          assignmentId: assignment.id,
+          features: scored.features,
+          measured: scored.measured,
+          scorerId: SCORER_ID,
+          logit: scored.logit,
+          pSuccess: scored.pSuccess,
+          gate: scored.gate,
+          route: (recordedContract?.decision as 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD') ?? null,
+        })
+      }
+    }
+
     const rolePorts: RoleEffectPorts = {
       splitEnabled: leadRoutingContext.splitEnabled,
       maxSmiths: leadRoutingContext.maxSmiths,
@@ -1031,6 +1072,24 @@ export function createAgentRuntimeForgeRoleRunner(
             },
           })
           if (!smithExit.ok) serialScopeMiss = smithExit.reasons
+
+          // THE LEDGER'S OTHER HALF — the label for the prediction made at lead_pre.
+          // "pass" here means the candidate satisfied the doors (launch, scope, a real
+          // diff, a named SHA); whether it also passed QA is recorded later by the QA
+          // lane. Repairs are the attempt count and turns come from the generation's own
+          // ledger, so the fit can see effort as well as outcome.
+          await recordForgeDispatchOutcome({
+            taskId: task.taskId,
+            nodeId,
+            attempt: attempt + 1,
+            assignmentId: serialAssignment.id,
+            outcome: smithExit.ok ? 'pass' : 'fail',
+            repairs: Math.max(0, attempt),
+            turns: await countForgeGenerationTurns(String(task.processInstanceId)),
+            filesChanged: changedFiles.length,
+            candidateSha: smithExit.ok ? smithExit.candidate.candidateSha : null,
+            detail: smithExit.ok ? null : smithExit.reasons.join(' | '),
+          })
         }
         // ENG-FORGE-OBS-SERIAL-01 box 1 — the violation is now a MISS, not a note.
         //

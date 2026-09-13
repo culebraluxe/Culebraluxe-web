@@ -66,9 +66,16 @@ export type DifficultyVerdict = 'reject' | 'flag' | 'dispatch'
  * implementation is the transparent LogisticScorer below; a LEARNED scorer can
  * implement the same shape later (from run telemetry) and swap in without any
  * call-site change.
+ *
+ * `logit` is part of the protocol, not an extra: the dispatch ledger records the linear
+ * predictor BESIDE the probability so a fit can check that the two agree. A scorer that
+ * could not state its own logit would be recording a probability nobody can verify — so a
+ * future non-logistic scorer must decide what it writes there rather than inherit the
+ * reference logistic's number and call it evidence.
  */
 export type DifficultyScorer = {
   score(features: DifficultyFeatures): number
+  logit(features: DifficultyFeatures): number
 }
 
 export function clampLogit(logit: number): number {
@@ -77,6 +84,29 @@ export function clampLogit(logit: number): number {
 
 export function sigmoid(logit: number): number {
   return 1 / (1 + Math.exp(-clampLogit(logit)))
+}
+
+/**
+ * THE SCORER'S IDENTITY. A fit is only valid against rows produced by a known scorer, so
+ * every recorded prediction carries this. Change it when the weights change: the ledger can
+ * then compare vintages instead of silently mixing them.
+ */
+export const SCORER_ID = 'logistic-hand-weighted-v1'
+
+/**
+ * The logit, exposed as a pure function so the RECORD and the PREDICTION cannot drift: the
+ * ledger stores the same number the score was computed from, not a recomputation.
+ */
+export function difficultyLogit(
+  features: DifficultyFeatures,
+  weights: Readonly<Record<keyof DifficultyFeatures, number>> = DIFFICULTY_WEIGHTS,
+  bias: number = DIFFICULTY_BIAS,
+): number {
+  let logit = bias
+  for (const name of Object.keys(weights) as (keyof DifficultyFeatures)[]) {
+    logit += weights[name] * (features[name] as number)
+  }
+  return logit
 }
 
 /**
@@ -90,11 +120,14 @@ export class LogisticScorer implements DifficultyScorer {
   ) {}
 
   score(features: DifficultyFeatures): number {
-    let logit = this.bias
-    for (const name of Object.keys(DIFFICULTY_WEIGHTS) as (keyof DifficultyFeatures)[]) {
-      logit += this.weights[name] * (features[name] as number)
-    }
-    return sigmoid(logit)
+    // Through `difficultyLogit`, so the number recorded beside a prediction is the number
+    // the prediction was made from.
+    return sigmoid(this.logit(features))
+  }
+
+  /** The linear predictor behind `score`, on the same weights this instance was built with. */
+  logit(features: DifficultyFeatures): number {
+    return difficultyLogit(features, this.weights, this.bias)
   }
 }
 
