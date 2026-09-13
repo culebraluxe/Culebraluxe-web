@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { getForgeRoleContract } from '../../db/forge-role-contract'
 import { getForgeRolePlan } from '../../db/forge-role-plan'
+import { getForgeRoleFindings, listStoryForgeFindings } from '../../db/forge-role-finding'
 import type { QueryExecutor, QueryRow } from '../../db/query-executor'
 
 // ---------------------------------------------------------------------------
@@ -23,12 +24,14 @@ function executorFor(tables: {
   contract?: QueryRow[]
   assignment?: QueryRow[]
   chunk?: QueryRow[]
+  finding?: QueryRow[]
 }): QueryExecutor {
   return (async (strings: TemplateStringsArray) => {
     const sql = strings.join(' ')
     if (sql.includes('forge_role_contract')) return tables.contract ?? []
     if (sql.includes('forge_role_assignment')) return tables.assignment ?? []
     if (sql.includes('forge_role_plan_chunk')) return tables.chunk ?? []
+    if (sql.includes('forge_role_finding')) return tables.finding ?? []
     return []
   }) as unknown as QueryExecutor
 }
@@ -256,3 +259,60 @@ test('plan: assignment-level ordering is honestly empty, chunk ordering is real'
   assert.deepEqual(plan!.assignments[0].dependsOn, [], 'migration 171 records no assignment ordering')
   assert.deepEqual(plan!.assignments[0].plan.chunks[0].dependsOn, [1])
 })
+
+// --- the finding reader (migration 172) -------------------------------------
+//
+// The LAST contract that travelled as chat JSON. Rows win; a reply parser is the
+// fallback; and null here means "no rows were written", which is how a caller knows to
+// fall back at all.
+
+test('findings: no rows is null, which is the fallback signal — never an empty plan', async () => {
+  assert.equal(await listStoryForgeFindings('ENG-FORGE-SMOKE-01', executorFor({})), null)
+  assert.equal(
+    await getForgeRoleFindings(KEY, executorFor({})),
+    null,
+  )
+})
+
+test('findings: a row maps to the live ArchitectFinding the gates already understand', async () => {
+  const findings = await listStoryForgeFindings(
+    'ENG-FORGE-SMOKE-01',
+    executorFor({
+      finding: [
+        {
+          finding_id: 'F1',
+          summary: 'one bounded change',
+          required: true,
+          seams: ['workflow_app/forge/forge-lead-routing.ts'],
+          hint: 'SAME_UNIT',
+        },
+      ],
+    }),
+  )
+
+  assert.ok(findings)
+  assert.equal(findings!.length, 1)
+  assert.deepEqual(findings![0], {
+    id: 'F1',
+    summary: 'one bounded change',
+    required: true,
+    seams: ['workflow_app/forge/forge-lead-routing.ts'],
+    hint: 'SAME_UNIT',
+  })
+})
+
+test('findings: required=false survives, so adjacent work never becomes story work', async () => {
+  const findings = await listStoryForgeFindings(
+    'ENG-FORGE-SMOKE-01',
+    executorFor({
+      finding: [
+        { finding_id: 'F2', summary: 'adjacent', required: false, seams: ['a/b.ts'], hint: null },
+      ],
+    }),
+  )
+
+  assert.ok(findings)
+  assert.equal(findings![0].required, false)
+  assert.equal('hint' in findings![0], false, 'a null hint is absent, not an empty string')
+})
+

@@ -200,6 +200,85 @@ if (arg('chunk')) {
   await pool.end()
   process.exit(0)
 }
+// --finding mode: record ONE finding (Architect / Scout). Repeat per finding.
+//
+//   ... --finding-id F1 --summary "<what must land>" --seams "a/b.ts,c/d.ts" \
+//       [--required true|false] [--hint SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD] \
+//       [--risks "r1,r2"] [--preconditions ...] [--postconditions ...] [--classes ...]
+//
+// This is the LAST contract still travelling as reply JSON (FORGE_ARCHITECT_HANDOFF /
+// FORGE_FINDINGS_JSON). The database refuses exactly what the architect gate refuses: no
+// seam, more than three seams, a required HOLD with no named risk, an unknown hint, a
+// blank summary — and it NAMES the failing constraint, so the model fixes the field
+// rather than the prose.
+if (arg('finding-id')) {
+  const findingId = (arg('finding-id') ?? '').trim()
+  const summary = (arg('summary') ?? '').trim()
+  const seams = list('seams')
+  const requiredRaw = (arg('required') ?? '').trim().toLowerCase()
+  const required = requiredRaw === '' ? true : !['false', '0', 'no'].includes(requiredRaw)
+  const hint = (arg('hint') ?? '').trim() || null
+
+  if (!findingId || !summary || seams.length === 0) {
+    console.error(
+      'forge-handoff: a finding needs --finding-id <id>, --summary "<what must land>" and ' +
+        '--seams <path[,path]> (1..3). A finding that names no seam cannot be dispatched.',
+    )
+    await pool.end()
+    process.exit(2)
+  }
+
+  try {
+    const written = await pool.query(
+      `insert into forge_role_finding
+         (story_id, process_instance_id, task_id, node_id, attempt, finding_id,
+          summary, required, seams, hint, preconditions, postconditions, classes, risks)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       on conflict (task_id, node_id, attempt, finding_id) do update set
+         summary = excluded.summary,
+         required = excluded.required,
+         seams = excluded.seams,
+         hint = coalesce(excluded.hint, forge_role_finding.hint),
+         preconditions = excluded.preconditions,
+         postconditions = excluded.postconditions,
+         classes = excluded.classes,
+         risks = excluded.risks,
+         updated_at = now()
+       returning finding_id, required, seams, hint`,
+      [
+        storyId,
+        processInstanceId,
+        taskId,
+        nodeId,
+        attempt,
+        findingId,
+        summary,
+        required,
+        seams,
+        hint,
+        list('preconditions'),
+        list('postconditions'),
+        list('classes'),
+        list('risks'),
+      ],
+    )
+    console.log('finding recorded:', JSON.stringify(written.rows[0]))
+    console.log(
+      'Do not also emit FORGE_ARCHITECT_HANDOFF or FORGE_FINDINGS_JSON — these rows ARE the findings.',
+    )
+  } catch (error) {
+    const e = error
+    console.error(`FINDING REJECTED by the database: ${e?.message ?? String(error)}`)
+    if (e?.constraint) console.error(`failing constraint: ${e.constraint}`)
+    console.error('Fix the named field and run the command again.')
+    await pool.end()
+    process.exit(1)
+  }
+  await pool.end()
+  process.exit(0)
+}
+
+
 
 if (show || !arg('decision')) {
   const rows = await pool.query(

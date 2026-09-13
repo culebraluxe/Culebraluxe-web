@@ -36,7 +36,9 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
         evidenceInstruction:
           `${STRUCTURED_PREFIX} {"migrationRequired":false,"migrationFiles":[],"derivedRefreshRequired":false,"derivedModels":[],"deploymentRequired":true} (declare actual release obligations) ` +
           'FORGE_ARCHITECT_HANDOFF: {"version":1,"baseRef":"<the exact sha you inspected>","findings":[{"id":"<stable-key>","required":true|false,"summary":"<one distinct finding>","preconditions":["<already-true dependency>"],"scope":["<repository-relative path that EXISTS on baseRef>","<path#symbol>"],"postconditions":["<invariant that must still hold>"],"classes":["<TypeName>"],"risks":["<concrete risk>"],"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}]} ' +
-          '(ONE un-fenced JSON line. scope must name files that EXIST on baseRef — an invented path is a HOLD, not a plan. required=true only when it must land to satisfy the ORIGINAL story. FORGE_FINDINGS_JSON is still accepted as a fallback.)',
+          'RECORD EACH FINDING AS A ROW — do NOT emit a JSON findings line. For every finding, run this with the identity from your task line:\n' +
+          '`node --import tsx --env-file=.env.local scripts/forge-handoff.mjs --story <story> --process <process> --task <task> --node architect --attempt <attempt> --finding-id <stable-key> --summary "<one distinct finding>" --seams "<path[,path]>" [--required true|false] [--hint SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD] [--risks "<concrete risk>"]`\n' +
+          'The database refuses exactly what this gate refuses and NAMES the failing constraint: a finding with no seam, more than three seams, a required HOLD with no named risk, an unknown hint, a blank summary. Fix the named field and run it again rather than rewording the reply. seams must EXIST on baseRef — an invented path is a HOLD, not a plan. required=true only when it must land to satisfy the ORIGINAL story. The FORGE_ARCHITECT_HANDOFF JSON line is still accepted as a FALLBACK while rows are introduced; rows win.',
       }
     case 'lead_pre':
       return {

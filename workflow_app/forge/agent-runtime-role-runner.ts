@@ -59,6 +59,7 @@ import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
 import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
+import { listStoryForgeFindings } from '../../db/forge-role-finding'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
@@ -268,9 +269,16 @@ export function createAgentRuntimeForgeRoleRunner(
         deploymentDeferredToBatch: resolvedStory.batch ?? 0,
       })
     }
+    // FINDINGS: ROWS FIRST. The Architect's findings are the Lead's input, and until
+    // migration 172 the only copy was a JSON blob in the reply (`FORGE_ARCHITECT_HANDOFF`)
+    // parsed into `current.findings`. Now the architect's own rows are the snapshot, and
+    // the blob is the fallback — the same authority order the Lead's decision already
+    // follows. `null` from the reader means no rows were written, not an empty plan.
+    const recordedFindings = await listStoryForgeFindings(resolvedStory.id)
+    const findingsForRouting = recordedFindings ?? current.findings
     const leadRoutingContext = buildLeadRoutingContext({
       story: resolvedStory,
-      findings: current.findings,
+      findings: findingsForRouting,
       capabilities: LEAD_ROUTING_CAPABILITIES,
     })
     const branchInstruction =
