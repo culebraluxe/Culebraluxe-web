@@ -1072,24 +1072,6 @@ export function createAgentRuntimeForgeRoleRunner(
             },
           })
           if (!smithExit.ok) serialScopeMiss = smithExit.reasons
-
-          // THE LEDGER'S OTHER HALF — the label for the prediction made at lead_pre.
-          // "pass" here means the candidate satisfied the doors (launch, scope, a real
-          // diff, a named SHA); whether it also passed QA is recorded later by the QA
-          // lane. Repairs are the attempt count and turns come from the generation's own
-          // ledger, so the fit can see effort as well as outcome.
-          await recordForgeDispatchOutcome({
-            taskId: task.taskId,
-            nodeId,
-            attempt: attempt + 1,
-            assignmentId: serialAssignment.id,
-            outcome: smithExit.ok ? 'pass' : 'fail',
-            repairs: Math.max(0, attempt),
-            turns: await countForgeGenerationTurns(String(task.processInstanceId)),
-            filesChanged: changedFiles.length,
-            candidateSha: smithExit.ok ? smithExit.candidate.candidateSha : null,
-            detail: smithExit.ok ? null : smithExit.reasons.join(' | '),
-          })
         }
         // ENG-FORGE-OBS-SERIAL-01 box 1 — the violation is now a MISS, not a note.
         //
@@ -1103,6 +1085,31 @@ export function createAgentRuntimeForgeRoleRunner(
           const owner = serialAssignmentContract?.identity.owner ?? 'the accepted assignment'
           serialScopeMiss = serialScopeMissReasons(observed.violations, owner)
         }
+
+        // THE LEDGER'S OTHER HALF — the label for the prediction made at lead_pre.
+        //
+        // Recorded HERE, at the end of the SERIAL block, because this is the lane that runs
+        // every story: `smith` AND `lead_solo_implement`. The first version sat inside the
+        // narrower smith-exit branch (which needs a serial contract), so a SOLO story's
+        // prediction was recorded and then never labelled — two rows that could never be
+        // fitted. Placing it after both checks means the label carries whichever miss fired.
+        //
+        // "pass" means the candidate satisfied the doors and a diff exists; the QA verdict is
+        // recorded later by the QA lane. Repairs are the attempt count and turns come from the
+        // generation's own ledger, so a fit can see effort as well as outcome.
+        const labeled = serialScopeMiss
+        await recordForgeDispatchOutcome({
+          taskId: task.taskId,
+          nodeId,
+          attempt: attempt + 1,
+          assignmentId: serialAssignment?.id ?? 'a',
+          outcome: labeled ? 'fail' : 'pass',
+          repairs: Math.max(0, attempt),
+          turns: await countForgeGenerationTurns(String(task.processInstanceId)),
+          filesChanged: changedFiles.length,
+          candidateSha: labeled ? null : candidateSha,
+          detail: labeled ? labeled.join(' | ') : null,
+        })
       } catch (error) {
         // FAIL CLOSED. An unreadable diff is not proof that the candidate stayed
         // inside its accepted assignment — it is the ABSENCE of that proof, and the
