@@ -93,6 +93,30 @@ test('ENG-FORGE-V10: Smith candidate and Lead POST integrated candidate are exac
   )
 })
 
+// EVERY LANE THAT CAN PRODUCE A CANDIDATE CARRIES IT.
+//
+// fast_smith and fast_repair_smith were missing from this mapping, so a FAST smith's real
+// commit never reached `evidence.candidateSha`. The runner had no diff to hand the Smith
+// exit gate, and the gate refused work that had landed and passed: "role did not deliver
+// smith-candidate". This test walks the full set so the next lane cannot be forgotten.
+test('FAST: every candidate-producing node carries its commit onto the evidence', () => {
+  for (const nodeId of [
+    'lead_solo_implement',
+    'smith',
+    'smith_split_work',
+    'repair_smith',
+    'fast_smith',
+    'fast_repair_smith',
+  ]) {
+    assert.deepEqual(
+      forgeEvidenceFromAgentResult({ nodeId, result: result({ commitHash: SHA }), current: {} }),
+      { candidateSha: SHA },
+      `${nodeId} must carry the candidate SHA it produced`,
+    )
+  }
+})
+
+
 test('ENG-FORGE-SHAPE-01: the Lead is handed the durable Architect findings', () => {
   // The field is documented as the Lead shaping gate's snapshot and was never populated,
   // so the Lead's reviewer saw zero findings and refused every valid proposal. Live on

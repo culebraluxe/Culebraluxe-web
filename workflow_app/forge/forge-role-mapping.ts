@@ -266,10 +266,22 @@ export function forgeEvidenceFromAgentResult(input: {
           : {}),
       }
     }
+    // EVERY NODE THAT CAN PRODUCE A CANDIDATE, INCLUDING THE FAST LANE.
+    //
+    // fast_smith and fast_repair_smith were missing from this list, so the commit the FAST
+    // smith had made never reached `evidence.candidateSha`. The runner then had no diff to
+    // offer the Smith exit gate, which refused the work it had just watched land:
+    // "role did not deliver smith-candidate" — with the change committed and its tests
+    // passing in the same evidence. Observed live on 2026-09-13.
+    //
+    // A candidate-producing lane is defined by WHAT IT PRODUCES, not by the route it took
+    // to get there, so the FAST nodes belong here beside their serial siblings.
     case 'lead_solo_implement':
     case 'smith':
     case 'smith_split_work':
-    case 'repair_smith': {
+    case 'repair_smith':
+    case 'fast_smith':
+    case 'fast_repair_smith': {
       const candidateSha = commitSha(result.commitHash)
       return candidateSha ? { ...marked, candidateSha } : marked
     }
