@@ -122,6 +122,19 @@ test('ledger: the prediction upserts on the unit identity, so a re-score cannot 
   }
 })
 
+test('ledger: the label does not filter by the EXECUTING node, or it misses its own rows', () => {
+  // The prediction is recorded at lead_pre; the result arrives from smith/lead_solo_implement.
+  // Filtering on the executing node made every label miss (observed live), so the identity is
+  // the assignment and the node filter is optional and normally absent.
+  const outcome = LEDGER.slice(LEDGER.indexOf('export async function recordForgeDispatchOutcome'))
+  assert.match(
+    outcome,
+    /and \(\$\{input\.nodeId \?\? null\}::text is null or node_id = \$\{input\.nodeId \?\? null\}\)/,
+    'the node predicate must be optional',
+  )
+  assert.match(RUNNER, /the unit is the ASSIGNMENT/, 'the runner must say why it omits the node')
+})
+
 test('ledger: the label attaches to the same unit and preserves what it does not set', () => {
   const outcome = LEDGER.slice(LEDGER.indexOf('export async function recordForgeDispatchOutcome'))
   assert.match(outcome, /update forge_dispatch_score set/)

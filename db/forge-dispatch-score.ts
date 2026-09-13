@@ -85,7 +85,16 @@ export async function recordForgeDispatchScore(
 
 export type ForgeDispatchOutcomeInput = {
   taskId: string
-  nodeId: string
+  /**
+   * The node that EXECUTED the unit — optional, and normally OMITTED.
+   *
+   * The prediction is recorded where the plan was made (`lead_pre`), while the result
+   * arrives from whichever lane ran it (`smith`, `lead_solo_implement`, a split child). The
+   * unit's identity is the ASSIGNMENT, not the lane: filtering on the executing node made
+   * every label miss the row it was written for, so predictions sat unlabelled forever —
+   * observed live on 2026-09-13. Pass it only to disambiguate deliberately.
+   */
+  nodeId?: string
   attempt: number
   assignmentId: string
   chunkId?: number
@@ -130,10 +139,10 @@ export async function recordForgeDispatchOutcome(
       outcome_detail = coalesce(${input.detail ?? null}, outcome_detail),
       updated_at = now()
     where task_id = ${input.taskId}
-      and node_id = ${input.nodeId}
       and attempt = ${input.attempt}
       and assignment_id = ${input.assignmentId}
       and chunk_id = ${input.chunkId ?? 0}
+      and (${input.nodeId ?? null}::text is null or node_id = ${input.nodeId ?? null})
     returning id
   `
   return rows.length > 0

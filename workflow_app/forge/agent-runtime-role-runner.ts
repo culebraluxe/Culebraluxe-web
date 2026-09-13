@@ -1100,7 +1100,8 @@ export function createAgentRuntimeForgeRoleRunner(
         const labeled = serialScopeMiss
         await recordForgeDispatchOutcome({
           taskId: task.taskId,
-          nodeId,
+          // NO nodeId: the unit is the ASSIGNMENT, and its prediction lives under the Lead
+          // node that made the plan. Naming this lane instead made every label miss.
           attempt: attempt + 1,
           assignmentId: serialAssignment?.id ?? 'a',
           outcome: labeled ? 'fail' : 'pass',
