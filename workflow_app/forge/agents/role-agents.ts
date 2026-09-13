@@ -7,6 +7,7 @@ import type { ForgeGateEvidence } from '../forge-facts'
 import type { RoleEffectPorts } from './ports'
 import { parseArchitectHandoff, handoffToFindings } from './architect-handoff'
 import { assessArchitectHandoff } from './architect/assess'
+import { persistArchitectBrief } from './architect/persist'
 import { benchIntentErrors } from './bench-intent'
 import { collectSmithEvidence } from './smith-collect'
 import { collectAssayEvidence } from './assay-collect'
@@ -29,6 +30,19 @@ export class ScoutAgent extends ForgePhaseAgent {
 
 export class ArchitectAgent extends ForgePhaseAgent {
   readonly roleName = 'architect'
+
+  /**
+   * Write-on-exit brief. When the reply carries a handoff, the brief is built by
+   * persistArchitectBrief: the handoff LINE is never sliced (slicing a structured
+   * line is how a contract becomes a coin flip) while the prose around it is
+   * capped. Without a handoff the parent's bounded raw brief stands.
+   */
+  architectBrief(raw: string): string | null {
+    if (!this.isArchitect || !raw) return null
+    const handoff = parseArchitectHandoff(raw)
+    if (handoff) return persistArchitectBrief(raw, handoff)
+    return super.architectBrief(raw)
+  }
 
   collect(evidence: ForgeGateEvidence, raw: string, ports: RoleEffectPorts = {}): ForgeGateEvidence {
     const marked = parseForgeEvidenceMarker(raw)

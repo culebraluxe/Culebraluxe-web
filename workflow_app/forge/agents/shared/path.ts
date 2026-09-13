@@ -19,3 +19,27 @@ export function overlap(a: string, b: string): boolean {
 export function unique(values: string[]): boolean {
   return new Set(values).size === values.length
 }
+
+/**
+ * Is `filePath` inside the allowed set and outside the prohibited set?
+ *
+ * Used by the Smith scope lock: a diff that touches anything outside the accepted
+ * assignment is a MISS, and a sibling's surface is prohibited, not merely unlisted.
+ */
+export function pathAllowed(filePath: string, allowed: string[], prohibited: string[] = []): boolean {
+  const file = fileOf(filePath)
+  if (!file) return false
+  if (
+    prohibited.some((raw) => {
+      const p = fileOf(raw)
+      return p ? file === p || file.startsWith(`${p}/`) : false
+    })
+  ) {
+    return false
+  }
+  if (allowed.length === 0) return false
+  return allowed.some((raw) => {
+    const p = fileOf(raw)
+    return p ? file === p || file.startsWith(`${p}/`) : false
+  })
+}

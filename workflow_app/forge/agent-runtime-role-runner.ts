@@ -51,6 +51,12 @@ import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
+import { parseArchitectHandoff } from './agents/architect-handoff'
+import { seamGroupHint } from './agents/architect/shape-hint'
+import { smithWorkOrdersFromFindings } from './agents/architect/persist'
+import { assignmentFromLead } from './agents/smith/from-lead'
+import { assessSmithScope } from './agents/smith/scope'
+import { buildSmithDirective } from './agents/smith/prompt'
 import { commandRunner, staticSliceFromGate } from './agents/exec-command'
 import { runStaticGate } from './forge-static-gate'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
@@ -404,10 +410,23 @@ export function createAgentRuntimeForgeRoleRunner(
     // line at all, and HOLDed. The routing directive is the only routing contract in
     // that lane; the legacy text still applies to lanes without a routing context.
     const leadRoutingGovernsPre = nodeId === 'lead_pre' && Boolean(leadRoutingContext)
+    // The Architect's OWN words for the findings this lane owns: the live
+    // renderSmithWorkOrders states the PLAN (chunks, scope, proofs); this states
+    // the preconditions, postconditions, classes and risks the Architect attached
+    // to exactly those findings, read off the handoff rather than paraphrased.
+    const smithFindingsInstruction = (() => {
+      if (!executesLeadWorkOrders || !serialAssignment) return null
+      const handoff = parseArchitectHandoff(resolvedStory.architectBrief ?? '')
+      const findingIds = serialAssignment.findingIds ?? []
+      if (!handoff || findingIds.length === 0) return null
+      return smithWorkOrdersFromFindings(findingIds, handoff)
+    })()
+
     const extraInstructions = [
       correctiveNote,
       identityInstruction,
       branchInstruction,
+      smithFindingsInstruction,
       leadRoutingGovernsPre ? null : plan.evidenceInstruction,
       repoContextInstruction,
       priorScoutInstruction,
@@ -587,6 +606,28 @@ export function createAgentRuntimeForgeRoleRunner(
     const roleCwd = workspaces?.worktreesRoot
       ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
       : process.cwd()
+    // The candidate diff, read HERE rather than trusting the model's claim. It is
+    // the same measurement the serial/split lanes make later; git's diff is the
+    // authority for what a Smith actually touched.
+    const collectCandidateSha =
+      typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
+        ? evidence.candidateSha.trim()
+        : null
+    const collectMergeBase = workspaces?.baseRef ?? 'origin/main'
+    const collectDiff = collectCandidateSha
+      ? await changedFilesForCandidate({
+          cwd: roleCwd,
+          baseRef: collectMergeBase,
+          candidateSha: collectCandidateSha,
+        }).then(
+          (changedPaths) => ({
+            candidateSha: collectCandidateSha,
+            mergeBase: collectMergeBase,
+            changedPaths,
+          }),
+          () => undefined,
+        )
+      : undefined
     const rolePorts: RoleEffectPorts = {
       splitEnabled: leadRoutingContext.splitEnabled,
       maxSmiths: leadRoutingContext.maxSmiths,
@@ -607,13 +648,35 @@ export function createAgentRuntimeForgeRoleRunner(
       ...(resolvedStory.batchDeploy
         ? { deploymentDeferredToBatch: resolvedStory.batch ?? 0, deploymentRequired: false }
         : {}),
-      // NOT SUPPLIED, on purpose:
-      //   runnerDiff     — the candidate diff is computed further DOWN this run
-      //                    (serial/split lanes), so it does not exist at collect
-      //                    time; the live door-2 scope check still enforces it.
-      //   benchIntent    — no live source yet (nothing writes a bench launch cap).
-      //   releaseEvidence— must come from the real release executor. A guessed
-      //                    receipt is worse than an absent one.
+      // The candidate diff the runner measured itself, for the Smith scope lock.
+      ...(collectDiff ? { runnerDiff: collectDiff } : {}),
+      // The DURABLE release receipt, straight from workflow evidence. DEV_OPS
+      // records a receipt it actually holds — never a fabricated one.
+      ...(current.productionVerificationReceipt
+        ? {
+            releaseEvidence: {
+              kind: 'production_verification' as const,
+              success: true,
+              receiptId: current.productionVerificationReceipt,
+              artifactSha: current.productionVerifiedSha ?? null,
+            },
+          }
+        : current.deploymentReceipt
+          ? {
+              releaseEvidence: {
+                kind: 'deployment' as const,
+                success: true,
+                receiptId: current.deploymentReceipt,
+                artifactSha: current.deployedSha ?? null,
+              },
+            }
+          : {}),
+      // benchIntent is deliberately ABSENT. storyboard_active_work records membership
+      // ("selected for current work") but NO launch cap: it cannot say SOLO vs SMITH
+      // vs SPLIT vs HOLD. Every non-null value in that type IS a cap, so deriving one
+      // from membership would silently forbid SPLIT for every active story — a policy
+      // change, not an integration. This port needs either a real cap column or an
+      // explicit product decision about what a bench drop means.
     }
     // A rejection is a fact about THIS attempt, never inherited state: a stale
     // one from a previous role node would HOLD a role that did nothing wrong.
@@ -900,7 +963,17 @@ export function createAgentRuntimeForgeRoleRunner(
       // role with a message the author could not act on. Errors ride the same bounded
       // self-heal path as LEAD routing, so attempt 2 can fix them.
       if (nodeId === 'architect' || nodeId === 'repair_architect') {
-        const brief = assessArchitectBrief(raw)
+        // TWO contracts, ONE boundary. A FORGE_ARCHITECT_HANDOFF reply is assessed
+        // by the phase agent itself (assessArchitectHandoff, which additionally
+        // checks that every named seam EXISTS on the pinned baseRef) and a failure
+        // already rides `deliverableRejection` into the gate above. Only when NO
+        // handoff was emitted do we fall back to the legacy findings assessment —
+        // otherwise switching the directive to the handoff marker would HOLD a
+        // perfectly good run for "missing FORGE_FINDINGS_JSON".
+        const brief =
+          parseArchitectHandoff(raw) !== null
+            ? { verdict: 'OK' as const, reasons: [] as string[] }
+            : assessArchitectBrief(raw)
         if (brief.verdict === 'HOLD') {
           missing.push(...brief.reasons.map((reason) => `architect-brief:${reason}`))
         }
@@ -959,8 +1032,34 @@ export function createAgentRuntimeForgeRoleRunner(
         nodeId,
         miss,
         leadRoutingGovernsPre && leadRoutingContext
-          ? buildLeadRoutingDirective(leadRoutingContext)
-          : plan.evidenceInstruction,
+          ? buildLeadRoutingDirective(leadRoutingContext) +
+            '\n' +
+            seamGroupHint(
+              leadRoutingContext.findings.map((f) => ({
+                id: f.id,
+                required: Boolean(f.required),
+                summary: '',
+                preconditions: [],
+                scope: f.seams ?? [],
+                postconditions: [],
+                classes: [],
+                risks: [],
+                hint: f.hint,
+              })),
+            ).text
+          : plan.lane === 'smith' && serialAssignment
+            ? buildSmithDirective(
+                assignmentFromLead({
+                  id: serialAssignment.id,
+                  findingIds: serialAssignment.findingIds ?? [],
+                  chunks: (serialAssignment.plan?.chunks ?? []).map((c, i) => ({
+                    id: c.id ?? i + 1,
+                    scope: c.surface ?? [],
+                    proof: c.proof ?? '',
+                  })),
+                }),
+              )
+            : plan.evidenceInstruction,
       )
       continue
     }

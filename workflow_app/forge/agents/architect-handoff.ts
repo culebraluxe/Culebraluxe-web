@@ -107,3 +107,8 @@ export function lastMachineLine(raw: string, prefix: string): string | null {
   const lines = raw.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.startsWith(prefix))
   return lines.length ? lines[lines.length - 1] : null
 }
+
+/** The handoff as the ONE machine line that carries the contract. */
+export function renderArchitectHandoff(handoff: ArchitectHandoff): string {
+  return `${ARCHITECT_HANDOFF_PREFIX} ${JSON.stringify(handoff)}`
+}
