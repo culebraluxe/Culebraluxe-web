@@ -47,7 +47,7 @@ import { assertForgeExecutionTarget, assertForgeLaneMayStart } from './forge-exe
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { assessArchitectBrief } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
-import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
+import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
@@ -59,6 +59,7 @@ import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
 import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
+import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
@@ -163,67 +164,6 @@ export type AgentRuntimeForgeRunnerOptions = {
 }
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
-
-/**
- * The recorded FIELDS win over the reply's JSON for the top-level decision.
- *
- * The reply still supplies the assignment detail when a route needs a plan (SMITH /
- * SPLIT / SOLO carry chunks, surfaces and proofs that no 8-column row should try to
- * hold). What the fields guarantee is the DECISION itself and the reasoning around it.
- *
- * A HOLD recorded in fields is authoritative and clean: no assignments, no merge
- * checks, because the reviewer refuses a HOLD that dispatches anything.
- */
-function leadProposalFromFields(
-  parsed: unknown,
-  contract: ForgeRoleContract | null,
-  plan: ForgeRolePlan | null,
-): unknown {
-  if (!contract?.decision) return parsed
-
-  if (contract.decision === 'HOLD') {
-    const base = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {}
-    return {
-      version: 1,
-      decision: 'HOLD',
-      size: contract.size ?? (base.size as string) ?? 'SMALL',
-      sizeReason: contract.sizeReason ?? contract.reason ?? 'recorded in fields',
-      reason: contract.reason ?? contract.sizeReason ?? 'recorded in fields',
-      assignments: [],
-      mergeChecks: [],
-    }
-  }
-
-  const base =
-    plan && plan.assignments.length > 0
-      ? { version: 1, assignments: plan.assignments, size: plan.size }
-      : parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? { ...(parsed as Record<string, unknown>) }
-        : null
-  if (!base) {
-    // No parseable plan and the fields ask for a route that NEEDS one. Say exactly
-    // that rather than inventing a plan the model never wrote.
-    return {
-      version: 1,
-      decision: contract.decision,
-      size: contract.size ?? 'SMALL',
-      sizeReason: contract.sizeReason ?? 'recorded in fields',
-      reason: contract.reason ?? contract.sizeReason ?? 'recorded in fields',
-      assignments: [],
-      mergeChecks: contract.mergeChecks,
-    }
-  }
-  return {
-    ...base,
-    decision: contract.decision,
-    ...(contract.size ? { size: contract.size } : {}),
-    ...(contract.sizeReason ? { sizeReason: contract.sizeReason } : {}),
-    ...(contract.reason ? { reason: contract.reason } : {}),
-    ...(contract.mergeChecks.length > 0 ? { mergeChecks: contract.mergeChecks } : {}),
-  }
-}
 
 function runtimeInterrupted(resultStatus: string, completion: number): boolean {
   return completion < 100 || /interrupted|error|cancelled/i.test(resultStatus)
@@ -727,6 +667,18 @@ export function createAgentRuntimeForgeRoleRunner(
           () => undefined,
         )
       : undefined
+    // The Lead's recorded DECISION rows (migrations 170/171), read BEFORE the ports
+    // are built so the decider actually receives them: fields win over the reply, and
+    // the reply is the fallback when no row was written. Read once here, then used by
+    // both collect and the runner's own fallback — one source, one seat.
+    const recordedContract: ForgeRoleContract | null =
+      nodeId === 'lead_pre'
+        ? await getForgeRoleContract({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
+        : null
+    const recordedPlan: ForgeRolePlan | null =
+      nodeId === 'lead_pre'
+        ? await getForgeRolePlan({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
+        : null
     const rolePorts: RoleEffectPorts = {
       splitEnabled: leadRoutingContext.splitEnabled,
       maxSmiths: leadRoutingContext.maxSmiths,
@@ -737,6 +689,9 @@ export function createAgentRuntimeForgeRoleRunner(
       // "the Lead decides", which is the behaviour every run has had until now.
       ...(options.launchIntent ? { benchIntent: options.launchIntent } : {}),
       repoDir: roleCwd,
+      // The recorded decision, handed to the decider. Fields first.
+      ...(recordedContract ? { recordedLeadContract: recordedContract } : {}),
+      ...(recordedPlan ? { recordedLeadPlan: recordedPlan } : {}),
       // Fail-closed seam check: a file the Architect names must exist on the
       // pinned baseRef (git cat-file against the sha).
       existsOnBaseRef: existsOnGitBaseRef(roleCwd),
@@ -801,7 +756,7 @@ export function createAgentRuntimeForgeRoleRunner(
       taskId: durableClaim.id,
       nodeId,
       attempt: attempt + 1,
-      worktreePath: process.cwd(),
+      worktreePath: roleCwd,
       baseCommit: workspaces?.baseRef ?? 'origin/main',
     }
     const candidateSha =
@@ -960,16 +915,25 @@ export function createAgentRuntimeForgeRoleRunner(
           serialScopeMiss = serialScopeMissReasons(observed.violations, owner)
         }
       } catch (error) {
-        // Observer only: an unresolvable diff must not fail a run the runner has
-        // already accepted (the split lane stays fail-closed because its diff is a
-        // JOIN precondition). The gap is recorded rather than swallowed — an
-        // observer that silently fails to observe is how this lane went dark.
+        // FAIL CLOSED. An unreadable diff is not proof that the candidate stayed
+        // inside its accepted assignment — it is the ABSENCE of that proof, and the
+        // scope lock is an authorization boundary, not a measurement. The split lane
+        // already refuses a child whose diff it cannot read (its diff is a join
+        // precondition); this lane used to record the gap and advance anyway.
+        //
+        // The bounded self-heal below is the safety valve, so a transient git failure
+        // costs one corrective attempt naming the real reason rather than the run:
+        // only exhaustion is a HOLD.
+        const detail = String((error as Error)?.message ?? error)
         observeMeasurementGap(forgeObserverSink, serialIdentity, {
           what: 'SERIAL_SCOPE',
-          reason: `candidate ${candidateSha.slice(0, 12)} diff unreadable: ${String(
-            (error as Error)?.message ?? error,
-          )}`,
+          reason: `candidate ${candidateSha.slice(0, 12)} diff unreadable: ${detail}`,
         })
+        serialScopeMiss = [
+          `candidate ${candidateSha.slice(0, 12)} could not be measured against its assignment ` +
+            `(${serialAssignmentContract?.identity.owner ?? 'the accepted assignment'}): ` +
+            `its diff is unreadable — ${detail}`,
+        ]
       }
     }
     // LEAD routing (Astra handoff): the AI proposes, code accepts or returns
@@ -985,20 +949,19 @@ export function createAgentRuntimeForgeRoleRunner(
     // scripts/forge-handoff.mjs. Prefer the recorded contract over parsing the reply:
     // a marker prefix going missing must never cost a routing decision the engine
     // already has in hand — which is exactly what cost us 18 minutes tonight.
-    const recordedContract =
-      nodeId === 'lead_pre'
-        ? await getForgeRoleContract({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
-        : null
-    const recordedPlan =
-      nodeId === 'lead_pre'
-        ? await getForgeRolePlan({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
-        : null
+    // ONE seat, ONE source. The rows were read before the ports were built, and the
+    // phase agent has already resolved and reviewed them through the same helper. This
+    // fallback now exists ONLY for a lead_pre whose collect did not run at all — it is
+    // guarded on the rejection too, because re-reviewing a refusal is how the runner
+    // could ACCEPT what collect had just refused, with different errors.
     const routingReview =
-      nodeId === 'lead_pre' && evidence.leadDecision == null
-        ? reviewLeadProposal(
-            leadProposalFromFields(parseLeadRouting(raw), recordedContract, recordedPlan),
-            leadRoutingContext,
-          )
+      nodeId === 'lead_pre' && evidence.leadDecision == null && evidence.deliverableRejection == null
+        ? resolveLeadProposal({
+            raw,
+            contract: recordedContract,
+            plan: recordedPlan,
+            context: leadRoutingContext,
+          })
         : null
     if (routingReview?.ok) {
       Object.assign(evidence, leadRoutingFacts(routingReview))
@@ -1105,13 +1068,21 @@ export function createAgentRuntimeForgeRoleRunner(
       if (nodeId === 'architect' || nodeId === 'repair_architect') {
         // TWO contracts, ONE boundary. A FORGE_ARCHITECT_HANDOFF reply is assessed
         // by the phase agent itself (assessArchitectHandoff, which additionally
-        // checks that every named seam EXISTS on the pinned baseRef) and a failure
-        // already rides `deliverableRejection` into the gate above. Only when NO
-        // handoff was emitted do we fall back to the legacy findings assessment —
-        // otherwise switching the directive to the handoff marker would HOLD a
-        // perfectly good run for "missing FORGE_FINDINGS_JSON".
+        // checks that every named seam EXISTS on the pinned baseRef); its verdict
+        // already rides `deliverableRejection` into the gate above, and the phase
+        // agent now also records a rejection when no plan came back at all.
+        //
+        // The legacy assessment therefore runs ONLY when the phase agent recorded
+        // no rejection, which in practice means the reply really used the legacy
+        // marker — that must keep passing. Running it otherwise was worse than
+        // redundant: it put a PROSE reason inside `missing` (whose documented
+        // invariant is a stable-kind list, with prose kept in the rejection
+        // sidecar) and it asked the model for FORGE_FINDINGS_JSON — the FALLBACK
+        // marker — directly contradicting the FORGE_ARCHITECT_HANDOFF marker the
+        // directive names. The retry is the one attempt the model gets, and it was
+        // being taught the wrong contract by it.
         const brief =
-          parseArchitectHandoff(raw) !== null
+          evidence.deliverableRejection != null || parseArchitectHandoff(raw) !== null
             ? { verdict: 'OK' as const, reasons: [] as string[] }
             : assessArchitectBrief(raw)
         if (brief.verdict === 'HOLD') {
@@ -1132,26 +1103,32 @@ export function createAgentRuntimeForgeRoleRunner(
       // only records the verdict; it no longer gates the handoff.
       if (nodeId === 'lead_pre') {
         // The routing decision itself is owned by reviewLeadProposal above; this is
-        // durable observability of its verdict, not a second gate.
-        if (nodeId === 'lead_pre') {
-          const storyRunId = finishedItem?.storyRunId ?? null
-          if (storyRunId && routingReview) {
-            await appendForgeRunDetail(
-              storyRunId,
-              `lead-routing verdict=${routingReview.ok ? 'GO' : 'HOLD'} ` +
-                `errors=${routingReview.ok ? 'none' : routingReview.errors.join(' | ')} ` +
-                `advisories=${routingReview.ok && routingReview.advisories.length ? routingReview.advisories.join(' | ') : 'none'}`,
-            ).catch(() => {
-              /* run-detail append is observer-only; the routing verdict stands above */
-            })
-          }
+        // durable observability of its verdict, not a second gate. (The redundant
+        // nested `if (nodeId === 'lead_pre')` was removed 2026-09-13.)
+        const storyRunId = finishedItem?.storyRunId ?? null
+        if (storyRunId && routingReview) {
+          await appendForgeRunDetail(
+            storyRunId,
+            `lead-routing verdict=${routingReview.ok ? 'GO' : 'HOLD'} ` +
+              `errors=${routingReview.ok ? 'none' : routingReview.errors.join(' | ')} ` +
+              `advisories=${routingReview.ok && routingReview.advisories.length ? routingReview.advisories.join(' | ') : 'none'}`,
+          ).catch(() => {
+            /* run-detail append is observer-only; the routing verdict stands above */
+          })
         }
       }
       miss.push(...missing)
-      // The serial lane's scope violation joins the same HOLD path as every other
-      // gate: reprompt with the named paths, or throw on the final attempt.
-      miss.push(...serialScopeMiss)
     }
+
+    // The serial lane's scope violation joins the same HOLD path as every other gate:
+    // reprompt with the named paths, or throw on the final attempt.
+    //
+    // PUSHED OUTSIDE the `enforceDeliverables` block on purpose. That flag is named for
+    // DELIVERABLES, but this push used to sit inside it — so a run started with
+    // FORGE_ENFORCE_DELIVERABLES=0 also switched off the Smith authorization boundary,
+    // and a candidate that touched files outside its accepted assignment advanced
+    // unchallenged. A feature flag must not be able to disarm an authorization check.
+    miss.push(...serialScopeMiss)
 
     if (miss.length === 0) {
       await finishForgeEngineTaskExecution(task.taskId, {

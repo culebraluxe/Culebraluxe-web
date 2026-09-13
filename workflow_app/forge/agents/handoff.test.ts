@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { parseArchitectHandoff, handoffToFindings, lastMachineLine } from './architect-handoff'
-import { benchIntentErrors } from './bench-intent'
+import { benchIntentErrors } from '../forge-lead-routing'
 import { ROLE_EVIDENCE_MAP } from './evidence-map'
 
 test('handoff maps scope onto live seams', () => {

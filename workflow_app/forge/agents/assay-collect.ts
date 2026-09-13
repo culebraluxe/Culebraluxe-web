@@ -15,8 +15,19 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
   // No frozen commands, or no way to run them, is NOT a pass and is not a FAIL
   // either: it is a verification GAP (INCOMPLETE). Recording the gap is what
   // keeps "we could not check" distinguishable from "we checked and it broke".
+  //
+  // The reason rides `deliverableRejection` so the gap is READABLE: this lane used
+  // to set the flag and say nothing, so a held run showed `verificationGap: true`
+  // with an empty record and no way to tell which of the three branches fired.
   if (!commands.length || typeof ports.runCommand !== 'function') {
-    return { ...evidence, qaPassed: false, verificationGap: true }
+    return {
+      ...evidence,
+      qaPassed: false,
+      verificationGap: true,
+      deliverableRejection:
+        `QA GAP: nothing to run. frozen commands=${commands.length} ` +
+        `runner=${typeof ports.runCommand === 'function' ? 'supplied' : 'MISSING'}`,
+    }
   }
 
   const plan = { candidateSha: candidate ?? '', commands }
@@ -30,6 +41,12 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
       qaPassed: false,
       verificationGap: report.verdict === 'INCOMPLETE',
       ...(failed.length ? { failedCommands: failed } : {}),
+      // Name the verdict and the adjudicator's own blockers. A FAIL and a gap are
+      // different outcomes and the record must say which one happened and why.
+      deliverableRejection:
+        `QA ${report.verdict}: blockers=[${report.blockers.join(', ') || 'none'}] ` +
+        `candidate=${candidate ?? 'MISSING'} verified=${report.verifiedSha ?? 'none'} ` +
+        `failed=[${failed.join(' | ') || 'none'}]`,
     }
   }
 
@@ -44,7 +61,14 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
     },
   })
   if (!promo.eligible) {
-    return { ...evidence, qaPassed: false, verificationGap: promo.blockers.includes('NO_CANDIDATE') }
+    return {
+      ...evidence,
+      qaPassed: false,
+      verificationGap: promo.blockers.includes('NO_CANDIDATE'),
+      deliverableRejection:
+        `QA PASS-BUT-NOT-PROMOTABLE: blockers=[${promo.blockers.join(', ') || 'none'}] ` +
+        `candidate=${candidate ?? 'MISSING'} verified=${report.verifiedSha ?? 'none'}`,
+    }
   }
   return { ...evidence, qaPassed: true, qaVerifiedSha: report.verifiedSha, verificationGap: false }
 }

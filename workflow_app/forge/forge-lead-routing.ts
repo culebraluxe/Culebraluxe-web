@@ -112,7 +112,16 @@ export const LARGE_REQUIRES_RECUT =
 export const LARGE_REQUIRES_SPLIT =
   'LARGE requires two or more bounded Smith assignments'
 
-function benchIntentErrors(decision: string, benchIntent: BenchIntent | undefined): string[] {
+/**
+ * The operator's launch cap, enforced by the reviewer that owns routing.
+ *
+ * ONE definition: this is the exported copy. `agents/bench-intent.ts` held a second,
+ * identical copy that the LeadAgent called separately and — on a cap violation —
+ * answered by returning bare evidence, so a refusal arrived with no reason attached.
+ * The cap now rides `RoutingContext.benchIntent` and lands on `deliverableRejection`
+ * like every other refusal.
+ */
+export function benchIntentErrors(decision: string, benchIntent: BenchIntent | undefined): string[] {
   if (!benchIntent) return []
   if (benchIntent === 'HOLD' && decision !== 'HOLD') return ['Bench intent is HOLD — Lead may only HOLD']
   if (benchIntent === 'SOLO' && decision !== 'SOLO' && decision !== 'HOLD') {

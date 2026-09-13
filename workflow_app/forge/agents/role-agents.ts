@@ -4,7 +4,7 @@ import { ForgePhaseAgent } from './forge-phase-agent'
 import type { ForgeGateEvidence } from '../forge-facts'
 import type { RoleEffectPorts } from './ports'
 import { parseArchitectHandoff, handoffToFindings } from './architect-handoff'
-import { assessArchitectHandoff } from './architect/assess'
+import { ARCHITECT_HANDOFF_MISSING, assessArchitectHandoff } from './architect/assess'
 import { persistArchitectBrief } from './architect/persist'
 import { collectAssayEvidence } from './assay-collect'
 import { parseFailureClass } from '../qa-classify-line'
@@ -60,8 +60,21 @@ export class ArchitectAgent extends ForgePhaseAgent {
     }
 
     const legacy = findingsFromArchitectEvidence(raw)
-    if (legacy.length) next.findings = legacy
-    return next
+    if (legacy.length) {
+      next.findings = legacy
+      return next
+    }
+    // NEITHER contract produced a plan. Say so here, in this attempt's rejection
+    // sidecar, so the bounded self-heal reprompt names the marker the directive
+    // actually asked for; this lane's own gate then HOLDs on 'architect-plan'.
+    //
+    // Before this, the constant was UNREACHABLE: assessArchitectHandoff is only
+    // called for a handoff that PARSED, so a reply with no plan left the rejection
+    // undefined and the run was held by the runner's LEGACY fallback instead —
+    // whose text asks for FORGE_FINDINGS_JSON. A retry therefore read a correct
+    // directive, failed, and was told to emit the fallback marker, teaching itself
+    // the wrong contract on the one attempt it gets.
+    return { ...next, deliverableRejection: ARCHITECT_HANDOFF_MISSING }
   }
 }
 
