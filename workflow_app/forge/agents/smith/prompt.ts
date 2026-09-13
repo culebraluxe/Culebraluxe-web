@@ -25,9 +25,6 @@ export function buildSmithDirective(assignment: SmithAssignment): string {
     'SMITH: implement the work orders. Do not choose scope. Do not route. Do not invent proofs.',
     renderSmithWorkOrders(assignment),
     'Commit on this worktree. Do not push.',
-    'End with exactly one un-fenced JSON line SMITH_CANDIDATE: {"version":1,"assignmentId":"' +
-      assignment.id +
-      '","candidateSha":"<HEAD sha>","mergeBase":"<given base>","changedPaths":["..."]}.',
-    'The runner will re-diff HEAD against merge base and refuse any path outside allowed scope. Your changedPaths list is a claim; git is the authority.',
+    'Do not emit SMITH_CANDIDATE or SMITH_PLAN JSON. The runner diffs HEAD against merge base and refuses any path outside allowed scope. Git is the cabinet.',
   ].join('\n')
 }

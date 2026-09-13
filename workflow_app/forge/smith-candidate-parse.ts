@@ -3,7 +3,7 @@ import { lastJsonObjectMatching } from './agents/shared/json-slice'
 export const SMITH_CANDIDATE_PREFIX = 'SMITH_CANDIDATE:'
 
 export const SMITH_CANDIDATE_MISSING =
-  'SMITH: no candidate. End with exactly one un-fenced JSON line SMITH_CANDIDATE: {"version":1,"assignmentId":"...","candidateSha":"<sha>","mergeBase":"<sha>","changedPaths":["file.ts"]}'
+  'SMITH: no candidate. The runner diffs worktree HEAD against merge base; a SMITH_CANDIDATE chat line is not a candidate.'
 
 export type SmithCandidate = {
   version: 1
@@ -52,15 +52,11 @@ export function parseSmithCandidate(notes: string | null | undefined): SmithCand
     }
   }
 
-  // NO marker. A missing LABEL is a formatting slip, not a missing candidate — the
-  // same tolerance every other contract marker got (see shared/json-slice.ts). The
-  // shape check keeps this safe: only a version-1 object with an assignmentId and a
-  // candidate SHA can be picked up, so nothing else in a Smith reply can be mistaken
-  // for its candidate. Git still overrules the claim downstream.
+  // Parser kept for old notes / tests. assessSmithExit no longer treats a parsed
+  // line as a candidate. Git is the cabinet.
   const row = lastJsonObjectMatching(
     notes,
     (r) => r.version === 1 && typeof r.candidateSha === 'string' && typeof r.assignmentId === 'string',
   )
   return row ? candidateFromRow(row) : null
 }
-

@@ -63,7 +63,7 @@ export function serialLaunchDoor(input: {
     allowed: false,
     reason:
       `Forge ${input.nodeId} HOLD: no accepted Lead assignment for the serial Smith lane. ` +
-      `${NO_ASSIGNMENT_REASON} — the Lead routes the work orders (LEAD_ROUTING) before this lane may run.`,
+      `${NO_ASSIGNMENT_REASON} — the Lead routes the work orders (forge-handoff fields) before this lane may run.`,
   }
 }
 

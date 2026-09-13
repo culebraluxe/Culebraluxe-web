@@ -5,7 +5,6 @@
 import { serialLaunchDoor, serialScopeMissReasons, SERIAL_SMITH_NODES } from './forge-serial-doors'
 import { scopeViolations, type SmithExecutionContract } from './smith-contract'
 import {
-  parseSmithCandidate,
   SMITH_CANDIDATE_MISSING,
   type SmithCandidate,
 } from './smith-candidate-parse'
@@ -45,34 +44,17 @@ export function assessSmithExit(input: {
     if (!launch.allowed) return { ok: false, reasons: [launch.reason ?? 'HOLD'], candidate: null }
   }
 
-  const parsed = parseSmithCandidate(input.notes)
-  if (!parsed && !input.runnerDiff) {
+  // Git is the cabinet. A SMITH_CANDIDATE chat line cannot invent or veto a SHA.
+  if (!input.runnerDiff) {
     return { ok: false, reasons: [SMITH_CANDIDATE_MISSING], candidate: null }
   }
 
-  const candidate: SmithCandidate = input.runnerDiff
-    ? {
-        version: 1,
-        assignmentId: input.assignmentId,
-        candidateSha: input.runnerDiff.candidateSha.toLowerCase(),
-        mergeBase: input.runnerDiff.mergeBase.toLowerCase(),
-        changedPaths: input.runnerDiff.changedPaths,
-      }
-    : parsed!
-
-  if (parsed && parsed.assignmentId !== input.assignmentId) {
-    return {
-      ok: false,
-      reasons: [`Smith claimed assignment ${parsed.assignmentId}, lane is ${input.assignmentId}`],
-      candidate,
-    }
-  }
-  if (input.runnerDiff && parsed && parsed.candidateSha !== candidate.candidateSha) {
-    return {
-      ok: false,
-      reasons: [`Smith claimed SHA ${parsed.candidateSha} but worktree HEAD is ${candidate.candidateSha}`],
-      candidate,
-    }
+  const candidate: SmithCandidate = {
+    version: 1,
+    assignmentId: input.assignmentId,
+    candidateSha: input.runnerDiff.candidateSha.toLowerCase(),
+    mergeBase: input.runnerDiff.mergeBase.toLowerCase(),
+    changedPaths: input.runnerDiff.changedPaths,
   }
   if (candidate.changedPaths.length === 0) {
     return { ok: false, reasons: ['Smith produced no diff against merge base'], candidate }
