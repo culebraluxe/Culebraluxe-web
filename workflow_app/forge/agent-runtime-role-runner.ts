@@ -341,8 +341,13 @@ export function createAgentRuntimeForgeRoleRunner(
       `Forge engine task=${task.taskId}; process=${task.processInstanceId}; node=${nodeId}. ` +
       'Execute this responsibility only. The XML engine owns all next-step routing.'
 
+    // The REPO INDEX goes to the roles that must know scope, not just to Scout.
+    // It was injected for `scout` only, so the Architect — which the FEATURE path
+    // reaches WITHOUT a scout packet — had neither findings nor index, and did the
+    // only thing left: read the repo by hand. That is where 13 minutes went on a
+    // one-line change. The index is the thing that stops exploration.
     const repoContextInstruction =
-      plan.lane === 'scout'
+      plan.lane === 'scout' || plan.lane === 'architect'
         ? withRepoContextPacket(
             null,
             runRepoContextTaskPacket({
@@ -513,6 +518,15 @@ export function createAgentRuntimeForgeRoleRunner(
       repoContextInstruction,
       priorScoutInstruction,
       contextLessonsDirective,
+      // THE DECLARED SURFACES, said out loud.
+      //
+      // Discovery belongs to Scout (which gets the index). When the STORY already
+      // names its files, no other role should be reading the repo "just in case" —
+      // that behaviour is what turned a one-line change into 13 minutes. Stating the
+      // surfaces is what removes the invitation to explore.
+      resolvedStory.scope?.trim()
+        ? `DECLARED SURFACES (authoritative — work within these; do NOT survey or glob the repository):\n${resolvedStory.scope.trim()}`
+        : null,
       buildRunGuardrailsDirective(),
       buildBrevityDirective(),
       buildRunPassDirective(),
