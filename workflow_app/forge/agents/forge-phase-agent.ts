@@ -4,23 +4,14 @@ import {
   type ForgeRoleNodePlan,
 } from '../forge-role-mapping'
 import { findingsFromArchitectEvidence } from '../forge-shaping'
+import { lastMachineLine } from './architect-handoff'
+import type { RoleEffectPorts } from './ports'
 
 // ---------------------------------------------------------------------------
-// ENG-FORGE-PHASE-AGENT — the role/phase contract layer. A ForgePhaseAgent owns
-// the marshal/deliverable concern for ONE engine role node. The parent provides
-// the shared behavior every role inherits (raw text, findings parse, lead shape
-// override, deliverable spec); the role's node id selects its deliverable.
+// ENG-FORGE-PHASE-AGENT — REPLACE.
 //
-// This is layered over (NOT a replacement for) the execution machinery: the
-// harness AgentRuntimeAdapter still runs the model; forge-executor still drives
-// the engine. This layer makes "a role must deliver its output" a declared,
-// inspectable contract instead of scattered `if`-branches in the role-runner.
-//
-// Enforcement (deliverable + routing-decision gate, with bounded self-heal) is
-// ON by default now that role outputs are reliable. A successful role that
-// misses its deliverable/decision is re-run up to FORGE_DELIVERABLE_RETRIES
-// times before HOLDing. Explicitly disable with FORGE_ENFORCE_DELIVERABLES=0 if
-// a run needs the old lenient behavior.
+// Grown: collect(evidence, raw, ports) is the subclass hook that FILLS evidence.
+// Unchanged: missingDeliverables / routingDecisionMissing remain the decider.
 // ---------------------------------------------------------------------------
 
 const SCOUT_NODES = new Set(['research_scout', 'feature_scout', 'diagnose_scout', 'repair_scout'])
@@ -52,33 +43,21 @@ export type PhaseDeliverableKind =
   | 'devops-receipt'
   | 'none'
 
-/** Raw role output = model notes + tests summary (what a deliverable is built from). */
 export function rawRoleOutput(notes?: string | null, testsSummary?: string | null): string {
   return [notes, testsSummary].filter(Boolean).join('\n').trim()
 }
 
-/** Number of corrective re-runs allowed after the first model run, from
- * FORGE_DELIVERABLE_RETRIES (default 1). A clean, parseable non-negative int wins;
- * anything unset/invalid falls back to 1. Only meaningful when the enforced gate
- * is ON — otherwise there is never a HOLD to self-heal. */
 export function parseDeliverableRepromptBudget(raw: string | undefined): number {
   const n = Number.parseInt(raw ?? '', 10)
   return Number.isFinite(n) && n >= 0 ? n : 1
 }
 
-/** Deliverable/routing enforcement is ON by default now that role outputs are
- * reliable (write-on-exit persistence + routing-decision validation + bounded
- * self-heal, all proven live). Explicitly disable with FORGE_ENFORCE_DELIVERABLES=0
- * (or "false"/"off") if a run needs the old lenient behavior. */
 export function deliverableEnforcementEnabled(raw: string | undefined): boolean {
   if (raw == null) return true
   const v = raw.trim().toLowerCase()
   return v !== '0' && v !== 'false' && v !== 'off'
 }
 
-/** Bounded self-heal directive for a successful-but-HOLDed role run: tells the
- * model, on a corrective re-run, exactly which deliverable / routing field was
- * missing and restates the required structured output. */
 export function buildSelfHealDirective(
   nodeId: string,
   missing: readonly string[],
@@ -94,6 +73,18 @@ export function buildSelfHealDirective(
   )
 }
 
+const PROSE_CAP = 4000
+
+function withPreservedMarker(prose: string, raw: string, prefixes: string[]): string {
+  const clipped =
+    prose.length > PROSE_CAP
+      ? `${prose.slice(0, PROSE_CAP)}\n[prose truncated; machine line preserved below]`
+      : prose
+  const markers = prefixes.map((p) => lastMachineLine(raw, p)).filter((l): l is string => !!l)
+  if (!markers.length) return clipped
+  return `${clipped}\n\n${markers.join('\n')}`
+}
+
 export class ForgePhaseAgent {
   readonly nodeId: string
   readonly plan: ForgeRoleNodePlan
@@ -107,26 +98,19 @@ export class ForgePhaseAgent {
     this.isArchitect = ARCHITECT_NODES.has(nodeId)
   }
 
-  /** The durable deliverable this phase is contractually expected to produce. */
   deliverableKind(): PhaseDeliverableKind {
     if (this.nodeId === 'failure_classifier') return 'failure-class'
     if (this.isScout) return 'scout-packet'
     if (this.isArchitect) return 'architect-plan'
-    // Only lead_pre is an execution-shape decision node. lead_solo_implement and
-    // lead_post emit no decision deliverable (their deliverable is the candidate
-    // / the post-integration evidence, owned elsewhere).
-    if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre') return 'lead-decision'
+    if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre' && this.nodeId !== 'failure_classifier') {
+      return 'lead-decision'
+    }
     if (this.plan.lane === 'smith') return 'smith-candidate'
     if (this.plan.lane === 'assay') return 'qa-verdict'
     if (this.plan.lane === 'dev_ops') return 'devops-receipt'
     return 'none'
   }
 
-  /**
-   * Parse FORGE_FINDINGS_JSON from raw role output into evidence.findings.
-   * Shared by Scout (repo research) and Architect (plan findings) — the
-   * generalization of the isScoutNode/isArchitectNode branches.
-   */
   marshalFindings(evidence: ForgeGateEvidence, raw: string): ForgeGateEvidence {
     if (!this.isScout && !this.isArchitect) return evidence
     const parsed = findingsFromArchitectEvidence(raw)
@@ -134,36 +118,25 @@ export class ForgePhaseAgent {
     return evidence
   }
 
-  /** Build a bounded Scout packet for the Story context_refs handoff (or null). */
   scoutPacket(raw: string): string | null {
     if (!this.isScout || !raw) return null
-    const cap = 5000
-    return (
-      `Scout research packet (engine node ${this.nodeId}):\n` +
-      raw.slice(0, cap) +
-      (raw.length > cap ? '\n[Scout packet truncated; full output in scout story run notes]' : '')
+    return withPreservedMarker(
+      `Scout research packet (engine node ${this.nodeId}):\n${raw}`,
+      raw,
+      ['FORGE_FINDINGS_JSON:', 'FORGE_EVIDENCE_JSON:'],
     )
   }
 
-  /** Build a bounded Architect plan for the Story architect_brief handoff (or null). */
   architectBrief(raw: string): string | null {
     if (!this.isArchitect || !raw) return null
-    const cap = 5000
-    return (
-      `Architect plan (engine node ${this.nodeId}):\n` +
-      raw.slice(0, cap) +
-      (raw.length > cap ? '\n[Architect plan truncated; full output in architect story run notes]' : '')
+    return withPreservedMarker(
+      `Architect plan (engine node ${this.nodeId}):\n${raw}`,
+      raw,
+      ['FORGE_ARCHITECT_HANDOFF:', 'FORGE_FINDINGS_JSON:', 'FORGE_EVIDENCE_JSON:'],
     )
   }
 
-  /** The Story field this role's durable deliverable writes to on exit (or null).
-   * Centralizes write-on-exit: a role declares its Story-field deliverable here
-   * and the runner persists it generically — no per-role if/else, no reliance on
-   * the model self-formatting a marker. New roles that hand off free text add one
-   * field here. */
-  storyDeliverable(
-    raw: string,
-  ): { field: 'context_refs' | 'architect_brief'; text: string } | null {
+  storyDeliverable(raw: string): { field: 'context_refs' | 'architect_brief'; text: string } | null {
     if (this.isScout) {
       const packet = this.scoutPacket(raw)
       return packet ? { field: 'context_refs', text: packet } : null
@@ -176,18 +149,17 @@ export class ForgePhaseAgent {
   }
 
   /**
-   * Enforced deliverable gate (the point of the abstraction). Returns the list of
-   * missing deliverables per role flavor. Callers may HOLD/retry when non-empty.
-   * Not thrown here so enforcement policy (env-gated) stays in the caller.
-   *
-   * Each flavor declares what it must hand off on exit:
-   *   scout     -> a packet (context_refs) for the next role
-   *   architect -> a research disposition OR findings (a plan)
-   *   lead      -> a decision (with split when SPLIT)
-   *   smith     -> a frozen candidate SHA (it wrote code)
-   *   qa/assay  -> an exact verdict (PASS or FAIL both count as a verdict)
-   *   dev_ops   -> a release/production receipt
+   * Subclass hook. Fill evidence only. Do not HOLD here — leave the field
+   * empty and let missingDeliverables / routingDecisionMissing decide.
    */
+  collect(
+    evidence: ForgeGateEvidence,
+    raw: string,
+    _ports: RoleEffectPorts = {},
+  ): ForgeGateEvidence {
+    return this.marshalFindings({ ...evidence }, raw)
+  }
+
   missingDeliverables(
     evidence: ForgeGateEvidence,
     raw: string,
@@ -201,9 +173,6 @@ export class ForgePhaseAgent {
         if (!scoutContextRefsSet && !this.scoutPacket(raw)) missing.push('scout-packet')
         break
       case 'architect-plan':
-        // Delivered = the plan was PERSISTED to the Story architect_brief from the
-        // architect's actual output (write-on-exit), OR the model emitted a
-        // structured disposition/findings. Never requires the marker alone.
         if (
           !architectBriefSet &&
           evidence.researchDisposition == null &&
@@ -224,13 +193,9 @@ export class ForgePhaseAgent {
         if (evidence.candidateSha == null) missing.push('smith-candidate')
         break
       case 'qa-verdict':
-        // PASS or FAIL are both a verdict; only an absent verdict is a miss.
         if (evidence.qaPassed === undefined) missing.push('qa-verdict')
         break
       case 'devops-receipt':
-        // A batch-sliced rollout defers deployment deliberately: that is a RECORDED
-        // deferral, not a deployment claim. Accepting it here is what lets a story
-        // complete QA-verified while the slice waits to deploy as one batch.
         if (
           evidence.deploymentReceipt == null &&
           evidence.productionVerificationReceipt == null &&
@@ -245,15 +210,6 @@ export class ForgePhaseAgent {
     return missing
   }
 
-  /**
-   * Routing-decision validation. Separate from the deliverable gate: a phase may
-   * persist its work (plan persisted to architect_brief, notes captured) yet STILL
-   * leave the engine without a usable routing decision (does this RESEARCH get
-   * implemented or archived? does this LEAD hand off to smith, split, or hold?).
-   * Only roles whose engine node routes on a decision return a requirement here.
-   * A null/absent or invalid decision is returned as the missing routing field;
-   * otherwise null means the routing decision is present and valid.
-   */
   routingDecisionMissing(evidence: ForgeGateEvidence): string | null {
     if (this.nodeId === 'failure_classifier') {
       return FAILURE_CLASSES.has(String(evidence.failureClass ?? ''))
@@ -265,11 +221,7 @@ export class ForgePhaseAgent {
         ? null
         : 'research_disposition'
     }
-    // Only lead_pre is an EXECUTION-SHAPE decision node. lead_solo_implement and
-    // lead_post do NOT emit a routing lead_decision (they have no decision
-    // instruction) - requiring one there would wrongly HOLD the post-implement
-    // merge/integration node.
-    if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre') {
+    if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre' && this.nodeId !== 'failure_classifier') {
       const d = String(evidence.leadDecision ?? '')
       if (!LEAD_DECISIONS.has(d)) return 'lead_decision'
       if (d === 'SPLIT' && !(Number(evidence.splitCount) > 0)) return 'lead_decision.splitCount'
