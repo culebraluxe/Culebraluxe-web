@@ -58,6 +58,7 @@ import { assignmentFromLead } from './agents/smith/from-lead'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
+import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
@@ -176,6 +177,7 @@ const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspect
 function leadProposalFromFields(
   parsed: unknown,
   contract: ForgeRoleContract | null,
+  plan: ForgeRolePlan | null,
 ): unknown {
   if (!contract?.decision) return parsed
 
@@ -195,9 +197,11 @@ function leadProposalFromFields(
   }
 
   const base =
-    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? { ...(parsed as Record<string, unknown>) }
-      : null
+    plan && plan.assignments.length > 0
+      ? { version: 1, assignments: plan.assignments, size: plan.size }
+      : parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? { ...(parsed as Record<string, unknown>) }
+        : null
   if (!base) {
     // No parseable plan and the fields ask for a route that NEEDS one. Say exactly
     // that rather than inventing a plan the model never wrote.
@@ -966,10 +970,14 @@ export function createAgentRuntimeForgeRoleRunner(
       nodeId === 'lead_pre'
         ? await getForgeRoleContract({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
         : null
+    const recordedPlan =
+      nodeId === 'lead_pre'
+        ? await getForgeRolePlan({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
+        : null
     const routingReview =
       nodeId === 'lead_pre' && evidence.leadDecision == null
         ? reviewLeadProposal(
-            leadProposalFromFields(parseLeadRouting(raw), recordedContract),
+            leadProposalFromFields(parseLeadRouting(raw), recordedContract, recordedPlan),
             leadRoutingContext,
           )
         : null

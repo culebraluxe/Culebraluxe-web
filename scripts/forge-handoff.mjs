@@ -54,6 +54,138 @@ if (!storyId || !processInstanceId || !taskId || !nodeId) {
 
 const pool = forgeDbPool()
 
+// --chunk mode: record ONE chunk of the work-order plan. Repeat per chunk.
+//
+//   ... --chunk 1 --assignment a --surface workflow_app/tests/story-moves.test.ts \
+//       --proof "node --import tsx --test workflow_app/tests/story-moves.test.ts" \
+//       --invariant "lib/story-moves.ts byte-identical" \
+//       --finding add-story-moves-engine-gate-test --evidence architect_brief,a
+//
+// The assignment row is created on first use and its vector can be set with
+// --semantic-surface/--dependency-depth/--uncertainty/--context-burden/--proof-burden/
+// --coupling/--change-novelty/--worker-fit. The chunks ARE the plan: surface and proof
+// are NOT NULL, so a chunk that cannot be checked is refused by the database.
+if (arg('chunk')) {
+  const chunkId = Number.parseInt(arg('chunk'), 10)
+  const assignmentId = arg('assignment') ?? 'a'
+  const surface = list('surface')
+  const proof = arg('proof')
+  const vector = (name) => {
+    const raw = arg(name)
+    if (raw == null) return null
+    const n = Number.parseInt(raw, 10)
+    return Number.isFinite(n) ? n : null
+  }
+
+  if (!Number.isFinite(chunkId) || chunkId < 1) {
+    console.error('forge-handoff: --chunk must be 1..3')
+    await pool.end()
+    process.exit(2)
+  }
+  if (surface.length === 0 || !proof?.trim()) {
+    console.error(
+      'forge-handoff: a chunk needs --surface <path[,path]> and --proof "<exact command>". ' +
+        'A chunk that cannot be checked is not a plan.',
+    )
+    await pool.end()
+    process.exit(2)
+  }
+
+  try {
+    await pool.query(
+      `insert into forge_role_assignment
+         (story_id, process_instance_id, task_id, node_id, attempt, assignment_id,
+          finding_ids, evidence_refs, reasoning,
+          semantic_surface, dependency_depth, uncertainty, context_burden,
+          proof_burden, coupling, change_novelty, worker_fit)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       on conflict (task_id, node_id, attempt, assignment_id) do update set
+         finding_ids = case when cardinality(excluded.finding_ids) > 0
+                            then excluded.finding_ids else forge_role_assignment.finding_ids end,
+         evidence_refs = case when cardinality(excluded.evidence_refs) > 0
+                              then excluded.evidence_refs else forge_role_assignment.evidence_refs end,
+         reasoning = coalesce(excluded.reasoning, forge_role_assignment.reasoning),
+         semantic_surface = coalesce(excluded.semantic_surface, forge_role_assignment.semantic_surface),
+         dependency_depth = coalesce(excluded.dependency_depth, forge_role_assignment.dependency_depth),
+         uncertainty = coalesce(excluded.uncertainty, forge_role_assignment.uncertainty),
+         context_burden = coalesce(excluded.context_burden, forge_role_assignment.context_burden),
+         proof_burden = coalesce(excluded.proof_burden, forge_role_assignment.proof_burden),
+         coupling = coalesce(excluded.coupling, forge_role_assignment.coupling),
+         change_novelty = coalesce(excluded.change_novelty, forge_role_assignment.change_novelty),
+         worker_fit = coalesce(excluded.worker_fit, forge_role_assignment.worker_fit),
+         updated_at = now()`,
+      [
+        storyId,
+        processInstanceId,
+        taskId,
+        nodeId,
+        attempt,
+        assignmentId,
+        list('finding'),
+        list('evidence'),
+        arg('reasoning'),
+        vector('semantic-surface'),
+        vector('dependency-depth'),
+        vector('uncertainty'),
+        vector('context-burden'),
+        vector('proof-burden'),
+        vector('coupling'),
+        vector('change-novelty'),
+        vector('worker-fit'),
+      ],
+    )
+
+    const written = await pool.query(
+      `insert into forge_role_plan_chunk
+         (story_id, process_instance_id, task_id, node_id, attempt, assignment_id,
+          chunk_id, size, surface, proof, invariant, preconditions, postconditions,
+          classes, risks, depends_on)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       on conflict (task_id, node_id, attempt, assignment_id, chunk_id) do update set
+         size = coalesce(excluded.size, forge_role_plan_chunk.size),
+         surface = excluded.surface,
+         proof = excluded.proof,
+         invariant = coalesce(excluded.invariant, forge_role_plan_chunk.invariant),
+         preconditions = excluded.preconditions,
+         postconditions = excluded.postconditions,
+         classes = excluded.classes,
+         risks = excluded.risks,
+         depends_on = excluded.depends_on,
+         updated_at = now()
+       returning assignment_id, chunk_id, surface, proof`,
+      [
+        storyId,
+        processInstanceId,
+        taskId,
+        nodeId,
+        attempt,
+        assignmentId,
+        chunkId,
+        arg('size') ?? arg('chunk-size'),
+        surface,
+        proof,
+        arg('invariant'),
+        list('preconditions'),
+        list('postconditions'),
+        list('classes'),
+        list('risks'),
+        list('depends-on'),
+      ],
+    )
+    console.log('chunk recorded:', JSON.stringify(written.rows[0]))
+    console.log('Do not also emit a LEAD_PLAN JSON line — the rows above ARE the plan.')
+  } catch (error) {
+    const e = error
+    console.error(`PLAN REJECTED by the database: ${e?.message ?? String(error)}`)
+    if (e?.constraint) console.error(`failing constraint: ${e.constraint}`)
+    console.error('Fix the named field and run the command again.')
+    await pool.end()
+    process.exit(1)
+  }
+  await pool.end()
+  process.exit(0)
+}
+
 if (show || !arg('decision')) {
   const rows = await pool.query(
     `select decision, size, size_reason, reason, assignment_count, finding_ids,
