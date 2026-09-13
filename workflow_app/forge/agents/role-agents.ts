@@ -1,5 +1,3 @@
-import { parseLeadRouting, reviewLeadProposal, leadRoutingFacts } from '../forge-lead-routing'
-import type { RoutingContext } from '../forge-lead-routing'
 import { findingsFromArchitectEvidence } from '../forge-shaping'
 import { parseForgeEvidenceMarker } from '../forge-role-mapping'
 import { ForgePhaseAgent } from './forge-phase-agent'
@@ -8,7 +6,6 @@ import type { RoleEffectPorts } from './ports'
 import { parseArchitectHandoff, handoffToFindings } from './architect-handoff'
 import { assessArchitectHandoff } from './architect/assess'
 import { persistArchitectBrief } from './architect/persist'
-import { benchIntentErrors } from './bench-intent'
 import { collectAssayEvidence } from './assay-collect'
 import { parseFailureClass } from '../qa-classify-line'
 import { forgeRoleNodePlan } from '../forge-role-mapping'
@@ -52,13 +49,6 @@ export class ArchitectAgent extends ForgePhaseAgent {
 
     const handoff = parseArchitectHandoff(raw)
     if (handoff) {
-      // The handoff is assessed BEFORE it is believed: duplicate ids, empty or
-      // oversized scope, illegal paths, a required HOLD with no named risk, no
-      // required findings, and — fail-closed — every claimed seam must exist on
-      // the pinned baseRef. A failure records the reasons and leaves findings
-      // UNSET so the parent's architect-plan gate HOLDs with text the self-heal
-      // reprompt can act on. (Previously the reasons were computed and thrown
-      // away, and a written brief could let a failed handoff pass the gate.)
       const assessment = assessArchitectHandoff(handoff, {
         ...(ports.existsOnBaseRef ? { existsOnBaseRef: ports.existsOnBaseRef } : {}),
       })
@@ -80,42 +70,15 @@ export class LeadAgent extends ForgePhaseAgent {
 
   collect(evidence: ForgeGateEvidence, raw: string, ports: RoleEffectPorts = {}): ForgeGateEvidence {
     if (this.plan.leadPhase !== 'pre' || this.nodeId === 'failure_classifier') {
-      return { ...evidence, ...parseForgeEvidenceMarker(raw) }
+      const marked = parseForgeEvidenceMarker(raw)
+      const { leadDecision: _d, splitCount: _s, ...rest } = marked
+      return { ...evidence, ...rest }
     }
-
-    const findings = evidence.findings ?? []
-    const context: RoutingContext = {
-      findings: findings.map((f) => ({
-        id: f.id,
-        required: f.required,
-        hint: f.hint,
-        seams: f.seams,
-      })),
-      evidenceRefs: ports.evidenceRefs ?? [],
-      splitEnabled: ports.splitEnabled ?? false,
-      maxSmiths: ports.maxSmiths ?? 1,
-      allowedProofs: ports.allowedProofs ?? [],
-    }
-    const rawProposal = parseLeadRouting(raw)
-    const review = reviewLeadProposal(rawProposal, context)
-    if (!review.ok) {
-      // The reviewer's errors ARE the reason this routing was refused. Without them
-      // the self-heal only says "you did not deliver lead-decision", and the retry
-      // has to guess what was wrong. Observed live 2026-09-13: attempt 1 proposed a
-      // real SOLO plan and was refused for a structural reason the model never saw.
-      return { ...evidence, deliverableRejection: review.errors.join('; ') }
-    }
-
-    const bench = benchIntentErrors(review.proposal.decision, ports.benchIntent)
-    if (bench.length) return evidence
-
-    const facts = leadRoutingFacts(review)
-    return {
-      ...evidence,
-      leadDecision: facts.leadDecision,
-      splitCount: facts.splitCount || undefined,
-      leadRouting: facts.leadRouting,
-    }
+    // PRE: decision lives in forge_role_contract / forge_role_plan rows.
+    // Chat JSON cannot set leadDecision. The runner reviews fields only.
+    void raw
+    void ports
+    return evidence
   }
 }
 
@@ -171,9 +134,6 @@ export class FailureClassifierAgent extends ForgePhaseAgent {
 
   collect(evidence: ForgeGateEvidence, raw: string, _ports: RoleEffectPorts = {}): ForgeGateEvidence {
     const marked = parseForgeEvidenceMarker(raw)
-    // The FAILURE_CLASS: line is THIS lane's line contract. It feeds the ENGINE
-    // enum (CODE_DEFECT…), which is deliberately NOT the taxonomy in
-    // failure-classifier.ts (BAD_IMPLEMENTATION…). Two enums, two jobs — not merged.
     const failureClass = parseFailureClass(raw)
     return { ...evidence, ...marked, ...(failureClass ? { failureClass } : {}) }
   }
