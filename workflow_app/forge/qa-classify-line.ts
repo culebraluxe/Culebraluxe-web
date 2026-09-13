@@ -1,12 +1,10 @@
 /**
- * ADD. Post-FAIL line parser for the failure_classifier *engine node*.
+ * ADD. Post-FAIL line parser for the failure_classifier engine node.
  *
  * Does NOT replace workflow_app/forge/failure-classifier.ts
- * (classifyFailure / routeFailure — different taxonomy: BAD_IMPLEMENTATION…).
+ * (classifyFailure / routeFailure — different taxonomy).
  *
- * This file feeds ForgeGateEvidence.failureClass — the enum the XML already
- * routes on: CODE_DEFECT | TEST_DEFECT | ARCHITECTURE_GAP | …
- *
+ * This file feeds ForgeGateEvidence.failureClass (CODE_DEFECT…).
  * Call after Assay has already set qaPassed=false. Never flip the verdict.
  */
 export const ENGINE_FAILURE_CLASSES = [

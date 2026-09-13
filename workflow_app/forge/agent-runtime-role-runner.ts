@@ -56,6 +56,7 @@ import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
 import { buildSmithDirective } from './agents/smith/prompt'
+import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
@@ -1065,11 +1066,20 @@ export function createAgentRuntimeForgeRoleRunner(
       }
     }
 
+    // The REASONS a role's own gate rejected its output, carried as a SIDECAR to
+    // `missing` — never inside it. `missing` stays the stable-kind list that the
+    // retry hash and the alert rule key on, so adding prose here cannot make an
+    // unchanged retry look like a changed one.
+    const rejectionReasons = (evidence.deliverableRejection ?? '')
+      .split('; ')
+      .map((reason) => reason.trim())
+      .filter(Boolean)
+
     // Bounded self-heal: an otherwise-successful run that missed a deliverable or
     // routing decision is re-run with a corrective directive naming what was
     // missing. Only when the reprompt budget is exhausted do we throw the HOLD.
     if (attempt + 1 < totalAttempts) {
-      correctiveNote = buildSelfHealDirective(
+      correctiveNote = buildSelfHealDirectiveWithReasons(
         nodeId,
         miss,
         leadRoutingGovernsPre && leadRoutingContext
@@ -1101,6 +1111,7 @@ export function createAgentRuntimeForgeRoleRunner(
                 }),
               )
             : plan.evidenceInstruction,
+        rejectionReasons.length ? rejectionReasons : undefined,
       )
       continue
     }
@@ -1122,7 +1133,9 @@ export function createAgentRuntimeForgeRoleRunner(
     if (holdRunId) {
       await appendForgeRunDetail(
         holdRunId,
-        `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}`,
+        `Forge ${nodeId} HOLD code=DELIVERABLE_REJECTED (after ${totalAttempts} attempt(s)): ` +
+          `role did not deliver ${miss.join(', ')}` +
+          (rejectionReasons.length ? ` — refused because: ${rejectionReasons.join('; ')}` : ''),
       ).catch(() => {
         /* run-detail append is observer-only; the HOLD throw below stands */
       })

@@ -1,12 +1,9 @@
 /**
  * ADD. Architect PRE instruction. Not a Lead prompt.
  *
- * Call site: role-runner / OpenCode session builder for architect |
- * repair_architect | research_architect — AFTER the static
- * forgeRoleNodePlan().evidenceInstruction, with the run's pinned baseRef
+ * Call site: Architect session builder (role-runner), after
+ * forgeRoleNodePlan().evidenceInstruction, with this run's pinned baseRef
  * and the story's frozen assay commands.
- *
- * Do not put this on forge-lead-routing-prompt.ts. That module is Lead-only.
  */
 export function buildArchitectDirective(baseRef: string, frozenProofs: string[]): string {
   const proofs = frozenProofs.filter((c) => c.trim().length > 0)
@@ -18,7 +15,7 @@ export function buildArchitectDirective(baseRef: string, frozenProofs: string[])
     'Adjacent work is required:false. Do not stuff it into this story.',
     'Do not invent a file that does not exist on baseRef. If the work needs a new file, HOLD and say so in risks.',
     `Frozen proofs (do not invent commands): ${proofs.join(' | ') || '(none declared on the story)'}`,
-    'End with exactly ONE un-fenced JSON line beginning FORGE_ARCHITECT_HANDOFF:. Do not fence it. Do not also emit a competing FORGE_FINDINGS_JSON unless it is identical.',
+    'End with exactly ONE un-fenced JSON line beginning FORGE_ARCHITECT_HANDOFF:. Do not fence it.',
     'Schema: {"version":1,"baseRef":"<the sha above>","findings":[{"id":"F1","required":true,"summary":"...","preconditions":["..."],"scope":["path/file.ts"],"postconditions":["..."],"classes":["Type"],"risks":["concrete"],"hint":"SAME_UNIT"}]}',
   ].join('\n')
 }

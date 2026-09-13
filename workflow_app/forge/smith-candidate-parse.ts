@@ -15,7 +15,10 @@ const SHA = /^[0-9a-f]{7,40}$/i
 
 export function parseSmithCandidate(notes: string | null | undefined): SmithCandidate | null {
   if (!notes) return null
-  const lines = notes.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.startsWith(SMITH_CANDIDATE_PREFIX))
+  const lines = notes
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith(SMITH_CANDIDATE_PREFIX))
   if (lines.length !== 1) return null
   try {
     const raw = JSON.parse(lines[0].slice(SMITH_CANDIDATE_PREFIX.length).trim()) as Record<string, unknown>
