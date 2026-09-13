@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, statSync } from 'node:fs'
-import { mkdtempSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -95,5 +96,61 @@ test('V5-23: the tool list follows the catalog grant, not the registration', () 
 
   for (const role of ['scout', 'inspector', 'assay', 'dev_ops'] as const) {
     assert.deepEqual(serenaAllowedToolsForRole(role), [], role)
+  }
+})
+
+// --- V5-24 rtk: the shim must not be able to re-enter itself ------------------
+//
+// The old shim was `exec rtk <cmd> "$@"` with its own directory FIRST on PATH.
+// rtk resolves the underlying command BY NAME through PATH, so rtk's own `git`
+// lookup found the shim again, which exec'd rtk again — an unbounded loop. One
+// Architect tool call left 4,627 live processes and load 34 on the machine, and
+// every call blocked ~80s at 0% CPU because each parent slept on its child.
+test('V5-24: the shim strips its own dir from PATH so the proxy cannot re-enter itself', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'forge-rtk-recursion-'))
+  const counter = join(tmp, 'depth')
+  const seenPath = join(tmp, 'seen-path')
+  const rtkBin = join(tmp, 'fake-rtk')
+  try {
+    // A fake proxy that behaves like the real one in the ONE way that matters:
+    // it runs the underlying command by name, through PATH. Depth is bounded so
+    // a regression FAILS here instead of forking the test machine.
+    writeFileSync(
+      rtkBin,
+      [
+        '#!/bin/sh',
+        `depth=$(cat "${counter}" 2>/dev/null || echo 0)`,
+        'depth=$((depth + 1))',
+        `printf '%s' "$depth" > "${counter}"`,
+        '[ "$depth" -gt 5 ] && exit 3',
+        `printf '%s' "$PATH" > "${seenPath}"`,
+        'shift',
+        'exec git "$@"',
+      ].join('\n') + '\n',
+      'utf8',
+    )
+    chmodSync(rtkBin, 0o755)
+
+    const workspace = mkdtempSync(join(tmpdir(), 'forge-rtk-ws-'))
+    writeRtkShims({ workspace, rtkBin })
+    const shimDir = rtkShimDir(workspace)
+    const shim = join(shimDir, 'git')
+
+    // Invoke it exactly as a lane does: the shim dir FIRST on PATH.
+    const out = execFileSync(shim, ['rev-parse', '--git-dir'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+    })
+
+    assert.match(out, /\.git/, 'the proxied command still runs and returns the real answer')
+    const proxied = readFileSync(seenPath, 'utf8')
+    assert.ok(
+      !proxied.split(':').includes(shimDir),
+      'the proxy must not see its own shim directory on PATH',
+    )
+    assert.equal(readFileSync(counter, 'utf8'), '1', 'the proxy must be entered exactly once')
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
   }
 })
