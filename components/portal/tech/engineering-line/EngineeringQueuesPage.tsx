@@ -20,6 +20,7 @@ import { useMemo, useState } from 'react'
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
 import type { StoryboardStory, StoryRun } from '@/db/storyboard'
 import { ActiveQueue, RunHistory, StoryDetail } from '@/components/portal/tech/engineering-cockpit'
+import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 
 import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
@@ -148,6 +149,52 @@ export function EngineeringQueuesPage({
     selectedStory && cards.some((c) => c.id === selectedStory.id && c.queue === 'ready'),
   )
 
+  // THE SORTER — the assembly line, left to right in the captain's order:
+  //   BACKLOG -> OPEN -> WORK BENCH -> ENGINE QUEUE
+  // Different context from the bands below (this is where you SORT, the bands are
+  // where you WORK), which is why the same two sets may appear in both without it
+  // being a collision. ENGINE QUEUE is empty until agent_work_item is wired.
+  const sorterCards = useMemo(() => {
+    const bucket = (key: 'backlog' | 'open') =>
+      (cockpit.panels[key]?.groups ?? []).flatMap((g) => g.stories)
+    return [
+      ...bucket('backlog').map((s) => ({
+        id: s.id,
+        column: 'backlog',
+        title: s.title,
+        status: s.status,
+        priority: s.priority,
+        completion: s.completion,
+      })),
+      ...bucket('open').map((s) => ({
+        id: s.id,
+        column: 'open',
+        title: s.title,
+        status: s.status,
+        priority: s.priority,
+        completion: s.completion,
+      })),
+      ...activeWork.map((s) => ({
+        id: s.id,
+        column: 'bench',
+        title: s.title,
+        status: s.status,
+        priority: s.priority,
+        completion: s.completion,
+      })),
+    ]
+  }, [cockpit, activeWork])
+
+  const sorterColumns = useMemo(
+    () => [
+      { id: 'backlog', label: 'BACKLOG' },
+      { id: 'open', label: 'OPEN' },
+      { id: 'bench', label: 'WORK BENCH' },
+      { id: 'engine', label: 'ENGINE QUEUE' },
+    ],
+    [],
+  )
+
   const byQueue = (key: QueueKey) => cards.filter((c) => c.queue === key)
   const stats = model.stats
 
@@ -190,6 +237,27 @@ export function EngineeringQueuesPage({
             <p className="text-[10px] text-slate-500">{tile.caption}</p>
           </div>
         ))}
+      </section>
+
+      {/* SORTER — the assembly line. This is where stories get SORTED; the bands
+          below are where the WORK happens, which is why the bench and the engine
+          legitimately appear in both (different context, not a collision).
+          The drag is local until the writes are wired. */}
+      <section className="mb-4">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-white">
+            SORTER
+            <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
+              backlog → open → work bench → engine queue
+            </span>
+          </p>
+          <p className="text-[10px] text-slate-400">
+            drag a story along the line · ENGINE QUEUE fills from the engine
+          </p>
+        </div>
+        <div className="h-[520px] overflow-hidden rounded-lg border border-white/10 bg-white/[0.02] p-2">
+          <StoryKanbanBoard cards={sorterCards} columns={sorterColumns} />
+        </div>
       </section>
 
       {/* WORK BENCH — the piece the captain uses most: the queue on the LEFT, the
