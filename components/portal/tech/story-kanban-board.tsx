@@ -86,7 +86,7 @@ export function StoryKanbanBoard({
   )
 
   return (
-    <div className="story-kanban flex h-full min-h-0 w-full flex-col">
+    <div className="portal-svar-midnight story-kanban flex h-full min-h-0 w-full flex-col">
       <WillowDark>
         <div className="flex-1">
           {mounted ? (

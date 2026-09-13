@@ -51,8 +51,16 @@ export default async function TechPage({
   const activeQueue = await listActiveWork()
   const convergence = await listForgeConvergence()
 
+  // The Work Bench always has a story selected, so the detail pane (and the
+  // GOOD TO GO / MOVE TO controls) are never a blank rectangle on arrival: an
+  // explicit ?story wins, otherwise the first item on the bench. The old TECH page
+  // had NO fallback — it only selected after a click — which is why the bench
+  // arrived empty when this screen moved to the TECH root.
+  const fallbackId = activeQueue[0]?.id ?? withExecution[0]?.id ?? null
   const validId =
-    selectedId && withExecution.some((s) => s.id === selectedId) ? selectedId : null
+    selectedId && withExecution.some((s) => s.id === selectedId)
+      ? selectedId
+      : fallbackId
   const selectedStory = validId
     ? (withExecution.find((s) => s.id === validId) ?? null)
     : null

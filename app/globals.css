@@ -767,3 +767,38 @@
   border-radius: var(--portal-panel-radius);
   overflow: hidden;
 }
+
+/* ---------------------------------------------------------------------------
+   STORY KANBAN — board-specific skin, layered ON .portal-svar-midnight above.
+   That shared skin already owns the navy ground, the editorial serif and the
+   gold accents for every SVAR pane, so only what it cannot know about lives
+   here: the columns and the cards. Restyling the shared block restyles this
+   board too, which is the point of having one hook.
+   --------------------------------------------------------------------------- */
+.story-kanban .wx-column {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--portal-panel-radius);
+}
+
+.story-kanban .wx-column-header {
+  color: #ffffff;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.story-kanban .wx-column-cards {
+  gap: 6px;
+}
+
+.story-kanban .wx-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(198, 161, 91, 0.22);
+  border-radius: 6px;
+}
+
+.story-kanban .wx-card:hover {
+  background: rgba(198, 161, 91, 0.08);
+  border-color: rgba(198, 161, 91, 0.55);
+}

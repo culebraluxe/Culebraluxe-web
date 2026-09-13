@@ -106,7 +106,10 @@ export function EngineeringQueuesPage({
   const [dragging, setDragging] = useState<string | null>(null)
   // A story on the bench being dragged toward the line (a different kind of thing
   // from a queue card: it becomes an engine card when it lands).
+  // A story on the bench being dragged toward the line (a different kind of thing
+  // from a queue card: it becomes an engine card when it lands).
   const [draggingStory, setDraggingStory] = useState<string | null>(null)
+  const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
 
@@ -322,6 +325,45 @@ export function EngineeringQueuesPage({
               >
                 {selectedIsQueued ? 'Queued' : 'Good to go →'}
               </button>
+            </div>
+
+            {/* MOVE TO — closing and deferring are DELIBERATE ACTS (they have no
+                column to drop on, by design). The rules for what may go where still
+                come from lib/story-moves.ts, so this row and the board cannot
+                disagree about what is legal. */}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+              <span className="mr-1 text-[10px] font-semibold tracking-[0.14em] text-slate-400">
+                MOVE TO
+              </span>
+              {(
+                [
+                  { to: 'backlog', label: 'Backlog', hint: 'Park it in the backlog' },
+                  { to: 'closed', label: 'Closed', hint: 'Finish it — sets completion to 100%' },
+                  { to: 'next', label: 'Next Version', hint: 'Defer it to a later version' },
+                ] as const
+              ).map((target) => (
+                <button
+                  key={target.to}
+                  type="button"
+                  title={target.hint}
+                  disabled={!selectedStory || !selectedIsActive}
+                  onClick={async () => {
+                    if (!selectedStory) return
+                    // From the BENCH: this control lives in the bench band, so the
+                    // source is the bench. Leaving it clears the intent row too.
+                    const result = await moveStoryBucketAction(selectedStory.id, 'bench', target.to)
+                    setMoveError(result.ok ? null : (result.error ?? 'Refused'))
+                    if (result.ok) router.refresh()
+                  }}
+                  className="rounded border border-white/10 px-2 py-0.5 text-[10px] text-slate-300 transition hover:border-[#c6a15b]/40 hover:text-[#c6a15b] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  → {target.label}
+                </button>
+              ))}
+              {!selectedIsActive ? (
+                <span className="text-[10px] text-slate-500">pick a story on the bench</span>
+              ) : null}
+              {moveError ? <span className="text-[10px] text-rose-300">{moveError}</span> : null}
             </div>
             {selectedStory ? (
               <StoryDetail story={selectedStory} isActive={selectedIsActive} />
