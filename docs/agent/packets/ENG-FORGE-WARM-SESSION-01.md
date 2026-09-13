@@ -208,3 +208,34 @@ Those stay.
 The process graph shrinks to one live session per generation.
 
 That is the whole move.
+
+---
+
+## Measured addendum — volume lab, 2026-09-13 (before implementing)
+
+The packet's cost model says "seed tax ~2 min per role". That number does not reproduce
+on this machine, and acceptance (`t_seed`) would be measured against it. Measurements
+taken after the rtk fork-bomb fix, same story, same model:
+
+1. Harness binary start: **0.30 s**. Project config plus provider load: **0.55 s**.
+2. One whole Architect role: **42 s**, of which the harness reported **39.3 s** of model
+   time. The other ~13 s is engine, worktree, DB and prompt assembly.
+3. The 12–30 minute Architect runs were the rtk command shim recursing into itself
+   (4,627 live processes, load 34, every tool call blocked ~80 s at 0% CPU). With that
+   fixed, five role turns — Architect, Lead PRE, Lead SOLO implement, Lead POST, QA —
+   completed in **2.5 minutes** end to end, QA passing, candidate SHA verified.
+4. One further live run recorded per-role spend: architect $0.0053, lead PRE $0.0038,
+   SOLO implement $0.0046, lead POST $0.0045, QA $0.0029. **Whole story: ~2.1 cents**,
+   about 96% of tokens served from cache.
+
+So the expensive thing is not process start by a factor of hundreds. It is **context
+re-sending inside each model call** — which is exactly what one warm session fixes. Two
+consequences for this packet:
+
+1. Acceptance 1 (≤1 session per generation) is right and cheap to prove.
+2. `t_seed` should be replaced or renamed: measure **t_first_turn** and
+   **t_subsequent_turn** on the same session. A cold-start per role shows up as
+   subsequent turns costing the same as the first, not as a 2-minute constant.
+
+Keep the packet's direction. Fix the number it is measured against.
+
