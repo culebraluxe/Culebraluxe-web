@@ -81,6 +81,12 @@ export function buildBrevityDirective(): string {
     '- No markdown essays. No headings unless a contract explicitly asks for one.',
     '- Your decision goes in the FIELDS (run the command). Your reply carries: the required machine line, and at most 3 sentences of reason.',
     '- If you cannot say it in those limits, the plan is not clear enough yet. Say less, decide more.',
+    'NO QUESTIONS (hard rule):',
+    '- There is NO human attached to this run. Nobody will answer you. A question is a HANG, and a hang wastes the whole run.',
+    '- You have exactly two legal moves when something is unclear:',
+    '  1. DECIDE — take the most defensible reading, state it as an assumption in the reason field, and proceed.',
+    '  2. HOLD — record decision HOLD with a concrete reason naming exactly what is missing and who must supply it.',
+    '- Asking, proposing options, or requesting confirmation are NOT moves. Do not list alternatives for a human to choose. Choose.',
   ].join('\n')
 }
 
