@@ -4,6 +4,7 @@ import { assessArchitectHandoff } from '../forge/agents/architect/assess'
 import { parseLeadRouting } from '../forge/forge-lead-routing'
 import type { ArchitectHandoff } from '../forge/agents/architect-handoff'
 import { adjudicateAssay, runAssay } from '../forge/agents/qa/run'
+import { canMove } from '../../lib/story-moves'
 
 // ---------------------------------------------------------------------------
 // The ARCHITECT handoff assessment is fail-closed: a plan that names a seam that
@@ -151,4 +152,9 @@ test('assay: the architecture gate fails the story; a skipped arch gate does not
     staticGate: { archRan: false, archOk: false, archErrors: [] },
   })
   assert.equal(skipped.verdict, 'PASS')
+})
+
+test('engine gate: OPEN may move to ENGINE, but ENGINE may never move back to OPEN', () => {
+  assert.equal(canMove('open', 'engine'), true)
+  assert.equal(canMove('engine', 'open'), false)
 })
