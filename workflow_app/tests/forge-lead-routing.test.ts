@@ -115,12 +115,17 @@ test('four total chunks across two Smiths are allowed; three is per assignment',
   }
   assert.equal(reviewLeadProposal(p, context).ok, true)
 })
-test('an absent LEAD_ROUTING line is named specifically (non-blind self-heal)', () => {
+test('an absent decision is named specifically (non-blind self-heal)', () => {
   const f = fixture()
   const r = reviewLeadProposal(null, f.context)
   assert.equal(r.ok, false)
   if (!r.ok) {
-    assert.match(r.errors.join('\n'), /No LEAD_ROUTING line was emitted/)
+    // The refusal names the CHANNEL that is actually read (forge-handoff rows), not the
+    // dead LEAD_ROUTING marker: teaching a marker here is how the model learned the
+    // wrong channel and left forge_role_contract empty on every run.
+    assert.match(r.errors.join('\n'), /No decision was recorded in fields/)
+    assert.match(r.errors.join('\n'), /forge-handoff\.mjs/)
+    assert.doesNotMatch(r.errors.join('\n'), /LEAD_ROUTING/)
     assert.doesNotMatch(r.errors.join('\n'), /Malformed/, 'absence is not the same miss as an invalid shape')
   }
 })

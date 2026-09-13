@@ -1,48 +1,39 @@
 /**
- * ONE seat for the Lead's routing decision.
+ * THE LEAD'S ROUTING DECISION, FROM ROWS ONLY.
  *
- * Both the phase agent (LeadAgent.collect) and the role runner resolve the Lead's
- * proposal through this function, so the decision cannot be evaluated twice with
- * different inputs — the defect where collect refused a proposal and the runner then
- * re-reviewed it from text plus DB and could ACCEPT what collect had just rejected.
+ * One seat: the role runner resolves through this function. `LeadAgent.collect` is a
+ * deliberate no-op for PRE, so there is exactly one place a Lead decision can come from
+ * and no second evaluator that could accept what the first refused.
  *
- * AUTHORITY ORDER: the recorded FIELDS win, the reply's JSON is the fallback.
+ * THE REPLY IS NOT AN INPUT. There is no `raw` parameter, on purpose: chat JSON cannot
+ * set `leadDecision`. That is not a preference, it is the rip. "Prefers rows" let a
+ * model beat the database with a well-worded line, and on 2026-09-13 the model was
+ * taught BOTH channels at once — the task line said "run forge-handoff.mjs", the routing
+ * directive said "emit LEAD_ROUTING" — so `forge_role_contract` stayed empty on every
+ * run and the decision always arrived as a marker.
  *
- * The decision travels in `forge_role_contract` / `forge_role_plan` (migrations 170,
- * 171). A marker prefix going missing must never cost a routing decision the engine
- * already holds — that is exactly what cost 18 minutes on 2026-09-13. The reply still
- * supplies assignment detail when a route needs a plan (chunks, surfaces, proofs that
- * no 8-column row should hold); what the fields guarantee is the DECISION itself.
+ * The marker parsers still exist for Architect and Scout findings, which have no field
+ * writer yet. They are not reachable from here.
  *
- * A HOLD recorded in fields is clean and authoritative: no assignments, no merge
- * checks, because the reviewer refuses a HOLD that dispatches anything.
+ * A decision that was never written to rows is a HOLD with a reason the model can act
+ * on, never a route.
  */
 import type { ForgeRoleContract } from '../../db/forge-role-contract'
 import type { ForgeRolePlan } from '../../db/forge-role-plan'
-import {
-  parseLeadRouting,
-  reviewLeadProposal,
-  type RoutingContext,
-  type RoutingReview,
-} from './forge-lead-routing'
+import { reviewLeadProposal, type RoutingContext, type RoutingReview } from './forge-lead-routing'
 
-/** Merge the recorded decision fields over whatever the reply said. */
+/** The proposal the recorded fields describe, or the honest absence of one. */
 export function leadProposalFromFields(
-  parsed: unknown,
   contract: ForgeRoleContract | null,
   plan: ForgeRolePlan | null,
 ): unknown {
-  if (!contract?.decision) return parsed
+  if (!contract?.decision) return null
 
   if (contract.decision === 'HOLD') {
-    const base =
-      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {}
     return {
       version: 1,
       decision: 'HOLD',
-      size: contract.size ?? (base.size as string) ?? 'SMALL',
+      size: contract.size ?? 'SMALL',
       sizeReason: contract.sizeReason ?? contract.reason ?? 'recorded in fields',
       reason: contract.reason ?? contract.sizeReason ?? 'recorded in fields',
       assignments: [],
@@ -53,12 +44,11 @@ export function leadProposalFromFields(
   const base =
     plan && plan.assignments.length > 0
       ? { version: 1, assignments: plan.assignments, size: plan.size }
-      : parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? { ...(parsed as Record<string, unknown>) }
-        : null
+      : null
   if (!base) {
-    // No parseable plan and the fields ask for a route that NEEDS one. Say exactly
-    // that rather than inventing a plan the model never wrote.
+    // The decision asks for a route that NEEDS a plan and no chunk rows were written.
+    // Say exactly that rather than inventing a plan the model never wrote: the reviewer
+    // refuses it, the self-heal reprompt names the missing rows, and the run HOLDs.
     return {
       version: 1,
       decision: contract.decision,
@@ -79,20 +69,11 @@ export function leadProposalFromFields(
   }
 }
 
-/**
- * Resolve and REVIEW the Lead proposal: fields first, reply as fallback.
- *
- * `parsedOverride` exists for callers that already hold a validated proposal (the
- * runner's accepted-routing recovery path); ordinary callers pass only `raw`.
- */
+/** Resolve and REVIEW the recorded decision. No reply, by construction. */
 export function resolveLeadProposal(input: {
-  raw: string
   contract: ForgeRoleContract | null
   plan: ForgeRolePlan | null
   context: RoutingContext
 }): RoutingReview {
-  return reviewLeadProposal(
-    leadProposalFromFields(parseLeadRouting(input.raw), input.contract, input.plan),
-    input.context,
-  )
+  return reviewLeadProposal(leadProposalFromFields(input.contract, input.plan), input.context)
 }

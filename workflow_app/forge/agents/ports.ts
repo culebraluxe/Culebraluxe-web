@@ -2,13 +2,6 @@
  * ADD. Injected effects. Nothing in this package spawns a process, reads env,
  * or touches the DB. The runner supplies these.
  */
-import type { ForgeRoleContract } from '../../../db/forge-role-contract'
-import type { ForgeRolePlan } from '../../../db/forge-role-plan'
-
-/** Local aliases keep this module's public shape free of db import paths. */
-type ForgeRoleContractRow = ForgeRoleContract
-type ForgeRolePlanRow = ForgeRolePlan
-
 export type BenchIntent = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 
 export type RunnerDiff = {
@@ -47,13 +40,6 @@ export type RoleEffectPorts = {
   runStatic?: () => StaticSlice
   /** Frozen assay commands from the story / accepted assignment. */
   assayCommands?: string[]
-  /**
-   * The Lead's recorded decision ROWS (migrations 170/171), read by the runner and
-   * handed to the decider. Fields first, reply text second: a dropped marker must
-   * never cost a routing decision the database already holds.
-   */
-  recordedLeadContract?: ForgeRoleContractRow | null
-  recordedLeadPlan?: ForgeRolePlanRow | null
   /**
    * NOT part of the required contract. Bench membership does NOT imply a launch
    * cap — every non-null value here is a cap, so deriving one would ban SPLIT for

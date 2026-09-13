@@ -667,10 +667,9 @@ export function createAgentRuntimeForgeRoleRunner(
           () => undefined,
         )
       : undefined
-    // The Lead's recorded DECISION rows (migrations 170/171), read BEFORE the ports
-    // are built so the decider actually receives them: fields win over the reply, and
-    // the reply is the fallback when no row was written. Read once here, then used by
-    // both collect and the runner's own fallback — one source, one seat.
+    // The Lead's recorded DECISION rows (migrations 170/171), read before the review
+    // below — which is the ONE seat for this decision. `LeadAgent.collect` is a no-op
+    // for PRE, so there is no second evaluator that could accept what this refused.
     const recordedContract: ForgeRoleContract | null =
       nodeId === 'lead_pre'
         ? await getForgeRoleContract({ taskId: task.taskId, nodeId, attempt: attempt + 1 })
@@ -689,9 +688,6 @@ export function createAgentRuntimeForgeRoleRunner(
       // "the Lead decides", which is the behaviour every run has had until now.
       ...(options.launchIntent ? { benchIntent: options.launchIntent } : {}),
       repoDir: roleCwd,
-      // The recorded decision, handed to the decider. Fields first.
-      ...(recordedContract ? { recordedLeadContract: recordedContract } : {}),
-      ...(recordedPlan ? { recordedLeadPlan: recordedPlan } : {}),
       // Fail-closed seam check: a file the Architect names must exist on the
       // pinned baseRef (git cat-file against the sha).
       existsOnBaseRef: existsOnGitBaseRef(roleCwd),
@@ -957,7 +953,6 @@ export function createAgentRuntimeForgeRoleRunner(
     const routingReview =
       nodeId === 'lead_pre' && evidence.leadDecision == null && evidence.deliverableRejection == null
         ? resolveLeadProposal({
-            raw,
             contract: recordedContract,
             plan: recordedPlan,
             context: leadRoutingContext,

@@ -35,7 +35,9 @@ test('door 1: all four executing Smith roles HOLD without an accepted assignment
     assert.equal(decision.allowed, false, `${nodeId} must not launch unassigned`)
     assert.match(String(decision.reason), /HOLD/)
     assert.match(String(decision.reason), new RegExp(NO_ASSIGNMENT_REASON.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-    assert.match(String(decision.reason), /LEAD_ROUTING/)
+    // The message names the FIELDS channel (forge-handoff rows), not the dead marker:
+    // f841af6 changed the wording and left this assertion behind, so main was red.
+    assert.match(String(decision.reason), /forge-handoff fields/)
   }
 })
 

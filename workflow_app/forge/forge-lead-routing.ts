@@ -141,7 +141,7 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     return {
       ok: false,
       errors: [
-        'No LEAD_ROUTING line was emitted — end the reply with exactly one un-fenced single JSON line beginning LEAD_ROUTING:',
+        'No decision was recorded in fields — run scripts/forge-handoff.mjs with --decision SOLO|SMITH|SPLIT|HOLD (and one --chunk row per chunk). An unwritten decision is a HOLD, and a chat line cannot substitute for the row.',
       ],
       advisories,
     }

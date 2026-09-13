@@ -1,25 +1,23 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { resolveLeadProposal } from '../forge/lead-proposal-resolve'
+import { resolveLeadProposal, leadProposalFromFields } from '../forge/lead-proposal-resolve'
+import { reviewLeadProposal, type RoutingContext } from '../forge/forge-lead-routing'
 import { LeadAgent } from '../forge/agents/role-agents'
 import type { ForgeRoleContract } from '../../db/forge-role-contract'
 import type { ForgeRolePlan } from '../../db/forge-role-plan'
-import type { RoutingContext } from '../forge/forge-lead-routing'
 import type { ForgeGateEvidence } from '../forge/forge-facts'
 
 // ---------------------------------------------------------------------------
-// LEAD DECISION CHANNEL — fields first, reply second, ONE seat.
+// LEAD PRE IS FIELDS-ONLY. This file is the regression fence for that law.
 //
-// Both external reviews found the same defect independently: the DB contract rows
-// (migrations 170/171) were a FALLBACK. LeadAgent.collect parsed the reply, set
-// leadDecision, and the runner then skipped its field-aware review entirely — so a
-// dropped marker could still cost a decision the database already held, which is the
-// failure that cost 18 minutes on 2026-09-13.
+// Both the changelog and the judgment-lab rip say the same thing: "prefers rows" was
+// a lie the model used, and chat JSON must not beat the database. On 2026-09-13 the
+// lane was taught BOTH channels at once, the model obeyed the chat line, and
+// forge_role_contract stayed empty on every run while the decision arrived as a marker.
 //
-// These tests need no database: the rows are plain objects of the same shape the
-// readers return. They are the tests Grok's review called out as missing ("there is
-// no test that imports getForgeRoleContract, getForgeRolePlan or leadProposalFromFields").
+// So these tests assert the ABSENCE of a reply channel, not just its lower priority:
+// no rows means a HOLD with a reason, and a perfect LEAD_ROUTING line changes nothing.
 // ---------------------------------------------------------------------------
 
 const PROOF = 'node --import tsx --test workflow_app/tests/forge-lead-fields.test.ts'
@@ -85,83 +83,77 @@ const plan = (over: Partial<ForgeRolePlan> = {}): ForgeRolePlan => ({
   ...over,
 })
 
-/** The reply line a model would emit — the FALLBACK channel. */
-const replyWithProposal = (): string =>
-  `prose about the story\nLEAD_ROUTING: ${JSON.stringify({
-    version: 1,
-    decision: 'SMITH',
-    size: 'SMALL',
-    sizeReason: 'one bounded change',
-    reason: 'the finding is required',
-    mergeChecks: [PROOF],
-    assignments: [assignment],
-  })}`
+/** A PERFECT routing line. Under the rip it must not reach the decision at all. */
+const PERFECT_REPLY = `prose\nLEAD_ROUTING: ${JSON.stringify({
+  version: 1,
+  decision: 'SMITH',
+  size: 'SMALL',
+  sizeReason: 'one bounded change',
+  reason: 'the finding is required',
+  mergeChecks: [PROOF],
+  assignments: [assignment],
+})}`
 
 const why = (review: { ok: boolean; errors?: string[] }): string =>
   review.ok ? '' : (review.errors ?? []).join('; ')
 
-test('fields-only: the recorded rows route with NO LEAD_ROUTING line anywhere', () => {
-  const review = resolveLeadProposal({
-    raw: 'prose only — the model emitted no machine line at all',
-    contract: contract(),
-    plan: plan(),
-    context: context(),
-  })
-
+test('recorded rows route with no reply involved', () => {
+  const review = resolveLeadProposal({ contract: contract(), plan: plan(), context: context() })
   assert.equal(review.ok, true, why(review))
   if (review.ok) assert.equal(review.proposal.decision, 'SMITH')
 })
 
-test('fields WIN: a recorded HOLD beats a leftover SMITH line in the reply', () => {
+test('a recorded HOLD is a valid outcome and carries no assignments', () => {
   const review = resolveLeadProposal({
-    raw: replyWithProposal(),
     contract: contract({ decision: 'HOLD', assignmentCount: null, mergeChecks: [] }),
     plan: plan(),
     context: context(),
   })
-
   assert.equal(review.ok, true, why(review))
   if (review.ok) {
-    assert.equal(review.proposal.decision, 'HOLD', 'the row is the authority, not the reply')
+    assert.equal(review.proposal.decision, 'HOLD')
     assert.deepEqual(review.proposal.assignments, [])
   }
 })
 
-test('fallback intact: with no recorded row the reply still routes (older runs keep working)', () => {
+test('NO ROWS is a refusal that names the fields channel, never a route', () => {
+  const review = resolveLeadProposal({ contract: null, plan: null, context: context() })
+  assert.equal(review.ok, false, 'an unwritten decision must never route')
+  if (!review.ok) {
+    assert.match(review.errors.join('; '), /recorded in fields/)
+    assert.match(review.errors.join('; '), /forge-handoff\.mjs/)
+    assert.doesNotMatch(review.errors.join('; '), /LEAD_ROUTING/, 'do not teach the dead marker')
+  }
+})
+
+test('a decision that needs a plan but has no chunk rows is refused, not invented', () => {
+  const proposal = leadProposalFromFields(contract(), null)
+  const review = reviewLeadProposal(proposal, context())
+  assert.equal(review.ok, false)
+  assert.match(review.errors.join('; '), /Malformed|No decision recorded|assignment/i)
+})
+
+test('LeadAgent.collect is a NO-OP for PRE: a perfect reply line sets nothing', () => {
+  const evidence: ForgeGateEvidence = {
+    findings: [{ id: FINDING, summary: 'x', required: true, hint: 'SAME_UNIT', seams: [SEAM] }],
+  }
+  const out = new LeadAgent('lead_pre').collect(evidence, PERFECT_REPLY, context())
+
+  assert.equal(out.leadDecision, undefined, 'chat JSON must not set the routing decision')
+  assert.equal(out.deliverableRejection, undefined, 'and it is not a refusal either — it is ignored')
+})
+
+test('the launch cap is enforced by the reviewer that owns the rule, with a reason', () => {
   const review = resolveLeadProposal({
-    raw: replyWithProposal(),
-    contract: null,
-    plan: null,
-    context: context(),
+    contract: contract(),
+    plan: plan(),
+    context: context({ benchIntent: 'SOLO' }),
   })
+  assert.equal(review.ok, false)
+  assert.match(review.errors.join('; '), /Bench intent is SOLO/)
+})
 
+test('with no cap, the same rows route', () => {
+  const review = resolveLeadProposal({ contract: contract(), plan: plan(), context: context() })
   assert.equal(review.ok, true, why(review))
-  if (review.ok) assert.equal(review.proposal.decision, 'SMITH')
-})
-
-test('a bench-cap refusal lands on deliverableRejection instead of returning silently', () => {
-  const agent = new LeadAgent('lead_pre')
-  const evidence: ForgeGateEvidence = {
-    findings: [{ id: FINDING, summary: 'x', required: true, hint: 'SAME_UNIT', seams: [SEAM] }],
-  }
-
-  const out = agent.collect(evidence, replyWithProposal(), {
-    ...context(),
-    benchIntent: 'SOLO',
-  })
-
-  assert.equal(out.leadDecision, undefined, 'a capped route must not be recorded as decided')
-  assert.match(String(out.deliverableRejection), /Bench intent is SOLO/)
-})
-
-test('an uncapped run still routes, and the decision reaches the evidence', () => {
-  const agent = new LeadAgent('lead_pre')
-  const evidence: ForgeGateEvidence = {
-    findings: [{ id: FINDING, summary: 'x', required: true, hint: 'SAME_UNIT', seams: [SEAM] }],
-  }
-
-  const out = agent.collect(evidence, replyWithProposal(), context())
-
-  assert.equal(out.deliverableRejection, undefined)
-  assert.equal(out.leadDecision, 'SMITH')
 })
