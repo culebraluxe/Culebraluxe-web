@@ -12,7 +12,11 @@ export function collectSmithEvidence(
   hasAcceptedAssignment: boolean,
 ): ForgeGateEvidence {
   const door = serialLaunchDoor({ nodeId, hasAcceptedAssignment })
-  if (!door.allowed) return evidence
+  if (!door.allowed) {
+    // No accepted assignment => no launch. Record WHY (the parent's
+    // smith-candidate gate HOLDs either way, but a bare HOLD teaches nothing).
+    return door.reason ? { ...evidence, deliverableRejection: door.reason } : evidence
+  }
 
   const diff = ports.runnerDiff
   if (!diff?.candidateSha) return evidence
@@ -31,9 +35,13 @@ export function collectSmithEvidence(
       return !lock.some((area) => file === area || file.startsWith(`${area}/`) || file.startsWith(`${area.split('#')[0]}/`) || file === area.split('#')[0])
     })
     if (hits.length) {
-      // Do not set candidateSha — parent missingDeliverables then HOLDs.
-      void serialScopeMissReasons(hits, nodeId)
-      return evidence
+      // Do not set candidateSha — the parent's smith-candidate gate then HOLDs.
+      // The scope-miss reasons are RECORDED rather than discarded, so the
+      // self-heal reprompt can name the file that fell outside the assignment.
+      return {
+        ...evidence,
+        deliverableRejection: serialScopeMissReasons(hits, nodeId).join('; '),
+      }
     }
   }
 

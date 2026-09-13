@@ -52,6 +52,14 @@ export type ForgeGateEvidence = {
   deploymentDeferredToBatch?: number
   /** ENG-FORGE-SHAPE-01 — durable Architect findings snapshot (Lead shaping gate). */
   findings?: ArchitectFinding[]
+  /**
+   * Non-empty when a role's own gate REJECTED its output (architect handoff that
+   * failed assessment; smith diff outside the accepted assignment). Presence is
+   * itself a HOLD: a rejected output must never satisfy its deliverable just
+   * because something else was also written on exit. Carries the reason text so
+   * the bounded self-heal reprompt can act on it instead of guessing.
+   */
+  deliverableRejection?: string
   /** qa_policy */
   qaReviewRequired?: boolean
   /** qa_review_result */

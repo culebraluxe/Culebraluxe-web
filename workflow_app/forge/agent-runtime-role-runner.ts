@@ -50,6 +50,7 @@ import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import type { RoleEffectPorts } from './agents/ports'
+import { existsOnGitBaseRef } from './agents/architect/exists-git'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
 import type { SmithExecutionContract } from './smith-contract'
 import { createPersistentTraceSink } from './forge-observer'
@@ -584,6 +585,9 @@ export function createAgentRuntimeForgeRoleRunner(
       allowedProofs: leadRoutingContext.allowedProofs,
       evidenceRefs: leadRoutingContext.evidenceRefs,
       baseRef: workspaces?.baseRef ?? undefined,
+      // Fail-closed seam check: a file the Architect names must exist on the
+      // pinned baseRef (git cat-file against the sha, in this checkout).
+      existsOnBaseRef: existsOnGitBaseRef(process.cwd()),
     }
     agent.collect(evidence, raw, rolePorts)
 

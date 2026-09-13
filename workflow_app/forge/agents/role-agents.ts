@@ -6,6 +6,7 @@ import { ForgePhaseAgent } from './forge-phase-agent'
 import type { ForgeGateEvidence } from '../forge-facts'
 import type { RoleEffectPorts } from './ports'
 import { parseArchitectHandoff, handoffToFindings } from './architect-handoff'
+import { assessArchitectHandoff } from './architect/assess'
 import { benchIntentErrors } from './bench-intent'
 import { collectSmithEvidence } from './smith-collect'
 import { collectAssayEvidence } from './assay-collect'
@@ -37,14 +38,18 @@ export class ArchitectAgent extends ForgePhaseAgent {
 
     const handoff = parseArchitectHandoff(raw)
     if (handoff) {
-      if (ports.existsOnBaseRef && handoff.baseRef) {
-        const missing = handoff.findings.flatMap((f) =>
-          f.scope.filter((p) => {
-            const file = p.split('#')[0]
-            return !ports.existsOnBaseRef!(handoff.baseRef, file)
-          }),
-        )
-        if (missing.length) return next
+      // The handoff is assessed BEFORE it is believed: duplicate ids, empty or
+      // oversized scope, illegal paths, a required HOLD with no named risk, no
+      // required findings, and — fail-closed — every claimed seam must exist on
+      // the pinned baseRef. A failure records the reasons and leaves findings
+      // UNSET so the parent's architect-plan gate HOLDs with text the self-heal
+      // reprompt can act on. (Previously the reasons were computed and thrown
+      // away, and a written brief could let a failed handoff pass the gate.)
+      const assessment = assessArchitectHandoff(handoff, {
+        ...(ports.existsOnBaseRef ? { existsOnBaseRef: ports.existsOnBaseRef } : {}),
+      })
+      if (!assessment.ok) {
+        return { ...next, deliverableRejection: assessment.reasons.join('; ') }
       }
       next.findings = handoffToFindings(handoff)
       return next

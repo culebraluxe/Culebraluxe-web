@@ -173,10 +173,14 @@ export class ForgePhaseAgent {
         if (!scoutContextRefsSet && !this.scoutPacket(raw)) missing.push('scout-packet')
         break
       case 'architect-plan':
+        // A handoff that FAILED its own assessment is never a delivered plan.
+        // Without this, a brief written on exit would launder an invented seam
+        // into a pass.
         if (
-          !architectBriefSet &&
-          evidence.researchDisposition == null &&
-          !(evidence.findings && evidence.findings.length > 0)
+          evidence.deliverableRejection ||
+          (!architectBriefSet &&
+            evidence.researchDisposition == null &&
+            !(evidence.findings && evidence.findings.length > 0))
         ) {
           missing.push('architect-plan')
         }
@@ -190,7 +194,11 @@ export class ForgePhaseAgent {
         }
         break
       case 'smith-candidate':
-        if (evidence.candidateSha == null) missing.push('smith-candidate')
+        // A rejected diff (edits outside the accepted assignment) is never a
+        // candidate — and the reason is what makes the HOLD actionable.
+        if (evidence.deliverableRejection || evidence.candidateSha == null) {
+          missing.push('smith-candidate')
+        }
         break
       case 'qa-verdict':
         if (evidence.qaPassed === undefined) missing.push('qa-verdict')

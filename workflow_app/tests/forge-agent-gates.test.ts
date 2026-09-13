@@ -1,0 +1,127 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { assessArchitectHandoff } from '../forge/agents/architect/assess'
+import type { ArchitectHandoff } from '../forge/agents/architect-handoff'
+import { adjudicateAssay, runAssay } from '../forge/agents/qa/run'
+
+// ---------------------------------------------------------------------------
+// The ARCHITECT handoff assessment is fail-closed: a plan that names a seam that
+// does not exist on the pinned baseRef, or that cannot be executed as written,
+// must NOT be believed. These are the checks that keep an invented file from
+// being routed to Smith.
+// ---------------------------------------------------------------------------
+
+const finding = (over: Partial<ArchitectHandoff['findings'][number]> = {}) => ({
+  id: 'F1',
+  required: true,
+  summary: 'one bounded change',
+  preconditions: [],
+  scope: ['lib/story-moves.ts'],
+  postconditions: ['the gate is one way'],
+  classes: [],
+  risks: [],
+  hint: 'SAME_UNIT' as const,
+  ...over,
+})
+
+const handoff = (findings = [finding()], baseRef = 'a1b2c3d4e5f6'): ArchitectHandoff => ({
+  version: 1,
+  baseRef,
+  findings,
+})
+
+test('architect: a clean handoff passes when every seam exists on baseRef', () => {
+  const result = assessArchitectHandoff(handoff(), { existsOnBaseRef: () => true })
+  assert.equal(result.ok, true)
+})
+
+test('architect: a seam that does not exist on baseRef is refused WITH the reason', () => {
+  const result = assessArchitectHandoff(handoff(), { existsOnBaseRef: () => false })
+  assert.equal(result.ok, false)
+  assert.ok(!result.ok && result.reasons.join(' ').includes('does not exist on'))
+})
+
+test('architect: duplicate finding ids are refused', () => {
+  const result = assessArchitectHandoff(handoff([finding(), finding()]))
+  assert.equal(result.ok, false)
+  assert.ok(!result.ok && result.reasons.some((r) => r.includes('Duplicate finding ids')))
+})
+
+test('architect: an empty scope is refused', () => {
+  const result = assessArchitectHandoff(handoff([finding({ scope: [] })]))
+  assert.equal(result.ok, false)
+  assert.ok(!result.ok && result.reasons.some((r) => r.includes('scope is empty')))
+})
+
+test('architect: a plan with no required findings is refused, never silently empty', () => {
+  const result = assessArchitectHandoff(handoff([finding({ required: false })]))
+  assert.equal(result.ok, false)
+  assert.ok(!result.ok && result.reasons.some((r) => r.includes('No required findings')))
+})
+
+test('architect: a required HOLD with no named risk is refused', () => {
+  const result = assessArchitectHandoff(handoff([finding({ hint: 'HOLD', risks: [] })]))
+  assert.equal(result.ok, false)
+  assert.ok(!result.ok && result.reasons.some((r) => r.includes('must name a concrete risk')))
+})
+
+test('architect: an empty baseRef is refused when existence is enforced', () => {
+  const result = assessArchitectHandoff(handoff([finding()], ''), { existsOnBaseRef: () => true })
+  assert.equal(result.ok, false)
+  assert.ok(!result.ok && result.reasons.some((r) => r.includes('baseRef is required')))
+})
+
+// ---------------------------------------------------------------------------
+// The ASSAY adjudicator is the QA verdict: no model. An empty plan is never a
+// pass, and PASS binds exactly one SHA.
+// ---------------------------------------------------------------------------
+
+const cmd = (command: string, exitCode: number) => ({
+  command,
+  exitCode,
+  passed: exitCode === 0,
+  excerpt: '',
+})
+
+test('assay: an empty plan is INCOMPLETE, never PASS', () => {
+  const report = adjudicateAssay({ plan: { candidateSha: 'abc123', commands: [] }, commands: [] })
+  assert.equal(report.verdict, 'INCOMPLETE')
+  assert.equal(report.verifiedSha, null)
+})
+
+test('assay: a non-zero command is FAIL and certifies no SHA', () => {
+  const command = 'node --test x.test.ts'
+  const report = adjudicateAssay({
+    plan: { candidateSha: 'abc123', commands: [command] },
+    commands: [cmd(command, 1)],
+  })
+  assert.equal(report.verdict, 'FAIL')
+  assert.equal(report.verifiedSha, null)
+})
+
+test('assay: PASS binds verifiedSha to the candidate SHA', () => {
+  const command = 'node --test x.test.ts'
+  const report = runAssay({
+    plan: { candidateSha: 'abc123', commands: [command] },
+    runCommand: () => cmd(command, 0),
+  })
+  assert.equal(report.verdict, 'PASS')
+  assert.equal(report.verifiedSha, 'abc123')
+})
+
+test('assay: the architecture gate fails the story; a skipped arch gate does not', () => {
+  const command = 'node --test x.test.ts'
+  const failed = adjudicateAssay({
+    plan: { candidateSha: 'abc123', commands: [command] },
+    commands: [cmd(command, 0)],
+    staticGate: { archRan: true, archOk: false, archErrors: ['cycle'] },
+  })
+  assert.equal(failed.verdict, 'FAIL')
+
+  const skipped = adjudicateAssay({
+    plan: { candidateSha: 'abc123', commands: [command] },
+    commands: [cmd(command, 0)],
+    staticGate: { archRan: false, archOk: false, archErrors: [] },
+  })
+  assert.equal(skipped.verdict, 'PASS')
+})
