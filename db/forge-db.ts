@@ -43,7 +43,20 @@ export class ForgeDbConfigError extends Error {
   }
 }
 
-/** Pool sizing. Small on purpose: serverless instances are many and short-lived. */
+/**
+ * Query ceilings are set as DATABASE DEFAULTS, not here.
+ *
+ * Do not "fix" this by adding `options: '-c statement_timeout=…'` to the pool
+ * config: Neon's POOLED endpoint rejects startup parameters outright
+ * (`08P01 unsupported startup parameter in options`), which fails every
+ * connection in the pool — verified the hard way on 2026-09-13. A database-level
+ * default needs no startup parameter, so it survives pooling, and it is the
+ * Oracle-like behaviour we actually wanted: the SERVER reaps the query.
+ *
+ * See db/migrations/168_db_query_ceilings.sql:
+ *   statement_timeout                   — a query that runs too long
+ *   idle_in_transaction_session_timeout — a slot parked in an open transaction
+ */
 function poolConfig(target: ForgeDbTarget): PoolConfig {
   const intFromEnv = (name: string, fallback: number): number => {
     const raw = process.env[name]
