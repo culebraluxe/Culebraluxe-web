@@ -9,6 +9,8 @@ import {
   harnessStartedAtMs,
   pickSessionForRun,
   readHarnessUsage,
+  readSessionUsage,
+  usageDelta,
   type SessionUsageRow,
 } from './harness-usage'
 
@@ -120,3 +122,44 @@ test('a missing or unreadable harness database fails soft to null', () => {
     null,
   )
 })
+
+// --- one session, several roles (WARM-SESSION-01) ----------------------------
+//
+// The time-window read finds the session a run CREATED, so it returns null for every role
+// that RESUMED the generation's session — which is all of them after the first. Resumed
+// roles are measured by id instead, and the role's spend is the DIFFERENCE across its turn
+// because the session's totals are cumulative for the whole generation.
+
+test('a resumed role is attributed its own delta, not the session lifetime total', () => {
+  const before = { sessionId: 'ses_gen', tokensInput: 100, tokensOutput: 20, costUsd: 0.01 }
+  const after = { sessionId: 'ses_gen', tokensInput: 260, tokensOutput: 55, costUsd: 0.031 }
+
+  assert.deepEqual(usageDelta(after, before), {
+    sessionId: 'ses_gen',
+    tokensInput: 160,
+    tokensOutput: 35,
+    costUsd: 0.021,
+  })
+})
+
+test('a session rewritten underneath us cannot report negative spend', () => {
+  const before = { sessionId: 'ses_gen', tokensInput: 500, tokensOutput: 90, costUsd: 0.05 }
+  const after = { sessionId: 'ses_gen', tokensInput: 10, tokensOutput: 5, costUsd: 0.001 }
+
+  assert.deepEqual(usageDelta(after, before), {
+    sessionId: 'ses_gen',
+    tokensInput: 0,
+    tokensOutput: 0,
+    costUsd: 0,
+  })
+})
+
+test('no baseline means the measured totals stand, never a fabrication', () => {
+  const after = { sessionId: 'ses_gen', tokensInput: 10, tokensOutput: 5, costUsd: 0.001 }
+  assert.deepEqual(usageDelta(after, null), after)
+})
+
+test('reading a session by id fails soft when the store is missing', () => {
+  assert.equal(readSessionUsage({ sessionId: 'ses_absent', dbPath: '/tmp/does-not-exist.db' }), null)
+})
+

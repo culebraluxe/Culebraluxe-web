@@ -258,6 +258,9 @@ export abstract class AgentRuntimeAdapter {
       testsSummary: result!.testsSummary,
       assayEvidence: result!.assayEvidence ?? null,
       modelUsed: result!.modelUsed ?? null,
+      // The adapter measured this role's spend against the session it pinned; carry it to
+      // the run row. Absent when the harness store could not be read (unmeasured, honestly).
+      harnessUsage: result!.harnessUsage ?? null,
     })
     return {
       ...this.normalizeEvidence(finished.run as any, command),

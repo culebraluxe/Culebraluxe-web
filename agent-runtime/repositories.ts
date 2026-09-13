@@ -25,6 +25,7 @@ import {
 } from '../db/forge-run'
 import { markForgeStoryInProgress } from '../db/forge-story-state'
 import { harnessStartedAtMs, readHarnessUsage } from './harness-usage'
+import type { HarnessUsage } from './harness-usage'
 import {
   getStoryboardStory,
   listStoryRuns,
@@ -86,6 +87,11 @@ export function normalizeAgentFinishForRole(
     testsSummary: string | null
     assayEvidence?: AssayEvidence | null
     modelUsed?: string | null
+    /**
+     * This role's own spend, measured by the adapter against the session it pinned. Present
+     * for every role of a warm generation; absent when the adapter could not measure.
+     */
+    harnessUsage?: HarnessUsage | null
   },
   context?: AssayFinishContext | null,
 ): {
@@ -186,6 +192,11 @@ export interface AgentWorkRepository {
       assayEvidence?: AssayEvidence | null
       /** Harness-observed model identity (drives cost widgets + spend vision). */
       modelUsed?: string | null
+      /**
+       * This role's own spend, measured by the adapter against the session it pinned, so a
+       * resumed role is attributed instead of unmeasured.
+       */
+      harnessUsage?: HarnessUsage | null
     },
   ): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }>
   fail(workItemId: string, errorText: string): Promise<AgentWorkItem>
@@ -303,6 +314,11 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
       testsSummary: string | null
       assayEvidence?: AssayEvidence | null
       modelUsed?: string | null
+      /**
+       * This role's own spend, measured by the adapter against the session it pinned.
+       * Preferred over the time-window read, which only ever finds the session's creator.
+       */
+      harnessUsage?: HarnessUsage | null
     },
   ): Promise<{ workItem: AgentWorkItem; run: unknown; story: StoryboardStory }> {
     const q = await this.executor()
@@ -319,6 +335,11 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     // them, so every run reported "unmeasured" and the widgets fell back to an estimate.
     // Absent when unmeasurable — never a fabricated zero.
     const harnessUsage = (() => {
+      // WHAT THE ADAPTER MEASURED WINS. It knows the session this run pinned and the totals
+      // at launch, so it can attribute a resumed role's spend to that role. The time-window
+      // read below finds the session's CREATOR and returns null for every role after it,
+      // which is how the whole generation after the architect went unmeasured.
+      if (input.harnessUsage) return input.harnessUsage
       const startedAtMs = harnessStartedAtMs({
         externalRunId: item?.externalRunId ?? null,
         startedAt: item?.startedAt ?? null,

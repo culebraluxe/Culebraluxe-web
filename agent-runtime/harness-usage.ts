@@ -125,6 +125,62 @@ export function readHarnessUsage(input: {
   }
 }
 
+/**
+ * Read ONE session's CUMULATIVE totals by id, or null.
+ *
+ * `readHarnessUsage` joins by time and therefore only ever finds the session the run
+ * CREATED. A role that resumes the generation's session — which is every role after the
+ * first — finds nothing there, because `time_created` belongs to the earlier role. That
+ * left the whole generation after the architect unattributed: no session id on the run row
+ * and no spend, for work that really happened.
+ *
+ * Cumulative on purpose: the caller subtracts its own baseline to get the delta, because
+ * one session can serve several roles.
+ */
+export function readSessionUsage(input: { sessionId: string; dbPath?: string }): HarnessUsage | null {
+  const dbPath = input.dbPath ?? OPENCODE_DB_PATH
+  let db: DatabaseSync | null = null
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true })
+    const row = db
+      .prepare('select id, tokens_input, tokens_output, cost from session where id = ?')
+      .get(input.sessionId) as Record<string, unknown> | undefined
+    if (!row) return null
+    return {
+      sessionId: String(row.id),
+      tokensInput: count(row.tokens_input),
+      tokensOutput: count(row.tokens_output),
+      costUsd: count(row.cost),
+    }
+  } catch {
+    return null
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* closing a read-only handle cannot matter */
+    }
+  }
+}
+
+/**
+ * What THIS role spent, from the session's cumulative totals either side of the turn.
+ *
+ * Totals only ever grow within a session, but a harness that rewrites them (a resumed
+ * session re-counted, a database replaced underneath us) must not produce a negative
+ * spend, so each component is floored at zero. A null baseline means "not measured at
+ * start" and the after-values stand as the honest report.
+ */
+export function usageDelta(after: HarnessUsage, before: HarnessUsage | null): HarnessUsage {
+  if (!before) return after
+  return {
+    sessionId: after.sessionId,
+    tokensInput: Math.max(0, after.tokensInput - before.tokensInput),
+    tokensOutput: Math.max(0, after.tokensOutput - before.tokensOutput),
+    costUsd: Math.max(0, Math.round((after.costUsd - before.costUsd) * 1e6) / 1e6),
+  }
+}
+
 /** The launch instant of a run, from the harness id or the work item's start time. */
 export function harnessStartedAtMs(input: {
   externalRunId?: string | null

@@ -17,6 +17,7 @@ import type { StoryboardStory } from '../db/storyboard'
 import type { AgentCapability } from './capabilities'
 import type { AssayEvidence } from './assay-evidence'
 import type { StoryPacketFields } from './story-session'
+import type { HarnessUsage } from './harness-usage'
 
 /** Logical agent roles (extensible — not a closed enum). */
 export type AgentRole =
@@ -102,6 +103,7 @@ export interface AgentRunEvidence {
   notes: string
   testsSummary: string | null
   commitHash: string | null
+  harnessUsage?: HarnessUsage | null
   assayEvidence?: AssayEvidence | null
   releaseEvidence?: {
     kind: 'deployment' | 'production_verification' | 'integration'

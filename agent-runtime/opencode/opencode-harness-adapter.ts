@@ -66,7 +66,8 @@ import {
   detectFullRegressionAttempt,
   resolveTestModeFromInstructions,
 } from '../test-mode'
-import { readHarnessUsage } from '../harness-usage'
+import { readHarnessUsage, readSessionUsage, usageDelta } from '../harness-usage'
+import type { HarnessUsage } from '../harness-usage'
 import {
   assertExecutionTargetSafe,
   buildChildProcessEnv,
@@ -291,6 +292,10 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
   private lastResult: OpenCodeRunResult | null = null
   /** The session id this run was launched with, so a failure can drop exactly it. */
   private pinnedSessionId: string | null = null
+  /** Session totals at launch, so a resumed role reports its own spend, not the lifetime total. */
+  private sessionBaseline: HarnessUsage | null = null
+  /** What THIS role spent, reported to the run row as evidence. */
+  private harnessUsage: HarnessUsage | null = null
   /** Wall-clock start of the OpenCode process (factual elapsed-time evidence). */
   private startedAtMs: number | null = null
 
@@ -356,6 +361,10 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     const sessionId = continuityEnabled ? readForgeSessionId(workspace) : null
     const continueSession = continuityEnabled && !sessionId && existsSync(markerPath)
     this.pinnedSessionId = sessionId ?? null
+    // Baseline BEFORE the turn: one session serves every role of the generation, so this
+    // role's spend is the difference across its turn, not the session's lifetime total.
+    this.sessionBaseline = sessionId ? readSessionUsage({ sessionId }) : null
+    this.harnessUsage = null
     // DEV safety: the spawned harness (and any test process it spawns) must
     // NOT inherit an APP_ENV/DATABASE_URL set that resolves to the production
     // application database.
@@ -478,8 +487,13 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // An unreadable store leaves whatever id was already recorded in place: losing an id
     // to a bookkeeping miss would restart the seed tax this work exists to remove.
     if (forgeSessionContinuityEnabled(process.env)) {
-      const usage = readHarnessUsage({ harnessStartedAtMs: this.startedAtMs ?? Date.now() })
-      if (usage?.sessionId) writeForgeSessionId(workspace, usage.sessionId)
+      // A RESUMED role must be read by id: the time-window read finds the session's
+      // CREATOR, so every role after the first reported nothing at all.
+      const measured = this.pinnedSessionId
+        ? readSessionUsage({ sessionId: this.pinnedSessionId })
+        : readHarnessUsage({ harnessStartedAtMs: this.startedAtMs ?? Date.now() })
+      if (measured?.sessionId) writeForgeSessionId(workspace, measured.sessionId)
+      this.harnessUsage = measured ? usageDelta(measured, this.sessionBaseline) : null
     }
 
     // ENG-FORGE-V5-01 / AC5: Forge, not OpenCode, owns the candidate commit
@@ -538,6 +552,10 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       commitHash,
       // Spend vision: harness-enforced exact model, recorded as evidence.
       modelUsed: model,
+      // This role's own spend, measured against the session totals at launch. Supplied from
+      // here because only the adapter knows which session the run pinned — a time-window
+      // read finds the session's CREATOR and misses every resumed role.
+      harnessUsage: this.harnessUsage,
       runtimeAdapter: this.runtimeAdapterId,
       modelProfile: command.modelProfile,
       externalRunId: this.externalRunId,
