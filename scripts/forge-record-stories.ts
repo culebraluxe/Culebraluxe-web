@@ -108,6 +108,24 @@ const STORIES: StoryRecord[] = [
     assayCommands:
       '- `node --import tsx --test workflow_app/tests/forge-recovery.test.ts`\n- `node --import tsx --test workflow_app/tests/forge-story-reset.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-TURN-BUDGET-01',
+    workstream: 'HARDEN',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    title: 'Count the model turns per generation, cap them, fail closed',
+    goal:
+      'Make MAP measurable on our own engine: one integer per generation bounds how long a run may stay interesting, and at the cap the run stops for a human instead of dispatching another turn.',
+    scope:
+      'db/forge-engine-task-execution.ts (countForgeGenerationTurns), workflow_app/forge/model-turn-budget.ts (the cap rule), workflow_app/forge/agent-runtime-role-runner.ts (DOOR ZERO, above every other door), workflow_app/tests/forge-model-turn-budget.test.ts.',
+    acceptance:
+      'A generation below the cap dispatches normally and one at or above it dispatches nothing, stopping with a named GENERATION_TURN_CAP reason; the default never blocks a healthy generation; and no value of the environment variable can remove the cap.',
+    notes:
+      'MAP (arXiv 2512.04123, Measuring Agents in Production) found 68% of surveyed practitioners cap at <=10 model steps, about half at <=5, ~80% run a predefined workflow, and reliability is bought with checkpoints and thin custom runtimes rather than a smarter model. Forge was already in that 80%; what was missing was the counter. The cap is one integer per generation, FORGE_MAX_MODEL_TURNS_PER_GENERATION, default 10, and a blank or unparseable value falls back to the default rather than meaning unlimited (clamped to 1..100). The count is a fact from the engine ledger (countForgeGenerationTurns over forge_engine_task_execution for this process instance), not an estimate; the Assay counts as a turn because it is a turn of the loop. Enforcement is DOOR ZERO in the runner, above every other door, because a door that cannot be reached thanks to a long loop is not a door. Measured at the time: a healthy FEATURE generation costs 5 turns (architect, lead_pre, smith, post, qa), a FAST one with a repair 4, a generation that HOLDs at the Lead 2. Live proof with the cap set to 1: the second turn was refused and the run stopped closed with the named reason. Deliberately NOT in this story: attributing the trip to the door that actually failed (first_viol = system | underspecified), which is ENG-FORGE-FIRST-VIOL-01.',
+    packet: 'docs/agent/packets/ENG-FORGE-TURN-BUDGET-01.md',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/forge-model-turn-budget.test.ts`',
+  },
 ]
 
 /** The packet's blob SHA, so the row points at the document that defines it. */

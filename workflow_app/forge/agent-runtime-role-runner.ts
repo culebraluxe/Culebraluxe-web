@@ -30,6 +30,7 @@ import {
 import { buildForgeSmokeFlashTeam } from '../../agent-runtime/smoke-team'
 import { getAgentWorkItem } from '../../db/agent-work'
 import {
+  countForgeGenerationTurns,
   finishForgeEngineTaskExecution,
   linkForgeEngineTaskExecution,
 } from '../../db/forge-engine-task-execution'
@@ -63,6 +64,7 @@ import { listStoryForgeFindings } from '../../db/forge-role-finding'
 import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
+import { assessGenerationTurnBudget, resolveGenerationTurnCap } from './model-turn-budget'
 import { assessSmithExit } from './smith-candidate'
 import { commandRunner, staticSliceForWorktree } from './agents/exec-command'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
@@ -508,6 +510,25 @@ export function createAgentRuntimeForgeRoleRunner(
       hasAcceptedAssignment: Boolean(serialAssignment),
     })
     if (!launchDoor.allowed) throw new Error(String(launchDoor.reason))
+
+    // ---------------------------------------------------------------------
+    // DOOR ZERO — THE TURN BUDGET (MAP, arXiv 2512.04123).
+    //
+    // Before this generation dispatches another turn, ask how many it has already spent.
+    // Production agents are short, structured and boxed: 68% of surveyed practitioners cap
+    // at ten model steps and about half at five, and our own healthy FEATURE generation
+    // costs five. The cap is one integer per generation, and it fails CLOSED — no model
+    // turn, a named reason, and a human at the ENGINE QUEUE. A generation that reaches the
+    // ceiling has been looping, and another turn is not the diagnosis.
+    //
+    // This sits ABOVE every other door on purpose: a door that cannot be reached because the
+    // loop is too long is not a door, it is a hope.
+    // ---------------------------------------------------------------------
+    const turnBudget = assessGenerationTurnBudget({
+      turnsUsed: await countForgeGenerationTurns(String(task.processInstanceId)),
+      cap: resolveGenerationTurnCap(),
+    })
+    if (!turnBudget.allowed) throw new Error(turnBudget.reason)
 
     // When Astra routing governs PRE, the legacy lead_pre evidence contract
     // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:

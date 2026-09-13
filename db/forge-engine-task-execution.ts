@@ -10,6 +10,31 @@ async function executor(): Promise<QueryExecutor> {
   return defaultExecutor
 }
 
+/**
+ * HOW MANY TURNS THIS GENERATION HAS ALREADY DISPATCHED.
+ *
+ * The engine's own ledger is the count: every role turn this process instance started is a
+ * row here, so the number is a fact rather than an estimate. The Assay counts too — it is a
+ * turn of the loop even when no model runs in it, and a cap that ignored the checkpoint
+ * would bound the wrong thing.
+ *
+ * Measured on 2026-09-13: a healthy FEATURE generation costs 5 turns (architect, lead_pre,
+ * smith, post, qa), a FAST one with a repair costs 4, a generation that HOLDs at the Lead
+ * costs 2. See `workflow_app/forge/model-turn-budget.ts` for why the cap is 10.
+ */
+export async function countForgeGenerationTurns(
+  processInstanceId: string,
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select count(*)::int as turns
+    from forge_engine_task_execution
+    where process_instance_id = ${processInstanceId}
+  `
+  return Number((rows[0] as { turns?: unknown } | undefined)?.turns ?? 0)
+}
+
 export async function linkForgeEngineTaskExecution(
   input: {
     taskId: string
