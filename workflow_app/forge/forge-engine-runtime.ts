@@ -192,20 +192,43 @@ export async function completeForgeRoleTask(
     throw new Error(`Forge task ${taskId} is missing its workflow/story relationship`)
   }
   const { mergeForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
-  await mergeForgeWorkflowEvidence(
-    task.process_instance_id as string,
-    task.story_id as string,
-    evidence,
-  )
   const engine = new WorkflowEngine(engineSql(), {
     app: await createDurableForgeApplicationPort(),
   })
+
+  // THE TRANSITION GOES FIRST — IT IS THE CAS THAT DECIDES THE WINNER.
+  //
+  // This order is the fix for a real race: merging evidence BEFORE the transition let a
+  // worker that LOST the race commit its result anyway. The engine said worker A won
+  // while the durable row held worker B's findings, candidate SHA and QA state — the one
+  // place the two systems could disagree, and they disagreed silently.
+  //
+  // Now nothing is committed unless the transition actually won. A losing advance
+  // throws out of completeTask, so nothing below runs and the loser writes nothing.
+  //
+  // The QA-failure ledger write in forge-executor.ts deliberately STAYS before this
+  // call: the engine's qa_failure_route reads the durable disposition WHILE the
+  // transition runs, so that order is load-bearing, not accidental. Residual, stated
+  // plainly: a losing QA worker can still record a disposition. Closing that needs one
+  // shared transaction across the engine and the ledger writers, which is a larger
+  // change than this one.
   await engine.completeTask({
     taskId,
     userId: opts.userId ?? 'forge',
     transitionName: opts.transitionName ?? 'complete',
     formData: evidence,
   })
+
+  // Only a worker that WON the transition reaches here. If this write fails, the run
+  // advances with evidence missing — fail-closed, because the next role's gate reports
+  // the absent deliverable and HOLDs — which is strictly better than the previous
+  // order, where a loser's evidence was durable. The failure itself is captured by the
+  // database gateway rather than swallowed.
+  await mergeForgeWorkflowEvidence(
+    task.process_instance_id as string,
+    task.story_id as string,
+    evidence,
+  )
 }
 
 /** Claim a Forge engine task before any external runner is launched. */
