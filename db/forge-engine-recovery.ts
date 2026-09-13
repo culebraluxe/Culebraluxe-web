@@ -84,12 +84,21 @@ export async function recoverStaleForgeEngineClaims(
       const hb = e.heartbeat_at
       if (hb && new Date(hb).getTime() > cutoff.getTime()) return { reason: 'fresh-claim' }
       // 3. CAS: mark interrupted only if still stale.
+      //
+      // RETURNING IS LOAD-BEARING: the guard below reads `updated.length` to decide whether
+      // this recovery took effect. Without it an UPDATE always yields an empty row set, so
+      // every recovery reported a false 'cas-miss' and returned early — skipping the work
+      // item release below while the row itself was quietly interrupted. Observed live on
+      // 2026-09-13: a clean sweep reported "0 recovered, 15 skipped" moments after stamping
+      // all fifteen rows 'stale claim recovered'. A sweep whose result cannot be trusted is
+      // worse than no sweep, because the operator stops looking.
       const updated = await tx`
         update forge_engine_task_execution
         set status = 'interrupted', last_error = 'stale claim recovered', updated_at = now()
         where task_id = ${row.task_id}
           and status in ('claimed', 'running')
           and heartbeat_at <= ${cutoff}
+        returning task_id
       `
       if (!updated.length) return { reason: 'cas-miss' }
       // 4. Release the agent work item back to Ready for a fresh attempt.

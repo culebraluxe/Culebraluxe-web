@@ -9,6 +9,7 @@ Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs
 Always
 
 - Load this file, the story packet, and any listed skills before editing.
+- Clear the Forge control plane of stale engine state before ANY test or engine run: `pnpm forge:clean`. It cancels stale work items, interrupts stale engine claims (via the engine's own recovery path) and aborts stale instances, touching only claims older than 15 minutes so a live peer survives. A run read against another run's leftover claims is not evidence. Preferred order: `pnpm forge:clean` (control plane) then `pnpm forge:story:reset <story> reset --force` (the story itself, which now also closes that story's engine claims).
 - Work in the isolated worktree when Forge provisioned one.
 - Run only the packet's Assay commands (SCOPED). Do not invent `pnpm test` as FULL.
 - Report exact files changed and the tests that ran.

@@ -113,3 +113,42 @@ test('reset safety: --force is position-independent', () => {
   assert.equal(cfg.story, 'story-1')
   assert.equal(cfg.mode, 'reset', 'mode defaults to reset')
 })
+
+// --- clean: pre-test hygiene (2026-09-13) ------------------------------------
+//
+// Every run reads the same control-plane tables, so leftover claims from an earlier death
+// are not merely untidy: they can hold the single-active lock and make a result
+// untrustworthy. `clean` is the setup step that removes them, and it must be safe to run
+// while peers are working — hence the staleness cutoff rather than a blanket sweep.
+
+test('clean: resolves without a story id, and carries the default staleness cutoff', () => {
+  const cfg = resolve(['clean', '--force'], PROD_ENV)
+  assert.equal(cfg.ok, true)
+  if (!cfg.ok) return
+  assert.equal(cfg.mode, 'clean')
+  assert.equal(cfg.story, '', 'the sweep is control-plane wide, not story-scoped')
+  assert.equal(cfg.staleMinutes, 15, 'a claim younger than this is treated as live')
+})
+
+test('clean: the cutoff is overridable, and a live peer is protected by default', () => {
+  const cfg = resolve(['clean', '--stale-minutes', '2', '--force'], PROD_ENV)
+  assert.equal(cfg.ok, true)
+  if (!cfg.ok) return
+  assert.equal(cfg.staleMinutes, 2)
+})
+
+test('clean: a non-numeric cutoff is refused rather than silently defaulted', () => {
+  const cfg = resolve(['clean', '--stale-minutes', 'soon', '--force'], PROD_ENV)
+  assert.equal(cfg.ok, false)
+})
+
+test('clean is gated like the other destructive modes: PROD requires --force', () => {
+  const cfg = resolve(['clean'], PROD_ENV)
+  assert.equal(cfg.ok, false)
+})
+
+test('clean: the cutoff value is never mistaken for a positional (env is still not a choice)', () => {
+  const cfg = resolve(['clean', '--stale-minutes', '30', 'prod', '--force'], PROD_ENV)
+  assert.equal(cfg.ok, false, 'the trailing target is refused by name')
+})
+

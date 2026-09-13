@@ -51,6 +51,21 @@ model's chat reply.
    live architect run made ZERO file reads (0 Read/Glob/Grep calls). The index injection
    is the fix; no runner-level guard is needed.
 
+## Setup before any run (standing rule)
+
+`pnpm forge:clean` FIRST. Every run reads the same control-plane tables, so another run's
+leftover claim is not untidy — it can hold the single-active lock, mis-attribute a
+candidate, or let a stale row answer for the live task. Then
+`pnpm forge:story:reset <story> reset --force` for the story under test.
+
+`clean` is safe on a shared control plane because it only touches claims older than
+`--stale-minutes` (default 15). It ran on 2026-09-13 and found 15 engine claims left
+`claimed` by earlier deaths (9 lead_pre, 4 architect, 2 fast_smith) plus 2 stale instances
+and 5 open tasks — all of which the pre-clean test runs had been reading against.
+
+The reset now also closes the story's engine claims, because a reset that leaves claims
+behind is not a reset.
+
 ## The field contract, and how it fails (2026-09-13)
 
 Every field reader keys on `(task_id, node_id, attempt)`. Five defects each made a story
