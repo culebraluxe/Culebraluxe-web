@@ -16,6 +16,9 @@
 // ---------------------------------------------------------------------------
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+
+import { moveStoryBucketAction } from '@/app/portal/tech/actions'
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
 import type { StoryboardStory, StoryRun } from '@/db/storyboard'
@@ -95,6 +98,7 @@ export function EngineeringQueuesPage({
   freshness,
 }: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
+  const router = useRouter()
   const [cards, setCards] = useState<QueueCard[]>(model.cards)
   const [selected, setSelected] = useState<string | null>(null)
   // Drag state: which card is in hand. Local only — the MOVE is a demo of the
@@ -256,7 +260,17 @@ export function EngineeringQueuesPage({
           </p>
         </div>
         <div className="h-[520px] overflow-hidden rounded-lg border border-white/10 bg-white/[0.02] p-2">
-          <StoryKanbanBoard cards={sorterCards} columns={sorterColumns} />
+          <StoryKanbanBoard
+            cards={sorterCards}
+            columns={sorterColumns}
+            onMove={async (cardId, from, to) => {
+              // The rules live in lib/story-moves.ts; the write lives in the
+              // action; a refusal comes back as ok:false and the card snaps back.
+              const result = await moveStoryBucketAction(cardId, from, to)
+              if (result.ok) router.refresh()
+              return result
+            }}
+          />
         </div>
       </section>
 
