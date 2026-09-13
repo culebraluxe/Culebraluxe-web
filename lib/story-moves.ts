@@ -56,22 +56,33 @@ export function canMove(from: StoryBucket, to: StoryBucket): boolean {
 /**
  * Which story STATUS a bucket means.
  *
- * Only OPEN is a choice: its bucket holds six statuses (In Progress, Partial,
- * Ready, Blocked, Hold, Failed). OPEN means READY — the neutral "open, not
- * started, not blocked" state — because In Progress should keep meaning "I am
- * working it", which is what the WORK BENCH is for. The rest are single-status
- * buckets, so they are forced, not chosen.
+ * THREE OF THESE ARE FORCED by the lifecycle mapping; OPEN is the one free choice,
+ * and it is now `In Progress` rather than `Ready` for a reason that is not cosmetic:
  *
- * WORK BENCH and ENGINE QUEUE have NO status: the bench is an intent row in
- * storyboard_active_work (it never changes status) and the engine queue is an
- * agent_work_item. That is why the move layer has to know where each bucket lives.
+ *   >>> `status = 'Ready'` IS THE ENGINE DISPATCH TRIGGER. <<<
+ *
+ * `agent_work_item_dispatch()` (migration 025, redefined in 146) fires on
+ * `after insert or update of status on storyboard_story` and, the moment a story's
+ * status becomes 'Ready', inserts an `agent_work_item` in state 'Ready' — i.e. it
+ * QUEUES THE STORY FOR FORGE. So a column that writes 'Ready' is a column that
+ * starts engine work. OPEN must NOT be that column: dragging a story into the open
+ * queue would silently dispatch it. That is ENGINE QUEUE's job, and therefore
+ * 'Ready' is reserved for the engine handoff, where the write is deliberate.
+ *
+ * WORK BENCH has NO status: the bench is an intent row in storyboard_active_work
+ * (it never changes status). ENGINE QUEUE is left out of this map on purpose — its
+ * write is the dispatch itself and is wired as its own deliberate act, never as a
+ * side effect of a bucket move.
  */
 export const STATUS_BY_BUCKET: Partial<Record<StoryBucket, string>> = {
-  open: 'Ready',
+  open: 'In Progress',
   backlog: 'Planned',
   closed: 'Complete',
   next: 'Deferred',
 }
+
+/** The status that fires the engine dispatch trigger. Reserved for ENGINE QUEUE. */
+export const ENGINE_DISPATCH_STATUS = 'Ready'
 
 /** True when the bucket is stored as a real status change. */
 export function isStatusBucket(bucket: StoryBucket): boolean {
@@ -85,8 +96,9 @@ export function isStatusBucket(bucket: StoryBucket): boolean {
  */
 export function bucketSideEffect(bucket: StoryBucket): string | null {
   if (bucket === 'closed') return 'Sets completion to 100%'
-  if (bucket === 'open') return 'Clears any engine outcome (Hold / Failed / Blocked)'
-  if (bucket === 'engine') return 'Hands the story to Forge — the engine owns it from here'
+  if (bucket === 'open') return 'Open work — no engine dispatch'
+  if (bucket === 'engine')
+    return 'DISPATCHES FORGE: sets status Ready, which queues the story. The engine owns it from here.'
   if (bucket === 'bench') return 'Adds it to your Work Bench for today (no status change)'
   return null
 }
