@@ -49,6 +49,7 @@ import { assessArchitectBrief } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts, parseLeadRouting, reviewLeadProposal } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
+import type { RoleEffectPorts } from './agents/ports'
 import { renderSplitAssignmentWorkOrders, smithContractFromAssignment, splitChildAssignment } from './forge-split-handoff'
 import type { SmithExecutionContract } from './smith-contract'
 import { createPersistentTraceSink } from './forge-observer'
@@ -572,7 +573,19 @@ export function createAgentRuntimeForgeRoleRunner(
     // isArchitectNode/isScoutNode/lead_pre conditionals with a role contract.
     const agent = forgeAgentFor(nodeId)
     const raw = rawRoleOutput(result.evidence.notes, result.evidence.testsSummary)
-    agent.marshalFindings(evidence, raw)
+    // ENG-FORGE-PHASE-AGENT: collect() is the subclass hook that FILLS evidence
+    // (architect handoff parse, Lead routing, Smith candidate, Assay verdict,
+    // DEV_OPS receipt). Only the effects the runner can honestly supply are
+    // passed; an omitted port is skipped, and the parent gate below still HOLDs
+    // when the corresponding field is absent. The parent remains the decider.
+    const rolePorts: RoleEffectPorts = {
+      splitEnabled: leadRoutingContext.splitEnabled,
+      maxSmiths: leadRoutingContext.maxSmiths,
+      allowedProofs: leadRoutingContext.allowedProofs,
+      evidenceRefs: leadRoutingContext.evidenceRefs,
+      baseRef: workspaces?.baseRef ?? undefined,
+    }
+    agent.collect(evidence, raw, rolePorts)
 
     // OBSERVER (phase 1, record-only): EVERY role attempt, not just split
     // children — this is what makes the worker-execution layer live in normal
@@ -738,7 +751,15 @@ export function createAgentRuntimeForgeRoleRunner(
     // corrections — it never silently reroutes. The validated proposal is the
     // single source of engine routing facts, and a malformed/absent proposal is a
     // miss that rides the bounded self-heal path below (never a default route).
-    const routingReview = nodeId === 'lead_pre' ? reviewLeadProposal(parseLeadRouting(raw), leadRoutingContext) : null
+    // ENG-FORGE-PHASE-AGENT: for lead_pre the phase agent's collect() already ran
+    // the live reviewer (same function, same trusted context) and assigned the
+    // routing facts. This is the LEGACY FALLBACK for the case where collect could
+    // not supply findings and therefore left evidence untouched — so the
+    // trusted-context validation is never skipped, but never runs twice either.
+    const routingReview =
+      nodeId === 'lead_pre' && evidence.leadDecision == null
+        ? reviewLeadProposal(parseLeadRouting(raw), leadRoutingContext)
+        : null
     if (routingReview?.ok) {
       Object.assign(evidence, leadRoutingFacts(routingReview))
     }
@@ -747,12 +768,20 @@ export function createAgentRuntimeForgeRoleRunner(
     // decision. Before this, the trace showed the lane completing with no record
     // of the hold it had just decided — a Lead PRE HOLD with no HOLD event.
     // Recorded only: the engine still owns what happens next.
-    if (routingReview?.ok && routingReview.proposal.decision === 'HOLD') {
-      observeRouteHold(
-        forgeObserverSink,
-        observerAttempt,
-        routingReview.proposal.reason || routingReview.proposal.sizeReason || 'no reason given',
-      )
+    // Either source may have decided HOLD: the phase agent's collect() (normal
+    // path) or the legacy fallback above. Both are recorded the same way.
+    const leadHoldReason =
+      routingReview?.ok && routingReview.proposal.decision === 'HOLD'
+        ? routingReview.proposal.reason || routingReview.proposal.sizeReason || 'no reason given'
+        : nodeId === 'lead_pre' && evidence.leadDecision === 'HOLD'
+          ? String(
+              (evidence.leadRouting as { reason?: string; sizeReason?: string } | undefined)?.reason ||
+                (evidence.leadRouting as { sizeReason?: string } | undefined)?.sizeReason ||
+                'no reason given',
+            )
+          : null
+    if (leadHoldReason) {
+      observeRouteHold(forgeObserverSink, observerAttempt, leadHoldReason)
       drainAlerts(forgeObserverSink, observerAttempt, resolvedStory.id)
     }
 
