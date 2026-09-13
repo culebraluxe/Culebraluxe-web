@@ -98,7 +98,13 @@ export class LeadAgent extends ForgePhaseAgent {
     }
     const rawProposal = parseLeadRouting(raw)
     const review = reviewLeadProposal(rawProposal, context)
-    if (!review.ok) return evidence
+    if (!review.ok) {
+      // The reviewer's errors ARE the reason this routing was refused. Without them
+      // the self-heal only says "you did not deliver lead-decision", and the retry
+      // has to guess what was wrong. Observed live 2026-09-13: attempt 1 proposed a
+      // real SOLO plan and was refused for a structural reason the model never saw.
+      return { ...evidence, deliverableRejection: review.errors.join('; ') }
+    }
 
     const bench = benchIntentErrors(review.proposal.decision, ports.benchIntent)
     if (bench.length) return evidence

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { assessArchitectHandoff } from '../forge/agents/architect/assess'
+import { parseLeadRouting } from '../forge/forge-lead-routing'
 import type { ArchitectHandoff } from '../forge/agents/architect-handoff'
 import { adjudicateAssay, runAssay } from '../forge/agents/qa/run'
 
@@ -75,6 +76,32 @@ test('architect: an empty baseRef is refused when existence is enforced', () => 
 // The ASSAY adjudicator is the QA verdict: no model. An empty plan is never a
 // pass, and PASS binds exactly one SHA.
 // ---------------------------------------------------------------------------
+
+test('lead routing: the JSON without the marker prefix is accepted (observed live)', () => {
+  // The Lead emitted a correct proposal with no `LEAD_ROUTING:` in front of it and
+  // the run held, discarding a decision the engine already had in hand.
+  const reply =
+    'HOLD. The frozen contract is unsatisfiable.\n\n' +
+    '{"version":1,"decision":"HOLD","size":"SMALL","sizeReason":"one file","reason":"no legal surface","assignments":[],"mergeChecks":[]}\n\n' +
+    'FORGE_PASS_STOP: NEEDS_REVIEW'
+  const parsed = parseLeadRouting(reply) as { decision?: string } | null
+  assert.equal(parsed?.decision, 'HOLD')
+})
+
+test('lead routing: two marker lines stay ambiguous and are refused', () => {
+  const reply =
+    'LEAD_ROUTING: {"version":1,"decision":"HOLD"}\nLEAD_ROUTING: {"version":1,"decision":"SOLO"}'
+  assert.equal(parseLeadRouting(reply), null)
+})
+
+test('lead routing: a non-routing object is never mistaken for a proposal', () => {
+  const architectHandoff =
+    'FORGE_ARCHITECT_HANDOFF: {"version":1,"baseRef":"abc123","findings":[{"id":"F1"}]}'
+  assert.equal(parseLeadRouting(architectHandoff), null)
+
+  const wrongVersion = '{"version":2,"decision":"HOLD"}'
+  assert.equal(parseLeadRouting(wrongVersion), null)
+})
 
 const cmd = (command: string, exitCode: number) => ({
   command,
