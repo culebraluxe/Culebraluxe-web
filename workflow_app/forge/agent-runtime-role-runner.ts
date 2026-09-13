@@ -1104,6 +1104,19 @@ export function createAgentRuntimeForgeRoleRunner(
       sha: candidateSha,
       missReasons: miss,
     })
+    // ...and record it WHERE THE HUMAN READS IT. The observer sink keeps the event
+    // history; the run detail carries the last fact that ended the run, which is
+    // what /portal/tech/runs shows. A HOLD whose reason exists only in a log file
+    // is the write-only durable record this lane already paid for once.
+    const holdRunId = finishedItem?.storyRunId ?? null
+    if (holdRunId) {
+      await appendForgeRunDetail(
+        holdRunId,
+        `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}`,
+      ).catch(() => {
+        /* run-detail append is observer-only; the HOLD throw below stands */
+      })
+    }
     throw new Error(
       `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}`,
     )
