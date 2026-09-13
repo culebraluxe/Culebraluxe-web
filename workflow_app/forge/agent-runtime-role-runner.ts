@@ -60,6 +60,7 @@ import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
 import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
 import { listStoryForgeFindings } from '../../db/forge-role-finding'
+import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessSmithExit } from './smith-candidate'
@@ -165,6 +166,14 @@ export type AgentRuntimeForgeRunnerOptions = {
 }
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
+
+/**
+ * The FAST lane's Smith nodes. FAST is pre-shaped bounded work: definition v6 routes
+ * `fast_lane_entry` straight to `fast_smith`, so no Architect and no Lead model turn
+ * exists and no Lead assignment can ever be recorded for it. Its work order comes from
+ * the story's own declared scope (see the pre-shaped assignment below).
+ */
+const FAST_SMITH_NODES = new Set(['fast_smith', 'fast_repair_smith'])
 
 function runtimeInterrupted(resultStatus: string, completion: number): boolean {
   return completion < 100 || /interrupted|error|cancelled/i.test(resultStatus)
@@ -391,6 +400,55 @@ export function createAgentRuntimeForgeRoleRunner(
     const executesLeadWorkOrders =
       (plan.lane === 'smith' && nodeId !== 'smith_split_work') || nodeId === 'lead_solo_implement'
     const acceptedLeadPlan = executesLeadWorkOrders ? (acceptedRouting?.assignments[0]?.plan ?? null) : null
+    // FAST HAS NO LEAD TURN BY CONSTRUCTION, so it can never have a Lead assignment —
+    // and the launch door below would HOLD it forever, demanding a work order this lane
+    // does not create. FAST is defined as PRE-SHAPED bounded work, so the STORY is the
+    // work order: its declared scope is the surface, its frozen assay command is the
+    // proof, its acceptance criteria is the invariant.
+    //
+    // A story that declares no scope still meets the door's refusal, and the message
+    // names what is missing — an unshaped FAST story is precisely the wandering that
+    // door exists to prevent, so this does not weaken it.
+    const preShapedFastAssignment: LeadAssignment | null = (() => {
+      if (!FAST_SMITH_NODES.has(nodeId)) return null
+      const surfaces = (resolvedStory.scope ?? '')
+        .split(/[\n,]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+      const proof = leadRoutingContext.allowedProofs[0] ?? ''
+      const acceptance = (resolvedStory.acceptanceCriteria ?? '').trim()
+      if (surfaces.length === 0 || !proof) return null
+      return {
+        id: 'fast',
+        findingIds: [],
+        dependsOn: [],
+        evidenceRefs: ['story_goal', 'acceptance_criteria'],
+        reasoning: 'FAST lane: the story is the work order (pre-shaped, no Lead turn exists)',
+        features: {
+          semanticSurface: 1,
+          dependencyDepth: 1,
+          uncertainty: 1,
+          contextBurden: 1,
+          proofBurden: 1,
+          coupling: 1,
+          changeNovelty: 1,
+          workerFit: 1,
+        },
+        plan: {
+          size: 'SMALL',
+          chunks: [
+            {
+              id: 1,
+              outcome: acceptance || 'the story acceptance holds',
+              surface: surfaces,
+              invariant: acceptance || 'the frozen acceptance still holds',
+              proof,
+              dependsOn: [],
+            },
+          ],
+        },
+      }
+    })()
     // ENG-FORGE-OBS-SERIAL-01: the SERIAL lane's declared scope.
     //
     // A split child is handed the assignment it must execute; the serial Smith /
@@ -403,7 +461,9 @@ export function createAgentRuntimeForgeRoleRunner(
     // it: turning serial declared-scope into a HOLD would add a new gate to the
     // lane every story runs, and this story's scope says not to change HOLD
     // policy. An unbuildable contract is skipped for the same reason.
-    const serialAssignment = executesLeadWorkOrders ? (acceptedRouting?.assignments[0] ?? null) : null
+    const serialAssignment = executesLeadWorkOrders
+      ? (acceptedRouting?.assignments[0] ?? preShapedFastAssignment ?? null)
+      : preShapedFastAssignment
     let serialAssignmentContract: SmithExecutionContract | null = null
     if (serialAssignment) {
       const builtSerial = smithContractFromAssignment({
