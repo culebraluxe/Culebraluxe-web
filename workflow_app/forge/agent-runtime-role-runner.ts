@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
-import { buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective } from '../../agent-runtime/run-guardrails'
+import { buildBrevityDirective, buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective } from '../../agent-runtime/run-guardrails'
 import {
   FileContextLessonStore,
   buildContextLessonDirective,
@@ -507,6 +507,7 @@ export function createAgentRuntimeForgeRoleRunner(
       priorScoutInstruction,
       contextLessonsDirective,
       buildRunGuardrailsDirective(),
+      buildBrevityDirective(),
       buildRunPassDirective(),
       buildRtkCompressionDirective(),
       // SPLIT child: execute ONLY its own accepted assignment. The general

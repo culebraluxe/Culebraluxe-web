@@ -61,6 +61,29 @@ export function buildRunPassDirective(env: NodeJS.ProcessEnv = process.env): str
  * architect/lead must answer from the provided context ONLY, and STOP if the
  * grounding is insufficient — never go turn-search the repository.
  */
+/**
+ * BREVITY — the same rule the operator holds his engineers to.
+ *
+ * Every token a role spends on preamble is a token not spent on the decision, and
+ * prose is where contracts go to die: the evening of 2026-09-13 was lost to a model
+ * writing a perfect routing object and burying it in commentary. The decision now
+ * travels in DATABASE FIELDS, so the reply is only allowed to carry what fields
+ * cannot: the work-order plan, and a short reason.
+ *
+ * Stated as a hard budget, because "be concise" is advice a model will happily
+ * ignore, while "at most N sentences" is checkable.
+ */
+export function buildBrevityDirective(): string {
+  return [
+    'BREVITY (hard rule, not a preference):',
+    '- Do NOT restate the task, the story, your instructions, or what you are about to do.',
+    '- No preamble, no "let me", no recap of steps, no summary of what you found, no closing pleasantries.',
+    '- No markdown essays. No headings unless a contract explicitly asks for one.',
+    '- Your decision goes in the FIELDS (run the command). Your reply carries: the required machine line, and at most 3 sentences of reason.',
+    '- If you cannot say it in those limits, the plan is not clear enough yet. Say less, decide more.',
+  ].join('\n')
+}
+
 export function buildGroundingDirective(): string {
   return [
     'You are a JUDGMENT role (architect/lead). Answer from the PROVIDED context only: the scout research, story packet, and repo-context handed to you.',
