@@ -343,6 +343,10 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
             // estimate stays available in `cost_widgets` (migration 133).
             costUsd: harnessUsage.costUsd,
             costSource: 'vendor',
+            // The session these numbers belong to (migration 174). This is also the id
+            // the next role of the generation pins with `--session`, so spend and desk
+            // identity travel together.
+            harnessSessionId: harnessUsage.sessionId,
           }
         : {}),
     }

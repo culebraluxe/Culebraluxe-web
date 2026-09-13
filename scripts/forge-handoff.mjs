@@ -68,6 +68,45 @@ if (!storyId || !processInstanceId || !taskId || !nodeId) {
 }
 
 const pool = forgeDbPool()
+const pool = forgeDbPool()
+
+// ---------------------------------------------------------------------------
+// IDENTITY IS CHECKED, NOT TRUSTED.
+//
+// A warm session carries the earlier generations' identity lines in the model's context.
+// On 2026-09-13 a lead_pre turn copied one: it wrote its whole contract, assignment and
+// chunk under the PREVIOUS run's task id (verified by timestamp — the rows it claimed to
+// have just written were stamped six minutes before the run began). The runner then read
+// the LIVE task, found nothing, and HOLDed a story that had in fact been routed correctly.
+// Nothing was broken except the address, and the address came from chat.
+//
+// So before ANY write, ask the engine which execution is live for this story/node and
+// refuse a mismatched id, naming the live one. A write aimed at a task the engine is not
+// running is a write into history: it cannot be reviewed, so it must not be accepted.
+//
+// Only a CONFLICT is refused. When nothing is live (hand seeding, --show, a scripted
+// fixture) there is no evidence of a mismatch and the write proceeds.
+if (!show) {
+  const live = await pool.query(
+    `select task_id from forge_engine_task_execution
+      where story_id = $1 and node_id = $2 and status in ('claimed', 'running')
+      order by heartbeat_at desc nulls last
+      limit 1`,
+    [storyId, nodeId],
+  )
+  const liveTaskId = live.rows[0]?.task_id ? String(live.rows[0].task_id) : null
+  if (liveTaskId && liveTaskId !== taskId) {
+    console.error(
+      `forge-handoff: REFUSED — task ${taskId} is not the live ${nodeId} execution for ` +
+        `${storyId}. The live task is ${liveTaskId}. An identity line from earlier in this ` +
+        `session is stale: re-read the identity in your CURRENT task line and run the ` +
+        `command again with --task ${liveTaskId}.`,
+    )
+    await pool.end()
+    process.exit(2)
+  }
+}
+
 
 // --chunk mode: record ONE chunk of the work-order plan. Repeat per chunk.
 //
@@ -82,7 +121,14 @@ const pool = forgeDbPool()
 // are NOT NULL, so a chunk that cannot be checked is refused by the database.
 if (arg('chunk')) {
   const chunkId = Number.parseInt(arg('chunk'), 10)
-  const assignmentId = arg('assignment') ?? 'a'
+  // ONE LABEL, ONE CASE. The assignment id is a label, and a label that differs only in
+  // case is the same assignment — but the writer used to store it verbatim while the plan
+  // reader matched chunk-to-assignment EXACTLY. A model that wrote its contract rows under
+  // `a` and its chunk under `A1` therefore produced a plan that read as EMPTY, and the Lead
+  // reviewer reported "SOLO requires one assignment" for work it had just planned. Observed
+  // live on 2026-09-13. Normalized here so no reader has to guess, and matched
+  // case-insensitively in the reader so rows already written are not stranded.
+  const assignmentId = (arg('assignment') ?? 'a').trim().toLowerCase()
   const surface = list('surface')
   const proof = arg('proof')
   const vector = (name) => {
@@ -101,6 +147,19 @@ if (arg('chunk')) {
     console.error(
       'forge-handoff: a chunk needs --surface <path[,path]> and --proof "<exact command>". ' +
         'A chunk that cannot be checked is not a plan.',
+    )
+    await pool.end()
+    process.exit(2)
+  }
+  // REASONING IS NOT DECORATION — IT IS READ. The plan reader refuses an assignment with
+  // an empty `reasoning` and returns null, which the Lead reviewer can only report as
+  // "no assignment": the routing then fails while the model believes it has written a plan.
+  // Observed live on 2026-09-13. Required here so the failure is a named field at the
+  // boundary instead of a silently unroutable row.
+  if (!arg('reasoning')?.trim()) {
+    console.error(
+      'forge-handoff: a chunk needs --reasoning "<why this chunk is the cheapest sound ' +
+        'shape>". The reader refuses an assignment without it and the Lead cannot route.',
     )
     await pool.end()
     process.exit(2)

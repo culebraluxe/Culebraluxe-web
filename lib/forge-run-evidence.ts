@@ -32,6 +32,11 @@ export type RunMachineEvidence = {
   costWidgets?: number | null
   /** 'widgets' | 'vendor' — which quantity the run's cost columns carry. */
   costSource?: string | null
+  /**
+   * The harness session this run executed in (migration 174). Same value across the roles
+   * of one execution generation; a new value after a REPLAN. Null = unmeasured.
+   */
+  harnessSessionId?: string | null
 }
 
 export function hasStructuredRunMachineEvidence(

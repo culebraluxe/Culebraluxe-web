@@ -66,6 +66,7 @@ import {
   detectFullRegressionAttempt,
   resolveTestModeFromInstructions,
 } from '../test-mode'
+import { readHarnessUsage } from '../harness-usage'
 import {
   assertExecutionTargetSafe,
   buildChildProcessEnv,
@@ -74,7 +75,7 @@ import {
 } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
 import { applyRtkToEnv, forgeToolRoleForAgentRole } from '../../workflow_app/forge/forge-tool-seams'
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 /**
@@ -136,14 +137,58 @@ export const SESSION_CONTINUITY_ENV = 'FORGE_SESSION_CONTINUITY'
 /** Marker filename placed in the isolated worktree after a role run succeeds. */
 export const SESSION_MARKER_FILENAME = '.forge-session.continue'
 
-/** True only when the operator opted into V5-21 session continuity. */
+/** True unless the operator explicitly opted out with `FORGE_SESSION_CONTINUITY=0`. */
 export function forgeSessionContinuityEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[SESSION_CONTINUITY_ENV] === '1'
+  // ON BY DEFAULT (ENG-FORGE-WARM-SESSION-01). One live session per execution generation
+  // is the design, not an experiment: a role that cold-starts is paying to re-read what
+  // the previous role already read. `FORGE_SESSION_CONTINUITY=0` is the opt-out.
+  const raw = env[SESSION_CONTINUITY_ENV]
+  if (raw == null || raw === '') return true
+  const value = raw.trim().toLowerCase()
+  return value !== '0' && value !== 'false' && value !== 'off'
 }
 
 /** The worktree-local marker path that records "a prior role already ran here". */
 export function forgeSessionMarkerPath(workspace: string): string {
   return join(workspace, SESSION_MARKER_FILENAME)
+}
+
+/**
+ * The session id THIS generation is running in, or null when no role has run here yet.
+ *
+ * The marker used to hold a bare `1` meaning "someone ran here, resume the last session"
+ * (`--continue`). That guesses: it resumes whatever session the project touched last,
+ * which is only correct while exactly one lane is live. It now holds the ACTUAL id, and
+ * the next role pins it with `--session <id>` — exact, not a guess. A bare `1` is still
+ * honoured as "unknown id" so an in-flight worktree from before this change degrades to
+ * the old behaviour instead of breaking.
+ */
+export function readForgeSessionId(workspace: string): string | null {
+  try {
+    const raw = readFileSync(forgeSessionMarkerPath(workspace), 'utf8').trim()
+    if (!raw || raw === '1') return null
+    return raw
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Record this generation's session id, or CLEAR it when the session is gone.
+ *
+ * Clearing is the "dead session is replaced once" rule: the role that discovers a dead
+ * session drops the marker, so the NEXT role starts a fresh session and records its new
+ * id. Without this the marker would keep pointing at a corpse and every subsequent role
+ * would fail in turn.
+ */
+export function writeForgeSessionId(workspace: string, sessionId: string | null): void {
+  try {
+    const path = forgeSessionMarkerPath(workspace)
+    if (sessionId) writeFileSync(path, `${sessionId}\n`)
+    else rmSync(path, { force: true })
+  } catch {
+    /* best-effort: session bookkeeping must never fail a run */
+  }
 }
 
 const OPENCODE_CAPABILITIES: AgentCapability[] = [
@@ -244,6 +289,8 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
 
   private handle: OpenCodeHandle | null = null
   private lastResult: OpenCodeRunResult | null = null
+  /** The session id this run was launched with, so a failure can drop exactly it. */
+  private pinnedSessionId: string | null = null
   /** Wall-clock start of the OpenCode process (factual elapsed-time evidence). */
   private startedAtMs: number | null = null
 
@@ -299,9 +346,16 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // V5-21 (env-gated, default OFF): resume the same session when a prior role
     // already succeeded in this isolated worktree (marker present). The first
     // role of a fresh generation runs fresh; later roles inherit its context.
+    // V5-21 / WARM-SESSION-01: resume the SAME session this execution generation has
+    // been using. The marker holds the actual session id, so the next role pins it with
+    // `--session <id>`; `--continue` survives only as the legacy path for a bare `1`
+    // marker written before ids were recorded, because "the project's last session" is a
+    // guess that is only correct while exactly one lane is live.
     const continuityEnabled = forgeSessionContinuityEnabled(process.env)
     const markerPath = forgeSessionMarkerPath(workspace)
-    const continueSession = continuityEnabled && existsSync(markerPath)
+    const sessionId = continuityEnabled ? readForgeSessionId(workspace) : null
+    const continueSession = continuityEnabled && !sessionId && existsSync(markerPath)
+    this.pinnedSessionId = sessionId ?? null
     // DEV safety: the spawned harness (and any test process it spawns) must
     // NOT inherit an APP_ENV/DATABASE_URL set that resolves to the production
     // application database.
@@ -322,6 +376,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       cwd: workspace,
       model,
       task,
+      ...(sessionId ? { session: sessionId } : {}),
       continueSession,
       // Spread into a fresh literal so the parameter's precise env type is
       // restored (a passthrough value would widen it).
@@ -395,6 +450,14 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     if (result.status === 'failed') {
       this.externalErrorText =
         result.stderr.trim() || `opencode exited ${result.exitCode ?? 'no-code'}`
+      // A PINNED SESSION THAT JUST FAILED IS DROPPED, ONCE. The next role in this
+      // generation then starts fresh and records its own id, so a dead session costs one
+      // role rather than every role after it. Leaving the marker in place would reuse the
+      // corpse; never clearing on success would leave no id to reuse at all.
+      const failedWorkspace = context.executionWorkspace?.worktreePath
+      if (failedWorkspace && this.pinnedSessionId) {
+        writeForgeSessionId(failedWorkspace, null)
+      }
       return null
     }
 
@@ -407,17 +470,16 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       return null
     }
 
-    // V5-21 (env-gated, default OFF): on success, record that a role completed in
-    // this isolated worktree so the NEXT role of the generation resumes the same
-    // opencode session via --continue. Marker write is best-effort — it must not
-    // fail a successful run. A fresh worktree has no marker, so sessions can never
-    // leak across stories/generations.
+    // V5-21 / WARM-SESSION-01: record the ACTUAL session id this run executed in, so the
+    // next role of this generation pins that exact session with `--session <id>` instead
+    // of guessing at "the project's last session". The id comes from the harness's own
+    // store, read through the same reader that feeds cost capture.
+    //
+    // An unreadable store leaves whatever id was already recorded in place: losing an id
+    // to a bookkeeping miss would restart the seed tax this work exists to remove.
     if (forgeSessionContinuityEnabled(process.env)) {
-      try {
-        writeFileSync(forgeSessionMarkerPath(workspace), '1')
-      } catch {
-        /* best-effort */
-      }
+      const usage = readHarnessUsage({ harnessStartedAtMs: this.startedAtMs ?? Date.now() })
+      if (usage?.sessionId) writeForgeSessionId(workspace, usage.sessionId)
     }
 
     // ENG-FORGE-V5-01 / AC5: Forge, not OpenCode, owns the candidate commit

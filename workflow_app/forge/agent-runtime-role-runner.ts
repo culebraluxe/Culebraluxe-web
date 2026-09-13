@@ -283,7 +283,15 @@ export function createAgentRuntimeForgeRoleRunner(
     // parsed into `current.findings`. Now the architect's own rows are the snapshot, and
     // the blob is the fallback — the same authority order the Lead's decision already
     // follows. `null` from the reader means no rows were written, not an empty plan.
-    const recordedFindings = await listStoryForgeFindings(resolvedStory.id)
+    //
+    // The read is scoped to THIS process instance and the newest attempt per node. A
+    // story-wide read resurrects every earlier run's rows and every retried attempt's
+    // repeats, which the Lead's gate correctly refuses as "Duplicate finding IDs in
+    // Architect handoff" — the refusal that kept this chain from ever routing.
+    const recordedFindings = await listStoryForgeFindings({
+      storyId: resolvedStory.id,
+      processInstanceId: String(task.processInstanceId),
+    })
     const findingsForRouting = recordedFindings ?? current.findings
     const leadRoutingContext = buildLeadRoutingContext({
       story: resolvedStory,
@@ -294,9 +302,19 @@ export function createAgentRuntimeForgeRoleRunner(
       nodeId === 'smith_split_work'
         ? `Split branch ${String(task.formData.splitBranchIndex ?? '?')} of ${String(task.formData.splitBranchCount ?? '?')}. Bounded branch contract: ${JSON.stringify(task.formData.splitBranch ?? null)}`
         : null
+    // THE ATTEMPT IS PART OF THE IDENTITY, and it must be stated out loud.
+    //
+    // Every field reader keys on (task, node, attempt): a row written under the wrong
+    // attempt is invisible to the review that follows it. This line used to name the task,
+    // the process and the node — but not the attempt — so on a RETRY the model passed
+    // `--attempt 1` again while the runner read attempt 2, found nothing, and HOLDed a
+    // perfectly good routing decision as "no decision was recorded in fields". Observed
+    // live on 2026-09-13: the row existed, under the previous attempt number.
     const identityInstruction =
-      `Forge engine task=${task.taskId}; process=${task.processInstanceId}; node=${nodeId}. ` +
-      'Execute this responsibility only. The XML engine owns all next-step routing.'
+      `Forge engine task=${task.taskId}; process=${task.processInstanceId}; node=${nodeId}; attempt=${attempt + 1}. ` +
+      'Execute this responsibility only. The XML engine owns all next-step routing. ' +
+      'If this session contains an EARLIER Forge identity line, it is STALE: this line replaces it. ' +
+      'Re-read it immediately before every forge-handoff.mjs call, and never reuse an id from earlier in the conversation — the CLI refuses a task the engine is not running.'
 
     // The REPO INDEX goes to the roles that must know scope, not just to Scout.
     // It was injected for `scout` only, so the Architect — which the FEATURE path

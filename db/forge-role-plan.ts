@@ -108,7 +108,11 @@ export async function getForgeRolePlan(
     const id = String(row.assignment_id)
     const features = featuresOf(row)
     if (!features) return null // incomplete vector: do not guess numbers the gate multiplies
-    const own = chunks.filter((c) => (c as unknown as Record<string, unknown>).assignment_id === id)
+    const own = chunks.filter(
+      (c) =>
+        String((c as unknown as Record<string, unknown>).assignment_id).trim().toLowerCase() ===
+        id.trim().toLowerCase(),
+    )
     if (own.length === 0) return null
     // MISSING STAYS MISSING. The reviewer asks whether reasoning/outcome/invariant are
     // non-empty; substituting '(not stated)' would satisfy that check with text the

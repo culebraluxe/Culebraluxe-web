@@ -38,6 +38,13 @@ function executorFor(tables: {
 
 const KEY = { taskId: 'task-1', nodeId: 'lead_pre', attempt: 1 }
 
+/**
+ * The scope the Lead's routing context reads findings by. BOTH halves matter: a story-wide
+ * read returns every earlier run's rows and every retried attempt's repeats, and the Lead's
+ * gate then refuses the whole context as "Duplicate finding IDs in Architect handoff".
+ */
+const STORY_RUN = { storyId: 'ENG-FORGE-SMOKE-01', processInstanceId: 'proc-1' }
+
 /** The eight dispatchability numbers, all legal (1..5 / 1..100). */
 const vector = {
   semantic_surface: 1,
@@ -267,7 +274,7 @@ test('plan: assignment-level ordering is honestly empty, chunk ordering is real'
 // fall back at all.
 
 test('findings: no rows is null, which is the fallback signal — never an empty plan', async () => {
-  assert.equal(await listStoryForgeFindings('ENG-FORGE-SMOKE-01', executorFor({})), null)
+  assert.equal(await listStoryForgeFindings(STORY_RUN, executorFor({})), null)
   assert.equal(
     await getForgeRoleFindings(KEY, executorFor({})),
     null,
@@ -276,7 +283,7 @@ test('findings: no rows is null, which is the fallback signal — never an empty
 
 test('findings: a row maps to the live ArchitectFinding the gates already understand', async () => {
   const findings = await listStoryForgeFindings(
-    'ENG-FORGE-SMOKE-01',
+    STORY_RUN,
     executorFor({
       finding: [
         {
@@ -303,7 +310,7 @@ test('findings: a row maps to the live ArchitectFinding the gates already unders
 
 test('findings: required=false survives, so adjacent work never becomes story work', async () => {
   const findings = await listStoryForgeFindings(
-    'ENG-FORGE-SMOKE-01',
+    STORY_RUN,
     executorFor({
       finding: [
         { finding_id: 'F2', summary: 'adjacent', required: false, seams: ['a/b.ts'], hint: null },
@@ -314,5 +321,24 @@ test('findings: required=false survives, so adjacent work never becomes story wo
   assert.ok(findings)
   assert.equal(findings![0].required, false)
   assert.equal('hint' in findings![0], false, 'a null hint is absent, not an empty string')
+})
+
+
+// The fake executor answers by table name, so it cannot catch a scope mistake: the query
+// would still succeed, just too broadly. This test reads the SQL itself, because the SCOPE
+// is the part that broke the chain live — a story-wide read fed the Lead duplicate finding
+// ids and its gate refused every routing decision with "Duplicate finding IDs".
+test('findings: the read is scoped to the current process and the newest attempt per node', async () => {
+  let seen = ''
+  const capture = (async (strings: TemplateStringsArray) => {
+    seen = strings.join(' ')
+    return []
+  }) as unknown as QueryExecutor
+
+  await listStoryForgeFindings(STORY_RUN, capture)
+
+  assert.match(seen, /process_instance_id/, 'every earlier run of the story must be excluded')
+  assert.match(seen, /group by node_id/, 'the newest attempt is chosen per node')
+  assert.match(seen, /max\(attempt\)/, 'a retried node writes the same ids again on purpose')
 })
 

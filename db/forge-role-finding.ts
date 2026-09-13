@@ -60,20 +60,43 @@ export async function getForgeRoleFindings(
 }
 
 /**
- * The findings recorded for a STORY, newest attempt first per node, or null.
- * This is what the Lead's routing context reads: the Architect's rows were written under
- * the Architect's task, not the Lead's.
+ * The findings recorded for the CURRENT RUN of a story: newest attempt of each node,
+ * scoped to one process instance.
+ *
+ * This is what the Lead's routing context reads — the Architect's rows were written under
+ * the Architect's task, so the join is by story. But the scope is the PROCESS INSTANCE and
+ * the NEWEST ATTEMPT, and both halves are load-bearing:
+ *
+ *   - Without the process scope, every previous run of the same story contributes rows, so
+ *     a story that has ever been re-run reads as one handoff with each finding repeated.
+ *   - Without the attempt scope, an Architect that retried (writing the same finding ids
+ *     under attempt 2, which the unique index permits by design) reads as duplicates.
+ *
+ * Either way the Lead's gate rejects the context with "Duplicate finding IDs in Architect
+ * handoff" and the story can never route — observed live on 2026-09-13, and the reason the
+ * chain could not complete a single story. A vague read is not a smaller read; it is a
+ * wrong one.
+ *
+ * Pass `null` findings when nothing was written: the caller distinguishes that from an
+ * empty handoff.
  */
 export async function listStoryForgeFindings(
-  storyId: string,
+  key: { storyId: string; processInstanceId: string },
   execute?: QueryExecutor,
 ): Promise<ArchitectFinding[] | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select finding_id, summary, required, seams, hint
-    from forge_role_finding
-    where story_id = ${storyId}
-    order by created_at, finding_id
+    with latest as (
+      select node_id, max(attempt) as attempt
+      from forge_role_finding
+      where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+      group by node_id
+    )
+    select f.finding_id, f.summary, f.required, f.seams, f.hint
+    from forge_role_finding f
+    join latest l on l.node_id = f.node_id and l.attempt = f.attempt
+    where f.story_id = ${key.storyId} and f.process_instance_id = ${key.processInstanceId}
+    order by f.finding_id
   `
   if (rows.length === 0) return null
   return rows.map((row) => toFinding(row as Record<string, unknown>))
