@@ -71,10 +71,19 @@ export async function recordError(
   return rows[0] as AppErrorRow
 }
 
-/** Best-effort capture that can never throw into the operation being recorded. */
+/**
+ * Best-effort capture that can never throw into the operation being recorded.
+ *
+ * The swallow is deliberate — a failure to log must not become a second failure. But it must not
+ * be SILENT either: when no executor is registered, `recordError` throws
+ * "app_error executor is not configured", and every capture in that bundle then does nothing while
+ * looking like it worked. That is how a "durable" error store can be empty during an incident and
+ * nobody notices. The reason is logged (never the payload) so a misconfigured bundle announces
+ * itself in the runtime log instead of pretending to have recorded something.
+ */
 export function captureError(input: RecordErrorInput): void {
-  recordError(input).catch(() => {
-    /* capture must never break the operation it observes */
+  recordError(input).catch((err) => {
+    console.error('[app_error] capture failed:', err instanceof Error ? err.message : err)
   })
 }
 

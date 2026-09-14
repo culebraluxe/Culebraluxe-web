@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
@@ -16,11 +17,34 @@ import Link from 'next/link'
 // ---------------------------------------------------------------------------
 
 export default function PortalError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  // THE BOUNDARY MUST NOT BE SILENT.
+  //
+  // This screen is the only error boundary for /portal/*, and it used to render its calm message
+  // while recording nothing at all — so an operator saying "the portal is down" produced no row,
+  // no route, no digest, and no way to tell an app failure from a platform one. Fire-and-forget,
+  // never awaited, never rethrown: reporting a failure must not be able to cause another.
+  useEffect(() => {
+    const payload = {
+      message: error?.message ?? 'portal boundary caught an error with no message',
+      digest: error?.digest ?? null,
+      path: typeof window === 'undefined' ? null : window.location.pathname,
+    }
+    void fetch('/api/portal/client-error', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {
+      /* reporting is best-effort; the boundary still shows its screen */
+    })
+  }, [error])
+
   return (
     <main className="flex min-h-[80svh] items-center justify-center bg-[var(--portal-navy)] px-6 md:px-12">
       <div className="mx-auto w-full max-w-xl text-center">
