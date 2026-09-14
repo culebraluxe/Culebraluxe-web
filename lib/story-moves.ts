@@ -18,10 +18,10 @@
 // ---------------------------------------------------------------------------
 
 /** The sorter's columns, left to right. */
-export type StoryBucket = 'backlog' | 'open' | 'bench' | 'engine' | 'closed' | 'next'
+export type StoryBucket = 'backlog' | 'open' | 'bench' | 'batch' | 'engine' | 'closed' | 'next'
 
 /** Buckets a human can DRAG between (the sorter's columns). */
-export const SORTER_BUCKETS: StoryBucket[] = ['backlog', 'open', 'bench', 'engine']
+export const SORTER_BUCKETS: StoryBucket[] = ['backlog', 'open', 'bench', 'batch', 'engine']
 
 /** Buckets reachable only as a deliberate choice (no drop target exists for them). */
 export const DELIBERATE_BUCKETS: StoryBucket[] = ['closed', 'next']
@@ -41,11 +41,16 @@ export const DELIBERATE_BUCKETS: StoryBucket[] = ['closed', 'next']
 export const MOVES: Record<StoryBucket, StoryBucket[]> = {
   // BACKLOG is the source pool: nothing comes back INTO it except from OPEN or the
   // bench, where you parked something you are not doing after all.
-  backlog: ['open', 'bench'],
-  // OPEN is the hub: out to the bench, straight to the engine, or parked/deferred.
-  open: ['backlog', 'bench', 'engine', 'closed', 'next'],
-  // The bench can hand over, put work back into the queue, or park/defer it.
-  bench: ['open', 'backlog', 'engine', 'closed', 'next'],
+  backlog: ['open', 'bench', 'batch'],
+  // OPEN is the hub: out to the bench, into the next engine batch, straight to the engine, or
+  // parked/deferred.
+  open: ['backlog', 'bench', 'batch', 'engine', 'closed', 'next'],
+  // The bench can stage into the batch, hand over, put work back into the queue, or park/defer it.
+  bench: ['open', 'backlog', 'batch', 'engine', 'closed', 'next'],
+  // ENGINE BATCH is STAGING: stories wait here until the operator sends the batch. Nothing leaves it
+  // on a timer and nothing in it has been dispatched - `Batched` is not the dispatch status. It can
+  // send to the engine (the deliberate act) or be pulled back out.
+  batch: ['engine', 'open', 'backlog', 'bench'],
   // One way. The engine owns it from here.
   engine: [],
   // Closed and deferred stories are outcomes: they can be REOPENED into the queue,
@@ -87,6 +92,10 @@ export const STATUS_BY_BUCKET: Partial<Record<StoryBucket, string>> = {
   backlog: 'Planned',
   closed: 'Complete',
   next: 'Deferred',
+  // STAGING, not dispatch: 'Batched' changes nothing on the engine. The batch is sent by
+  // `sendEngineBatchAction`, which writes ENGINE_DISPATCH_STATUS per story - deliberately, and only
+  // when the operator says so.
+  batch: 'Batched',
 }
 
 /** The status that fires the engine dispatch trigger. Reserved for ENGINE QUEUE. */

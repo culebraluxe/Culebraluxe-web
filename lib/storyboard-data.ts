@@ -245,6 +245,15 @@ export const STORY_STATUSES = [
   'Failed',
   'Deferred',
   'Hold',
+  /**
+   * ENGINE BATCH — staged for the next group handed to Forge (migration 177).
+   *
+   * It cannot reuse an existing status: `Ready` IS the engine dispatch trigger, so staging would
+   * dispatch immediately, and Planned / In Progress / Deferred already belong to Backlog / Open /
+   * Next Version. One new value is the honest way to have a staging area that stays staged until the
+   * operator sends it.
+   */
+  'Batched',
 ] as const
 
 export type StoryStatus = (typeof STORY_STATUSES)[number]
@@ -308,6 +317,8 @@ export const STATUS_BUCKET: Record<StoryStatus, StatusBucket> = {
   Planned: 'open',
   Ready: 'open',
   Deferred: 'open',
+  // Staged work counts as open: it is queued, not started, and not blocked.
+  Batched: 'open',
   Hold: 'open',
   Failed: 'open',
   Blocked: 'blocked',
@@ -902,6 +913,9 @@ const LIFECYCLE_BY_STATUS: Record<StoryStatus, StoryLifecycle> = {
   Planned: 'backlog',
   Complete: 'closed',
   Deferred: 'next-version',
+  // Batched reads as queued work on the story board. The SORTER keeps it in its own ENGINE BATCH
+  // column instead of BACKLOG, so a batched story is never shown twice on the same screen.
+  Batched: 'backlog',
 }
 
 export function storyLifecycleOf(status: string): StoryLifecycle {

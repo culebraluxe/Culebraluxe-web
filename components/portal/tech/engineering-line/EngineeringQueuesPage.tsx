@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-import { moveStoryBucketAction } from '@/app/portal/tech/actions'
+import { moveStoryBucketAction, sendEngineBatchAction } from '@/app/portal/tech/actions'
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
 
@@ -86,6 +86,19 @@ export type EngineeringQueuesPageProps = {
    * "In Progress / 100%" on the board while `forge_hold_record` held the truth.
    */
   hold?: ForgeStoryHold | null
+  /**
+   * Stories staged in ENGINE BATCH (status `Batched`), in display order.
+   *
+   * Staging is not dispatch: `Batched` writes nothing on the engine, and the batch is sent by an
+   * explicit action. This is what the captain meant by "stage the next group, then kick it off".
+   */
+  batchStories?: Array<{
+    id: string
+    title: string
+    status: string
+    priority: string
+    completion: number
+  }> | null
 }
 
 const QUEUES: Array<{
@@ -148,6 +161,7 @@ export function EngineeringQueuesPage({
   ledgerStats,
   queuedCards,
   hold,
+  batchStories,
 }: EngineeringQueuesPageProps) {
   const router = useRouter()
   // THE ENGINE'S LANES COME FROM THE ENGINE — there is no fixture on this screen any more.
@@ -215,6 +229,9 @@ export function EngineeringQueuesPage({
   // through the real dispatch (see handToEngine).
   const [draggingStory, setDraggingStory] = useState<string | null>(null)
   const [handoffError, setHandoffError] = useState<string | null>(null)
+  const [batchResult, setBatchResult] = useState<string | null>(null)
+  const [batchSending, setBatchSending] = useState(false)
+  const batchCount = (batchStories ?? []).length
   const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
@@ -297,8 +314,12 @@ export function EngineeringQueuesPage({
   // where you WORK), which is why the same two sets may appear in both without it
   // being a collision. ENGINE QUEUE is empty until agent_work_item is wired.
   const sorterCards = useMemo(() => {
+    // `Batched` maps to the backlog LIFECYCLE, so it would otherwise appear in the BACKLOG column too.
+    // It has its own column; a story is shown once.
     const bucket = (key: 'backlog' | 'open') =>
-      (cockpit.panels[key]?.groups ?? []).flatMap((g) => g.stories)
+      (cockpit.panels[key]?.groups ?? [])
+        .flatMap((g) => g.stories)
+        .filter((s) => s.status !== 'Batched')
     return [
       ...bucket('backlog').map((s) => ({
         id: s.id,
@@ -319,6 +340,16 @@ export function EngineeringQueuesPage({
       ...activeWork.map((s) => ({
         id: s.id,
         column: 'bench',
+        title: s.title,
+        status: s.status,
+        priority: s.priority,
+        completion: s.completion,
+      })),
+      // ENGINE BATCH: staged work, its own column. Batched stories are EXCLUDED from the backlog
+      // bucket below (they map to the backlog lifecycle) so the same story is never two columns.
+      ...(batchStories ?? []).map((s) => ({
+        id: s.id,
+        column: 'batch',
         title: s.title,
         status: s.status,
         priority: s.priority,
@@ -358,6 +389,8 @@ export function EngineeringQueuesPage({
       { id: 'backlog', label: 'BACKLOG' },
       { id: 'open', label: 'OPEN' },
       { id: 'bench', label: 'WORK BENCH' },
+      // ENGINE BATCH sits directly left of ENGINE QUEUE: stage the next group, then send it.
+      { id: 'batch', label: 'ENGINE BATCH' },
       { id: 'engine', label: 'ENGINE QUEUE' },
       { id: 'next-version', label: 'NEXT VERSION' },
     ],
@@ -419,9 +452,45 @@ export function EngineeringQueuesPage({
           <p className="text-[11px] font-semibold tracking-[0.16em] text-white">
             SORTER
             <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
-              backlog → open → work bench → engine queue
+              backlog → open → work bench → engine batch → engine queue
             </span>
           </p>
+          {/*
+            SEND THE BATCH — the on-demand dispatch.
+            Staging is free and harmless: 'Batched' writes nothing on the engine. This button is the
+            act that queues real Forge work for every staged story, so it says how many and what it
+            does, and it reports partial success honestly instead of a boolean.
+          */}
+          <div className="flex items-center gap-2">
+            {batchResult ? <span className="text-[10px] text-slate-300">{batchResult}</span> : null}
+            <button
+              type="button"
+              disabled={batchSending || batchCount === 0}
+              onClick={async () => {
+                setBatchSending(true)
+                setBatchResult(null)
+                try {
+                  const result = await sendEngineBatchAction()
+                  setBatchResult(
+                    result.failed.length === 0
+                      ? `queued ${result.queued} for the engine`
+                      : `queued ${result.queued}; refused ${result.failed
+                          .map((f) => f.storyId)
+                          .join(', ')}`,
+                  )
+                  router.refresh()
+                } finally {
+                  setBatchSending(false)
+                }
+              }}
+              title="Queues real Forge work for every story staged in ENGINE BATCH (status → Ready)."
+              className="shrink-0 rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {batchSending ? 'Sending…' : `Send batch (${batchCount}) → engine`}
+            </button>
+          </div>
+        </div>
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[10px] text-slate-400">
             drag a story along the line · ENGINE QUEUE fills from the engine
             {engineRuns === null ? (

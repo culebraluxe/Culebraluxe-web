@@ -108,6 +108,18 @@ export default async function TechPage({
   // The total, so the signpost can say how many exist rather than implying its capped list is all.
   const historyTotal = historyStoryIds.length
 
+  // ENGINE BATCH: stories staged for the next group handed to Forge. Staged means status 'Batched',
+  // which dispatches nothing - `sendEngineBatchAction` is the deliberate act that queues them.
+  const batchStories = (stories ?? [])
+    .filter((s) => s.status === 'Batched')
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      status: s.status,
+      priority: s.priority,
+      completion: s.completion,
+    }))
+
   // The engine's lanes are read from the engine ledger. A failure here is reported IN THE LANE
   // rather than silently leaving fixture cards standing in for engine output; the read is also
   // captured by the database gateway on the way through.
@@ -156,6 +168,7 @@ export default async function TechPage({
         ledgerStats={ledgerStats}
         queuedCards={queuedCards}
         hold={hold}
+        batchStories={batchStories}
       />
       <div className="px-5 pb-8">
         <ForgeConvergenceView items={convergence} />

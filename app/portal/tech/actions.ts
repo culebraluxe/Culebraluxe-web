@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { setActiveWork, setStoryboardStatus } from "@/db/storyboard"
+import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus } from "@/db/storyboard"
 import { setAgentWorkDispatchOptions } from "@/db/agent-work"
 import {
   ENGINE_DISPATCH_STATUS,
@@ -84,6 +84,48 @@ async function moveStoryBucketActionHandler(
 export const moveStoryBucketAction = withServerErrorCapture(
   "portal/tech/actions.moveStoryBucketAction",
   moveStoryBucketActionHandler,
+)
+
+// ---------------------------------------------------------------------------
+// SEND THE ENGINE BATCH — the deliberate, on-demand dispatch.
+//
+// Stories staged in ENGINE BATCH carry status 'Batched', which does NOT dispatch anything. This is
+// the act that does: for every staged story it writes ENGINE_DISPATCH_STATUS ('Ready'), and the
+// `agent_work_item_dispatch()` trigger queues a real work item for each one. It is the same write the
+// single-story handoff makes, applied to the whole batch, and it is why the batch exists - stage
+// freely, then send when you mean it.
+//
+// Partial success is reported honestly: if three of five dispatch and two are refused, the operator
+// gets "3 queued" and the names that failed, not a boolean.
+// ---------------------------------------------------------------------------
+async function sendEngineBatchActionHandler(): Promise<{
+  ok: boolean
+  queued: number
+  failed: Array<{ storyId: string; error: string }>
+  error?: string
+}> {
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
+  if (!access.ok) redirect(access.redirectTo)
+
+  const staged = await listStoryIdsWithStatus(STATUS_BY_BUCKET.batch ?? "Batched")
+  if (staged.length === 0) return { ok: true, queued: 0, failed: [] }
+
+  const failed: Array<{ storyId: string; error: string }> = []
+  let queued = 0
+  for (const storyId of staged) {
+    try {
+      await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
+      queued += 1
+    } catch (error) {
+      failed.push({ storyId, error: String((error as Error)?.message ?? error) })
+    }
+  }
+  return { ok: failed.length === 0, queued, failed }
+}
+
+export const sendEngineBatchAction = withServerErrorCapture(
+  "portal/tech/actions.sendEngineBatchAction",
+  sendEngineBatchActionHandler,
 )
 
 // ---------------------------------------------------------------------------

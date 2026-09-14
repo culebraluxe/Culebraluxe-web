@@ -454,6 +454,24 @@ export async function updateStoryboardExecutableContract(
  * Contract / Story Board spec). Never wipe execution dates with a stale form.
  */
 
+/**
+ * Story ids currently carrying a given status.
+ *
+ * Used by the ENGINE BATCH dispatch, which needs exactly the stories staged as `Batched` and nothing
+ * else. A status-filtered read rather than a filter over all 323 rows in the UI: the database already
+ * knows the answer, and the action runs server-side where it belongs.
+ */
+export async function listStoryIdsWithStatus(
+  status: string,
+  execute?: QueryExecutor,
+): Promise<string[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select id from storyboard_story where status = ${status} order by id
+  `
+  return rows.map((row) => String((row as { id?: unknown }).id))
+}
+
 export async function setStoryboardStatus(
   id: string,
   status: string,
