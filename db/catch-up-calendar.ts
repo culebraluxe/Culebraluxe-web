@@ -9,12 +9,12 @@ import { loadEventKitCalendarEvents } from '@/lib/catchup/eventkit'
 // ---------------------------------------------------------------------------
 // CATCH-UP — calendar read behind the normalized adapter boundary.
 //
-// Apple Calendar is authoritative; this is a consuming projection. The built-in
-// source today reads canonical showings (real scheduled/completed events), and
-// MAC-SYNC-CAL-01 merges in EventKit-derived events from the Mac bridge so the
-// calendar UI + Catch-Up attention derivation see Apple/iCloud events too. A
-// production Mac/Apple Calendar edge adapter implements the same
-// CalendarEventSource contract and replaces/augments this source.
+// Apple Calendar is authoritative; CulebraLuxe consumes it. Canonical showings
+// come straight from the application model. Apple/iCloud events arrive through
+// the Mac EventKit edge, land replay-safely in l_calendar, and are read from
+// there in production. Local DEV may also read the bounded /tmp EventKit
+// snapshot; ids are deduped at this boundary so local + landed copies never
+// render twice.
 // ---------------------------------------------------------------------------
 
 type ShowingRow = {
@@ -24,6 +24,16 @@ type ShowingRow = {
   property_name: string | null
   status: string
   scheduled_at: string | null
+}
+
+type LandingCalendarRow = {
+  id: string
+  source_account: string | null
+  source_message_id: string
+  title: string | null
+  starts_at: string | null
+  ends_at: string | null
+  all_day: boolean | null
 }
 
 const showingSource = {
@@ -67,24 +77,70 @@ const showingSource = {
   },
 }
 
-/** Real, deterministic calendar projection for the Catch-Up screen: canonical
- *  showings + EventKit-derived Apple/iCloud events from the Mac bridge. */
+export function landingCalendarRowsToCatchUp(
+  rows: readonly LandingCalendarRow[],
+): CatchUpCalendarEvent[] {
+  return rows
+    .filter((row): row is LandingCalendarRow & { starts_at: string } => Boolean(row.starts_at))
+    .map((row) =>
+      normalizeCalendarEvent({
+        id: row.source_message_id || `landing-calendar:${row.id}`,
+        title: row.title?.trim() || 'Calendar event',
+        startAt: row.starts_at,
+        endAt: row.ends_at,
+        allDay: Boolean(row.all_day),
+        personId: null,
+        personName: null,
+        propertyName: null,
+        kind: row.all_day ? 'other' : 'meeting',
+        source: 'apple_calendar',
+      }),
+    )
+}
+
+const appleLandingSource = {
+  async listEvents(execute: QueryExecutor = sql): Promise<CatchUpCalendarEvent[]> {
+    const rows = (await execute`
+      select
+        id,
+        source_account,
+        source_message_id,
+        title,
+        starts_at,
+        ends_at,
+        all_day
+      from l_calendar
+      where starts_at is not null
+        and starts_at >= now() - interval '7 days'
+        and starts_at < now() + interval '60 days'
+      order by starts_at asc
+      limit 500
+    `) as LandingCalendarRow[]
+    return landingCalendarRowsToCatchUp(rows)
+  },
+}
+
+function dedupeAndSort(events: readonly CatchUpCalendarEvent[]): CatchUpCalendarEvent[] {
+  const byId = new Map<string, CatchUpCalendarEvent>()
+  for (const event of events) byId.set(event.id, event)
+  return Array.from(byId.values()).sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id))
+}
+
+/** Real calendar projection for Catch-Up: canonical showings + durable Apple
+ * Calendar landing rows. Local EventKit snapshot data is also accepted for DEV
+ * proof/use; the stable EventKit id makes that merge replay-safe. */
 export async function getCatchUpCalendarEvents(
   execute: QueryExecutor = sql,
 ): Promise<CatchUpCalendarEvent[]> {
-  const [showings, eventKit] = await Promise.all([
+  const [showings, landedApple, localEventKit] = await Promise.all([
     showingSource.listEvents(execute),
+    appleLandingSource.listEvents(execute),
     loadEventKitCalendarEvents(),
   ])
-  return [...showings, ...eventKit]
+  return dedupeAndSort([...showings, ...landedApple, ...localEventKit])
 }
 
-/**
- * The Apple/Mac Calendar edge task — explicitly deferred, but the contract is
- * stable: implement CalendarEventSource over the Mac/Apple bridge and swap it
- * in here. We never invent a non-existent cloud Apple Calendar API.
- */
 export const APPLE_CALENDAR_EDGE = {
-  status: 'deferred',
-  note: 'Mac/Apple calendar adapter (CalendarEventSource) is the remaining edge task. Today the built-in source reads canonical showings.',
+  status: 'wired',
+  note: 'EventKit snapshot -> l_calendar landing -> Catch-Up CalendarEventSource. Apple Calendar remains authoritative/read-only.',
 } as const
