@@ -41,7 +41,9 @@ export const DELIBERATE_BUCKETS: StoryBucket[] = ['closed', 'next']
 export const MOVES: Record<StoryBucket, StoryBucket[]> = {
   // BACKLOG is the source pool: nothing comes back INTO it except from OPEN or the
   // bench, where you parked something you are not doing after all.
-  backlog: ['open', 'bench', 'batch'],
+  // BACKLOG can go anywhere a story can plausibly go next: into the queue, onto the bench, staged
+  // into the engine batch, or straight to the run queue when the captain means it.
+  backlog: ['open', 'bench', 'batch', 'engine'],
   // OPEN is the hub: out to the bench, into the next engine batch, straight to the engine, or
   // parked/deferred.
   open: ['backlog', 'bench', 'batch', 'engine', 'closed', 'next'],
@@ -53,10 +55,11 @@ export const MOVES: Record<StoryBucket, StoryBucket[]> = {
   batch: ['engine', 'open', 'backlog', 'bench'],
   // One way. The engine owns it from here.
   engine: [],
-  // Closed and deferred stories are outcomes: they can be REOPENED into the queue,
-  // which is the only sane way back from an accidental close.
+  // Closed and deferred stories are outcomes: they can be REOPENED into the queue, and deferred work
+  // can go STRAIGHT to the engine batch or the run queue - a story parked for a later version is
+  // still a candidate the captain may want to hand over deliberately.
   closed: ['open', 'backlog'],
-  next: ['open', 'backlog'],
+  next: ['open', 'backlog', 'batch', 'engine'],
 }
 
 export function canMove(from: StoryBucket, to: StoryBucket): boolean {
@@ -64,6 +67,48 @@ export function canMove(from: StoryBucket, to: StoryBucket): boolean {
   // Reading `MOVES[to]` (the bug) inverted the whole gate: nothing could enter
   // ENGINE and anything could leave it.
   return MOVES[from]?.includes(to) ?? false
+}
+
+/**
+ * NORMALIZE A CALLER'S COLUMN NAME INTO A BUCKET — the boundary between what a VIEW calls a column
+ * and what the RULES call a bucket.
+ *
+ * This exists because the two vocabularies drifted and the drift was invisible: the sorter's column
+ * is `next-version` (the `StoryLifecycle` noun, shared with the story board) while the rules key is
+ * `next`. Typing the string as `StoryBucket` in the action made TypeScript accept it and made
+ * `MOVES['next-version']` `undefined`, so EVERY DRAG OUT OF NEXT VERSION WAS REFUSED — the rules
+ * were right and unreachable, which is why the screen read as broken rather than the rules as wrong.
+ *
+ * It also absorbs DEPLOY SKEW: a browser holding the previous bundle keeps posting its old ids until
+ * it reloads, and a rename must not turn into a mystery refusal in that window.
+ *
+ * Returns null for anything unrecognized, so the caller refuses BY NAME instead of quietly
+ * normalizing a typo into a move.
+ */
+export function normalizeStoryBucket(raw: string): StoryBucket | null {
+  const key = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+  const ALIASES: Record<string, StoryBucket> = {
+    // the lifecycle nouns the interface actually renders
+    'next-version': 'next',
+    'nextversion': 'next',
+    // the sorter's column titles, in case a label ever becomes an id
+    'work-bench': 'bench',
+    'workbench': 'bench',
+    'active': 'bench',
+    'engine-queue': 'engine',
+    'engine-q': 'engine',
+    'engine-run-q': 'engine',
+    'engine-running': 'engine',
+    'backlog-batch': 'batch',
+    'engine-batch': 'batch',
+    'queued': 'batch',
+  }
+  if (key in ALIASES) return ALIASES[key]
+  const direct = (SORTER_BUCKETS as string[]).concat(DELIBERATE_BUCKETS).includes(key)
+  return direct ? (key as StoryBucket) : null
 }
 
 /**

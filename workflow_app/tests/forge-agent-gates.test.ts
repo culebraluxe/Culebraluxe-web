@@ -4,7 +4,7 @@ import { assessArchitectHandoff } from '../forge/agents/architect/assess'
 import { parseLeadRouting } from '../forge/forge-lead-routing'
 import type { ArchitectHandoff } from '../forge/agents/architect-handoff'
 import { adjudicateAssay, runAssay } from '../forge/agents/qa/run'
-import { canMove } from '../../lib/story-moves'
+import { canMove, normalizeStoryBucket } from '../../lib/story-moves'
 
 // ---------------------------------------------------------------------------
 // The ARCHITECT handoff assessment is fail-closed: a plan that names a seam that
@@ -157,4 +157,36 @@ test('assay: the architecture gate fails the story; a skipped arch gate does not
 test('engine gate: OPEN may move to ENGINE, but ENGINE may never move back to OPEN', () => {
   assert.equal(canMove('open', 'engine'), true)
   assert.equal(canMove('engine', 'open'), false)
+})
+
+// ---------------------------------------------------------------------------
+// THE SORTER'S BOUNDARY, where two vocabularies meet.
+//
+// The rules are keyed by BUCKET (`next`); the screen names its column by
+// LIFECYCLE (`next-version`). A cast hid the difference, `MOVES['next-version']`
+// was `undefined`, and every drag out of NEXT VERSION was refused by a rule that
+// read as arbitrary. These lock the translation and the captain's stated rule:
+// any story sitting in BACKLOG, OPEN, WORK BENCH or NEXT VERSION may be handed to
+// the engine - staged (ENGINE BATCH) or run (ENGINE RUN Q).
+// ---------------------------------------------------------------------------
+test('sorter boundary: the view column name normalizes to the rule bucket', () => {
+  assert.equal(normalizeStoryBucket('next-version'), 'next')
+  assert.equal(normalizeStoryBucket('NEXT VERSION'), 'next')
+  assert.equal(normalizeStoryBucket('work bench'), 'bench')
+  assert.equal(normalizeStoryBucket('engine-queue'), 'engine')
+  assert.equal(normalizeStoryBucket('bench'), 'bench')
+  // Unrecognized names are refused BY NAME, never quietly accepted as a move.
+  assert.equal(normalizeStoryBucket('nonsense'), null)
+  assert.equal(normalizeStoryBucket(''), null)
+})
+
+test('the captain gets to the engine from BACKLOG, OPEN, WORK BENCH and NEXT VERSION', () => {
+  for (const from of ['backlog', 'open', 'bench', 'next'] as const) {
+    assert.equal(canMove(from, 'batch'), true, `${from} -> batch`)
+    assert.equal(canMove(from, 'engine'), true, `${from} -> engine`)
+  }
+  // Staging is not dispatch: the batch can be pulled back, the engine cannot.
+  assert.equal(canMove('batch', 'open'), true)
+  assert.equal(canMove('engine', 'batch'), false)
+  assert.equal(canMove('engine', 'bench'), false)
 })

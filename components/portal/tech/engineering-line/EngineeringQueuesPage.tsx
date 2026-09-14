@@ -376,7 +376,7 @@ export function EngineeringQueuesPage({
           priority: s.priority,
           completion: s.completion,
         })),
-      // ENGINE QUEUE holds what the machine is executing NOW, from the ledger — not a fixture.
+      // ENGINE RUN Q holds what the machine is executing NOW, from the ledger — not a fixture.
       // (It used to be empty by design, "until agent_work_item is wired"; it is wired now, and the
       // real answer since 2026-09-14 is that the engine is idle, which is worth seeing.)
       ...engineCards
@@ -397,9 +397,11 @@ export function EngineeringQueuesPage({
       { id: 'backlog', label: 'BACKLOG' },
       { id: 'open', label: 'OPEN' },
       { id: 'bench', label: 'WORK BENCH' },
-      // ENGINE BATCH sits directly left of ENGINE QUEUE: stage the next group, then send it.
+      // ENGINE BATCH sits directly left of the engine's run queue: stage the next group, then send it.
       { id: 'batch', label: 'ENGINE BATCH' },
-      { id: 'engine', label: 'ENGINE QUEUE' },
+      // "ENGINE RUN Q" is the captain's name for it: this is the column where handing a story over
+      // makes the engine actually run it (`ENGINE_DISPATCH_STATUS` = Ready).
+      { id: 'engine', label: 'ENGINE RUN Q' },
       { id: 'next-version', label: 'NEXT VERSION' },
     ],
     [],
@@ -460,7 +462,7 @@ export function EngineeringQueuesPage({
           <p className="text-[11px] font-semibold tracking-[0.16em] text-white">
             SORTER
             <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
-              backlog → open → work bench → engine batch → engine queue
+              backlog → open → work bench → engine batch → engine run q
             </span>
           </p>
           {/*
@@ -500,7 +502,7 @@ export function EngineeringQueuesPage({
         </div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[10px] text-slate-400">
-            drag a story along the line · ENGINE QUEUE fills from the engine
+            drag a story along the line · ENGINE RUN Q fills from the engine
             {engineRuns === null ? (
               <span className="ml-2 text-amber-400/90">
                 · the engine ledger could not be read, so the engine lanes are empty rather than

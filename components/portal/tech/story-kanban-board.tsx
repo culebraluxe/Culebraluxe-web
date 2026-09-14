@@ -71,9 +71,23 @@ export function StoryKanbanBoard({
       void api.intercept('move-card', async (data) => {
         const id = String(data.id)
         const to = String(data.column ?? '')
-        const from = String(
-          cardsRef.current.find((c) => String(c.id) === id)?.column ?? '',
-        )
+        // THE SOURCE MUST BE DERIVED, and the vendor cannot help: `move-card` carries only
+        // `{ id, column, before }` (read from the library's own source), so the origin column has to
+        // come from our model. That derivation is only sound when a card id appears in ONE column -
+        // and it silently did not: a bench story also sat in OPEN (the bench is an intent row, the
+        // status stays `In Progress`), `find` returned the OPEN card, and every drag off the bench
+        // reported `from='open'`. Bench → Open then read as a no-op and Bench → Batch staged the story
+        // without clearing the bench. The columns no longer overlap, and DUPLICATES ARE NOW LOUD.
+        const matches = cardsRef.current.filter((c) => String(c.id) === id)
+        const columnsForCard = [...new Set(matches.map((c) => String(c.column ?? '')))]
+        if (columnsForCard.length > 1) {
+          // A card in two columns is ambiguous. Refuse it visibly rather than move the wrong story.
+          setError(
+            `Board error: ${id} appears in ${columnsForCard.join(' and ')}. One story, one column.`,
+          )
+          return false
+        }
+        const from = columnsForCard[0] ?? ''
         if (!to || from === to) return true
         const result = await onMove(id, from, to)
         setError(result.ok ? null : (result.error ?? 'Move refused'))

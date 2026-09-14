@@ -11,7 +11,7 @@ import {
   ENGINE_DISPATCH_STATUS,
   STATUS_BY_BUCKET,
   canMove,
-  type StoryBucket,
+  normalizeStoryBucket,
 } from "@/lib/story-moves"
 
 // PORTAL-13 — Active Queue selection seam (TECH surface). Selecting/removing a
@@ -48,9 +48,15 @@ async function moveStoryBucketActionHandler(
   if (!access.ok) redirect(access.redirectTo)
 
   const storyId = String(cardId ?? "").trim()
-  const source = String(from ?? "").trim() as StoryBucket
-  const target = String(to ?? "").trim() as StoryBucket
   if (!storyId) return { ok: false, error: "missing story id" }
+
+  // NORMALIZE AT THE BOUNDARY. A column id is a VIEW name (`next-version`), a bucket is a RULE name
+  // (`next`); casting one to the other let `next-version` through as if it were valid and refused
+  // every drag out of NEXT VERSION with a rule that looked arbitrary. See normalizeStoryBucket.
+  const source = normalizeStoryBucket(from)
+  const target = normalizeStoryBucket(to)
+  if (!source) return { ok: false, error: `Unknown column: ${from}` }
+  if (!target) return { ok: false, error: `Unknown column: ${to}` }
 
   if (!canMove(source, target)) {
     return { ok: false, error: `Not allowed: ${source} → ${target}` }
