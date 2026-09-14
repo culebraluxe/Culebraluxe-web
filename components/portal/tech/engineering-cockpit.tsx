@@ -46,11 +46,21 @@ export function ActiveQueue({
   activeQueue,
   selectedId,
   basePath = "/portal/tech",
+  historyStoryIds,
   onRowDragStart,
   onRowDragEnd,
 }: {
   activeQueue: StoryRecord[]
   selectedId: string | null
+  /**
+   * Story ids that HAVE execution history (run rows).
+   *
+   * The board holds 323 stories and only a handful have ever been run, but nothing on this row
+   * said which. An operator looking for "the story the engine ran" had to already know its id,
+   * which is the same defect as a computed value never reaching its reader: the fact existed in
+   * the run table and the list did not show it. Optional, so other callers are unchanged.
+   */
+  historyStoryIds?: string[]
   /** Where selecting a story navigates to. Defaults to the TECH landing page. */
   basePath?: string
   /**
@@ -111,13 +121,35 @@ export function ActiveQueue({
                     href={`${basePath}?story=${encodeURIComponent(story.id)}`}
                     className="flex min-w-0 flex-1 items-center gap-2"
                   >
-                    <span className="w-16 shrink-0 truncate font-mono text-[11px] text-[var(--portal-on-navy)]">
+                    {/*
+                      Widths, deliberately: this bench carries long names ("ENG-FORGE-TURN-
+                      VISIBILITY-01") and long titles, and the old `w-16` id column truncated the
+                      id to meaninglessness while the workstream field took whatever it wanted.
+                      The name now gets the room (id 144px + the title taking the remainder) and
+                      the workstream field is capped, since it is the least informative of the
+                      three. `title` attributes expose the untruncated values on hover.
+                    */}
+                    <span
+                      title={story.id}
+                      className="w-36 shrink-0 truncate font-mono text-[11px] text-[var(--portal-on-navy)]"
+                    >
                       {story.id}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-light text-white/75">
+                    <span
+                      title={story.title}
+                      className="min-w-0 flex-1 truncate text-[12px] font-light text-white/75"
+                    >
                       {story.title}
                     </span>
-                    <span className="hidden shrink-0 text-[9px] font-light uppercase tracking-[0.1em] text-white/40 sm:block">
+                    {historyStoryIds?.includes(story.id) ? (
+                      <span
+                        title="This story has engineering run history"
+                        className="shrink-0 rounded-full border border-[var(--portal-gold)]/40 px-1.5 py-[1px] text-[8px] font-medium uppercase tracking-[0.1em] text-[var(--portal-gold)]"
+                      >
+                        runs
+                      </span>
+                    ) : null}
+                    <span className="hidden max-w-[4.5rem] shrink-0 truncate text-[9px] font-light uppercase tracking-[0.1em] text-white/40 sm:block">
                       {workstreamName(story.workstream)}
                     </span>
                     <span className="shrink-0 tabular-nums text-[10px] text-white/45">
@@ -275,7 +307,35 @@ function RunResultIcon({ result }: { result: string | null }) {
   return <Check size={12} className="text-white/40" />
 }
 
-export function RunHistory({ storyId, runs }: { storyId: string | null; runs: StoryRun[] }) {
+/**
+ * A story that HAS run history — what the "no history here" panel points at instead of leaving the
+ * operator to guess an id from 323 possible rows.
+ */
+export type HistoryStory = {
+  id: string
+  title: string
+  latestRunAt: string | null
+  latestRunResult: string | null
+}
+
+export function RunHistory({
+  storyId,
+  runs,
+  withHistory,
+  historyTotal,
+  basePath = "/portal/tech",
+}: {
+  storyId: string | null
+  runs: StoryRun[]
+  withHistory?: HistoryStory[]
+  /**
+   * How many stories have run history in TOTAL, when `withHistory` is only the newest slice.
+   * Without it the panel would call a capped list the total — a bounded list claiming to be
+   * complete, which is the same lie as a silent truncation.
+   */
+  historyTotal?: number
+  basePath?: string
+}) {
   return (
     <section className="overflow-hidden rounded-[calc(var(--portal-panel-radius)-6px)] border border-white/10 bg-white/[0.03]">
       <div className="flex items-baseline justify-between gap-3 border-b border-white/10 px-4 py-3">
@@ -297,9 +357,51 @@ export function RunHistory({ storyId, runs }: { storyId: string | null; runs: St
           Select a story to view its engineering / run history.
         </p>
       ) : runs.length === 0 ? (
-        <p className="px-4 py-8 text-center text-xs font-light italic text-[var(--portal-on-navy)]/50">
-          No execution history recorded for this story.
-        </p>
+        <div className="px-4 py-6 text-center">
+          <p className="text-xs font-light italic text-[var(--portal-on-navy)]/50">
+            No execution history recorded for this story.
+          </p>
+          {/*
+            THE DOOR. The board carries hundreds of stories and only a few have ever been run, so
+            "no history for this one" used to be a dead end: the operator had to already know which
+            story to open next. The stories that DO have history are listed right here, newest run
+            first, so the screen answers the question the operator actually has.
+          */}
+          {withHistory && withHistory.length > 0 ? (
+            <div className="mx-auto mt-4 max-w-2xl text-left">
+              <p className="mb-1.5 text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--portal-gold-soft)]">
+                {(historyTotal ?? withHistory.length).toLocaleString()} stories on this board have
+                run history
+                {(historyTotal ?? withHistory.length) > withHistory.length
+                  ? ` — newest ${withHistory.length} shown`
+                  : ''}
+              </p>
+              <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-white/10 bg-white/[0.02] p-1.5">
+                {withHistory.map((s) => (
+                  <Link
+                    key={s.id}
+                    href={`${basePath}?story=${encodeURIComponent(s.id)}`}
+                    title={s.title}
+                    className="flex items-center gap-2 rounded px-2 py-1 transition hover:bg-[var(--portal-gold)]/10"
+                  >
+                    <span className="w-40 shrink-0 truncate font-mono text-[10px] text-[var(--portal-on-navy)]">
+                      {s.id}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-light text-white/70">
+                      {s.title}
+                    </span>
+                    <span className="shrink-0 text-[9px] uppercase tracking-[0.1em] text-white/40">
+                      {s.latestRunResult ?? '—'}
+                    </span>
+                    <span className="shrink-0 font-mono text-[9px] text-white/35">
+                      {s.latestRunAt ? s.latestRunAt.slice(0, 10) : '—'}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       ) : (
         <div className="max-h-64 space-y-1 overflow-y-auto p-2">
           {runs.map((run, index) => (

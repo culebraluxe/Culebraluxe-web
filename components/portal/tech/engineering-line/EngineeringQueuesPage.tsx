@@ -22,7 +22,12 @@ import { moveStoryBucketAction } from '@/app/portal/tech/actions'
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
 import type { StoryboardStory, StoryRun } from '@/db/storyboard'
-import { ActiveQueue, RunHistory, StoryDetail } from '@/components/portal/tech/engineering-cockpit'
+import {
+  ActiveQueue,
+  RunHistory,
+  StoryDetail,
+  type HistoryStory,
+} from '@/components/portal/tech/engineering-cockpit'
 import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 
 import { loadEngineeringQueues } from './fixture'
@@ -47,6 +52,15 @@ export type EngineeringQueuesPageProps = {
    * needs to show what actually happened. Null for a story the engine has not run.
    */
   recorderInstanceId?: string | null
+  /**
+   * Stories that actually have run history, newest first — the signpost shown when the selected
+   * story has none. Computed once by the page from the execution summaries it already loads.
+   */
+  historyStories?: HistoryStory[]
+  /** Ids of those stories, for the "runs" badge on a bench row. */
+  historyStoryIds?: string[]
+  /** Total stories with run history, so a capped signpost list never claims to be the total. */
+  historyTotal?: number
 }
 
 const QUEUES: Array<{
@@ -102,6 +116,9 @@ export function EngineeringQueuesPage({
   recorderInstanceId,
   runs,
   freshness,
+  historyStories,
+  historyStoryIds,
+  historyTotal,
 }: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
   const router = useRouter()
@@ -306,6 +323,7 @@ export function EngineeringQueuesPage({
             activeQueue={activeWork}
             selectedId={selectedStory?.id ?? null}
             basePath="/portal/tech"
+            historyStoryIds={historyStoryIds}
             onRowDragStart={setDraggingStory}
             onRowDragEnd={() => setDraggingStory(null)}
           />
@@ -383,7 +401,12 @@ export function EngineeringQueuesPage({
                 Select a story from the Work Bench to inspect it
               </p>
             )}
-            <RunHistory storyId={selectedStory?.id ?? null} runs={runs} />
+            <RunHistory
+              storyId={selectedStory?.id ?? null}
+              runs={runs}
+              withHistory={historyStories}
+              historyTotal={historyTotal}
+            />
           </div>
         </div>
       </section>

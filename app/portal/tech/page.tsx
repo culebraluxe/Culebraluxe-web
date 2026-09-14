@@ -12,6 +12,7 @@ import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
 } from "@/lib/storyboard-data"
+import type { HistoryStory } from "@/components/portal/tech/engineering-cockpit"
 import {
   listActiveWork,
   listStoryExecutionSummaries,
@@ -79,6 +80,27 @@ export default async function TechPage({
     withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
     new Date().toISOString()
 
+  // WHICH STORIES HAVE ACTUALLY BEEN RUN?
+  //
+  // Every story already carries its execution summary here (one query, already loaded), so the
+  // answer costs nothing — and without it the operator has to guess an id out of 323 rows to find
+  // the handful the engine has touched. Newest run first, capped: this is a signpost, not a report.
+  const historyStories: HistoryStory[] = withExecution
+    .filter((s) => s.execution)
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      latestRunAt: s.execution?.latestRunAt ?? null,
+      latestRunResult: s.execution?.latestRunResult ?? null,
+    }))
+    .sort((a, b) => (b.latestRunAt ?? '').localeCompare(a.latestRunAt ?? ''))
+    // The signpost is capped; the badge set below is NOT, or a bench story with real history
+    // would go unmarked just because it was not among the newest twelve.
+    .slice(0, 12)
+  const historyStoryIds = withExecution.filter((s) => s.execution).map((s) => s.id)
+  // The total, so the signpost can say how many exist rather than implying its capped list is all.
+  const historyTotal = historyStoryIds.length
+
   return (
     <div className="min-h-screen bg-[#0b1220]">
       <div className="flex justify-end gap-4 px-4 pt-3 lg:px-6">
@@ -109,6 +131,9 @@ export default async function TechPage({
         runs={runs}
         freshness={freshness}
         recorderInstanceId={recorderInstanceId}
+        historyStories={historyStories}
+        historyStoryIds={historyStoryIds}
+        historyTotal={historyTotal}
       />
       <div className="px-5 pb-8">
         <ForgeConvergenceView items={convergence} />
