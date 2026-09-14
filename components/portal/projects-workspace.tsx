@@ -173,10 +173,18 @@ function collectCatchUpEntries(poles: readonly ProjectPole[], date: Date): Catch
     for (const project of pole.projects) visit(project.workNodes, pole, project)
   }
 
+  const rank: Record<ProjectWorkStatus, number> = {
+    blocked: 0,
+    "in-progress": 1,
+    waiting: 2,
+    "not-started": 3,
+    complete: 4,
+    dismissed: 5,
+  }
+
   return entries.sort((a, b) => {
-    const aDone = a.node.status === "complete" ? 1 : 0
-    const bDone = b.node.status === "complete" ? 1 : 0
-    if (aDone !== bDone) return aDone - bDone
+    const statusOrder = rank[a.node.status] - rank[b.node.status]
+    if (statusOrder !== 0) return statusOrder
     const projectOrder = a.project.title.localeCompare(b.project.title)
     return projectOrder || a.node.title.localeCompare(b.node.title)
   })
@@ -421,7 +429,7 @@ type PaneOneProps = {
   onActivateData?: (node: ProjectTreeNode) => void
 }
 
-/** Pane 1 — ONE glass object: vertical scope/domain tabs fused with the arborist tree. */
+/** Pane 1 — ONE glass object: vertical domain tabs fused with the arborist tree. */
 function PaneOne(props: PaneOneProps) {
   const activeLabel = props.domains.find((d) => d.key === props.activeDomain)?.label ?? ""
   const [treeWrapRef, height] = useMeasuredHeight()
@@ -676,6 +684,36 @@ function ProjectionState({
   )
 }
 
+type CatchUpFilter = "all" | "open" | "blocked" | "complete"
+
+type CatchUpDisplayRow = {
+  key: string
+  title: string
+  status: ProjectWorkStatus
+  projectTitle: string
+  domain: ProjectDomainKey
+  poleLabel: string
+  owner: string | null
+  source: CatchUpEntry | null
+  sample: boolean
+}
+
+function catchUpDomainLabel(domain: ProjectDomainKey): string {
+  return domain.charAt(0).toUpperCase() + domain.slice(1)
+}
+
+function sampleCatchUpRows(): CatchUpDisplayRow[] {
+  return [
+    { key: "sample-photo-review", title: "Review seller photo selections", status: "in-progress", projectTitle: "DEMO · Dorado Listing", domain: "properties", poleLabel: "Dorado", owner: "Lisa", source: null, sample: true },
+    { key: "sample-buyer-call", title: "Call buyer after second showing", status: "waiting", projectTitle: "DEMO · Condado Buyer", domain: "people", poleLabel: "Condado", owner: "Chris", source: null, sample: true },
+    { key: "sample-listing-initials", title: "Send listing agreement for initials", status: "not-started", projectTitle: "DEMO · Ocean Park Listing", domain: "deals", poleLabel: "Ocean Park", owner: "Lisa", source: null, sample: true },
+    { key: "sample-mls", title: "Upload MLS copy and hero photo", status: "in-progress", projectTitle: "DEMO · Isla Verde Listing", domain: "marketing", poleLabel: "Isla Verde", owner: "Chris", source: null, sample: true },
+    { key: "sample-commission", title: "Review commission split", status: "blocked", projectTitle: "DEMO · Palmas Closing", domain: "accounting", poleLabel: "Palmas", owner: "Chris", source: null, sample: true },
+    { key: "sample-photographer", title: "Confirm photographer window", status: "complete", projectTitle: "DEMO · Dorado Listing", domain: "properties", poleLabel: "Dorado", owner: "Lisa", source: null, sample: true },
+    { key: "sample-condo-docs", title: "Confirm condo document request", status: "complete", projectTitle: "DEMO · Miramar Buyer", domain: "firm", poleLabel: "Miramar", owner: "Lisa", source: null, sample: true },
+  ]
+}
+
 function CatchUpWorkspace({
   entries,
   today,
@@ -687,10 +725,78 @@ function CatchUpWorkspace({
   onOpenEntry: (entry: CatchUpEntry) => void
   onNewProject?: () => void
 }) {
-  const completed = entries.filter((entry) => entry.node.status === "complete").length
+  const router = useRouter()
+  const [statusFilter, setStatusFilter] = useState<CatchUpFilter>("all")
+  const [domainFilter, setDomainFilter] = useState<ProjectDomainKey | "all">("all")
+  const [pendingNodeId, setPendingNodeId] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const [isCompleting, startCompleting] = useTransition()
+
+  const liveRows = useMemo<CatchUpDisplayRow[]>(
+    () => entries.map((entry) => ({
+      key: `${entry.project.id}:${entry.node.id}`,
+      title: entry.node.title,
+      status: entry.node.status,
+      projectTitle: entry.project.title,
+      domain: entry.pole.domain,
+      poleLabel: entry.pole.label,
+      owner: entry.node.owner ?? null,
+      source: entry,
+      sample: false,
+    })),
+    [entries],
+  )
+  const usingDemo = Boolean(today && liveRows.length === 0)
+  const rows = useMemo(() => usingDemo ? sampleCatchUpRows() : liveRows, [liveRows, usingDemo])
+  const completed = rows.filter((row) => row.status === "complete").length
+  const blocked = rows.filter((row) => row.status === "blocked").length
+  const remaining = rows.length - completed
+  const availableDomains = useMemo(
+    () => Array.from(new Set(rows.map((row) => row.domain))),
+    [rows],
+  )
+  const statusCounts = useMemo<Record<CatchUpFilter, number>>(() => ({
+    all: rows.length,
+    open: rows.filter((row) => row.status !== "complete").length,
+    blocked: rows.filter((row) => row.status === "blocked").length,
+    complete: completed,
+  }), [rows, completed])
+  const visibleRows = useMemo(
+    () => rows.filter((row) => {
+      const statusMatch = statusFilter === "all"
+        ? true
+        : statusFilter === "open"
+          ? row.status !== "complete"
+          : row.status === statusFilter
+      const domainMatch = domainFilter === "all" || row.domain === domainFilter
+      return statusMatch && domainMatch
+    }),
+    [rows, statusFilter, domainFilter],
+  )
+
   const dateLabel = today
     ? today.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
     : "Today"
+
+  const completeEntry = useCallback((row: CatchUpDisplayRow) => {
+    const source = row.source
+    if (!source || row.status === "complete" || row.status === "blocked" || isCompleting) return
+    setMutationError(null)
+    setPendingNodeId(source.node.id)
+    startCompleting(async () => {
+      const result = await updateWbsItemAction({ id: source.node.id, status: "done" })
+      if (!result.ok) setMutationError(result.message)
+      else router.refresh()
+      setPendingNodeId(null)
+    })
+  }, [isCompleting, router])
+
+  const filterOptions: Array<{ key: CatchUpFilter; label: string }> = [
+    { key: "all", label: "All" },
+    { key: "open", label: "Open" },
+    { key: "blocked", label: "Blocked" },
+    { key: "complete", label: "Done" },
+  ]
 
   return (
     <>
@@ -701,13 +807,16 @@ function CatchUpWorkspace({
               <ListChecks className="h-5 w-5" strokeWidth={1.7} aria-hidden />
             </span>
             <span className="min-w-0">
-              <span className="block text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">Catch-Up</span>
+              <span className="flex items-center gap-2">
+                <span className="block text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">Catch-Up</span>
+                {usingDemo ? <span className="rounded-full border border-[var(--portal-gold)]/35 bg-[var(--portal-gold)]/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">Sample day</span> : null}
+              </span>
               <span className="block text-[11px] font-light uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">Today · {dateLabel}</span>
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="text-[11px] font-light text-[var(--portal-blue-gray)]">
-              {entries.length ? `${completed} of ${entries.length} complete` : "Today"}
+              {rows.length ? `${remaining} remaining · ${completed} complete${blocked ? ` · ${blocked} blocked` : ""}` : "Today"}
             </span>
             {onNewProject ? (
               <button
@@ -721,47 +830,101 @@ function CatchUpWorkspace({
           </div>
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--portal-panel-border)]/70 px-3 py-2">
+        <span className="mr-1 text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Status</span>
+        {filterOptions.map((option) => {
+          const selected = statusFilter === option.key
+          return (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setStatusFilter(option.key)}
+              className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition ${selected ? "bg-[var(--portal-navy)] text-white" : "bg-white/35 text-[var(--portal-navy-soft)] hover:bg-white/55"}`}
+            >
+              {option.label} <span className="ml-1 opacity-65">{statusCounts[option.key]}</span>
+            </button>
+          )
+        })}
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Area</span>
+        <select
+          value={domainFilter}
+          onChange={(event) => setDomainFilter(event.target.value as ProjectDomainKey | "all")}
+          className="h-7 rounded-full border border-[var(--portal-panel-border)] bg-white/50 px-2.5 text-[10px] font-medium text-[var(--portal-navy-soft)] outline-none"
+          aria-label="Filter Catch-Up by area"
+        >
+          <option value="all">All areas</option>
+          {availableDomains.map((domain) => <option key={domain} value={domain}>{catchUpDomainLabel(domain)}</option>)}
+        </select>
+        {usingDemo ? <span className="basis-full text-[10px] font-light text-black/40">UI-only sample rows — nothing was written to Neon. Real WBS work due today replaces them automatically.</span> : null}
+        {mutationError ? <span className="basis-full text-[11px] text-[var(--portal-archive)]">{mutationError}</span> : null}
+      </div>
+
       <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
         <div className={`min-h-0 flex-1 ${PROJECTS_SCROLL_CLASS} overflow-x-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20`}>
-          <div className="min-w-[760px]">
-            <div className="grid grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_28px] gap-3 border-b border-[var(--portal-panel-border)]/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
-              <span />
-              <span>Task</span>
-              <span>Project</span>
-              <span>Area</span>
-              <span>Assignee</span>
-              <span />
+          <div className="min-w-[900px]">
+            <div className="grid grid-cols-[minmax(0,1fr)_100px] border-b border-[var(--portal-panel-border)]/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
+              <div className="grid grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_24px] items-center gap-3">
+                <span />
+                <span>Task</span>
+                <span>Project</span>
+                <span>Area</span>
+                <span>Assignee</span>
+                <span />
+              </div>
+              <span className="text-right">Action</span>
             </div>
             {!today ? (
               <div className="flex min-h-[220px] items-center justify-center px-6 text-sm font-light text-black/40">Loading today’s work…</div>
-            ) : entries.length === 0 ? (
+            ) : visibleRows.length === 0 ? (
               <div className="flex min-h-[220px] items-center justify-center px-6 text-center text-sm font-light text-black/45">
-                No project tasks are due today.
+                No today work matches those filters.
               </div>
             ) : (
               <ul className="divide-y divide-[var(--portal-panel-border)]/70">
-                {entries.map((entry) => {
-                  const done = entry.node.status === "complete"
+                {visibleRows.map((row) => {
+                  const done = row.status === "complete"
+                  const pending = row.source ? pendingNodeId === row.source.node.id : false
                   return (
-                    <li key={`${entry.project.id}:${entry.node.id}`}>
+                    <li key={row.key} className={`grid grid-cols-[minmax(0,1fr)_100px] items-stretch ${done ? "opacity-60" : ""}`}>
                       <button
                         type="button"
-                        onClick={() => onOpenEntry(entry)}
-                        className={`grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_28px] items-center gap-3 px-3 py-3 text-left transition hover:bg-white/30 ${done ? "opacity-55" : ""}`}
+                        disabled={row.sample}
+                        onClick={() => { if (row.source) onOpenEntry(row.source) }}
+                        title={row.sample ? "Sample row" : "Open this work item in its project"}
+                        className={`grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_24px] items-center gap-3 px-3 py-3 text-left transition ${row.sample ? "cursor-default" : "hover:bg-white/30"}`}
                       >
-                        <StatusIcon status={entry.node.status} />
+                        <StatusIcon status={row.status} />
                         <span className="min-w-0">
-                          <span className={`block truncate text-[14px] font-medium text-[var(--portal-navy)] ${done ? "line-through" : ""}`}>{entry.node.title}</span>
-                          <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{STATUS_LABEL[entry.node.status]}</span>
+                          <span className={`block truncate text-[14px] font-medium text-[var(--portal-navy)] ${done ? "line-through" : ""}`}>{row.title}</span>
+                          <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{STATUS_LABEL[row.status]}</span>
                         </span>
-                        <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{entry.project.title}</span>
+                        <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{row.projectTitle}</span>
                         <span className="min-w-0">
-                          <span className="block truncate text-[12px] font-medium capitalize text-[var(--portal-navy-soft)]">{entry.pole.domain}</span>
-                          <span className="block truncate text-[10px] font-light text-black/40">{entry.pole.label}</span>
+                          <span className="block truncate text-[12px] font-medium text-[var(--portal-navy-soft)]">{catchUpDomainLabel(row.domain)}</span>
+                          <span className="block truncate text-[10px] font-light text-black/40">{row.poleLabel}</span>
                         </span>
-                        <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{entry.node.owner ?? "—"}</span>
-                        <ChevronRight className="h-4 w-4 text-black/25" aria-hidden />
+                        <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{row.owner ?? "—"}</span>
+                        <ChevronRight className={`h-4 w-4 ${row.sample ? "text-black/10" : "text-black/25"}`} aria-hidden />
                       </button>
+                      <div className="flex items-center justify-end px-3 py-2">
+                        {row.sample ? (
+                          <span className="rounded-full bg-[var(--portal-gold)]/10 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-gold-muted)]">Sample</span>
+                        ) : done ? (
+                          <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)]">Done</span>
+                        ) : row.status === "blocked" ? (
+                          <button type="button" onClick={() => { if (row.source) onOpenEntry(row.source) }} className="rounded-full border border-[var(--portal-archive)]/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-archive)]">Open</button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isCompleting}
+                            onClick={() => completeEntry(row)}
+                            className="rounded-full border border-[var(--portal-success)]/35 bg-white/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)] transition hover:bg-white/55 disabled:opacity-40"
+                          >
+                            {pending ? "Saving…" : "Complete"}
+                          </button>
+                        )}
+                      </div>
                     </li>
                   )
                 })}
