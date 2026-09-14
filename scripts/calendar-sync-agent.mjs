@@ -9,18 +9,6 @@
 //   pnpm calendar:sync:run         run the exact same wrapper once
 //   pnpm calendar:sync:stop        kill switch: boot out + persist disabled
 //   pnpm calendar:sync:uninstall   stop + delete the plist
-//
-// This tool only maintains the periodic wake-up and lightweight logs. The web
-// app's Catch-Up adapter (lib/catchup/eventkit.ts) consumes the snapshot and
-// already degrades gracefully when it is missing/bad — the LaunchAgent being
-// stopped, permission denied, or a bad snapshot NEVER blocks CulebraLuxe.
-//
-// No secrets live in tracked files or the generated plist. Env controls:
-//   CALENDAR_SYNC_CADENCE_SECONDS  - StartInterval (default 1800 = 30 min)
-//   CULEBRALUXE_LAUNCHAGENTS_DIR   - where the plist is installed
-//   CULEBRALUXE_SUPPORT_DIR        - where the deployed wrapper lives
-//   CULEBRALUXE_CALENDAR_LOG_DIR   - where logs live
-//   MAC_BRIDGE_CALENDAR_JSON       - snapshot path (default /tmp/culebraluxe-calendar.json)
 // ---------------------------------------------------------------------------
 
 import { spawnSync } from 'node:child_process'
@@ -33,6 +21,7 @@ export const LABEL = 'com.culebraluxe.calendar-sync'
 export const CADENCE_SECONDS = Number(
   process.env.CALENDAR_SYNC_CADENCE_SECONDS || 1800,
 )
+const LAUNCHCTL_TIMEOUT_MS = 10000
 
 export function repoRoot() {
   return join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -69,18 +58,12 @@ export function machinePaths(env = process.env) {
 export function escapeXml(value) {
   return String(value).replace(/[<>&'"]/g, (ch) => {
     switch (ch) {
-      case '<':
-        return '&lt;'
-      case '>':
-        return '&gt;'
-      case '&':
-        return '&amp;'
-      case "'":
-        return '&apos;'
-      case '"':
-        return '&quot;'
-      default:
-        return ch
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '&': return '&amp;'
+      case "'": return '&apos;'
+      case '"': return '&quot;'
+      default: return ch
     }
   })
 }
@@ -106,7 +89,22 @@ export function renderPlist({
 }
 
 function launchctl(args) {
-  return spawnSync('/bin/launchctl', args, { encoding: 'utf8' })
+  return spawnSync('/bin/launchctl', args, {
+    encoding: 'utf8',
+    timeout: LAUNCHCTL_TIMEOUT_MS,
+  })
+}
+
+function commandDetail(result) {
+  if (result?.error) return result.error.message
+  return result?.stderr?.trim() || result?.stdout?.trim() || `exit ${result?.status ?? 'unknown'}`
+}
+
+function failTimedOutLaunchctl(step, result) {
+  if (result?.error?.code === 'ETIMEDOUT') {
+    console.error(`[calendar-sync] ${step} timed out after ${LAUNCHCTL_TIMEOUT_MS / 1000}s`)
+    process.exit(1)
+  }
 }
 
 function deployWrapper(p) {
@@ -121,9 +119,14 @@ function deployWrapper(p) {
 
 function install() {
   const p = machinePaths()
+
+  console.log('[calendar-sync] 1/6 preparing directories')
   mkdirSync(p.logDir, { recursive: true })
+
+  console.log('[calendar-sync] 2/6 deploying wrapper')
   deployWrapper(p)
 
+  console.log('[calendar-sync] 3/6 rendering LaunchAgent plist')
   const templatePath = join(
     p.repo,
     'scripts',
@@ -140,32 +143,47 @@ function install() {
   })
   writeFileSync(p.plistPath, plist, { mode: 0o644 })
 
+  console.log('[calendar-sync] 4/6 validating plist')
   const lint = spawnSync('/usr/bin/plutil', ['-lint', p.plistPath], {
     encoding: 'utf8',
+    timeout: 10000,
   })
+  if (lint.error?.code === 'ETIMEDOUT') {
+    console.error('[calendar-sync] plutil timed out after 10s')
+    process.exit(1)
+  }
   if (lint.status !== 0) {
     console.error(`plutil rejected generated plist:\n${lint.stdout}${lint.stderr}`)
     process.exit(1)
   }
 
-  // Idempotent (re)enable.
-  launchctl(['bootout', p.job])
-  launchctl(['enable', p.job])
-  const boot = launchctl(['bootstrap', p.target, p.plistPath])
-  if (boot.status !== 0) {
-    console.error(
-      `launchctl bootstrap failed:\n${boot.stderr.trim() || boot.stdout.trim()}`,
-    )
+  console.log('[calendar-sync] 5/6 resetting prior LaunchAgent state')
+  const bootout = launchctl(['bootout', p.job])
+  failTimedOutLaunchctl('launchctl bootout', bootout)
+
+  const enable = launchctl(['enable', p.job])
+  failTimedOutLaunchctl('launchctl enable', enable)
+  if (enable.status !== 0) {
+    console.error(`[calendar-sync] launchctl enable failed: ${commandDetail(enable)}`)
     process.exit(1)
   }
 
-  console.log('installed + enabled:')
+  console.log('[calendar-sync] 6/6 bootstrapping LaunchAgent')
+  const boot = launchctl(['bootstrap', p.target, p.plistPath])
+  failTimedOutLaunchctl('launchctl bootstrap', boot)
+  if (boot.status !== 0) {
+    console.error(`[calendar-sync] launchctl bootstrap failed: ${commandDetail(boot)}`)
+    process.exit(1)
+  }
+
+  console.log('[calendar-sync] installed + enabled')
   printStatus()
 }
 
 function printStatus() {
   const p = machinePaths()
   const loaded = launchctl(['print', p.job])
+  failTimedOutLaunchctl('launchctl print', loaded)
   console.log('label:', LABEL)
   console.log('job:', p.job)
   console.log('plist:', p.plistPath)
@@ -183,6 +201,7 @@ function printStatus() {
   if (existsSync(p.snapshot)) {
     const out = spawnSync('stat', ['-f', 'snapshot generated-at: %Sm', p.snapshot], {
       encoding: 'utf8',
+      timeout: 10000,
     })
     if (out.status === 0) console.log(out.stdout.trim())
     else console.log('snapshot exists (generated-at unavailable)')
@@ -191,11 +210,8 @@ function printStatus() {
   }
 }
 
-
 function runOnce() {
   const p = machinePaths()
-  // Prefer the deployed copy (exactly what launchd invokes); fall back to the
-  // repo-resident wrapper before install.
   const wrapper = existsSync(p.deployedWrapper) ? p.deployedWrapper : p.wrapper
   const env = existsSync(p.deployedWrapper)
     ? { ...process.env, CULEBRALUXE_REPO: p.repo }
@@ -210,17 +226,19 @@ function runOnce() {
 
 function stop() {
   const p = machinePaths()
-  launchctl(['bootout', p.job])
-  launchctl(['disable', p.job])
-  console.log(
-    `stopped: no future scheduled invocations (plist kept at ${p.plistPath}).`,
-  )
+  const bootout = launchctl(['bootout', p.job])
+  failTimedOutLaunchctl('launchctl bootout', bootout)
+  const disable = launchctl(['disable', p.job])
+  failTimedOutLaunchctl('launchctl disable', disable)
+  console.log(`stopped: no future scheduled invocations (plist kept at ${p.plistPath}).`)
 }
 
 function uninstall() {
   const p = machinePaths()
-  launchctl(['bootout', p.job])
-  launchctl(['disable', p.job])
+  const bootout = launchctl(['bootout', p.job])
+  failTimedOutLaunchctl('launchctl bootout', bootout)
+  const disable = launchctl(['disable', p.job])
+  failTimedOutLaunchctl('launchctl disable', disable)
   if (existsSync(p.plistPath)) rmSync(p.plistPath)
   if (existsSync(p.deployedWrapper)) rmSync(p.deployedWrapper)
   console.log('uninstalled: launchd job removed, plist + deployed wrapper deleted.')
@@ -229,21 +247,11 @@ function uninstall() {
 function main() {
   const command = process.argv[2]
   switch (command) {
-    case 'install':
-      install()
-      break
-    case 'status':
-      printStatus()
-      break
-    case 'run':
-      runOnce()
-      break
-    case 'stop':
-      stop()
-      break
-    case 'uninstall':
-      uninstall()
-      break
+    case 'install': install(); break
+    case 'status': printStatus(); break
+    case 'run': runOnce(); break
+    case 'stop': stop(); break
+    case 'uninstall': uninstall(); break
     case 'help':
     case '--help':
     case '-h':
@@ -265,4 +273,3 @@ commands:
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   main()
 }
-
