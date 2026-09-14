@@ -38,6 +38,15 @@ import {
  * persist immediately regardless of this interval. */
 export const HEARTBEAT_MIN_INTERVAL_MS = 5000
 
+/**
+ * How long the vendor-status poll loop waits between checks.
+ *
+ * The loop used to run with NO delay, calling `statusExternal` back-to-back for the entire life of a
+ * run. When the vendor check is cheap (a local status file) that is a hot loop, and it is what turned
+ * a single stale work item into 45 captured errors in 14 seconds.
+ */
+export const PROGRESS_POLL_INTERVAL_MS = 1000
+
 /** Default single-run wall-clock hard limit. A wandering role run dies here,
  * never burning credits indefinitely. Override via FORGE_RUN_MAX_MS. */
 export const DEFAULT_RUN_WALL_CLOCK_MS = 45 * 60_000
@@ -198,6 +207,16 @@ export abstract class AgentRuntimeAdapter {
     // a write amplifier. Meaningful note/step changes still persist immediately.
     let status = await this.statusExternal(command, ctxWithRun)
     let lastHeartbeatAt = 0
+    // ONCE THE WORK ITEM IS NO LONGER RUNNING, PROGRESS IS POINTLESS - SO STOP TRYING.
+    //
+    // `progress()` refuses with a conflict when the row is no longer Running ("Work item ... is not
+    // Running; progress requires an active run."). The loop below kept calling it anyway and captured
+    // the refusal on EVERY poll whose content had changed, which measured as 45 error rows in 14
+    // SECONDS for a single stale work item - a self-inflicted flood of the error store we rely on to
+    // diagnose everything else. A conflict is a terminal fact about this run, not a transient one, so
+    // it is recorded ONCE and progress is disabled for the rest of the loop; the run still finishes and
+    // its real evidence is verified independently.
+    let progressDisabled = false
     while (status.lifecycle === 'running') {
       const prog = this.progressFromStatus(status, command)
       const now = Date.now()
@@ -208,7 +227,7 @@ export abstract class AgentRuntimeAdapter {
         await this.cancelExternal(command, ctxWithRun)
       }
       const changed = Boolean(prog?.note) || Boolean(prog?.step) || prog?.completion != null
-      if (changed || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS) {
+      if (!progressDisabled && (changed || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS)) {
         lastHeartbeatAt = now
         try {
           await this.deps.work.progress(command.workItemId, {
@@ -221,11 +240,18 @@ export abstract class AgentRuntimeAdapter {
           // not control flow. Under concurrent siblings a transient failure here
           // aborted a healthy child mid-run. Record it durably and keep the run
           // going — the child's real evidence is verified independently.
-          captureServerLog('warn', 'forge.adapter.progress', String((err as { message?: string })?.message ?? err), {
+          const message = String((err as { message?: string })?.message ?? err)
+          progressDisabled = /is not Running|has no story run/i.test(message)
+          captureServerLog('warn', 'forge.adapter.progress', message, {
             route: 'forge:role-progress',
           })
         }
       }
+      // POLL PACING. This loop had no delay at all: `statusExternal` was called back-to-back for the
+      // whole life of a run, which spins whenever the vendor check is cheap (a local status file),
+      // and it fed the flood above. One second between polls is still immediate to a human watching
+      // the screen and costs nothing next to the model call each turn is waiting on.
+      await new Promise((resolve) => setTimeout(resolve, PROGRESS_POLL_INTERVAL_MS))
       status = await this.statusExternal(command, ctxWithRun)
     }
 
