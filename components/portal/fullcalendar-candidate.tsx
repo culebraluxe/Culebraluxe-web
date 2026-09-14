@@ -60,6 +60,7 @@ export function FullCalendarCandidate({
               right: 'dayGridMonth,timeGridWeek,timeGridDay',
             }}
             height="100%"
+            fixedWeekCount={false}
             dayMaxEvents={4}
             slotMinTime="08:00:00"
             slotMaxTime="20:00:00"
