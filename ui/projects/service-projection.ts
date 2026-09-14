@@ -99,7 +99,9 @@ function categoryToType(category: string): ProjectWorkNodeType {
 
 function dueLabel(dueAt: string | null | undefined): string | undefined {
   if (!dueAt) return undefined
-  const d = new Date(dueAt)
+  const dateKey = /^(\d{4}-\d{2}-\d{2})/.exec(dueAt)?.[1]
+  if (!dateKey) return undefined
+  const d = new Date(`${dateKey}T12:00:00`)
   if (Number.isNaN(d.getTime())) return undefined
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
@@ -258,8 +260,6 @@ function provenanceFor(input: {
   return {
     documents: viewStatus(input.documentsAnchored, input.documents),
     activity: viewStatus(input.activityAnchored, input.activity),
-    // Calendar derives from the project's own WBS, so it is never "unlinked":
-    // it is linked when a dated item exists, empty otherwise.
     calendar: input.calendar > 0 ? "linked" : "empty",
   }
 }
@@ -288,10 +288,6 @@ export function mapRealProjectsToWorkspace(
     const done = projectItems.filter((i) => i.status === "done").length
     const planned = projectItems.filter((i) => i.status !== "dismissed").length
 
-    // Unique person/property anchors among this project's items. These are the
-    // real entity anchors: a project row may carry no personId/propertyId while
-    // its WBS items are anchored to the property/person. Row anchors win per
-    // type; otherwise fall back to the WBS anchors of that same type.
     const anchors = new Map<string, { type: string; id: string }>()
     for (const item of projectItems) {
       const entity = item.entity
@@ -308,8 +304,6 @@ export function mapRealProjectsToWorkspace(
     const effectivePropertyIds = project.propertyId != null ? [project.propertyId] : wbsPropertyIds
     const effectivePersonIds = project.personId != null ? [project.personId] : wbsPersonIds
 
-    // Secondary-view joins use stable ids only. A property name is NEVER used
-    // as a join key: an absent anchor yields an empty pane, never a global match.
     const planDocuments = documents
       .filter((document) => document.propertyId != null && effectivePropertyIds.includes(document.propertyId))
       .map((document) => ({ id: document.id, title: document.title ?? 'Document', state: document.state, propertyId: document.propertyId, createdAt: document.createdAt }))
@@ -401,8 +395,6 @@ export function mapRealProjectsToWorkspace(
     }
   }
 
-  // A successful read with zero projects is `empty`, not `failure`; the page
-  // overrides this for unauthorized/failure outcomes.
   return {
     domains: DOMAINS,
     poles,
