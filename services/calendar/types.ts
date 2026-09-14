@@ -7,6 +7,7 @@ export type CreateAppleCalendarEventRequest = {
   allDay?: boolean
   location?: string | null
   notes?: string | null
+  alert?: boolean
 }
 
 export type CalendarCommandReceipt = {
