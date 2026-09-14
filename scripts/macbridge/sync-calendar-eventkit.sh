@@ -21,6 +21,11 @@
 
 set -uo pipefail
 
+# launchd starts jobs with a minimal PATH that does not include Homebrew.
+# CulebraLuxe dev Macs are Apple Silicon today (/opt/homebrew/bin), while the
+# /usr/local/bin fallback keeps the wrapper portable to Intel/Homebrew installs.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
 if [ -n "${CULEBRALUXE_REPO:-}" ]; then
   REPO_ROOT="$CULEBRALUXE_REPO"
 else
@@ -51,6 +56,7 @@ if ! command -v node >/dev/null 2>&1; then
   log "result=failure reason=node-not-found attempted-at=$attempted_at"
   exit 1
 fi
+NODE_BIN="$(command -v node)"
 
 before_mtime=""
 if [ -f "$SNAPSHOT" ]; then
@@ -74,7 +80,7 @@ fi
 
 after_mtime="$(stat -f '%m' "$SNAPSHOT" 2>/dev/null || echo '')"
 generated_at="$(date -u -r "$after_mtime" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "$after_mtime")"
-count="$(node -e "try{const a=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(Array.isArray(a)?a.length:'?')}catch{console.log('?')}" "$SNAPSHOT" 2>/dev/null || echo '?')"
+count="$("$NODE_BIN" -e "try{const a=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(Array.isArray(a)?a.length:'?')}catch{console.log('?')}" "$SNAPSHOT" 2>/dev/null || echo '?')"
 changed="no"
 if [ -n "$before_mtime" ] && [ "$before_mtime" != "$after_mtime" ]; then
   changed="yes"
@@ -83,7 +89,7 @@ fi
 # The LaunchAgent is the production Apple Calendar gateway. The DB target is
 # explicit and fail-closed; db/client resolves DATABASE_URL_PROD from .env.local.
 if ! APP_ENV=production EXECUTION_ENV=PROD \
-  node --env-file="$REPO_ROOT/.env.local" --import tsx \
+  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
   scripts/calendar-eventkit-intake.ts "$SNAPSHOT" >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=landing snapshot=$SNAPSHOT generated-at=$generated_at events=$count changed=$changed"
   exit 1
