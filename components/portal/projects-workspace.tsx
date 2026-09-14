@@ -10,7 +10,6 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Circle,
   Clock3,
   FileText,
@@ -51,6 +50,7 @@ import {
   mapProjectToFileTree,
   mapProjectToTimeline,
 } from "@/ui/projects"
+import type { ProjectCatchUpItem } from "@/ui/projects/catchup-projection"
 import { usePageController } from "@/ui/runtime"
 import { Tree } from "react-arborist"
 import type { NodeApi, NodeRendererProps } from "react-arborist"
@@ -61,11 +61,11 @@ import {
   type ProjectTreeNode,
 } from "@/ui/projects/tree-projection"
 import { FullCalendarCandidate } from "@/components/portal/fullcalendar-candidate"
+import { ProjectCatchUpWorkspace } from "@/components/portal/project-catch-up-workspace"
 import { ProjectFilemanager } from "@/components/portal/project-filemanager"
 import { ProjectTimeline } from "@/components/portal/project-timeline"
 import { SelectedWorkPanel } from "@/components/portal/selected-work-panel"
 import { instantiateProjectAction, updateProjectStatusAction } from "@/app/portal/projects/actions"
-import { updateWbsItemAction } from "@/app/portal/wbs/actions"
 
 const DOMAIN_ICON: Record<ProjectDomainKey, LucideIcon> = {
   properties: Home,
@@ -108,24 +108,6 @@ function projectKindIcon(kind: string): LucideIcon {
   return PROJECT_KIND_ICON[kind] ?? FileText
 }
 
-const STATUS_LABEL: Record<ProjectWorkStatus, string> = {
-  complete: "Complete",
-  waiting: "Waiting",
-  "in-progress": "In progress",
-  "not-started": "Not started",
-  blocked: "Blocked",
-  dismissed: "Dismissed",
-}
-
-const STATUS_BAR: Record<ProjectWorkStatus, string> = {
-  complete: "bg-[var(--portal-success)]",
-  waiting: "bg-[var(--portal-gold)]",
-  "in-progress": "bg-[var(--portal-blue-gray)]",
-  "not-started": "bg-black/20",
-  blocked: "bg-[var(--portal-archive)]",
-  dismissed: "bg-black/35",
-}
-
 const VIEW_LABEL: Record<ProjectWorkspaceView, string> = {
   "work-plan": "Work Plan",
   timeline: "Timeline",
@@ -135,64 +117,6 @@ const VIEW_LABEL: Record<ProjectWorkspaceView, string> = {
   activity: "Activity",
 }
 const VIEWS = Object.keys(VIEW_LABEL) as ProjectWorkspaceView[]
-
-type CatchUpEntry = {
-  node: ProjectWorkNode
-  project: ProjectPlan
-  pole: ProjectPole
-}
-
-function localDateKey(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-function dueDateKey(value: string | undefined): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : localDateKey(date)
-}
-
-/** Catch-Up is a projection over the SAME WBS rows: all Projects, due today only. */
-function collectCatchUpEntries(poles: readonly ProjectPole[], date: Date): CatchUpEntry[] {
-  const today = localDateKey(date)
-  const entries: CatchUpEntry[] = []
-
-  const visit = (nodes: readonly ProjectWorkNode[], pole: ProjectPole, project: ProjectPlan) => {
-    for (const node of nodes) {
-      if (node.status !== "dismissed" && dueDateKey(node.dueAt) === today) {
-        entries.push({ node, project, pole })
-      }
-      if (node.children?.length) visit(node.children, pole, project)
-    }
-  }
-
-  for (const pole of poles) {
-    for (const project of pole.projects) visit(project.workNodes, pole, project)
-  }
-
-  const rank: Record<ProjectWorkStatus, number> = {
-    blocked: 0,
-    "in-progress": 1,
-    waiting: 2,
-    "not-started": 3,
-    complete: 4,
-    dismissed: 5,
-  }
-
-  return entries.sort((a, b) => {
-    const statusOrder = rank[a.node.status] - rank[b.node.status]
-    if (statusOrder !== 0) return statusOrder
-    const projectOrder = a.project.title.localeCompare(b.project.title)
-    return projectOrder || a.node.title.localeCompare(b.node.title)
-  })
-}
-
-function StatusDot({ status, className }: { status: ProjectWorkStatus; className?: string }) {
-  return <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_BAR[status]} ${className ?? ""}`} />
-}
 
 function StatusIcon({ status }: { status: ProjectWorkStatus }) {
   if (status === "complete") return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--portal-success)]" aria-hidden />
@@ -209,23 +133,6 @@ function Progress({ value, className }: { value: number; className?: string }) {
     <div className={`h-1 w-full overflow-hidden rounded-full bg-[var(--portal-mist-3)]/70 ${className ?? ""}`}>
       <div className="h-full rounded-full bg-[var(--portal-gold)] transition-[width] duration-300" style={{ width: `${clamped}%` }} />
     </div>
-  )
-}
-
-function nodeMatches(node: ProjectWorkNode, query: string): boolean {
-  if (node.title.toLowerCase().includes(query)) return true
-  return node.children?.some((child) => nodeMatches(child, query)) ?? false
-}
-
-function poleMatches(pole: ProjectPole, query: string): boolean {
-  if (!query) return true
-  const q = query.toLowerCase()
-  return (
-    pole.label.toLowerCase().includes(q) ||
-    pole.subtitle.toLowerCase().includes(q) ||
-    pole.projects.some(
-      (p) => p.title.toLowerCase().includes(q) || p.workNodes.some((n) => nodeMatches(n, q)),
-    )
   )
 }
 
@@ -324,15 +231,6 @@ function useMeasuredHeight() {
 
 function treeRowHeight(node: NodeApi<ProjectTreeNode>): number {
   return node.data.kind === "pole" ? 70 : node.data.kind === "project" ? 50 : 46
-}
-
-function navyWorkDot(status?: ProjectWorkStatus): string {
-  if (status === "complete") return "bg-[var(--portal-success)]"
-  if (status === "waiting") return "bg-[var(--portal-gold)]"
-  if (status === "blocked") return "bg-[var(--portal-archive)]"
-  if (status === "in-progress") return "bg-[var(--portal-gold)]/70"
-  if (status === "dismissed") return "bg-white/20"
-  return "bg-white/30"
 }
 
 function statusGlyphColor(status?: ProjectWorkStatus): string {
@@ -665,290 +563,16 @@ function ProjectionState({
   )
 }
 
-type CatchUpFilter = "all" | "open" | "blocked" | "complete"
-
-type CatchUpDisplayRow = {
-  key: string
-  title: string
-  status: ProjectWorkStatus
-  projectTitle: string
-  domain: ProjectDomainKey
-  poleLabel: string
-  owner: string | null
-  source: CatchUpEntry | null
-  sample: boolean
-}
-
-function catchUpDomainLabel(domain: ProjectDomainKey): string {
-  return domain.charAt(0).toUpperCase() + domain.slice(1)
-}
-
-function sampleCatchUpRows(): CatchUpDisplayRow[] {
-  return [
-    { key: "sample-photo-review", title: "Review seller photo selections", status: "in-progress", projectTitle: "DEMO · Dorado Listing", domain: "properties", poleLabel: "Dorado", owner: "Lisa", source: null, sample: true },
-    { key: "sample-buyer-call", title: "Call buyer after second showing", status: "waiting", projectTitle: "DEMO · Condado Buyer", domain: "people", poleLabel: "Condado", owner: "Chris", source: null, sample: true },
-    { key: "sample-listing-initials", title: "Send listing agreement for initials", status: "not-started", projectTitle: "DEMO · Ocean Park Listing", domain: "deals", poleLabel: "Ocean Park", owner: "Lisa", source: null, sample: true },
-    { key: "sample-mls", title: "Upload MLS copy and hero photo", status: "in-progress", projectTitle: "DEMO · Isla Verde Listing", domain: "marketing", poleLabel: "Isla Verde", owner: "Chris", source: null, sample: true },
-    { key: "sample-commission", title: "Review commission split", status: "blocked", projectTitle: "DEMO · Palmas Closing", domain: "accounting", poleLabel: "Palmas", owner: "Chris", source: null, sample: true },
-    { key: "sample-photographer", title: "Confirm photographer window", status: "complete", projectTitle: "DEMO · Dorado Listing", domain: "properties", poleLabel: "Dorado", owner: "Lisa", source: null, sample: true },
-    { key: "sample-condo-docs", title: "Confirm condo document request", status: "complete", projectTitle: "DEMO · Miramar Buyer", domain: "firm", poleLabel: "Miramar", owner: "Lisa", source: null, sample: true },
-  ]
-}
-
-function CatchUpWorkspace({
-  entries,
-  today,
-  onOpenEntry,
-  onNewProject,
-}: {
-  entries: readonly CatchUpEntry[]
-  today: Date | null
-  onOpenEntry: (entry: CatchUpEntry) => void
-  onNewProject?: () => void
-}) {
-  const router = useRouter()
-  const [statusFilter, setStatusFilter] = useState<CatchUpFilter>("all")
-  const [domainFilter, setDomainFilter] = useState<ProjectDomainKey | "all">("all")
-  const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(null)
-  const [pendingNodeId, setPendingNodeId] = useState<string | null>(null)
-  const [mutationError, setMutationError] = useState<string | null>(null)
-  const [isCompleting, startCompleting] = useTransition()
-
-  const liveRows = useMemo<CatchUpDisplayRow[]>(
-    () => entries.map((entry) => ({
-      key: `${entry.project.id}:${entry.node.id}`,
-      title: entry.node.title,
-      status: entry.node.status,
-      projectTitle: entry.project.title,
-      domain: entry.pole.domain,
-      poleLabel: entry.pole.label,
-      owner: entry.node.owner ?? null,
-      source: entry,
-      sample: false,
-    })),
-    [entries],
-  )
-  const selectedEntry = useMemo(
-    () => entries.find((entry) => `${entry.project.id}:${entry.node.id}` === selectedEntryKey) ?? null,
-    [entries, selectedEntryKey],
-  )
-  const usingDemo = Boolean(today && liveRows.length === 0)
-  const rows = useMemo(() => usingDemo ? sampleCatchUpRows() : liveRows, [liveRows, usingDemo])
-  const completed = rows.filter((row) => row.status === "complete").length
-  const blocked = rows.filter((row) => row.status === "blocked").length
-  const remaining = rows.length - completed
-  const availableDomains = useMemo(
-    () => Array.from(new Set(rows.map((row) => row.domain))),
-    [rows],
-  )
-  const statusCounts = useMemo<Record<CatchUpFilter, number>>(() => ({
-    all: rows.length,
-    open: rows.filter((row) => row.status !== "complete").length,
-    blocked: rows.filter((row) => row.status === "blocked").length,
-    complete: completed,
-  }), [rows, completed])
-  const visibleRows = useMemo(
-    () => rows.filter((row) => {
-      const statusMatch = statusFilter === "all"
-        ? true
-        : statusFilter === "open"
-          ? row.status !== "complete"
-          : row.status === statusFilter
-      const domainMatch = domainFilter === "all" || row.domain === domainFilter
-      return statusMatch && domainMatch
-    }),
-    [rows, statusFilter, domainFilter],
-  )
-
-  const dateLabel = today
-    ? today.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-    : "Today"
-
-  const completeEntry = useCallback((row: CatchUpDisplayRow) => {
-    const source = row.source
-    if (!source || row.status === "complete" || row.status === "blocked" || isCompleting) return
-    setMutationError(null)
-    setPendingNodeId(source.node.id)
-    startCompleting(async () => {
-      const result = await updateWbsItemAction({ id: source.node.id, status: "done" })
-      if (!result.ok) setMutationError(result.message)
-      else router.refresh()
-      setPendingNodeId(null)
-    })
-  }, [isCompleting, router])
-
-  const filterOptions: Array<{ key: CatchUpFilter; label: string }> = [
-    { key: "all", label: "All" },
-    { key: "open", label: "Open" },
-    { key: "blocked", label: "Blocked" },
-    { key: "complete", label: "Done" },
-  ]
-
-  return (
-    <>
-      <div className="border-b border-[var(--portal-panel-border)] px-3 py-2">
-        <div className="flex min-h-11 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-navy)] text-[var(--portal-gold)] shadow-sm">
-              <ListChecks className="h-5 w-5" strokeWidth={1.7} aria-hidden />
-            </span>
-            <span className="min-w-0">
-              <span className="flex items-center gap-2">
-                <span className="block text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">Catch-Up</span>
-                {usingDemo ? <span className="rounded-full border border-[var(--portal-gold)]/35 bg-[var(--portal-gold)]/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">Sample day</span> : null}
-              </span>
-              <span className="block text-[11px] font-light uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">Today · {dateLabel}</span>
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <span className="text-[11px] font-light text-[var(--portal-blue-gray)]">
-              {rows.length ? `${remaining} remaining · ${completed} complete${blocked ? ` · ${blocked} blocked` : ""}` : "Today"}
-            </span>
-            {onNewProject ? (
-              <button
-                type="button"
-                onClick={onNewProject}
-                className="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90"
-              >
-                New Project
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--portal-panel-border)]/70 px-3 py-2">
-        <span className="mr-1 text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Status</span>
-        {filterOptions.map((option) => {
-          const selected = statusFilter === option.key
-          return (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => setStatusFilter(option.key)}
-              className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition ${selected ? "bg-[var(--portal-navy)] text-white" : "bg-white/35 text-[var(--portal-navy-soft)] hover:bg-white/55"}`}
-            >
-              {option.label} <span className="ml-1 opacity-65">{statusCounts[option.key]}</span>
-            </button>
-          )
-        })}
-        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Area</span>
-        <select
-          value={domainFilter}
-          onChange={(event) => setDomainFilter(event.target.value as ProjectDomainKey | "all")}
-          className="h-7 rounded-full border border-[var(--portal-panel-border)] bg-white/50 px-2.5 text-[10px] font-medium text-[var(--portal-navy-soft)] outline-none"
-          aria-label="Filter Catch-Up by area"
-        >
-          <option value="all">All areas</option>
-          {availableDomains.map((domain) => <option key={domain} value={domain}>{catchUpDomainLabel(domain)}</option>)}
-        </select>
-        {usingDemo ? <span className="basis-full text-[10px] font-light text-black/40">UI-only sample rows — nothing was written to Neon. Real WBS work due today replaces them automatically.</span> : null}
-        {mutationError ? <span className="basis-full text-[11px] text-[var(--portal-archive)]">{mutationError}</span> : null}
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
-        <div className={`min-h-0 flex-1 ${PROJECTS_SCROLL_CLASS} overflow-x-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20`}>
-          <div className="min-w-[900px]">
-            <div className="grid grid-cols-[minmax(0,1fr)_100px] border-b border-[var(--portal-panel-border)]/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
-              <div className="grid grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_24px] items-center gap-3">
-                <span />
-                <span>Task</span>
-                <span>Project</span>
-                <span>Area</span>
-                <span>Assignee</span>
-                <span />
-              </div>
-              <span className="text-right">Action</span>
-            </div>
-            {!today ? (
-              <div className="flex min-h-[220px] items-center justify-center px-6 text-sm font-light text-black/40">Loading today’s work…</div>
-            ) : visibleRows.length === 0 ? (
-              <div className="flex min-h-[220px] items-center justify-center px-6 text-center text-sm font-light text-black/45">
-                No today work matches those filters.
-              </div>
-            ) : (
-              <ul className="divide-y divide-[var(--portal-panel-border)]/70">
-                {visibleRows.map((row) => {
-                  const done = row.status === "complete"
-                  const pending = row.source ? pendingNodeId === row.source.node.id : false
-                  const selected = !row.sample && selectedEntryKey === row.key
-                  return (
-                    <li key={row.key} className={`grid grid-cols-[minmax(0,1fr)_100px] items-stretch ${done ? "opacity-60" : ""} ${selected ? "bg-white/45 ring-1 ring-inset ring-[var(--portal-gold)]/35" : ""}`}>
-                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_32px] items-stretch">
-                        <button
-                          type="button"
-                          disabled={row.sample}
-                          onClick={() => { if (row.source) setSelectedEntryKey(row.key) }}
-                          title={row.sample ? "Sample row" : "Edit this work item below"}
-                          aria-pressed={selected}
-                          className={`grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)] items-center gap-3 px-3 py-3 text-left transition ${row.sample ? "cursor-default" : "hover:bg-white/30"}`}
-                        >
-                          <StatusIcon status={row.status} />
-                          <span className="min-w-0">
-                            <span className={`block truncate text-[14px] font-medium text-[var(--portal-navy)] ${done ? "line-through" : ""}`}>{row.title}</span>
-                            <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{STATUS_LABEL[row.status]}</span>
-                          </span>
-                          <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{row.projectTitle}</span>
-                          <span className="min-w-0">
-                            <span className="block truncate text-[12px] font-medium text-[var(--portal-navy-soft)]">{catchUpDomainLabel(row.domain)}</span>
-                            <span className="block truncate text-[10px] font-light text-black/40">{row.poleLabel}</span>
-                          </span>
-                          <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{row.owner ?? "—"}</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={row.sample}
-                          onClick={() => { if (row.source) onOpenEntry(row.source) }}
-                          title={row.sample ? "Sample row" : "Open this work item in its project"}
-                          aria-label={row.sample ? "Sample row" : `Open ${row.title} in its project`}
-                          className={`flex items-center justify-center transition ${row.sample ? "cursor-default text-black/10" : "text-black/25 hover:bg-white/30 hover:text-[var(--portal-gold-muted)]"}`}
-                        >
-                          <ChevronRight className="h-4 w-4" aria-hidden />
-                        </button>
-                      </div>
-                      <div className="flex items-center justify-end px-3 py-2">
-                        {row.sample ? (
-                          <span className="rounded-full bg-[var(--portal-gold)]/10 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-gold-muted)]">Sample</span>
-                        ) : done ? (
-                          <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)]">Done</span>
-                        ) : row.status === "blocked" ? (
-                          <button type="button" onClick={() => setSelectedEntryKey(row.key)} className="rounded-full border border-[var(--portal-archive)]/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-archive)]">Edit</button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isCompleting}
-                            onClick={() => completeEntry(row)}
-                            className="rounded-full border border-[var(--portal-success)]/35 bg-white/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)] transition hover:bg-white/55 disabled:opacity-40"
-                          >
-                            {pending ? "Saving…" : "Complete"}
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="shrink-0 px-3 pb-3">
-        <SelectedWorkPanel node={selectedEntry?.node ?? null} onSaved={() => router.refresh()} />
-      </div>
-    </>
-  )
-}
-
 type PaneTwoProps = {
   pole: ProjectPole | null
   project: ProjectPlan | null
   workspaceScope: ProjectsWorkspaceScope
-  catchUpEntries: readonly CatchUpEntry[]
+  catchUpItems: readonly ProjectCatchUpItem[]
   today: Date | null
   activeView: ProjectWorkspaceView
   selectedNodeId: string | null
   selectedNode: ProjectWorkNode | null
-  onOpenCatchUpEntry: (entry: CatchUpEntry) => void
+  onOpenCatchUpEntry: (entry: ProjectCatchUpItem) => void
   onSelectView: (v: ProjectWorkspaceView) => void
   onSelectNode: (id: string | null) => void
   onStatusChange?: (status: "open" | "doing" | "done" | "archived") => void
@@ -958,11 +582,11 @@ type PaneTwoProps = {
 }
 
 /** Pane 2 — the dominant working surface. Catch-Up swaps this pane, never the route. */
-function PaneTwo({ pole, project, workspaceScope, catchUpEntries, today, activeView, selectedNodeId, selectedNode, onOpenCatchUpEntry, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved, onNewProject }: PaneTwoProps) {
+function PaneTwo({ pole, project, workspaceScope, catchUpItems, today, activeView, selectedNodeId, selectedNode, onOpenCatchUpEntry, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved, onNewProject }: PaneTwoProps) {
   return (
     <section className={PROJECTS_SURFACE.canvas.className}>
       {workspaceScope === "catchup" ? (
-        <CatchUpWorkspace entries={catchUpEntries} today={today} onOpenEntry={onOpenCatchUpEntry} onNewProject={onNewProject} />
+        <ProjectCatchUpWorkspace items={catchUpItems} today={today} onOpenEntry={onOpenCatchUpEntry} onNewProject={onNewProject} />
       ) : !pole || !project ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-light text-black/45">
           Choose a Pole and Project from the navigator.
@@ -1049,9 +673,11 @@ function PaneTwo({ pole, project, workspaceScope, catchUpEntries, today, activeV
 
 export function ProjectsWorkspace({
   initialData,
+  initialCatchUpItems = [],
   loadError,
 }: {
   initialData: ProjectsWorkspaceData | null
+  initialCatchUpItems?: readonly ProjectCatchUpItem[]
   loadError?: string | null
 }) {
   const router = useRouter()
@@ -1091,10 +717,6 @@ export function ProjectsWorkspace({
   const selectedPole = (model.data?.poles ?? []).find((p) => p.id === model.selectedPoleId) ?? null
   const selectedProject = selectedPole?.projects.find((p) => p.id === model.selectedProjectId) ?? null
   const selectedNode = findWorkNode(selectedProject, model.selectedNodeId)
-  const catchUpEntries = useMemo(
-    () => (today ? collectCatchUpEntries(model.data?.poles ?? [], today) : []),
-    [model.data?.poles, today],
-  )
 
   const createProject = useCallback(() => {
     const name = newProjectName.trim()
@@ -1153,15 +775,20 @@ export function ProjectsWorkspace({
   )
 
   const openCatchUpEntry = useCallback(
-    async (entry: CatchUpEntry) => {
-      await controller.dispatch({ operation: "projects.selectDomain", payload: { domain: entry.pole.domain } })
+    async (entry: ProjectCatchUpItem) => {
+      const poles = model.data?.poles ?? []
+      const pole =
+        poles.find((candidate) => candidate.domain === entry.domain && candidate.projects.some((project) => project.id === entry.projectId)) ??
+        poles.find((candidate) => candidate.projects.some((project) => project.id === entry.projectId))
+      if (!pole) return
+      await controller.dispatch({ operation: "projects.selectDomain", payload: { domain: pole.domain } })
       await controller.dispatch({
         operation: "projects.selectProject",
-        payload: { poleId: entry.pole.id, projectId: entry.project.id },
+        payload: { poleId: pole.id, projectId: entry.projectId },
       })
       await controller.dispatch({ operation: "projects.selectNode", payload: { nodeId: entry.node.id } })
     },
-    [controller],
+    [controller, model.data?.poles],
   )
 
   const loadState = model.data?.loadState ?? initialData?.loadState
@@ -1189,35 +816,35 @@ export function ProjectsWorkspace({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col gap-3">
       <div className={PROJECTS_GEOMETRY.gridClassName} style={{ gridTemplateColumns: PROJECTS_GRID_TEMPLATE }}>
-      <PaneOne
-        domains={domains}
-        activeDomain={model.activeDomain}
-        catchUpActive={model.workspaceScope === "catchup"}
-        query={model.query}
-        treeData={treeData}
-        selectedCompositeId={model.workspaceScope === "catchup" ? null : selectedCompositeId}
-        onCatchUp={() => void controller.dispatch({ operation: "projects.selectScope", payload: { scope: "catchup" } })}
-        onSelectDomain={(domain) => void controller.dispatch({ operation: "projects.selectDomain", payload: { domain } })}
-        onQuery={(query) => void controller.dispatch({ operation: "projects.queryChanged", payload: { query } })}
-        onSelectData={handleTreeSelect}
-      />
-      <PaneTwo
-        pole={selectedPole}
-        project={selectedProject}
-        workspaceScope={model.workspaceScope}
-        catchUpEntries={catchUpEntries}
-        today={today}
-        activeView={model.activeView}
-        selectedNodeId={model.selectedNodeId}
-        selectedNode={selectedNode}
-        onOpenCatchUpEntry={(entry) => void openCatchUpEntry(entry)}
-        onSelectView={(view) => void controller.dispatch({ operation: "projects.selectView", payload: { view } })}
-        onSelectNode={(nodeId) => void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId } })}
-        onStatusChange={updateStatus}
-        statusPending={isUpdatingStatus}
-        onWorkSaved={() => router.refresh()}
-        onNewProject={() => { setNewProjectError(null); setNewProjectOpen(true) }}
-      />
+        <PaneOne
+          domains={domains}
+          activeDomain={model.activeDomain}
+          catchUpActive={model.workspaceScope === "catchup"}
+          query={model.query}
+          treeData={treeData}
+          selectedCompositeId={model.workspaceScope === "catchup" ? null : selectedCompositeId}
+          onCatchUp={() => void controller.dispatch({ operation: "projects.selectScope", payload: { scope: "catchup" } })}
+          onSelectDomain={(domain) => void controller.dispatch({ operation: "projects.selectDomain", payload: { domain } })}
+          onQuery={(query) => void controller.dispatch({ operation: "projects.queryChanged", payload: { query } })}
+          onSelectData={handleTreeSelect}
+        />
+        <PaneTwo
+          pole={selectedPole}
+          project={selectedProject}
+          workspaceScope={model.workspaceScope}
+          catchUpItems={initialCatchUpItems}
+          today={today}
+          activeView={model.activeView}
+          selectedNodeId={model.selectedNodeId}
+          selectedNode={selectedNode}
+          onOpenCatchUpEntry={(entry) => void openCatchUpEntry(entry)}
+          onSelectView={(view) => void controller.dispatch({ operation: "projects.selectView", payload: { view } })}
+          onSelectNode={(nodeId) => void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId } })}
+          onStatusChange={updateStatus}
+          statusPending={isUpdatingStatus}
+          onWorkSaved={() => router.refresh()}
+          onNewProject={() => { setNewProjectError(null); setNewProjectOpen(true) }}
+        />
       </div>
       {newProjectOpen ? (
         <div className="absolute right-0 top-10 z-20 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-[var(--portal-panel-border)] bg-white p-4 shadow-xl">
