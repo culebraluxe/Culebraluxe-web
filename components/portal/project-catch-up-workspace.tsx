@@ -70,12 +70,6 @@ export function ProjectCatchUpWorkspace({
 
   const entries = bucket === "today" ? buckets.today : buckets.unscheduled
 
-  useEffect(() => {
-    if (selectedEntryKey && !entries.some((entry) => entry.id === selectedEntryKey)) {
-      setSelectedEntryKey(null)
-    }
-  }, [entries, selectedEntryKey])
-
   const selectedEntry = useMemo(
     () => items.find((entry) => entry.id === selectedEntryKey) ?? null,
     [items, selectedEntryKey],
@@ -107,6 +101,17 @@ export function ProjectCatchUpWorkspace({
     }),
     [entries, statusFilter, domainFilter],
   )
+
+  useEffect(() => {
+    const firstVisible = visibleEntries[0] ?? null
+    if (!firstVisible) {
+      if (selectedEntryKey !== null) setSelectedEntryKey(null)
+      return
+    }
+    if (!selectedEntryKey || !visibleEntries.some((entry) => entry.id === selectedEntryKey)) {
+      setSelectedEntryKey(firstVisible.id)
+    }
+  }, [visibleEntries, selectedEntryKey])
 
   const dateLabel = today
     ? today.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
