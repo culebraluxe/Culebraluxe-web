@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+EXPECTED_NODE_MAJOR="24"
+VERCEL_ORG_ID="team_xk8vFaeSyY6CuSkS3OK55tTc"
+VERCEL_PROJECT_ID="prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV"
+
+fail() {
+  printf '\nERROR: %s\n' "$1" >&2
+  exit 1
+}
+
+command -v git >/dev/null 2>&1 || fail "git is required"
+command -v node >/dev/null 2>&1 || fail "Node.js is required"
+command -v vercel >/dev/null 2>&1 || fail "Vercel CLI is required. Install it with: npm install --global vercel@latest"
+
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run this inside the CulebraLuxe git repository"
+cd "$ROOT_DIR"
+
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+if [[ "$NODE_MAJOR" != "$EXPECTED_NODE_MAJOR" ]]; then
+  fail "Production builds require Node ${EXPECTED_NODE_MAJOR}. Current: $(node --version). Run: nvm use"
+fi
+
+export VERCEL_ORG_ID
+export VERCEL_PROJECT_ID
+
+printf '\nCulebraLuxe local production build\n'
+printf '  commit:  %s\n' "$(git rev-parse --short HEAD)"
+printf '  node:    %s\n' "$(node --version)"
+printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
+
+vercel whoami >/dev/null 2>&1 || fail "Vercel CLI is not authenticated. Run: vercel login"
+
+printf 'Pulling Vercel production settings...\n'
+vercel pull --yes --environment=production
+
+printf '\nClearing previous prebuilt output...\n'
+rm -rf .vercel/output
+
+printf '\nBuilding production artifact locally...\n'
+vercel build --prod
+
+[[ -f .vercel/output/config.json ]] || fail "Build completed without .vercel/output/config.json"
+
+git rev-parse HEAD > .vercel/culebraluxe-prod-build-sha
+
+printf '\nLOCAL BUILD COMPLETE\n'
+printf 'Artifact: .vercel/output\n'
+printf 'Commit:   %s\n' "$(git rev-parse HEAD)"
+printf 'Nothing has been deployed.\n'
