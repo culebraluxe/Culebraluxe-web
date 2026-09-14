@@ -11,6 +11,11 @@ roadmap, the swarm doctrine, and the diagnostic ladder. Every claim in it is lab
 **[built] / [measured] / [proposed]**, so it can never be mistaken for the target state. This file
 is the short form; that file is the depth.
 
+**The Cockpit's purpose, in the captain's words:** `docs/agent/COCKPIT-PURPOSE.md` — the whole
+SDLC framing, the three modes of work (waking-hours collaboration / hand over now / loaded but not
+firing), why there are TWO engine lists, the invariants that make batching real, and the honest
+list of what is not built yet. Read it before changing the board or the engine lanes.
+
 ## What runs
 
 1. Engine: `workflow_app/definitions/FORGE_SDLC-v6.xml`, driven by
