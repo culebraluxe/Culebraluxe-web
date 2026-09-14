@@ -24,6 +24,7 @@ import { moveStoryBucketAction, sendEngineBatchAction, clearWorkBenchAction } fr
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
 import { STORY_BUCKETS, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
+import { SORTER_COLUMNS, buildSorterCards } from '@/lib/sorter-board'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
 
 /**
@@ -337,124 +338,28 @@ export function EngineeringQueuesPage({
     selectedStory && (queuedCards ?? []).some((q) => q.storyId === selectedStory.id),
   )
 
-  // THE SORTER — the assembly line, left to right in the captain's order:
-  //   BACKLOG -> OPEN -> WORK BENCH -> ENGINE QUEUE
-  // Different context from the bands below (this is where you SORT, the bands are
-  // where you WORK), which is why the same two sets may appear in both without it
-  // being a collision. ENGINE QUEUE is empty until agent_work_item is wired.
-  const sorterCards = useMemo(() => {
-    // `Batched` maps to the backlog LIFECYCLE, so it would otherwise appear in the BACKLOG column too.
-    // It has its own column; a story is shown once.
-    //
-    // A BENCH STORY IS NOT ALSO AN OPEN STORY. The bench is an INTENT row (`storyboard_active_work`)
-    // and the story keeps its `In Progress` status, so it belongs to the open lifecycle as well - which
-    // drew the SAME story as TWO cards with the SAME id. The kanban board's drop handler finds cards by
-    // id, so moving one of them moved the other: the captain's "I drag over to the left and it pulls
-    // another random story to the right". One story, one column.
-    const bucket = (key: 'backlog' | 'open') =>
-      (cockpit.panels[key]?.groups ?? [])
-        .flatMap((g) => g.stories)
-        .filter(
-          (s) => s.status !== 'Batched' && !activeWork.some((w) => w.id === s.id),
-        )
-    return [
-      ...bucket('backlog').map((s) => ({
-        id: s.id,
-        column: 'backlog',
-        title: s.title,
-        status: s.status,
-        priority: s.priority,
-        completion: s.completion,
-      })),
-      ...bucket('open').map((s) => ({
-        id: s.id,
-        column: 'open',
-        title: s.title,
-        status: s.status,
-        priority: s.priority,
-        completion: s.completion,
-      })),
-      ...activeWork
-        // A STAGED STORY IS NOT ALSO ON THE BENCH. Staging (ENGINE BATCH) is the later intent; a story
-        // can hold both because the bench is an intent row and `Batched` is a status, and one story in
-        // two columns is exactly the ambiguity that moved the wrong card. The batch column owns it.
-        .filter((s) => s.status !== 'Batched')
-        .map((s) => ({
-          id: s.id,
-          column: 'bench',
-          title: s.title,
-          status: s.status,
-          priority: s.priority,
-          completion: s.completion,
-        })),
-      // ENGINE BATCH: staged work, its own column. Batched stories are EXCLUDED from the backlog
-      // bucket below (they map to the backlog lifecycle) so the same story is never two columns.
-      ...(batchStories ?? []).map((s) => ({
-        id: s.id,
-        column: 'batch',
-        title: s.title,
-        status: s.status,
-        priority: s.priority,
-        completion: s.completion,
-      })),
-      // NEXT VERSION: the `Deferred` lifecycle. These stories had NO column, so 23 of them (the
-      // deferred stories that are not on the bench) could not be reached on this board at all -
-      // the second, structural reason "I can't find that story" kept being true.
-      ...(cockpit.panels['next-version']?.groups ?? [])
-        .flatMap((g) => g.stories)
-        .map((s) => ({
-          id: s.id,
-          column: 'next-version',
-          title: s.title,
-          status: s.status,
-          priority: s.priority,
-          completion: s.completion,
-        })),
-      // ENGINE RUN Q — WHAT HAS BEEN HANDED TO THE ENGINE, QUEUED OR RUNNING.
-      //
-      // This column used to show only RUNNING attempts (from the ledger), which meant a story dropped
-      // here VANISHED: it left whichever column it came from, nothing was running yet, and the card
-      // disappeared from the board entirely - the precise "is this broken?" moment. A queued work item
-      // IS in the run queue; that is what the column is named after. So the queue comes from
-      // `agent_work_item` (the engine's own waiting list, which is what the drop creates) and any
-      // attempt the ledger reports as live.
-      ...engineCards
-        .filter((c) => c.queue === 'running')
-        .map((c) => ({
-          id: c.id,
-          column: 'engine',
-          title: c.title,
-          status: c.status,
-          priority: c.priority,
-          completion: c.completion,
-        })),
-      // ...and the engine's WAITING work, so the handoff is visible the moment it happens.
-      ...(queuedCards ?? [])
-        .filter((q) => !engineCards.some((c) => c.queue === 'running' && c.storyId === q.storyId))
-        .map((q) => ({
-          // `#queued` keeps this distinct from the same story's ATTEMPT cards (one per attempt).
-          id: `${q.storyId}#queued`,
-          column: 'engine',
-          title: q.title,
-          status: q.state,
-          priority: 'MEDIUM',
-          completion: 0,
-        })),
-    ]
-  }, [cockpit, activeWork, engineCards, queuedCards])
+  // THE SORTER — the board's columns, built by `buildSorterCards` (lib/sorter-board.ts).
+  //
+  // The assembly used to live here as independent per-column filters, which is exactly how the same
+  // story got drawn in two columns twice: a bench story also in OPEN, and a story handed to the engine
+  // (status `Ready`) also in OPEN. The captain called the second one out himself - "the big thing is
+  // when a story moves from OPEN or WORKBENCH to ENGINE RUN Q" - and it was the collision still
+  // possible. The assignment is now one pass with one `claimed` set, covered by
+  // `workflow_app/tests/sorter-board.test.ts`.
+  const sorterCards = useMemo(
+    () =>
+      buildSorterCards({
+        panels: cockpit.panels as unknown as Parameters<typeof buildSorterCards>[0]['panels'],
+        activeWork,
+        batchStories: batchStories ?? [],
+        engineRuns: engineCards,
+        queuedCards: queuedCards ?? [],
+      }),
+    [cockpit, activeWork, batchStories, engineRuns, queuedCards],
+  )
 
   const sorterColumns = useMemo(
-    () => [
-      { id: 'backlog', label: 'BACKLOG' },
-      { id: 'open', label: 'OPEN' },
-      { id: 'bench', label: 'WORK BENCH' },
-      // ENGINE BATCH sits directly left of the engine's run queue: stage the next group, then send it.
-      { id: 'batch', label: 'ENGINE BATCH' },
-      // "ENGINE RUN Q" is the captain's name for it: this is the column where handing a story over
-      // makes the engine actually run it (`ENGINE_DISPATCH_STATUS` = Ready).
-      { id: 'engine', label: 'ENGINE RUN Q' },
-      { id: 'next-version', label: 'NEXT VERSION' },
-    ],
+    () => SORTER_COLUMNS.map((c) => ({ id: c.id, label: c.label })),
     [],
   )
 
