@@ -502,7 +502,7 @@ function ProjectCalendar({ project }: { project: ProjectPlan }) {
   // the project's own WBS due dates (ui/projects/secondary-projection).
   return (
     <div className="min-h-0 flex-1">
-      <FullCalendarCandidate events={events} heading="Calendar" />
+      <FullCalendarCandidate events={events} heading={null} />
     </div>
   )
 }
@@ -556,8 +556,8 @@ function ProjectActivity({ project }: { project: ProjectPlan }) {
  * the giant project title, the context labels, the progress bar, the playbook chip
  * and the "next action" card inside Pane 2. All of that duplicated what the
  * navigator and the inspector already show, and it cost the widget panes their
- * vertical space, so the canvas header is now Pane 1's gold lettering band plus the
- * view nav. The status control and the blocker line moved up into that band.
+ * vertical space. Project identity, view navigation and project-level actions now
+ * share one compact rail so the widget starts as high as possible.
  *
  * `Progress` is still used by the navigator's domain rail (Pane 1).
  */
@@ -613,10 +613,11 @@ type PaneTwoProps = {
   onStatusChange?: (status: "open" | "doing" | "done" | "archived") => void
   statusPending?: boolean
   onWorkSaved?: () => void
+  onNewProject?: () => void
 }
 
 /** Pane 2 — the dominant working surface. */
-function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved }: PaneTwoProps) {
+function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved, onNewProject }: PaneTwoProps) {
   return (
     <section className={PROJECTS_SURFACE.canvas.className}>
       {!pole || !project ? (
@@ -625,26 +626,33 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSe
         </div>
       ) : (
         <>
-          {/* Header band mirrors Pane 1's navigator band (same paddings, same gold
-              lettering) so the two panes line up and the work surface starts higher.
-              The nav then occupies exactly the band Pane 1 gives its "Find work"
-              search — h-11 inside an mt-2 row — so the two read as one horizontal
-              line across the screen.
-
-              The giant project title, the context labels, the progress bar, the
-              playbook chip and the "next action" card are gone: the navigator and
-              selected-work control already say which project/work item is selected,
-              and that chrome was costing the widget its vertical space.
-
-              The canvas stays LIGHT GLASS on purpose (human gate, 2026-09-12). The
-              widget panes inside it are dark on purpose too — light chrome with dark
-              objects gives each widget its own edge, where a navy-on-navy canvas made
-              the whole pane one slab. */}
-          <div className="border-b border-[var(--portal-panel-border)] px-3 pb-2 pt-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="min-w-0 truncate text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">
+          {/* One compact project rail: identity, view navigation and project-level
+              actions share the same horizontal band. The navigator already carries
+              the full hierarchy, so a second title row only steals height from the
+              Gantt/Calendar/Documents workspace. */}
+          <div className="border-b border-[var(--portal-panel-border)] px-3 py-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <p className="max-w-[220px] shrink-0 truncate text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">
                 {project.title}
               </p>
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <nav aria-label="Project workspace views" className="portal-glass-rail h-11 w-max">
+                  {VIEWS.map((view) => {
+                    const isActive = view === activeView
+                    return (
+                      <button
+                        key={view}
+                        type="button"
+                        onClick={() => onSelectView(view)}
+                        aria-current={isActive ? "page" : undefined}
+                        className={`portal-glass-tab ${isActive ? "bg-[var(--portal-navy)] text-white shadow-sm" : ""}`}
+                      >
+                        {VIEW_LABEL[view]}
+                      </button>
+                    )
+                  })}
+                </nav>
+              </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className="text-[11px] font-light text-[var(--portal-blue-gray)]">{project.progress}%</span>
                 <select
@@ -659,25 +667,16 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSe
                   <option value="done">Complete</option>
                   <option value="archived">Archived</option>
                 </select>
+                {onNewProject ? (
+                  <button
+                    type="button"
+                    onClick={onNewProject}
+                    className="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90"
+                  >
+                    New Project
+                  </button>
+                ) : null}
               </div>
-            </div>
-            <div className="mt-2 flex h-11 items-center overflow-x-auto">
-              <nav aria-label="Project workspace views" className="portal-glass-rail h-11">
-                {VIEWS.map((view) => {
-                  const isActive = view === activeView
-                  return (
-                    <button
-                      key={view}
-                      type="button"
-                      onClick={() => onSelectView(view)}
-                      aria-current={isActive ? "page" : undefined}
-                      className={`portal-glass-tab ${isActive ? "bg-[var(--portal-navy)] text-white shadow-sm" : ""}`}
-                    >
-                      {VIEW_LABEL[view]}
-                    </button>
-                  )
-                })}
-              </nav>
             </div>
           </div>
           {project.blocker ? (
@@ -967,15 +966,6 @@ export function ProjectsWorkspace({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex shrink-0 justify-end">
-        <button
-          type="button"
-          onClick={() => { setNewProjectError(null); setNewProjectOpen(true) }}
-          className="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90"
-        >
-          New Project
-        </button>
-      </div>
       <div className={PROJECTS_GEOMETRY.gridClassName} style={{ gridTemplateColumns: PROJECTS_GRID_TEMPLATE }}>
       <PaneOne
         domains={domains}
@@ -998,6 +988,7 @@ export function ProjectsWorkspace({
         onStatusChange={updateStatus}
         statusPending={isUpdatingStatus}
         onWorkSaved={() => router.refresh()}
+        onNewProject={() => { setNewProjectError(null); setNewProjectOpen(true) }}
       />
       </div>
       {newProjectOpen ? (
