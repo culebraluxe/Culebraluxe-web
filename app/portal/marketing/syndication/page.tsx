@@ -5,7 +5,8 @@ import { facebookReadiness } from '@/lib/syndication/env'
 
 export const dynamic = 'force-dynamic'
 
-export default async function SyndicationPage() {
+export default async function SyndicationPage({ searchParams }: { searchParams: Promise<{ propertyId?: string }> }) {
+  const sp = await searchParams
   await expireStalePlacements()
   const [sources, placements, sightings, activity] = await Promise.all([
     listListingSources(),
@@ -20,6 +21,7 @@ export default async function SyndicationPage() {
       placements={placements}
       sightings={sightings}
       activity={activity}
+      initialPropertyId={sp?.propertyId ?? null}
       facebook={facebookReadiness()}
     />
   )
