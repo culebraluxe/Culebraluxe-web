@@ -83,7 +83,7 @@ export default async function FlightRecorderConsolePage({
     // to go down". `dvh` tracks real mobile chrome, the extra rem is for the surface submenu, and
     // the overflow is left alone so that if the chrome ever grows the page scrolls instead of
     // swallowing content.
-    <div className="flex h-[calc(100dvh-11rem)] min-h-[560px] flex-col bg-[#0b1220]">
+    <div className="recorder-scroll flex h-[calc(100dvh-11rem)] min-h-[560px] flex-col bg-[#0b1220]">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
         <span>Flight Recorder · {instanceId.slice(0, 8)}</span>
         <span className={env.target === 'prod' ? 'text-[#c6a15b]' : 'text-amber-400/90'}>

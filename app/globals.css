@@ -815,6 +815,38 @@
 
 .story-kanban .wx-column-cards::-webkit-scrollbar-thumb:hover {
   background: rgba(198, 161, 91, 0.7);
+/* ---------------------------------------------------------------------------
+   RECORDER SCROLLBARS.
+
+   The Flight Recorder's panes (center view, left rail, right aside, graph) each
+   scroll independently, and on macOS the overlay scrollbars are invisible until
+   you already know to scroll — the same trap the kanban columns had. A visible,
+   brand-consistent bar makes overflow discoverable instead of looking like
+   missing content. Scoped to .recorder-scroll so nothing else changes.
+   --------------------------------------------------------------------------- */
+.recorder-scroll *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.recorder-scroll *::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recorder-scroll *::-webkit-scrollbar-thumb {
+  background: rgba(198, 161, 91, 0.45);
+  border-radius: 999px;
+}
+
+.recorder-scroll *::-webkit-scrollbar-thumb:hover {
+  background: rgba(198, 161, 91, 0.7);
+}
+
+.recorder-scroll * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(198, 161, 91, 0.45) rgba(255, 255, 255, 0.04);
+}
+
 }
 
 .story-kanban .wx-card {

@@ -828,7 +828,24 @@ function Swimlane({
         <span>System Swimlane</span>
         <span className="text-slate-600">time → · bounded scale (timestamps shown on hover)</span>
       </div>
-      <svg width={width} height={height} className="min-w-full" role="group" aria-label="System swimlane">
+      {/*
+        SCALED TO THE PANE, deliberately. The SVG was a fixed 1100px wide inside an `overflow-auto`
+        box, so on a narrower pane the right-hand part of the timeline simply lived off-screen -
+        reachable only by a horizontal scrollbar that macOS draws as an invisible overlay. The
+        captain's report was "no bottom scroll bar, just a few dots, I expected lanes": with one
+        real system (`Forge Observer`) there IS only one lane, and the later events were the ones
+        hidden past the right edge. Fitting the whole width into the pane means nothing can hide out
+        there, and the lanes are what they are - one per real system, never invented.
+      */}
+      <svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="max-w-full"
+        role="group"
+        aria-label="System swimlane"
+      >
         {/* time ruler ticks */}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const x = pad + labelW + f * (width - pad * 2 - labelW);
