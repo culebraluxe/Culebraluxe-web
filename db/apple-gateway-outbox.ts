@@ -15,6 +15,7 @@ export type AppleCalendarCreateCommand = {
   allDay?: boolean
   location?: string | null
   notes?: string | null
+  alert?: boolean
 }
 
 export type AppleReminderUpsertCommand = {
@@ -23,6 +24,7 @@ export type AppleReminderUpsertCommand = {
   dueAt: string | null
   completed: boolean
   notes?: string | null
+  alert?: boolean
 }
 
 type EnqueueContext = {
