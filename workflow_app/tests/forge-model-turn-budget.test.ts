@@ -98,7 +98,9 @@ test('MAP cap: the runner consults the budget before dispatching a turn', () => 
     budgetAt < dispatchAt,
     'the budget must be checked BEFORE the turn is enqueued — a door after the turn is a hope',
   )
-  assert.match(RUNNER, /if \(!turnBudget\.allowed\) throw new Error\(turnBudget\.reason\)/)
+  // The cap now also names the FIRST VIOLATION it noticed (AgentRx) before throwing.
+  assert.match(RUNNER, /if \(!turnBudget\.allowed\) \{/)
+  assert.match(RUNNER, /throw new Error\(`\$\{turnBudget\.reason\} \$\{line\}`\)/)
   assert.match(
     RUNNER,
     /turnsUsed: await countForgeGenerationTurns\(String\(task\.processInstanceId\)\)/,

@@ -210,6 +210,84 @@ export async function recordForgeRunMachineEvidence(
 }
 
 /** Append human/machine diagnostic detail without creating another history table. */
+/**
+ * RECORD THE FIRST VIOLATION on the generation's latest run row.
+ *
+ * AgentRx's point is that the label belongs to the run that NOTICED the ceiling, while the
+ * cause belongs to an earlier door — so the label and the rendered evidence travel together
+ * and a human can read which door to look at. Written when a generation trips the turn cap.
+ *
+ * Best-effort by design: a run that cannot be labelled must not also fail to stop. Returns
+ * the run id it labelled, or null when the story has no run row yet (nothing to attach to).
+ */
+export async function recordForgeFirstViolation(
+  storyId: string,
+  violation: { firstViol: string; line: string },
+  execute?: QueryExecutor,
+): Promise<string | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update storyboard_story_run
+    set first_viol = ${violation.firstViol},
+        evidence_detail = case
+          when evidence_detail is null or evidence_detail = ''
+            then to_char(now(), 'YYYY-MM-DD HH24:MI:SS') || ' — ' || ${violation.line}
+          else evidence_detail || E'\n' || to_char(now(), 'YYYY-MM-DD HH24:MI:SS') || ' — ' || ${violation.line}
+        end,
+        updated_at = now()
+    where id = (
+      select id from storyboard_story_run
+      where story_id = ${storyId}
+      order by created_at desc
+      limit 1
+    )
+    returning id
+  `
+  return rows.length > 0 ? String((rows[0] as { id?: unknown }).id) : null
+}
+
+/**
+ * WHAT THE GENERATION LEFT BEHIND — the facts a first-violation classification needs.
+ *
+ * Read from the story's own run rows, because those are the durable record of what each
+ * turn did: which candidate SHAs it produced (a repeat means the loop made no progress) and
+ * which failures it recorded. Read-only, newest first, bounded.
+ */
+export async function readForgeGenerationFacts(
+  storyId: string,
+  limit = 20,
+  execute?: QueryExecutor,
+): Promise<{ candidateShas: string[]; failureCodes: string[]; details: string[] }> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select coalesce(commit_hash, '') as commit_hash,
+           coalesce(failure_code, '') as failure_code,
+           coalesce(evidence_detail, '') as evidence_detail
+    from storyboard_story_run
+    where story_id = ${storyId}
+    order by created_at desc
+    limit ${Math.min(100, Math.max(1, limit))}
+  `
+  const candidateShas: string[] = []
+  const failureCodes: string[] = []
+  const details: string[] = []
+  for (const raw of rows) {
+    const row = raw as Record<string, unknown>
+    const sha = String(row.commit_hash ?? '').trim()
+    if (sha) candidateShas.push(sha)
+    const code = String(row.failure_code ?? '').trim()
+    if (code) failureCodes.push(code)
+    const detail = String(row.evidence_detail ?? '')
+    // Only the lines that name a refusal: the evidence detail is long and mostly noise.
+    for (const line of detail.split('\n')) {
+      if (/model turn cap|baseline acceptance|could not claim|scope|held|hold\b/i.test(line)) {
+        details.push(line.trim().slice(0, 160))
+      }
+    }
+  }
+  return { candidateShas, failureCodes, details: details.slice(0, 5) }
+}
+
 export async function appendForgeRunDetail(
   runId: string,
   detail: string,

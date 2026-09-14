@@ -1,4 +1,6 @@
 import { resolve } from 'node:path'
+import { captureServerLog } from '../../lib/server-error-capture'
+import { execFileSync } from 'node:child_process'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
 import { buildBrevityDirective, buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective } from '../../agent-runtime/run-guardrails'
 import {
@@ -34,7 +36,12 @@ import {
   finishForgeEngineTaskExecution,
   linkForgeEngineTaskExecution,
 } from '../../db/forge-engine-task-execution'
-import { appendForgeRunDetail, getForgeLeadRunRecord } from '../../db/forge-run'
+import {
+  appendForgeRunDetail,
+  getForgeLeadRunRecord,
+  readForgeGenerationFacts,
+  recordForgeFirstViolation,
+} from '../../db/forge-run'
 import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
 import { readForgeWorkflowEvidence, mergeForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import {
@@ -64,6 +71,9 @@ import { listStoryForgeFindings } from '../../db/forge-role-finding'
 import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
+import { assessBaselineAcceptance } from './baseline-acceptance'
+import { classifyFirstViolation, renderFirstViolation } from './first-violation'
+import { runAssayCommand } from '../../agent-runtime/deterministic-assay-adapter'
 import { assessGenerationTurnBudget, resolveGenerationTurnCap } from './model-turn-budget'
 import { describeClaimBlocker } from './forge-claim-blocker'
 import { DEFAULT_FORGE_STALE_MS, recoverStaleForgeEngineClaims } from '../../db/forge-engine-recovery'
@@ -184,6 +194,18 @@ const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspect
  * the story's own declared scope (see the pre-shaped assignment below).
  */
 const FAST_SMITH_NODES = new Set(['fast_smith', 'fast_repair_smith'])
+
+/**
+ * One git read in a workspace, or null. Used by DOOR 3 to ask whether the worktree still
+ * holds nothing but the base commit — a failed read is null, never a fabricated answer.
+ */
+function readGit(cwd: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim() || null
+  } catch {
+    return null
+  }
+}
 
 function runtimeInterrupted(resultStatus: string, completion: number): boolean {
   return completion < 100 || /interrupted|error|cancelled/i.test(resultStatus)
@@ -536,7 +558,46 @@ export function createAgentRuntimeForgeRoleRunner(
       turnsUsed: await countForgeGenerationTurns(String(task.processInstanceId)),
       cap: resolveGenerationTurnCap(),
     })
-    if (!turnBudget.allowed) throw new Error(turnBudget.reason)
+    if (!turnBudget.allowed) {
+      // WHEN THE CAP FIRES, SAY WHICH DOOR FAILED FIRST (AgentRx).
+      //
+      // "MODEL TURN CAP" is true and unactionable: it names the ceiling that noticed, not the
+      // door that caused the loop. Classify the earliest identifiable violation from what the
+      // generation actually left behind — the story's own run rows — and record it with the
+      // reason, so the next reader looks at the cause instead of the body.
+      const facts = await readForgeGenerationFacts(resolvedStory.id).catch(() => ({
+        candidateShas: [],
+        failureCodes: [],
+        details: [],
+      }))
+      const seen = new Set<string>()
+      const repeatedCandidateFailure = facts.candidateShas.some((sha) => {
+        if (seen.has(sha)) return true
+        seen.add(sha)
+        return false
+      })
+      const verdict = classifyFirstViolation({
+        repeatedCandidateFailure,
+        doorRefused: facts.failureCodes.length > 0 || facts.details.length > 0,
+        // No frozen proof means the acceptance was never pinned down: no candidate can be
+        // judged against it, which is an underspecification, not a harness fault.
+        acceptanceIncomplete: leadRoutingContext.allowedProofs.length === 0,
+        ...(facts.details.length > 0 ? { reasons: facts.details } : {}),
+      })
+      const line = renderFirstViolation(verdict)
+      await recordForgeFirstViolation(resolvedStory.id, {
+        firstViol: verdict.firstViol,
+        line,
+      }).catch((error) => {
+        // The label must never be the reason a stopped run keeps going.
+        captureServerLog(
+          'warn',
+          'forge.first-violation',
+          `could not record the first violation for ${resolvedStory.id}: ${(error as Error).message}`,
+        )
+      })
+      throw new Error(`${turnBudget.reason} ${line}`)
+    }
 
     // When Astra routing governs PRE, the legacy lead_pre evidence contract
     // (FORGE_EVIDENCE_JSON.leadDecision/splitCount + LEAD_PLAN) must NOT be injected:
@@ -730,6 +791,64 @@ export function createAgentRuntimeForgeRoleRunner(
         : null
     const executionId = resolveForgeExecutionRunId(task.processInstanceId, replanAttempts, splitChild)
     const workspaces = buildAgentInvokerWorkspaces(options.workerId, undefined, executionId)
+
+    // ---------------------------------------------------------------------
+    // DOOR 3 — BASELINE ACCEPTANCE (a story must be FALSIFIABLE).
+    //
+    // Found by the difficulty ladder: a story whose frozen proof already exits 0 at the base
+    // commit has acceptance that holds BEFORE any work, so no candidate can be evidence of
+    // work — and QA will happily pass an unrelated change (observed live: a story whose
+    // proof was green at base shipped a one-line deletion elsewhere and passed).
+    //
+    // Checked HERE, before the work item is enqueued and claimed, because the point is to
+    // spend nothing: the lane that writes code is the lane that must not start. It runs only
+    // on the FIRST attempt of a code-writing lane, and only while the worktree still holds
+    // nothing but the base commit — on a repair attempt the worktree carries the previous
+    // candidate, so "the proof passes" is no longer evidence about the baseline.
+    //
+    // The proofs are the story's own frozen commands (never model prose), and an
+    // unexecutable command counts as unmet, never as a pass.
+    // ---------------------------------------------------------------------
+    const writesCode = plan.lane === 'smith' || nodeId === 'lead_solo_implement'
+    if (writesCode && attempt === 0 && workspaces?.worktreesRoot) {
+      const baselineCwd = deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
+      const frozenProofs = leadRoutingContext.allowedProofs.filter((command) => command.trim())
+      // STILL NOTHING BUT THE BASE? Ask git what this worktree has committed that the
+      // approved base ref does not: zero commits means the tree is the baseline. Comparing
+      // HEAD to the REF would be wrong — the engine pins an exact base COMMIT
+      // (`origin/main@<sha>`) while the ref itself moves on, so a stale ref makes a fresh
+      // worktree look different and the door silently skips (observed live).
+      const aheadOfBase = readGit(baselineCwd, ['rev-list', '--count', `${workspaces.baseRef}..HEAD`])
+      const atBase = aheadOfBase === '0'
+      // A DOOR THAT SKIPS SILENTLY IS NOT A DOOR. Every evaluation records its inputs and
+      // its decision, so "why did nothing happen?" is answerable from the TECH view instead
+      // of by inference. This is going in BEFORE any claim that the gate works.
+      captureServerLog(
+        'info',
+        'forge.baseline-acceptance',
+        `evaluated: proofs=${frozenProofs.length} aheadOfBase=${String(aheadOfBase)} atBase=${String(atBase)} cwd=${baselineCwd}`,
+      )
+      if (frozenProofs.length > 0 && atBase) {
+        const results = []
+        for (const command of frozenProofs) {
+          const outcome = await runAssayCommand({
+            command,
+            cwd: baselineCwd,
+            env: { ...process.env },
+            timeoutMs: 120_000,
+          }).catch(() => null)
+          results.push({
+            command,
+            exitCode: outcome?.exitCode ?? null,
+            unmeasurable: outcome === null,
+          })
+        }
+        const baseline = assessBaselineAcceptance(results)
+        if (baseline.satisfiedAtBase) throw new Error(baseline.reason)
+      }
+    }
+
+
 
     let result
     try {
