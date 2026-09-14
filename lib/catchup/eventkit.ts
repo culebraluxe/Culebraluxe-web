@@ -83,6 +83,10 @@ export function eventKitSnapshotPath(): string {
  * Load the EventKit-derived normalized events from the Mac bridge snapshot.
  * Bounded, idempotent (stable source ids). Returns [] when no snapshot is
  * configured or readable — never a fabricated event.
+ *
+ * The path is intentionally runtime-only (/tmp or an explicit env override).
+ * Turbopack must not try to trace that dynamic filesystem path during build;
+ * doing so causes the entire worktree to be copied into the server bundle.
  */
 export async function loadEventKitCalendarEvents(): Promise<
   CatchUpCalendarEvent[]
@@ -90,7 +94,7 @@ export async function loadEventKitCalendarEvents(): Promise<
   const path = eventKitSnapshotPath()
   if (!path) return []
   try {
-    const raw = await readFile(path, 'utf8')
+    const raw = await readFile(/* turbopackIgnore: true */ path, 'utf8')
     const parsed: unknown = JSON.parse(raw)
     return eventKitSnapshotToCatchUp(parsed)
   } catch {
