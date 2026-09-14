@@ -57,8 +57,16 @@ work up in advance and fire it later, which is the point of batching.
   (`db/agent-work.ts`, migration 025/028): the engine holds exactly one active work item.
   A batch of five is a queue of five one-at-a-time runs, not five parallel runs. Relaxing
   this is an ask-first change (see AGENTS.md).
-- **BATCH FIRES NOTHING.** Writing `Batched` creates zero work items (verified on PROD:
-  status `Batched` → staged count 1 → **0** `agent_work_item` rows).
+- **BATCH FIRES NOTHING, BUT IT IS A REAL THING.** Staging writes `Batched` (dispatch-nothing status),
+  and since migration 178 a batch ALSO has durable rows: `forge_batch` (label, `scheduled_for`,
+  `fired_at`, who built it) and `forge_batch_item` (each member's state). So the screen can answer
+  "what did I load up, when will it run, and how did the last one end?" instead of only showing its
+  current state. Verified on PROD: scheduling a batch dispatched **0** work items; firing it dispatched
+  exactly 1 per member; the story's batch history showed `Queued` with a timestamp.
+- **A SCHEDULED BATCH FIRES ITSELF.** `fireDueForgeBatches()` runs at the top of every unattended
+  worker pass, and the launchd scheduler already wakes that command every 3 minutes — so a batch
+  scheduled for 02:00 runs at 02:00 with nobody awake, and there is no second daemon or cron entry to
+  forget. (It deliberately does not depend on the launchd WRAPPER being redeployed.)
 - **RUN Q FIRES EXACTLY ONE THING.** Writing `Ready` creates one work item (verified:
   `In Progress/0 items` → handoff → `1 Ready` item).
 - **LEAVING RUN Q TAKES THE REQUEST BACK.** Pulling a story out withdraws the `Ready`
@@ -79,10 +87,8 @@ work up in advance and fire it later, which is the point of batching.
   architect assessment; you find out by watching a run fail or HOLD. The engine already
   has the assessment (`workflow_app/forge/agents/architect/assess.ts`); the board does not
   show it before you press the button.
-- **NO RUN WINDOW.** "Save for a night run when it's cheaper" is a plan, not a feature:
-  the batch fires when the captain presses Send and the worker drains it whenever it is
-  awake. There is no scheduling, no window, no cost notion.
 - **NO WAY TO SEE A BATCH WILL SUCCEED** before sending: no dry run, no estimate, no
   "these 3 of 5 passed readiness" pre-flight.
 - **NO SENSE OF COST OR DURATION** per story or per batch, which is the stated reason for
-  batching in the first place.
+  batching in the first place — "save for a night run when its cheaper to run" is now
+  schedulable, but nothing tells you what the run will cost when it fires.

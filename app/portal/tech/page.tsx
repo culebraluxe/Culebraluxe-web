@@ -14,6 +14,7 @@ import {
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { cockpitVersionLabel } from "@/lib/cockpit-version"
+import { listForgeBatches } from "@/db/forge-batch"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -157,6 +158,7 @@ export default async function TechPage({
       <EngineeringQueuesPage
         cockpit={cockpit}
         versionLabel={cockpitVersionLabel()}
+        batches={await listForgeBatches(5)}
         activeWork={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}

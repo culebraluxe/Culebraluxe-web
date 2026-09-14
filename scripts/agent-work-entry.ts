@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
 import { recoverStaleAgentWorkIndustrial } from '../db/agent-work-recovery'
+import { fireDueForgeBatches } from '../db/forge-batch'
 import { interactiveSql } from '../lib/neon-interactive'
 
 function staleAfterMinutes(): number {
@@ -36,6 +37,20 @@ async function main(): Promise<number> {
       `recovery ${result.workItem.id}: ${result.disposition}; ` +
         `state=${result.workItem.state}; attempts=${result.workItem.attempts}/${result.workItem.maxAttempts}; ` +
         `interrupted_run=${result.interruptedRunId ?? 'none'}`,
+    )
+  }
+
+  // FIRE ANY BATCH THAT IS DUE — this is what makes "stage it and go to sleep" real.
+  //
+  // It lives HERE, at the top of the unattended worker pass, rather than in a second daemon or a cron
+  // entry: the launchd scheduler already wakes this command every 3 minutes, so a batch scheduled for
+  // 02:00 fires on the first pass after 02:00 with nobody awake and nothing else to remember. This
+  // also means the night run needs no redeploy of the launchd wrapper.
+  const dueBatches = await fireDueForgeBatches()
+  for (const fired of dueBatches) {
+    console.log(
+      `batch ${fired.batchId}: queued=${fired.queued}` +
+        (fired.failed.length ? ` skipped=${fired.failed.length}` : ''),
     )
   }
 

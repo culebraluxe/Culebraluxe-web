@@ -8,6 +8,11 @@ import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork } from "@/db/storyboard"
 import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from "@/db/agent-work"
 import {
+  cancelForgeBatch,
+  createForgeBatch,
+  fireForgeBatch,
+} from "@/db/forge-batch"
+import {
   ENGINE_DISPATCH_STATUS,
   STATUS_BY_BUCKET,
   normalizeStoryBucket,
@@ -172,6 +177,7 @@ async function sendEngineBatchActionHandler(): Promise<{
   ok: boolean
   queued: number
   failed: Array<{ storyId: string; error: string }>
+  batchId?: string
   error?: string
 }> {
   const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
@@ -180,22 +186,78 @@ async function sendEngineBatchActionHandler(): Promise<{
   const staged = await listStoryIdsWithStatus(STATUS_BY_BUCKET.batch ?? "Batched")
   if (staged.length === 0) return { ok: true, queued: 0, failed: [] }
 
-  const failed: Array<{ storyId: string; error: string }> = []
-  let queued = 0
-  for (const storyId of staged) {
-    try {
-      await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
-      queued += 1
-    } catch (error) {
-      failed.push({ storyId, error: String((error as Error)?.message ?? error) })
-    }
-  }
-  return { ok: failed.length === 0, queued, failed }
+  // A MANUAL SEND IS STILL A BATCH (migration 178): it gets a durable record like a scheduled one, so
+  // "what did I send, when, and how did it end" is answerable afterwards either way.
+  const batch = await createForgeBatch({
+    storyIds: staged,
+    label: `manual send ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+    actorId: access.actor.appUserId,
+    note: 'fired from the Cockpit ENGINE BATCH column',
+  })
+  const result = await fireForgeBatch(batch.id)
+  return { ok: result.failed.length === 0, queued: result.queued, failed: result.failed, batchId: batch.id }
 }
 
 export const sendEngineBatchAction = withServerErrorCapture(
   "portal/tech/actions.sendEngineBatchAction",
   sendEngineBatchActionHandler,
+)
+
+// ---------------------------------------------------------------------------
+// SCHEDULE THE ENGINE BATCH — "these are ready to go but i dont want to run them yet, maybe save for a
+// night run when its cheaper to run" (the captain, 2026-09-14).
+//
+// The batch is recorded NOW and `scheduled_for` decides when it fires. Nothing is dispatched at this
+// point: the staged stories keep status `Batched`, so Batch still fires nothing. The firing happens in
+// the unattended worker pass (`fireDueForgeBatches()` at the top of `agent:work`), which the launchd
+// scheduler already wakes every 3 minutes - so a 02:00 batch runs at 02:00 with nobody awake.
+// ---------------------------------------------------------------------------
+async function scheduleEngineBatchActionHandler(
+  scheduledForIso: string,
+  label?: string,
+): Promise<{ ok: boolean; batchId?: string; stories?: number; scheduledFor?: string; error?: string }> {
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
+  if (!access.ok) redirect(access.redirectTo)
+
+  const when = new Date(String(scheduledForIso ?? ""))
+  if (Number.isNaN(when.getTime())) {
+    return { ok: false, error: `not a time I can read: ${scheduledForIso}` }
+  }
+
+  const staged = await listStoryIdsWithStatus(STATUS_BY_BUCKET.batch ?? "Batched")
+  if (staged.length === 0) {
+    return { ok: false, error: "nothing is staged in ENGINE BATCH yet" }
+  }
+
+  const batch = await createForgeBatch({
+    storyIds: staged,
+    label: label?.trim() ? label.trim() : `night run ${when.toISOString().slice(0, 16).replace('T', ' ')}`,
+    scheduledFor: when.toISOString(),
+    actorId: access.actor.appUserId,
+    note: `scheduled from the Cockpit for ${when.toISOString()}`,
+  })
+  return { ok: true, batchId: batch.id, stories: batch.storyCount, scheduledFor: batch.scheduledFor ?? undefined }
+}
+
+export const scheduleEngineBatchAction = withServerErrorCapture(
+  "portal/tech/actions.scheduleEngineBatchAction",
+  scheduleEngineBatchActionHandler,
+)
+
+/** Abandon a scheduled batch before it fires. Nothing was dispatched, so nothing is undone. */
+async function cancelScheduledBatchActionHandler(
+  batchId: string,
+): Promise<{ ok: boolean; cancelled?: number; error?: string }> {
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
+  if (!access.ok) redirect(access.redirectTo)
+  const cancelled = await cancelForgeBatch(String(batchId ?? "").trim())
+  if (cancelled === 0) return { ok: false, error: "that batch is not waiting to fire" }
+  return { ok: true, cancelled }
+}
+
+export const cancelScheduledBatchAction = withServerErrorCapture(
+  "portal/tech/actions.cancelScheduledBatchAction",
+  cancelScheduledBatchActionHandler,
 )
 
 // ---------------------------------------------------------------------------

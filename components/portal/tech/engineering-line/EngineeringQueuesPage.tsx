@@ -20,11 +20,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-import { moveStoryBucketAction, sendEngineBatchAction, clearWorkBenchAction } from '@/app/portal/tech/actions'
+import {
+  moveStoryBucketAction,
+  sendEngineBatchAction,
+  scheduleEngineBatchAction,
+  cancelScheduledBatchAction,
+  clearWorkBenchAction,
+} from '@/app/portal/tech/actions'
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
 import { STORY_BUCKETS, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
 import { SORTER_COLUMNS, buildSorterCards } from '@/lib/sorter-board'
+import type { ForgeBatch } from '@/db/forge-batch'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
 
 /**
@@ -91,6 +98,11 @@ export type EngineeringQueuesPageProps = {
    * build makes every bug report a guess.
    */
   versionLabel?: string
+  /**
+   * The ENGINE BATCH history and roster, from `forge_batch` (migration 178): what is scheduled, what
+   * fired, and how each one ended. Without it the batch column can only show its current state.
+   */
+  batches?: ForgeBatch[] | null
   /**
    * The engine's own lanes, from the engine ledger: one entry per story, newest attempt first.
    * RUNNING and RESULTS are built from this; without it they would have to fall back to fixture
@@ -188,6 +200,7 @@ export function EngineeringQueuesPage({
   hold,
   batchStories,
   versionLabel,
+  batches,
 }: EngineeringQueuesPageProps) {
   const router = useRouter()
   // THE ENGINE'S LANES COME FROM THE ENGINE — there is no fixture on this screen any more.
@@ -257,6 +270,9 @@ export function EngineeringQueuesPage({
   const [handoffError, setHandoffError] = useState<string | null>(null)
   const [batchResult, setBatchResult] = useState<string | null>(null)
   const [batchSending, setBatchSending] = useState(false)
+  // SCHEDULING the batch ("save for a night run") has its own input, busy flag and result line.
+  const [batchScheduling, setBatchScheduling] = useState(false)
+  const [scheduleAt, setScheduleAt] = useState('')
   // CLEARING THE BENCH: its own busy flag and its own result line ("Cleared 12 stories off the bench.
   // Statuses untouched.") — a bulk action must say what it did.
   const [clearingBench, setClearingBench] = useState(false)
@@ -438,7 +454,7 @@ export function EngineeringQueuesPage({
             act that queues real Forge work for every staged story, so it says how many and what it
             does, and it reports partial success honestly instead of a boolean.
           */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {batchResult ? <span className="text-[10px] text-slate-300">{batchResult}</span> : null}
             <button
               type="button"
@@ -463,10 +479,97 @@ export function EngineeringQueuesPage({
               title="Queues real Forge work for every story staged in ENGINE BATCH (status → Ready)."
               className="shrink-0 rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {batchSending ? 'Sending…' : `Send batch (${batchCount}) → engine`}
+              {batchSending ? 'Sending…' : `Run batch now (${batchCount}) → engine`}
+            </button>
+            {/*
+              SCHEDULE IT INSTEAD — "these are ready to go but i dont want to run them yet, maybe save
+              for a night run when its cheaper to run" (the captain, 2026-09-14). The batch becomes a
+              durable row with a time on it; the unattended worker fires it when the clock passes that
+              time, so nobody has to be awake. Nothing is dispatched at this moment.
+            */}
+            <input
+              type="datetime-local"
+              value={scheduleAt}
+              onChange={(e) => setScheduleAt(e.target.value)}
+              className="rounded border border-white/15 bg-[#0b1220] px-2 py-1 text-[10px] text-slate-300"
+              title="When should this batch run by itself?"
+            />
+            <button
+              type="button"
+              disabled={batchScheduling || batchCount === 0 || !scheduleAt}
+              onClick={async () => {
+                setBatchScheduling(true)
+                setBatchResult(null)
+                try {
+                  const result = await scheduleEngineBatchAction(new Date(scheduleAt).toISOString())
+                  setBatchResult(
+                    result.ok
+                      ? `scheduled ${result.stories ?? 0} for the engine at ${new Date(
+                          result.scheduledFor ?? scheduleAt,
+                        ).toLocaleString()}`
+                      : (result.error ?? 'the batch could not be scheduled'),
+                  )
+                  router.refresh()
+                } finally {
+                  setBatchScheduling(false)
+                }
+              }}
+              title="Record this batch with a time on it. It fires by itself when the clock passes that time - no one has to press anything."
+              className="shrink-0 rounded border border-white/20 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-300 transition hover:border-[#c6a15b]/50 hover:text-[#e0c489] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {batchScheduling ? 'scheduling…' : `Schedule (${batchCount})`}
             </button>
           </div>
         </div>
+        {/*
+          THE BATCH IS A THING, NOT JUST A STATUS. Staging already persists (`Batched`), but until
+          migration 178 the screen could not answer "what did I load up, when will it run, and how did
+          the last one end?" - which is the whole reason to have a batch column. This is that history,
+          straight from `forge_batch`/`forge_batch_item`, plus a Cancel for a batch that is waiting.
+        */}
+        {batches && batches.length > 0 ? (
+          <ul className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[10px] text-slate-400">
+            {batches.slice(0, 5).map((b) => (
+              <li key={b.id} className="flex items-baseline gap-1.5">
+                <span
+                  className={
+                    b.status === 'Scheduled'
+                      ? 'text-[#e0c489]'
+                      : b.status === 'Fired'
+                        ? 'text-emerald-300/90'
+                        : b.status === 'Cancelled'
+                          ? 'text-slate-500'
+                          : 'text-slate-300'
+                  }
+                >
+                  {b.status === 'Scheduled'
+                    ? `scheduled ${b.scheduledFor ? new Date(b.scheduledFor).toLocaleString() : '?'}`
+                    : b.status === 'Fired'
+                      ? `fired ${b.firedAt ? new Date(b.firedAt).toLocaleString() : '?'}`
+                      : b.status.toLowerCase()}
+                </span>
+                <span>
+                  {b.queuedCount}/{b.storyCount} story{b.storyCount === 1 ? '' : 'ies'}
+                  {b.skippedCount > 0 ? ` · ${b.skippedCount} skipped` : ''}
+                </span>
+                {b.status === 'Scheduled' ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const result = await cancelScheduledBatchAction(b.id)
+                      setBatchResult(result.ok ? 'scheduled batch cancelled' : (result.error ?? 'cancel failed'))
+                      router.refresh()
+                    }}
+                    className="underline decoration-dotted underline-offset-2 hover:text-slate-200"
+                    title="Abandon this batch before it fires. Nothing was dispatched, so nothing is undone."
+                  >
+                    cancel
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[10px] text-slate-400">
             drag a story along the line · ENGINE RUN Q fills from the engine
