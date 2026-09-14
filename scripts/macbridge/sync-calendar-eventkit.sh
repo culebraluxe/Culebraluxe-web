@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# MAC-SYNC-CAL-02 — Apple EventKit gateway runner (manual + LaunchAgent entry).
+# MAC-SYNC-CAL-03 — Apple EventKit gateway runner (manual + LaunchAgent entry).
 #
-# One trusted Mac-side cycle reads the two EventKit work flavors separately:
-#   EKEvent    -> l_calendar -> Schedule
-#   EKReminder -> l_reminder -> Work
+# One trusted Mac-side cycle handles the two Apple work flavors separately:
+#   CulebraLuxe Calendar command -> EKEvent    -> l_calendar -> Schedule
+#   CulebraLuxe WBS mirror       -> EKReminder -> l_reminder -> Work
 #
-# Apple remains authoritative. This job does not write back to Calendar or
-# Reminders and it never creates/mutates canonical CulebraLuxe WBS rows.
+# Outbound commands are drained FIRST. The same cycle then reads EventKit back
+# into landing, giving us a real round trip instead of assuming Apple accepted
+# the write. Canonical WBS remains canonical; Apple Calendar remains the source
+# for generic schedule events.
 # ---------------------------------------------------------------------------
 
 set -uo pipefail
@@ -60,6 +62,17 @@ if [ ! -f "$REPO_ROOT/.env.local" ]; then
   exit 1
 fi
 
+# --- Outbound: durable CulebraLuxe commands -> EventKit ----------------------
+# The worker claims ONLY the two Apple subscriptions; it cannot steal unrelated
+# FORGE/application MQ deliveries. It writes command payloads through private
+# temp files and logs aggregate counts only.
+if ! APP_ENV=production EXECUTION_ENV=PROD \
+  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
+  scripts/apple-gateway-worker.ts >>"$LOG_FILE" 2>&1; then
+  log "result=failure stage=apple-outbound attempted-at=$attempted_at"
+  exit 1
+fi
+
 # --- Schedule: EKEvent -------------------------------------------------------
 if ! swift scripts/macbridge/CalendarEventKit.swift \
      --out "$SNAPSHOT" \
@@ -70,8 +83,6 @@ if ! swift scripts/macbridge/CalendarEventKit.swift \
 fi
 
 # --- Work: EKReminder --------------------------------------------------------
-# Reminders have their own macOS consent. The first run may display a separate
-# Apple permission prompt even though Calendar access was already granted.
 if ! swift scripts/macbridge/RemindersEventKit.swift \
      --out "$REMINDERS_SNAPSHOT" >>"$LOG_FILE" 2>&1; then
   log "result=failure stage=reminders-eventkit snapshot=$REMINDERS_SNAPSHOT attempted-at=$attempted_at"
@@ -87,8 +98,7 @@ if [ -n "$before_mtime" ] && [ "$before_mtime" != "$after_mtime" ]; then
   changed="yes"
 fi
 
-# The shared Apple launcher is the production gateway. DB targeting is explicit
-# and fail-closed; db/client resolves DATABASE_URL_PROD from .env.local.
+# --- Inbound: EventKit snapshots -> PROD landing -----------------------------
 if ! APP_ENV=production EXECUTION_ENV=PROD \
   "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
   scripts/calendar-eventkit-intake.ts "$SNAPSHOT" >>"$LOG_FILE" 2>&1; then
