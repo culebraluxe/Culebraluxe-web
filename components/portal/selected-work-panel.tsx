@@ -41,6 +41,10 @@ function prIso(date: string, time: string): string {
   return new Date(`${date}T${time}:00-04:00`).toISOString()
 }
 
+function plusThirtyMinutes(iso: string): string {
+  return new Date(new Date(iso).getTime() + 30 * 60 * 1000).toISOString()
+}
+
 export function SelectedWorkPanel({
   node,
   onSaved,
@@ -50,24 +54,26 @@ export function SelectedWorkPanel({
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [destination, setDestination] = useState<WorkDestination>("task")
+  const [title, setTitle] = useState(node?.title ?? "")
   const [status, setStatus] = useState<ProjectWorkStatus>(node?.status ?? "not-started")
   const [dueAt, setDueAt] = useState(node?.dueAt?.slice(0, 10) ?? "")
   const [startTime, setStartTime] = useState("09:00")
-  const [endTime, setEndTime] = useState("09:30")
-  const [owner, setOwner] = useState(node?.owner ?? "")
+  const [location, setLocation] = useState("")
   const [notes, setNotes] = useState(node?.note ?? "")
+  const [alert, setAlert] = useState(true)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [routeStatus, setRouteStatus] = useState<string | null>(null)
   const [saving, startSaving] = useTransition()
 
   useEffect(() => {
     setDestination("task")
+    setTitle(node?.title ?? "")
     setStatus(node?.status ?? "not-started")
     setDueAt(node?.dueAt?.slice(0, 10) ?? "")
     setStartTime("09:00")
-    setEndTime("09:30")
-    setOwner(node?.owner ?? "")
+    setLocation("")
     setNotes(node?.note ?? "")
+    setAlert(true)
     setSaveError(null)
     setRouteStatus(null)
     if (node) setCollapsed(false)
@@ -75,12 +81,16 @@ export function SelectedWorkPanel({
 
   const persistCurrent = async () => {
     if (!node) return { ok: false as const, message: "No work item selected." }
+    const cleanTitle = title.trim()
+    if (!cleanTitle) return { ok: false as const, message: "Title is required." }
     return updateWbsItemAction({
       id: node.id,
+      title: cleanTitle,
       status: toPersistedStatus(status),
       // WBS due dates are calendar dates. Noon UTC preserves YYYY-MM-DD across PR offsets.
       dueAt: dueAt ? `${dueAt}T12:00:00.000Z` : null,
-      owner: owner.trim() || null,
+      // Current CulebraLuxe operating model: Lisa owns selected work unless an existing owner is set.
+      owner: node.owner?.trim() || "Lisa",
       notes,
     })
   }
@@ -90,17 +100,15 @@ export function SelectedWorkPanel({
     setSaveError(null)
     setRouteStatus(null)
 
-    if (destination === "calendar") {
-      if (!dueAt || !startTime || !endTime) {
-        setSaveError("Calendar date, start and end are required.")
-        return
-      }
-      const startAt = prIso(dueAt, startTime)
-      const endAt = prIso(dueAt, endTime)
-      if (new Date(endAt) <= new Date(startAt)) {
-        setSaveError("Calendar end time must be after start time.")
-        return
-      }
+    const cleanTitle = title.trim()
+    if (!cleanTitle) {
+      setSaveError("Title is required.")
+      return
+    }
+
+    if (destination === "calendar" && (!dueAt || !startTime)) {
+      setSaveError("Calendar date and start time are required.")
+      return
     }
 
     startSaving(async () => {
@@ -111,24 +119,27 @@ export function SelectedWorkPanel({
       }
 
       if (destination === "calendar") {
+        const startAt = prIso(dueAt, startTime)
         const result = await createAppleCalendarEventAction({
-          title: node.title,
-          startAt: prIso(dueAt, startTime),
-          endAt: prIso(dueAt, endTime),
+          title: cleanTitle,
+          startAt,
+          endAt: plusThirtyMinutes(startAt),
+          location: location.trim() || null,
           notes: notes.trim() || null,
+          alert,
         })
         if (!result.ok) {
           setSaveError(result.message)
           return
         }
-        setRouteStatus("Saved · queued for Apple Calendar.")
+        setRouteStatus(`Saved · Apple Calendar queued${alert ? " · alert 15 min before" : ""}.`)
       } else {
-        const result = await queueAppleReminderForWbsAction(node.id)
+        const result = await queueAppleReminderForWbsAction(node.id, { alert })
         if (!result.ok) {
           setSaveError(result.message)
           return
         }
-        setRouteStatus("Saved · queued for Apple Reminders.")
+        setRouteStatus(`Saved · Apple Reminder queued${alert && dueAt ? " · alert 9 AM on due date" : ""}.`)
       }
 
       onSaved?.()
@@ -160,9 +171,9 @@ export function SelectedWorkPanel({
       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
         Selected work
       </span>
-      <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">{node.title}</span>
+      <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">{title || node.title}</span>
       <span className="hidden shrink-0 text-[12px] font-light text-[var(--portal-blue-gray)] sm:inline">
-        {destination === "calendar" ? "Calendar" : STATUS_LABEL[status]} · {shortDate(dueAt, node.dueLabel)} · {owner.trim() || "Unassigned"}
+        {destination === "calendar" ? "Calendar" : STATUS_LABEL[status]} · {shortDate(dueAt, node.dueLabel)}
       </span>
       <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--portal-blue-gray)]">
         {collapsed ? "Expand" : "Collapse"}
@@ -182,7 +193,7 @@ export function SelectedWorkPanel({
   return (
     <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
       {header}
-      <div className={`grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 ${destination === "calendar" ? "xl:grid-cols-[120px_145px_105px_105px_minmax(240px,1fr)_auto]" : "xl:grid-cols-[120px_minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(240px,2fr)_auto_auto]"} xl:items-end`}>
+      <div className={`grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 ${destination === "calendar" ? "xl:grid-cols-[105px_minmax(180px,1.2fr)_135px_105px_minmax(150px,0.9fr)_95px_minmax(220px,1.35fr)_auto]" : "xl:grid-cols-[105px_minmax(180px,1.2fr)_130px_135px_95px_minmax(220px,1.35fr)_auto_auto]"} xl:items-end`}>
         <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
           Type
           <select
@@ -195,107 +206,97 @@ export function SelectedWorkPanel({
           </select>
         </label>
 
+        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+          Title
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+          />
+        </label>
+
         {destination === "task" ? (
-          <>
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Status
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value as ProjectWorkStatus)}
-                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-              >
-                <option value="not-started">Not started</option>
-                <option value="in-progress">In progress</option>
-                <option value="complete">Complete</option>
-                <option value="dismissed">Dismissed</option>
-              </select>
-            </label>
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Status
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as ProjectWorkStatus)}
+              className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+            >
+              <option value="not-started">Not started</option>
+              <option value="in-progress">In progress</option>
+              <option value="complete">Complete</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+        ) : null}
 
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Due
-              <input
-                type="date"
-                value={dueAt}
-                onChange={(event) => setDueAt(event.target.value)}
-                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
+        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+          {destination === "calendar" ? "Date" : "Due"}
+          <input
+            type="date"
+            value={dueAt}
+            onChange={(event) => setDueAt(event.target.value)}
+            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+          />
+        </label>
 
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Assignee
-              <input
-                value={owner}
-                onChange={(event) => setOwner(event.target.value)}
-                placeholder="Unassigned"
-                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
+        {destination === "calendar" ? (
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Start
+            <input
+              type="time"
+              value={startTime}
+              onChange={(event) => setStartTime(event.target.value)}
+              className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+            />
+          </label>
+        ) : null}
 
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Notes
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Add a note…"
-                rows={2}
-                className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
+        {destination === "calendar" ? (
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Location
+            <input
+              value={location}
+              onChange={(event) => setLocation(event.target.value)}
+              placeholder="Optional"
+              className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+            />
+          </label>
+        ) : null}
 
-            <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
-              <input
-                type="checkbox"
-                checked={status === "complete"}
-                onChange={(event) => setStatus(event.target.checked ? "complete" : "in-progress")}
-                className="h-4 w-4 accent-[var(--portal-success)]"
-              />
-              Complete
-            </label>
-          </>
-        ) : (
-          <>
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Date
-              <input
-                type="date"
-                value={dueAt}
-                onChange={(event) => setDueAt(event.target.value)}
-                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
+        <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
+          <input
+            type="checkbox"
+            checked={alert}
+            onChange={(event) => setAlert(event.target.checked)}
+            className="h-4 w-4 accent-[var(--portal-gold)]"
+          />
+          Alert
+        </label>
 
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Start
-              <input
-                type="time"
-                value={startTime}
-                onChange={(event) => setStartTime(event.target.value)}
-                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
+        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+          Notes
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Add a note…"
+            rows={2}
+            className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
+          />
+        </label>
 
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              End
-              <input
-                type="time"
-                value={endTime}
-                onChange={(event) => setEndTime(event.target.value)}
-                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
-
-            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-              Notes
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Add a note…"
-                rows={2}
-                className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
-              />
-            </label>
-          </>
-        )}
+        {destination === "task" ? (
+          <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
+            <input
+              type="checkbox"
+              checked={status === "complete"}
+              onChange={(event) => setStatus(event.target.checked ? "complete" : "in-progress")}
+              className="h-4 w-4 accent-[var(--portal-success)]"
+            />
+            Complete
+          </label>
+        ) : null}
 
         <button
           type="button"
