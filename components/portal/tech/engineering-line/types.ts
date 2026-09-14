@@ -48,6 +48,14 @@ export type QueueCard = {
    * read a trace for something that had never been an instance.
    */
   storyId?: string
+  /**
+   * The REAL process instance id for this card's attempt, when the engine ledger knows it.
+   *
+   * Engine-lane cards (RUNNING / RESULTS) carry it, so a double-click opens THAT attempt's trace
+   * directly. Human-lane cards only know their story, so they leave it unset and the recorder
+   * resolves story -> latest instance instead. The preference order lives in `openRecorder`.
+   */
+  instanceId?: string
 }
 
 export type MetricTile = {

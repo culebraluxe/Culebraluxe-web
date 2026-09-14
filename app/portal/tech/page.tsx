@@ -5,7 +5,7 @@ import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { listForgeConvergence } from "@/db/forge-convergence"
-import { latestForgeInstanceForStory } from "@/db/forge-engine-task-execution"
+import { latestForgeInstanceForStory, listEngineRunCards } from "@/db/forge-engine-task-execution"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import {
@@ -101,6 +101,11 @@ export default async function TechPage({
   // The total, so the signpost can say how many exist rather than implying its capped list is all.
   const historyTotal = historyStoryIds.length
 
+  // The engine's lanes are read from the engine ledger. A failure here is reported IN THE LANE
+  // rather than silently leaving fixture cards standing in for engine output; the read is also
+  // captured by the database gateway on the way through.
+  const engineRuns = await listEngineRunCards(24).catch(() => null)
+
   return (
     <div className="min-h-screen bg-[#0b1220]">
       <div className="flex justify-end gap-4 px-4 pt-3 lg:px-6">
@@ -134,6 +139,7 @@ export default async function TechPage({
         historyStories={historyStories}
         historyStoryIds={historyStoryIds}
         historyTotal={historyTotal}
+        engineRuns={engineRuns}
       />
       <div className="px-5 pb-8">
         <ForgeConvergenceView items={convergence} />

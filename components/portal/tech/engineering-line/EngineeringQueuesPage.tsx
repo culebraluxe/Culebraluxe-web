@@ -32,6 +32,7 @@ import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 
 import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
+import type { EngineRunCard } from '@/db/forge-engine-task-execution'
 
 /**
  * What the route loads for us. Tiles and the story log come from ONE structure
@@ -61,6 +62,12 @@ export type EngineeringQueuesPageProps = {
   historyStoryIds?: string[]
   /** Total stories with run history, so a capped signpost list never claims to be the total. */
   historyTotal?: number
+  /**
+   * The engine's own lanes, from the engine ledger: one entry per story, newest attempt first.
+   * RUNNING and RESULTS are built from this; without it they would have to fall back to fixture
+   * data, which is how a card in "ENGINE DONE" ended up standing for a story the engine never ran.
+   */
+  engineRuns?: EngineRunCard[] | null
 }
 
 const QUEUES: Array<{
@@ -119,10 +126,45 @@ export function EngineeringQueuesPage({
   historyStories,
   historyStoryIds,
   historyTotal,
+  engineRuns,
 }: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
   const router = useRouter()
-  const [cards, setCards] = useState<QueueCard[]>(model.cards)
+  // THE ENGINE'S LANES COME FROM THE ENGINE.
+  //
+  // `model.cards` is static fixture data, and the RUNNING / RESULTS lanes are the engine's own
+  // ("the batch the machine is executing", "finished ATTEMPTS"). Filling them with fixture cards
+  // meant the engine's lane showed stories the engine had never touched, and opening one produced a
+  // truthful "no instance recorded" that reads as a broken screen. Human lanes keep the fixture;
+  // the engine's lanes are built from `engineRuns` below.
+  const engineCards = useMemo<QueueCard[]>(
+    () =>
+      (engineRuns ?? []).map((run) => {
+        const live = run.status === 'running' || run.status === 'claimed' || run.status === 'queued'
+        const outcome: RunOutcome =
+          run.status === 'completed' ? 'DONE' : run.status === 'failed' ? 'ERROR' : 'INTERRUPTED'
+        return {
+          // One row per ATTEMPT: the story id alone would collide across attempts.
+          id: `${run.storyId}#${run.attempts}`,
+          title: run.title,
+          workstream: 'ENGINEERING',
+          status: run.status,
+          priority: run.status === 'failed' ? 'HIGH' : 'MEDIUM',
+          completion: run.status === 'completed' ? 100 : 0,
+          queue: live ? 'running' : 'results',
+          outcome,
+          attempt: run.attempts,
+          endedOn: run.lastNode ?? undefined,
+          storyId: run.storyId,
+          instanceId: run.instanceId || undefined,
+        }
+      }),
+    [engineRuns],
+  )
+  const [cards, setCards] = useState<QueueCard[]>(() => [
+    ...model.cards.filter((c) => c.queue === 'bench' || c.queue === 'ready'),
+    ...engineCards,
+  ])
   const [selected, setSelected] = useState<string | null>(null)
   // Drag state: which card is in hand. Local only — the MOVE is a demo of the
   // mechanic, not a write. When this is wired the drop becomes a real mutation.
@@ -143,9 +185,10 @@ export function EngineeringQueuesPage({
   }
 
   function openRecorder(card: QueueCard) {
-    if (!card.storyId) return
-    // The recorder accepts a STORY id and resolves it to that story's latest engine instance.
-    window.open(`/portal/tech/flight-recorder/${card.storyId}`, '_blank', 'noopener')
+    // The exact attempt when the ledger knows it; otherwise the recorder resolves the story.
+    const target = card.instanceId || card.storyId
+    if (!target) return
+    window.open(`/portal/tech/flight-recorder/${target}`, '_blank', 'noopener')
   }
 
   /** The gate: the spec is done, hand this story to the engine. Local demo.
@@ -213,8 +256,21 @@ export function EngineeringQueuesPage({
         priority: s.priority,
         completion: s.completion,
       })),
+      // ENGINE QUEUE holds what the machine is executing NOW, from the ledger — not a fixture.
+      // (It used to be empty by design, "until agent_work_item is wired"; it is wired now, and the
+      // real answer since 2026-09-14 is that the engine is idle, which is worth seeing.)
+      ...engineCards
+        .filter((c) => c.queue === 'running')
+        .map((c) => ({
+          id: c.id,
+          column: 'engine',
+          title: c.title,
+          status: c.status,
+          priority: c.priority,
+          completion: c.completion,
+        })),
     ]
-  }, [cockpit, activeWork])
+  }, [cockpit, activeWork, engineCards])
 
   const sorterColumns = useMemo(
     () => [
@@ -284,6 +340,17 @@ export function EngineeringQueuesPage({
           </p>
           <p className="text-[10px] text-slate-400">
             drag a story along the line · ENGINE QUEUE fills from the engine
+            {engineRuns === null ? (
+              <span className="ml-2 text-amber-400/90">
+                · the engine ledger could not be read, so the engine lanes are empty rather than
+                guessed
+              </span>
+            ) : engineRuns ? (
+              <span className="ml-2 text-slate-500">
+                · {engineRuns.length} stor
+                {engineRuns.length === 1 ? 'y' : 'ies'} recorded in the ledger
+              </span>
+            ) : null}
           </p>
         </div>
         <div className="h-[520px] overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">

@@ -35,6 +35,68 @@ export async function latestForgeInstanceForStory(
 }
 
 /**
+ * THE ENGINE'S OWN LANES: one card per STORY, from the engine ledger.
+ *
+ * The queues board's RUNNING and RESULTS lanes are the engine's lanes — "the batch the machine is
+ * executing" and "finished ATTEMPTS" — and they were being filled by static fixture data, so a card
+ * in "ENGINE DONE" looked exactly like real engine output while no run existed behind it. Opening
+ * one produced an honest "no instance recorded" and an operator rightly asks why the engine's own
+ * lane is lying. This reads the real ledger instead.
+ *
+ * Grain: the board's rule is that results rows are ATTEMPTS, not stories, so `attempts` carries the
+ * count and `node` says where the latest attempt ended. `instanceId` is the real UUID for THIS
+ * story's latest attempt, which is what the recorder needs — no resolution guesswork.
+ *
+ * Timestamps are normalized here (`created_at::text`), because a driver Date escaping the
+ * repository is exactly what took the cockpit down once (see db/storyboard.ts).
+ */
+export type EngineRunCard = {
+  storyId: string
+  title: string
+  instanceId: string
+  /** Where the latest attempt ended, e.g. `qa_verify`, `repair_smith`. */
+  lastNode: string | null
+  /** `completed` | `failed` | `interrupted` (the ledger's own vocabulary). */
+  status: string
+  /** Attempts recorded for this story. */
+  attempts: number
+  at: string | null
+}
+
+export async function listEngineRunCards(
+  limit = 30,
+  execute?: QueryExecutor,
+): Promise<EngineRunCard[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select * from (
+      select distinct on (e.story_id)
+        e.story_id,
+        coalesce(s.title, e.story_id) as title,
+        e.process_instance_id::text as instance_id,
+        e.node_id,
+        e.status,
+        e.created_at::text as at,
+        (select count(*)::int from forge_engine_task_execution x where x.story_id = e.story_id) as attempts
+      from forge_engine_task_execution e
+      left join storyboard_story s on s.id = e.story_id
+      order by e.story_id, e.created_at desc
+    ) latest
+    order by latest.at desc
+    limit ${limit}
+  `
+  return rows.map((row) => ({
+    storyId: String(row.story_id),
+    title: String(row.title ?? row.story_id),
+    instanceId: String(row.instance_id ?? ''),
+    lastNode: row.node_id == null ? null : String(row.node_id),
+    status: String(row.status ?? ''),
+    attempts: Number(row.attempts ?? 0),
+    at: row.at == null ? null : String(row.at),
+  }))
+}
+
+/**
  * HOW MANY TURNS THIS GENERATION HAS ALREADY DISPATCHED.
  *
  * The engine's own ledger is the count: every role turn this process instance started is a
