@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { captureServerError } from '@/lib/server-error-capture'
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { getFlightRecorderTransaction, isProcessInstanceId } from "@/workflow_app/flight-recorder-read"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
@@ -15,6 +17,21 @@ async function GETHandler(
   { params }: { params: Promise<{ instanceId: string }> },
 ) {
   const { instanceId } = await params
+
+  // THE TRACE REQUIRES THE AUTHORITY THE SCREEN REQUIRES.
+  //
+  // This route had NO authorization check at all. Measured on 2026-09-14 against production:
+  // `curl https://www.culebraluxe.com/api/portal/flight-recorder/<instance>` with no session
+  // returned 200 and 71KB of engine trace - role payloads, model turns, commit SHAs, work item
+  // ids - for anyone who could guess or learn an instance id. The page in front of it demands
+  // `tech.access`; the data behind it demanded nothing. Same authority, checked here now.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'tech.access')
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: 'unauthorized', detail: 'Reading an engine trace requires TECH access.' },
+      { status: 401 },
+    )
+  }
 
   // A LINK THAT CARRIES SOMETHING OTHER THAN AN INSTANCE ID IS A 400, NOT A 503.
   //
