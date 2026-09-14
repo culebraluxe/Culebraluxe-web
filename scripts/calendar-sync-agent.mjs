@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 // ---------------------------------------------------------------------------
 // scripts/calendar-sync-agent.mjs — manage the macOS LaunchAgent that
-// periodically invokes the EXISTING EventKit snapshot bridge
-// (scripts/macbridge/CalendarEventKit.swift, a.k.a. `pnpm calendar:sync`).
+// periodically invokes the existing EventKit snapshot bridge.
 //
-//   pnpm calendar:sync:install     render + install + bootstrap (idempotent)
+// Calendar deliberately reuses the EXISTING FDA-grantable apple-sync-launcher
+// as its trusted macOS/TCC execution boundary. This file never builds, replaces,
+// or modifies that proven launcher or the canonical Apple Messages sync.
+//
+//   pnpm calendar:sync:install     deploy wrapper + install/bootstrap (idempotent)
 //   pnpm calendar:sync:status      loaded/enabled state + last invocation log
-//   pnpm calendar:sync:run         run the exact same wrapper once
+//   pnpm calendar:sync:run         run the exact same launcher path once
 //   pnpm calendar:sync:stop        kill switch: boot out + persist disabled
-//   pnpm calendar:sync:uninstall   stop + delete the plist
+//   pnpm calendar:sync:uninstall   stop + delete Calendar plist/wrapper only
 // ---------------------------------------------------------------------------
 
 import { spawnSync } from 'node:child_process'
@@ -49,6 +52,7 @@ export function machinePaths(env = process.env) {
     invocationLog: join(logDir, 'calendar-sync.invocations.log'),
     wrapper: join(repoRoot(), 'scripts', 'macbridge', 'sync-calendar-eventkit.sh'),
     deployedWrapper: join(supportDir, 'calendar-sync-once.sh'),
+    appleLauncher: join(supportDir, 'apple-sync-launcher'),
     uid,
     target: `gui/${uid}`,
     job: `gui/${uid}/${LABEL}`,
@@ -56,13 +60,13 @@ export function machinePaths(env = process.env) {
 }
 
 export function escapeXml(value) {
-  return String(value).replace(/[<>&'"]/g, (ch) => {
+  return String(value).replace(/[<>&'\"]/g, (ch) => {
     switch (ch) {
       case '<': return '&lt;'
       case '>': return '&gt;'
       case '&': return '&amp;'
       case "'": return '&apos;'
-      case '"': return '&quot;'
+      case '\"': return '&quot;'
       default: return ch
     }
   })
@@ -74,6 +78,7 @@ export function renderPlist({
   logDir,
   supportDir,
   snapshot,
+  appleLauncher,
   label = LABEL,
   cadenceSeconds = CADENCE_SECONDS,
   template,
@@ -85,6 +90,7 @@ export function renderPlist({
     .replace(/\{\{HOME\}\}/g, escapeXml(home))
     .replace(/\{\{LOG_DIR\}\}/g, escapeXml(logDir))
     .replace(/\{\{SNAPSHOT\}\}/g, escapeXml(snapshot))
+    .replace(/\{\{APPLE_LAUNCHER\}\}/g, escapeXml(appleLauncher))
     .replace(/\{\{CADENCE_SECONDS\}\}/g, String(cadenceSeconds))
 }
 
@@ -117,14 +123,23 @@ function deployWrapper(p) {
   writeFileSync(p.deployedWrapper, source, { mode: 0o755 })
 }
 
+function requireSharedAppleLauncher(p) {
+  if (!existsSync(p.appleLauncher)) {
+    console.error(`existing Apple sync launcher missing: ${p.appleLauncher}`)
+    console.error('Calendar install will not rebuild or replace the proven Apple launcher.')
+    process.exit(1)
+  }
+}
+
 function install() {
   const p = machinePaths()
 
   console.log('[calendar-sync] 1/6 preparing directories')
   mkdirSync(p.logDir, { recursive: true })
 
-  console.log('[calendar-sync] 2/6 deploying wrapper')
+  console.log('[calendar-sync] 2/6 deploying Calendar wrapper + verifying shared Apple launcher')
   deployWrapper(p)
+  requireSharedAppleLauncher(p)
 
   console.log('[calendar-sync] 3/6 rendering LaunchAgent plist')
   const templatePath = join(
@@ -139,6 +154,7 @@ function install() {
     logDir: p.logDir,
     supportDir: p.supportDir,
     snapshot: p.snapshot,
+    appleLauncher: p.appleLauncher,
     template,
   })
   writeFileSync(p.plistPath, plist, { mode: 0o644 })
@@ -157,7 +173,7 @@ function install() {
     process.exit(1)
   }
 
-  console.log('[calendar-sync] 5/6 resetting prior LaunchAgent state')
+  console.log('[calendar-sync] 5/6 resetting prior Calendar LaunchAgent state')
   const bootout = launchctl(['bootout', p.job])
   failTimedOutLaunchctl('launchctl bootout', bootout)
 
@@ -168,7 +184,7 @@ function install() {
     process.exit(1)
   }
 
-  console.log('[calendar-sync] 6/6 bootstrapping LaunchAgent')
+  console.log('[calendar-sync] 6/6 bootstrapping Calendar LaunchAgent via shared Apple launcher')
   const boot = launchctl(['bootstrap', p.target, p.plistPath])
   failTimedOutLaunchctl('launchctl bootstrap', boot)
   if (boot.status !== 0) {
@@ -187,6 +203,7 @@ function printStatus() {
   console.log('label:', LABEL)
   console.log('job:', p.job)
   console.log('plist:', p.plistPath)
+  console.log('launcher:', p.appleLauncher, existsSync(p.appleLauncher) ? '(shared, present)' : '(shared, MISSING)')
   console.log('wrapper:', p.deployedWrapper)
   console.log('snapshot:', p.snapshot)
   console.log('cadenceSeconds:', CADENCE_SECONDS)
@@ -212,15 +229,17 @@ function printStatus() {
 
 function runOnce() {
   const p = machinePaths()
-  const wrapper = existsSync(p.deployedWrapper) ? p.deployedWrapper : p.wrapper
-  const env = existsSync(p.deployedWrapper)
-    ? { ...process.env, CULEBRALUXE_REPO: p.repo }
-    : process.env
-  if (!existsSync(wrapper)) {
-    console.error(`calendar-sync wrapper missing: ${wrapper}`)
+  requireSharedAppleLauncher(p)
+  if (!existsSync(p.deployedWrapper)) {
+    console.error(`Calendar wrapper missing: ${p.deployedWrapper} (run calendar:sync:install first)`)
     process.exit(1)
   }
-  const r = spawnSync('/bin/bash', [wrapper], { stdio: 'inherit', env })
+  const env = {
+    ...process.env,
+    CULEBRALUXE_REPO: p.repo,
+    CULEBRALUXE_APPLE_SYNC_SCRIPT: p.deployedWrapper,
+  }
+  const r = spawnSync(p.appleLauncher, [], { stdio: 'inherit', env })
   process.exit(r.status ?? 1)
 }
 
@@ -230,7 +249,7 @@ function stop() {
   failTimedOutLaunchctl('launchctl bootout', bootout)
   const disable = launchctl(['disable', p.job])
   failTimedOutLaunchctl('launchctl disable', disable)
-  console.log(`stopped: no future scheduled invocations (plist kept at ${p.plistPath}).`)
+  console.log(`stopped: no future scheduled Calendar invocations (plist kept at ${p.plistPath}).`)
 }
 
 function uninstall() {
@@ -241,7 +260,8 @@ function uninstall() {
   failTimedOutLaunchctl('launchctl disable', disable)
   if (existsSync(p.plistPath)) rmSync(p.plistPath)
   if (existsSync(p.deployedWrapper)) rmSync(p.deployedWrapper)
-  console.log('uninstalled: launchd job removed, plist + deployed wrapper deleted.')
+  console.log('uninstalled Calendar sync only: Calendar LaunchAgent + Calendar wrapper removed.')
+  console.log('shared Apple launcher and canonical Apple sync were not touched.')
 }
 
 function main() {
@@ -257,11 +277,11 @@ function main() {
     case '-h':
       console.log(`usage: node scripts/calendar-sync-agent.mjs <command>
 commands:
-  install     render + install + bootstrap the LaunchAgent (idempotent)
-  status      show loaded/enabled state, snapshot, last invocation log
-  run         run the exact same wrapper once (manual sync)
-  stop        kill switch: boot out + persist disabled (no future runs)
-  uninstall   stop + delete the plist`)
+  install     deploy Calendar wrapper + install/bootstrap via existing Apple launcher
+  status      show loaded/enabled state, shared launcher, snapshot, last invocation log
+  run         run the exact shared-launcher Calendar path once
+  stop        kill switch: boot out + persist disabled (no future Calendar runs)
+  uninstall   remove Calendar job/wrapper only; never remove shared Apple launcher`)
       break
     default:
       console.error(`unknown command: ${command ?? '(none)'}`)
