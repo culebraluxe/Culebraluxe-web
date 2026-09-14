@@ -40,6 +40,7 @@ export type {
   ProjectsWorkspaceData,
   ProjectsWorkspaceLoadState,
   ProjectsWorkspacePageModel,
+  ProjectsWorkspaceScope,
   ProjectsWorkspaceStatus,
   ProjectWorkspaceView,
 } from "./model"
