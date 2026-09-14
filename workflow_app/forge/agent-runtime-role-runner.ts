@@ -28,7 +28,7 @@ import {
   SqlAgentWorkRepository,
 } from '../../agent-runtime/repositories'
 import { buildForgeSmokeFlashTeam } from '../../agent-runtime/smoke-team'
-import { getAgentWorkItem } from '../../db/agent-work'
+import { getAgentWorkItem, listActiveAgentWorkItems } from '../../db/agent-work'
 import {
   countForgeGenerationTurns,
   finishForgeEngineTaskExecution,
@@ -65,6 +65,8 @@ import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { assessGenerationTurnBudget, resolveGenerationTurnCap } from './model-turn-budget'
+import { describeClaimBlocker } from './forge-claim-blocker'
+import { DEFAULT_FORGE_STALE_MS, recoverStaleForgeEngineClaims } from '../../db/forge-engine-recovery'
 import { scorePlanDetailed } from './forge-plan-difficulty'
 import { SCORER_ID } from './forge-difficulty-scorer'
 import {
@@ -649,9 +651,46 @@ export function createAgentRuntimeForgeRoleRunner(
         workerId: options.workerId,
       })
     }
-    const claimed = await work.claimSpecific(queued.id, options.workerId)
+    // ---------------------------------------------------------------------
+    // CLAIM, WITH ONE HONEST RETRY.
+    //
+    // The engine allows ONE system-wide single-active work item. A claim can therefore fail
+    // because a PEER is genuinely working (wait), or because a DEAD worker left a claim
+    // behind (recover it). Those two cases used to be indistinguishable: the run just threw
+    // "could not claim agent work item", which cost a manual query to diagnose on
+    // 2026-09-13, and `forge:clean` will not touch a claim younger than its cutoff by design.
+    //
+    // So: on refusal, run the ENGINE'S OWN recovery path (stale-only — never a fresh claim)
+    // and try once more. If it still refuses, name who holds the lock and what resolves it.
+    // The rule is unchanged; only the recovery and the explanation are new.
+    // ---------------------------------------------------------------------
+    let claimed = await work.claimSpecific(queued.id, options.workerId)
     if (!claimed) {
-      throw new Error(`Forge engine task ${task.taskId} could not claim agent work item ${queued.id}`)
+      const recovered = await recoverStaleForgeEngineClaims({ limit: 20 }).catch(() => [])
+      const interrupted = recovered.filter((outcome) => outcome.recovered).length
+      if (interrupted > 0) {
+        claimed = await work.claimSpecific(queued.id, options.workerId)
+      }
+      if (!claimed) {
+        const blockers = await listActiveAgentWorkItems(5).catch(() => [])
+        const why = describeClaimBlocker({
+          rows: blockers.map((item) => ({
+            id: item.id,
+            storyId: item.storyId,
+            role: item.role,
+            state: item.state,
+            claimedBy: item.claimedBy,
+            updatedAt: item.updatedAt,
+          })),
+          nowMs: Date.now(),
+          staleMs: DEFAULT_FORGE_STALE_MS,
+          storyId: resolvedStory.id,
+        })
+        throw new Error(
+          `Forge engine task ${task.taskId} could not claim agent work item ${queued.id} ` +
+            `(recovered ${interrupted} stale claim(s) first): ${why}`,
+        )
+      }
     }
 
     const durableClaim = await work.get(queued.id)

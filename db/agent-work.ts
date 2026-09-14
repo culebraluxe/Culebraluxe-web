@@ -331,6 +331,33 @@ export async function listActiveAgentWorkForStory(
   return rows.map((row) => mapWorkItem(row as AgentWorkRow))
 }
 
+/**
+ * Every work item that is HOLDING THE SINGLE-ACTIVE LOCK, newest claim first.
+ *
+ * `claimSpecificAgentWork` refuses while ANY item anywhere is Claimed/Running/Paused — that
+ * is the system-wide single-active rule, and it is deliberate. What was missing was the
+ * ability to say WHO is holding it: a claim that failed only reported "could not claim",
+ * which is unactionable when the blocker is another story's remainder from an hour ago.
+ *
+ * Read-only. The runner uses it only to explain a refusal, never to route around one.
+ */
+export async function listActiveAgentWorkItems(
+  limit = 5,
+  execute?: QueryExecutor,
+): Promise<AgentWorkItem[]> {
+  const q = execute ?? (await executor())
+  const bounded = Math.min(20, Math.max(1, Math.trunc(limit) || 1))
+  const rows = await q`
+    select id, story_id, state, priority, queued_at, claimed_at, claimed_by,
+      started_at, finished_at, story_run_id, error_text, role, model_profile, special_instructions, runtime_adapter, external_run_id, attempts, max_attempts, execution_policy, execution_environment, created_at, updated_at
+    from agent_work_item
+    where state in ('Claimed', 'Running', 'Paused')
+    order by updated_at desc
+    limit ${bounded}
+  `
+  return rows.map((row) => mapWorkItem(row as AgentWorkRow))
+}
+
 export async function getAgentWorkItem(
   workItemId: string,
   execute?: QueryExecutor,
