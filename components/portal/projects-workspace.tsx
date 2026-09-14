@@ -578,10 +578,6 @@ function ProjectTimelineTab({ project }: { project: ProjectPlan }) {
 function ProjectCalendar({ project }: { project: ProjectPlan }) {
   const eventSource = project.calendarItems ?? []
   const events = useMemo(() => mapProjectCalendarToEvents(eventSource), [eventSource])
-  // The month calendar renders even with zero dated items, on purpose: this pane
-  // is the project's calendar home, and an empty month reads as "no dated work
-  // yet" — it must not look like the pane failed to load. Dated items come from
-  // the project's own WBS due dates (ui/projects/secondary-projection).
   return (
     <div className="min-h-0 flex-1">
       <FullCalendarCandidate events={events} heading={null} />
@@ -589,10 +585,6 @@ function ProjectCalendar({ project }: { project: ProjectPlan }) {
   )
 }
 
-/** Documents tab — the project's papers as a file cabinet (SVAR Filemanager).
- *  It shows the project's REAL linked documents when it has any, and a sample
- *  cabinet when it does not — flagged, and disclosed below, so placeholder files
- *  are never mistaken for the client's actual papers. */
 function ProjectDocuments({ project }: { project: ProjectPlan }) {
   const { files, synthetic } = useMemo(() => mapProjectToFileTree(project), [project])
   const unlinked = project.provenance?.documents === "unlinked"
@@ -632,17 +624,6 @@ function ProjectActivity({ project }: { project: ProjectPlan }) {
     </div>
   )
 }
-
-/*
- * ProjectHeader was removed with the canvas restructure (2026-09-12). It rendered
- * the giant project title, the context labels, the progress bar, the playbook chip
- * and the "next action" card inside Pane 2. All of that duplicated what the
- * navigator and the inspector already show, and it cost the widget panes their
- * vertical space. Project identity, view navigation and project-level actions now
- * share one compact rail so the widget starts as high as possible.
- *
- * `Progress` is still used by the navigator's domain rail (Pane 1).
- */
 
 function WorkspaceMessage({
   state,
@@ -728,6 +709,7 @@ function CatchUpWorkspace({
   const router = useRouter()
   const [statusFilter, setStatusFilter] = useState<CatchUpFilter>("all")
   const [domainFilter, setDomainFilter] = useState<ProjectDomainKey | "all">("all")
+  const [selectedEntryKey, setSelectedEntryKey] = useState<string | null>(null)
   const [pendingNodeId, setPendingNodeId] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [isCompleting, startCompleting] = useTransition()
@@ -745,6 +727,10 @@ function CatchUpWorkspace({
       sample: false,
     })),
     [entries],
+  )
+  const selectedEntry = useMemo(
+    () => entries.find((entry) => `${entry.project.id}:${entry.node.id}` === selectedEntryKey) ?? null,
+    [entries, selectedEntryKey],
   )
   const usingDemo = Boolean(today && liveRows.length === 0)
   const rows = useMemo(() => usingDemo ? sampleCatchUpRows() : liveRows, [liveRows, usingDemo])
@@ -860,7 +846,7 @@ function CatchUpWorkspace({
         {mutationError ? <span className="basis-full text-[11px] text-[var(--portal-archive)]">{mutationError}</span> : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
+      <div className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
         <div className={`min-h-0 flex-1 ${PROJECTS_SCROLL_CLASS} overflow-x-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20`}>
           <div className="min-w-[900px]">
             <div className="grid grid-cols-[minmax(0,1fr)_100px] border-b border-[var(--portal-panel-border)]/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
@@ -885,35 +871,48 @@ function CatchUpWorkspace({
                 {visibleRows.map((row) => {
                   const done = row.status === "complete"
                   const pending = row.source ? pendingNodeId === row.source.node.id : false
+                  const selected = !row.sample && selectedEntryKey === row.key
                   return (
-                    <li key={row.key} className={`grid grid-cols-[minmax(0,1fr)_100px] items-stretch ${done ? "opacity-60" : ""}`}>
-                      <button
-                        type="button"
-                        disabled={row.sample}
-                        onClick={() => { if (row.source) onOpenEntry(row.source) }}
-                        title={row.sample ? "Sample row" : "Open this work item in its project"}
-                        className={`grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_24px] items-center gap-3 px-3 py-3 text-left transition ${row.sample ? "cursor-default" : "hover:bg-white/30"}`}
-                      >
-                        <StatusIcon status={row.status} />
-                        <span className="min-w-0">
-                          <span className={`block truncate text-[14px] font-medium text-[var(--portal-navy)] ${done ? "line-through" : ""}`}>{row.title}</span>
-                          <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{STATUS_LABEL[row.status]}</span>
-                        </span>
-                        <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{row.projectTitle}</span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-[12px] font-medium text-[var(--portal-navy-soft)]">{catchUpDomainLabel(row.domain)}</span>
-                          <span className="block truncate text-[10px] font-light text-black/40">{row.poleLabel}</span>
-                        </span>
-                        <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{row.owner ?? "—"}</span>
-                        <ChevronRight className={`h-4 w-4 ${row.sample ? "text-black/10" : "text-black/25"}`} aria-hidden />
-                      </button>
+                    <li key={row.key} className={`grid grid-cols-[minmax(0,1fr)_100px] items-stretch ${done ? "opacity-60" : ""} ${selected ? "bg-white/45 ring-1 ring-inset ring-[var(--portal-gold)]/35" : ""}`}>
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_32px] items-stretch">
+                        <button
+                          type="button"
+                          disabled={row.sample}
+                          onClick={() => { if (row.source) setSelectedEntryKey(row.key) }}
+                          title={row.sample ? "Sample row" : "Edit this work item below"}
+                          aria-pressed={selected}
+                          className={`grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)] items-center gap-3 px-3 py-3 text-left transition ${row.sample ? "cursor-default" : "hover:bg-white/30"}`}
+                        >
+                          <StatusIcon status={row.status} />
+                          <span className="min-w-0">
+                            <span className={`block truncate text-[14px] font-medium text-[var(--portal-navy)] ${done ? "line-through" : ""}`}>{row.title}</span>
+                            <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{STATUS_LABEL[row.status]}</span>
+                          </span>
+                          <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{row.projectTitle}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-[12px] font-medium text-[var(--portal-navy-soft)]">{catchUpDomainLabel(row.domain)}</span>
+                            <span className="block truncate text-[10px] font-light text-black/40">{row.poleLabel}</span>
+                          </span>
+                          <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{row.owner ?? "—"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={row.sample}
+                          onClick={() => { if (row.source) onOpenEntry(row.source) }}
+                          title={row.sample ? "Sample row" : "Open this work item in its project"}
+                          aria-label={row.sample ? "Sample row" : `Open ${row.title} in its project`}
+                          className={`flex items-center justify-center transition ${row.sample ? "cursor-default text-black/10" : "text-black/25 hover:bg-white/30 hover:text-[var(--portal-gold-muted)]"}`}
+                        >
+                          <ChevronRight className="h-4 w-4" aria-hidden />
+                        </button>
+                      </div>
                       <div className="flex items-center justify-end px-3 py-2">
                         {row.sample ? (
                           <span className="rounded-full bg-[var(--portal-gold)]/10 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-gold-muted)]">Sample</span>
                         ) : done ? (
                           <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--portal-success)]">Done</span>
                         ) : row.status === "blocked" ? (
-                          <button type="button" onClick={() => { if (row.source) onOpenEntry(row.source) }} className="rounded-full border border-[var(--portal-archive)]/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-archive)]">Open</button>
+                          <button type="button" onClick={() => setSelectedEntryKey(row.key)} className="rounded-full border border-[var(--portal-archive)]/30 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--portal-archive)]">Edit</button>
                         ) : (
                           <button
                             type="button"
@@ -932,6 +931,9 @@ function CatchUpWorkspace({
             )}
           </div>
         </div>
+      </div>
+      <div className="shrink-0 px-3 pb-3">
+        <SelectedWorkPanel node={selectedEntry?.node ?? null} onSaved={() => router.refresh()} />
       </div>
     </>
   )
@@ -967,10 +969,6 @@ function PaneTwo({ pole, project, workspaceScope, catchUpEntries, today, activeV
         </div>
       ) : (
         <>
-          {/* One compact project rail: identity, view navigation and project-level
-              actions share the same horizontal band. The navigator already carries
-              the full hierarchy, so a second title row only steals height from the
-              Gantt/Calendar/Documents workspace. */}
           <div className="border-b border-[var(--portal-panel-border)] px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
               <p className="w-[190px] shrink-0 whitespace-normal text-left text-[14px] font-medium uppercase leading-tight tracking-[0.14em] text-[var(--portal-gold)]">
@@ -1049,144 +1047,6 @@ function PaneTwo({ pole, project, workspaceScope, catchUpEntries, today, activeV
   )
 }
 
-type InspectorProps = {
-  pole: ProjectPole | null
-  project: ProjectPlan | null
-  node: ProjectWorkNode | null
-  onSaved?: () => void
-}
-
-function PaneThreeHead() {
-  return (
-    <div className="border-b border-[var(--portal-panel-border)] px-3 py-3">
-      <p className="text-[14px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold-muted)]">Selected work</p>
-    </div>
-  )
-}
-
-/** Legacy inspector implementation retained temporarily while the two-pane layout settles. */
-function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
-  const [status, setStatus] = useState(node?.status ?? "not-started")
-  const [dueAt, setDueAt] = useState(node?.dueAt?.slice(0, 10) ?? "")
-  const [owner, setOwner] = useState(node?.owner ?? "")
-  const [notes, setNotes] = useState(node?.note ?? "")
-  const [saving, startSaving] = useTransition()
-  const [saveError, setSaveError] = useState<string | null>(null)
-  useEffect(() => {
-    setStatus(node?.status ?? "not-started")
-    setDueAt(node?.dueAt?.slice(0, 10) ?? "")
-    setOwner(node?.owner ?? "")
-    setNotes(node?.note ?? "")
-    setSaveError(null)
-  }, [node])
-  if (!node) {
-    return (
-      <section className={PROJECTS_SURFACE.inspector.className}>
-        <PaneThreeHead />
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-[16px] font-light text-black/45">
-          Select a work item to inspect it.
-        </div>
-      </section>
-    )
-  }
-  const related = node.inspector?.relatedItems ?? []
-  const summary = node.inspector?.summary ?? node.note
-  return (
-    <section className={PROJECTS_SURFACE.inspector.className}>
-      <PaneThreeHead />
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className={`flex-1 ${PROJECTS_SCROLL_CLASS} px-4 py-3`}>
-          <p className="text-[15px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">{node.type}</p>
-          <h3 className="mt-1 font-serif text-[22px] font-light leading-tight text-[var(--portal-navy)]">{node.title}</h3>
-          <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/50 px-3 py-1 text-[15px] font-medium text-[var(--portal-navy-soft)]">
-            <StatusDot status={node.status} /> {STATUS_LABEL[node.status]}
-          </span>
-
-          {pole && project ? (
-            <p className="mt-2.5 text-[15px] font-light text-black/45">
-              {pole.label} <ChevronRight className="inline h-3.5 w-3.5" aria-hidden /> {project.title}
-            </p>
-          ) : null}
-
-          {summary ? <p className={`mt-3 ${PROJECTS_LONG_CONTENT.prose.classes} text-[16px] font-light leading-relaxed text-[var(--portal-navy)]`}>{summary}</p> : null}
-
-          <div className="mt-3 space-y-2 border-y border-[var(--portal-panel-border)] py-3">
-            <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
-              Status
-              <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className="rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-[13px] text-[var(--portal-navy)]">
-                <option value="not-started">Not started</option><option value="in-progress">In progress</option><option value="complete">Complete</option><option value="dismissed">Dismissed</option>
-              </select>
-            </label>
-            <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
-              Due date
-              <input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} className="rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-[13px] text-[var(--portal-navy)]" />
-            </label>
-            <label className="flex items-center justify-between gap-3 text-[13px] font-light text-black/45">
-              Assignee
-              <input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="Unassigned" className="w-32 rounded border border-[var(--portal-panel-border)] bg-white/60 px-2 py-1 text-right text-[13px] text-[var(--portal-navy)]" />
-            </label>
-            <label className="block text-[13px] font-light text-black/45">
-              Notes
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className={`mt-1 resize-y ${PROJECTS_PRIMITIVES.input()}`} />
-            </label>
-            {saveError ? <p className="text-[12px] text-[var(--portal-archive)]">{saveError}</p> : null}
-            <button type="button" disabled={saving} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: status === "complete" ? "done" : status === "dismissed" ? "dismissed" : status === "in-progress" ? "doing" : "open", dueAt: dueAt ? new Date(`${dueAt}T12:00:00`).toISOString() : null, owner: owner.trim() || null, notes }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="rounded-lg bg-[var(--portal-navy)] px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50">
-              {saving ? "Saving…" : "Save work item"}
-            </button>
-            <div className="flex gap-2">
-              <button type="button" disabled={saving || status === "complete"} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: "done" }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="flex-1 rounded-lg border border-[var(--portal-success)]/40 px-3 py-2 text-[12px] font-medium text-[var(--portal-success)] disabled:opacity-40">Complete</button>
-              <button type="button" disabled={saving || status === "dismissed"} onClick={() => startSaving(async () => { const result = await updateWbsItemAction({ id: node.id, status: "dismissed" }); if (!result.ok) setSaveError(result.message); else onSaved?.() })} className="flex-1 rounded-lg border border-[var(--portal-archive)]/40 px-3 py-2 text-[12px] font-medium text-[var(--portal-archive)] disabled:opacity-40">Dismiss</button>
-            </div>
-          </div>
-
-          <dl className="mt-3 space-y-2 border-y border-[var(--portal-panel-border)] py-3 text-[16px] font-light">
-            {node.dueLabel ? (
-              <div className="flex justify-between gap-2">
-                <dt className="text-black/40">Due</dt>
-                <dd className="text-right font-normal text-[var(--portal-navy)]">{node.dueLabel}</dd>
-              </div>
-            ) : null}
-            {node.owner ? (
-              <div className="flex justify-between gap-2">
-                <dt className="text-black/40">Assignee</dt>
-                <dd className="text-right font-normal text-[var(--portal-navy)]">{node.owner}</dd>
-              </div>
-            ) : null}
-          </dl>
-
-          {related.length > 0 ? (
-            <div className="mt-3">
-              <p className="text-[14px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">Related to</p>
-              <ul className="mt-1 divide-y divide-[var(--portal-panel-border)]/70">
-                {related.map((item) => (
-                  <li key={item.label} className="flex items-baseline justify-between gap-3 py-2">
-                    <span className="min-w-0 truncate text-[16px] font-light text-[var(--portal-navy)]">{item.label}</span>
-                    {item.caption ? <span className="shrink-0 text-[15px] font-light text-black/40">{item.caption}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-
-        {node.actions && node.actions.length > 0 ? (
-          <div className="flex flex-col gap-2 border-t border-[var(--portal-panel-border)] px-4 py-3">
-            <p className="text-[14px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-blue-gray)]">Actions</p>
-            {node.actions.map((action) => (
-              <button
-                key={action}
-                type="button"
-                className="w-full rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-3 py-2.5 text-left text-[16px] font-medium text-white transition hover:opacity-90"
-              >
-                {action}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </section>
-  )
-}
 export function ProjectsWorkspace({
   initialData,
   loadError,
@@ -1213,8 +1073,6 @@ export function ProjectsWorkspace({
   }, [controller])
 
   useEffect(() => {
-    // Resolve "today" in the browser's local timezone. The server may be UTC,
-    // and Catch-Up must mean the user's day rather than the deployment region's.
     setToday(new Date())
   }, [])
 
