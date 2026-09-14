@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { AlertCircle, CheckCircle2, ChevronRight, Circle, Clock3, ListChecks } from "lucide-react"
 
 import { updateWbsItemAction } from "@/app/portal/wbs/actions"
+import { ProjectCatchUpSchedule } from "@/components/portal/project-catch-up-schedule"
 import { SelectedWorkPanel } from "@/components/portal/selected-work-panel"
 import { PROJECTS_SCROLL_CLASS } from "@/ui/projects"
 import type { ProjectDomainKey, ProjectWorkStatus } from "@/ui/projects"
@@ -171,6 +172,8 @@ export function ProjectCatchUpWorkspace({
           </div>
         </div>
       </div>
+
+      <ProjectCatchUpSchedule today={today} />
 
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--portal-panel-border)]/70 px-3 py-2">
         <span className="mr-1 text-[10px] font-medium uppercase tracking-[0.12em] text-black/35">Worklist</span>
