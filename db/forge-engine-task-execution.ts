@@ -97,6 +97,120 @@ export async function listEngineRunCards(
 }
 
 /**
+ * THE LEDGER'S OWN NUMBERS.
+ *
+ * The queues board's stats strip used to render fixture figures while the copy above it said the
+ * numbers were "LIVE from PROD" - a screen claiming provenance it did not have. These come from
+ * `forge_engine_task_execution`, which is where the engine records every role turn it dispatches, so
+ * the strip measures churn (attempts) rather than throughput, which is the honest reading of a
+ * workflow engine that retries.
+ *
+ * Timestamps are normalized to text at this boundary, like every other reader here: a driver Date
+ * escaping the repository is what took the cockpit down once already.
+ */
+export type EngineLedgerStats = {
+  /** Role turns recorded - the engine's own count of work attempts. */
+  totalAttempts: number
+  /** Stories the ledger has ever touched. */
+  stories: number
+  /** Latest attempt's status per story: `completed` | `failed` | `interrupted`. */
+  latest: { completed: number; failed: number; interrupted: number }
+  /** The story with the most recorded attempts, or null when the ledger is empty. */
+  worstOffender: { storyId: string; attempts: number } | null
+  /** Newest attempt timestamp (text), for an honest "as of". */
+  asOf: string | null
+}
+
+export async function listEngineLedgerStats(
+  execute?: QueryExecutor,
+): Promise<EngineLedgerStats> {
+  const q = execute ?? (await executor())
+  const totals = await q`
+    select count(*)::int as attempts,
+           count(distinct story_id)::int as stories,
+           max(created_at)::text as as_of
+    from forge_engine_task_execution
+  `
+  const latest = await q`
+    select status, count(*)::int as n
+    from (
+      select distinct on (story_id) story_id, status
+      from forge_engine_task_execution
+      order by story_id, created_at desc
+    ) per_story
+    group by status
+  `
+  const worst = await q`
+    select story_id, count(*)::int as attempts
+    from forge_engine_task_execution
+    group by story_id
+    order by attempts desc, story_id asc
+    limit 1
+  `
+
+  const byStatus = new Map<string, number>()
+  for (const row of latest) byStatus.set(String(row.status), Number(row.n ?? 0))
+
+  const totalsRow = (totals[0] ?? {}) as Record<string, unknown>
+  const worstRow = (worst[0] ?? null) as Record<string, unknown> | null
+
+  return {
+    totalAttempts: Number(totalsRow.attempts ?? 0),
+    stories: Number(totalsRow.stories ?? 0),
+    latest: {
+      completed: byStatus.get('completed') ?? 0,
+      failed: byStatus.get('failed') ?? 0,
+      interrupted: byStatus.get('interrupted') ?? 0,
+    },
+    worstOffender:
+      worstRow && worstRow.story_id
+        ? { storyId: String(worstRow.story_id), attempts: Number(worstRow.attempts ?? 0) }
+        : null,
+    asOf: totalsRow.as_of == null ? null : String(totalsRow.as_of),
+  }
+}
+
+/**
+ * THE ENGINE QUEUED BAND, from the work items that are genuinely still open.
+ *
+ * "Handed to Forge - queued, not started" has a durable meaning: an `agent_work_item` that is not in
+ * a terminal state. There is no terminal-but-parked value here on purpose - Done, Error and Cancelled
+ * are the terminal ones, so anything else is real waiting work. Empty is a legitimate and common
+ * answer (the engine is often idle), and it is far better than a fixture card standing in for a queue.
+ */
+export type EngineQueuedCard = {
+  storyId: string
+  title: string
+  state: string
+  since: string | null
+}
+
+export async function listEngineQueuedCards(
+  limit = 20,
+  execute?: QueryExecutor,
+): Promise<EngineQueuedCard[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select w.story_id,
+           coalesce(s.title, w.story_id) as title,
+           w.state,
+           w.updated_at::text as since
+    from agent_work_item w
+    left join storyboard_story s on s.id = w.story_id
+    where w.story_id is not null
+      and w.state not in ('Done', 'Error', 'Cancelled')
+    order by w.updated_at desc
+    limit ${limit}
+  `
+  return rows.map((row) => ({
+    storyId: String(row.story_id),
+    title: String(row.title ?? row.story_id),
+    state: String(row.state ?? ''),
+    since: row.since == null ? null : String(row.since),
+  }))
+}
+
+/**
  * HOW MANY TURNS THIS GENERATION HAS ALREADY DISPATCHED.
  *
  * The engine's own ledger is the count: every role turn this process instance started is a

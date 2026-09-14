@@ -32,7 +32,7 @@ import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 
 import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
-import type { EngineRunCard } from '@/db/forge-engine-task-execution'
+import type { EngineRunCard, EngineLedgerStats, EngineQueuedCard } from '@/db/forge-engine-task-execution'
 
 /**
  * What the route loads for us. Tiles and the story log come from ONE structure
@@ -68,6 +68,13 @@ export type EngineeringQueuesPageProps = {
    * data, which is how a card in "ENGINE DONE" ended up standing for a story the engine never ran.
    */
   engineRuns?: EngineRunCard[] | null
+  /**
+   * The ledger's own totals, for the stats strip. Null means the read failed and the strip says so
+   * rather than showing invented numbers.
+   */
+  ledgerStats?: EngineLedgerStats | null
+  /** Work items genuinely still open ("handed to Forge, queued, not started"). Null = read failed. */
+  queuedCards?: EngineQueuedCard[] | null
 }
 
 const QUEUES: Array<{
@@ -127,6 +134,8 @@ export function EngineeringQueuesPage({
   historyStoryIds,
   historyTotal,
   engineRuns,
+  ledgerStats,
+  queuedCards,
 }: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
   const router = useRouter()
@@ -138,8 +147,21 @@ export function EngineeringQueuesPage({
   // truthful "no instance recorded" that reads as a broken screen. Human lanes keep the fixture;
   // the engine's lanes are built from `engineRuns` below.
   const engineCards = useMemo<QueueCard[]>(
-    () =>
-      (engineRuns ?? []).map((run) => {
+    () => [
+      // ENGINE QUEUED: real open work items, from agent_work_item. An empty lane is the truthful
+      // answer when the engine has nothing waiting, and it is what this lane showed for weeks of
+      // fixture cards that stood for nothing.
+      ...(queuedCards ?? []).map((queued): QueueCard => ({
+        id: `${queued.storyId}#queued`,
+        title: queued.title,
+        workstream: 'ENGINEERING',
+        status: queued.state,
+        priority: 'MEDIUM',
+        completion: 0,
+        queue: 'ready' as const,
+        storyId: queued.storyId,
+      })),
+      ...(engineRuns ?? []).map((run): QueueCard => {
         const live = run.status === 'running' || run.status === 'claimed' || run.status === 'queued'
         const outcome: RunOutcome =
           run.status === 'completed' ? 'DONE' : run.status === 'failed' ? 'ERROR' : 'INTERRUPTED'
@@ -159,10 +181,13 @@ export function EngineeringQueuesPage({
           instanceId: run.instanceId || undefined,
         }
       }),
-    [engineRuns],
+    ],
+    [engineRuns, queuedCards],
   )
   const [cards, setCards] = useState<QueueCard[]>(() => [
-    ...model.cards.filter((c) => c.queue === 'bench' || c.queue === 'ready'),
+    // The fixture no longer feeds the ENGINE lanes (ready/running/results are the engine's own,
+    // built from the ledger above). It survives only for the local drag demo's own cards.
+    ...model.cards.filter((c) => c.queue === 'bench' && !engineCards.some((e) => e.storyId === c.storyId)),
     ...engineCards,
   ])
   const [selected, setSelected] = useState<string | null>(null)
@@ -256,6 +281,19 @@ export function EngineeringQueuesPage({
         priority: s.priority,
         completion: s.completion,
       })),
+      // NEXT VERSION: the `Deferred` lifecycle. These stories had NO column, so 23 of them (the
+      // deferred stories that are not on the bench) could not be reached on this board at all -
+      // the second, structural reason "I can't find that story" kept being true.
+      ...(cockpit.panels['next-version']?.groups ?? [])
+        .flatMap((g) => g.stories)
+        .map((s) => ({
+          id: s.id,
+          column: 'next-version',
+          title: s.title,
+          status: s.status,
+          priority: s.priority,
+          completion: s.completion,
+        })),
       // ENGINE QUEUE holds what the machine is executing NOW, from the ledger — not a fixture.
       // (It used to be empty by design, "until agent_work_item is wired"; it is wired now, and the
       // real answer since 2026-09-14 is that the engine is idle, which is worth seeing.)
@@ -278,12 +316,12 @@ export function EngineeringQueuesPage({
       { id: 'open', label: 'OPEN' },
       { id: 'bench', label: 'WORK BENCH' },
       { id: 'engine', label: 'ENGINE QUEUE' },
+      { id: 'next-version', label: 'NEXT VERSION' },
     ],
     [],
   )
 
   const byQueue = (key: QueueKey) => cards.filter((c) => c.queue === key)
-  const stats = model.stats
 
   // Tiles are DERIVED from the cockpit projection, not typed by hand: the same
   // numbers that fill the story log below fill these, so the top strip and the
@@ -478,7 +516,7 @@ export function EngineeringQueuesPage({
         </div>
       </section>
 
-      <StatsStrip stats={stats} />
+      <StatsStrip stats={ledgerStats} />
 
       {/* LINE — the four queues, the captain's own names: WORK BENCH (human) is the
           leftmost because ownership is the point; ENGINE READY / RUNNING / RESULTS
@@ -556,23 +594,46 @@ export function EngineeringQueuesPage({
       />
 
       <p className="mt-4 text-[11px] text-slate-500">
-        Tiles, Work Bench and Story Log are LIVE from PROD (as of {stats.asOf}): tiles and boxes come from
-        one projection so they cannot disagree, the bench is <code className="text-slate-400">storyboard_active_work</code> in
-        work order. The three ENGINE columns are still a labelled SAMPLE and the drag between them is a
-        local demo of the mechanic — wiring them is <code className="text-slate-400">agent_work_item</code> and{' '}
-        <code className="text-slate-400">storyboard_story_run</code>.
+        Every number on this board is read from PROD. Tiles and the story log come from one projection
+        so they cannot disagree; the Work Bench is{' '}
+        <code className="text-slate-400">storyboard_active_work</code> in work order; the engine
+        columns come from <code className="text-slate-400">agent_work_item</code> and{' '}
+        <code className="text-slate-400">forge_engine_task_execution</code>
+        {ledgerStats?.asOf ? ` (as of ${ledgerStats.asOf})` : ''}. Moving a card between engine columns
+        is still a local demo of the mechanic, not a write.
       </p>
     </div>
   )
 }
 
-function StatsStrip({ stats }: { stats: ReturnType<typeof loadEngineeringQueues>['stats'] }) {
+function StatsStrip({ stats }: { stats: EngineLedgerStats | null | undefined }) {
+  // REAL LEDGER NUMBERS, OR AN HONEST REFUSAL.
+  //
+  // This strip used to render `model.stats` - fixture figures - under copy that said the numbers were
+  // live from PROD. The numbers now come from forge_engine_task_execution, and when that read fails
+  // the strip says so instead of showing invented ones.
+  if (!stats) {
+    return (
+      <section className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/[0.04] px-4 py-3">
+        <p className="text-[10px] font-semibold tracking-[0.14em] text-amber-300/90">
+          ENGINE LEDGER UNAVAILABLE
+        </p>
+        <p className="mt-1 text-[11px] font-light text-slate-400">
+          The engine ledger could not be read, so these totals are not shown rather than estimated.
+        </p>
+      </section>
+    )
+  }
+
+  const latestTotal = stats.latest.completed + stats.latest.failed + stats.latest.interrupted
+  const pct = (n: number) =>
+    latestTotal === 0 ? '—' : `${Math.round((n / latestTotal) * 100)}%`
   const cells: Array<{ label: string; value: string; tone?: string }> = [
-    { label: 'TOTAL RUNS', value: String(stats.runs) },
-    { label: '% COMPLETE', value: `${stats.pctComplete}%`, tone: 'text-emerald-300' },
-    { label: '% HOLD', value: `${stats.pctHold}%`, tone: 'text-amber-300' },
-    { label: '% RERUN', value: `${stats.pctRerun}%`, tone: 'text-[#c6a15b]' },
-    { label: '% FAIL', value: `${stats.pctFail}%`, tone: 'text-rose-300' },
+    { label: 'ATTEMPTS RECORDED', value: String(stats.totalAttempts) },
+    { label: 'STORIES RUN', value: String(stats.stories) },
+    { label: 'LATEST COMPLETE', value: pct(stats.latest.completed), tone: 'text-emerald-300' },
+    { label: 'LATEST INTERRUPTED', value: pct(stats.latest.interrupted), tone: 'text-amber-300' },
+    { label: 'LATEST FAILED', value: pct(stats.latest.failed), tone: 'text-rose-300' },
   ]
   return (
     <section className="mb-4 rounded-lg border border-[#c6a15b]/25 bg-[#c6a15b]/[0.04] px-4 py-3">
@@ -586,19 +647,23 @@ function StatsStrip({ stats }: { stats: ReturnType<typeof loadEngineeringQueues>
           ))}
         </div>
         <div className="text-right">
-          <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">WORST OFFENDER</p>
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">
+            MOST RECORDED ATTEMPTS
+          </p>
           <p className="text-xs text-slate-300">
-            {stats.worstOffender.id} · {stats.worstOffender.runs} runs
+            {stats.worstOffender
+              ? `${stats.worstOffender.storyId} · ${stats.worstOffender.attempts} turns`
+              : '—'}
           </p>
           <p className="text-[10px] text-slate-500">
-            across {stats.stories} stories · cumulative as of {stats.asOf}
+            across {stats.stories} stories · ledger as of {stats.asOf ?? '—'}
           </p>
         </div>
       </div>
       <p className="mt-2 text-[11px] font-light text-slate-500">
-        Rerun is the honest health number: {stats.pctRerun}% of all runs are a story&apos;s second or later
-        attempt, so total runs measures churn, not throughput.
-      </p>
+        Attempts measure churn, not throughput: every role turn the engine dispatches is one row, and a
+        story that needs a repair legitimately costs more than one. The last percentages describe each
+        story&apos;s MOST RECENT attempt, not its whole history.</p>
     </section>
   )
 }

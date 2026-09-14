@@ -5,7 +5,12 @@ import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { listForgeConvergence } from "@/db/forge-convergence"
-import { latestForgeInstanceForStory, listEngineRunCards } from "@/db/forge-engine-task-execution"
+import {
+  latestForgeInstanceForStory,
+  listEngineRunCards,
+  listEngineLedgerStats,
+  listEngineQueuedCards,
+} from "@/db/forge-engine-task-execution"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import {
@@ -105,6 +110,10 @@ export default async function TechPage({
   // rather than silently leaving fixture cards standing in for engine output; the read is also
   // captured by the database gateway on the way through.
   const engineRuns = await listEngineRunCards(24).catch(() => null)
+  // The stats strip and the ENGINE QUEUED lane read the ledger and the work items directly. Null
+  // means the read failed, and the screen says so instead of showing numbers it did not measure.
+  const ledgerStats = await listEngineLedgerStats().catch(() => null)
+  const queuedCards = await listEngineQueuedCards(20).catch(() => null)
 
   return (
     <div className="min-h-screen bg-[#0b1220]">
@@ -140,6 +149,8 @@ export default async function TechPage({
         historyStoryIds={historyStoryIds}
         historyTotal={historyTotal}
         engineRuns={engineRuns}
+        ledgerStats={ledgerStats}
+        queuedCards={queuedCards}
       />
       <div className="px-5 pb-8">
         <ForgeConvergenceView items={convergence} />
