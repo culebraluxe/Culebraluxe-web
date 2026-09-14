@@ -17,6 +17,7 @@ import type { WbsItem } from "@/services/wbs"
 import type { Project } from "@/services/project"
 import type { ActivityFeedEntry } from "@/db/activity-feed"
 import type { ProjectWorkStatus } from "./model"
+import type { ProjectCatchUpItem } from "./catchup-projection"
 import { mapProjectCalendarItems } from "./secondary-projection"
 
 import type {
@@ -164,6 +165,59 @@ function attach(items: WbsItem[], item: WbsItem, identityNames: Record<string, s
       .sort(compareItems)
       .map((child) => attach(items, child, identityNames)),
   }
+}
+
+function catchUpDomain(item: WbsItem): ProjectDomainKey {
+  if (item.entity) {
+    const anchoredDomain = ENTITY_TO_DOMAIN[item.entity.type]
+    if (anchoredDomain) return anchoredDomain
+  }
+  return categoryToDomain(item.category)
+}
+
+function projectContextLabel(project: Project, identityNames: Record<string, string>): string | undefined {
+  if (project.propertyId) return identityNames[`property:${project.propertyId}`] ?? project.propertyId
+  if (project.personId) return identityNames[`person:${project.personId}`] ?? project.personId
+  if (project.contractId) return identityNames[`contract:${project.contractId}`] ?? project.contractId
+  return undefined
+}
+
+/**
+ * Flat canonical WBS projection for Catch-Up. This is deliberately separate
+ * from the domain-perspective poles: a Project may appear under both People and
+ * Properties, but each persisted WBS row must appear exactly once here.
+ */
+export function mapCanonicalProjectWorkItems(
+  projects: Project[],
+  items: WbsItem[],
+  identityNames: Record<string, string> = {},
+): ProjectCatchUpItem[] {
+  const itemsByProject = new Map<string, WbsItem[]>()
+  for (const item of items) {
+    if (!item.projectId) continue
+    const list = itemsByProject.get(item.projectId) ?? []
+    list.push(item)
+    itemsByProject.set(item.projectId, list)
+  }
+
+  const rows: ProjectCatchUpItem[] = []
+  for (const project of projects) {
+    const projectItems = itemsByProject.get(project.id) ?? []
+    for (const item of projectItems.slice().sort(compareItems)) {
+      const contextLabel = item.entity
+        ? identityNames[`${item.entity.type}:${item.entity.id}`] ?? item.entity.id
+        : projectContextLabel(project, identityNames)
+      rows.push({
+        id: item.id,
+        projectId: project.id,
+        projectTitle: project.name,
+        domain: catchUpDomain(item),
+        ...(contextLabel ? { contextLabel } : {}),
+        node: attach(projectItems, item, identityNames),
+      })
+    }
+  }
+  return rows
 }
 
 function firstAction(nodes: ProjectWorkNode[]): ProjectWorkNode | null {
