@@ -129,7 +129,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Dashboard',
       'Syndication',
     ],
-    TECH: ['Tech Overview', 'Story Board', 'UI Lab', 'Media Test'],
+    TECH: ['Cockpit', 'Story Board', 'UI Lab', 'Media Test'],
     SUPPORT: ['System Health', 'DB Test', 'WhatsApp Diagnostic', 'Security'],
   }
   assert.deepEqual(

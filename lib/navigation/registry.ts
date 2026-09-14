@@ -144,7 +144,7 @@ export const OPERATING_SURFACES: Record<
     home: '/portal/tech',
     items: [
       {
-        label: 'Tech Overview',
+        label: 'Cockpit',
         href: '/portal/tech',
         authority: 'tech.access',
       },
