@@ -316,10 +316,18 @@ export function EngineeringQueuesPage({
   const sorterCards = useMemo(() => {
     // `Batched` maps to the backlog LIFECYCLE, so it would otherwise appear in the BACKLOG column too.
     // It has its own column; a story is shown once.
+    //
+    // A BENCH STORY IS NOT ALSO AN OPEN STORY. The bench is an INTENT row (`storyboard_active_work`)
+    // and the story keeps its `In Progress` status, so it belongs to the open lifecycle as well - which
+    // drew the SAME story as TWO cards with the SAME id. The kanban board's drop handler finds cards by
+    // id, so moving one of them moved the other: the captain's "I drag over to the left and it pulls
+    // another random story to the right". One story, one column.
     const bucket = (key: 'backlog' | 'open') =>
       (cockpit.panels[key]?.groups ?? [])
         .flatMap((g) => g.stories)
-        .filter((s) => s.status !== 'Batched')
+        .filter(
+          (s) => s.status !== 'Batched' && !activeWork.some((w) => w.id === s.id),
+        )
     return [
       ...bucket('backlog').map((s) => ({
         id: s.id,
@@ -505,16 +513,29 @@ export function EngineeringQueuesPage({
               </span>
             ) : null}
           </p>
+          {/* A REFUSED DRAG SAYS WHY, next to the board it happened on. */}
+          {moveError ? (
+            <p className="rounded border border-rose-400/40 bg-rose-400/10 px-2 py-0.5 text-[10px] text-rose-200">
+              {moveError}
+            </p>
+          ) : null}
         </div>
         <div className="h-[520px] overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">
           <StoryKanbanBoard
             cards={sorterCards}
             columns={sorterColumns}
             onMove={async (cardId, from, to) => {
-              // The rules live in lib/story-moves.ts; the write lives in the
-              // action; a refusal comes back as ok:false and the card snaps back.
+              // The rules live in lib/story-moves.ts; the write lives in the action; a refusal comes
+              // back as ok:false and the card snaps back - AND SAYS WHY. The board used to swallow the
+              // reason, so a refused drag looked like the screen being strange rather than the rule
+              // being stated (the captain: "it would not allow me").
+              setMoveError(null)
               const result = await moveStoryBucketAction(cardId, from, to)
-              if (result.ok) router.refresh()
+              if (result.ok) {
+                router.refresh()
+              } else {
+                setMoveError(result.error ?? `the board refused ${from} → ${to}`)
+              }
               return result
             }}
           />
