@@ -345,14 +345,19 @@ export function EngineeringQueuesPage({
         priority: s.priority,
         completion: s.completion,
       })),
-      ...activeWork.map((s) => ({
-        id: s.id,
-        column: 'bench',
-        title: s.title,
-        status: s.status,
-        priority: s.priority,
-        completion: s.completion,
-      })),
+      ...activeWork
+        // A STAGED STORY IS NOT ALSO ON THE BENCH. Staging (ENGINE BATCH) is the later intent; a story
+        // can hold both because the bench is an intent row and `Batched` is a status, and one story in
+        // two columns is exactly the ambiguity that moved the wrong card. The batch column owns it.
+        .filter((s) => s.status !== 'Batched')
+        .map((s) => ({
+          id: s.id,
+          column: 'bench',
+          title: s.title,
+          status: s.status,
+          priority: s.priority,
+          completion: s.completion,
+        })),
       // ENGINE BATCH: staged work, its own column. Batched stories are EXCLUDED from the backlog
       // bucket below (they map to the backlog lifecycle) so the same story is never two columns.
       ...(batchStories ?? []).map((s) => ({

@@ -35,9 +35,10 @@ export function StoryKanbanBoard({
   cards: StoryKanbanCard[]
   columns: StoryKanbanColumn[]
   /**
-   * The write behind a drop. Return `{ ok: false }` and the move is VETOED — the
-   * card snaps back — so the board can never show a move the database refused.
-   * Omit it and the board is a local playground that writes nothing.
+   * The write behind a drop. The board NEVER applies the widget's own move — the vendor rebuilds its
+   * whole store whenever the `cards` prop changes (see the interceptor), so a local move would land
+   * on a board that has already moved on. The parent writes, then refreshes; the server render is the
+   * only thing that moves a card. Return `{ ok: false, error }` and the message is shown.
    */
   onMove?: (
     cardId: string,
@@ -68,16 +69,32 @@ export function StoryKanbanBoard({
       // INTERCEPT, not ON: intercept can return a Promise<boolean>, so the widget
       // waits for the write and cancels the move when it fails. That is the
       // rollback — no optimistic state to unwind by hand.
+      // THE SERVER OWNS POSITION. The widget's own move is never applied, and `false` is returned
+      // even on SUCCESS.
+      //
+      // WHY, from the vendor's own source (`components/Kanban.jsx`):
+      //
+      //     useEffect(() => { store.init({ cards, columns, ... }) }, [cards, columns, ...])
+      //
+      // EVERY NEW `cards` PROP REBUILDS THE WIDGET'S ENTIRE STORE. So a drop went: write -> our
+      // `router.refresh()` -> new `cards` -> store re-init with the story ALREADY moved -> and only
+      // then did this interceptor resolve `true`, letting the widget apply the move it had queued
+      // against the REBUILT board, where the drop index points at a DIFFERENT card. The captain saw
+      // it exactly: "i move the story left to right and it pulls some adjacent story to the right."
+      // The store never needed reverting (the move handler never ran), so cancelling is clean: the
+      // server render that follows is the only thing that moves a card.
+      //
+      // Verified against the library, not guessed: there is no WIP limit, no column balancing and no
+      // `limit` prop anywhere in @svar-ui/react-kanban - this was our refresh racing the widget.
       void api.intercept('move-card', async (data) => {
         const id = String(data.id)
         const to = String(data.column ?? '')
         // THE SOURCE MUST BE DERIVED, and the vendor cannot help: `move-card` carries only
-        // `{ id, column, before }` (read from the library's own source), so the origin column has to
-        // come from our model. That derivation is only sound when a card id appears in ONE column -
-        // and it silently did not: a bench story also sat in OPEN (the bench is an intent row, the
-        // status stays `In Progress`), `find` returned the OPEN card, and every drag off the bench
-        // reported `from='open'`. Bench → Open then read as a no-op and Bench → Batch staged the story
-        // without clearing the bench. The columns no longer overlap, and DUPLICATES ARE NOW LOUD.
+        // `{ id, column, before }`, so the origin column has to come from our model. That derivation
+        // is only sound when a card id appears in ONE column - and it silently did not: a bench story
+        // also sat in OPEN (the bench is an intent row, the status stays `In Progress`), so `find`
+        // returned the OPEN card and every drag off the bench reported `from='open'`. Bench -> Open
+        // then read as a no-op and Bench -> Batch staged the story without clearing the bench.
         const matches = cardsRef.current.filter((c) => String(c.id) === id)
         const columnsForCard = [...new Set(matches.map((c) => String(c.column ?? '')))]
         if (columnsForCard.length > 1) {
@@ -88,12 +105,10 @@ export function StoryKanbanBoard({
           return false
         }
         const from = columnsForCard[0] ?? ''
-        if (!to || from === to) return true
+        if (!to || from === to) return false
         const result = await onMove(id, from, to)
         setError(result.ok ? null : (result.error ?? 'Move refused'))
-        // A false return cancels the action, so the card stays where it was. Return
-        // an explicit true otherwise: the handler must be boolean, not undefined.
-        return result.ok
+        return false
       })
     },
     [onMove],

@@ -64,8 +64,11 @@ async function moveStoryBucketActionHandler(
 
   const actorId = access.ok ? access.actor.appUserId : null
 
-  // The bench is orthogonal to status: leaving it must clear the intent row.
-  if (source === "bench" && target !== "bench") {
+  // The bench is orthogonal to status: leaving it must clear the intent row. And STAGING OR RUNNING A
+  // STORY TAKES IT OFF THE DAILY BENCH whatever column it came from: you are not working something by
+  // hand that you just handed to the engine. (Without this, a story could sit on the bench AND in
+  // ENGINE BATCH — one story in two columns, the ambiguity that moved the wrong card.)
+  if ((source === 'bench' && target !== 'bench') || target === 'batch' || target === 'engine') {
     await setActiveWork(storyId, false, actorId)
   }
 
