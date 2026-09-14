@@ -5,6 +5,12 @@ V10; anyone reading it to orient aimed at the wrong story. It now describes the 
 machine. Story packets live in `docs/agent/packets/`, durable decisions in
 `docs/agent/MEMORY.md`.
 
+**Start here instead if you are new to the engine:** `docs/agent/WORKFLOW-ARCHITECTURE.md` — the
+layered explainer (simple → advanced → PhD) with the twelve laws, the failure taxonomy, the V7
+roadmap, the swarm doctrine, and the diagnostic ladder. Every claim in it is labelled
+**[built] / [measured] / [proposed]**, so it can never be mistaken for the target state. This file
+is the short form; that file is the depth.
+
 ## What runs
 
 1. Engine: `workflow_app/definitions/FORGE_SDLC-v6.xml`, driven by
