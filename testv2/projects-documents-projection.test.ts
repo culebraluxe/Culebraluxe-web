@@ -15,91 +15,48 @@ const plan = (overrides: Partial<ProjectPlan> = {}): ProjectPlan => ({
   ...overrides,
 })
 
-const ids = (files: Array<{ id: string | number }>): string[] => files.map((f) => String(f.id)).sort()
-
-test('a project with no linked documents gets a sample cabinet, flagged synthetic', () => {
+test('an empty project asset browser is truthful: no sample cabinet is invented', () => {
   const { files, synthetic } = mapProjectToFileTree(plan())
-  assert.equal(synthetic, true)
-  const paths = ids(files)
-  // The project folder itself, its sample subfolders, and files that end in .pdf.
-  assert.ok(paths.includes('/Sea to Soul Listing'))
-  assert.ok(paths.includes('/Sea to Soul Listing/Contracts'))
-  assert.ok(paths.some((p) => p.endsWith('.pdf')))
-  assert.ok(files.filter((f) => f.type === 'folder').length > 1)
-  assert.ok(files.filter((f) => f.type === 'file').length > 0)
-})
-
-test('REAL linked documents win: a cabinet with documents contains no sample files', () => {
-  const { files, synthetic } = mapProjectToFileTree(
-    plan({
-      documents: [
-        { id: 'd1', title: 'Listing Agreement', state: 'issued', propertyId: 'prop-1', createdAt: '2026-09-02T00:00:00.000Z' },
-        { id: 'd2', title: 'Disclosure', state: 'draft', propertyId: 'prop-1', createdAt: '2026-09-03T00:00:00.000Z' },
-      ],
-    }),
-  )
   assert.equal(synthetic, false)
-  const paths = ids(files)
-  assert.deepEqual(paths, [
-    '/Sea to Soul Listing',
-    '/Sea to Soul Listing/Draft',
-    '/Sea to Soul Listing/Draft/Disclosure.pdf',
-    '/Sea to Soul Listing/Issued',
-    '/Sea to Soul Listing/Issued/Listing Agreement.pdf',
-  ])
-  // No sample folders leaked in.
-  assert.ok(!paths.includes('/Sea to Soul Listing/Contracts'))
+  assert.deepEqual(files, [])
 })
 
-test('the vault state drives the folder, and a .pdf title is not double-suffixed', () => {
-  const { files } = mapProjectToFileTree(
-    plan({
-      documents: [
-        { id: 'd1', title: 'Signed Agreement.pdf', state: 'issued', propertyId: null, createdAt: '2026-09-02T00:00:00.000Z' },
-      ],
-    }),
-  )
-  const file = files.find((f) => f.type === 'file')
-  assert.equal(file?.id, '/Sea to Soul Listing/Issued/Signed Agreement.pdf')
+test('Vault documents and Property photos share a read model without changing source ownership', () => {
+  const { files } = mapProjectToFileTree(plan({
+    assets: [
+      {
+        id: 'vault:d1', sourceId: 'd1', kind: 'document', name: 'Listing Agreement', source: 'vault',
+        propertyId: 'prop-1', createdAt: '2026-09-02T00:00:00.000Z', state: 'issued',
+      },
+      {
+        id: 'property-media:m1', sourceId: 'm1', kind: 'photo', name: 'Exterior.jpg', source: 'property-media',
+        propertyId: 'prop-1', createdAt: '2026-09-03T00:00:00.000Z', href: '/api/media/m1', caption: 'Front elevation',
+      },
+    ],
+  }))
+
+  assert.equal(files.length, 2)
+  assert.equal(files[0]?.source, 'vault')
+  assert.equal(files[0]?.kind, 'document')
+  assert.equal(files[1]?.source, 'property-media')
+  assert.equal(files[1]?.kind, 'photo')
+  assert.equal(files[1]?.href, '/api/media/m1')
+  assert.equal(files[1]?.caption, 'Front elevation')
 })
 
-test('folder names and dates survive as real values, and ids stay path-shaped', () => {
-  const { files } = mapProjectToFileTree(
-    plan({
-      documents: [
-        { id: 'd1', title: 'Deed', state: 'issued', propertyId: null, createdAt: '2026-09-02T00:00:00.000Z' },
-      ],
-    }),
-  )
-  const file = files.find((f) => f.type === 'file')
-  assert.ok(file)
-  assert.ok(file.date instanceof Date)
-  // The widget derives parent/name/ext from the id, so it must start with '/'.
-  assert.ok(String(file.id).startsWith('/'))
-})
-
-test('a title containing a path separator cannot escape its folder', () => {
-  const { files } = mapProjectToFileTree(
-    plan({
-      documents: [
-        { id: 'd1', title: 'a/b\\c', state: 'issued', propertyId: null, createdAt: '2026-09-02T00:00:00.000Z' },
-      ],
-    }),
-  )
-  const file = files.find((f) => f.type === 'file')
-  // Exactly three segments: root folder, state folder, file — never more.
-  assert.equal(String(file?.id).split('/').length, 4)
-  assert.equal(file?.id, '/Sea to Soul Listing/Issued/a-b-c.pdf')
-})
-
-test('an unparseable createdAt omits the date instead of inventing one', () => {
-  const { files } = mapProjectToFileTree(
-    plan({
-      documents: [{ id: 'd1', title: 'Deed', state: 'issued', propertyId: null, createdAt: 'not-a-date' }],
-    }),
-  )
-  const file = files.find((f) => f.type === 'file')
-  assert.ok(file)
-  assert.equal(file.date, undefined)
-  assert.ok(!('date' in file))
+test('valid source dates become Date values and invalid dates are omitted', () => {
+  const { files } = mapProjectToFileTree(plan({
+    assets: [
+      {
+        id: 'vault:good', sourceId: 'good', kind: 'document', name: 'Good.pdf', source: 'vault',
+        propertyId: null, createdAt: '2026-09-02T00:00:00.000Z',
+      },
+      {
+        id: 'vault:bad', sourceId: 'bad', kind: 'document', name: 'Bad.pdf', source: 'vault',
+        propertyId: null, createdAt: 'not-a-date',
+      },
+    ],
+  }))
+  assert.ok(files[0]?.date instanceof Date)
+  assert.equal(files[1]?.date, undefined)
 })

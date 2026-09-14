@@ -46,16 +46,39 @@ export type ProjectWorkNode = {
   entity?: { type: string; id: string }
   children?: ProjectWorkNode[]
   /**
-   * Selected-work-inspector content (Pane 3). Kept on the WorkNode so the
-   * inspector is driven by the model/fixture, never by JSX, and a real source
-   * can supply it later without rewriting the view.
+   * Selected-work content kept on the WorkNode so the MVI model, not JSX,
+   * remains the source for the compact bottom inspector.
    */
   inspector?: {
     summary?: string
     relatedItems?: Array<{ label: string; caption?: string }>
   }
-  /** Selected-work-inspector actions, surfaced as buttons. */
+  /** Selected-work actions supplied by the model. */
   actions?: string[]
+}
+
+export type ProjectAssetKind = "document" | "photo"
+export type ProjectAssetSource = "vault" | "property-media"
+
+/**
+ * Unified READ MODEL for the Documents tab. It never changes source ownership:
+ * Vault documents remain Vault documents and photos remain Property media.
+ */
+export type ProjectAsset = {
+  id: string
+  /** Native id in the authoritative source, kept separate from the projected id. */
+  sourceId: string
+  kind: ProjectAssetKind
+  name: string
+  source: ProjectAssetSource
+  propertyId: string | null
+  createdAt: string | null
+  href?: string
+  state?: string
+  caption?: string | null
+  altText?: string | null
+  mimeType?: string | null
+  fileSize?: number | null
 }
 
 /**
@@ -67,6 +90,7 @@ export type ProjectWorkNode = {
 export type ProjectSecondaryViewStatus = "linked" | "unlinked" | "empty"
 
 export type ProjectSecondaryViewProvenance = {
+  /** Documents tab provenance now reflects all project assets (Vault + photos). */
   documents: ProjectSecondaryViewStatus
   activity: ProjectSecondaryViewStatus
   calendar: ProjectSecondaryViewStatus
@@ -89,6 +113,8 @@ export type ProjectPlan = {
   blocker?: string
   calendarItems?: ProjectCalendarItem[]
   documents?: Array<{ id: string; title: string; state: string; propertyId: string | null; createdAt: string }>
+  /** Project-scoped view over documents + photos; storage remains in source services. */
+  assets?: ProjectAsset[]
   activity?: Array<{ id: string; channel: string; direction: string | null; occurredAt: string; occurredAtLabel: string; title: string | null; summary: string | null; personName: string | null; propertyName: string | null }>
   workNodes: ProjectWorkNode[]
 }

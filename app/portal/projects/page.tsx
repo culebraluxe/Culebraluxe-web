@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import { ProjectsWorkspace } from "@/components/portal/projects-workspace"
+import { SqlMediaRepository } from "@/db/media-service-repository"
 import { SqlProjectRepository } from "@/db/project-service-repository"
 import { SqlWbsRepository } from "@/db/wbs-service-repository"
 import { captureServerError } from "@/lib/server-error-capture"
@@ -8,7 +9,8 @@ import { appServiceErrorSink } from "@/lib/service-error-sink"
 import { getActingUser } from "@/lib/auth/get-acting-user"
 import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
 import { sql } from "@/db/client"
-import { ProjectService } from "@/services/project"
+import { MediaService, type MediaAssetDto } from "@/services/media"
+import { ProjectService, type Project } from "@/services/project"
 import type { ServiceContext } from "@/services/core"
 import { resolveSecurityLevel } from "@/services/security"
 import { WbsService } from "@/services/wbs"
@@ -18,6 +20,7 @@ import {
 } from "@/services/entitlement"
 import type { WbsItem } from "@/services/wbs"
 import type { ProjectsWorkspaceData, ProjectsWorkspaceLoadState } from "@/ui/projects/model"
+import { attachProjectAssets } from "@/ui/projects/assets-projection"
 import { mapRealProjectsToWorkspace } from "@/ui/projects/service-projection"
 import { listIssuedDocuments } from "@/lib/vault-io"
 import { getActivityFeed } from "@/db/activity-feed"
@@ -87,6 +90,44 @@ async function resolveIdentityNames(items: WbsItem[], projects: { personId: stri
   return names
 }
 
+function projectPropertyIds(projects: readonly Project[], items: readonly WbsItem[]): string[] {
+  const ids = new Set<string>()
+  for (const project of projects) {
+    if (project.propertyId && UUID_RE.test(project.propertyId)) ids.add(project.propertyId)
+  }
+  for (const item of items) {
+    if (item.projectId && item.entity?.type === "property" && UUID_RE.test(item.entity.id)) ids.add(item.entity.id)
+  }
+  return Array.from(ids)
+}
+
+async function loadPropertyMedia(
+  media: MediaService,
+  projects: readonly Project[],
+  items: readonly WbsItem[],
+  context: ServiceContext,
+): Promise<Record<string, MediaAssetDto[]>> {
+  const byProperty: Record<string, MediaAssetDto[]> = {}
+  await Promise.all(projectPropertyIds(projects, items).map(async (propertyId) => {
+    const result = await media.execute({
+      operation: "media.forProperty",
+      payload: { propertyId },
+      context,
+    })
+    if (!result.ok) {
+      captureServerError(
+        "projects:load-property-media",
+        new Error(`${result.error.code}: ${result.error.message}`),
+        { level: "warn" },
+      )
+      byProperty[propertyId] = []
+      return
+    }
+    byProperty[propertyId] = result.value
+  }))
+  return byProperty
+}
+
 type ProjectsLoadResult = {
   data: ProjectsWorkspaceData
   error: string | null
@@ -100,9 +141,7 @@ function stateData(loadState: ProjectsWorkspaceLoadState): ProjectsWorkspaceData
 
 const AUTH_DENIAL_CODES = new Set(["FORBIDDEN", "UNAUTHORIZED", "UNAUTHENTICATED"])
 
-/** Load the Projects MVI through the canonical Project + WBS service contracts.
- *  The result is always a complete page model: `ready`/`empty` carry the
- *  projection, `unauthorized`/`failure` carry a distinct state and no panes. */
+/** Load the Projects MVI through canonical services, then compose read-only secondary views. */
 async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
   try {
     const infrastructure = {
@@ -111,6 +150,7 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
     }
     const wbs = new WbsService(new SqlWbsRepository(), infrastructure)
     const project = new ProjectService(new SqlProjectRepository(), infrastructure)
+    const media = new MediaService(new SqlMediaRepository(), infrastructure)
     const context = await serviceContext()
     const acting = await getActingUser(getPortalSessionAdapter())
     const [itemsResult, projectsResult, documents, activity] = await Promise.all([
@@ -133,8 +173,15 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
     }
     const items = itemsResult.value
     const projects = projectsResult.value
-    const identityNames = await resolveIdentityNames(items, projects)
-    return { data: mapRealProjectsToWorkspace(projects, items, identityNames, documents, activity), error: null }
+    const [identityNames, mediaByPropertyId] = await Promise.all([
+      resolveIdentityNames(items, projects),
+      loadPropertyMedia(media, projects, items, context),
+    ])
+    const workspace = mapRealProjectsToWorkspace(projects, items, identityNames, documents, activity)
+    return {
+      data: attachProjectAssets(workspace, projects, items, mediaByPropertyId),
+      error: null,
+    }
   } catch (error) {
     captureServerError("projects:load-workspace-data", error, { level: "error" })
     const message = "Projects are temporarily unavailable. The service read failed and no fixture data was substituted."
@@ -142,7 +189,7 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
   }
 }
 
-// PROJECTS-UX page — real MVI runtime backed by Neon (Project + WBS services).
+// PROJECTS-UX page — real MVI runtime backed by Neon through domain services.
 export default async function ProjectsPage() {
   const result = await loadRealProjectsData()
   return <ProjectsWorkspace initialData={result.data} loadError={result.error} />
