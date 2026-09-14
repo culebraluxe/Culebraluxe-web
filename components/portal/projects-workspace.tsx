@@ -632,7 +632,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSe
               Gantt/Calendar/Documents workspace. */}
           <div className="border-b border-[var(--portal-panel-border)] px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
-              <p className="max-w-[220px] shrink-0 truncate text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">
+              <p className="w-[190px] shrink-0 whitespace-normal text-left text-[14px] font-medium uppercase leading-tight tracking-[0.14em] text-[var(--portal-gold)]">
                 {project.title}
               </p>
               <div className="min-w-0 flex-1 overflow-x-auto">
