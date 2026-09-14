@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto"
 
+import { enqueueAppleReminderUpsert } from "@/db/apple-gateway-outbox"
 import { getActingUser } from "@/lib/auth/get-acting-user"
 import { getPortalSessionAdapter } from "@/lib/auth/portal-session"
 import { SqlWbsRepository } from "@/db/wbs-service-repository"
@@ -17,6 +18,10 @@ import type { ServiceContext } from "@/services/core"
 
 export type WbsActionResult =
   | { ok: true; id: string }
+  | { ok: false; code: string; message: string }
+
+export type AppleReminderActionResult =
+  | { ok: true; commandId: string; state: "queued" }
   | { ok: false; code: string; message: string }
 
 function wbsService(): WbsService {
@@ -103,5 +108,33 @@ export async function updateWbsItemAction(input: {
     return { ok: true, id: res.value.id }
   } catch (caught) {
     return { ok: false, code: "auth", message: caught instanceof Error ? caught.message : "Could not update work item." }
+  }
+}
+
+/** Mirror one canonical WBS item to Apple Reminders. The WBS row remains the
+ * source of truth; Apple is the external execution surface. */
+export async function queueAppleReminderForWbsAction(id: string): Promise<AppleReminderActionResult> {
+  try {
+    const context = await runContext()
+    const current = await wbsService().execute({ operation: "wbs.get", payload: { id }, context })
+    if (!current.ok) return { ok: false, code: current.error.code, message: current.error.message }
+    if (!current.value) return { ok: false, code: "WBS_NOT_FOUND", message: "That work item no longer exists." }
+
+    const commandId = await enqueueAppleReminderUpsert(
+      {
+        wbsId: current.value.id,
+        title: current.value.title,
+        dueAt: current.value.dueAt,
+        completed: current.value.status === "done",
+        notes: current.value.notes || null,
+      },
+      {
+        actorAppUserId: context.principal?.appUserId ?? context.actor.id,
+        correlationId: context.correlationId,
+      },
+    )
+    return { ok: true, commandId, state: "queued" }
+  } catch (caught) {
+    return { ok: false, code: "apple_gateway", message: caught instanceof Error ? caught.message : "Could not queue Apple Reminder." }
   }
 }
