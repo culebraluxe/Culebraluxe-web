@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react"
 import { ChevronDown } from "lucide-react"
 
+import { createAppleCalendarEventAction } from "@/app/portal/projects/calendar-actions"
 import {
   queueAppleReminderForWbsAction,
   updateWbsItemAction,
@@ -19,6 +20,8 @@ const STATUS_LABEL: Record<ProjectWorkStatus, string> = {
   dismissed: "Dismissed",
 }
 
+type WorkDestination = "task" | "calendar"
+
 function toPersistedStatus(status: ProjectWorkStatus): "open" | "doing" | "done" | "dismissed" {
   if (status === "complete") return "done"
   if (status === "dismissed") return "dismissed"
@@ -33,6 +36,11 @@ function shortDate(value: string, fallback?: string): string {
   return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
+function prIso(date: string, time: string): string {
+  // Puerto Rico is Atlantic Standard Time year-round (UTC-04:00).
+  return new Date(`${date}T${time}:00-04:00`).toISOString()
+}
+
 export function SelectedWorkPanel({
   node,
   onSaved,
@@ -41,24 +49,29 @@ export function SelectedWorkPanel({
   onSaved?: () => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [destination, setDestination] = useState<WorkDestination>("task")
   const [status, setStatus] = useState<ProjectWorkStatus>(node?.status ?? "not-started")
   const [dueAt, setDueAt] = useState(node?.dueAt?.slice(0, 10) ?? "")
+  const [startTime, setStartTime] = useState("09:00")
+  const [endTime, setEndTime] = useState("09:30")
   const [owner, setOwner] = useState(node?.owner ?? "")
   const [notes, setNotes] = useState(node?.note ?? "")
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [appleStatus, setAppleStatus] = useState<string | null>(null)
+  const [routeStatus, setRouteStatus] = useState<string | null>(null)
   const [saving, startSaving] = useTransition()
-  const [syncingApple, startAppleSync] = useTransition()
 
   useEffect(() => {
+    setDestination("task")
     setStatus(node?.status ?? "not-started")
     setDueAt(node?.dueAt?.slice(0, 10) ?? "")
+    setStartTime("09:00")
+    setEndTime("09:30")
     setOwner(node?.owner ?? "")
     setNotes(node?.note ?? "")
     setSaveError(null)
-    setAppleStatus(null)
+    setRouteStatus(null)
     if (node) setCollapsed(false)
-  }, [node])
+  }, [node?.id])
 
   const persistCurrent = async () => {
     if (!node) return { ok: false as const, message: "No work item selected." }
@@ -75,34 +88,49 @@ export function SelectedWorkPanel({
   const save = () => {
     if (!node) return
     setSaveError(null)
-    setAppleStatus(null)
-    startSaving(async () => {
-      const result = await persistCurrent()
-      if (!result.ok) {
-        setSaveError(result.message)
+    setRouteStatus(null)
+
+    if (destination === "calendar") {
+      if (!dueAt || !startTime || !endTime) {
+        setSaveError("Calendar date, start and end are required.")
         return
       }
-      onSaved?.()
-    })
-  }
+      const startAt = prIso(dueAt, startTime)
+      const endAt = prIso(dueAt, endTime)
+      if (new Date(endAt) <= new Date(startAt)) {
+        setSaveError("Calendar end time must be after start time.")
+        return
+      }
+    }
 
-  const mirrorToApple = () => {
-    if (!node) return
-    setSaveError(null)
-    setAppleStatus(null)
-    startAppleSync(async () => {
-      // Persist edits first, then the server action re-reads the canonical WBS row.
+    startSaving(async () => {
       const saved = await persistCurrent()
       if (!saved.ok) {
         setSaveError(saved.message)
         return
       }
-      const result = await queueAppleReminderForWbsAction(node.id)
-      if (!result.ok) {
-        setAppleStatus(result.message)
-        return
+
+      if (destination === "calendar") {
+        const result = await createAppleCalendarEventAction({
+          title: node.title,
+          startAt: prIso(dueAt, startTime),
+          endAt: prIso(dueAt, endTime),
+          notes: notes.trim() || null,
+        })
+        if (!result.ok) {
+          setSaveError(result.message)
+          return
+        }
+        setRouteStatus("Saved · queued for Apple Calendar.")
+      } else {
+        const result = await queueAppleReminderForWbsAction(node.id)
+        if (!result.ok) {
+          setSaveError(result.message)
+          return
+        }
+        setRouteStatus("Saved · queued for Apple Reminders.")
       }
-      setAppleStatus("Queued for Apple Reminders.")
+
       onSaved?.()
     })
   }
@@ -134,7 +162,7 @@ export function SelectedWorkPanel({
       </span>
       <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">{node.title}</span>
       <span className="hidden shrink-0 text-[12px] font-light text-[var(--portal-blue-gray)] sm:inline">
-        {STATUS_LABEL[status]} · {shortDate(dueAt, node.dueLabel)} · {owner.trim() || "Unassigned"}
+        {destination === "calendar" ? "Calendar" : STATUS_LABEL[status]} · {shortDate(dueAt, node.dueLabel)} · {owner.trim() || "Unassigned"}
       </span>
       <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--portal-blue-gray)]">
         {collapsed ? "Expand" : "Collapse"}
@@ -154,82 +182,132 @@ export function SelectedWorkPanel({
   return (
     <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
       {header}
-      <div className="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(240px,2fr)_auto_auto_auto] xl:items-end">
+      <div className={`grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 ${destination === "calendar" ? "xl:grid-cols-[120px_145px_105px_105px_minmax(240px,1fr)_auto]" : "xl:grid-cols-[120px_minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(240px,2fr)_auto_auto]"} xl:items-end`}>
         <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Status
+          Type
           <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as ProjectWorkStatus)}
+            value={destination}
+            onChange={(event) => setDestination(event.target.value as WorkDestination)}
             className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
           >
-            <option value="not-started">Not started</option>
-            <option value="in-progress">In progress</option>
-            <option value="complete">Complete</option>
-            <option value="dismissed">Dismissed</option>
+            <option value="task">Task</option>
+            <option value="calendar">Calendar</option>
           </select>
         </label>
 
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Due
-          <input
-            type="date"
-            value={dueAt}
-            onChange={(event) => setDueAt(event.target.value)}
-            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-          />
-        </label>
+        {destination === "task" ? (
+          <>
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Status
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value as ProjectWorkStatus)}
+                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+              >
+                <option value="not-started">Not started</option>
+                <option value="in-progress">In progress</option>
+                <option value="complete">Complete</option>
+                <option value="dismissed">Dismissed</option>
+              </select>
+            </label>
 
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Assignee
-          <input
-            value={owner}
-            onChange={(event) => setOwner(event.target.value)}
-            placeholder="Unassigned"
-            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-          />
-        </label>
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Due
+              <input
+                type="date"
+                value={dueAt}
+                onChange={(event) => setDueAt(event.target.value)}
+                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
 
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Notes
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Add a note…"
-            rows={2}
-            className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
-          />
-        </label>
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Assignee
+              <input
+                value={owner}
+                onChange={(event) => setOwner(event.target.value)}
+                placeholder="Unassigned"
+                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
 
-        <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
-          <input
-            type="checkbox"
-            checked={status === "complete"}
-            onChange={(event) => setStatus(event.target.checked ? "complete" : "in-progress")}
-            className="h-4 w-4 accent-[var(--portal-success)]"
-          />
-          Complete
-        </label>
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Notes
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Add a note…"
+                rows={2}
+                className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
+
+            <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
+              <input
+                type="checkbox"
+                checked={status === "complete"}
+                onChange={(event) => setStatus(event.target.checked ? "complete" : "in-progress")}
+                className="h-4 w-4 accent-[var(--portal-success)]"
+              />
+              Complete
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Date
+              <input
+                type="date"
+                value={dueAt}
+                onChange={(event) => setDueAt(event.target.value)}
+                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
+
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Start
+              <input
+                type="time"
+                value={startTime}
+                onChange={(event) => setStartTime(event.target.value)}
+                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
+
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              End
+              <input
+                type="time"
+                value={endTime}
+                onChange={(event) => setEndTime(event.target.value)}
+                className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
+
+            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+              Notes
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Add a note…"
+                rows={2}
+                className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
+              />
+            </label>
+          </>
+        )}
 
         <button
           type="button"
-          disabled={saving || syncingApple}
+          disabled={saving}
           onClick={save}
           className="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save"}
         </button>
-
-        <button
-          type="button"
-          disabled={saving || syncingApple}
-          onClick={mirrorToApple}
-          className="h-9 whitespace-nowrap rounded-[var(--portal-tab-radius)] border border-[var(--portal-gold-muted)] bg-white/50 px-3 text-[12px] font-medium text-[var(--portal-navy)] transition hover:bg-white/75 disabled:opacity-50"
-        >
-          {syncingApple ? "Queueing…" : "Apple Reminder"}
-        </button>
       </div>
       {saveError ? <p className="px-3 pb-1 text-[11px] text-[var(--portal-archive)]">{saveError}</p> : null}
-      {appleStatus ? <p className="px-3 pb-2 text-[11px] text-[var(--portal-blue-gray)]">{appleStatus}</p> : null}
+      {routeStatus ? <p className="px-3 pb-2 text-[11px] text-[var(--portal-blue-gray)]">{routeStatus}</p> : null}
     </section>
   )
 }
