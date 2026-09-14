@@ -1,76 +1,96 @@
-# COCKPIT SMOKE TEST — the board, end to end
+# COCKPIT QA — the captain's script (2026-09-14)
 
-Written 2026-09-14 against the real PROD board, for the captain's own QA. Every
-"expect" below is what the screen actually does, not what it ought to do: each line
-was read from the code that produces it.
+Follow THIS rather than improvising: it touches only things that are safe to touch, and every step
+says what you should see. `pnpm forge:batch:status` is READ-ONLY — run it as often as you like,
+before and after each step.
 
-## State when this was written (PROD, read-only probe)
+## BEFORE YOU START — two facts that decide the script
 
-- 323 stories: 248 `Complete`, 35 `Deferred`, 33 `Planned`, 5 `Hold`, 2 `In Progress`.
-- **WORK BENCH: 12 stories.** `ENG-FORGE-V5-21/22/28/29/30/31` and `CRM-28` are `Planned`;
-  `ENG-FORGE-V5-23…27` are `Complete` — five finished stories sitting on today's bench.
-- OPEN: 2 stories, both genuinely in progress — `ENG-FORGE-TURN-VISIBILITY-01`,
-  `ENG-FORGE-DOCTOR-01`.
-- ENGINE: **idle** — 0 open work items, 0 stale claims.
+1. **The unattended worker is running every 3 minutes.** Anything in the ENGINE QUEUE gets claimed
+   and RUN FOR REAL (tokens, code, commits) within about 3 minutes. So do not hand junk to
+   ENGINE RUN Q, and do not press `Run batch now` unless you mean it.
+2. **Staging is free.** ENGINE BATCH fires nothing. Moving a card there is reversible and costs
+   nothing — it is the safe place to test.
 
-## THE TRAP (read this before clearing the bench)
+## STEP 0 — the state now
 
-"Do not" move each bench card to **OPEN** to clear the bench. OPEN is a STATUS write
-(`In Progress`), so doing that to the five `Complete` stories would **un-finish finished
-work** to tidy a list. The bench is an intent row and nothing else, and that is what the
-`clear bench` button uses.
+    pnpm forge:batch:status
 
-## PART 1 — clear the junk (the captain's own gesture)
+Expect: `staging batch: none`, `no batches recorded yet`, `empty — the engine is idle`,
+`work bench: 12`, `board vs table: agree`. Keep this output; it is the "before".
 
-1. Cockpit (`/portal/tech`), WORKBENCH panel header, click **`clear bench (12)`** and confirm.
-2. Expect: a result line — `Cleared 12 stories off the bench. Statuses untouched.`
-3. Expect: WORKBENCH `(0)`, and the SORTER's WORK BENCH column empty.
-4. Expect: **OPEN still reads 2.** This is correct and is the whole point — no status changed.
-   The cleared `Planned` stories do NOT appear in OPEN; `Planned` belongs to BACKLOG, and that
-   is where they were and still are.
-5. Expect: the five `Complete` stories are still `Complete`. Reversing this is just adding a
-   story back to the bench; nothing was deleted.
+## STEP 1 — you are on the new build
 
-## PART 2 — the smoke: OPEN → WORK BENCH → ENGINE RUN Q
+Hard refresh (Cmd+Shift+R) and look at the far right corner of the Cockpit.
 
-Use `ENG-FORGE-DOCTOR-01` (in OPEN, engine idle, safe to undo).
+Expect: `V2 · f61ebbc` (or a later sha). If it reads something else the deploy has not landed, and
+nothing below will behave as described.
 
-6. In the SORTER, on the `ENG-FORGE-DOCTOR-01` card, use its **`move to…`** control and choose
-   `Bench`.
-   Expect: it leaves OPEN, appears under WORK BENCH, and WORKBENCH reads `(1)`. Its status is
-   still `In Progress` — the bench never changes status.
-7. On that card, use **`move to…`** and choose `Run Q`.
-   Expect: it leaves WORK BENCH, appears under **ENGINE RUN Q**, and disappears from the WORKBENCH
-   panel (handing work to the engine takes it off the daily list).
-   Expect: this is the ONLY move on the board that starts anything. It writes status `Ready`,
-   and `Ready` is the engine's dispatch trigger: a real `agent_work_item` is created. The board
-   says so — `handed to the engine — status Ready queued a real work item`.
-   Expect: the card STAYS in ENGINE RUN Q while the engine has it queued, so the handoff is
-   visible instead of the card vanishing.
-8. Confirm with the engine's own record, not the card:
-   `APP_ENV=production node --env-file=.env.local --import tsx scripts/probe-agent-work-state.ts`
-   Expect: `OPEN WORK ITEMS … : 1` naming `ENG-FORGE-DOCTOR-01` (it was 0 before step 7).
-9. Expect: the ENGINE panel's QUEUED lane shows it too — that lane is the engine's waiting list,
-   the same rows as step 8.
-10. Pull it straight back out: on that card, `move to…` → `Open`.
-    Expect: the board says `withdrew 1 queued engine request`, and the work item is gone —
-    re-run the probe from step 8 and it reads 0 again. There are no rules to break here: the note
-    simply goes back where you put it, and the request it created goes with it.
+## STEP 2 — clear the junk off the bench (your actual job)
 
-There are no forbidden moves left, so a refusal is no longer something to expect. The only
-messages the board shows are facts: `already there`, `withdrew N queued engine requests`, or
-`the engine is ALREADY RUNNING this — the run continues` when you pull back a story the engine has
-actually started.
+WORKBENCH panel header → **`clear bench (12)`** → confirm.
 
-## PART 3 — undo the smoke (one command)
+Expect:
+- a result line: `Cleared 12 stories off the bench. Statuses untouched.`
+- `WORKBENCH (0)`, and the SORTER's WORK BENCH column empty
+- **OPEN still reads 2** — correct: no status changed
+- the five `Complete` V5 stories are still `Complete`
 
-10. `pnpm forge:story:reset ENG-FORGE-DOCTOR-01 reset --force`
-    This cancels the open work item, interrupts any claim, and sets the story back to `Planned`.
-11. Re-run the probe from step 8: expect `OPEN WORK ITEMS … : 0`.
-12. Put the story back where it belongs with the board itself: `→ Open` on its card.
+    pnpm forge:batch:status
 
-## What this does NOT prove
+Expect `work bench: 0`, everything else unchanged. (This is why the button exists: moving those
+five finished stories to OPEN would have un-finished them.)
 
-- Nothing about a live engine run. The smoke proves the HANDOFF (the row, the trigger, the work
-  item). Running the worker is a separate act: `pnpm forge:engine`.
-- Nothing about the DEV_OPS receipt, which is still the last door on a release-bearing story.
+## STEP 3 — stage a card (the Kanban → table sync)
+
+Pick `ENG-FORGE-V5-31` (a V5 story, not urgent). On its card use **`move to…`** → **`Batch`**.
+
+Expect: the card moves to ENGINE BATCH and the board says `staged in the table (1 in the batch)`.
+The button now reads `Run batch now (1)`.
+
+**Do NOT press `Run batch now`** — that would start a real engine run.
+
+    pnpm forge:batch:status
+
+Expect: `staging batch <id> · 1 story(ies)`, `batched 1`, `board vs table: agree`, and the
+ENGINE QUEUE **still empty** — that is the proof that staging fires nothing.
+
+## STEP 4 — unstage it (the row leaves with the card)
+
+Same card, **`move to…`** → **`Backlog`**.
+
+Expect: the card back in BACKLOG, status back to `Planned`.
+
+    pnpm forge:batch:status
+
+Expect: `staging batch: none — nothing is staged right now`, `batched 0`, `agree`.
+
+## STEP 5 — only if you have real work for overnight
+
+Stage the stories you actually want run, set the time field next to `Run batch now`, press
+**`Schedule (n)`**.
+
+Expect: a roster line reading `scheduled <date time>` with `n/n stories` and a `cancel` link beside
+it. At that time the unattended worker fires it and the engine runs the stories one at a time.
+
+    pnpm forge:batch:status
+
+`Scheduled  fires <time>` is the row that will fire. Cancel it if you change your mind — nothing has
+been dispatched until it fires.
+
+## WHAT NOT TO DO (and why)
+
+- **Do not press `Run batch now` on junk.** It dispatches immediately and the worker claims it within
+  ~3 minutes. Pulling a story back out of ENGINE RUN Q does withdraw the request, but only while it
+  is still `Ready`, and the race is those same 3 minutes.
+- **Do not hand a story to ENGINE RUN Q to "see what happens"** — same reason.
+- Do not edit `.env.local`; none of these steps need it.
+
+## IF SOMETHING IS WRONG, THIS IS THE REPORT I NEED
+
+1. The corner sha (`V2 · …`).
+2. The step number.
+3. What you clicked and what the screen said (the note under the board, or the refusal).
+4. The `pnpm forge:batch:status` output.
+
+Those four are enough to reproduce almost anything on this screen without guessing.
