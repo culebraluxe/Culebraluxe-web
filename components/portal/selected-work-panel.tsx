@@ -99,82 +99,117 @@ export function SelectedWorkPanel({
     </button>
   )
 
+  const launcherLayout = (
+    <style jsx global>{`
+      /* Projects layout trial: reclaim the standalone New Project row without
+         touching the navigator or the MVI/service path. The existing launcher
+         stays the same control; it is simply taken out of flow and parked at the
+         far-right edge of the project-view row. */
+      div:has(> .projects-workspace-grid) > div.flex.shrink-0.justify-end {
+        position: absolute;
+        z-index: 10;
+        top: 2.75rem;
+        right: 0.75rem;
+      }
+
+      .projects-pane-canvas nav[aria-label="Project workspace views"] {
+        width: max-content;
+        min-width: 0;
+      }
+
+      .projects-pane-canvas div:has(> nav[aria-label="Project workspace views"]) {
+        padding-right: 7.75rem;
+      }
+
+      div:has(> .projects-workspace-grid) > div.absolute.right-0.top-10.z-20 {
+        top: 5.5rem;
+      }
+    `}</style>
+  )
+
   if (collapsed || !node) {
     return (
-      <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
-        {header}
-      </section>
+      <>
+        {launcherLayout}
+        <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
+          {header}
+        </section>
+      </>
     )
   }
 
   return (
-    <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
-      {header}
-      <div className="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(220px,2fr)_auto_auto] xl:items-end">
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Status
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as ProjectWorkStatus)}
-            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+    <>
+      {launcherLayout}
+      <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
+        {header}
+        <div className="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(260px,2fr)_auto_auto] xl:items-end">
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Status
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as ProjectWorkStatus)}
+              className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+            >
+              <option value="not-started">Not started</option>
+              <option value="in-progress">In progress</option>
+              <option value="complete">Complete</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Due
+            <input
+              type="date"
+              value={dueAt}
+              onChange={(event) => setDueAt(event.target.value)}
+              className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+            />
+          </label>
+
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Assignee
+            <input
+              value={owner}
+              onChange={(event) => setOwner(event.target.value)}
+              placeholder="Unassigned"
+              className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
+            />
+          </label>
+
+          <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
+            Notes
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Add a note…"
+              rows={2}
+              className={`mt-1 min-h-[3.5rem] resize-none leading-snug ${PROJECTS_PRIMITIVES.input()}`}
+            />
+          </label>
+
+          <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
+            <input
+              type="checkbox"
+              checked={status === "complete"}
+              onChange={(event) => setStatus(event.target.checked ? "complete" : "in-progress")}
+              className="h-4 w-4 accent-[var(--portal-success)]"
+            />
+            Complete
+          </label>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={save}
+            className="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
           >
-            <option value="not-started">Not started</option>
-            <option value="in-progress">In progress</option>
-            <option value="complete">Complete</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
-        </label>
-
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Due
-          <input
-            type="date"
-            value={dueAt}
-            onChange={(event) => setDueAt(event.target.value)}
-            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-          />
-        </label>
-
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Assignee
-          <input
-            value={owner}
-            onChange={(event) => setOwner(event.target.value)}
-            placeholder="Unassigned"
-            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-          />
-        </label>
-
-        <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
-          Notes
-          <input
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Add a note…"
-            className={`mt-1 h-9 ${PROJECTS_PRIMITIVES.input()}`}
-          />
-        </label>
-
-        <label className="flex h-9 items-center gap-2 rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-white/45 px-3 text-[12px] font-medium text-[var(--portal-navy)] xl:mb-0">
-          <input
-            type="checkbox"
-            checked={status === "complete"}
-            onChange={(event) => setStatus(event.target.checked ? "complete" : "in-progress")}
-            className="h-4 w-4 accent-[var(--portal-success)]"
-          />
-          Complete
-        </label>
-
-        <button
-          type="button"
-          disabled={saving}
-          onClick={save}
-          className="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
-      {saveError ? <p className="px-3 pb-2 text-[11px] text-[var(--portal-archive)]">{saveError}</p> : null}
-    </section>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+        {saveError ? <p className="px-3 pb-2 text-[11px] text-[var(--portal-archive)]">{saveError}</p> : null}
+      </section>
+    </>
   )
 }
