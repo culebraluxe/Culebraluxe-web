@@ -51,6 +51,22 @@ func parseDate(_ value: String?) -> Date? {
   return iso.date(from: value) ?? isoFallback.date(from: value)
 }
 
+func calendarDateComponents(_ value: String?) -> DateComponents? {
+  guard let value, value.count >= 10 else { return nil }
+  let parts = value.prefix(10).split(separator: "-")
+  guard parts.count == 3,
+        let year = Int(parts[0]),
+        let month = Int(parts[1]),
+        let day = Int(parts[2]) else { return nil }
+  return DateComponents(
+    calendar: Calendar(identifier: .gregorian),
+    timeZone: TimeZone(identifier: "America/Puerto_Rico"),
+    year: year,
+    month: month,
+    day: day
+  )
+}
+
 let store = EKEventStore()
 
 func requestEvents() -> Bool {
@@ -149,17 +165,10 @@ case "reminder_upsert":
   reminder.notes = mergedNotes(command.notes, marker: marker)
   reminder.isCompleted = command.completed ?? false
 
-  if let due = parseDate(command.dueAt) {
-    var components = Calendar(identifier: .gregorian).dateComponents(
-      [.year, .month, .day, .hour, .minute, .second],
-      from: due
-    )
-    components.calendar = Calendar(identifier: .gregorian)
-    components.timeZone = TimeZone(identifier: "America/Puerto_Rico")
-    reminder.dueDateComponents = components
-  } else {
-    reminder.dueDateComponents = nil
-  }
+  // WBS dueAt is semantically a calendar DATE, not an instant. Persisting noon
+  // UTC protects that date in Neon; mirror only YYYY-MM-DD into Reminders so a
+  // task does not unexpectedly acquire an 08:00 Puerto Rico due time.
+  reminder.dueDateComponents = calendarDateComponents(command.dueAt)
 
   do {
     let existed = reminder.eventIdentifier != nil
