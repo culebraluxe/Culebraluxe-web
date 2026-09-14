@@ -1,17 +1,19 @@
-// PROJECTS-WORKSPACE-02 — frozen three-pane geometry + visual system contract.
+// PROJECTS-WORKSPACE-02 — frozen two-pane geometry + visual system contract.
 //
 // This module is PURE: it imports no React and touches no DOM. It is the single
-// source of truth for the approved desktop geometry (navy project navigator,
-// central work canvas, persistent ivory inspector) and for the token-driven
-// primitives the workspace consumes. Colors reference existing `--portal-*`
-// custom properties only — never a raw hex. The machine assay in
-// `testv2/projects-workspace-02-tokens.test.ts` locks these invariants; the
-// pixel-level balance is adjudicated by the HUMAN GATE (PROJECTS-WORKSPACE-18).
+// source of truth for the approved desktop geometry (navy project navigator +
+// dominant project canvas) and for the token-driven primitives the workspace
+// consumes. Colors reference existing `--portal-*` custom properties only —
+// never a raw hex. The selected-work editor now lives INSIDE the canvas as a
+// compact subordinate control surface; it is no longer a third grid pane.
+//
+// The machine assay in `testv2/projects-workspace-02-tokens.test.ts` locks these
+// invariants; the pixel-level balance is adjudicated by the HUMAN GATE.
 
-export type ProjectsPaneRole = "navigator" | "canvas" | "inspector"
+export type ProjectsPaneRole = "navigator" | "canvas"
 
-/** Role order is frozen: navigator -> canvas -> inspector. */
-export const PROJECTS_PANE_ORDER = ["navigator", "canvas", "inspector"] as const
+/** Permanent desktop role order is frozen: navigator -> canvas. */
+export const PROJECTS_PANE_ORDER = ["navigator", "canvas"] as const
 
 export type ProjectsSurfaceFamily = "navy" | "canvas" | "ivory"
 
@@ -22,9 +24,10 @@ export type ProjectsPaneGeometry = {
 }
 
 /**
- * Approved desktop geometry. `canvas` is the sole flexible column; the
- * navigator and inspector stay bounded so the middle work surface owns the
- * available width. The viewport height is derived from a shell-owned token so
+ * Approved desktop geometry. `canvas` owns every remaining horizontal pixel
+ * after the bounded navigator. Selected Work is stacked inside the canvas, so
+ * Timeline / Calendar / Documents can use the width previously lost to the
+ * inspector column. The viewport height is derived from a shell-owned token so
  * the workspace never hardcodes a magic `calc(100dvh - 10.5rem)`.
  */
 export const PROJECTS_GEOMETRY = {
@@ -39,7 +42,6 @@ export const PROJECTS_GEOMETRY = {
   columns: {
     navigator: { min: 350, max: 375, track: "minmax(350px,375px)" },
     canvas: { min: 0, max: null, track: "minmax(0,1fr)" },
-    inspector: { min: 295, max: 315, track: "minmax(295px,315px)" },
   },
 } as const
 
@@ -52,19 +54,15 @@ const PANE_BASE =
   "portal-glass-panel flex min-h-0 flex-col overflow-hidden rounded-[var(--portal-panel-radius)]"
 
 /**
- * Per-role surface family. The navigator is navy, the canvas is the light glass
- * work surface, and the inspector is the persistent ivory column. Roles never
- * cross-contaminate: each family owns exactly one class + background token.
+ * Permanent pane surfaces are navigator + canvas. `inspector` remains as a
+ * compatibility surface for the old internal inspector implementation while
+ * the two-pane layout settles; it is deliberately NOT present in
+ * PROJECTS_PANE_ORDER or PROJECTS_GEOMETRY.columns and therefore owns no grid
+ * track. Selected Work uses the cool portal soft surface in the canvas.
  *
- * IMPORTANT — this object is NOT what paints the panes. The paint comes from the
- * `.projects-pane-*` rules in app/globals.css; these fields mirror them so the
- * geometry/visual contract is testable without a browser. Those two drifted once
- * (2026-09-12): the canvas token was moved to navy and this suite was updated to
- * match, while the pane kept painting light glass — so every class inside the canvas
- * that had been switched to light-on-navy became invisible text, and the view nav
- * disappeared. The mirror is now ASSERTED (the suite reads globals.css and checks
- * each role's background/color against these values), so change both or the tests
- * will tell you.
+ * IMPORTANT — this object is NOT what paints the permanent panes. The paint
+ * comes from the `.projects-pane-*` rules in app/globals.css; the active roles
+ * are mirrored in tests so those two cannot drift again.
  */
 export const PROJECTS_SURFACE = {
   navigator: {

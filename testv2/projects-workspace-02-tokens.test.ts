@@ -11,33 +11,32 @@ import {
   PROJECTS_LONG_CONTENT,
 } from '../ui/projects/visual-system'
 
-// PROJECTS-WORKSPACE-02 — the frozen three-pane geometry + visual system.
+// PROJECTS-WORKSPACE-02 — the frozen two-pane geometry + visual system.
 // This machine assay cannot render React (repo is node:test + tsx only), so the
 // visual contract lives in a pure, React-free module. These tests lock the
-// approved desktop geometry (navigator -> canvas -> inspector), the per-role
-// surface families, the row/input/button/avatar primitive builders, and the
-// long-content policy. Pixel balance is the separate HUMAN GATE.
+// approved desktop geometry (navigator -> canvas), the active per-role surfaces,
+// the row/input/button/avatar primitive builders, and the long-content policy.
+// Selected Work is now subordinate UI INSIDE the canvas, not a third grid pane.
 
-test('the three panes are ordered navigator -> canvas -> inspector', () => {
-  assert.deepEqual([...PROJECTS_PANE_ORDER], ['navigator', 'canvas', 'inspector'])
+test('the two permanent panes are ordered navigator -> canvas', () => {
+  assert.deepEqual([...PROJECTS_PANE_ORDER], ['navigator', 'canvas'])
 })
 
-test('canvas is the sole flexible column and navigator/inspector are bounded', () => {
+test('canvas is the sole flexible column and navigator stays bounded', () => {
   assert.equal(PROJECTS_GEOMETRY.columns.canvas.track, 'minmax(0,1fr)')
   assert.equal(PROJECTS_GEOMETRY.columns.canvas.max, null)
 
   assert.ok(PROJECTS_GEOMETRY.columns.navigator.min > 0)
   assert.ok(PROJECTS_GEOMETRY.columns.navigator.max !== null)
-  assert.ok(PROJECTS_GEOMETRY.columns.inspector.min > 0)
-  assert.ok(PROJECTS_GEOMETRY.columns.inspector.max !== null)
+  assert.equal(Object.keys(PROJECTS_GEOMETRY.columns).length, 2)
+  assert.ok(!('inspector' in PROJECTS_GEOMETRY.columns))
 })
 
-test('the grid template follows pane order with canvas in the middle', () => {
+test('the grid template gives every remaining horizontal pixel to canvas', () => {
   const tracks = PROJECTS_GRID_TEMPLATE.split(' ')
   assert.deepEqual(tracks, [
     PROJECTS_GEOMETRY.columns.navigator.track,
     PROJECTS_GEOMETRY.columns.canvas.track,
-    PROJECTS_GEOMETRY.columns.inspector.track,
   ])
   assert.equal(tracks[1], 'minmax(0,1fr)')
 })
@@ -48,27 +47,16 @@ test('the viewport strategy is shell-owned, not a hardcoded magic number', () =>
   assert.ok(PROJECTS_GEOMETRY.gridClassName.includes('projects-workspace-grid'))
 })
 
-test('each role has its own surface family with no cross-contamination', () => {
+test('active pane roles use navigator/canvas surfaces only', () => {
   assert.equal(PROJECTS_SURFACE.navigator.family, 'navy')
   assert.equal(PROJECTS_SURFACE.canvas.family, 'canvas')
-  assert.equal(PROJECTS_SURFACE.inspector.family, 'ivory')
-
-  const families = new Set(Object.values(PROJECTS_SURFACE).map((s) => s.family))
-  assert.equal(families.size, 3)
 
   assert.ok(PROJECTS_SURFACE.navigator.background.includes('--portal-navy'))
-  assert.ok(PROJECTS_SURFACE.inspector.background.includes('--portal-ivory'))
   assert.ok(PROJECTS_SURFACE.canvas.background.includes('--portal-panel-bg'))
+  assert.ok(!PROJECTS_PANE_ORDER.includes('inspector' as never))
 })
 
-test('the surface tokens mirror the CSS rules that actually paint the panes', () => {
-  // The token object is documentation + contract; app/globals.css is the paint.
-  // Those two drifted once and it shipped: the canvas token was moved to navy and
-  // this suite was updated to match, while `.projects-pane-canvas` kept painting
-  // light glass — so all the dark-on-navy classes inside the canvas became
-  // invisible, and the view nav vanished. This assertion keeps them in step: the
-  // CSS rule for each role must carry exactly the background/color the token
-  // declares, so moving a surface means editing both or failing here.
+test('the active surface tokens mirror the CSS rules that paint the panes', () => {
   const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
 
   for (const role of PROJECTS_PANE_ORDER) {
@@ -90,13 +78,12 @@ test('the surface tokens mirror the CSS rules that actually paint the panes', ()
   }
 })
 
-test('surface classes never leak one role token into another role', () => {
+test('surface classes remain role-specific', () => {
   assert.ok(PROJECTS_SURFACE.navigator.className.includes('projects-pane-navigator'))
   assert.ok(PROJECTS_SURFACE.canvas.className.includes('projects-pane-canvas'))
-  assert.ok(PROJECTS_SURFACE.inspector.className.includes('projects-pane-inspector'))
 
-  assert.ok(!PROJECTS_SURFACE.navigator.className.includes('projects-pane-inspector'))
-  assert.ok(!PROJECTS_SURFACE.inspector.className.includes('projects-pane-navigator'))
+  assert.ok(!PROJECTS_SURFACE.navigator.className.includes('projects-pane-canvas'))
+  assert.ok(!PROJECTS_SURFACE.canvas.className.includes('projects-pane-navigator'))
 })
 
 test('primitive class builders return token-driven, non-empty classes', () => {
@@ -106,8 +93,6 @@ test('primitive class builders return token-driven, non-empty classes', () => {
   assert.ok(row.includes('rounded-[var(--portal-tab-radius)]'))
   assert.notEqual(row, rowSelected)
 
-  // Selected state is SURFACE-AWARE: a navy tint is invisible on the navy canvas,
-  // so the midnight variant lifts with white instead.
   const navySelected = PROJECTS_PRIMITIVES.row({ selected: true, surface: 'navy' })
   assert.notEqual(navySelected, rowSelected)
   assert.ok(navySelected.includes('bg-white/12'))

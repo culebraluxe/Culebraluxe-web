@@ -39,6 +39,7 @@ import type {
 import {
   InMemoryProjectsWorkspaceSource,
   PROJECTS_GEOMETRY,
+  PROJECTS_GRID_TEMPLATE,
   PROJECTS_LONG_CONTENT,
   PROJECTS_PRIMITIVES,
   PROJECTS_SCROLL_CLASS,
@@ -60,6 +61,7 @@ import {
 import { FullCalendarCandidate } from "@/components/portal/fullcalendar-candidate"
 import { ProjectFilemanager } from "@/components/portal/project-filemanager"
 import { ProjectTimeline } from "@/components/portal/project-timeline"
+import { SelectedWorkPanel } from "@/components/portal/selected-work-panel"
 import { instantiateProjectAction, updateProjectStatusAction } from "@/app/portal/projects/actions"
 import { updateWbsItemAction } from "@/app/portal/wbs/actions"
 
@@ -605,14 +607,16 @@ type PaneTwoProps = {
   project: ProjectPlan | null
   activeView: ProjectWorkspaceView
   selectedNodeId: string | null
+  selectedNode: ProjectWorkNode | null
   onSelectView: (v: ProjectWorkspaceView) => void
   onSelectNode: (id: string | null) => void
   onStatusChange?: (status: "open" | "doing" | "done" | "archived") => void
   statusPending?: boolean
+  onWorkSaved?: () => void
 }
 
 /** Pane 2 — the dominant working surface. */
-function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSelectNode, onStatusChange, statusPending }: PaneTwoProps) {
+function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved }: PaneTwoProps) {
   return (
     <section className={PROJECTS_SURFACE.canvas.className}>
       {!pole || !project ? (
@@ -629,8 +633,8 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
 
               The giant project title, the context labels, the progress bar, the
               playbook chip and the "next action" card are gone: the navigator and
-              the inspector already say which project is selected, and that chrome
-              was costing the widget its vertical space.
+              selected-work control already say which project/work item is selected,
+              and that chrome was costing the widget its vertical space.
 
               The canvas stays LIGHT GLASS on purpose (human gate, 2026-09-12). The
               widget panes inside it are dark on purpose too — light chrome with dark
@@ -681,7 +685,7 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> {project.blocker}
             </p>
           ) : null}
-          <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
+          <div className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
             {activeView === "work-plan" ? (
               <WorkPlan project={project} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
             ) : activeView === "timeline" ? (
@@ -695,6 +699,9 @@ function PaneTwo({ pole, project, activeView, selectedNodeId, onSelectView, onSe
             ) : (
               <ProjectionState view={activeView} provenance={project.provenance} />
             )}
+          </div>
+          <div className="shrink-0 px-3 pb-3">
+            <SelectedWorkPanel node={selectedNode} onSaved={onWorkSaved} />
           </div>
         </>
       )}
@@ -717,7 +724,7 @@ function PaneThreeHead() {
   )
 }
 
-/** Pane 3 — persistent selected-WorkNode inspector (readable type sizes). */
+/** Legacy inspector implementation retained temporarily while the two-pane layout settles. */
 function PaneThree({ pole, project, node, onSaved }: InspectorProps) {
   const [status, setStatus] = useState(node?.status ?? "not-started")
   const [dueAt, setDueAt] = useState(node?.dueAt?.slice(0, 10) ?? "")
@@ -969,7 +976,7 @@ export function ProjectsWorkspace({
           New Project
         </button>
       </div>
-      <div className={PROJECTS_GEOMETRY.gridClassName}>
+      <div className={PROJECTS_GEOMETRY.gridClassName} style={{ gridTemplateColumns: PROJECTS_GRID_TEMPLATE }}>
       <PaneOne
         domains={domains}
         activeDomain={model.activeDomain}
@@ -985,12 +992,13 @@ export function ProjectsWorkspace({
         project={selectedProject}
         activeView={model.activeView}
         selectedNodeId={model.selectedNodeId}
+        selectedNode={selectedNode}
         onSelectView={(view) => void controller.dispatch({ operation: "projects.selectView", payload: { view } })}
         onSelectNode={(nodeId) => void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId } })}
         onStatusChange={updateStatus}
         statusPending={isUpdatingStatus}
+        onWorkSaved={() => router.refresh()}
       />
-      <PaneThree pole={selectedPole} project={selectedProject} node={selectedNode} onSaved={() => router.refresh()} />
       </div>
       {newProjectOpen ? (
         <div className="absolute right-0 top-10 z-20 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-[var(--portal-panel-border)] bg-white p-4 shadow-xl">
