@@ -56,6 +56,11 @@ export type QueueCard = {
    * resolves story -> latest instance instead. The preference order lives in `openRecorder`.
    */
   instanceId?: string
+  /**
+   * A short factual qualifier shown on the card, e.g. "abandoned claim — no worker since ...".
+   * Used where a card's state needs saying rather than implying.
+   */
+  note?: string
 }
 
 export type MetricTile = {

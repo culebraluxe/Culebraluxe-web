@@ -17,7 +17,7 @@
 // left on this screen, and no interaction that only moves pixels.
 // ---------------------------------------------------------------------------
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { moveStoryBucketAction } from '@/app/portal/tech/actions'
@@ -173,7 +173,9 @@ export function EngineeringQueuesPage({
         storyId: queued.storyId,
       })),
       ...(engineRuns ?? []).map((run): QueueCard => {
-        const live = run.status === 'running' || run.status === 'claimed' || run.status === 'queued'
+        const live =
+          !run.stale &&
+          (run.status === 'running' || run.status === 'claimed' || run.status === 'queued')
         const outcome: RunOutcome =
           run.status === 'completed' ? 'DONE' : run.status === 'failed' ? 'ERROR' : 'INTERRUPTED'
         return {
@@ -184,12 +186,22 @@ export function EngineeringQueuesPage({
           status: run.status,
           priority: run.status === 'failed' ? 'HIGH' : 'MEDIUM',
           completion: run.status === 'completed' ? 100 : 0,
+          // A STALE CLAIM IS NOT WAITING WORK AND NOT LIVE WORK. It is an abandoned attempt: nobody
+          // has touched it inside the stale-claim window, so it belongs in RESULTS with its age
+          // showing - not in ENGINE QUEUE as "running", which is how an idle engine came to look busy.
           queue: live ? 'running' : 'results',
-          outcome,
+          outcome: run.stale ? 'INTERRUPTED' : outcome,
           attempt: run.attempts,
           endedOn: run.lastNode ?? undefined,
           storyId: run.storyId,
           instanceId: run.instanceId || undefined,
+          ...(run.stale
+            ? {
+                note: `abandoned claim — no worker since ${
+                  run.updatedAt ? run.updatedAt.slice(0, 16) : 'an unrecorded time'
+                }`,
+              }
+            : {}),
         }
       }),
     ],
@@ -206,6 +218,23 @@ export function EngineeringQueuesPage({
   const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
+  // WORKBENCH is one panel now - the human lane, collapsed when you are watching the engine instead.
+  const [benchOpen, setBenchOpen] = useState(true)
+
+  // AUTO-REFRESH, because the engine moves whether or not this page is looking.
+  //
+  // The board is server-rendered: without this it is a photograph. A job queued from GOOD TO GO, a
+  // claim that goes stale, a run that finishes - none of it appeared until someone reloaded by hand,
+  // which is what made ENGINE QUEUE look sticky (a card that had actually moved on, sitting there as
+  // if it had not). 30s is the compromise: fast enough to watch work land, cheap enough to leave open.
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
+  useEffect(() => {
+    const id = setInterval(() => {
+      router.refresh()
+      setRefreshedAt(Date.now())
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [router])
 
   function openRecorder(card: QueueCard) {
     // The exact attempt when the ledger knows it; otherwise the recorder resolves the story.
@@ -427,19 +456,44 @@ export function EngineeringQueuesPage({
           selected story's full detail on the RIGHT, run history beneath it. It
           reuses ActiveQueue / StoryDetail / RunHistory from the TECH cockpit, so
           there is exactly ONE implementation of "what the heck is this story". */}
-      <section className="mb-4">
+      <section className="mb-4 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-white">
-            WORKBENCH{' '}
-            <span className="font-normal text-[#c6a15b]">({activeWork.length})</span>
-            <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
+          {/*
+            ONE PANEL, COLLAPSIBLE. The Work Bench is the HUMAN lane: the queue, the handoff controls,
+            the story detail and its run history. They are all about the same thing - "I am working on
+            this story" - so they belong in one panel that folds away when you are watching the engine
+            instead of working. Same collapse mechanic as STORY BACKLOG below.
+          */}
+          <button
+            type="button"
+            onClick={() => setBenchOpen((v) => !v)}
+            className="flex items-baseline gap-2 text-left"
+          >
+            <span className="text-[11px] font-semibold tracking-[0.16em] text-white">
+              WORKBENCH <span className="font-normal text-[#c6a15b]">({activeWork.length})</span>
+            </span>
+            <span className="ml-1 text-[10px] font-normal tracking-[0.08em] text-slate-400">
               scope today&apos;s work
             </span>
-          </p>
+            <span className="text-[11px] text-slate-500">{benchOpen ? '▲' : '▼'}</span>
+          </button>
           <p className="text-[10px] text-slate-400">
-            my hands, not the engine&apos;s · pick one to read it
+            my hands, not the engine&apos;s ·{' '}
+            <button
+              type="button"
+              onClick={() => {
+                router.refresh()
+                setRefreshedAt(Date.now())
+              }}
+              className="underline decoration-dotted underline-offset-2 hover:text-slate-200"
+              title="This board re-reads PROD by itself every 30 seconds; click to do it now."
+            >
+              refresh now
+            </button>
+            {refreshedAt ? ' (auto)' : ' (auto every 30s)'}
           </p>
         </div>
+        {benchOpen ? (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <ActiveQueue
             activeQueue={activeWork}
@@ -559,19 +613,20 @@ export function EngineeringQueuesPage({
             />
           </div>
         </div>
+        ) : null}
       </section>
 
-      <StatsStrip stats={ledgerStats} />
-
-      {/* LINE — the four queues, the captain's own names: WORK BENCH (human) is the
-          leftmost because ownership is the point; ENGINE READY / RUNNING / RESULTS
-          are the engine's. HOLD is a RESULT badge, not a column. */}
+      {/* ENGINE — the engine's OWN panel: what it has been given, what it is doing, how it ended, and
+          the ledger totals for all of it. "Attempts recorded" belongs to the engine, so the stats
+          strip lives inside this panel rather than floating between panels. The four panels on this
+          screen are SORTER (top), WORKBENCH (human), ENGINE (this one), STORY BACKBOARD (bottom). */}
       <p className="mb-2 text-[11px] font-semibold tracking-[0.16em] text-white">
-        FORGE ENGINE FACTORY LINE
+        ENGINE
         <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
-          queued → running → results · drag a card between them
+          handed over → running → results · from agent_work_item and the engine ledger
         </span>
       </p>
+      <StatsStrip stats={ledgerStats} />
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {QUEUES.map((queue) => {
           const items = byQueue(queue.key)
@@ -768,6 +823,11 @@ function QueueCardView({
           </>
         ) : null}
       </div>
+      {card.note ? (
+        <p className="mt-1.5 rounded border border-amber-400/30 bg-amber-400/[0.06] px-1.5 py-0.5 text-[10px] text-amber-200/90">
+          {card.note}
+        </p>
+      ) : null}
     </div>
   )
 }

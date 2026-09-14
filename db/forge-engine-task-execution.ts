@@ -34,6 +34,11 @@ export async function latestForgeInstanceForStory(
   return id == null ? null : String(id)
 }
 
+// How long a claim may go untouched before it is treated as abandoned. Deliberately the same window
+// `forge:clean` uses to interrupt stale claims, so the screen and the control-plane cleaner agree on
+// what "abandoned" means.
+export const ENGINE_CLAIM_STALE_MS = 15 * 60 * 1000
+
 /**
  * THE ENGINE'S OWN LANES: one card per STORY, from the engine ledger.
  *
@@ -56,11 +61,23 @@ export type EngineRunCard = {
   instanceId: string
   /** Where the latest attempt ended, e.g. `qa_verify`, `repair_smith`. */
   lastNode: string | null
-  /** `completed` | `failed` | `interrupted` (the ledger's own vocabulary). */
+  /** `completed` | `failed` | `interrupted` | `claimed` | `running` (the ledger's own vocabulary). */
   status: string
   /** Attempts recorded for this story. */
   attempts: number
   at: string | null
+  /**
+   * TRUE when the row still says a worker holds it but nobody has touched it inside the stale-claim
+   * window (the same 15 minutes `forge:clean` uses).
+   *
+   * Without this, an abandoned claim looks EXACTLY like live work: the captain saw
+   * ENG-FORGE-TURN-VISIBILITY-01 sitting in ENGINE QUEUE as "running · 83" hours after the worker that
+   * claimed it was killed. A screen that reports an abandoned claim as running is the same lie as a
+   * silent refusal - the engine is idle and the board says it is busy.
+   */
+  stale: boolean
+  /** ISO text of the row's last touch, for saying HOW stale. Normalized at this boundary. */
+  updatedAt: string | null
 }
 
 export async function listEngineRunCards(
@@ -77,6 +94,7 @@ export async function listEngineRunCards(
         e.node_id,
         e.status,
         e.created_at::text as at,
+        e.updated_at::text as updated_at,
         (select count(*)::int from forge_engine_task_execution x where x.story_id = e.story_id) as attempts
       from forge_engine_task_execution e
       left join storyboard_story s on s.id = e.story_id
@@ -85,15 +103,25 @@ export async function listEngineRunCards(
     order by latest.at desc
     limit ${limit}
   `
-  return rows.map((row) => ({
-    storyId: String(row.story_id),
-    title: String(row.title ?? row.story_id),
-    instanceId: String(row.instance_id ?? ''),
-    lastNode: row.node_id == null ? null : String(row.node_id),
-    status: String(row.status ?? ''),
-    attempts: Number(row.attempts ?? 0),
-    at: row.at == null ? null : String(row.at),
-  }))
+  const staleBefore = Date.now() - ENGINE_CLAIM_STALE_MS
+  return rows.map((row) => {
+    const status = String(row.status ?? '')
+    const updatedAt = row.updated_at == null ? null : String(row.updated_at)
+    const touched = updatedAt ? Date.parse(updatedAt.replace(' ', 'T') + 'Z') : NaN
+    const terminal = status === 'completed' || status === 'failed' || status === 'interrupted'
+    return {
+      storyId: String(row.story_id),
+      title: String(row.title ?? row.story_id),
+      instanceId: String(row.instance_id ?? ''),
+      lastNode: row.node_id == null ? null : String(row.node_id),
+      status,
+      attempts: Number(row.attempts ?? 0),
+      at: row.at == null ? null : String(row.at),
+      // Only a NON-TERMINAL row can be stale: a completed row is simply finished.
+      stale: !terminal && (!Number.isFinite(touched) || touched < staleBefore),
+      updatedAt,
+    }
+  })
 }
 
 /**
