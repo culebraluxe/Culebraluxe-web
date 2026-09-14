@@ -888,10 +888,28 @@ export function createAgentRuntimeForgeRoleRunner(
       : null
 
     const typed = readTypedGateEvidence(result.evidence)
+    // FACTS ARE READ AFTER THE WORK THAT PRODUCES THEM, NOT BEFORE IT.
+    //
+    // `current` is the ATTEMPT-START snapshot (read once above, for Lead routing). Projecting gate
+    // evidence from it made every node judge itself against the story as it stood BEFORE the attempt
+    // began: `qa_verify` computes `candidate && verified === candidate` from `current.candidateSha`,
+    // so it was comparing against a value that predated the Smith's commit in the same attempt -
+    // `exact` came out false, `qaPassed` was written false, the engine took the fail branch to
+    // `repair_smith`, the repair reproduced the SAME candidate, and the loop ran to the turn cap.
+    //
+    // Measured live on 2026-09-14 (ENG-FORGE-TURN-VISIBILITY-01, instance 092ddab8): qa_verify
+    // reported `{"qaPassed":true,"candidateSha":"0483c314..."}` at 05:35:19 and the router took the
+    // fail branch one second later - twice - while the persisted evidence row said `qa_passed=true`
+    // with `candidate_sha == qa_verified_sha`. The contradiction was never in the data; it was in
+    // the age of the snapshot the decision was computed from.
+    //
+    // One extra single-row read makes every node see what its predecessors actually persisted.
+    // `current` still fills any field the fresh row leaves null.
+    const evidenceNow = await readForgeWorkflowEvidence(resolvedStory.id)
     const mapped = forgeEvidenceFromAgentResult({
       nodeId,
       result: result.evidence,
-      current,
+      current: { ...current, ...evidenceNow },
       leadDecision,
     })
     const marked = readLegacyMarkerGateEvidence(result.evidence)
