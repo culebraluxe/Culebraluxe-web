@@ -200,11 +200,6 @@ export function createDbForgeReleaseExecutor(
         }
       }
 
-      await mergeEvidence(context.processInstanceId, context.storyId, {
-        publishSucceeded: false,
-        failureClass: 'PUBLISH_CONFLICT',
-        failedReleaseStage: 'PUBLISH',
-      })
       // Every non-published outcome is reported with ITS OWN reason. `integration-unverified`
       // and `integration-conflict` are new: the first means the candidate WAS merged onto a
       // moved main and the integrated tree failed its proofs (so nothing was published), the
@@ -218,6 +213,20 @@ export function createDbForgeReleaseExecutor(
             : result.outcome === 'integration-conflict'
               ? result.reason
               : result.reason /* publish-conflict */
+
+      await mergeEvidence(context.processInstanceId, context.storyId, {
+        publishSucceeded: false,
+        failureClass: 'PUBLISH_CONFLICT',
+        failedReleaseStage: 'PUBLISH',
+        // THE REASON IS PART OF THE OUTCOME.
+        //
+        // This branch used to record that publish failed and nothing else, so the evidence row said
+        // `publish_succeeded = false` with no reason anywhere and neither the operator nor the repair
+        // classifier could learn that, say, a frozen proof could not run in the integration tree.
+        // `lastFailure` carries the publisher's own words, so the reason outlives the turn.
+        lastFailure: message,
+      })
+
       return {
         commandType: envelope.commandType,
         outcome: 'success',

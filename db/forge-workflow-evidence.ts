@@ -84,6 +84,10 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     qaPassed: value(row, 'qa_passed'),
     failureClass: value(row, 'failure_class'),
     failedReleaseStage: value(row, 'failed_release_stage'),
+    // The reason a failure happened, in the failing stage's own words. The column existed and was
+    // never read or written, so a publish that refused recorded `publish_succeeded = false` with no
+    // reason anywhere - the operator could see THAT it failed and never WHY.
+    lastFailure: value(row, 'last_failure'),
     publishSucceeded: value(row, 'publish_succeeded'),
     migrationRequired: value(row, 'migration_required'),
     migrationFiles: stringArray(row, 'migration_files'),
@@ -122,7 +126,7 @@ export async function mergeForgeWorkflowEvidence(
       process_instance_id, story_id, work_type, research_disposition,
       scout_required, root_cause_known, diagnosis_blocked, architecture_suspect, architecture_review_required,
       lead_decision, split_count, lead_routing, qa_review_required, qa_review_passed, qa_passed,
-      failure_class, failed_release_stage, publish_succeeded, migration_required,
+      failure_class, failed_release_stage, last_failure, publish_succeeded, migration_required,
       migration_files, dev_migration_applied, dev_migration_verified,
       prod_migration_applied, prod_migration_verified, derived_refresh_required,
       derived_models, derived_refresh_succeeded, derived_refresh_verified,
@@ -136,7 +140,7 @@ export async function mergeForgeWorkflowEvidence(
       ${evidence.architectureSuspect ?? null}, ${evidence.architectureReviewRequired ?? null}, ${evidence.leadDecision ?? null},
       ${evidence.leadDecision === 'SPLIT' ? evidence.splitCount ?? null : null}, ${evidence.leadRouting ? JSON.stringify(evidence.leadRouting) : null}, ${evidence.qaReviewRequired ?? null},
       ${evidence.qaReviewPassed ?? null}, ${evidence.qaPassed ?? null},
-      ${evidence.failureClass ?? null}, ${evidence.failedReleaseStage ?? null},
+      ${evidence.failureClass ?? null}, ${evidence.failedReleaseStage ?? null}, ${evidence.lastFailure ?? null},
       ${evidence.publishSucceeded ?? null}, ${evidence.migrationRequired ?? null},
       ${evidence.migrationFiles === undefined ? null : JSON.stringify(evidence.migrationFiles)}::jsonb,
       ${evidence.devMigrationApplied ?? null}, ${evidence.devMigrationVerified ?? null},
@@ -172,6 +176,7 @@ export async function mergeForgeWorkflowEvidence(
       deployment_deferred_to_batch = coalesce(excluded.deployment_deferred_to_batch, forge_workflow_evidence.deployment_deferred_to_batch),
       failure_class = coalesce(excluded.failure_class, forge_workflow_evidence.failure_class),
       failed_release_stage = coalesce(excluded.failed_release_stage, forge_workflow_evidence.failed_release_stage),
+      last_failure = coalesce(excluded.last_failure, forge_workflow_evidence.last_failure),
       publish_succeeded = coalesce(excluded.publish_succeeded, forge_workflow_evidence.publish_succeeded),
       migration_required = coalesce(excluded.migration_required, forge_workflow_evidence.migration_required),
       migration_files = coalesce(excluded.migration_files, forge_workflow_evidence.migration_files),

@@ -94,6 +94,15 @@ export type ForgeGateEvidence = {
    */
   qaRepairEligible?: boolean
   qaReplanEligible?: boolean
+  /**
+   * WHY the last failure happened, in the failing stage's own words.
+   *
+   * Carried so a refusal survives the turn that produced it. Without it the evidence row could say
+   * `publishSucceeded = false` with no reason anywhere: the publisher knew (its command message named
+   * the outcome and the refusing proof) and the durable record did not, so neither the operator nor
+   * the repair classifier could act on it.
+   */
+  lastFailure?: string | null
   /** failure_route */
   failureClass?:
     | 'CODE_DEFECT'

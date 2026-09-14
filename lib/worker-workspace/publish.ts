@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -174,6 +174,20 @@ async function integrateCandidateWithRemote(input: {
     await rm(dir, { recursive: true, force: true })
     return { outcome: 'conflict', reason: `could not create the integration worktree: ${add.stderr}` }
   }
+
+  // THE INTEGRATION TREE NEEDS THE DEPENDENCIES, OR EVERY PROOF FAILS FOR THE WRONG REASON.
+  //
+  // A fresh `git worktree` carries source and nothing else: no node_modules, no .env. The frozen
+  // proofs are commands like `node --import tsx --test <file>`, so in a bare worktree they fail to
+  // even start — `tsx` is not resolvable — and the publisher then reports `integration-unverified`
+  // for a candidate that integrates cleanly and passes its proofs in a real checkout. Measured by
+  // hand on 2026-09-14 (candidate 70738a12, main one commit ahead): merge clean, proof 13/13 pass in
+  // the repo, and the engine refused it. Linking the repo's own node_modules removes the false
+  // negative without weakening anything: the proofs still run against the INTEGRATED SOURCE, which is
+  // what this step is for.
+  await symlink(join(input.repoRoot, 'node_modules'), join(dir, 'node_modules')).catch(() => {
+    /* best effort: a proof that needs a missing dependency will still fail loudly, and named */
+  })
 
   // Merge the CURRENT remote head, so the integrated tree is what main would become.
   const merge = await runGit(dir, ['merge', '--no-edit', input.remoteMain])
