@@ -24,6 +24,9 @@
 // ---------------------------------------------------------------------------
 
 import { execFile } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -40,6 +43,18 @@ export type PublishAcceptedCandidateInput = {
   remoteName?: string
   /** Deployment branch to publish onto (default `main`). Never force-pushed. */
   remoteBranch?: string
+  /**
+   * Re-verify an INTEGRATED candidate before it is published.
+   *
+   * Supplied by the engine, which knows the story's frozen proofs. It runs in the integration
+   * worktree, against the integrated commit, and its refusal is FINAL: an integration that
+   * cannot be verified is not published. Without this callback a moved remote still fails
+   * closed exactly as before, so no existing caller changes behaviour.
+   */
+  verifyIntegrated?: (input: {
+    cwd: string
+    integratedCommit: string
+  }) => Promise<{ ok: boolean; detail?: string | null }>
 }
 
 export type PublishAcceptedCandidateOutcome =
@@ -57,6 +72,33 @@ export type PublishAcceptedCandidateOutcome =
       outcome: 'publish-conflict'
       candidateCommit: string | null
       remoteMainHash: string | null
+      reason: string
+    }
+  /**
+   * The remote had advanced, the candidate was integrated onto the CURRENT remote head, the
+   * integrated tree was re-verified, and THAT commit was published. `candidateCommit` is the
+   * Smith's original commit (preserved on its own branch); `integratedCommit` is what main
+   * received.
+   */
+  | {
+      outcome: 'integrated-and-published'
+      candidateCommit: string
+      integratedCommit: string
+      publishedMainHash: string
+      verifyDetail: string | null
+    }
+  /** Integration was attempted, produced a commit, and the verifier refused it: NOT published. */
+  | {
+      outcome: 'integration-unverified'
+      candidateCommit: string
+      integratedCommit: string
+      reason: string
+    }
+  /** Integration itself conflicted (a REAL conflict, not a moved remote). Nothing published. */
+  | {
+      outcome: 'integration-conflict'
+      candidateCommit: string
+      remoteMainHash: string
       reason: string
     }
 
@@ -98,6 +140,71 @@ async function runGit(
 /** First whitespace-separated token of a `git ls-remote` line (the ref hash). */
 function refHash(line: string): string {
   return line.trim().split(/\s+/)[0] ?? ''
+}
+
+/**
+ * INTEGRATE A CANDIDATE ONTO THE CURRENT REMOTE HEAD, in a scratch worktree.
+ *
+ * The candidate's branch is never rewritten and `main` is never touched here: a detached
+ * worktree is created at the candidate, the remote head is merged into it, and the resulting
+ * commit is handed back for verification. The caller publishes only if verification passes,
+ * so a merge that compiles is not the same thing as a merge that is PROVEN.
+ *
+ * A real conflict (the same lines changed on both sides) is reported as such; a moved remote
+ * alone is what this exists to stop being fatal.
+ */
+async function integrateCandidateWithRemote(input: {
+  repoRoot: string
+  candidate: string
+  remoteMain: string
+  remoteName: string
+  remoteBranch: string
+}): Promise<
+  | { outcome: 'integrated'; commit: string; dir: string; cleanup: () => Promise<void> }
+  | { outcome: 'conflict'; reason: string }
+> {
+  const dir = await mkdtemp(join(tmpdir(), `forge-integrate-${input.candidate.slice(0, 8)}-`))
+  const cleanup = async (): Promise<void> => {
+    await runGit(input.repoRoot, ['worktree', 'remove', '--force', dir])
+    await rm(dir, { recursive: true, force: true })
+  }
+
+  const add = await runGit(input.repoRoot, ['worktree', 'add', '--detach', dir, input.candidate])
+  if (!add.ok) {
+    await rm(dir, { recursive: true, force: true })
+    return { outcome: 'conflict', reason: `could not create the integration worktree: ${add.stderr}` }
+  }
+
+  // Merge the CURRENT remote head, so the integrated tree is what main would become.
+  const merge = await runGit(dir, ['merge', '--no-edit', input.remoteMain])
+  if (!merge.ok) {
+    await runGit(dir, ['merge', '--abort'])
+    await cleanup()
+    return {
+      outcome: 'conflict',
+      reason: `merging ${input.remoteName}/${input.remoteBranch} (${input.remoteMain.slice(0, 12)}) into ${input.candidate.slice(0, 12)} conflicted (${merge.stderr})`,
+    }
+  }
+
+  const head = await runGit(dir, ['rev-parse', 'HEAD'])
+  if (!head.ok || !head.stdout) {
+    await cleanup()
+    return { outcome: 'conflict', reason: 'the integration worktree has no readable HEAD' }
+  }
+
+  // A clean merge that changes nothing is not an integration: publishing the candidate would
+  // still not fast-forward, and pretending otherwise would hide the real state.
+  if (head.stdout === input.candidate) {
+    await cleanup()
+    return {
+      outcome: 'conflict',
+      reason:
+        `merging ${input.remoteMain.slice(0, 12)} into ${input.candidate.slice(0, 12)} produced no new ` +
+        'commit, so the remote head is still not an ancestor of anything publishable',
+    }
+  }
+
+  return { outcome: 'integrated', commit: head.stdout, dir, cleanup }
 }
 
 /**
@@ -203,15 +310,97 @@ export async function publishAcceptedCandidate(
     candidate,
   ])
   if (!ancestor.ok) {
-    const reason =
+    const movedReason =
       ancestor.code === 1
-        ? `origin/${remoteBranch} (${remoteMain}) is not an ancestor of candidate ${candidate} — remote main has advanced or diverged from the candidate's recorded base, so a direct push would NOT fast-forward. Candidate commit preserved; refusing to force-push or rewrite history. Integrate/repair before republishing.`
+        ? `origin/${remoteBranch} (${remoteMain}) is not an ancestor of candidate ${candidate} — remote main has advanced from the candidate's recorded base`
         : `fast-forward check failed: ${ancestor.stderr || 'git merge-base error'}`
+
+    // INTEGRATE BEFORE REFUSING (2026-09-13).
+    //
+    // This used to be the end of the road: any advance of origin/main made the candidate
+    // unpublishable, and the engine answered repair → re-verify → publish → refuse until the
+    // turn cap. With main moving several times an hour (parallel work, the engine's own
+    // publishes), that was not an edge case — it was every story that started before the last
+    // commit landed, which is why a night of runs could not finish.
+    //
+    // A retry should be able to finish, so when a verifier is supplied the candidate is
+    // integrated onto the CURRENT remote head in a SCRATCH worktree, the frozen proofs are
+    // re-run against the integrated tree, and THAT commit is published. Invariants preserved:
+    // main is only ever fast-forwarded, nothing is force-pushed, the Smith's commit stays on
+    // its own branch, a real conflict fails closed, and an unverifiable integration is not
+    // published at all.
+    if (!input.verifyIntegrated) {
+      return {
+        outcome: 'publish-conflict',
+        candidateCommit: candidate,
+        remoteMainHash: remoteMain,
+        reason: `${movedReason}. Candidate commit preserved; refusing to force-push or rewrite history.`,
+      }
+    }
+
+    const integrated = await integrateCandidateWithRemote({
+      repoRoot,
+      candidate,
+      remoteMain,
+      remoteName,
+      remoteBranch,
+    })
+    if (integrated.outcome === 'conflict') {
+      return {
+        outcome: 'integration-conflict',
+        candidateCommit: candidate,
+        remoteMainHash: remoteMain,
+        reason: `${movedReason}; INTEGRATION CONFLICT: ${integrated.reason}. Candidate preserved, nothing published.`,
+      }
+    }
+
+    const verification = await input.verifyIntegrated({
+      cwd: integrated.dir,
+      integratedCommit: integrated.commit,
+    })
+    if (!verification.ok) {
+      await integrated.cleanup()
+      return {
+        outcome: 'integration-unverified',
+        candidateCommit: candidate,
+        integratedCommit: integrated.commit,
+        reason:
+          `candidate ${candidate} was integrated onto ${remoteMain} as ${integrated.commit}, ` +
+          `but the integrated tree did not verify: ${verification.detail ?? 'verifier refused'}. ` +
+          'Nothing was published — the proofs decide, not the merge.',
+      }
+    }
+
+    // Publish the INTEGRATED commit. It descends from the current remote head, so this is a
+    // genuine fast-forward, and the proof that it was verified rides the outcome.
+    const pushIntegrated = await runGit(
+      repoRoot,
+      ['push', remoteName, `${integrated.commit}:refs/heads/${remoteBranch}`],
+      { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+    )
+    await runGit(repoRoot, [
+      'update-ref',
+      `refs/remotes/${remoteName}/${remoteBranch}`,
+      integrated.commit,
+    ])
+    const detail = verification.detail ?? null
+    await integrated.cleanup()
+    if (!pushIntegrated.ok) {
+      return {
+        outcome: 'publish-conflict',
+        candidateCommit: candidate,
+        remoteMainHash: remoteMain,
+        reason:
+          `integrated commit ${integrated.commit} was rejected by ${remoteName}/${remoteBranch} ` +
+          `(${pushIntegrated.stderr || 'git push failed'}). Candidate preserved; no force-push is ever used.`,
+      }
+    }
     return {
-      outcome: 'publish-conflict',
+      outcome: 'integrated-and-published',
       candidateCommit: candidate,
-      remoteMainHash: remoteMain,
-      reason,
+      integratedCommit: integrated.commit,
+      publishedMainHash: integrated.commit,
+      verifyDetail: detail,
     }
   }
 

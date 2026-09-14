@@ -1,4 +1,7 @@
 import { publishAcceptedCandidate } from '../../lib/worker-workspace'
+import { getStoryboardStory } from '../../db/storyboard'
+import { parseAssayCommands } from '../../agent-runtime/assay-plan'
+import { runAssayCommand } from '../../agent-runtime/deterministic-assay-adapter'
 import {
   mergeForgeWorkflowEvidence,
   readForgeWorkflowEvidence,
@@ -148,11 +151,44 @@ export function createDbForgeReleaseExecutor(
         return { commandType: envelope.commandType, outcome: 'success', message: lineageError }
       }
 
+      // THE FROZEN PROOFS RE-VERIFY AN INTEGRATED CANDIDATE.
+      //
+      // Without this callback the publisher still refuses a moved main, so the integration path
+      // would exist and never run. The proofs are the STORY's own frozen commands (read from the
+      // story, parsed by the same parser the Lead and the Assay use — never model prose), and
+      // they run in the integration worktree against the merged tree, so a merge that merely
+      // applies cleanly cannot publish: it has to PASS.
+      const proofStory = await getStoryboardStory(context.storyId).catch(() => null)
+      const frozenProofs = parseAssayCommands(proofStory?.assayCommands ?? null)
       const result = await publish({
         repoRoot,
         candidateCommit: evidence.candidateSha,
+        ...(frozenProofs.length > 0
+          ? {
+              verifyIntegrated: async ({ cwd }: { cwd: string; integratedCommit: string }) => {
+                const failed: string[] = []
+                for (const command of frozenProofs) {
+                  const outcome = await runAssayCommand({
+                    command,
+                    cwd,
+                    env: { ...process.env },
+                    timeoutMs: 120_000,
+                  }).catch(() => null)
+                  if (!outcome || outcome.exitCode !== 0) {
+                    failed.push(`${command} (exit ${outcome?.exitCode ?? 'unmeasurable'})`)
+                  }
+                }
+                return failed.length > 0
+                  ? { ok: false, detail: `frozen proofs failed on the integrated tree: ${failed.join(' | ')}` }
+                  : { ok: true, detail: `frozen proofs passed on the integrated tree (${frozenProofs.length})` }
+              },
+            }
+          : {}),
       })
-      if (result.outcome === 'published') {
+      // BOTH published shapes are success. `integrated-and-published` means main had moved,
+      // the candidate was merged onto the current head, the integrated tree was re-verified,
+      // and that commit is now on main — a completion, not a conflict.
+      if (result.outcome === 'published' || result.outcome === 'integrated-and-published') {
         await mergeEvidence(context.processInstanceId, context.storyId, {
           publishSucceeded: true,
           publishedSha: result.publishedMainHash,
@@ -169,10 +205,23 @@ export function createDbForgeReleaseExecutor(
         failureClass: 'PUBLISH_CONFLICT',
         failedReleaseStage: 'PUBLISH',
       })
+      // Every non-published outcome is reported with ITS OWN reason. `integration-unverified`
+      // and `integration-conflict` are new: the first means the candidate WAS merged onto a
+      // moved main and the integrated tree failed its proofs (so nothing was published), the
+      // second means the merge itself conflicted. Naming which one happened is the difference
+      // between "retry" and "a human must look".
+      const message =
+        result.outcome === 'no-candidate'
+          ? result.reason
+          : result.outcome === 'integration-unverified'
+            ? `integration produced ${result.integratedCommit} but it did not verify: ${result.reason}`
+            : result.outcome === 'integration-conflict'
+              ? result.reason
+              : result.reason /* publish-conflict */
       return {
         commandType: envelope.commandType,
         outcome: 'success',
-        message: result.reason,
+        message,
       }
     },
   }
