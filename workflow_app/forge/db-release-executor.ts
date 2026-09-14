@@ -15,7 +15,7 @@ import {
   FORGE_VERIFY_DEV_MIGRATION,
   FORGE_VERIFY_PROD_MIGRATION,
 } from '../forge-command-types'
-import { forgeLineageError } from './forge-facts'
+import { forgeLineageError, type ForgeGateEvidence } from './forge-facts'
 import {
   createForgeReleaseOperations,
   type ForgeOperationResult,
@@ -53,6 +53,20 @@ export function createDbForgeReleaseExecutor(
     mergeEvidence?: typeof mergeForgeWorkflowEvidence
     publish?: typeof publishAcceptedCandidate
     operations?: ForgeReleaseOperations
+    /**
+     * The evidence of the task completing RIGHT NOW.
+     *
+     * Release commands execute INSIDE the transition that follows QA, and the runtime merges the
+     * evidence row only AFTER that transition returns. So a publish command reading the row sees the
+     * PRE-QA state: `qaVerifiedSha` is not there yet, `forgeLineageError(evidence,'qa')` refuses with
+     * "qaVerifiedSha is missing or invalid", and publish is recorded as failed with no reason - while
+     * the row that lands a moment later says `qa_passed = true` with `qa_verified_sha == candidate_sha`
+     * (measured twice on 2026-09-14, instances 8a2c9b00 and 123de634).
+     *
+     * Merging the in-flight evidence over the row is the same rule the fact reader follows: the turn
+     * being completed is the most recent truth available.
+     */
+    pendingEvidence?: ForgeGateEvidence
   } = {},
 ): ForgeReleaseExecutor {
   const readEvidence = deps.readEvidence ?? readForgeWorkflowEvidence
@@ -66,7 +80,10 @@ export function createDbForgeReleaseExecutor(
         return precondition(envelope.commandType, 'Forge release command is missing process/story context')
       }
 
-      const evidence = await readEvidence(context.storyId)
+      const stored = await readEvidence(context.storyId)
+      const evidence: ForgeGateEvidence = deps.pendingEvidence
+        ? { ...stored, ...deps.pendingEvidence }
+        : stored
       if (envelope.commandType !== FORGE_PUBLISH_CANDIDATE) {
         const migrationCommand = migrationCommandPlan(envelope.commandType)
         if (migrationCommand) {

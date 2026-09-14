@@ -11,7 +11,12 @@ async function createDurableForgeApplicationPort(pendingEvidence?: ForgeGateEvid
   const { createDbForgeReleaseExecutor } = await import('./db-release-executor')
   return createForgeApplicationPort({
     evidenceReader: readForgeWorkflowEvidence,
-    releaseExecutor: createDbForgeReleaseExecutor(),
+    releaseExecutor: createDbForgeReleaseExecutor(undefined, {
+      // Release commands run inside the transition that follows QA, before the evidence row is
+      // merged - so the in-flight evidence has to ride along here too, or the publish lineage check
+      // refuses on a `qaVerifiedSha` that is merely not persisted yet.
+      ...(pendingEvidence ? { pendingEvidence } : {}),
+    }),
     // The transition reads facts BEFORE the evidence row is merged (see the CAS note below), so the
     // in-flight evidence of this very task must ride along or every gate judges a stale turn.
     ...(pendingEvidence ? { pendingEvidence } : {}),
