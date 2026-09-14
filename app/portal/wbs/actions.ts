@@ -88,6 +88,7 @@ export async function dismissWbsItemAction(id: string): Promise<WbsActionResult>
 
 export async function updateWbsItemAction(input: {
   id: string
+  title?: string
   status?: 'open' | 'doing' | 'done' | 'dismissed'
   dueAt?: string | null
   owner?: string | null
@@ -101,7 +102,7 @@ export async function updateWbsItemAction(input: {
     if (!current.value) return { ok: false, code: "WBS_NOT_FOUND", message: "That work item no longer exists." }
     const res = await service.execute({
       operation: "wbs.save",
-      payload: { id: current.value.id, title: current.value.title, category: current.value.category, projectId: current.value.projectId, parentId: current.value.parentId, order: current.value.order, entity: current.value.entity, dueAt: input.dueAt === undefined ? current.value.dueAt : input.dueAt, owner: input.owner === undefined ? current.value.owner : input.owner, notes: input.notes === undefined ? current.value.notes : input.notes, status: input.status ?? current.value.status },
+      payload: { id: current.value.id, title: input.title?.trim() || current.value.title, category: current.value.category, projectId: current.value.projectId, parentId: current.value.parentId, order: current.value.order, entity: current.value.entity, dueAt: input.dueAt === undefined ? current.value.dueAt : input.dueAt, owner: input.owner === undefined ? current.value.owner : input.owner, notes: input.notes === undefined ? current.value.notes : input.notes, status: input.status ?? current.value.status },
       context,
     })
     if (!res.ok) return { ok: false, code: res.error.code, message: res.error.message }
@@ -113,7 +114,10 @@ export async function updateWbsItemAction(input: {
 
 /** Mirror one canonical WBS item to Apple Reminders. The WBS row remains the
  * source of truth; Apple is the external execution surface. */
-export async function queueAppleReminderForWbsAction(id: string): Promise<AppleReminderActionResult> {
+export async function queueAppleReminderForWbsAction(
+  id: string,
+  options?: { alert?: boolean },
+): Promise<AppleReminderActionResult> {
   try {
     const context = await runContext()
     const current = await wbsService().execute({ operation: "wbs.get", payload: { id }, context })
@@ -127,6 +131,7 @@ export async function queueAppleReminderForWbsAction(id: string): Promise<AppleR
         dueAt: current.value.dueAt,
         completed: current.value.status === "done",
         notes: current.value.notes || null,
+        alert: options?.alert ?? false,
       },
       {
         actorAppUserId: context.principal?.appUserId ?? context.actor.id,
