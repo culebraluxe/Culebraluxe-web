@@ -51,6 +51,7 @@ export function SelectedWorkPanel({
     setOwner(node?.owner ?? "")
     setNotes(node?.note ?? "")
     setSaveError(null)
+    if (node) setCollapsed(false)
   }, [node])
 
   const save = () => {
@@ -71,33 +72,6 @@ export function SelectedWorkPanel({
       onSaved?.()
     })
   }
-
-  const header = (
-    <button
-      type="button"
-      onClick={() => setCollapsed((value) => !value)}
-      className="flex min-h-10 w-full items-center gap-3 px-3 py-2 text-left"
-      aria-expanded={!collapsed}
-    >
-      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
-        Selected work
-      </span>
-      {node ? (
-        <>
-          <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">{node.title}</span>
-          <span className="hidden shrink-0 text-[12px] font-light text-[var(--portal-blue-gray)] sm:inline">
-            {STATUS_LABEL[status]} · {shortDate(dueAt, node.dueLabel)} · {owner.trim() || "Unassigned"}
-          </span>
-        </>
-      ) : (
-        <span className="min-w-0 flex-1 truncate text-[13px] font-light text-black/45">Select a work item to inspect it.</span>
-      )}
-      <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--portal-blue-gray)]">
-        {collapsed ? "Expand" : "Collapse"}
-        <ChevronDown className={`h-4 w-4 transition ${collapsed ? "" : "rotate-180"}`} aria-hidden />
-      </span>
-    </button>
-  )
 
   const launcherLayout = (
     <style jsx global>{`
@@ -127,7 +101,46 @@ export function SelectedWorkPanel({
     `}</style>
   )
 
-  if (collapsed || !node) {
+  if (!node) {
+    return (
+      <>
+        {launcherLayout}
+        <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
+          <div className="flex min-h-10 w-full items-center gap-3 px-3 py-2 text-left">
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+              Selected work
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-light text-black/45">
+              Select a real work item to edit it.
+            </span>
+          </div>
+        </section>
+      </>
+    )
+  }
+
+  const header = (
+    <button
+      type="button"
+      onClick={() => setCollapsed((value) => !value)}
+      className="flex min-h-10 w-full items-center gap-3 px-3 py-2 text-left"
+      aria-expanded={!collapsed}
+    >
+      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--portal-gold-muted)]">
+        Selected work
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[var(--portal-navy)]">{node.title}</span>
+      <span className="hidden shrink-0 text-[12px] font-light text-[var(--portal-blue-gray)] sm:inline">
+        {STATUS_LABEL[status]} · {shortDate(dueAt, node.dueLabel)} · {owner.trim() || "Unassigned"}
+      </span>
+      <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--portal-blue-gray)]">
+        {collapsed ? "Expand" : "Collapse"}
+        <ChevronDown className={`h-4 w-4 transition ${collapsed ? "" : "rotate-180"}`} aria-hidden />
+      </span>
+    </button>
+  )
+
+  if (collapsed) {
     return (
       <>
         {launcherLayout}
