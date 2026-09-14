@@ -1,73 +1,63 @@
 // ---------------------------------------------------------------------------
-// STORY MOVES — the legal transitions between the SORTER's columns, as DATA.
+// STORY MOVES — the SORTER's columns, and NO GATE.
 //
-// Why data and not UI logic: the same rules have to hold for a drag on the board,
-// a button on the story detail, and whatever comes next. Encode them once, here,
-// and every surface asks the same question.
+// HISTORY, because it explains the file: this module used to encode a MOVES table
+// of "legal transitions" — nothing could leave the engine's column, closed stories
+// could only be reopened, backlog could not be closed. It accumulated comments
+// defending the rules and tests locking them in.
 //
-// The captain's rules, 2026-09-12:
+// The captain, 2026-09-14, on what that felt like to use:
 //
-//   1. The sorter reads BACKLOG -> OPEN -> WORK BENCH -> ENGINE QUEUE.
-//   2. THE ENGINE GATE IS ONE WAY. "Once the engine has control that's it, no
-//      messing with it." So nothing moves OUT of ENGINE QUEUE by hand. The only
-//      exit is the engine's own cancel — which is an engine action, not a gesture.
-//   3. Work reaches the engine from the WORK BENCH **or** directly from OPEN.
-//   4. CLOSING and DEFERRING are DELIBERATE ACTS, not drags: they are outcomes, not
-//      places, which is why CLOSED and NEXT VERSION are not sorter columns. They
-//      stay reachable from ACTIVE as explicit choices.
+//   "i dont want any rules i dont understand why this is so complicated these are
+//    just sticky notes on a kahnban in real life i can just pick a sticky note off
+//    the white board kahnban and move it where ever i want ... this is so annoying"
+//
+// He is right. A board whose cards refuse to move is a board you cannot use, and a
+// rule you have to learn before you can tidy a list is not a feature. So there are no
+// legal-transition rules any more: EVERY COLUMN MAY GO TO EVERY OTHER COLUMN.
+//
+// What remains is not a permission, it is a FACT about what a column DOES:
+//   - a column that is a lifecycle state writes that status (`In Progress`, `Planned`,
+//     `Complete`, `Deferred`);
+//   - the bench is an INTENT row and changes no status;
+//   - ENGINE BATCH stages (`Batched`, harmless, dispatches nothing);
+//   - ENGINE RUN Q HANDS THE STORY OVER: status `Ready`, which is the engine's own
+//     dispatch trigger, so this is the one move that starts machine work;
+//   - LEAVING ENGINE RUN Q WITHDRAWS the queue entry it created (see
+//     `withdrawQueuedAgentWork`), so pulling the note back takes the request back with
+//     it. Un-ringing a bell that has not rung yet; a story the engine is already
+//     executing is reported, not silently yanked.
+//
+// This module therefore holds VOCABULARY (column names, their statuses, their
+// consequences), not permission. `canMove` survives only so callers keep one question
+// to ask — and it now answers "anywhere but where it already is".
 // ---------------------------------------------------------------------------
 
-/** The sorter's columns, left to right. */
+/** The sorter's columns, left to right, plus the two deliberate outcomes. */
 export type StoryBucket = 'backlog' | 'open' | 'bench' | 'batch' | 'engine' | 'closed' | 'next'
 
-/** Buckets a human can DRAG between (the sorter's columns). */
+/** Buckets that are drawn as a column on the board. */
 export const SORTER_BUCKETS: StoryBucket[] = ['backlog', 'open', 'bench', 'batch', 'engine']
 
-/** Buckets reachable only as a deliberate choice (no drop target exists for them). */
+/** Buckets reached as a deliberate act rather than a column (Close / defer, and NEXT VERSION). */
 export const DELIBERATE_BUCKETS: StoryBucket[] = ['closed', 'next']
 
+/** Every bucket, for "where may this go" — which is now "anywhere else". */
+export const STORY_BUCKETS: StoryBucket[] = [...SORTER_BUCKETS, ...DELIBERATE_BUCKETS]
+
 /**
- * Where a move may GO TO, per source bucket.
+ * MAY A STORY MOVE FROM ONE COLUMN TO ANOTHER?
  *
- * ENGINE QUEUE is deliberately an EMPTY list: nothing drags out of it. RUNNING and
- * RESULTS are not buckets at all — the engine owns them and they are never a drop
- * target.
- *
- * (This comment previously said "comes FROM, per destination", which was the exact
- * inverse of the data below and of `canMove`. The inversion shipped: every entry
- * to ENGINE was refused and every exit from it was allowed, so dragging a story
- * into ENGINE QUEUE did nothing. Corrected 2026-09-12.)
+ * It may move anywhere it is not already. Two of the seven are not really statuses
+ * (the bench is an intent row, ENGINE BATCH is staging) and one of them starts the
+ * engine — but none of that is a gate: the caller is told what a move DOES by
+ * `bucketSideEffect`, and the write paths above/below handle it. There is deliberately
+ * no table of forbidden pairs to maintain, because the captain does not have one.
  */
-export const MOVES: Record<StoryBucket, StoryBucket[]> = {
-  // BACKLOG is the source pool: nothing comes back INTO it except from OPEN or the
-  // bench, where you parked something you are not doing after all.
-  // BACKLOG can go anywhere a story can plausibly go next: into the queue, onto the bench, staged
-  // into the engine batch, or straight to the run queue when the captain means it.
-  backlog: ['open', 'bench', 'batch', 'engine'],
-  // OPEN is the hub: out to the bench, into the next engine batch, straight to the engine, or
-  // parked/deferred.
-  open: ['backlog', 'bench', 'batch', 'engine', 'closed', 'next'],
-  // The bench can stage into the batch, hand over, put work back into the queue, or park/defer it.
-  bench: ['open', 'backlog', 'batch', 'engine', 'closed', 'next'],
-  // ENGINE BATCH is STAGING: stories wait here until the operator sends the batch. Nothing leaves it
-  // on a timer and nothing in it has been dispatched - `Batched` is not the dispatch status. It can
-  // send to the engine (the deliberate act) or be pulled back out.
-  batch: ['engine', 'open', 'backlog', 'bench'],
-  // One way. The engine owns it from here.
-  engine: [],
-  // Closed and deferred stories are outcomes: they can be REOPENED into the queue, and deferred work
-  // can go STRAIGHT to the engine batch or the run queue - a story parked for a later version is
-  // still a candidate the captain may want to hand over deliberately.
-  closed: ['open', 'backlog'],
-  next: ['open', 'backlog', 'batch', 'engine'],
+export function canMove(from: StoryBucket, to: StoryBucket): boolean {
+  return from !== to && STORY_BUCKETS.includes(from) && STORY_BUCKETS.includes(to)
 }
 
-export function canMove(from: StoryBucket, to: StoryBucket): boolean {
-  // MOVES is keyed by SOURCE, so read the source's list of allowed targets.
-  // Reading `MOVES[to]` (the bug) inverted the whole gate: nothing could enter
-  // ENGINE and anything could leave it.
-  return MOVES[from]?.includes(to) ?? false
-}
 
 /**
  * NORMALIZE A CALLER'S COLUMN NAME INTO A BUCKET — the boundary between what a VIEW calls a column

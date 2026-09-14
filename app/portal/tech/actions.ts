@@ -6,11 +6,10 @@ import { redirect } from "next/navigation"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork } from "@/db/storyboard"
-import { setAgentWorkDispatchOptions } from "@/db/agent-work"
+import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from "@/db/agent-work"
 import {
   ENGINE_DISPATCH_STATUS,
   STATUS_BY_BUCKET,
-  canMove,
   normalizeStoryBucket,
 } from "@/lib/story-moves"
 
@@ -78,7 +77,7 @@ async function moveStoryBucketActionHandler(
   cardId: string,
   from: string,
   to: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; note?: string }> {
   const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
   if (!access.ok) redirect(access.redirectTo)
 
@@ -93,9 +92,10 @@ async function moveStoryBucketActionHandler(
   if (!source) return { ok: false, error: `Unknown column: ${from}` }
   if (!target) return { ok: false, error: `Unknown column: ${to}` }
 
-  if (!canMove(source, target)) {
-    return { ok: false, error: `Not allowed: ${source} → ${target}` }
-  }
+  // NO GATE. There is deliberately no table of forbidden pairs here: a sticky note goes wherever the
+  // captain puts it (2026-09-14). The two honest refusals below are about NAMES, not permissions — an
+  // unknown column cannot be written — and a no-op move writes nothing.
+  if (source === target) return { ok: true, note: 'already there' }
 
   const actorId = access.ok ? access.actor.appUserId : null
 
@@ -109,20 +109,46 @@ async function moveStoryBucketActionHandler(
 
   if (target === "bench") {
     await setActiveWork(storyId, true, actorId)
-    return { ok: true }
+    return { ok: true, note: await leavingEngineNote(storyId, source, target) }
   }
 
   if (target === "engine") {
     // Deliberate: this is the dispatch. The status change creates the work item.
     await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
-    return { ok: true }
+    return { ok: true, note: "handed to the engine — status Ready queued a real work item" }
   }
 
   const status = STATUS_BY_BUCKET[target]
   if (!status) return { ok: false, error: `Unsupported bucket: ${target}` }
 
+  if (source === "engine") {
+    // PULLING THE NOTE BACK TAKES THE REQUEST BACK. Otherwise the engine would run a story the board
+    // no longer shows, which is the one way "no gate" could cause real damage. A story the engine is
+    // already executing is reported rather than silently yanked.
+    const { withdrawn, live } = await withdrawQueuedAgentWork(storyId)
+    await setStoryboardStatus(storyId, status)
+    const parts: string[] = []
+    if (withdrawn > 0) parts.push(`withdrew ${withdrawn} queued engine request${withdrawn === 1 ? '' : 's'}`)
+    if (live > 0) parts.push(`the engine is ALREADY RUNNING this — the run continues`)
+    return { ok: true, note: parts.join(' · ') || undefined }
+  }
+
   await setStoryboardStatus(storyId, status)
   return { ok: true }
+}
+
+/** What to say when a story is pulled back out of the run queue. */
+async function leavingEngineNote(
+  storyId: string,
+  source: string,
+  target: string,
+): Promise<string | undefined> {
+  if (source !== "engine" || target === "engine") return undefined
+  const { withdrawn, live } = await withdrawQueuedAgentWork(storyId)
+  const parts: string[] = []
+  if (withdrawn > 0) parts.push(`withdrew ${withdrawn} queued engine request${withdrawn === 1 ? '' : 's'}`)
+  if (live > 0) parts.push("the engine is ALREADY RUNNING this — the run continues")
+  return parts.join(' · ') || undefined
 }
 
 export const moveStoryBucketAction = withServerErrorCapture(

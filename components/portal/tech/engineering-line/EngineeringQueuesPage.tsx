@@ -23,14 +23,13 @@ import { useRouter } from 'next/navigation'
 import { moveStoryBucketAction, sendEngineBatchAction, clearWorkBenchAction } from '@/app/portal/tech/actions'
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
-import { MOVES, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
+import { STORY_BUCKETS, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
 
 /**
- * SHORT NAMES FOR THE CARD BUTTONS. A button has room for one word, and these are the captain's own
- * column names where he has one (`Run Q` for ENGINE RUN Q, `Bench`, `Close`).
+ * NAMES FOR THE "move to…" CONTROL — the captain's own column names where he has one.
  */
-const MOVE_BUTTON_LABEL: Record<StoryBucket, string> = {
+const MOVE_LABEL: Record<StoryBucket, string> = {
   backlog: 'Backlog',
   open: 'Open',
   bench: 'Bench',
@@ -589,16 +588,18 @@ export function EngineeringQueuesPage({
           <StoryKanbanBoard
             cards={sorterCards}
             columns={sorterColumns}
-            // THE BUTTONS. Every legal move is offered on the card itself and writes through the same
-            // action a drop does — no vendor store, no drop index, no drag state. The captain asked for
-            // exactly this after fighting the drag: "it should just be simple change the state of story
-            // ... this should just update the row in the database."
+            // THE CONTROL. Every other column, for every card — the gate is gone (the captain, 2026-09-14:
+            // "these are just sticky notes ... i can just pick a sticky note off the white board kahnban
+            // and move it where ever i want"). What each destination DOES is still worth knowing, so the
+            // hints come from the same module that defines the writes.
             movesFor={(card) => {
               const from = normalizeStoryBucket(String(card.column ?? ''))
               if (!from) return []
-              return MOVES[from]
-                .filter((to) => to !== from)
-                .map((to) => ({ to, label: MOVE_BUTTON_LABEL[to], hint: bucketSideEffect(to) ?? undefined }))
+              return STORY_BUCKETS.filter((to) => to !== from).map((to) => ({
+                to,
+                label: MOVE_LABEL[to],
+                hint: bucketSideEffect(to) ?? undefined,
+              }))
             }}
             onMove={async (cardId, from, to) => {
               // The rules live in lib/story-moves.ts; the write lives in the action; a refusal comes

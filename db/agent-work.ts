@@ -1183,3 +1183,42 @@ export async function recoverStaleAgentWork(
   }
   return recovered
 }
+
+/**
+ * WITHDRAW A STORY'S QUEUE ENTRY — what "take the note back off ENGINE RUN Q" does.
+ *
+ * Dropping a story into ENGINE RUN Q writes status `Ready`, and `Ready` is the engine's own dispatch
+ * trigger: a real `agent_work_item` appears in the engine's waiting list. If the note can be put
+ * anywhere (no gate, the captain's call on 2026-09-14), then moving it back out has to take that
+ * request back too, or the engine would run work the board no longer shows.
+ *
+ * UN-RINGING A BELL THAT HAS NOT RUNG: only `Ready` items are withdrawn, because nothing has started.
+ * A `Claimed` or `Running` item is reported as `live` and left alone — the engine is executing it, and
+ * silently deleting the row your worker is holding is how you get a run nobody can explain. The board
+ * still moves the note; it just says so.
+ */
+export async function withdrawQueuedAgentWork(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<{ withdrawn: number; live: number }> {
+  const q = execute ?? (await executor())
+
+  const live = await q`
+    select count(*)::int as c from agent_work_item
+    where story_id = ${storyId} and state in ('Claimed', 'Running', 'Paused')
+  `
+  const withdrawn = await q`
+    update agent_work_item
+    set state = 'Cancelled',
+        claimed_by = null,
+        started_at = null,
+        finished_at = now(),
+        updated_at = now()
+    where story_id = ${storyId} and state = 'Ready'
+    returning id
+  `
+  return {
+    withdrawn: withdrawn.length,
+    live: Number((live[0] as { c?: number } | undefined)?.c ?? 0),
+  }
+}

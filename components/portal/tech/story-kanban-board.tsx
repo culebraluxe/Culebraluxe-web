@@ -45,25 +45,26 @@ export function StoryKanbanBoard({
     cardId: string,
     from: string,
     to: string,
-  ) => Promise<{ ok: boolean; error?: string }>
+  ) => Promise<{ ok: boolean; error?: string; note?: string }>
   /**
-   * WHERE A CARD MAY GO, offered as BUTTONS on the card.
+   * WHERE A CARD MAY GO. With the gate gone (2026-09-14) that is every other column, so this renders as
+   * ONE compact "move to…" control per card rather than a wall of seven buttons. The captain's words:
    *
-   * The captain, after fighting the drag: "i dont know why i need all this logic for the Kanban, it should
-   * just be simple change the state of story ... this should just update the row in the database."
+   *   "i dont want any rules ... these are just sticky notes on a kahnban in real life i can just pick a
+   *    sticky note off the white board kahnban and move it where ever i want"
    *
-   * He is right, and this is that. A drag is a gesture routed through the vendor's store, its drop index
-   * and its drag state; a BUTTON is one call to one action that writes one row. The button path never
-   * touches the vendor, so it cannot be moved onto a rebuilt board, cannot reorder a column it was not
-   * aimed at, and cannot pick up a stale index. Same write, same rules, no choreography.
-   *
-   * Keeping BOTH is deliberate: drag stays for speed, buttons are the path that always means exactly what
-   * it says - and if a drag is ever wrong again, there is a way to work that does not depend on it.
+   * A select is the closest thing to picking the note up and putting it down somewhere else, and it is
+   * one call to one action that writes one row — it never touches the vendor's store, its drop index or
+   * its drag state, so it cannot land on a board that has already moved on.
    */
   movesFor?: (card: KanbanCard) => Array<{ to: string; label: string; hint?: string }>
 }) {
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A move can SUCCEED and still have something worth saying — "withdrew 1 queued engine request", "the
+  // engine is already running this". That is a fact about what happened, not a refusal, so it is shown
+  // as its own line rather than passed off as an error.
+  const [notice, setNotice] = useState<string | null>(null)
   // Latest cards for the intercept handler: it runs outside React's render, so a
   // closure over props would go stale after the first server refresh.
   const cardsRef = useRef(cards)
@@ -85,6 +86,7 @@ export function StoryKanbanBoard({
       if (!onMove) return { ok: true }
       const result = await onMove(cardId, from, to)
       setError(result.ok ? null : (result.error ?? 'Move refused'))
+      setNotice(result.ok ? (result.note ?? null) : null)
       return result
     },
     [onMove],
@@ -176,26 +178,30 @@ export function StoryKanbanBoard({
                       {String(card.priority ?? '')} · {Math.round(Number(card.completion ?? 0))}%
                     </p>
                     {targets.length ? (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {targets.map((t) => (
-                          <button
-                            key={t.to}
-                            type="button"
-                            // The vendor owns pointer events on the card; a button must not start a drag
-                            // or open the card popup, so the event stops here.
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              void writeMove(String(card.id), String(card.column ?? ''), t.to)
-                            }}
-                            title={t.hint ?? `Move ${String(card.id)} to ${t.label}`}
-                            className="rounded border border-[#c6a15b]/40 px-1.5 py-[1px] text-[9px] font-medium uppercase tracking-[0.08em] text-[#e0c489] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/20"
-                          >
-                            → {t.label}
-                          </button>
-                        ))}
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <select
+                          // PICK THE NOTE UP, PUT IT DOWN ELSEWHERE. One control, every column.
+                          defaultValue=""
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            const to = e.target.value
+                            e.target.value = ''
+                            if (!to) return
+                            void writeMove(String(card.id), String(card.column ?? ''), to)
+                          }}
+                          title={`Move ${String(card.id)} to another column`}
+                          className="max-w-[9.5rem] flex-1 cursor-pointer rounded border border-white/15 bg-[#0b1220] px-1 py-[1px] text-[9px] uppercase tracking-[0.08em] text-slate-300 hover:border-[#c6a15b]/50 hover:text-[#e0c489]"
+                        >
+                          <option value="">move to…</option>
+                          {targets.map((t) => (
+                            <option key={t.to} value={t.to} title={t.hint}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     ) : null}
                   </div>
@@ -209,6 +215,11 @@ export function StoryKanbanBoard({
           )}
         </div>
       </WillowDark>
+      {notice ? (
+        <p className="mt-2 rounded border border-[#c6a15b]/30 bg-[#c6a15b]/10 px-2 py-1 text-[11px] text-[#e0c489]">
+          {notice}
+        </p>
+      ) : null}
       {error ? (
         <p className="mt-2 rounded border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
           {error}

@@ -154,9 +154,43 @@ test('assay: the architecture gate fails the story; a skipped arch gate does not
   assert.equal(skipped.verdict, 'PASS')
 })
 
-test('engine gate: OPEN may move to ENGINE, but ENGINE may never move back to OPEN', () => {
-  assert.equal(canMove('open', 'engine'), true)
-  assert.equal(canMove('engine', 'open'), false)
+// ---------------------------------------------------------------------------
+// NO GATE (the captain, 2026-09-14).
+//
+// These tests used to assert the OPPOSITE: that ENGINE could not be left and that
+// closed stories could not be dispatched. Those assertions were correct about the
+// rule and about what the rule cost - "i dont want any rules ... these are just
+// sticky notes on a kahnban in real life i can just pick a sticky note off the white
+// board kahnban and move it where ever i want ... this is so annoying". The gate is
+// gone, and these now lock the ABSENCE, so nobody quietly reintroduces a table of
+// forbidden pairs.
+//
+// What replaced the rules is information, not permission: a move's CONSEQUENCE is
+// still published (`bucketSideEffect`), and pulling a story out of ENGINE RUN Q
+// withdraws the queue entry it created (see `withdrawQueuedAgentWork`).
+// ---------------------------------------------------------------------------
+test('no gate: every column may move to every other column', () => {
+  const buckets = ['backlog', 'open', 'bench', 'batch', 'engine', 'closed', 'next'] as const
+  for (const from of buckets) {
+    for (const to of buckets) {
+      assert.equal(canMove(from, to), from !== to, `${from} -> ${to}`)
+    }
+  }
+})
+
+test('the engine column is not a one-way door any more', () => {
+  assert.equal(canMove('engine', 'open'), true)
+  assert.equal(canMove('engine', 'bench'), true)
+  assert.equal(canMove('engine', 'batch'), true)
+  // A no-op move is still refused, because there is nothing to do.
+  assert.equal(canMove('engine', 'engine'), false)
+})
+
+test('a finished or deferred story can be sent straight to the engine', () => {
+  assert.equal(canMove('closed', 'engine'), true)
+  assert.equal(canMove('closed', 'batch'), true)
+  assert.equal(canMove('next', 'engine'), true)
+  assert.equal(canMove('backlog', 'closed'), true)
 })
 
 // ---------------------------------------------------------------------------
@@ -180,13 +214,12 @@ test('sorter boundary: the view column name normalizes to the rule bucket', () =
   assert.equal(normalizeStoryBucket(''), null)
 })
 
-test('the captain gets to the engine from BACKLOG, OPEN, WORK BENCH and NEXT VERSION', () => {
-  for (const from of ['backlog', 'open', 'bench', 'next'] as const) {
+test('the captain gets to the engine from every column he named', () => {
+  for (const from of ['backlog', 'open', 'bench', 'next', 'closed'] as const) {
     assert.equal(canMove(from, 'batch'), true, `${from} -> batch`)
     assert.equal(canMove(from, 'engine'), true, `${from} -> engine`)
   }
-  // Staging is not dispatch: the batch can be pulled back, the engine cannot.
+  // Staging is not dispatch: the batch can be pulled back, and so can the run queue now.
   assert.equal(canMove('batch', 'open'), true)
-  assert.equal(canMove('engine', 'batch'), false)
-  assert.equal(canMove('engine', 'bench'), false)
+  assert.equal(canMove('engine', 'open'), true)
 })
