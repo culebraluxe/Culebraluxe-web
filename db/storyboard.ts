@@ -533,6 +533,29 @@ export async function setActiveWork(
   }
 }
 
+/**
+ * CLEAR THE WHOLE WORK BENCH — every row, in one statement.
+ *
+ * This exists for the captain's own QA: the bench had accumulated twelve stories from older Forge
+ * generations ("most of these stories are stale, they are from V1 of Forge"), and his intent was to
+ * clear that daily-work list.
+ *
+ * WHY A BULK CLEAR IS NOT THE SAME AS MOVING EACH CARD TO OPEN: "Open" is a STATUS write, so clearing
+ * five `Complete` stories that way would set them back to `In Progress` — un-finishing finished work
+ * to tidy a list. The bench is an INTENT row (`storyboard_active_work`) and nothing else, so clearing
+ * it changes no story status, no completion and no history. Statuses stay true; only "these are
+ * today's stories" is withdrawn, and it is reversible by adding them back.
+ *
+ * Returns how many rows were cleared, so the screen can say what it did rather than implying it.
+ */
+export async function clearActiveWork(execute?: QueryExecutor): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    delete from storyboard_active_work returning story_id
+  `
+  return rows.length
+}
+
 /** PORTAL-13A — deterministic active-queue reorder by explicit id order. */
 export async function reorderActiveWork(
   ids: string[],

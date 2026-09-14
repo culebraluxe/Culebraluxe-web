@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus } from "@/db/storyboard"
+import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork } from "@/db/storyboard"
 import { setAgentWorkDispatchOptions } from "@/db/agent-work"
 import {
   ENGINE_DISPATCH_STATUS,
@@ -33,6 +33,41 @@ async function setActiveWorkActionHandler(formData: FormData): Promise<void> {
 
 // ENG-FORGE error-capture: a throw is recorded durably, then rethrown.
 export const setActiveWorkAction = withServerErrorCapture('portal/tech/actions.setActiveWorkAction', setActiveWorkActionHandler)
+
+// ---------------------------------------------------------------------------
+// CLEAR THE WORK BENCH — the captain's own QA ("move the stories in active work
+// bench back to open to clear the junk").
+//
+// NOT the same as dragging each card to OPEN. OPEN is a STATUS write (`In Progress`),
+// and the bench held five `Complete` stories: clearing them that way would have
+// UN-FINISHED finished work to tidy a list. The bench is an intent row and nothing
+// else, so this removes the intent and leaves every status exactly as the engine
+// left it. Reversible: add them back to the bench and nothing was lost.
+// ---------------------------------------------------------------------------
+async function clearWorkBenchActionHandler(): Promise<{
+  ok: boolean
+  cleared?: number
+  error?: string
+}> {
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
+  if (!access.ok) redirect(access.redirectTo)
+
+  const before = await listActiveWork()
+  if (before.length === 0) return { ok: true, cleared: 0 }
+
+  try {
+    const cleared = await clearActiveWork()
+    return { ok: true, cleared }
+  } catch (error) {
+    return { ok: false, error: String((error as Error)?.message ?? error) }
+  }
+}
+
+export const clearWorkBenchAction = withServerErrorCapture(
+  'portal/tech/actions.clearWorkBenchAction',
+  clearWorkBenchActionHandler,
+)
+
 
 // WIRED 2026-09-12 (captain's go): ENGINE QUEUE writes ENGINE_DISPATCH_STATUS —
 // which is `Ready`, and `Ready` is the DISPATCH TRIGGER (`agent_work_item_dispatch()`

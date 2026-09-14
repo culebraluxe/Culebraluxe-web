@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-import { moveStoryBucketAction, sendEngineBatchAction } from '@/app/portal/tech/actions'
+import { moveStoryBucketAction, sendEngineBatchAction, clearWorkBenchAction } from '@/app/portal/tech/actions'
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
 import { MOVES, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
@@ -257,6 +257,10 @@ export function EngineeringQueuesPage({
   const [handoffError, setHandoffError] = useState<string | null>(null)
   const [batchResult, setBatchResult] = useState<string | null>(null)
   const [batchSending, setBatchSending] = useState(false)
+  // CLEARING THE BENCH: its own busy flag and its own result line ("Cleared 12 stories off the bench.
+  // Statuses untouched.") — a bulk action must say what it did.
+  const [clearingBench, setClearingBench] = useState(false)
+  const [benchResult, setBenchResult] = useState<string | null>(null)
   const batchCount = (batchStories ?? []).length
   const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
@@ -407,9 +411,14 @@ export function EngineeringQueuesPage({
           priority: s.priority,
           completion: s.completion,
         })),
-      // ENGINE RUN Q holds what the machine is executing NOW, from the ledger — not a fixture.
-      // (It used to be empty by design, "until agent_work_item is wired"; it is wired now, and the
-      // real answer since 2026-09-14 is that the engine is idle, which is worth seeing.)
+      // ENGINE RUN Q — WHAT HAS BEEN HANDED TO THE ENGINE, QUEUED OR RUNNING.
+      //
+      // This column used to show only RUNNING attempts (from the ledger), which meant a story dropped
+      // here VANISHED: it left whichever column it came from, nothing was running yet, and the card
+      // disappeared from the board entirely - the precise "is this broken?" moment. A queued work item
+      // IS in the run queue; that is what the column is named after. So the queue comes from
+      // `agent_work_item` (the engine's own waiting list, which is what the drop creates) and any
+      // attempt the ledger reports as live.
       ...engineCards
         .filter((c) => c.queue === 'running')
         .map((c) => ({
@@ -420,8 +429,20 @@ export function EngineeringQueuesPage({
           priority: c.priority,
           completion: c.completion,
         })),
+      // ...and the engine's WAITING work, so the handoff is visible the moment it happens.
+      ...(queuedCards ?? [])
+        .filter((q) => !engineCards.some((c) => c.queue === 'running' && c.storyId === q.storyId))
+        .map((q) => ({
+          // `#queued` keeps this distinct from the same story's ATTEMPT cards (one per attempt).
+          id: `${q.storyId}#queued`,
+          column: 'engine',
+          title: q.title,
+          status: q.state,
+          priority: 'MEDIUM',
+          completion: 0,
+        })),
     ]
-  }, [cockpit, activeWork, engineCards])
+  }, [cockpit, activeWork, engineCards, queuedCards])
 
   const sorterColumns = useMemo(
     () => [
@@ -622,7 +643,40 @@ export function EngineeringQueuesPage({
             </span>
             <span className="text-[11px] text-slate-500">{benchOpen ? '▲' : '▼'}</span>
           </button>
-          <p className="text-[10px] text-slate-400">
+          <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[10px] text-slate-400">
+            {/* CLEAR THE BENCH — the captain's QA gesture, made safe and one click.
+                NOT the same as dragging every card to OPEN: that writes status `In Progress`, which
+                would have un-finished the five `Complete` stories sitting on this bench. This removes
+                the daily intent only; every status stays exactly what the engine made it. */}
+            {activeWork.length > 0 ? (
+              <button
+                type="button"
+                disabled={clearingBench}
+                onClick={() => {
+                  const ok = window.confirm(
+                    `Take all ${activeWork.length} stories off the Work Bench?\n\n` +
+                      'This clears today\'s list only. No story status changes — finished stories ' +
+                      'stay finished, and you can add any of them back.',
+                  )
+                  if (!ok) return
+                  void (async () => {
+                    setClearingBench(true)
+                    const result = await clearWorkBenchAction()
+                    setClearingBench(false)
+                    setBenchResult(
+                      result.ok
+                        ? `Cleared ${result.cleared ?? 0} stories off the bench. Statuses untouched.`
+                        : (result.error ?? 'clearing the bench failed'),
+                    )
+                    router.refresh()
+                  })()
+                }}
+                className="rounded border border-white/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.10em] text-slate-300 transition hover:border-[#c6a15b]/50 hover:text-[#e0c489] disabled:opacity-40"
+                title="Removes the daily-work intent only - no status change, nothing deleted."
+              >
+                {clearingBench ? 'clearing…' : `clear bench (${activeWork.length})`}
+              </button>
+            ) : null}
             my hands, not the engine&apos;s ·{' '}
             <button
               type="button"
@@ -636,6 +690,7 @@ export function EngineeringQueuesPage({
               refresh now
             </button>
             {refreshedAt ? ' (auto)' : ' (auto every 30s)'}
+            {benchResult ? <span className="text-[#e0c489]">{benchResult}</span> : null}
           </p>
         </div>
         {benchOpen ? (
