@@ -31,6 +31,7 @@ export function StoryKanbanBoard({
   cards,
   columns,
   onMove,
+  movesFor,
 }: {
   cards: StoryKanbanCard[]
   columns: StoryKanbanColumn[]
@@ -45,6 +46,21 @@ export function StoryKanbanBoard({
     from: string,
     to: string,
   ) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * WHERE A CARD MAY GO, offered as BUTTONS on the card.
+   *
+   * The captain, after fighting the drag: "i dont know why i need all this logic for the Kanban, it should
+   * just be simple change the state of story ... this should just update the row in the database."
+   *
+   * He is right, and this is that. A drag is a gesture routed through the vendor's store, its drop index
+   * and its drag state; a BUTTON is one call to one action that writes one row. The button path never
+   * touches the vendor, so it cannot be moved onto a rebuilt board, cannot reorder a column it was not
+   * aimed at, and cannot pick up a stale index. Same write, same rules, no choreography.
+   *
+   * Keeping BOTH is deliberate: drag stays for speed, buttons are the path that always means exactly what
+   * it says - and if a drag is ever wrong again, there is a way to work that does not depend on it.
+   */
+  movesFor?: (card: KanbanCard) => Array<{ to: string; label: string; hint?: string }>
 }) {
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +77,18 @@ export function StoryKanbanBoard({
   useEffect(() => {
     cardsRef.current = cards
   }, [cards])
+
+  // ONE WRITE PATH, two ways in (a drop and a button). The message shown is always the action's own
+  // words, so a refusal names its cause whichever gesture produced it.
+  const writeMove = useCallback(
+    async (cardId: string, from: string, to: string) => {
+      if (!onMove) return { ok: true }
+      const result = await onMove(cardId, from, to)
+      setError(result.ok ? null : (result.error ?? 'Move refused'))
+      return result
+    },
+    [onMove],
+  )
 
   const handleInit = useCallback(
     (api: KanbanInstanceApi) => {
@@ -106,12 +134,11 @@ export function StoryKanbanBoard({
         }
         const from = columnsForCard[0] ?? ''
         if (!to || from === to) return false
-        const result = await onMove(id, from, to)
-        setError(result.ok ? null : (result.error ?? 'Move refused'))
+        await writeMove(id, from, to)
         return false
       })
     },
-    [onMove],
+    [onMove, writeMove],
   )
 
   return (
@@ -134,18 +161,46 @@ export function StoryKanbanBoard({
               // Which card property decides the column. One string, so the board
               // does not need our model to be reshaped.
               columnAccessor="column"
-              cardContent={({ card }) => (
-                <div className="px-0.5 py-0.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] opacity-70">{String(card.id)}</span>
-                    <span className="text-[10px] opacity-60">{String(card.status ?? '')}</span>
+              cardContent={({ card }) => {
+                // The buttons are the deterministic path: one action call, one row written, and the
+                // server render is the only thing that moves a card (see `movesFor`).
+                const targets = movesFor?.(card) ?? []
+                return (
+                  <div className="px-0.5 py-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] opacity-70">{String(card.id)}</span>
+                      <span className="text-[10px] opacity-60">{String(card.status ?? '')}</span>
+                    </div>
+                    <p className="text-[11px] leading-snug">{String(card.title ?? '')}</p>
+                    <p className="text-[10px] opacity-60">
+                      {String(card.priority ?? '')} · {Math.round(Number(card.completion ?? 0))}%
+                    </p>
+                    {targets.length ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {targets.map((t) => (
+                          <button
+                            key={t.to}
+                            type="button"
+                            // The vendor owns pointer events on the card; a button must not start a drag
+                            // or open the card popup, so the event stops here.
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              void writeMove(String(card.id), String(card.column ?? ''), t.to)
+                            }}
+                            title={t.hint ?? `Move ${String(card.id)} to ${t.label}`}
+                            className="rounded border border-[#c6a15b]/40 px-1.5 py-[1px] text-[9px] font-medium uppercase tracking-[0.08em] text-[#e0c489] transition hover:border-[#c6a15b] hover:bg-[#c6a15b]/20"
+                          >
+                            → {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                  <p className="text-[11px] leading-snug">{String(card.title ?? '')}</p>
-                  <p className="text-[10px] opacity-60">
-                    {String(card.priority ?? '')} · {Math.round(Number(card.completion ?? 0))}%
-                  </p>
-                </div>
-              )}
+                )
+              }}
             />
           ) : (
             <div className="flex h-96 items-center justify-center text-sm font-light text-slate-400">

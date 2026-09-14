@@ -23,6 +23,22 @@ import { useRouter } from 'next/navigation'
 import { moveStoryBucketAction, sendEngineBatchAction } from '@/app/portal/tech/actions'
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
+import { MOVES, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
+import { COCKPIT_VERSION } from '@/lib/cockpit-version'
+
+/**
+ * SHORT NAMES FOR THE CARD BUTTONS. A button has room for one word, and these are the captain's own
+ * column names where he has one (`Run Q` for ENGINE RUN Q, `Bench`, `Close`).
+ */
+const MOVE_BUTTON_LABEL: Record<StoryBucket, string> = {
+  backlog: 'Backlog',
+  open: 'Open',
+  bench: 'Bench',
+  batch: 'Batch',
+  engine: 'Run Q',
+  closed: 'Close',
+  next: 'Next ver',
+}
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
 import type { StoryboardStory, StoryRun } from '@/db/storyboard'
@@ -66,6 +82,15 @@ export type EngineeringQueuesPageProps = {
   historyStoryIds?: string[]
   /** Total stories with run history, so a capped signpost list never claims to be the total. */
   historyTotal?: number
+  /**
+   * The Cockpit's own version marker, shown in the corner: `V2 · <sha>`.
+   *
+   * Computed on the SERVER and passed in, because the commit SHA lives in the build environment and
+   * a client component cannot read it. It exists because the captain closed and reopened the browser
+   * to escape a stale bundle and had no way to tell whether he had - a page that cannot name its own
+   * build makes every bug report a guess.
+   */
+  versionLabel?: string
   /**
    * The engine's own lanes, from the engine ledger: one entry per story, newest attempt first.
    * RUNNING and RESULTS are built from this; without it they would have to fall back to fixture
@@ -162,6 +187,7 @@ export function EngineeringQueuesPage({
   queuedCards,
   hold,
   batchStories,
+  versionLabel,
 }: EngineeringQueuesPageProps) {
   const router = useRouter()
   // THE ENGINE'S LANES COME FROM THE ENGINE — there is no fixture on this screen any more.
@@ -439,12 +465,23 @@ export function EngineeringQueuesPage({
             </p>
             <p className="mt-1 text-[11px] text-slate-500">Story data as of {freshness}</p>
           </div>
-          <a
-            href="/portal/tech/flight-recorder"
-            className="rounded-md border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#e0c489]"
-          >
-            Flight Recorder
-          </a>
+          <div className="flex items-end gap-3">
+            <a
+              href="/portal/tech/flight-recorder"
+              className="rounded-md border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#e0c489]"
+            >
+              Flight Recorder
+            </a>
+            {/* THE BUILD, IN THE CORNER. Cambria asked which Cockpit he was looking at after
+                closing and reopening the browser to escape a stale bundle; nothing on the page
+                answered it. `V2 · <sha>` is that answer, in the far right corner. */}
+            <p
+              className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-slate-400"
+              title="Cockpit version and the deployed commit"
+            >
+              {versionLabel ?? COCKPIT_VERSION}
+            </p>
+          </div>
         </div>
       </header>
 
@@ -531,6 +568,17 @@ export function EngineeringQueuesPage({
           <StoryKanbanBoard
             cards={sorterCards}
             columns={sorterColumns}
+            // THE BUTTONS. Every legal move is offered on the card itself and writes through the same
+            // action a drop does — no vendor store, no drop index, no drag state. The captain asked for
+            // exactly this after fighting the drag: "it should just be simple change the state of story
+            // ... this should just update the row in the database."
+            movesFor={(card) => {
+              const from = normalizeStoryBucket(String(card.column ?? ''))
+              if (!from) return []
+              return MOVES[from]
+                .filter((to) => to !== from)
+                .map((to) => ({ to, label: MOVE_BUTTON_LABEL[to], hint: bucketSideEffect(to) ?? undefined }))
+            }}
             onMove={async (cardId, from, to) => {
               // The rules live in lib/story-moves.ts; the write lives in the action; a refusal comes
               // back as ok:false and the card snaps back - AND SAYS WHY. The board used to swallow the

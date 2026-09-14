@@ -13,6 +13,7 @@ import {
 } from "@/db/forge-engine-task-execution"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
+import { cockpitVersionLabel } from "@/lib/cockpit-version"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -155,6 +156,7 @@ export default async function TechPage({
       </div>
       <EngineeringQueuesPage
         cockpit={cockpit}
+        versionLabel={cockpitVersionLabel()}
         activeWork={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}
