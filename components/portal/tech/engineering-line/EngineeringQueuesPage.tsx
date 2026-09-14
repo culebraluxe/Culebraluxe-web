@@ -12,13 +12,17 @@
 // replayed: that is why the outcome is a badge on a row and HOLD is not a queue.
 // Double-clicking a RESULTS row opens that attempt in the Flight Recorder.
 //
-// Static data on purpose (see fixture.ts). The seam is loadEngineeringQueues().
+// Every lane on this board is read from PROD: the story columns from the storyboard projection,
+// ENGINE QUEUED from agent_work_item, RUNNING/RESULTS from the engine ledger. There is no fixture
+// left on this screen, and no interaction that only moves pixels.
 // ---------------------------------------------------------------------------
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { moveStoryBucketAction } from '@/app/portal/tech/actions'
+import { storyLifecycleOf } from '@/lib/storyboard-data'
+import type { StoryBucket } from '@/lib/story-moves'
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
 import type { StoryboardStory, StoryRun } from '@/db/storyboard'
@@ -30,7 +34,6 @@ import {
 } from '@/components/portal/tech/engineering-cockpit'
 import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 
-import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
 import type { EngineRunCard, EngineLedgerStats, EngineQueuedCard } from '@/db/forge-engine-task-execution'
 import type { ForgeStoryHold } from '@/db/forge-hold'
@@ -146,15 +149,14 @@ export function EngineeringQueuesPage({
   queuedCards,
   hold,
 }: EngineeringQueuesPageProps) {
-  const model = useMemo(() => loadEngineeringQueues(), [])
   const router = useRouter()
-  // THE ENGINE'S LANES COME FROM THE ENGINE.
+  // THE ENGINE'S LANES COME FROM THE ENGINE — there is no fixture on this screen any more.
   //
-  // `model.cards` is static fixture data, and the RUNNING / RESULTS lanes are the engine's own
-  // ("the batch the machine is executing", "finished ATTEMPTS"). Filling them with fixture cards
-  // meant the engine's lane showed stories the engine had never touched, and opening one produced a
-  // truthful "no instance recorded" that reads as a broken screen. Human lanes keep the fixture;
-  // the engine's lanes are built from `engineRuns` below.
+  // The RUNNING / RESULTS lanes are the engine's own ("the batch the machine is executing", "finished
+  // ATTEMPTS") and ENGINE QUEUED is "handed to Forge, not started". All three read real rows:
+  // `agent_work_item` for work that is waiting, `forge_engine_task_execution` for work that ran. The
+  // static fixture that used to feed them made the engine's lane show stories the engine had never
+  // touched, and opening one produced a truthful "no instance recorded" that read as a broken screen.
   const engineCards = useMemo<QueueCard[]>(
     () => [
       // ENGINE QUEUED: real open work items, from agent_work_item. An empty lane is the truthful
@@ -193,30 +195,17 @@ export function EngineeringQueuesPage({
     ],
     [engineRuns, queuedCards],
   )
-  const [cards, setCards] = useState<QueueCard[]>(() => [
-    // The fixture no longer feeds the ENGINE lanes (ready/running/results are the engine's own,
-    // built from the ledger above). It survives only for the local drag demo's own cards.
-    ...model.cards.filter((c) => c.queue === 'bench' && !engineCards.some((e) => e.storyId === c.storyId)),
-    ...engineCards,
-  ])
+  // The engine lanes are ENGINE-OWNED: read from the ledger, never moved by hand. There is no local
+  // card state any more, because there is no local card data - the fixture is gone.
+  const cards = engineCards
   const [selected, setSelected] = useState<string | null>(null)
-  // Drag state: which card is in hand. Local only — the MOVE is a demo of the
-  // mechanic, not a write. When this is wired the drop becomes a real mutation.
-  const [dragging, setDragging] = useState<string | null>(null)
-  // A story on the bench being dragged toward the line (a different kind of thing
-  // from a queue card: it becomes an engine card when it lands).
-  // A story on the bench being dragged toward the line (a different kind of thing
-  // from a queue card: it becomes an engine card when it lands).
+  // A story on the bench being dragged toward the line: dropping it there hands it to the engine
+  // through the real dispatch (see handToEngine).
   const [draggingStory, setDraggingStory] = useState<string | null>(null)
+  const [handoffError, setHandoffError] = useState<string | null>(null)
   const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
-
-  /** The ownership switch: one card, one queue. Never two. */
-  function move(id: string, to: QueueKey) {
-    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, queue: to } : c)))
-    setSelected(id)
-  }
 
   function openRecorder(card: QueueCard) {
     // The exact attempt when the ledger knows it; otherwise the recorder resolves the story.
@@ -225,36 +214,52 @@ export function EngineeringQueuesPage({
     window.open(`/portal/tech/flight-recorder/${target}`, '_blank', 'noopener')
   }
 
-  /** The gate: the spec is done, hand this story to the engine. Local demo.
-   *  Reachable two ways — the GOOD TO GO button, or by dragging the story off the
-   *  bench and dropping it on the line. Same action, two routes: the hand or the
-   *  button, whichever is closer. */
-  function handToEngine(storyId: string) {
-    const story = activeWork.find((s) => s.id === storyId)
-    if (!story) return
-    if (cards.some((c) => c.id === story.id && c.queue === 'ready')) return
-    setCards((prev) => [
-      ...prev,
-      {
-        id: story.id,
-        title: story.title,
-        workstream: String(story.workstream ?? 'OTHER'),
-        status: story.status,
-        priority: story.priority,
-        completion: story.completion,
-        queue: 'ready',
-      },
-    ])
-    setSelected(story.id)
+  /**
+   * THE HANDOFF IS REAL NOW — it was a local demo before.
+   *
+   * It used to push a card into component state and nothing else happened, so "GOOD TO GO — hand
+   * this story to the engine" moved pixels while the engine learned nothing. The real handoff
+   * already existed, documented in `app/portal/tech/actions.ts`: moving a story into the ENGINE
+   * QUEUE bucket writes `ENGINE_DISPATCH_STATUS` (`Ready`), and `agent_work_item_dispatch()` fires on
+   * that change to insert a real work item. It is the only bucket write that STARTS something, it
+   * queues real Forge work in PROD, and the SORTER drag already used it — so the button and the drag
+   * now go through the same server action, with the same `canMove` rules.
+   *
+   * Reachable two ways, unchanged: the GOOD TO GO button, or dragging the story onto the line.
+   */
+  async function handToEngine(storyId: string) {
+    setHandoffError(null)
+    const result = await moveStoryBucketAction(storyId, bucketForStory(storyId), 'engine')
+    if (!result.ok) {
+      setHandoffError(result.error ?? 'the engine queue refused this story')
+      return
+    }
+    setSelected(storyId)
+    router.refresh()
+  }
+
+  /** Which sorter column a story sits in right now, so the move is truthful about its source. */
+  function bucketForStory(storyId: string): StoryBucket {
+    if (activeWork.some((s) => s.id === storyId)) return 'bench'
+    const story = selectedStory?.id === storyId ? selectedStory : null
+    const status = story?.status ?? null
+    if (!status) return 'open'
+    const lifecycle = storyLifecycleOf(status)
+    if (lifecycle === 'backlog') return 'backlog'
+    if (lifecycle === 'closed') return 'closed'
+    if (lifecycle === 'next-version') return 'next'
+    return 'open'
   }
 
   function markGoodToGo() {
     if (!selectedStory) return
-    handToEngine(selectedStory.id)
+    void handToEngine(selectedStory.id)
   }
 
+  // QUEUED is a fact about the engine, not about a card this screen put in state: it reads the open
+  // work items (`agent_work_item`) the same way the ENGINE QUEUED lane does.
   const selectedIsQueued = Boolean(
-    selectedStory && cards.some((c) => c.id === selectedStory.id && c.queue === 'ready'),
+    selectedStory && (queuedCards ?? []).some((q) => q.storyId === selectedStory.id),
   )
 
   // THE SORTER — the assembly line, left to right in the captain's order:
@@ -349,9 +354,12 @@ export function EngineeringQueuesPage({
       <header className="mb-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#c6a15b]">{model.eyebrow}</p>
-            <h1 className="mt-1 font-serif text-2xl font-semibold text-white">{model.title}</h1>
-            <p className="mt-1 max-w-3xl text-sm font-light text-slate-400">{model.subtitle}</p>
+            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#c6a15b]">TECH / ENGINEERING</p>
+            <h1 className="mt-1 font-serif text-2xl font-semibold text-white">Engineering Cockpit</h1>
+            <p className="mt-1 max-w-3xl text-sm font-light text-slate-400">
+              One screen: what you are working on, what the engine has been given, what it is running,
+              and how the last runs ended.
+            </p>
             <p className="mt-1 text-[11px] text-slate-500">Story data as of {freshness}</p>
           </div>
           <a
@@ -459,12 +467,18 @@ export function EngineeringQueuesPage({
               <button
                 type="button"
                 onClick={markGoodToGo}
+                title="Queues real Forge work: this writes ENGINE_DISPATCH_STATUS (Ready), which dispatches a work item."
                 disabled={!selectedStory || selectedIsQueued}
                 className="shrink-0 rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {selectedIsQueued ? 'Queued' : 'Good to go →'}
               </button>
             </div>
+            {handoffError ? (
+              <p className="rounded border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-[10px] text-rose-200">
+                The engine queue refused this story: {handoffError}
+              </p>
+            ) : null}
 
             {/* MOVE TO — closing and deferring are DELIBERATE ACTS (they have no
                 column to drop on, by design). The rules for what may go where still
@@ -564,18 +578,21 @@ export function EngineeringQueuesPage({
           return (
             <div
               key={queue.key}
+              // The only drop that MEANS something on this line: a story dragged off the bench and
+              // dropped here is handed to the engine through the real dispatch (`handToEngine` ->
+              // ENGINE_DISPATCH_STATUS -> a work item). Dragging one engine card onto another lane
+              // used to rewrite local state and nothing else - a mockup of ownership the engine owns -
+              // so that gesture is gone.
               onDragOver={(e) => {
-                if (dragging || draggingStory) e.preventDefault()
+                if (draggingStory) e.preventDefault()
               }}
               onDrop={(e) => {
                 e.preventDefault()
-                if (draggingStory) handToEngine(draggingStory)
-                else if (dragging) move(dragging, queue.key)
-                setDragging(null)
+                if (draggingStory) void handToEngine(draggingStory)
                 setDraggingStory(null)
               }}
               className={`flex min-h-[420px] flex-col rounded-lg border ${queue.ring} ${
-                dragging || draggingStory ? 'bg-white/[0.05] ring-1 ring-[#c6a15b]/40' : 'bg-white/[0.02]'
+                draggingStory ? 'bg-white/[0.05] ring-1 ring-[#c6a15b]/40' : 'bg-white/[0.02]'
               }`}
             >
               <div className="flex items-start justify-between gap-2 border-b border-white/10 px-3 py-2">
@@ -605,10 +622,7 @@ export function EngineeringQueuesPage({
                       card={card}
                       selected={selected === card.id}
                       onSelect={() => setSelected(card.id)}
-                      onMove={(to) => move(card.id, to)}
                       onOpen={() => openRecorder(card)}
-                      onDragStart={() => setDragging(card.id)}
-                      onDragEnd={() => setDragging(null)}
                     />
                   ))
                 )}
@@ -630,8 +644,9 @@ export function EngineeringQueuesPage({
         <code className="text-slate-400">storyboard_active_work</code> in work order; the engine
         columns come from <code className="text-slate-400">agent_work_item</code> and{' '}
         <code className="text-slate-400">forge_engine_task_execution</code>
-        {ledgerStats?.asOf ? ` (as of ${ledgerStats.asOf})` : ''}. Moving a card between engine columns
-        is still a local demo of the mechanic, not a write.
+        {ledgerStats?.asOf ? ` (as of ${ledgerStats.asOf})` : ''}. GOOD TO GO and a drop on ENGINE
+        QUEUE both write the real dispatch status (<code className="text-slate-400">Ready</code>),
+        which queues actual Forge work.
       </p>
     </div>
   )
@@ -703,29 +718,25 @@ function QueueCardView({
   card,
   selected,
   onSelect,
-  onMove,
   onOpen,
-  onDragStart,
-  onDragEnd,
 }: {
   card: QueueCard
   selected: boolean
   onSelect: () => void
-  onMove: (to: QueueKey) => void
   onOpen: () => void
-  onDragStart: () => void
-  onDragEnd: () => void
 }) {
   const isResult = card.queue === 'results'
   return (
+    // READ-ONLY BY DESIGN. These lanes are the engine's own record of what it was given and what it
+    // did; a card here is a FACT, not a draggable thing. (The old cards offered "→ Run" / "→ Results"
+    // buttons that rewrote local state and nothing else - moving pixels to look like ownership of a
+    // queue the engine owns.) Handing work TO the engine happens in the SORTER's ENGINE QUEUE column
+    // or via GOOD TO GO, both of which write the real dispatch status.
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
       onClick={onSelect}
       onDoubleClick={isResult ? onOpen : undefined}
-      title={isResult ? 'Drag to move · double-click for the Flight Recorder' : 'Drag to move'}
-      className={`cursor-grab rounded border px-3 py-2 transition active:cursor-grabbing ${
+      title={isResult ? 'Double-click for the Flight Recorder' : undefined}
+      className={`rounded border px-3 py-2 transition ${
         selected ? 'border-[#c6a15b]/60 bg-[#c6a15b]/[0.06]' : 'border-white/10 bg-white/[0.02] hover:border-white/20'
       }`}
     >
@@ -756,21 +767,6 @@ function QueueCardView({
             ) : null}
           </>
         ) : null}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1">
-        {QUEUES.filter((q) => q.key !== card.queue).map((q) => (
-          <button
-            key={q.key}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onMove(q.key)
-            }}
-            className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400 hover:border-[#c6a15b]/40 hover:text-[#c6a15b]"
-          >
-            → {q.label === 'WORK BENCH' ? 'Bench' : q.label === 'ENGINE READY' ? 'Ready' : q.label === 'RUNNING' ? 'Run' : 'Results'}
-          </button>
-        ))}
       </div>
     </div>
   )
