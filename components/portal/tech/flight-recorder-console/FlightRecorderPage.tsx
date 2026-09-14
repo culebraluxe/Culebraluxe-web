@@ -829,20 +829,23 @@ function Swimlane({
         <span className="text-slate-600">time → · bounded scale (timestamps shown on hover)</span>
       </div>
       {/*
-        SCALED TO THE PANE, deliberately. The SVG was a fixed 1100px wide inside an `overflow-auto`
-        box, so on a narrower pane the right-hand part of the timeline simply lived off-screen -
-        reachable only by a horizontal scrollbar that macOS draws as an invisible overlay. The
-        captain's report was "no bottom scroll bar, just a few dots, I expected lanes": with one
-        real system (`Forge Observer`) there IS only one lane, and the later events were the ones
-        hidden past the right edge. Fitting the whole width into the pane means nothing can hide out
-        there, and the lanes are what they are - one per real system, never invented.
+        SCALED TO THE PANE, WITH A READABLE FLOOR.
+
+        Two conflicting needs, and the earlier versions each satisfied only one:
+          - a fixed 1100px SVG inside `overflow-auto` put the right half of the timeline off-screen
+            behind a macOS overlay scrollbar, so it read as missing content;
+          - `width="100%"` with no floor made everything fit by shrinking, which is worse for a
+            swimlane: nodes collapse into specks and the labels stop being readable.
+        So: fill the pane when the pane is wide, and never shrink below `min-w-[900px]` - below that
+        the container scrolls horizontally (the recorder's panes carry visible scrollbars via
+        .recorder-scroll), so nothing is hidden AND nothing becomes unreadable.
       */}
       <svg
         width="100%"
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="xMidYMid meet"
-        className="max-w-full"
+        className="min-w-[900px] max-w-none"
         role="group"
         aria-label="System swimlane"
       >
