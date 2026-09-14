@@ -31,9 +31,14 @@ test('UI-01: representative routes map to the correct operating surface', () => 
   assert.equal(surfaceForPathname('/portal/reporting'), 'OPS')
   assert.equal(surfaceForPathname('/portal/settings'), 'SUPPORT')
   // TECH — greenfield engineering / Story Board / Forge
+  //
+  // Command Center and Command Console are intentionally NOT asserted here any more: the
+  // captain retired them from the TECH nav on 2026-09-13 (both were early attempts that never
+  // got used, and their names collided with the cockpit screen). A route's surface is derived
+  // from the nav it appears in, so a retired route now classifies as nothing — the routes stay
+  // in place for widget harvest, but nothing claims them, and that is the intent.
   assert.equal(surfaceForPathname('/portal/storyboard'), 'TECH')
-  assert.equal(surfaceForPathname('/portal/command-console'), 'TECH')
-  assert.equal(surfaceForPathname('/portal/command-center'), 'TECH')
+  assert.equal(surfaceForPathname('/portal/tech'), 'TECH')
   // NEXUS — transaction-oriented workflow instances (the rule: workflow FOR an
   // active real-estate transaction → NEXUS).
   assert.equal(surfaceForPathname('/portal/workflows'), 'NEXUS')
@@ -42,7 +47,6 @@ test('UI-01: representative routes map to the correct operating surface', () => 
 })
 
 test('UI-01: sub-routes inherit their parent surface', () => {
-  assert.equal(surfaceForPathname('/portal/command-console/CRM-19'), 'TECH')
   assert.equal(surfaceForPathname('/portal/storyboard/CRM-19'), 'TECH')
   assert.equal(surfaceForPathname('/portal/deals/some-deal-id'), 'NEXUS')
 })
@@ -59,8 +63,6 @@ test('UI-01: every known /portal route belongs to a surface', () => {
     '/portal/catch-up',
     '/portal/clients',
     '/portal/client-admin',
-    '/portal/command-center',
-    '/portal/command-console',
     '/portal/core/seller-strategy',
     '/portal/dashboard',
     '/portal/db-test',
@@ -127,16 +129,7 @@ test('UI-01: selecting NEXUS/OPS/TECH/SUPPORT produces correct contextual naviga
       'Dashboard',
       'Syndication',
     ],
-    TECH: [
-      'Tech Overview',
-      'Command Center',
-      'Story Board',
-      'Command Console',
-      'UI Lab',
-      'Media Test',
-      'Flight Recorder',
-      'GROK',
-    ],
+    TECH: ['Tech Overview', 'Story Board', 'UI Lab', 'Media Test'],
     SUPPORT: ['System Health', 'DB Test', 'WhatsApp Diagnostic', 'Security'],
   }
   assert.deepEqual(

@@ -44,8 +44,9 @@ export const PORTAL_NAVIGATION: PortalNavGroup[] = [
       { label: 'Media Audit', href: '/portal/media-admin', authority: 'portal.read' },
       { label: 'Reporting', href: '/portal/reporting', authority: 'portal.read' },
       { label: 'Story Board', href: '/portal/storyboard', authority: 'portal.read' },
-      { label: 'Command Center', href: '/portal/command-center', authority: 'portal.read' },
-      { label: 'Command Console', href: '/portal/command-console', authority: 'portal.read' },
+      // Command Center and Command Console were retired from the nav on 2026-09-13: they
+      // were early attempts at the story/execution view that never got used, and their names
+      // were close enough to collide with the TECH cockpit. Routes remain for widget harvest.
       { label: 'Identity Quality', href: '/portal/identity-quality', authority: 'portal.read' },
       { label: 'System Health', href: '/portal/system-health', authority: 'portal.read' },
       { label: 'Settings', href: '/portal/settings', authority: 'settings.read' },
