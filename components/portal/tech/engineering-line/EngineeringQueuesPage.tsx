@@ -33,6 +33,7 @@ import { StoryKanbanBoard } from '@/components/portal/tech/story-kanban-board'
 import { loadEngineeringQueues } from './fixture'
 import type { QueueCard, QueueKey, RunOutcome } from './types'
 import type { EngineRunCard, EngineLedgerStats, EngineQueuedCard } from '@/db/forge-engine-task-execution'
+import type { ForgeStoryHold } from '@/db/forge-hold'
 
 /**
  * What the route loads for us. Tiles and the story log come from ONE structure
@@ -75,6 +76,13 @@ export type EngineeringQueuesPageProps = {
   ledgerStats?: EngineLedgerStats | null
   /** Work items genuinely still open ("handed to Forge, queued, not started"). Null = read failed. */
   queuedCards?: EngineQueuedCard[] | null
+  /**
+   * The engine's CURRENT stop for the selected story, when it is parked.
+   *
+   * A HOLD is a deliberate machine stop with a reason. Until this existed, a parked story read
+   * "In Progress / 100%" on the board while `forge_hold_record` held the truth.
+   */
+  hold?: ForgeStoryHold | null
 }
 
 const QUEUES: Array<{
@@ -136,6 +144,7 @@ export function EngineeringQueuesPage({
   engineRuns,
   ledgerStats,
   queuedCards,
+  hold,
 }: EngineeringQueuesPageProps) {
   const model = useMemo(() => loadEngineeringQueues(), [])
   const router = useRouter()
@@ -506,6 +515,28 @@ export function EngineeringQueuesPage({
                 Select a story from the Work Bench to inspect it
               </p>
             )}
+            {/*
+              THE ENGINE'S STOP, ON THE BOARD.
+              A parked story used to read "In Progress / 100%" while the machine had deliberately
+              stopped and recorded why. The reason is the whole value of a HOLD, so it goes where the
+              operator already looks.
+            */}
+            {hold ? (
+              <section className="rounded-lg border border-amber-400/40 bg-amber-400/[0.06] px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-amber-300">
+                  ENGINE HOLD · {hold.originatingNode ?? 'unknown node'}
+                  {hold.failureClass ? ` · ${hold.failureClass}` : ''}
+                </p>
+                <p className="mt-1 text-xs font-light leading-relaxed text-slate-200">
+                  {hold.reason ?? 'The engine parked without recording a reason.'}
+                </p>
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  parked {hold.since ?? 'at an unrecorded time'}
+                  {hold.resumeTarget ? ` · resumes at ${hold.resumeTarget}` : ''}
+                </p>
+              </section>
+            ) : null}
+
             <RunHistory
               storyId={selectedStory?.id ?? null}
               runs={runs}

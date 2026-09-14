@@ -1,5 +1,7 @@
 import { resolve } from 'node:path'
 import { captureServerLog } from '../../lib/server-error-capture'
+import { openForgeHoldRecord } from '../../db/forge-hold'
+import { markForgeStoryHumanHold } from '../../db/forge-story-state'
 import { execFileSync } from 'node:child_process'
 import { buildLaneEnqueue } from '../../agent-runtime/enqueue-lane'
 import { buildBrevityDirective, buildGroundingDirective, buildRunGuardrailsDirective, buildRunPassDirective, buildRtkCompressionDirective } from '../../agent-runtime/run-guardrails'
@@ -1631,6 +1633,36 @@ export function createAgentRuntimeForgeRoleRunner(
         /* run-detail append is observer-only; the HOLD throw below stands */
       })
     }
+    // ...and make the stop DURABLE AND VISIBLE, which is what "HOLD is a state, not an error" means
+    // in practice. Until now this throw left: no `forge_hold_record` row (the table was EMPTY, ever -
+    // only the resolution path ever appended), and no storyboard change, so a story the engine
+    // abandoned sat on the board reading "In Progress / 100%". Both are best-effort here because the
+    // HOLD throw below is the authority; a failure to record is logged, never swallowed.
+    const holdReason =
+      `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}` +
+      (rejectionReasons.length ? ` — refused because: ${rejectionReasons.join('; ')}` : '')
+    await openForgeHoldRecord({
+      processInstanceId: String(task.processInstanceId),
+      taskId: task.taskId ?? null,
+      storyId: resolvedStory.id,
+      reason: holdReason,
+      originatingNode: nodeId,
+      failureClass: 'DELIVERABLE_REJECTED',
+      resumeTarget: null,
+    }).catch((error) => {
+      captureServerLog(
+        'warn',
+        'forge.hold-record',
+        `could not record the HOLD for ${resolvedStory.id}: ${(error as Error).message}`,
+      )
+    })
+    await markForgeStoryHumanHold(resolvedStory.id, holdReason).catch((error) => {
+      captureServerLog(
+        'warn',
+        'forge.hold-storyboard',
+        `could not mark ${resolvedStory.id} as HOLD: ${(error as Error).message}`,
+      )
+    })
     throw new Error(
       `Forge ${nodeId} HOLD (after ${totalAttempts} attempt(s)): role did not deliver ${miss.join(', ')}`,
     )

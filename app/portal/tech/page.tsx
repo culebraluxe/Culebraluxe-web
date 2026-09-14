@@ -25,6 +25,8 @@ import {
   listStoryboardStories,
 } from "@/db/storyboard"
 
+import { latestOpenForgeHold } from "@/db/forge-hold"
+
 export const dynamic = "force-dynamic"
 
 export default async function TechPage({
@@ -114,6 +116,8 @@ export default async function TechPage({
   // means the read failed, and the screen says so instead of showing numbers it did not measure.
   const ledgerStats = await listEngineLedgerStats().catch(() => null)
   const queuedCards = await listEngineQueuedCards(20).catch(() => null)
+  // The engine's current stop for the story on screen, so a parked story reads as parked.
+  const hold = validId ? await latestOpenForgeHold(validId).catch(() => null) : null
 
   return (
     <div className="min-h-screen bg-[#0b1220]">
@@ -151,6 +155,7 @@ export default async function TechPage({
         engineRuns={engineRuns}
         ledgerStats={ledgerStats}
         queuedCards={queuedCards}
+        hold={hold}
       />
       <div className="px-5 pb-8">
         <ForgeConvergenceView items={convergence} />
