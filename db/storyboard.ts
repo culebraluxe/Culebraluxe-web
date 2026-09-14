@@ -244,7 +244,12 @@ export async function listStoryExecutionSummaries(
   for (const row of runRows) {
     run.set(String(row.story_id), {
       result: (row.result_status as string | null) ?? null,
-      at: (row.started_at as string | null) ?? null,
+      // NORMALIZED AT THE BOUNDARY. `row.started_at as string` was a lie: the driver returns a
+      // Date, and a caller that trusted the declared type and called a string method on it
+      // (`.localeCompare`) crashed the whole TECH cockpit in production with a React server-render
+      // error. `mapRun` already normalizes through `dateOrNull`; this projection now does too.
+      // Above the repository, never a driver value.
+      at: dateOrNull(row.started_at),
     })
   }
 
