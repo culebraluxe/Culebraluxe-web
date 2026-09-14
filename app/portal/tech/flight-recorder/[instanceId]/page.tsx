@@ -74,7 +74,16 @@ export default async function FlightRecorderConsolePage({
     env.target === 'prod' ? 'PRODUCTION' : env.target === 'dev' ? 'DEVELOPMENT' : 'UNDECLARED'
 
   return (
-    <div className="bg-[#0b1220]">
+    // HEIGHT, and why it is what it is.
+    //
+    // The console is `h-full` and manages its own internal scrolling (center pane, left rail, right
+    // aside each scroll), so this wrapper must hand it a DEFINITE height — and must not clip what
+    // does not fit. The previous version used `overflow-hidden` with a shorter allowance, so the
+    // bottom of the console disappeared with no way to scroll to it: the captain's "it doesn't want
+    // to go down". `dvh` tracks real mobile chrome, the extra rem is for the surface submenu, and
+    // the overflow is left alone so that if the chrome ever grows the page scrolls instead of
+    // swallowing content.
+    <div className="flex h-[calc(100dvh-11rem)] min-h-[560px] flex-col bg-[#0b1220]">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
         <span>Flight Recorder · {instanceId.slice(0, 8)}</span>
         <span className={env.target === 'prod' ? 'text-[#c6a15b]' : 'text-amber-400/90'}>
@@ -82,7 +91,7 @@ export default async function FlightRecorderConsolePage({
           {env.declaredBy ?? 'nothing'}
         </span>
       </div>
-      <div className="h-[calc(100vh-10rem)] overflow-hidden">
+      <div className="min-h-0 flex-1">
         <Suspense
           fallback={
             <div className="grid h-full place-items-center bg-[#0b1220] text-sm text-slate-400">

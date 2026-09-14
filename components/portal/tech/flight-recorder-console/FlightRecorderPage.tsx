@@ -34,6 +34,8 @@ import { useFlightRecorderState } from './useFlightRecorderState';
 
 const TABS: { id: MainTab; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
+  // The graph as a first-class view, not just the small map in the left rail.
+  { id: 'workflow', label: 'Workflow Graph' },
   { id: 'causality', label: 'Causality Graph' },
   { id: 'swimlane', label: 'System Swimlane' },
   { id: 'raw', label: 'Raw Events' },
@@ -242,6 +244,13 @@ export function FlightRecorderPage({
               density={density}
               rowHeight={rowHeight}
             />
+          ) : tab === 'workflow' ? (
+            <TraceMapMini
+              variant="full"
+              workflow={trace.workflow}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={selectNode}
+            />
           ) : tab === 'causality' ? (
             <CausalityGraph
               events={filteredEvents}
@@ -408,16 +417,33 @@ function TraceMapMini({
   workflow,
   selectedNodeId,
   onSelectNode,
+  variant = 'mini',
 }: {
   workflow?: ConsoleWorkflowView;
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
+  /**
+   * `mini` = the small map in the left rail; `full` = the same graph as a top-level tab.
+   *
+   * One renderer and one layout function, so the map in the rail and the one full-pane can never
+   * disagree about the workflow — only about how much room they take. `full` scales the whole SVG
+   * up and drops the rail's fixed height so it scrolls inside the pane.
+   */
+  variant?: 'mini' | 'full';
 }) {
+  const full = variant === 'full';
+  const scale = full ? 1.9 : 1;
   const layout = useMemo(() => (workflow ? layoutMasterWorkflow(workflow) : null), [workflow]);
 
   if (!workflow || !layout || workflow.nodes.length === 0) {
     return (
-      <div className="mt-2 rounded-lg border border-white/5 bg-slate-900/40 p-3 text-xs text-slate-500">
+      <div
+        className={
+          full
+            ? 'grid h-full place-items-center text-sm text-slate-500'
+            : 'mt-2 rounded-lg border border-white/5 bg-slate-900/40 p-3 text-xs text-slate-500'
+        }
+      >
         No master workflow to map.
       </div>
     );
@@ -435,10 +461,16 @@ function TraceMapMini({
   };
 
   return (
-    <div className="mt-2 h-52 overflow-auto rounded-lg border border-white/5 bg-slate-900/40">
+    <div
+      className={
+        full
+          ? 'h-full w-full overflow-auto bg-slate-900/20'
+          : 'mt-2 h-52 overflow-auto rounded-lg border border-white/5 bg-slate-900/40'
+      }
+    >
       <svg
-        width={layout.width}
-        height={layout.height}
+        width={layout.width * scale}
+        height={layout.height * scale}
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         className="min-w-full"
       >

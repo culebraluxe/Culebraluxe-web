@@ -30,7 +30,7 @@ export interface FlightRecorderState {
   clearFilters: () => void;
 }
 
-const TABS: MainTab[] = ['timeline', 'causality', 'swimlane', 'raw'];
+const TABS: MainTab[] = ['timeline', 'workflow', 'causality', 'swimlane', 'raw'];
 
 function parseTab(raw: string | null): MainTab {
   return TABS.includes(raw as MainTab) ? (raw as MainTab) : 'timeline';
@@ -69,6 +69,7 @@ export function useFlightRecorderState(
     'Task Service',
     'BoldSign',
     'PostgreSQL',
+    'Forge Observer',
     'Unknown',
   ] as const);
   const tags = params.get('tags')?.split(',').filter(Boolean) ?? [];

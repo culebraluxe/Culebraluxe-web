@@ -44,6 +44,16 @@ export type SystemId =
   | 'Task Service'
   | 'BoldSign'
   | 'PostgreSQL'
+  /**
+   * The ENGINE's own observer: the system tag the Forge role events carry.
+   *
+   * Real data check on 2026-09-14: `workflow_execution_trace_event` holds `forge_observer` (434
+   * events), `command` (170) and `domain` (4). `forge_observer` had no home in this vocabulary, so
+   * every event of a Forge run rendered as System `Unknown` — the master-workflow legend read
+   * "Unknown 36" for ENG-FORGE-DOCTOR-01 and the System Swimlane had no lanes to draw. The engine
+   * IS the producer here; saying so is honest classification, not a guess.
+   */
+  | 'Forge Observer'
   | 'Unknown'
 
 export type EventStatus = 'Success' | 'Failed' | 'Pending' | 'Skipped' | 'Unknown'
@@ -139,7 +149,16 @@ export type ConsoleWorkflowView = {
 }
 
 export type TimelineDensity = 'compact' | 'expanded'
-export type MainTab = 'timeline' | 'causality' | 'swimlane' | 'raw'
+/**
+ * The console's top-level views.
+ *
+ * `workflow` is the MASTER WORKFLOW map (the definition's nodes and their execution state) shown
+ * full-pane. It exists because the master-workflow graph is what actually has content for engine
+ * runs: the causal graph draws causal links, and the engine's trace events carry no causation id,
+ * so `causality` is legitimately empty for a Forge trace while the workflow map is full of nodes.
+ * The captain asked for the small left-rail map at full size; this is that view.
+ */
+export type MainTab = 'timeline' | 'workflow' | 'causality' | 'swimlane' | 'raw'
 
 // Kind → color token (presentation; kept with the domain so the console and any
 // graph overlay stay consistent).
@@ -198,6 +217,7 @@ export const SYSTEM_CHIP: Record<SystemId, string> = {
   'Task Service': 'bg-amber-600/20 text-amber-200 ring-1 ring-amber-400/30',
   BoldSign: 'bg-pink-500/20 text-pink-200 ring-1 ring-pink-400/30',
   PostgreSQL: 'bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/30',
+  'Forge Observer': 'bg-orange-500/20 text-orange-200 ring-1 ring-orange-400/30',
   Unknown: 'bg-slate-500/20 text-slate-200 ring-1 ring-slate-400/30',
 }
 
@@ -234,6 +254,9 @@ export function systemToSystemId(system: string, _kind: EventKind): SystemId {
   if (s.includes('task')) return 'Task Service'
   if (s.includes('boldsign') || s.includes('signature')) return 'BoldSign'
   if (s.includes('postgres') || s.includes('sql') || s.includes('persist')) return 'PostgreSQL'
+  // The engine's own observer tags every Forge role event; without this it fell to Unknown and
+  // the swimlane/legend showed nothing but "Unknown" for an entire engine run.
+  if (s.includes('forge') || s.includes('observer')) return 'Forge Observer'
   return 'Unknown'
 }
 
