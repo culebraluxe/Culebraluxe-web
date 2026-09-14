@@ -38,7 +38,16 @@ export type QueueCard = {
   attempt?: number
   endedOn?: string
   /** results only: the run to open in the Flight Recorder on double-click. */
-  instanceId?: string
+  /**
+   * The STORY this card stands for - NOT an instance id.
+   *
+   * A story gets a fresh process instance every attempt, so a card cannot know "the" instance id;
+   * it knows the story. The recorder resolves story -> latest instance and rewrites the URL to the
+   * canonical instance UUID. The field used to be called `instanceId` and carried values like
+   * `FORGE-SMITH-DOOR-01-demo`, which is why the screen could only answer 503/400: it was asked to
+   * read a trace for something that had never been an instance.
+   */
+  storyId?: string
 }
 
 export type MetricTile = {

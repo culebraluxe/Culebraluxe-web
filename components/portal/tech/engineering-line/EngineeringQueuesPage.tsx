@@ -126,8 +126,9 @@ export function EngineeringQueuesPage({
   }
 
   function openRecorder(card: QueueCard) {
-    if (!card.instanceId) return
-    window.open(`/portal/tech/flight-recorder/${card.instanceId}`, '_blank', 'noopener')
+    if (!card.storyId) return
+    // The recorder accepts a STORY id and resolves it to that story's latest engine instance.
+    window.open(`/portal/tech/flight-recorder/${card.storyId}`, '_blank', 'noopener')
   }
 
   /** The gate: the spec is done, hand this story to the engine. Local demo.

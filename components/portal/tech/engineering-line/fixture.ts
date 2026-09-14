@@ -102,7 +102,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'DONE',
       attempt: 1,
       endedOn: 'qa_verify',
-      instanceId: 'FORGE-SMITH-DOOR-01-demo',
+      storyId: 'FORGE-SMITH-DOOR-01',
     },
     {
       id: 'FORGE-PARITY-CHECK-01',
@@ -115,7 +115,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'DONE',
       attempt: 2,
       endedOn: 'deploy_gate',
-      instanceId: 'FORGE-PARITY-CHECK-01-demo',
+      storyId: 'FORGE-PARITY-CHECK-01',
     },
     {
       id: 'FORGE-OBS-LIST-01',
@@ -128,7 +128,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'DONE',
       attempt: 1,
       endedOn: 'qa_verify',
-      instanceId: 'FORGE-OBS-LIST-01-demo',
+      storyId: 'FORGE-OBS-LIST-01',
     },
     {
       id: 'ENG-FORGE-OPENCODE-DOGFOOD-01',
@@ -141,7 +141,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'HOLD',
       attempt: 76,
       endedOn: 'smith',
-      instanceId: 'ENG-FORGE-OPENCODE-DOGFOOD-01-demo',
+      storyId: 'ENG-FORGE-OPENCODE-DOGFOOD-01',
     },
     {
       id: 'ENG-FORGE-V5-11',
@@ -154,7 +154,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'HOLD',
       attempt: 9,
       endedOn: 'lead_pre',
-      instanceId: 'ENG-FORGE-V5-11-demo',
+      storyId: 'ENG-FORGE-V5-11',
     },
     {
       id: 'ENG-FORGE-SPLIT-DOGFOOD-01',
@@ -167,7 +167,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'INTERRUPTED',
       attempt: 4,
       endedOn: 'smith_split_work',
-      instanceId: 'ENG-FORGE-SPLIT-DOGFOOD-01-demo',
+      storyId: 'ENG-FORGE-SPLIT-DOGFOOD-01',
     },
     {
       id: 'ENG-DB-RESILIENCE-01',
@@ -180,7 +180,7 @@ export const ENGINEERING_QUEUES_FIXTURE: EngineeringQueuesModel = {
       outcome: 'ERROR',
       attempt: 3,
       endedOn: 'smith',
-      instanceId: 'ENG-DB-RESILIENCE-01-demo',
+      storyId: 'ENG-DB-RESILIENCE-01',
     },
   ],
 

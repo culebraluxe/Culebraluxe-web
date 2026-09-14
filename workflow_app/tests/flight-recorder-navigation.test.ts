@@ -13,10 +13,29 @@ import { OPERATING_SURFACES, surfaceForPathname } from '../../lib/navigation/reg
 
 const read = (p: string) => readFile(new URL(p, import.meta.url), 'utf8')
 
-test('FLIGHT-RECORDER-NAV 1: TECH registry has exactly one Flight Recorder destination', () => {
-  const fr = OPERATING_SURFACES.TECH.items.filter((i) => i.label === 'Flight Recorder')
-  assert.equal(fr.length, 1, 'exactly one Flight Recorder nav item')
-  assert.equal(fr[0].href, '/portal/tech/flight-recorder')
+test('FLIGHT-RECORDER-NAV 1: no surface carries a Flight Recorder LIST (retired 2026-09-13)', () => {
+  // b3a6367 removed the list destinations from the TECH nav (Command Center, Command Console,
+  // GROK, Flight Recorder) while keeping their routes. The console's door is the story cockpit
+  // now, for stories the engine has actually executed; a nav item listing every instance would be
+  // a second door to one trace, and the nav was the place operators read as "the machine".
+  //
+  // This test used to assert the opposite (`=== 1` + href `/portal/tech/flight-recorder`) and went
+  // on asserting a retired destination for hours, because the flight-recorder suite is not in the
+  // `forge-*` glob. It now asserts the retirement itself, so re-adding the nav item fails here.
+  const surfaces = Object.values(OPERATING_SURFACES) as unknown as Array<{
+    items: Array<{ label: string; href: string }>
+  }>
+  for (const surface of surfaces) {
+    const fr = surface.items.filter((i) => i.label === 'Flight Recorder')
+    assert.equal(fr.length, 0, 'the Flight Recorder list must not be a nav destination')
+  }
+})
+
+test('FLIGHT-RECORDER-NAV 1b: the story cockpit is the door to the console', async () => {
+  const src = await read('../../components/portal/tech/engineering-cockpit.tsx')
+  // The cockpit passes the story's latest instance, and renders the link only when one exists,
+  // so an operator reaches a real trace instead of an empty shell.
+  assert.match(src, /\/portal\/tech\/flight-recorder\/\$\{recorderInstanceId\}/)
 })
 
 test('FLIGHT-RECORDER-NAV 2: the nested console route is owned by TECH', () => {
