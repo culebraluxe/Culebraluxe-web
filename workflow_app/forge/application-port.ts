@@ -41,6 +41,19 @@ export type ForgeApplicationPortOptions = {
    * story's execution evidence (Item 2). Mutually exclusive with `readFacts`.
    */
   evidenceReader?: (storyId: string) => Promise<ForgeGateEvidence>
+  /**
+   * The evidence of the task completing RIGHT NOW, when a transition is being evaluated.
+   *
+   * The runtime runs the transition BEFORE merging the evidence row — deliberately, because the
+   * transition is the CAS that decides which worker won and a losing worker must not commit its
+   * result. The unhandled consequence was that each gate judged this turn's work against the
+   * PREVIOUS turn's row: `qa_verify` computed `candidate && verified === candidate` from a
+   * `candidateSha` predating the Smith's commit, `qaPassed` came out false, and a passing candidate
+   * was sent to `repair_smith` until the turn cap (measured live 2026-09-14, twice).
+   *
+   * This is merged OVER the durable row because it is strictly more recent.
+   */
+  pendingEvidence?: ForgeGateEvidence
   /** Real executor for release-critical command nodes. */
   releaseExecutor?: ForgeReleaseExecutor
 }
@@ -95,7 +108,24 @@ export async function createForgeApplicationPort(
           opts.evidenceReader ??
           (await import('./forge-evidence-db')).createStoryGateEvidenceReader()
         const evidence = await reader(subject.subjectId)
-        return projectForgeGateFacts(evidence)
+        // THE EVIDENCE THIS TASK IS SUBMITTING WINS OVER THE DURABLE ROW.
+        //
+        // The runtime completes the TRANSITION FIRST and merges the evidence row afterwards, on
+        // purpose: the transition is the CAS that decides which worker won, and a losing worker
+        // must not commit its result. The consequence, unhandled until now, was that every gate
+        // judged this turn's work against the PREVIOUS turn's row — so `qa_verify` computed
+        // `candidate && verified === candidate` from a `candidateSha` that predated the Smith's
+        // commit, `qaPassed` came out false, the engine took the fail branch to `repair_smith`, the
+        // repair reproduced the same candidate, and the loop ran to the turn cap (measured live
+        // 2026-09-14: qa reported `qaPassed:true` at 05:35:19 and again at 08:28:25, and the router
+        // took `fail` one second later both times, while the durable row said `qa_passed=true`).
+        //
+        // `pendingEvidence` is the evidence of the task completing RIGHT NOW. It is strictly more
+        // recent than the row, so it is merged over it: this turn's facts are visible to this turn's
+        // transition, and the durable row still supplies everything earlier nodes persisted. The CAS
+        // order in the runtime is untouched.
+        const merged = opts.pendingEvidence ? { ...evidence, ...opts.pendingEvidence } : evidence
+        return projectForgeGateFacts(merged)
       }
       return {}
     },

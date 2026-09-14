@@ -6,12 +6,15 @@ import { createForgeApplicationPort } from './application-port'
 import { captureServerError } from '../../lib/server-error-capture'
 import type { ForgeGateEvidence } from './forge-facts'
 
-async function createDurableForgeApplicationPort() {
+async function createDurableForgeApplicationPort(pendingEvidence?: ForgeGateEvidence) {
   const { readForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
   const { createDbForgeReleaseExecutor } = await import('./db-release-executor')
   return createForgeApplicationPort({
     evidenceReader: readForgeWorkflowEvidence,
     releaseExecutor: createDbForgeReleaseExecutor(),
+    // The transition reads facts BEFORE the evidence row is merged (see the CAS note below), so the
+    // in-flight evidence of this very task must ride along or every gate judges a stale turn.
+    ...(pendingEvidence ? { pendingEvidence } : {}),
   })
 }
 
@@ -193,7 +196,7 @@ export async function completeForgeRoleTask(
   }
   const { mergeForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
   const engine = new WorkflowEngine(engineSql(), {
-    app: await createDurableForgeApplicationPort(),
+    app: await createDurableForgeApplicationPort(evidence),
   })
 
   // THE TRANSITION GOES FIRST — IT IS THE CAS THAT DECIDES THE WINNER.
