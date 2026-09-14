@@ -29,8 +29,13 @@ export function FlightRecorderConsoleShell({
     try {
       const res = await fetch(`/api/portal/flight-recorder/${instanceId}`)
       if (!res.ok) {
+        // The route knows WHY it failed; this screen must repeat that reason rather than reduce it
+        // to "HTTP 503", which told the operator nothing about a bad id in the link.
+        const body = (await res.json().catch(() => null)) as
+          | { error?: string; detail?: string }
+          | null
         if (res.status === 404) throw new Error("Trace not found for this instance")
-        throw new Error(`HTTP ${res.status}`)
+        throw new Error(body?.detail ?? body?.error ?? `HTTP ${res.status}`)
       }
       const json = (await res.json()) as FlightRecorderTransaction
       setTrace(adaptFlightRecorderTransaction(json))

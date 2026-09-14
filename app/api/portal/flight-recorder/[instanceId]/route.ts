@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { captureServerError } from '@/lib/server-error-capture'
-import { getFlightRecorderTransaction } from "@/workflow_app/flight-recorder-read"
+import { getFlightRecorderTransaction, isProcessInstanceId } from "@/workflow_app/flight-recorder-read"
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // FLIGHT RECORDER — the canonical transaction read model backing the Grok view.
@@ -15,6 +15,26 @@ async function GETHandler(
   { params }: { params: Promise<{ instanceId: string }> },
 ) {
   const { instanceId } = await params
+
+  // A LINK THAT CARRIES SOMETHING OTHER THAN AN INSTANCE ID IS A 400, NOT A 503.
+  //
+  // This used to fall through to the read, where Postgres raised `22P02 invalid input syntax for
+  // type uuid` and the handler answered "flight_recorder_unavailable" with a 503. The operator saw
+  // an unavailable server while the real fault was the id in the link, and nothing in the response
+  // (or in the error store, because operator input is control flow, not a server fault) said so.
+  if (!isProcessInstanceId(instanceId)) {
+    return NextResponse.json(
+      {
+        error: "invalid_instance_id",
+        detail:
+          `"${instanceId.slice(0, 64)}" is not a process instance id (expected a UUID). ` +
+          "The link or button that opened this screen carried something else — a story id, a run " +
+          "id, or an empty value — so there is no trace to read.",
+      },
+      { status: 400 },
+    )
+  }
+
   try {
     const tx = await getFlightRecorderTransaction(instanceId)
     if (!tx) {

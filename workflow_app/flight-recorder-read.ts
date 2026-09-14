@@ -1,4 +1,5 @@
 import { engineConfigured, engineSql } from './engine-client'
+import { isUuidLike } from '../lib/deal-admin'
 import { listTraceEvents } from '../db/workflow-trace'
 import { sql } from '../db/client'
 import { buildRuntimeInspection } from '../lib/runtime-inspector'
@@ -194,6 +195,12 @@ async function loadInstance(
   esql: QueryExecutor,
   instanceId: string,
 ): Promise<LoadedInstance | null> {
+  // A malformed id must never reach Postgres. `pi.id` is a uuid column, so a non-uuid string
+  // raises `22P02 invalid input syntax for type uuid`, which the route could only report as a
+  // generic 503 — an operator staring at a blank console with no idea that the LINK was the
+  // problem. Ordinary control flow, refused at the repository boundary where the type is known.
+  if (!isProcessInstanceId(instanceId)) return null
+
   // LEFT JOIN so an instance whose persisted definition is missing is still
   // returned as a diagnostic (we never silently substitute another version).
   const rows = await esql`
@@ -248,10 +255,22 @@ async function loadInstance(
 // into an unbounded number of trace reads.
 const FLIGHT_RECORDER_SIBLING_LIMIT = 20
 
+/**
+ * Is this string usable as a `process_instances.id`?
+ *
+ * Exported because the route answers 400 (not 503) for anything else, and because the operator
+ * deserves to be told that the id in the link is the problem rather than "unavailable".
+ * Reuses the repository's existing uuid validator instead of a second regex dialect.
+ */
+export function isProcessInstanceId(value: string | null | undefined): boolean {
+  return typeof value === 'string' && isUuidLike(value)
+}
+
 async function dealScopedInstanceIds(
   esql: QueryExecutor,
   dealId: string,
 ): Promise<string[]> {
+  if (!isProcessInstanceId(dealId)) return []
   try {
     const rows = await esql`
       select pi.id
