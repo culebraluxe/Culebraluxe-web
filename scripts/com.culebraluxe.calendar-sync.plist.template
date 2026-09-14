@@ -4,16 +4,17 @@
   CulebraLuxe calendar sync — periodic EventKit snapshot invoker.
 
   Generated from this template by `pnpm calendar:sync:install`
-  (scripts/calendar-sync-agent.mjs), which substitutes {{SUPPORT_DIR}},
-  {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}}, {{LABEL}}, {{CADENCE_SECONDS}}, and
-  {{SNAPSHOT}}, validates the result with plutil, and bootstraps it into
-  launchd (gui/$(id -u)).
+  (scripts/calendar-sync-agent.mjs), which substitutes {{APPLE_LAUNCHER}},
+  {{SUPPORT_DIR}}, {{REPO_ROOT}}, {{HOME}}, {{LOG_DIR}}, {{LABEL}},
+  {{CADENCE_SECONDS}}, and {{SNAPSHOT}}, validates the result with plutil, and
+  bootstraps it into launchd (gui/$(id -u)).
 
-  The LaunchAgent invokes a deployed copy of
-  scripts/macbridge/sync-calendar-eventkit.sh at {{SUPPORT_DIR}} (outside the
-  TCC-protected ~/Documents folder). It runs the existing EventKit bridge
-  (pnpm calendar:sync) and appends a lightweight status line to the invocation
-  log.
+  IMPORTANT: this Calendar job REUSES the existing FDA-grantable
+  apple-sync-launcher binary already deployed by the proven Apple Messages
+  integration. It does not rebuild, replace, or modify that launcher. The
+  launcher receives CULEBRALUXE_APPLE_SYNC_SCRIPT pointing at the Calendar-only
+  deployed wrapper, so Calendar gets the same trusted TCC execution boundary
+  without changing the canonical Apple Messages sync.
 
   Cadence: StartInterval {{CADENCE_SECONDS}} seconds (default 1800 = 30 min).
   Change it by reinstalling with CALENDAR_SYNC_CADENCE_SECONDS=<seconds>.
@@ -35,8 +36,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/bash</string>
-    <string>{{SUPPORT_DIR}}/calendar-sync-once.sh</string>
+    <string>{{APPLE_LAUNCHER}}</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -57,6 +57,8 @@
     <string>{{HOME}}</string>
     <key>CULEBRALUXE_REPO</key>
     <string>{{REPO_ROOT}}</string>
+    <key>CULEBRALUXE_APPLE_SYNC_SCRIPT</key>
+    <string>{{SUPPORT_DIR}}/calendar-sync-once.sh</string>
     <key>CULEBRALUXE_CALENDAR_LOG_DIR</key>
     <string>{{LOG_DIR}}</string>
     <key>MAC_BRIDGE_CALENDAR_JSON</key>
