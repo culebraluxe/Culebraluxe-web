@@ -18,7 +18,10 @@ cd "$ROOT_DIR"
 BRANCH="$(git branch --show-current)"
 [[ "$BRANCH" == "main" ]] || fail "Production deploys must run from main. Current branch: ${BRANCH:-detached}"
 
-[[ -z "$(git status --porcelain)" ]] || fail "Working tree is not clean. Commit or discard local changes before deploying production."
+# Block tracked or staged changes, but ignore untracked local tooling/data that is
+# intentionally outside Git and cannot alter an already-built .vercel/output artifact.
+git diff --quiet --ignore-submodules -- || fail "Tracked files have local changes. Commit or discard them before deploying production."
+git diff --cached --quiet --ignore-submodules -- || fail "Staged files are waiting to be committed. Commit or unstage them before deploying production."
 
 [[ -f .vercel/output/config.json ]] || fail "No prebuilt artifact found. Run: bash scripts/vercel-build-prod.sh"
 [[ -f .vercel/culebraluxe-prod-build-sha ]] || fail "No build provenance stamp found. Rebuild with: bash scripts/vercel-build-prod.sh"
