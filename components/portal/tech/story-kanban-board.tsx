@@ -88,7 +88,15 @@ export function StoryKanbanBoard({
   return (
     <div className="portal-svar-midnight story-kanban flex h-full min-h-0 w-full flex-col">
       <WillowDark>
-        <div className="flex-1">
+        {/*
+          `h-full` here is load-bearing, not cosmetic. The board is `height:100%` and each column
+          is `height:100%` with its cards area `flex:1; overflow-y:auto` — so EVERY level between
+          the fixed-height panel and the board must have a definite height. This div was
+          `flex-1` only (height:auto), which broke the chain: the board sized itself to its
+          contents, grew past the panel, and the panel's `overflow-hidden` cut the extra stories
+          off with no scrollbar to reach them. `min-h-0` lets it shrink instead of overflowing.
+        */}
+        <div className="h-full min-h-0 flex-1">
           {mounted ? (
             <Kanban
               cards={cards}

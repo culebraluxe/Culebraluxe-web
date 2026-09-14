@@ -243,6 +243,11 @@ async function loadInstance(
 }
 
 /** All deal-scoped workflow instances for a deal (support for more than one). */
+// How many sibling instances of one deal the console loads alongside the instance the operator
+// opened. The engine creates an instance per attempt, so an unbounded list turns one page view
+// into an unbounded number of trace reads.
+const FLIGHT_RECORDER_SIBLING_LIMIT = 20
+
 async function dealScopedInstanceIds(
   esql: QueryExecutor,
   dealId: string,
@@ -252,7 +257,8 @@ async function dealScopedInstanceIds(
       select pi.id
       from process_instances pi
       where pi.subject_type = 'deal' and pi.subject_id = ${dealId}
-      order by pi.created_at asc
+      order by pi.created_at desc
+      limit ${FLIGHT_RECORDER_SIBLING_LIMIT}
     `
     return rows
       .map((r) => String((r as { id?: unknown }).id))
@@ -281,24 +287,38 @@ export async function getFlightRecorderTransaction(
   const siblingIds = dealId ? await dealScopedInstanceIds(esql, dealId) : []
   const instanceIds = Array.from(new Set([primary.id, ...siblingIds]))
 
+  // LOAD THE INSTANCES CONCURRENTLY, IN A BOUNDED AND STABLE ORDER.
+  //
+  // This used to await each instance in a `for` loop, and the engine creates a new instance
+  // for every attempt, so a long-lived deal accumulated dozens of them: dozens of sequential
+  // full trace reads, one after another, until the platform killed the request at its function
+  // timeout and the cockpit showed a 504 with nothing to explain it. The primary instance is
+  // always first (it is the one the operator opened); the rest are most-recent-first.
+  const ordered = [primary.id, ...instanceIds.filter((id) => id !== primary.id)]
+  const loaded = await Promise.all(
+    ordered.map(async (id): Promise<{ workflows: FlightRecorderWorkflow[]; events: FlightRecorderEvent[] }> => {
+      const inst = id === primary.id ? primary : await loadInstance(esql, id)
+      if (!inst) return { workflows: [], events: [] }
+      const trace = await listTraceEvents({ workflowInstanceId: id })
+      const built = buildFlightRecorderWorkflow({
+        workflowInstanceId: id,
+        definitionId: inst.definitionId,
+        definitionKey: inst.definitionKey,
+        definitionVersion: inst.definitionVersion,
+        definitionMissing: inst.definitionMissing,
+        status: inst.status,
+        graph: inst.graph,
+        events: trace,
+      })
+      return { workflows: [built.workflow], events: built.events }
+    }),
+  )
+
   const workflows: FlightRecorderWorkflow[] = []
   const events: FlightRecorderEvent[] = []
-  for (const id of instanceIds) {
-    const inst = await loadInstance(esql, id)
-    if (!inst) continue
-    const trace = await listTraceEvents({ workflowInstanceId: id })
-    const built = buildFlightRecorderWorkflow({
-      workflowInstanceId: id,
-      definitionId: inst.definitionId,
-      definitionKey: inst.definitionKey,
-      definitionVersion: inst.definitionVersion,
-      definitionMissing: inst.definitionMissing,
-      status: inst.status,
-      graph: inst.graph,
-      events: trace,
-    })
-    workflows.push(built.workflow)
-    events.push(...built.events)
+  for (const part of loaded) {
+    workflows.push(...part.workflows)
+    events.push(...part.events)
   }
 
   // Transaction context from the primary instance's subject (deal) + labels.

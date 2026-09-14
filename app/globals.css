@@ -790,6 +790,31 @@
 
 .story-kanban .wx-column-cards {
   gap: 6px;
+  /* The panel is a fixed-height box, so a column with more stories than fit used to be
+     clipped with no way to reach the rest. The cards area scrolls; the column header and the
+     board frame stay put. */
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* A visible, brand-consistent slider: on the midnight board the default OS bar disappears
+   against the navy, so the column gave no hint that more stories existed below. */
+.story-kanban .wx-column-cards::-webkit-scrollbar {
+  width: 8px;
+}
+
+.story-kanban .wx-column-cards::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.story-kanban .wx-column-cards::-webkit-scrollbar-thumb {
+  background: rgba(198, 161, 91, 0.45);
+  border-radius: 999px;
+}
+
+.story-kanban .wx-column-cards::-webkit-scrollbar-thumb:hover {
+  background: rgba(198, 161, 91, 0.7);
 }
 
 .story-kanban .wx-card {

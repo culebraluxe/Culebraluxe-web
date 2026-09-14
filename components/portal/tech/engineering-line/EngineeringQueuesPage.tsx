@@ -268,7 +268,7 @@ export function EngineeringQueuesPage({
             drag a story along the line · ENGINE QUEUE fills from the engine
           </p>
         </div>
-        <div className="h-[520px] overflow-hidden rounded-lg border border-white/10 bg-white/[0.02] p-2">
+        <div className="h-[520px] overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">
           <StoryKanbanBoard
             cards={sorterCards}
             columns={sorterColumns}
