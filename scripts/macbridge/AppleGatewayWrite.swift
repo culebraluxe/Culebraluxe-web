@@ -159,7 +159,8 @@ case "reminder_upsert":
   }
   _ = sem.wait(timeout: .now() + 30)
 
-  let reminder = reminders.first(where: { ($0.notes ?? "").contains(marker) }) ?? EKReminder(eventStore: store)
+  let existingReminder = reminders.first(where: { ($0.notes ?? "").contains(marker) })
+  let reminder = existingReminder ?? EKReminder(eventStore: store)
   if reminder.calendar == nil { reminder.calendar = calendar }
   reminder.title = command.title
   reminder.notes = mergedNotes(command.notes, marker: marker)
@@ -171,9 +172,9 @@ case "reminder_upsert":
   reminder.dueDateComponents = calendarDateComponents(command.dueAt)
 
   do {
-    let existed = reminder.eventIdentifier != nil
+    let existed = existingReminder != nil
     try store.save(reminder, commit: true)
-    print("result=\(existed ? "updated" : "created") kind=reminder_upsert external_id=\(reminder.eventIdentifier ?? "")")
+    print("result=\(existed ? "updated" : "created") kind=reminder_upsert external_id=\(reminder.calendarItemIdentifier)")
   } catch {
     fail("apple-gateway-write: reminder save failed: \(error.localizedDescription)")
   }
