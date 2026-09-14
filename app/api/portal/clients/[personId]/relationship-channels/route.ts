@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import type { ClientRelationshipChannel } from "@/lib/portal/types"
 import { coreServices } from "@/lib/service-runtime"
@@ -21,6 +23,17 @@ async function GETHandler(
   _req: NextRequest,
   { params }: { params: Promise<{ personId: string }> },
 ) {
+  // Authority matches the screen: portal.read.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'portal.read')
+  if (!access.ok) {
+    return NextResponse.json(
+      {
+        error: 'unauthorized',
+        detail: 'This portal data requires portal.read.',
+      },
+      { status: 401 },
+    )
+  }
   const { personId } = await params
   try {
     if (!coreServices.comms) {

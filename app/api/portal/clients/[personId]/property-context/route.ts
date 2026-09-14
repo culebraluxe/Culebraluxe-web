@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { SqlPropertyRepository } from '@/db/property-service-repository'
@@ -26,6 +28,17 @@ async function GETHandler(
   _request: NextRequest,
   { params }: { params: Promise<{ personId: string }> },
 ) {
+  // Authority matches the screen: portal.read.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'portal.read')
+  if (!access.ok) {
+    return NextResponse.json(
+      {
+        error: 'unauthorized',
+        detail: 'This portal data requires portal.read.',
+      },
+      { status: 401 },
+    )
+  }
   const { personId } = await params
   const result = await propertyService.execute({
     operation: PROPERTY_OPERATIONS.FOR_PERSON,

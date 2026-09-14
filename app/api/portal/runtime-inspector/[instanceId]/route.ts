@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { captureServerError } from '@/lib/server-error-capture'
 import { getRuntimeInspection } from "@/workflow_app/runtime-inspector-read"
@@ -15,6 +17,17 @@ async function GETHandler(
   req: NextRequest,
   { params }: { params: Promise<{ instanceId: string }> },
 ) {
+  // Authority matches the screen: tech.access.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'tech.access')
+  if (!access.ok) {
+    return NextResponse.json(
+      {
+        error: 'unauthorized',
+        detail: 'This portal data requires tech.access.',
+      },
+      { status: 401 },
+    )
+  }
   const { instanceId } = await params
   const at = req.nextUrl.searchParams.get("at")
   const atIso = at && at !== "now" ? at : null

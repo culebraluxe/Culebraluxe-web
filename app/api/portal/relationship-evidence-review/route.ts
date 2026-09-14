@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { getRelationshipEvidenceReview } from "@/db/relationship-evidence"
 import type { ReviewState } from "@/lib/relationship-intel/contracts"
 import { withApiHandler } from '@/lib/error-capture-seam'
@@ -22,6 +24,17 @@ const VALID_REVIEW_STATES: ReviewState[] = [
 ]
 
 async function GETHandler(req: NextRequest) {
+  // Authority matches the screen: portal.read.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'portal.read')
+  if (!access.ok) {
+    return NextResponse.json(
+      {
+        error: 'unauthorized',
+        detail: 'This portal data requires portal.read.',
+      },
+      { status: 401 },
+    )
+  }
   const params = req.nextUrl.searchParams
   const rawState = params.get("reviewState")
   const reviewState: ReviewState | "all" =

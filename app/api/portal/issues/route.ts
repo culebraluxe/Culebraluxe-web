@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { getIssueQueue } from "@/db/issues"
 import type {
@@ -27,6 +29,17 @@ function intParam(value: string | null, fallback: number, min: number, max: numb
 }
 
 async function GETHandler(req: NextRequest) {
+  // Authority matches the screen: portal.read.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'portal.read')
+  if (!access.ok) {
+    return NextResponse.json(
+      {
+        error: 'unauthorized',
+        detail: 'This portal data requires portal.read.',
+      },
+      { status: 401 },
+    )
+  }
   const params = req.nextUrl.searchParams
   const scope = VALID_SCOPES.includes(params.get("scope") as IssueResponsibility)
     ? (params.get("scope") as IssueResponsibility)

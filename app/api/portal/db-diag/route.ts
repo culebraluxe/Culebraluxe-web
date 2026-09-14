@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
+import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { dbTargetInfo } from "@/db/database-gateway"
 import { sql } from "@/db/client"
@@ -11,6 +13,17 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 export const dynamic = "force-dynamic"
 
 async function GETHandler() {
+  // Authority matches the screen: tech.access.
+  const access = await resolvePortalAccess(createAuthJsSessionAdapter(), 'tech.access')
+  if (!access.ok) {
+    return NextResponse.json(
+      {
+        error: 'unauthorized',
+        detail: 'This portal data requires tech.access.',
+      },
+      { status: 401 },
+    )
+  }
   const info = dbTargetInfo()
   let directoryCount: number | null = null
   let personCount: number | null = null
