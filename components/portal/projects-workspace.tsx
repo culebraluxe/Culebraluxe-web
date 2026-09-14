@@ -20,6 +20,7 @@ import {
   Home,
   Image,
   KeyRound,
+  ListChecks,
   Megaphone,
   PenLine,
   Search,
@@ -31,6 +32,7 @@ import type {
   ProjectPlan,
   ProjectPole,
   ProjectSecondaryViewProvenance,
+  ProjectsWorkspaceScope,
   ProjectWorkNode,
   ProjectWorkStatus,
   ProjectsWorkspaceData,
@@ -134,6 +136,52 @@ const VIEW_LABEL: Record<ProjectWorkspaceView, string> = {
 }
 const VIEWS = Object.keys(VIEW_LABEL) as ProjectWorkspaceView[]
 
+type CatchUpEntry = {
+  node: ProjectWorkNode
+  project: ProjectPlan
+  pole: ProjectPole
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function dueDateKey(value: string | undefined): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : localDateKey(date)
+}
+
+/** Catch-Up is a projection over the SAME WBS rows: all Projects, due today only. */
+function collectCatchUpEntries(poles: readonly ProjectPole[], date: Date): CatchUpEntry[] {
+  const today = localDateKey(date)
+  const entries: CatchUpEntry[] = []
+
+  const visit = (nodes: readonly ProjectWorkNode[], pole: ProjectPole, project: ProjectPlan) => {
+    for (const node of nodes) {
+      if (node.status !== "dismissed" && dueDateKey(node.dueAt) === today) {
+        entries.push({ node, project, pole })
+      }
+      if (node.children?.length) visit(node.children, pole, project)
+    }
+  }
+
+  for (const pole of poles) {
+    for (const project of pole.projects) visit(project.workNodes, pole, project)
+  }
+
+  return entries.sort((a, b) => {
+    const aDone = a.node.status === "complete" ? 1 : 0
+    const bDone = b.node.status === "complete" ? 1 : 0
+    if (aDone !== bDone) return aDone - bDone
+    const projectOrder = a.project.title.localeCompare(b.project.title)
+    return projectOrder || a.node.title.localeCompare(b.node.title)
+  })
+}
+
 function StatusDot({ status, className }: { status: ProjectWorkStatus; className?: string }) {
   return <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_BAR[status]} ${className ?? ""}`} />
 }
@@ -190,16 +238,34 @@ function findWorkNode(project: ProjectPlan | null, nodeId: string | null): Proje
 type DomainRailProps = {
   domains: ReadonlyArray<{ key: ProjectDomainKey; shortLabel: string }>
   active: ProjectDomainKey
+  catchUpActive: boolean
+  onCatchUp: () => void
   onSelect: (domain: ProjectDomainKey) => void
 }
 
-/** Vertical domain tabs that live INSIDE Pane 1 — not global navigation. */
-function DomainRail({ domains, active, onSelect }: DomainRailProps) {
+/** Vertical scope/domain tabs that live INSIDE Pane 1 — not global navigation. */
+function DomainRail({ domains, active, catchUpActive, onCatchUp, onSelect }: DomainRailProps) {
   return (
-    <div className="flex w-[86px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project domain">
+    <div className="flex w-[86px] shrink-0 flex-col items-center border-r border-white/10 py-3" aria-label="Project scope and domain">
+      <button
+        type="button"
+        onClick={onCatchUp}
+        title="Catch-Up"
+        aria-current={catchUpActive ? "page" : undefined}
+        className={`group relative flex w-full flex-col items-center gap-1.5 py-2.5 transition ${catchUpActive ? "" : "opacity-95 hover:opacity-100"}`}
+      >
+        <span className={`absolute inset-y-2 left-0 w-[3px] rounded-r-full transition ${catchUpActive ? "bg-[var(--portal-gold)]" : "bg-transparent group-hover:bg-white/30"}`} />
+        <span className={`flex h-10 w-10 items-center justify-center rounded-xl transition ${catchUpActive ? "bg-black/25 text-[var(--portal-gold)] shadow-sm ring-1 ring-inset ring-white/25" : "bg-white/[0.07] text-white/85 group-hover:bg-white/[0.16] group-hover:text-white"}`}>
+          <ListChecks className="h-[23px] w-[23px]" strokeWidth={1.6} aria-hidden />
+        </span>
+        <span className={`text-center text-[14px] font-medium uppercase leading-tight tracking-[0.02em] ${catchUpActive ? "text-white" : "text-white/70 group-hover:text-white/95"}`}>
+          Catch-Up
+        </span>
+      </button>
+      <div className="my-1 w-[60%] border-b border-white/15" aria-hidden />
       {domains.map((domain) => {
         const Icon = DOMAIN_ICON[domain.key]
-        const isActive = domain.key === active
+        const isActive = !catchUpActive && domain.key === active
         return (
           <button
             key={domain.key}
@@ -344,16 +410,18 @@ function ProjectTreeNodeView({ node, style }: NodeRendererProps<ProjectTreeNode>
 type PaneOneProps = {
   domains: ReadonlyArray<{ key: ProjectDomainKey; label: string; shortLabel: string }>
   activeDomain: ProjectDomainKey
+  catchUpActive: boolean
   query: string
   treeData: ProjectTreeNode[]
   selectedCompositeId: string | null
+  onCatchUp: () => void
   onSelectDomain: (d: ProjectDomainKey) => void
   onQuery: (q: string) => void
   onSelectData: (node: ProjectTreeNode | null) => void
   onActivateData?: (node: ProjectTreeNode) => void
 }
 
-/** Pane 1 — ONE glass object: vertical domain tabs fused with the arborist tree. */
+/** Pane 1 — ONE glass object: vertical scope/domain tabs fused with the arborist tree. */
 function PaneOne(props: PaneOneProps) {
   const activeLabel = props.domains.find((d) => d.key === props.activeDomain)?.label ?? ""
   const [treeWrapRef, height] = useMeasuredHeight()
@@ -376,7 +444,13 @@ function PaneOne(props: PaneOneProps) {
   return (
     <section className={PROJECTS_SURFACE.navigator.className}>
       <div className="flex min-h-0 flex-1">
-        <DomainRail domains={props.domains} active={props.activeDomain} onSelect={props.onSelectDomain} />
+        <DomainRail
+          domains={props.domains}
+          active={props.activeDomain}
+          catchUpActive={props.catchUpActive}
+          onCatchUp={props.onCatchUp}
+          onSelect={props.onSelectDomain}
+        />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="border-b border-white/10 px-3 pb-2 pt-3">
             <p className="text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">{activeLabel}</p>
@@ -602,12 +676,114 @@ function ProjectionState({
   )
 }
 
+function CatchUpWorkspace({
+  entries,
+  today,
+  onOpenEntry,
+  onNewProject,
+}: {
+  entries: readonly CatchUpEntry[]
+  today: Date | null
+  onOpenEntry: (entry: CatchUpEntry) => void
+  onNewProject?: () => void
+}) {
+  const completed = entries.filter((entry) => entry.node.status === "complete").length
+  const dateLabel = today
+    ? today.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+    : "Today"
+
+  return (
+    <>
+      <div className="border-b border-[var(--portal-panel-border)] px-3 py-2">
+        <div className="flex min-h-11 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--portal-navy)] text-[var(--portal-gold)] shadow-sm">
+              <ListChecks className="h-5 w-5" strokeWidth={1.7} aria-hidden />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-medium uppercase tracking-[0.14em] text-[var(--portal-gold)]">Catch-Up</span>
+              <span className="block text-[11px] font-light uppercase tracking-[0.08em] text-[var(--portal-blue-gray)]">Today · {dateLabel}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="text-[11px] font-light text-[var(--portal-blue-gray)]">
+              {entries.length ? `${completed} of ${entries.length} complete` : "Today"}
+            </span>
+            {onNewProject ? (
+              <button
+                type="button"
+                onClick={onNewProject}
+                className="rounded-full bg-[var(--portal-navy)] px-3.5 py-2 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90"
+              >
+                New Project
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
+        <div className={`min-h-0 flex-1 ${PROJECTS_SCROLL_CLASS} overflow-x-auto rounded-[var(--portal-tab-radius)] border border-white/40 bg-white/20`}>
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_28px] gap-3 border-b border-[var(--portal-panel-border)]/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
+              <span />
+              <span>Task</span>
+              <span>Project</span>
+              <span>Area</span>
+              <span>Assignee</span>
+              <span />
+            </div>
+            {!today ? (
+              <div className="flex min-h-[220px] items-center justify-center px-6 text-sm font-light text-black/40">Loading today’s work…</div>
+            ) : entries.length === 0 ? (
+              <div className="flex min-h-[220px] items-center justify-center px-6 text-center text-sm font-light text-black/45">
+                No project tasks are due today.
+              </div>
+            ) : (
+              <ul className="divide-y divide-[var(--portal-panel-border)]/70">
+                {entries.map((entry) => {
+                  const done = entry.node.status === "complete"
+                  return (
+                    <li key={`${entry.project.id}:${entry.node.id}`}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenEntry(entry)}
+                        className={`grid w-full grid-cols-[30px_minmax(230px,1.55fr)_minmax(180px,1fr)_140px_minmax(120px,0.75fr)_28px] items-center gap-3 px-3 py-3 text-left transition hover:bg-white/30 ${done ? "opacity-55" : ""}`}
+                      >
+                        <StatusIcon status={entry.node.status} />
+                        <span className="min-w-0">
+                          <span className={`block truncate text-[14px] font-medium text-[var(--portal-navy)] ${done ? "line-through" : ""}`}>{entry.node.title}</span>
+                          <span className="mt-0.5 block text-[10px] font-light uppercase tracking-[0.08em] text-black/40">{STATUS_LABEL[entry.node.status]}</span>
+                        </span>
+                        <span className="min-w-0 truncate text-[13px] font-light text-[var(--portal-navy)]">{entry.project.title}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[12px] font-medium capitalize text-[var(--portal-navy-soft)]">{entry.pole.domain}</span>
+                          <span className="block truncate text-[10px] font-light text-black/40">{entry.pole.label}</span>
+                        </span>
+                        <span className="truncate text-[12px] font-light text-[var(--portal-blue-gray)]">{entry.node.owner ?? "—"}</span>
+                        <ChevronRight className="h-4 w-4 text-black/25" aria-hidden />
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 type PaneTwoProps = {
   pole: ProjectPole | null
   project: ProjectPlan | null
+  workspaceScope: ProjectsWorkspaceScope
+  catchUpEntries: readonly CatchUpEntry[]
+  today: Date | null
   activeView: ProjectWorkspaceView
   selectedNodeId: string | null
   selectedNode: ProjectWorkNode | null
+  onOpenCatchUpEntry: (entry: CatchUpEntry) => void
   onSelectView: (v: ProjectWorkspaceView) => void
   onSelectNode: (id: string | null) => void
   onStatusChange?: (status: "open" | "doing" | "done" | "archived") => void
@@ -616,11 +792,13 @@ type PaneTwoProps = {
   onNewProject?: () => void
 }
 
-/** Pane 2 — the dominant working surface. */
-function PaneTwo({ pole, project, activeView, selectedNodeId, selectedNode, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved, onNewProject }: PaneTwoProps) {
+/** Pane 2 — the dominant working surface. Catch-Up swaps this pane, never the route. */
+function PaneTwo({ pole, project, workspaceScope, catchUpEntries, today, activeView, selectedNodeId, selectedNode, onOpenCatchUpEntry, onSelectView, onSelectNode, onStatusChange, statusPending, onWorkSaved, onNewProject }: PaneTwoProps) {
   return (
     <section className={PROJECTS_SURFACE.canvas.className}>
-      {!pole || !project ? (
+      {workspaceScope === "catchup" ? (
+        <CatchUpWorkspace entries={catchUpEntries} today={today} onOpenEntry={onOpenCatchUpEntry} onNewProject={onNewProject} />
+      ) : !pole || !project ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm font-light text-black/45">
           Choose a Pole and Project from the navigator.
         </div>
@@ -857,6 +1035,7 @@ export function ProjectsWorkspace({
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState("")
   const [newProjectError, setNewProjectError] = useState<string | null>(null)
+  const [today, setToday] = useState<Date | null>(null)
   const [isCreating, startCreating] = useTransition()
   const [isUpdatingStatus, startUpdatingStatus] = useTransition()
   const source = useMemo(
@@ -869,6 +1048,12 @@ export function ProjectsWorkspace({
   useEffect(() => {
     void controller.dispatch({ operation: "projects.load", payload: {} })
   }, [controller])
+
+  useEffect(() => {
+    // Resolve "today" in the browser's local timezone. The server may be UTC,
+    // and Catch-Up must mean the user's day rather than the deployment region's.
+    setToday(new Date())
+  }, [])
 
   const domains = model.data?.domains ?? []
   const domainPoles = (model.data?.poles ?? []).filter((pole) => pole.domain === model.activeDomain)
@@ -885,6 +1070,10 @@ export function ProjectsWorkspace({
   const selectedPole = (model.data?.poles ?? []).find((p) => p.id === model.selectedPoleId) ?? null
   const selectedProject = selectedPole?.projects.find((p) => p.id === model.selectedProjectId) ?? null
   const selectedNode = findWorkNode(selectedProject, model.selectedNodeId)
+  const catchUpEntries = useMemo(
+    () => (today ? collectCatchUpEntries(model.data?.poles ?? [], today) : []),
+    [model.data?.poles, today],
+  )
 
   const createProject = useCallback(() => {
     const name = newProjectName.trim()
@@ -942,6 +1131,18 @@ export function ProjectsWorkspace({
     [controller],
   )
 
+  const openCatchUpEntry = useCallback(
+    async (entry: CatchUpEntry) => {
+      await controller.dispatch({ operation: "projects.selectDomain", payload: { domain: entry.pole.domain } })
+      await controller.dispatch({
+        operation: "projects.selectProject",
+        payload: { poleId: entry.pole.id, projectId: entry.project.id },
+      })
+      await controller.dispatch({ operation: "projects.selectNode", payload: { nodeId: entry.node.id } })
+    },
+    [controller],
+  )
+
   const loadState = model.data?.loadState ?? initialData?.loadState
   const serverStatus = loadState?.status
 
@@ -970,9 +1171,11 @@ export function ProjectsWorkspace({
       <PaneOne
         domains={domains}
         activeDomain={model.activeDomain}
+        catchUpActive={model.workspaceScope === "catchup"}
         query={model.query}
         treeData={treeData}
-        selectedCompositeId={selectedCompositeId}
+        selectedCompositeId={model.workspaceScope === "catchup" ? null : selectedCompositeId}
+        onCatchUp={() => void controller.dispatch({ operation: "projects.selectScope", payload: { scope: "catchup" } })}
         onSelectDomain={(domain) => void controller.dispatch({ operation: "projects.selectDomain", payload: { domain } })}
         onQuery={(query) => void controller.dispatch({ operation: "projects.queryChanged", payload: { query } })}
         onSelectData={handleTreeSelect}
@@ -980,9 +1183,13 @@ export function ProjectsWorkspace({
       <PaneTwo
         pole={selectedPole}
         project={selectedProject}
+        workspaceScope={model.workspaceScope}
+        catchUpEntries={catchUpEntries}
+        today={today}
         activeView={model.activeView}
         selectedNodeId={model.selectedNodeId}
         selectedNode={selectedNode}
+        onOpenCatchUpEntry={(entry) => void openCatchUpEntry(entry)}
         onSelectView={(view) => void controller.dispatch({ operation: "projects.selectView", payload: { view } })}
         onSelectNode={(nodeId) => void controller.dispatch({ operation: "projects.selectNode", payload: { nodeId } })}
         onStatusChange={updateStatus}
