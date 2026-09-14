@@ -156,6 +156,9 @@ export type ProjectWorkspaceView =
   | "financials"
   | "activity"
 
+/** Project = one selected Project; Catch-Up = today's WBS work across every Project. */
+export type ProjectsWorkspaceScope = "project" | "catchup"
+
 export type ProjectsWorkspacePageModel = {
   data: ProjectsWorkspaceData | null
   query: string
@@ -165,6 +168,7 @@ export type ProjectsWorkspacePageModel = {
   selectedProjectId: string | null
   selectedNodeId: string | null
   activeView: ProjectWorkspaceView
+  workspaceScope: ProjectsWorkspaceScope
   loading: boolean
   error: string | null
 }
@@ -178,6 +182,7 @@ export const INITIAL_PROJECTS_WORKSPACE_MODEL: ProjectsWorkspacePageModel = {
   selectedProjectId: null,
   selectedNodeId: null,
   activeView: "work-plan",
+  workspaceScope: "project",
   loading: true,
   error: null,
 }
@@ -187,6 +192,7 @@ type EmptyPayload = Record<string, never>
 export type ProjectsWorkspaceIntentMap = {
   "projects.load": { request: EmptyPayload; response: void }
   "projects.queryChanged": { request: { query: string }; response: void }
+  "projects.selectScope": { request: { scope: ProjectsWorkspaceScope }; response: void }
   "projects.selectDomain": { request: { domain: ProjectDomainKey }; response: void }
   "projects.togglePole": { request: { poleId: string }; response: void }
   "projects.selectPole": { request: { poleId: string }; response: void }
