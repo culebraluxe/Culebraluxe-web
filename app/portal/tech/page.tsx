@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
-import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
+import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line"
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { listForgeConvergence } from "@/db/forge-convergence"
@@ -94,9 +94,9 @@ export default async function TechPage({
           App Error Capture →
         </Link>
       </div>
-      <EngineeringCockpit
+      <EngineeringQueuesPage
         cockpit={cockpit}
-        activeQueue={activeQueue}
+        activeWork={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}
         runs={runs}
