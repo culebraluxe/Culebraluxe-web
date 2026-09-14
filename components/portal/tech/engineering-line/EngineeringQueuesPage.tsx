@@ -104,6 +104,11 @@ export type EngineeringQueuesPageProps = {
    */
   batches?: ForgeBatch[] | null
   /**
+   * The batch currently being BUILT, from the table. Its member count is what "Run batch now" will fire,
+   * so the button and the run agree by construction ("if it's in the table it goes").
+   */
+  stagingBatch?: ForgeBatch | null
+  /**
    * The engine's own lanes, from the engine ledger: one entry per story, newest attempt first.
    * RUNNING and RESULTS are built from this; without it they would have to fall back to fixture
    * data, which is how a card in "ENGINE DONE" ended up standing for a story the engine never ran.
@@ -201,6 +206,7 @@ export function EngineeringQueuesPage({
   batchStories,
   versionLabel,
   batches,
+  stagingBatch,
 }: EngineeringQueuesPageProps) {
   const router = useRouter()
   // THE ENGINE'S LANES COME FROM THE ENGINE — there is no fixture on this screen any more.
@@ -277,7 +283,15 @@ export function EngineeringQueuesPage({
   // Statuses untouched.") — a bulk action must say what it did.
   const [clearingBench, setClearingBench] = useState(false)
   const [benchResult, setBenchResult] = useState<string | null>(null)
-  const batchCount = (batchStories ?? []).length
+  // THE COUNT COMES FROM THE TABLE — the same rows the run will read. The board's `Batched` cards and the
+  // table are written by one action, so they agree; if they ever drift (a story staged before the table
+  // existed), the number the button fires from is the table's, and the tooltip says so.
+  const stagedOnBoard = (batchStories ?? []).length
+  const batchCount = stagingBatch?.storyCount ?? stagedOnBoard
+  const batchCountNote =
+    stagingBatch && stagingBatch.storyCount !== stagedOnBoard
+      ? ` · the table holds ${stagingBatch.storyCount}, the board shows ${stagedOnBoard}`
+      : ''
   const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
@@ -476,7 +490,7 @@ export function EngineeringQueuesPage({
                   setBatchSending(false)
                 }
               }}
-              title="Queues real Forge work for every story staged in ENGINE BATCH (status → Ready)."
+              title={`Queues real Forge work for every story in the batch table (status → Ready).${batchCountNote}`}
               className="shrink-0 rounded border border-[#c6a15b]/50 bg-[#c6a15b]/15 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#e0c489] transition hover:bg-[#c6a15b]/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {batchSending ? 'Sending…' : `Run batch now (${batchCount}) → engine`}

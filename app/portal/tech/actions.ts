@@ -9,8 +9,10 @@ import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveW
 import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from "@/db/agent-work"
 import {
   cancelForgeBatch,
-  createForgeBatch,
-  fireForgeBatch,
+  fireStagingBatch,
+  scheduleStagingBatch,
+  stageStoryForBatch,
+  unstageStoryForBatch,
 } from "@/db/forge-batch"
 import {
   ENGINE_DISPATCH_STATUS,
@@ -117,6 +119,13 @@ async function moveStoryBucketActionHandler(
     return { ok: true, note: await leavingEngineNote(storyId, source, target) }
   }
 
+  // LEAVING ENGINE BATCH TAKES THE ROW WITH THE CARD. The board and the table stay in step, so the run
+  // never guesses membership from a status: "if it's in the table it goes" only holds if leaving the
+  // column removes the row.
+  if (source === "batch" && target !== "batch") {
+    await unstageStoryForBatch(storyId)
+  }
+
   if (target === "engine") {
     // Deliberate: this is the dispatch. The status change creates the work item.
     await setStoryboardStatus(storyId, ENGINE_DISPATCH_STATUS)
@@ -139,6 +148,15 @@ async function moveStoryBucketActionHandler(
   }
 
   await setStoryboardStatus(storyId, status)
+
+  // STAGING WRITES THE TABLE (the Kahnban -> table sync). By the time the card is drawn in ENGINE BATCH
+  // there is a `forge_batch_item` row for it, so "Run batch now" fires the ROWS rather than re-deriving
+  // a list from statuses and hoping the two agree.
+  if (target === "batch") {
+    const staged = await stageStoryForBatch(storyId, actorId)
+    return { ok: true, note: `staged in the table (${staged.members} in the batch)` }
+  }
+
   return { ok: true }
 }
 
@@ -183,19 +201,12 @@ async function sendEngineBatchActionHandler(): Promise<{
   const access = await resolvePortalAccess(createAuthJsSessionAdapter(), "tech.access")
   if (!access.ok) redirect(access.redirectTo)
 
-  const staged = await listStoryIdsWithStatus(STATUS_BY_BUCKET.batch ?? "Batched")
-  if (staged.length === 0) return { ok: true, queued: 0, failed: [] }
-
-  // A MANUAL SEND IS STILL A BATCH (migration 178): it gets a durable record like a scheduled one, so
-  // "what did I send, when, and how did it end" is answerable afterwards either way.
-  const batch = await createForgeBatch({
-    storyIds: staged,
-    label: `manual send ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
-    actorId: access.actor.appUserId,
-    note: 'fired from the Cockpit ENGINE BATCH column',
-  })
-  const result = await fireForgeBatch(batch.id)
-  return { ok: result.failed.length === 0, queued: result.queued, failed: result.failed, batchId: batch.id }
+  // THE TABLE IS THE JOB STREAM. `fireStagingBatch` reads `forge_batch_item` (after sweeping up any
+  // story staged before the table existed), so what runs is exactly what the board wrote — the count in
+  // the button and the count that fires come from the same rows.
+  const result = await fireStagingBatch()
+  if (!result) return { ok: true, queued: 0, failed: [] }
+  return { ok: result.failed.length === 0, queued: result.queued, failed: result.failed, batchId: result.batchId }
 }
 
 export const sendEngineBatchAction = withServerErrorCapture(
@@ -229,13 +240,13 @@ async function scheduleEngineBatchActionHandler(
     return { ok: false, error: "nothing is staged in ENGINE BATCH yet" }
   }
 
-  const batch = await createForgeBatch({
-    storyIds: staged,
-    label: label?.trim() ? label.trim() : `night run ${when.toISOString().slice(0, 16).replace('T', ' ')}`,
-    scheduledFor: when.toISOString(),
-    actorId: access.actor.appUserId,
-    note: `scheduled from the Cockpit for ${when.toISOString()}`,
-  })
+  // Same row, same membership — scheduling only puts a TIME on the staging batch, so a scheduled run
+  // and an immediate one differ in when, not in what.
+  const batch = await scheduleStagingBatch(
+    when.toISOString(),
+    access.actor.appUserId,
+    label?.trim() ? label.trim() : `night run ${when.toISOString().slice(0, 16).replace('T', ' ')}`,
+  )
   return { ok: true, batchId: batch.id, stories: batch.storyCount, scheduledFor: batch.scheduledFor ?? undefined }
 }
 

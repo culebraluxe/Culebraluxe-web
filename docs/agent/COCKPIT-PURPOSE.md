@@ -63,6 +63,18 @@ work up in advance and fire it later, which is the point of batching.
   "what did I load up, when will it run, and how did the last one end?" instead of only showing its
   current state. Verified on PROD: scheduling a batch dispatched **0** work items; firing it dispatched
   exactly 1 per member; the story's batch history showed `Queued` with a timestamp.
+- **THE BOARD SYNCS TO THE TABLE (Autosys model).** The captain ran trillion-dollar overnight cycles for
+  15 years: "there is real time and batch overnight ... it only has to do one thing: grab the stories in
+  that table and go ... if its in the table it goes". So `forge_batch_item` is the JOB STREAM and the
+  board is its view: staging a card writes the row, taking the card out deletes it, and firing reads the
+  ROWS (`fireStagingBatch`) instead of re-deriving a list from statuses. One open staging batch at a
+  time; scheduling puts a time on that same row. Verified on PROD, net zero: stage → 1 row & 0 work
+  items; unstage → 0 rows; run the table → 1 work item; withdraw → restored.
+- **THE UNATTENDED WORKER SYNCS ITS CODE.** The launchd wrapper is deployed from
+  `scripts/agent-worker-once.sh` and fast-forwards the checkout (`git pull --ff-only origin main`) before
+  working. It was found STALE on 2026-09-14 (a deployed copy with no git sync at all, so an overnight run
+  would execute whatever code happened to be checked out); reinstalled, `wrapper: synced
+  sha256=77ea506cf062`, worker running.
 - **A SCHEDULED BATCH FIRES ITSELF.** `fireDueForgeBatches()` runs at the top of every unattended
   worker pass, and the launchd scheduler already wakes that command every 3 minutes — so a batch
   scheduled for 02:00 runs at 02:00 with nobody awake, and there is no second daemon or cron entry to

@@ -90,10 +90,13 @@ export function mapForgeBatch(row: Record<string, unknown>): ForgeBatch {
 export async function createForgeBatch(
   input: CreateForgeBatchInput,
   execute?: QueryExecutor,
+  options?: { allowEmpty?: boolean },
 ): Promise<ForgeBatch> {
   const q = execute ?? (await executor())
   const storyIds = [...new Set(input.storyIds.map((s) => String(s).trim()).filter(Boolean))]
-  if (storyIds.length === 0) throw new Error('a batch needs at least one story')
+  if (storyIds.length === 0 && !options?.allowEmpty) {
+    throw new Error('a batch needs at least one story')
+  }
 
   const status: ForgeBatchStatus = input.scheduledFor ? 'Scheduled' : 'Staged'
   const rows = await q`
@@ -237,6 +240,157 @@ export async function fireDueForgeBatches(
     results.push(await fireForgeBatch(String(row.id), q))
   }
   return results
+}
+
+// ---------------------------------------------------------------------------
+// THE STAGING BATCH — the board's ENGINE BATCH column and `forge_batch` kept in step.
+//
+// THE AUTOSYS MODEL, which is what the captain ran overnight cycles with for 15 years: a TABLE is the
+// job stream and the tool is its view. "if its in the table it goes" (2026-09-14). So membership is not
+// re-derived from a status at fire time any more - the board WRITES the row when a story is staged and
+// DELETES it when the story leaves, and firing reads the rows.
+//
+// ONE OPEN STAGING BATCH at a time: the newest `Staged` batch is the one being built. Staging a story
+// ensures it exists, then adds the member; unstaging removes the member (and the empty batch can be
+// left behind harmlessly as history of an abandoned staging).
+//
+// BACKFILL, because the two directions have to agree during the changeover: `fireStagingBatch` also
+// sweeps up any story whose status is still `Batched` but which has no row yet (staged before this
+// table existed), so nothing that looks staged on the board is silently dropped from the run.
+// ---------------------------------------------------------------------------
+
+/** The newest batch still being built, or null when nothing is staged. */
+export async function getStagingBatch(execute?: QueryExecutor): Promise<ForgeBatch | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note,
+      (select count(*)::int from forge_batch_item i where i.batch_id = b.id) as story_count,
+      (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Queued') as queued_count,
+      (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Skipped') as skipped_count
+    from forge_batch b
+    where b.status = 'Staged'
+    order by b.created_at desc
+    limit 1
+  `
+  const row = rows[0] as Record<string, unknown> | undefined
+  return row ? mapForgeBatch(row) : null
+}
+
+/** The staging batch, created on first use. */
+export async function ensureStagingBatch(
+  actorId?: string | null,
+  execute?: QueryExecutor,
+): Promise<ForgeBatch> {
+  const existing = await getStagingBatch(execute)
+  if (existing) return existing
+  return createForgeBatch(
+    {
+      storyIds: [],
+      label: 'staging',
+      actorId: actorId ?? null,
+      note: 'built by the Cockpit ENGINE BATCH column',
+    },
+    execute,
+    { allowEmpty: true },
+  )
+}
+
+/** STAGE: the story is now a row in the table. Idempotent. */
+export async function stageStoryForBatch(
+  storyId: string,
+  actorId?: string | null,
+  execute?: QueryExecutor,
+): Promise<{ batchId: string; members: number }> {
+  const q = execute ?? (await executor())
+  const batch = await ensureStagingBatch(actorId, q)
+  await q`
+    insert into forge_batch_item (batch_id, story_id, state)
+    values (${batch.id}, ${storyId}, 'Staged')
+    on conflict (batch_id, story_id) do nothing
+  `
+  const rows = (await q`
+    select count(*)::int as c from forge_batch_item where batch_id = ${batch.id} and state = 'Staged'
+  `) as Array<{ c: number }>
+  return { batchId: batch.id, members: Number(rows[0]?.c ?? 0) }
+}
+
+/** UNSTAGE: the story leaves the table with the card. Only un-fired membership is removed. */
+export async function unstageStoryForBatch(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    delete from forge_batch_item
+    where story_id = ${storyId} and state = 'Staged'
+    returning batch_id
+  `
+  return rows.length
+}
+
+/** Stories whose status says staged but which have no row yet (staged before the table existed). */
+export async function backfillStagingBatch(
+  batchId: string,
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    insert into forge_batch_item (batch_id, story_id, state)
+    select ${batchId}, s.id, 'Staged'
+    from storyboard_story s
+    where s.status = 'Batched'
+      and not exists (
+        select 1 from forge_batch_item i where i.batch_id = ${batchId} and i.story_id = s.id
+      )
+    returning story_id
+  `
+  return rows.length
+}
+
+/**
+ * RUN THE STAGING BATCH — "if it's in the table it goes".
+ *
+ * Reads the rows (after sweeping up anything staged before the table existed) and fires exactly those.
+ * Returns null when there is nothing staged, so the caller can say so instead of reporting "0 queued"
+ * as though a run had happened.
+ */
+export async function fireStagingBatch(
+  execute?: QueryExecutor,
+): Promise<FireForgeBatchResult | null> {
+  const q = execute ?? (await executor())
+  const stagedOnBoard = (await q`
+    select id from storyboard_story where status = 'Batched' order by id
+  `) as Array<{ id: string }>
+  if (stagedOnBoard.length === 0) return null
+
+  const batch = await ensureStagingBatch(null, q)
+  await backfillStagingBatch(batch.id, q)
+  return fireForgeBatch(batch.id, q)
+}
+
+/**
+ * SCHEDULE THE STAGING BATCH — put the time on the table and let the worker fire it.
+ * Same row, same membership; scheduling only says WHEN.
+ */
+export async function scheduleStagingBatch(
+  scheduledForIso: string,
+  actorId?: string | null,
+  label?: string | null,
+  execute?: QueryExecutor,
+): Promise<ForgeBatch> {
+  const q = execute ?? (await executor())
+  const batch = await ensureStagingBatch(actorId, q)
+  await backfillStagingBatch(batch.id, q)
+  const rows = await q`
+    update forge_batch
+    set status = 'Scheduled', scheduled_for = ${new Date(scheduledForIso)}, label = ${label ?? null}
+    where id = ${batch.id}
+    returning id
+  `
+  if (rows.length === 0) throw new Error(`could not schedule batch ${batch.id}`)
+  const updated = await getForgeBatch(batch.id, q)
+  if (!updated) throw new Error(`batch ${batch.id} vanished while scheduling`)
+  return updated
 }
 
 /** Which batches a story has been in — the story's side of the history. */
