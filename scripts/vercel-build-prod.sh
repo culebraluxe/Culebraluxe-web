@@ -19,7 +19,7 @@ cd "$ROOT_DIR"
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 if [[ "$NODE_MAJOR" != "$EXPECTED_NODE_MAJOR" ]]; then
-  fail "Production builds require Node ${EXPECTED_NODE_MAJOR}. Current: $(node --version). Run: nvm use"
+  fail "Production builds require Node ${EXPECTED_NODE_MAJOR}. Current: $(node --version)."
 fi
 
 export VERCEL_ORG_ID
@@ -43,9 +43,28 @@ vercel build --prod
 
 [[ -f .vercel/output/config.json ]] || fail "Build completed without .vercel/output/config.json"
 
+printf '\nRunning artifact safety checks...\n'
+if grep -R -I -l -F '[SENSITIVE]' .vercel/output >/dev/null 2>&1; then
+  fail "A Vercel [SENSITIVE] placeholder was embedded in .vercel/output. Do not deploy this artifact."
+fi
+
+PRIVATE_PATH_MATCH="$({
+  find .vercel/output \
+    \( -path '*/contact-export/*' \
+       -o -path '*/apple-messages-output/*' \
+       -o -path '*/apple-messages-export/output/*' \
+       -o -path '*/public/upload/data/apple-messages-export/*' \
+       -o -name 'culebraluxe-calendar*.json' \) \
+    -print -quit
+} 2>/dev/null || true)"
+if [[ -n "$PRIVATE_PATH_MATCH" ]]; then
+  fail "Private local data was traced into the prebuilt artifact: $PRIVATE_PATH_MATCH"
+fi
+
 git rev-parse HEAD > .vercel/culebraluxe-prod-build-sha
 
 printf '\nLOCAL BUILD COMPLETE\n'
 printf 'Artifact: .vercel/output\n'
+printf 'Size:     %s\n' "$(du -sh .vercel/output | awk '{print $1}')"
 printf 'Commit:   %s\n' "$(git rev-parse HEAD)"
 printf 'Nothing has been deployed.\n'
