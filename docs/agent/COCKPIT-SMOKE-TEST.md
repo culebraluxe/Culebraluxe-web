@@ -35,22 +35,32 @@ work** to tidy a list. The bench is an intent row and nothing else, and that is 
 
 Use `ENG-FORGE-DOCTOR-01` (in OPEN, engine idle, safe to undo).
 
-6. In the SORTER, on the `ENG-FORGE-DOCTOR-01` card, click **`→ Bench`**.
+6. In the SORTER, on the `ENG-FORGE-DOCTOR-01` card, use its **`move to…`** control and choose
+   `Bench`.
    Expect: it leaves OPEN, appears under WORK BENCH, and WORKBENCH reads `(1)`. Its status is
    still `In Progress` — the bench never changes status.
-7. On that card, click **`→ Run Q`**.
+7. On that card, use **`move to…`** and choose `Run Q`.
    Expect: it leaves WORK BENCH, appears under **ENGINE RUN Q**, and disappears from the WORKBENCH
    panel (handing work to the engine takes it off the daily list).
    Expect: this is the ONLY move on the board that starts anything. It writes status `Ready`,
-   and `Ready` is the engine's dispatch trigger: a real `agent_work_item` is created.
+   and `Ready` is the engine's dispatch trigger: a real `agent_work_item` is created. The board
+   says so — `handed to the engine — status Ready queued a real work item`.
+   Expect: the card STAYS in ENGINE RUN Q while the engine has it queued, so the handoff is
+   visible instead of the card vanishing.
 8. Confirm with the engine's own record, not the card:
    `APP_ENV=production node --env-file=.env.local --import tsx scripts/probe-agent-work-state.ts`
    Expect: `OPEN WORK ITEMS … : 1` naming `ENG-FORGE-DOCTOR-01` (it was 0 before step 7).
 9. Expect: the ENGINE panel's QUEUED lane shows it too — that lane is the engine's waiting list,
    the same rows as step 8.
+10. Pull it straight back out: on that card, `move to…` → `Open`.
+    Expect: the board says `withdrew 1 queued engine request`, and the work item is gone —
+    re-run the probe from step 8 and it reads 0 again. There are no rules to break here: the note
+    simply goes back where you put it, and the request it created goes with it.
 
-If a drop or a button is ever refused, the reason is printed on the screen above the board. A
-refusal is a rule talking, and the rules live in `lib/story-moves.ts`.
+There are no forbidden moves left, so a refusal is no longer something to expect. The only
+messages the board shows are facts: `already there`, `withdrew N queued engine requests`, or
+`the engine is ALREADY RUNNING this — the run continues` when you pull back a story the engine has
+actually started.
 
 ## PART 3 — undo the smoke (one command)
 
