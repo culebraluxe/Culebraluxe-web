@@ -71,6 +71,7 @@ function commandPayload(spec: RouteSpec, message: MessageRow): Record<string, un
       allDay: boolOr(payload.allDay),
       location: stringOrNull(payload.location),
       notes: stringOrNull(payload.notes),
+      alert: boolOr(payload.alert),
     }
   }
 
@@ -84,6 +85,7 @@ function commandPayload(spec: RouteSpec, message: MessageRow): Record<string, un
     dueAt: stringOrNull(payload.dueAt),
     completed: boolOr(payload.completed),
     notes: stringOrNull(payload.notes),
+    alert: boolOr(payload.alert),
   }
 }
 
