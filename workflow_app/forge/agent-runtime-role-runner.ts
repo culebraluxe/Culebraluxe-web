@@ -1056,6 +1056,24 @@ export function createAgentRuntimeForgeRoleRunner(
     // failing QA could be handed another loop on an unchanged candidate — exactly the
     // 3am spend this guard exists to stop.
     if ((nodeId === 'qa_verify' || nodeId === 'fast_qa_verify') && evidence.qaPassed === false) {
+      // SAY WHY THE VERDICT IS FALSE. This is the recording gap that cost a night: the Assay
+      // judged the candidate and wrote "Assay verdict: PASS" into its own run row, while this
+      // gate recorded qaPassed=false — and the reason it built (`QA FAIL: blockers=[…]` or
+      // `QA PASS-BUT-NOT-PROMOTABLE: blockers=[…]`) reached NEITHER the run detail nor the
+      // error log, so the only way to learn which blocker fired was to read the code and
+      // infer. Two adjudicators for one verdict is a design question; a refusal that does not
+      // say why is simply a defect.
+      const rawRejection = (evidence as { deliverableRejection?: unknown }).deliverableRejection
+      const rejection =
+        typeof rawRejection === 'string' && rawRejection.trim()
+          ? rawRejection.trim()
+          : 'QA FAILED with no reason recorded by the adjudicator'
+      captureServerLog('warn', 'forge.qa-verdict', `${nodeId}: ${rejection}`)
+      if (finishedItem?.storyRunId) {
+        await appendForgeRunDetail(finishedItem.storyRunId, rejection).catch(() => {
+          /* run detail is durable evidence; a failure here must not also fail the run */
+        })
+      }
       try {
         const { readStoryForgeConvergence } = await import('../../db/forge-convergence')
         const convergence = await readStoryForgeConvergence(resolvedStory.id)
