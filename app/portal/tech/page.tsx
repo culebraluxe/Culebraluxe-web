@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
-import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line"
+import { EngineeringCockpit } from "@/components/portal/tech/engineering-cockpit"
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { listForgeConvergence } from "@/db/forge-convergence"
@@ -76,6 +76,12 @@ export default async function TechPage({
     <div className="min-h-screen bg-[#0b1220]">
       <div className="flex justify-end gap-4 px-4 pt-3 lg:px-6">
         <Link
+          href="/portal/tech/flight-recorder"
+          className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
+        >
+          Flight Recorder →
+        </Link>
+        <Link
           href="/portal/tech/runs"
           className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--portal-navy)]/55 hover:text-[var(--portal-navy)]"
         >
@@ -88,9 +94,9 @@ export default async function TechPage({
           App Error Capture →
         </Link>
       </div>
-      <EngineeringQueuesPage
+      <EngineeringCockpit
         cockpit={cockpit}
-        activeWork={activeQueue}
+        activeQueue={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}
         runs={runs}
