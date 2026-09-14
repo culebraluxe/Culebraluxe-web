@@ -1,29 +1,18 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# MAC-SYNC-CAL-02 — EventKit gateway runner (manual AND LaunchAgent entry).
+# MAC-SYNC-CAL-02 — Apple EventKit gateway runner (manual + LaunchAgent entry).
 #
-# The Mac is the Apple Calendar edge. This wrapper:
-#   1. resolves the repository root (launchd provides it via CULEBRALUXE_REPO)
-#   2. runs the read-only EventKit bridge with a bounded window
-#   3. lands that normalized snapshot into PROD l_calendar through the existing
-#      replay-safe landing repository (source_account + source_message_id)
-#   4. appends one lightweight, timestamped status line per invocation
+# One trusted Mac-side cycle reads the two EventKit work flavors separately:
+#   EKEvent    -> l_calendar -> Schedule
+#   EKReminder -> l_reminder -> Work
 #
-# Apple Calendar remains authoritative. This job does not write back to EventKit.
-#
-# Env controls (all optional):
-#   CULEBRALUXE_REPO             - repository root (set by the deployed copy)
-#   MAC_BRIDGE_CALENDAR_JSON     - snapshot path (default /tmp/culebraluxe-calendar.json)
-#   CALENDAR_SYNC_PAST_DAYS      - bridge look-back window (default 7)
-#   CALENDAR_SYNC_FUTURE_DAYS    - bridge look-ahead window (default 60)
-#   CULEBRALUXE_CALENDAR_LOG_DIR - where the invocation log lives
+# Apple remains authoritative. This job does not write back to Calendar or
+# Reminders and it never creates/mutates canonical CulebraLuxe WBS rows.
 # ---------------------------------------------------------------------------
 
 set -uo pipefail
 
 # launchd starts jobs with a minimal PATH that does not include Homebrew.
-# CulebraLuxe dev Macs are Apple Silicon today (/opt/homebrew/bin), while the
-# /usr/local/bin fallback keeps the wrapper portable to Intel/Homebrew installs.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 if [ -n "${CULEBRALUXE_REPO:-}" ]; then
@@ -34,6 +23,7 @@ else
 fi
 
 SNAPSHOT="${MAC_BRIDGE_CALENDAR_JSON:-/tmp/culebraluxe-calendar.json}"
+REMINDERS_SNAPSHOT="${MAC_BRIDGE_REMINDERS_JSON:-/tmp/culebraluxe-reminders.json}"
 PAST_DAYS="${CALENDAR_SYNC_PAST_DAYS:-7}"
 FUTURE_DAYS="${CALENDAR_SYNC_FUTURE_DAYS:-60}"
 
@@ -70,30 +60,48 @@ if [ ! -f "$REPO_ROOT/.env.local" ]; then
   exit 1
 fi
 
+# --- Schedule: EKEvent -------------------------------------------------------
 if ! swift scripts/macbridge/CalendarEventKit.swift \
      --out "$SNAPSHOT" \
      --past-days "$PAST_DAYS" \
      --future-days "$FUTURE_DAYS" >>"$LOG_FILE" 2>&1; then
-  log "result=failure stage=eventkit snapshot=$SNAPSHOT attempted-at=$attempted_at"
+  log "result=failure stage=calendar-eventkit snapshot=$SNAPSHOT attempted-at=$attempted_at"
+  exit 1
+fi
+
+# --- Work: EKReminder --------------------------------------------------------
+# Reminders have their own macOS consent. The first run may display a separate
+# Apple permission prompt even though Calendar access was already granted.
+if ! swift scripts/macbridge/RemindersEventKit.swift \
+     --out "$REMINDERS_SNAPSHOT" >>"$LOG_FILE" 2>&1; then
+  log "result=failure stage=reminders-eventkit snapshot=$REMINDERS_SNAPSHOT attempted-at=$attempted_at"
   exit 1
 fi
 
 after_mtime="$(stat -f '%m' "$SNAPSHOT" 2>/dev/null || echo '')"
 generated_at="$(date -u -r "$after_mtime" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "$after_mtime")"
 count="$("$NODE_BIN" -e "try{const a=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(Array.isArray(a)?a.length:'?')}catch{console.log('?')}" "$SNAPSHOT" 2>/dev/null || echo '?')"
+reminder_count="$("$NODE_BIN" -e "try{const a=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(Array.isArray(a)?a.length:'?')}catch{console.log('?')}" "$REMINDERS_SNAPSHOT" 2>/dev/null || echo '?')"
 changed="no"
 if [ -n "$before_mtime" ] && [ "$before_mtime" != "$after_mtime" ]; then
   changed="yes"
 fi
 
-# The LaunchAgent is the production Apple Calendar gateway. The DB target is
-# explicit and fail-closed; db/client resolves DATABASE_URL_PROD from .env.local.
+# The shared Apple launcher is the production gateway. DB targeting is explicit
+# and fail-closed; db/client resolves DATABASE_URL_PROD from .env.local.
 if ! APP_ENV=production EXECUTION_ENV=PROD \
   "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
   scripts/calendar-eventkit-intake.ts "$SNAPSHOT" >>"$LOG_FILE" 2>&1; then
-  log "result=failure stage=landing snapshot=$SNAPSHOT generated-at=$generated_at events=$count changed=$changed"
+  log "result=failure stage=calendar-landing snapshot=$SNAPSHOT generated-at=$generated_at events=$count changed=$changed"
   exit 1
 fi
 
-log "result=success snapshot=$SNAPSHOT generated-at=$generated_at events=$count changed=$changed landed=prod"
+if ! APP_ENV=production EXECUTION_ENV=PROD \
+  "$NODE_BIN" --env-file="$REPO_ROOT/.env.local" --import tsx \
+  scripts/apple-reminders-intake.ts "$REMINDERS_SNAPSHOT" >>"$LOG_FILE" 2>&1; then
+  log "result=failure stage=reminder-landing snapshot=$REMINDERS_SNAPSHOT reminders=$reminder_count"
+  exit 1
+fi
+
+log "result=success snapshot=$SNAPSHOT generated-at=$generated_at events=$count reminders=$reminder_count changed=$changed landed=prod"
 exit 0
