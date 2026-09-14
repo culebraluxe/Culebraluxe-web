@@ -11,6 +11,30 @@ async function executor(): Promise<QueryExecutor> {
 }
 
 /**
+ * THE ENGINE INSTANCE THAT RAN THIS STORY — the Flight Recorder's key.
+ *
+ * The recorder reads the engine's own transaction model (timeline, causality, swimlane, raw
+ * events) keyed by process instance, so a story screen can only link to it when the engine
+ * has actually executed the story. Null means no run yet: the honest answer, and the reason
+ * the link stays hidden rather than opening an empty shell.
+ */
+export async function latestForgeInstanceForStory(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<string | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select process_instance_id
+    from forge_engine_task_execution
+    where story_id = ${storyId}
+    order by created_at desc
+    limit 1
+  `
+  const id = (rows[0] as { process_instance_id?: unknown } | undefined)?.process_instance_id
+  return id == null ? null : String(id)
+}
+
+/**
  * HOW MANY TURNS THIS GENERATION HAS ALREADY DISPATCHED.
  *
  * The engine's own ledger is the count: every role turn this process instance started is a

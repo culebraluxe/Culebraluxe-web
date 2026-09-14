@@ -144,7 +144,22 @@ export function ActiveQueue({
   )
 }
 
-export function StoryDetail({ story, isActive }: { story: StoryRecord; isActive: boolean }) {
+export function StoryDetail({
+  story,
+  isActive,
+  recorderInstanceId,
+}: {
+  story: StoryRecord
+  isActive: boolean
+  /**
+   * The engine instance that ran (or is running) this story, when one exists.
+   *
+   * The Flight Recorder reads the ENGINE's own transaction model — not the story — so with no
+   * instance behind the link it would open an empty shell. The link therefore appears only
+   * once there is something to see, which is also the only time it is useful.
+   */
+  recorderInstanceId?: string | null
+}) {
   const domain = storyDomainOf(story)
   const domainLabel = domain === 'UNCLASSIFIED' ? 'UNCLASSIFIED' : storyDomainName(domain)
   const spec = [
@@ -169,7 +184,18 @@ export function StoryDetail({ story, isActive }: { story: StoryRecord; isActive:
               {story.id} — {story.title}
             </h2>
           </div>
-          <CopyButton text={formatStoryPacket(story)} label="Copy Story" />
+          <div className="flex shrink-0 items-center gap-2">
+            {recorderInstanceId ? (
+              <Link
+                href={`/portal/tech/flight-recorder/${recorderInstanceId}`}
+                title="See what actually happened: timeline, causality, system swimlane, raw events"
+                className="whitespace-nowrap rounded-md border border-[var(--portal-gold)]/40 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--portal-gold)] transition hover:bg-[var(--portal-gold)]/10"
+              >
+                Flight Recorder →
+              </Link>
+            ) : null}
+            <CopyButton text={formatStoryPacket(story)} label="Copy Story" />
+          </div>
         </div>
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
           <div>

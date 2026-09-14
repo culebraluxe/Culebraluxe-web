@@ -5,6 +5,7 @@ import { EngineeringQueuesPage } from "@/components/portal/tech/engineering-line
 import { ForgeConvergenceView } from "@/components/portal/tech/forge-convergence-view"
 import { StoryBoardNotReady } from "@/components/portal/story-board"
 import { listForgeConvergence } from "@/db/forge-convergence"
+import { latestForgeInstanceForStory } from "@/db/forge-engine-task-execution"
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import {
@@ -68,6 +69,12 @@ export default async function TechPage({
     ? activeQueue.some((s) => s.id === validId)
     : false
   const runs = validId ? await listStoryRuns(validId) : []
+  // The Flight Recorder's key: the engine instance that ran (or is running) the selected
+  // story. Null when the engine has not touched it, and the screen then hides the link
+  // instead of offering an empty console.
+  const recorderInstanceId = validId
+    ? await latestForgeInstanceForStory(validId).catch(() => null)
+    : null
   const freshness =
     withExecution.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), "") ||
     new Date().toISOString()
@@ -101,6 +108,7 @@ export default async function TechPage({
         selectedIsActive={selectedIsActive}
         runs={runs}
         freshness={freshness}
+        recorderInstanceId={recorderInstanceId}
       />
       <div className="px-5 pb-8">
         <ForgeConvergenceView items={convergence} />

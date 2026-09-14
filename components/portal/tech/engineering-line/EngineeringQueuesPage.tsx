@@ -42,6 +42,11 @@ export type EngineeringQueuesPageProps = {
   selectedIsActive: boolean
   runs: StoryRun[]
   freshness: string
+  /**
+   * The engine instance for the selected story, when one exists — what the Flight Recorder
+   * needs to show what actually happened. Null for a story the engine has not run.
+   */
+  recorderInstanceId?: string | null
 }
 
 const QUEUES: Array<{
@@ -94,6 +99,7 @@ export function EngineeringQueuesPage({
   activeWork,
   selectedStory,
   selectedIsActive,
+  recorderInstanceId,
   runs,
   freshness,
 }: EngineeringQueuesPageProps) {
@@ -366,7 +372,11 @@ export function EngineeringQueuesPage({
               {moveError ? <span className="text-[10px] text-rose-300">{moveError}</span> : null}
             </div>
             {selectedStory ? (
-              <StoryDetail story={selectedStory} isActive={selectedIsActive} />
+              <StoryDetail
+                story={selectedStory}
+                isActive={selectedIsActive}
+                recorderInstanceId={recorderInstanceId ?? null}
+              />
             ) : (
               <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-xs italic text-slate-500">
                 Select a story from the Work Bench to inspect it
