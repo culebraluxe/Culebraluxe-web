@@ -20,8 +20,9 @@ import {
 } from "@/services/entitlement"
 import type { WbsItem } from "@/services/wbs"
 import type { ProjectsWorkspaceData, ProjectsWorkspaceLoadState } from "@/ui/projects/model"
+import type { ProjectCatchUpItem } from "@/ui/projects/catchup-projection"
 import { attachProjectAssets } from "@/ui/projects/assets-projection"
-import { mapRealProjectsToWorkspace } from "@/ui/projects/service-projection"
+import { mapCanonicalProjectWorkItems, mapRealProjectsToWorkspace } from "@/ui/projects/service-projection"
 import { listIssuedDocuments } from "@/lib/vault-io"
 import { getActivityFeed } from "@/db/activity-feed"
 
@@ -57,9 +58,6 @@ async function resolveIdentityNames(items: WbsItem[], projects: { personId: stri
       ...projects.map((p) => type === "person" ? p.personId : type === "property" ? p.propertyId : p.contractId),
     ].filter(Boolean)))
   const uuidOnly = (ids: (string | null | undefined)[]) => ids.filter((id): id is string => Boolean(id) && UUID_RE.test(id as string))
-  // Each lookup is best-effort: a missing/failed anchor degrades to the id
-  // fallback in the projection. Failures are durably captured, never swallowed,
-  // and never allowed to take down the whole Projects page.
   for (const id of uuidOnly(idsFor("property"))) {
     try {
       const rows = await sql`select name from property where id = ${id} limit 1`
@@ -130,6 +128,7 @@ async function loadPropertyMedia(
 
 type ProjectsLoadResult = {
   data: ProjectsWorkspaceData
+  catchUpItems: ProjectCatchUpItem[]
   error: string | null
 }
 
@@ -161,13 +160,13 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
     ])
     if (!itemsResult.ok) {
       if (AUTH_DENIAL_CODES.has(itemsResult.error.code)) {
-        return { data: stateData({ status: "unauthorized", message: itemsResult.error.message }), error: null }
+        return { data: stateData({ status: "unauthorized", message: itemsResult.error.message }), catchUpItems: [], error: null }
       }
       throw new Error(`WBS read failed: ${itemsResult.error.code}`)
     }
     if (!projectsResult.ok) {
       if (AUTH_DENIAL_CODES.has(projectsResult.error.code)) {
-        return { data: stateData({ status: "unauthorized", message: projectsResult.error.message }), error: null }
+        return { data: stateData({ status: "unauthorized", message: projectsResult.error.message }), catchUpItems: [], error: null }
       }
       throw new Error(`Project read failed: ${projectsResult.error.code}`)
     }
@@ -178,19 +177,21 @@ async function loadRealProjectsData(): Promise<ProjectsLoadResult> {
       loadPropertyMedia(media, projects, items, context),
     ])
     const workspace = mapRealProjectsToWorkspace(projects, items, identityNames, documents, activity)
+    const catchUpItems = mapCanonicalProjectWorkItems(projects, items, identityNames)
     return {
       data: attachProjectAssets(workspace, projects, items, mediaByPropertyId),
+      catchUpItems,
       error: null,
     }
   } catch (error) {
     captureServerError("projects:load-workspace-data", error, { level: "error" })
     const message = "Projects are temporarily unavailable. The service read failed and no fixture data was substituted."
-    return { data: stateData({ status: "failure", message }), error: message }
+    return { data: stateData({ status: "failure", message }), catchUpItems: [], error: message }
   }
 }
 
 // PROJECTS-UX page — real MVI runtime backed by Neon through domain services.
 export default async function ProjectsPage() {
   const result = await loadRealProjectsData()
-  return <ProjectsWorkspace initialData={result.data} loadError={result.error} />
+  return <ProjectsWorkspace initialData={result.data} initialCatchUpItems={result.catchUpItems} loadError={result.error} />
 }
