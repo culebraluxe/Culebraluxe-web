@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_GENERATION_TURNS,
   GENERATION_TURN_CAP_ENV,
   assessGenerationTurnBudget,
+  renderTurnBudgetLine,
   resolveGenerationTurnCap,
 } from '../forge/model-turn-budget'
 
@@ -80,6 +81,37 @@ test('MAP cap: a nonsense count cannot buy extra turns', () => {
   assert.equal(assessGenerationTurnBudget({ turnsUsed: -20 }).turnsUsed, 0)
 })
 
+// --- the budget line: visibility before the cap fires ------------------------
+
+test('turn budget line: under the cap it names turns used and the cap, and is not refusal prose', () => {
+  const verdict = assessGenerationTurnBudget({ turnsUsed: 4, cap: 10 })
+  assert.equal(verdict.allowed, true)
+  const line = renderTurnBudgetLine(verdict)
+  assert.match(line, /4 of 10/, 'the line must name turns used and the cap')
+  assert.match(line, /cap/i, 'the line must name the cap it is measured against')
+  // readForgeGenerationFacts treats a matching evidence line as a refusal detail; an ALLOWED
+  // line must never be mistakable for one, or a healthy run reads as a stopped one.
+  assert.doesNotMatch(line, /model turn cap|baseline acceptance|could not claim|scope|held|hold\b/i)
+})
+
+test('turn budget line: AT the cap it names the facts and carries the refusal reason verbatim', () => {
+  const verdict = assessGenerationTurnBudget({ turnsUsed: 10 })
+  assert.equal(verdict.allowed, false)
+  if (verdict.allowed) return
+  const line = renderTurnBudgetLine(verdict)
+  assert.match(line, /10 of 10/, 'the line must name turns used and the cap')
+  assert.ok(line.includes(verdict.reason), 'the refusal line must carry verdict.reason verbatim')
+})
+
+test('turn budget line: OVER the cap it names the facts and carries the refusal reason verbatim', () => {
+  const verdict = assessGenerationTurnBudget({ turnsUsed: 12, cap: 10 })
+  assert.equal(verdict.allowed, false)
+  if (verdict.allowed) return
+  const line = renderTurnBudgetLine(verdict)
+  assert.match(line, /12 of 10/, 'the line must name turns used and the cap')
+  assert.ok(line.includes(verdict.reason), 'the refusal line must carry verdict.reason verbatim')
+})
+
 // --- the wiring fences -------------------------------------------------------
 //
 // The rule is only real if it runs BEFORE a turn is dispatched. These read the runner
@@ -105,6 +137,14 @@ test('MAP cap: the runner consults the budget before dispatching a turn', () => 
     RUNNER,
     /turnsUsed: await countForgeGenerationTurns\(String\(task\.processInstanceId\)\)/,
     'the count must come from the engine ledger for THIS generation',
+  )
+})
+
+test('MAP cap: the runner writes the spent budget into the run detail', () => {
+  assert.match(
+    RUNNER,
+    /renderTurnBudgetLine\(turnBudget\)/,
+    'a finished role run must record how much of the generation budget it spent',
   )
 })
 

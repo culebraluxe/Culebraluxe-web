@@ -74,7 +74,11 @@ import { buildArchitectDirective } from './forge-architect-directive'
 import { assessBaselineAcceptance } from './baseline-acceptance'
 import { classifyFirstViolation, renderFirstViolation } from './first-violation'
 import { runAssayCommand } from '../../agent-runtime/deterministic-assay-adapter'
-import { assessGenerationTurnBudget, resolveGenerationTurnCap } from './model-turn-budget'
+import {
+  assessGenerationTurnBudget,
+  renderTurnBudgetLine,
+  resolveGenerationTurnCap,
+} from './model-turn-budget'
 import { describeClaimBlocker } from './forge-claim-blocker'
 import { DEFAULT_FORGE_STALE_MS, recoverStaleForgeEngineClaims } from '../../db/forge-engine-recovery'
 import { scorePlanDetailed } from './forge-plan-difficulty'
@@ -596,6 +600,16 @@ export function createAgentRuntimeForgeRoleRunner(
           `could not record the first violation for ${resolvedStory.id}: ${(error as Error).message}`,
         )
       })
+      // VISIBILITY BEFORE IT FIRES: leave the spent budget on the story's newest run, so an
+      // operator reading the ENGINE QUEUE sees how much was spent and not only that it stopped.
+      // A refused turn has no role run of its own, so this targets the newest existing run;
+      // observer-only and catch-guarded so it can never replace the refusal reason below.
+      const refusedRun = (await runs.listForStory(resolvedStory.id).catch(() => []))[0]
+      if (refusedRun) {
+        await appendForgeRunDetail(refusedRun.id, renderTurnBudgetLine(turnBudget)).catch(() => {
+          /* run detail is durable evidence; a failure here must not replace the refusal */
+        })
+      }
       throw new Error(`${turnBudget.reason} ${line}`)
     }
 
@@ -883,6 +897,17 @@ export function createAgentRuntimeForgeRoleRunner(
     }
 
     const finishedItem = await getAgentWorkItem(result.workItemId)
+    if (finishedItem?.storyRunId) {
+      // Every finished role run states its budget line, so the ENGINE QUEUE shows how much of
+      // the generation is spent before the cap fires. Observer-only: a failed append must not
+      // fail a lane that otherwise completed.
+      await appendForgeRunDetail(
+        finishedItem.storyRunId,
+        renderTurnBudgetLine(turnBudget),
+      ).catch(() => {
+        /* run detail is durable evidence; a failure here must not also fail the run */
+      })
+    }
     const leadDecision = finishedItem?.storyRunId
       ? await getForgeLeadRunRecord(finishedItem.storyRunId)
       : null

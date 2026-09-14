@@ -80,3 +80,25 @@ export function assessGenerationTurnBudget(input: {
       `Raise ${GENERATION_TURN_CAP_ENV} only to authorise a longer run deliberately.`,
   }
 }
+
+/**
+ * One ENGINE-QUEUE line stating how much of the generation budget is spent.
+ *
+ * Visibility only: it reads a verdict and renders it, so an operator sees how much of the cap
+ * is gone BEFORE it fires. The refusal prose is owned by `assessGenerationTurnBudget` and is
+ * embedded verbatim — never re-derived here.
+ *
+ * The ALLOWED line deliberately avoids the words `model turn cap`, `scope`, `held` and `hold`:
+ * `readForgeGenerationFacts` (db/forge-run.ts) treats a matching evidence line as a refusal
+ * detail, and a healthy run must not be misread as one.
+ *
+ * Pure by the module's contract: no database, no environment read.
+ */
+export function renderTurnBudgetLine(verdict: TurnBudgetVerdict): string {
+  const remaining = Math.max(0, verdict.cap - verdict.turnsUsed)
+  const spent =
+    `TURN BUDGET: ${verdict.turnsUsed} of ${verdict.cap} model turns used; ` +
+    `${remaining} before the cap`
+  if (verdict.allowed) return `${spent}.`
+  return `${spent}. ${verdict.reason}`
+}
