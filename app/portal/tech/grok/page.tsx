@@ -21,6 +21,16 @@ export default async function GrokFlightRecorderPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-[#0b1220]">
+      {/*
+        A REFERENCE MOCK MUST SAY SO ON SCREEN.
+        This route is a deliberately frozen mock (fixture data, no database, no engine) kept for
+        side-by-side comparison with the real console. Its comments say that; the SCREEN did not, so a
+        human landing here by URL could read fake data as engine output - the exact confusion the mock
+        exists to help avoid. The real console is /portal/tech/flight-recorder/<instance>.
+      */}
+      <div className="border-b border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-amber-200">
+        Reference mock · fixture data, not the engine · real console at /portal/tech
+      </div>
       <Suspense
         fallback={
           <div className="grid h-screen place-items-center bg-[#0b1220] text-sm text-slate-400">

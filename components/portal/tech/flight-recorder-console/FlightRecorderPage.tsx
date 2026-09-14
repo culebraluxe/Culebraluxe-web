@@ -356,6 +356,14 @@ function LeftRail({
         ))}
       </dl>
 
+      {/* A capped history must SAY it is capped, or a slice reads as the whole story. */}
+      {summary.instances ? (
+        <p className="rounded-md border border-amber-400/30 bg-amber-400/[0.06] px-2 py-1.5 text-[10px] text-amber-200/90">
+          Showing the newest {summary.instances.shown} of {summary.instances.total} workflow instances
+          for this subject.
+        </p>
+      ) : null}
+
       <section>
         <h2 className="text-[10px] uppercase tracking-wide text-slate-500">Business Context</h2>
         <dl className="mt-2 space-y-1.5 text-xs">

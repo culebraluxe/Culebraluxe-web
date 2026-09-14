@@ -111,6 +111,11 @@ export interface TraceSummary {
   systemCount: number
   status: 'Completed' | 'Failed' | 'InProgress'
   businessContext: BusinessContext
+  /**
+   * Set when the trace covers only part of the instance history (the read caps a deal's siblings).
+   * Null when nothing was left out. The screen says so rather than letting a capped slice read as all.
+   */
+  instances?: { shown: number; total: number } | null
 }
 
 export interface FlightRecorderTrace {
@@ -668,6 +673,8 @@ export function adaptFlightRecorderTransaction(
     durationMs: events.length ? Math.max(0, ...events.map((e) => e.offsetMs)) : 0,
     eventCount: events.length,
     systemCount: new Set(events.map((e) => e.system)).size,
+    // A capped instance history must SAY it is capped (see TraceSummary.instances).
+    instances: tx.instances ?? null,
     status: events.some((e) => e.status === 'Failed')
       ? 'Failed'
       : tx.transaction.status === 'active'

@@ -79,6 +79,15 @@ export type FlightRecorderTransaction = {
   }
   workflows: FlightRecorderWorkflow[]
   events: FlightRecorderEvent[]
+  /**
+   * How much of a deal's instance history this trace actually covers.
+   *
+   * A deal accumulates one instance per attempt, and the read caps its siblings
+   * (`FLIGHT_RECORDER_SIBLING_LIMIT`) so one page view cannot become an unbounded number of trace
+   * reads. A capped list that does not say it is capped is the same lie as a silent truncation, so the
+   * screen is told: `{ shown, total }`, null when nothing was left out.
+   */
+  instances: { shown: number; total: number } | null
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +275,24 @@ export function isProcessInstanceId(value: string | null | undefined): boolean {
   return typeof value === 'string' && isUuidLike(value)
 }
 
+/** How many instances this deal has EVER had, for the truncation note. */
+async function countDealInstances(
+  esql: QueryExecutor,
+  dealId: string,
+): Promise<number> {
+  if (!isProcessInstanceId(dealId)) return 0
+  try {
+    const rows = await esql`
+      select count(*)::int as n
+      from process_instances
+      where subject_type = 'deal' and subject_id = ${dealId}
+    `
+    return Number((rows[0] as { n?: unknown } | undefined)?.n ?? 0)
+  } catch {
+    return 0
+  }
+}
+
 async function dealScopedInstanceIds(
   esql: QueryExecutor,
   dealId: string,
@@ -305,6 +332,8 @@ export async function getFlightRecorderTransaction(
   const dealId = primary.subjectType === 'deal' ? primary.subjectId : null
   const siblingIds = dealId ? await dealScopedInstanceIds(esql, dealId) : []
   const instanceIds = Array.from(new Set([primary.id, ...siblingIds]))
+  // The denominator for the truncation note below. Counted, not estimated.
+  const totalInstances = dealId ? await countDealInstances(esql, dealId) : instanceIds.length
 
   // LOAD THE INSTANCES CONCURRENTLY, IN A BOUNDED AND STABLE ORDER.
   //
@@ -369,6 +398,12 @@ export async function getFlightRecorderTransaction(
     },
     workflows,
     events,
+    // Measured against ALL of the deal's instances, so the screen can say "newest 20 of 34" instead
+    // of presenting a capped slice as the whole history.
+    instances:
+      totalInstances > instanceIds.length
+        ? { shown: instanceIds.length, total: totalInstances }
+        : null,
   }
 }
 
