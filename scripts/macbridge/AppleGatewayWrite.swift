@@ -24,6 +24,7 @@ struct GatewayCommand: Codable {
   let notes: String?
   let dueAt: String?
   let completed: Bool?
+  let alert: Bool?
 }
 
 func fail(_ message: String) -> Never {
@@ -67,6 +68,13 @@ func calendarDateComponents(_ value: String?) -> DateComponents? {
   )
 }
 
+func reminderAlertDate(_ value: String?) -> Date? {
+  guard var components = calendarDateComponents(value) else { return nil }
+  components.hour = 9
+  components.minute = 0
+  return components.calendar?.date(from: components)
+}
+
 let store = EKEventStore()
 
 func requestEvents() -> Bool {
@@ -92,13 +100,18 @@ func requestReminders() -> Bool {
 }
 
 func writableCalendar(for type: EKEntityType) -> EKCalendar? {
+  let writable = store.calendars(for: type).filter { $0.allowsContentModifications }
+  if type == .event,
+     let work = writable.first(where: { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Work") == .orderedSame }) {
+    return work
+  }
   if type == .event, let calendar = store.defaultCalendarForNewEvents, calendar.allowsContentModifications {
     return calendar
   }
   if type == .reminder, let calendar = store.defaultCalendarForNewReminders(), calendar.allowsContentModifications {
     return calendar
   }
-  return store.calendars(for: type).first(where: { $0.allowsContentModifications })
+  return writable.first
 }
 
 func mergedNotes(_ userNotes: String?, marker: String) -> String {
@@ -133,6 +146,9 @@ case "calendar_create":
   event.isAllDay = command.allDay ?? false
   event.location = command.location
   event.notes = mergedNotes(command.notes, marker: marker)
+  if command.alert == true {
+    event.addAlarm(EKAlarm(relativeOffset: -15 * 60))
+  }
   do {
     try store.save(event, span: .thisEvent, commit: true)
     print("result=created kind=calendar_create external_id=\(event.eventIdentifier ?? "")")
@@ -167,9 +183,13 @@ case "reminder_upsert":
   reminder.isCompleted = command.completed ?? false
 
   // WBS dueAt is semantically a calendar DATE, not an instant. Persisting noon
-  // UTC protects that date in Neon; mirror only YYYY-MM-DD into Reminders so a
-  // task does not unexpectedly acquire an 08:00 Puerto Rico due time.
+  // UTC protects that date in Neon; mirror only YYYY-MM-DD into Reminders.
   reminder.dueDateComponents = calendarDateComponents(command.dueAt)
+  if command.alert == true, reminder.isCompleted == false, let alertDate = reminderAlertDate(command.dueAt) {
+    reminder.alarms = [EKAlarm(absoluteDate: alertDate)]
+  } else {
+    reminder.alarms = []
+  }
 
   do {
     let existed = existingReminder != nil
