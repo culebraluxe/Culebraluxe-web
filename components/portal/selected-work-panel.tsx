@@ -3,7 +3,10 @@
 import { useEffect, useState, useTransition } from "react"
 import { ChevronDown } from "lucide-react"
 
-import { updateWbsItemAction } from "@/app/portal/wbs/actions"
+import {
+  queueAppleReminderForWbsAction,
+  updateWbsItemAction,
+} from "@/app/portal/wbs/actions"
 import type { ProjectWorkNode, ProjectWorkStatus } from "@/ui/projects"
 import { PROJECTS_PRIMITIVES } from "@/ui/projects"
 
@@ -43,7 +46,9 @@ export function SelectedWorkPanel({
   const [owner, setOwner] = useState(node?.owner ?? "")
   const [notes, setNotes] = useState(node?.note ?? "")
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [appleStatus, setAppleStatus] = useState<string | null>(null)
   const [saving, startSaving] = useTransition()
+  const [syncingApple, startAppleSync] = useTransition()
 
   useEffect(() => {
     setStatus(node?.status ?? "not-started")
@@ -51,26 +56,53 @@ export function SelectedWorkPanel({
     setOwner(node?.owner ?? "")
     setNotes(node?.note ?? "")
     setSaveError(null)
+    setAppleStatus(null)
     if (node) setCollapsed(false)
   }, [node])
+
+  const persistCurrent = async () => {
+    if (!node) return { ok: false as const, message: "No work item selected." }
+    return updateWbsItemAction({
+      id: node.id,
+      status: toPersistedStatus(status),
+      // WBS due dates are calendar dates. Noon UTC preserves YYYY-MM-DD across PR offsets.
+      dueAt: dueAt ? `${dueAt}T12:00:00.000Z` : null,
+      owner: owner.trim() || null,
+      notes,
+    })
+  }
 
   const save = () => {
     if (!node) return
     setSaveError(null)
+    setAppleStatus(null)
     startSaving(async () => {
-      const result = await updateWbsItemAction({
-        id: node.id,
-        status: toPersistedStatus(status),
-        // A WBS due date is a calendar date. Persist noon UTC so the selected
-        // YYYY-MM-DD cannot roll backward in Puerto Rico or another UTC offset.
-        dueAt: dueAt ? `${dueAt}T12:00:00.000Z` : null,
-        owner: owner.trim() || null,
-        notes,
-      })
+      const result = await persistCurrent()
       if (!result.ok) {
         setSaveError(result.message)
         return
       }
+      onSaved?.()
+    })
+  }
+
+  const mirrorToApple = () => {
+    if (!node) return
+    setSaveError(null)
+    setAppleStatus(null)
+    startAppleSync(async () => {
+      // Persist edits first, then the server action re-reads the canonical WBS row.
+      const saved = await persistCurrent()
+      if (!saved.ok) {
+        setSaveError(saved.message)
+        return
+      }
+      const result = await queueAppleReminderForWbsAction(node.id)
+      if (!result.ok) {
+        setAppleStatus(result.message)
+        return
+      }
+      setAppleStatus("Queued for Apple Reminders.")
       onSaved?.()
     })
   }
@@ -122,7 +154,7 @@ export function SelectedWorkPanel({
   return (
     <section className="shrink-0 overflow-hidden rounded-[var(--portal-tab-radius)] border border-[var(--portal-panel-border)] bg-[var(--portal-soft-bg)] shadow-sm">
       {header}
-      <div className="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(260px,2fr)_auto_auto] xl:items-end">
+      <div className="grid grid-cols-2 gap-2 border-t border-[var(--portal-panel-border)] px-3 pb-3 pt-2 md:grid-cols-3 xl:grid-cols-[minmax(120px,0.8fr)_145px_minmax(150px,0.9fr)_minmax(240px,2fr)_auto_auto_auto] xl:items-end">
         <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--portal-blue-gray)]">
           Status
           <select
@@ -180,14 +212,24 @@ export function SelectedWorkPanel({
 
         <button
           type="button"
-          disabled={saving}
+          disabled={saving || syncingApple}
           onClick={save}
           className="h-9 rounded-[var(--portal-tab-radius)] bg-[var(--portal-navy)] px-4 text-[12px] font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save"}
         </button>
+
+        <button
+          type="button"
+          disabled={saving || syncingApple}
+          onClick={mirrorToApple}
+          className="h-9 whitespace-nowrap rounded-[var(--portal-tab-radius)] border border-[var(--portal-gold-muted)] bg-white/50 px-3 text-[12px] font-medium text-[var(--portal-navy)] transition hover:bg-white/75 disabled:opacity-50"
+        >
+          {syncingApple ? "Queueing…" : "Apple Reminder"}
+        </button>
       </div>
-      {saveError ? <p className="px-3 pb-2 text-[11px] text-[var(--portal-archive)]">{saveError}</p> : null}
+      {saveError ? <p className="px-3 pb-1 text-[11px] text-[var(--portal-archive)]">{saveError}</p> : null}
+      {appleStatus ? <p className="px-3 pb-2 text-[11px] text-[var(--portal-blue-gray)]">{appleStatus}</p> : null}
     </section>
   )
 }
