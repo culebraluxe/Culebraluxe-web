@@ -56,6 +56,13 @@ export class ProjectsWorkspaceController extends BasePageController<
           context.update((model) => ({ ...model, query }))
         },
       },
+      "projects.selectScope": {
+        description: "Switch between one Project and the cross-project Catch-Up projection without changing routes.",
+        execution: "parallel",
+        handle: async ({ scope }, context) => {
+          context.update((model) => ({ ...model, workspaceScope: scope }))
+        },
+      },
       "projects.selectDomain": {
         description: "Switch the fixed domain rail and select the first Pole/Project in that domain.",
         execution: "parallel",
@@ -65,6 +72,7 @@ export class ProjectsWorkspaceController extends BasePageController<
           const firstProject = firstPole?.projects[0] ?? null
           context.update((model) => ({
             ...model,
+            workspaceScope: "project",
             activeDomain: domain,
             selectedPoleId: firstPole?.id ?? null,
             expandedPoleIds: firstPole ? [firstPole.id] : [],
@@ -98,6 +106,7 @@ export class ProjectsWorkspaceController extends BasePageController<
           const project = pole?.projects[0] ?? null
           context.update((model) => ({
             ...model,
+            workspaceScope: "project",
             activeDomain: pole?.domain ?? model.activeDomain,
             selectedPoleId: poleId,
             expandedPoleIds: model.expandedPoleIds.includes(poleId)
@@ -118,6 +127,7 @@ export class ProjectsWorkspaceController extends BasePageController<
           const project = pole?.projects.find((candidate) => candidate.id === projectId) ?? null
           context.update((model) => ({
             ...model,
+            workspaceScope: "project",
             activeDomain: pole?.domain ?? model.activeDomain,
             selectedPoleId: poleId,
             expandedPoleIds: model.expandedPoleIds.includes(poleId)
@@ -133,14 +143,14 @@ export class ProjectsWorkspaceController extends BasePageController<
         description: "Select a WBS node for the inspector while leaving Project context intact.",
         execution: "parallel",
         handle: async ({ nodeId }, context) => {
-          context.update((model) => ({ ...model, selectedNodeId: nodeId }))
+          context.update((model) => ({ ...model, workspaceScope: "project", selectedNodeId: nodeId }))
         },
       },
       "projects.selectView": {
         description: "Change the middle-pane projection of the selected Project.",
         execution: "parallel",
         handle: async ({ view }, context) => {
-          context.update((model) => ({ ...model, activeView: view }))
+          context.update((model) => ({ ...model, workspaceScope: "project", activeView: view }))
         },
       },
     }
