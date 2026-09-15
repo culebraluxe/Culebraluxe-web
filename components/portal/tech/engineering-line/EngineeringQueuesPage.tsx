@@ -602,17 +602,23 @@ export function EngineeringQueuesPage({
             // whole interface. (The board still refuses a move that would draw one story twice, and the
             // write's own reason is shown above the board - that is a bug guard, not a gate.)
             onMove={async (cardId, from, to) => {
-              // The rules live in lib/story-moves.ts; the write lives in the action; a refusal comes
-              // back as ok:false and the card snaps back - AND SAYS WHY. The board used to swallow the
-              // reason, so a refused drag looked like the screen being strange rather than the rule
-              // being stated (the captain: "it would not allow me").
+              // ONE WRITE, THEN A SETTLED REFRESH.
+              //
+              // The write is the action; the board shows the card in its new lane because the WIDGET was
+              // allowed to keep its own move (see the interceptor in story-kanban-board.tsx). What must
+              // NOT happen is a server refresh DURING the drop: new `cards` re-initialise the vendor's
+              // store, and doing that mid-move is what once dragged an ADJACENT card into the wrong lane.
+              // So the refresh is deferred a beat, after the drop has been applied - it then re-affirms
+              // exactly what the drop already showed, including any refusal the write produced.
               setMoveError(null)
               const result = await moveStoryBucketAction(cardId, from, to)
               if (result.ok) {
-                router.refresh()
-              } else {
-                setMoveError(result.error ?? `the board refused ${from} → ${to}`)
+                window.setTimeout(() => router.refresh(), 400)
+                // Say what happened, so a successful write is visible and not just assumed.
+                return { ...result, note: result.note ?? `${cardId} → ${to}` }
               }
+              setMoveError(result.error ?? `the board refused ${from} → ${to}`)
+              return result
               return result
             }}
           />

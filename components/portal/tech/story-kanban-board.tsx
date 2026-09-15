@@ -83,26 +83,27 @@ export function StoryKanbanBoard({
     (api: KanbanInstanceApi) => {
       apiRef.current = api
       if (!onMove) return
-      // INTERCEPT, not ON: intercept can return a Promise<boolean>, so the widget
-      // waits for the write and cancels the move when it fails. That is the
-      // rollback — no optimistic state to unwind by hand.
-      // THE SERVER OWNS POSITION. The widget's own move is never applied, and `false` is returned
-      // even on SUCCESS.
+      // INTERCEPT, not ON: intercept can return a Promise<boolean>, so the widget waits for the write
+      // and puts the card back when it fails.
       //
-      // WHY, from the vendor's own source (`components/Kanban.jsx`):
+      // LET THE WIDGET MOVE THE CARD — the drop STAYS where it was put.
       //
-      //     useEffect(() => { store.init({ cards, columns, ... }) }, [cards, columns, ...])
+      // This is the fix for the captain's report: "i let go and the story immediately falls back to its
+      // original state". The interceptor used to return `false` even on success, which CANCELS the
+      // widget's own move, and the card was supposed to reappear in the new column from the server
+      // render - it did not, because the vendor's store keeps its own copy of each card, so cancelling
+      // the local move left the node in its OLD lane. That is the opposite of the demo behaviour he
+      // described: "you can move a node from one lane to another lane, it removes it from old lane and
+      // adds it to new lane". He is right: the widget's own move is the interaction, and the database
+      // write is the side effect.
       //
-      // EVERY NEW `cards` PROP REBUILDS THE WIDGET'S ENTIRE STORE. So a drop went: write -> our
-      // `router.refresh()` -> new `cards` -> store re-init with the story ALREADY moved -> and only
-      // then did this interceptor resolve `true`, letting the widget apply the move it had queued
-      // against the REBUILT board, where the drop index points at a DIFFERENT card. The captain saw
-      // it exactly: "i move the story left to right and it pulls some adjacent story to the right."
-      // The store never needed reverting (the move handler never ran), so cancelling is clean: the
-      // server render that follows is the only thing that moves a card.
+      //   `true`  -> the write SUCCEEDED, so the widget keeps its move (the card stays in the new lane).
+      //   `false` -> the write FAILED, or the move is ambiguous, so the widget puts the card back.
       //
-      // Verified against the library, not guessed: there is no WIP limit, no column balancing and no
-      // `limit` prop anywhere in @svar-ui/react-kanban - this was our refresh racing the widget.
+      // THE OTHER HALF OF THE OLD BUG, handled at the other end: re-initialising the vendor's store
+      // mid-drop is what once dragged an ADJACENT card into the wrong lane ("i move the story left to
+      // right and it pulls some adjacent story to the right"). The parent therefore does NOT refresh
+      // during the drop - it refreshes after the move has settled (see `onMove` in the sorter).
       void api.intercept('move-card', async (data) => {
         const id = String(data.id)
         const to = String(data.column ?? '')
@@ -122,9 +123,11 @@ export function StoryKanbanBoard({
           return false
         }
         const from = columnsForCard[0] ?? ''
-        if (!to || from === to) return false
-        await writeMove(id, from, to)
-        return false
+        if (!to) return false
+        // Reordering inside one column is not a status change and is not persisted; let it happen.
+        if (from === to) return true
+        const result = await writeMove(id, from, to)
+        return result.ok
       })
     },
     [onMove, writeMove],
