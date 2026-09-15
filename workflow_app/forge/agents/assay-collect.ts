@@ -38,6 +38,18 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
     // Only commands that RAN and failed are "failed commands". An unmeasurable one is a gap, and listing it
     // here would send repair after code that was never tested.
     const failed = results.filter((r) => !r.passed && !r.unmeasurable).map((r) => r.command)
+    // WHAT IT SAID, NOT JUST THAT IT FAILED. On 2026-09-15 the engine recorded `CMD_FAIL <proof>` + repair
+    // while this same run's evidence said `Assay verdict: PASS`, exit 0, 7/7 — so a SECOND execution of the
+    // proof was failing somewhere this text did not name. A verdict that refuses without quoting the failing
+    // command's own output cannot be diagnosed from the log, only re-derived by hand.
+    const failedDetail = results
+      .filter((r) => !r.passed && !r.unmeasurable)
+      .map((r) => `${r.command} -> exit ${r.exitCode}: ${r.excerpt}`)
+      .join(' | ')
+    const gapDetail = results
+      .filter((r) => r.unmeasurable)
+      .map((r) => `${r.command} -> could not run: ${r.excerpt}`)
+      .join(' | ')
     return {
       ...evidence,
       qaPassed: false,
@@ -48,7 +60,9 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
       deliverableRejection:
         `QA ${report.verdict}: blockers=[${report.blockers.join(', ') || 'none'}] ` +
         `candidate=${candidate ?? 'MISSING'} verified=${report.verifiedSha ?? 'none'} ` +
-        `failed=[${failed.join(' | ') || 'none'}]`,
+        `failed=[${failed.join(' | ') || 'none'}]` +
+        (failedDetail ? ` || output=[${failedDetail}]` : '') +
+        (gapDetail ? ` || gaps=[${gapDetail}]` : ''),
     }
   }
 
