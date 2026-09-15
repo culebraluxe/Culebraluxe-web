@@ -68,6 +68,7 @@
     "forge:harness": "pnpm forge:sync-agents --check && pnpm forge:manifest --check-all && pnpm forge:packet-lint && pnpm test:harness",
     "test:harness": "node --import tsx --test scripts/*.test.ts",
     "smoke:prod": "node --import tsx scripts/prod-smoke.ts",
+    "story:status": "APP_ENV=production node --env-file=.env.local --import tsx scripts/set-story-status.ts",
     "test:agent-runtime": "node --import tsx --test agent-runtime/*.test.ts",
     "forge:record-stories": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-record-stories.ts",
     "forge:ladder": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-ladder.ts",
