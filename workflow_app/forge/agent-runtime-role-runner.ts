@@ -1009,6 +1009,31 @@ export function createAgentRuntimeForgeRoleRunner(
     const roleCwd = workspaces?.worktreesRoot
       ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
       : process.cwd()
+    // THE ASSAY MEASURES THE CANDIDATE OR IT DOES NOT MEASURE AT ALL.
+    //
+    // On 2026-09-15 this lane measured a workspace that did not hold the candidate: candidate a54d8639
+    // contained `workflow_app/tests/forge-doctor-report.test.ts` (185 lines, its own frozen proof) and the
+    // Assay reported `Could not find 'workflow_app/tests/forge-doctor-report.test.ts'` with `verified=none`
+    // — then repair was dispatched at code that had never been checked out, reproduced the same SHA, and the
+    // engine walked that loop. A verdict computed against the wrong tree is worse than no verdict, because it
+    // looks like evidence. So pin the workspace to the candidate first, and FAIL CLOSED if it cannot be
+    // pinned: an unpinnable workspace is a verification gap for a human, never a code defect for repair.
+    const candidateShaForAssay =
+      typeof evidence.candidateSha === 'string' ? evidence.candidateSha.trim() : ''
+    if (candidateShaForAssay) {
+      const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
+      if (headBefore !== candidateShaForAssay) {
+        await commandRunner(roleCwd)(`git checkout --detach ${candidateShaForAssay}`)
+        const headAfter = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
+        if (headAfter !== candidateShaForAssay) {
+          throw new Error(
+            `ASSAY_WORKSPACE_NOT_CANDIDATE: assay workspace is ${headAfter.slice(0, 12)} but the candidate ` +
+              `is ${candidateShaForAssay.slice(0, 12)}; refusing to measure a tree that does not hold the ` +
+              'candidate (a gap for a human, not a defect to repair)',
+          )
+        }
+      }
+    }
     // The candidate diff, read HERE rather than trusting the model's claim. It is
     // the same measurement the serial/split lanes make later; git's diff is the
     // authority for what a Smith actually touched.
