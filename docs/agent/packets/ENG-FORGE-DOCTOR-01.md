@@ -57,10 +57,11 @@ and the Lead routes a new file by its **directory** seam. So declare the directo
 
 A sibling file is not a seam for a new file: it names a surface the new file is not on, and the routing
 validator then refuses the whole route. Held on 2026-09-15 for exactly this — the Lead named the missing
-`scripts/` seam and confirmed the route is otherwise one Smith (five SAME_UNIT findings, no split).
+`scripts` seam and confirmed the route is otherwise one Smith (five SAME_UNIT findings, no split).
 
+## Assay (SCOPED)
 
-- `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts`
+- `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts` (new) — the proof test this story writes
 
 Test mode: **SCOPED**. No FULL regression for this story.
 

@@ -180,7 +180,19 @@ export function buildManifest(
   // writing it in this command. Handling it here rather than special-casing the packet
   // keeps the rule "a missing row is a bug" true for every other path.
   const ownFile = `${MANIFEST_DIR}/${manifestFileName(scope)}.md`
-  const exists = (path: string) => path === ownFile || resolveManifestPath(root, path)
+  // A STORY'S OWN DELIVERABLES DO NOT EXIST YET — that is what "build this" means. The packet says so, and
+  // the marker is mechanical: a path on the same line as `(new)`. Reporting those as MISSING rows made the
+  // lint fail with `manifest-cites-missing-path` on every packet that declares new files (measured
+  // 2026-09-15 on ENG-FORGE-DOCTOR-01: three rows, every one of them a file the story exists to create),
+  // which red-lit the harness for exactly the stories that had not been built yet — the ones that need the
+  // gates most. Same shape as `ownFile` above, and for the same reason: handling it here keeps the rule
+  // "a missing row is a bug" true for every other path.
+  const declaresNew = (path: string): boolean =>
+    Boolean(path) &&
+    !path.includes('\n') &&
+    packetContent.split('\n').some((line) => line.includes(path) && /\(\s*new\s*\)/i.test(line))
+  const exists = (path: string) =>
+    path === ownFile || resolveManifestPath(root, path) || declaresNew(path)
 
   let entries: ManifestEntry[]
   if (hasPacket || scope.includes('/')) {
