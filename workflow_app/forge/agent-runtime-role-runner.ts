@@ -24,9 +24,16 @@ import {
   buildRepoContextQuery,
   latestScoutResearch,
   runRepoContextTaskPacket,
+  withDecisionContext,
   withRepoContextPacket,
   withScoutResearch,
 } from '../../agent-runtime/repo-context'
+import { listActiveDecisions } from '../../db/forge-decision'
+import {
+  DECISION_INJECTION_CAP,
+  decisionDomainForStory,
+  laneNeedsDecisions,
+} from '../../lib/forge-decision'
 import {
   SqlAgentRunRepository,
   SqlAgentWorkRepository,
@@ -192,6 +199,29 @@ export type AgentRuntimeForgeRunnerOptions = {
 }
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
+
+/**
+ * Read the active decisions for a story's domain and render the block a lane receives.
+ *
+ * Separated from the runner body so the failure path is readable in one place: a read that throws
+ * produces the "store unavailable" instruction AND a captured warning, so the lane proceeds informed
+ * and the operator can see it happened. Returning null would have been indistinguishable from "there
+ * are no decisions yet", which is a different fact.
+ */
+async function buildDecisionInstruction(
+  storyId: string,
+  story: { workstream?: string | null; operatingSurface?: string | null },
+): Promise<string | null> {
+  const domain = decisionDomainForStory(story)
+  try {
+    const decisions = await listActiveDecisions(domain, { limit: DECISION_INJECTION_CAP })
+    return withDecisionContext(null, { decisions })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    captureServerLog('warn', 'forge-decision-inject-failed', message, { storyId })
+    return withDecisionContext(null, { readFailed: true })
+  }
+}
 
 /**
  * The FAST lane's Smith nodes. FAST is pre-shaped bounded work: definition v6 routes
@@ -375,6 +405,23 @@ export function createAgentRuntimeForgeRoleRunner(
           null,
           latestScoutResearch(await runs.listForStory(resolvedStory.id)),
         )
+      : null
+
+    // ACTIVE DECISIONS (ENG-FORGE-FACTORY-01 Phase 2, Object 2).
+    //
+    // Before Lead or Smith acts, it gets the rules that are IN FORCE for this story's domain, read from
+    // `forge_decision` - not summarized from MEMORY.md, which is an incident narrative and not a store of
+    // authority. The read is capped at the packet's twenty and ordered newest-promoted-first, so a recent
+    // correction outranks an older rule.
+    //
+    // A failed read does not fail the lane, and it does not pass silently either: the instruction says the
+    // store was unreadable and the failure is captured. One of the seeded decisions is "silent refusal is
+    // a defect", and a read failure that the model never hears about is exactly that.
+    const decisionInstruction = laneNeedsDecisions(plan.lane)
+      ? await buildDecisionInstruction(resolvedStory.id, {
+          workstream: resolvedStory.workstream,
+          operatingSurface: resolvedStory.operatingSurface,
+        })
       : null
 
     // #8 context-lesson feedback loop: inject known context gaps for this node/lane
@@ -649,6 +696,7 @@ export function createAgentRuntimeForgeRoleRunner(
       leadRoutingGovernsPre ? null : plan.evidenceInstruction,
       repoContextInstruction,
       priorScoutInstruction,
+      decisionInstruction,
       contextLessonsDirective,
       // THE DECLARED SURFACES, said out loud.
       //

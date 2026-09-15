@@ -70,6 +70,7 @@
     "smoke:prod": "node --import tsx scripts/prod-smoke.ts",
     "story:status": "APP_ENV=production node --env-file=.env.local --import tsx scripts/set-story-status.ts",
     "probe:kind:dev": "APP_ENV=dev node --env-file=.env.local --import tsx scripts/probe-kind-routing.ts",
+    "forge:decision": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-decision.ts",
     "test:agent-runtime": "node --import tsx --test agent-runtime/*.test.ts",
     "forge:record-stories": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-record-stories.ts",
     "forge:ladder": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-ladder.ts",

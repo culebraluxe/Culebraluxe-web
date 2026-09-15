@@ -255,3 +255,52 @@ test('a skill pack with no existing repo path is a warning, not a failure', () =
   assert.ok(hit, 'expected the anchoring warning')
   assert.equal(hit.level, 'warn')
 })
+
+test('a decision mirror must still look like a decision', () => {
+  // The filename IS the key, the status is one of three, the statement is one sentence. Whether the file
+  // matches its ROW needs the database, and that half lives in `pnpm forge:decision check`.
+  const good = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/decisions/intent-is-not-status.md',
+        content:
+          '# intent-is-not-status\n\n<!-- GENERATED from forge_decision. Do not hand-edit. -->\n\n' +
+          '- status: active\n- domain: forge\n\nIntent is recorded in its own column or table.\n',
+      },
+    ],
+  })
+  assert.deepEqual(good.filter((f) => f.level === 'fail'), [])
+
+  const renamed = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/decisions/something-else.md',
+        content: '# intent-is-not-status\n\n- status: active\n\nIntent is recorded in its own column.\n',
+      },
+    ],
+  })
+  assert.ok(renamed.find((f) => f.rule === 'decision-file-key-mismatch'))
+
+  const twoSentences = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/decisions/x.md',
+        content: '# x\n\n- status: active\n\nFirst thing is true. Second thing is also true.\n',
+      },
+    ],
+  })
+  assert.ok(
+    twoSentences.find((f) => f.rule === 'decision-file-statement'),
+    'the packet stop condition is "the decision table becomes a blog"',
+  )
+
+  const badStatus = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/decisions/x.md',
+        content: '# x\n\n- status: maybe\n\nOne sentence is true.\n',
+      },
+    ],
+  })
+  assert.ok(badStatus.find((f) => f.rule === 'decision-file-status'))
+})

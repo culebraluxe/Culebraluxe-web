@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import type { StoryRun } from '../db/storyboard'
+import { renderDecisionBlock, type DecisionSource } from '../lib/forge-decision'
 
 const DEFAULT_MAX_OUTPUT_CHARS = 32_000
 const DEFAULT_TIMEOUT_MS = 20_000
@@ -161,4 +162,36 @@ export function withScoutResearch(
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+/**
+ * The ACTIVE DECISIONS block for Lead and Smith (ENG-FORGE-FACTORY-01 Phase 2).
+ *
+ * Two differences from the wrappers above, and both are deliberate:
+ *
+ *   1. This block is BINDING. Ripwire output and prior research are evidence to weigh; a promoted
+ *      decision is a rule in force, and the lane acting on it is not entitled to re-litigate it. The
+ *      wording says so, because a model that reads it as one more document will treat it as one.
+ *   2. A failed read is VISIBLE. "Silent refusal is a defect" is one of the seeded decisions itself, so
+ *      a lane whose decision store could not be read proceeds under the packet and says so, rather
+ *      than silently working from whatever it remembers.
+ */
+export type DecisionContextInput = { decisions: readonly DecisionSource[] } | { readFailed: true }
+
+export const DECISION_STORE_UNAVAILABLE =
+  'DECISION STORE UNAVAILABLE: the active decisions for this domain could not be read for this run. ' +
+  'Proceed under the packet, the lane rules and the harness only, and SAY SO in your report — do not ' +
+  'infer the project rules from memory.'
+
+export function withDecisionContext(
+  instructions: string | null | undefined,
+  input: DecisionContextInput,
+): string | null {
+  const base = (instructions ?? '').trim()
+  if ('readFailed' in input) {
+    return [base || null, DECISION_STORE_UNAVAILABLE].filter(Boolean).join('\n\n')
+  }
+  const block = renderDecisionBlock(input.decisions)
+  if (!block) return base || null
+  return [base || null, block].filter(Boolean).join('\n\n')
 }

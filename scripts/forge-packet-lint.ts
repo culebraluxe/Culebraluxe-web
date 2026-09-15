@@ -24,6 +24,7 @@ import {
   vendorBlockDrifted,
 } from '../lib/agent-vendor-block'
 import { lineCitations } from '../lib/scope-manifest'
+import { DECISION_STATUSES, isValidDecisionKey, parseDecisionFile, validateStatement } from '../lib/forge-decision'
 
 export type Finding = {
   level: 'fail' | 'warn'
@@ -506,6 +507,51 @@ export function lintHarness(input: {
     }
   }
 
+  // RULE 12 — a decision mirror must still LOOK like a decision: the filename is the key, the status is
+  // one of three, and the statement is one sentence. Whether the file matches its row needs the database,
+  // which this lint deliberately does not touch (`pnpm forge:decision check` owns that half). What can be
+  // checked offline is the shape, and shape is what a hand edit breaks first.
+  for (const file of input.files) {
+    if (!/docs\/agent\/decisions\/[^/]+\.md$/.test(file.path)) continue
+    const fileKey = file.path.replace(/^.*\//, '').replace(/\.md$/, '')
+    const parsed = parseDecisionFile(file.content, fileKey)
+    if (parsed.key !== fileKey) {
+      findings.push({
+        level: 'fail',
+        rule: 'decision-file-key-mismatch',
+        file: file.path,
+        message: `title says "${parsed.key}" but the filename says "${fileKey}" — the filename IS the key`,
+      })
+    }
+    if (!isValidDecisionKey(parsed.key)) {
+      findings.push({
+        level: 'fail',
+        rule: 'decision-file-key-mismatch',
+        file: file.path,
+        message: `"${parsed.key}" is not a lowercase slug`,
+      })
+    }
+    if (!DECISION_STATUSES.includes(parsed.status as (typeof DECISION_STATUSES)[number])) {
+      findings.push({
+        level: 'fail',
+        rule: 'decision-file-status',
+        file: file.path,
+        message: `status "${parsed.status}" is not one of ${DECISION_STATUSES.join(', ')}`,
+      })
+    }
+    for (const problem of validateStatement(parsed.statement)) {
+      findings.push({ level: 'fail', rule: 'decision-file-statement', file: file.path, message: problem })
+    }
+    if (!file.content.includes('GENERATED from forge_decision')) {
+      findings.push({
+        level: 'warn',
+        rule: 'decision-file-not-generated',
+        file: file.path,
+        message: 'no generated-by marker: hand-written decisions belong in the table, not the mirror',
+      })
+    }
+  }
+
   // Debt recorded at the baseline is reported, not blocking - see LintBaseline above.
   return findings.map((finding) => {
     if (finding.level !== 'fail' || !baselined.has(baselineKey(finding))) return finding
@@ -541,6 +587,9 @@ export function loadHarnessFiles(repoRoot = process.cwd()): HarnessFile[] {
   addDir(join(repoRoot, 'agent-runtime'), (n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))
   // Generated scope manifests: each row claims a path on disk (rule 8 checks the claim).
   addDir(join(repoRoot, 'docs/agent/manifest'), (n) => n.endsWith('.md'))
+  // Decision mirrors (migration 180): scanned for STRUCTURE only — whether each file still matches its
+  // row needs the database, and that check lives in `pnpm forge:decision check` (rule 12 covers shape).
+  addDir(join(repoRoot, 'docs/agent/decisions'), (n) => n.endsWith('.md'))
   // Vendor pointer files that carry a generated block (rule 9 checks it has not drifted).
   for (const name of MANAGED_VENDOR_FILES) add(join(repoRoot, name))
 

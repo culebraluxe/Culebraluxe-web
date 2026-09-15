@@ -54,6 +54,9 @@ pnpm forge:harness           # ONE gate for the harness: vendor blocks + manifes
 pnpm forge:manifest <ID>     # write docs/agent/manifest/<ID>.md — the ranked files to read for that story
 pnpm forge:manifest --check-all   # every manifest on disk is fresh (part of forge:harness)
 pnpm forge:sync-agents       # regenerate the managed block in vendor pointer files (CLAUDE.md and friends)
+pnpm forge:decision list     # the decisions that are IN FORCE (forge_decision, migration 180)
+pnpm forge:decision check    # decision files vs rows agree (split-brain gate; needs the database)
+pnpm forge:decision promote --key k --by captain --apply   # put a candidate into force (writes the mirror)
 pnpm forge:batch:status      # read-only truth: batch table, engine queue, bench, board-vs-table agreement
 pnpm forge:packet-lint       # harness gate: packets, skills, MEMORY, maps, manifests, vendor blocks
 pnpm forge:clean             # clear stale engine claims BEFORE any engine run or test
@@ -92,7 +95,7 @@ deploy script preflights this, but the rule is simpler than the error message.
 | Where did an error go? | `app_error` table, `/portal/tech/app-errors`; `instrumentation.ts` (`onRequestError`) captures every server failure with its digest |
 | What is deployed right now? | `/api/build-info`; the Cockpit's version corner reads `V2 · r<commit-count> · <sha>` |
 | What is this story meant to do? | `docs/agent/packets/<STORY-ID>.md` |
-| Why is it like this? | `docs/agent/MEMORY.md` (durable decisions, dated), `docs/agent/WORKFLOW-ARCHITECTURE.md` |
+| Why is it like this? | `forge_decision` (the rules IN FORCE, injected into Lead/Smith), then `docs/agent/decisions/<key>.md`; `docs/agent/MEMORY.md` is the incident narrative behind them |
 | Where does a feature's logic live? | `MAP-services.md`, then `services/<domain>/<domain>-service.ts` |
 | How does the engine work? | `MAP-engine.md`, then `docs/agent/WORKFLOW-ARCHITECTURE.md` |
 

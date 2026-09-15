@@ -8,12 +8,19 @@ What we know is not right, recorded so it is not lost and not re-discovered. Thr
    holds findings we chose not to fix on day one; they are listed here in prose so a person reading
    this file knows they exist without running the gate.
 
-Last reviewed: 2026-09-15 (PIRATE-01 + ENG-FORGE-FACTORY-01 Phase 1).
+Last reviewed: 2026-09-15 (PIRATE-01, ENG-FORGE-FACTORY-01 Phase 1, and Phase 2).
 
 ## Blocking
 
 Nothing. `pnpm forge:harness`, `pnpm db:parity`, `pnpm test:app` and `pnpm smoke:prod` are all green as
-of the review date, and the factory packet's Phase 1 probe passes on DEV with net zero.
+of the review date; the Phase 1 probe passes on DEV with net zero, and `pnpm forge:decision check` reports
+the seven decision rows and their mirrors agreeing.
+
+## Cleanup with the next phase (not owed by anyone today)
+
+- **Inspector's stale flag does not yet file work.** `decisionWritePolicy('inspector', 'flag-stale')` is
+  written and tested, but the write it should trigger — a `learn` work item — belongs to Phase 3's learn
+  loop. Exit: land it with Phase 3 and delete this line.
 
 ## Non-blocking, in the order I would pay them
 
