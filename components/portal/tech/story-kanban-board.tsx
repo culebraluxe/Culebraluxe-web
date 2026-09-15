@@ -79,26 +79,104 @@ export function StoryKanbanBoard({
   )
 
   /**
-   * WATCH THE STORE'S OWN LAYOUT — the write follows the widget's state, whatever moved it.
+   * The browser's own record of what it observed. Fire-and-forget: it must never affect the board.
+   * Recorded at `info` through the standard capture seam, so `app_error` answers "did the drag reach the
+   * app at all, and what did it look like from here?" - the question that cost several rounds.
+   */
+  const trace = useCallback((payload: Record<string, unknown>) => {
+    void fetch('/api/portal/move-trace', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {})
+  }, [])
+
+  /**
+   * ONE PLACE THAT TURNS AN OBSERVED MOVE INTO A WRITE, whichever route observed it.
    *
-   * Four attempts failed before this one. Three hooked the vendor's event plumbing (a blocking
-   * `intercept`, an undeclared `onMoveCard` prop, then the declared `api.on('move-card')`) and none of
-   * them ever ran: the card moved on screen, nothing reached the database, and the error table stayed
-   * empty. The fourth diffed `api.getCards()` - which returns the CARDS STORE, the original flat input,
-   * not the layout the operator is looking at.
+   * Two routes feed this, deliberately:
    *
-   * THE AUTHORITATIVE LAYOUT, from the vendor's own store types (`@svar-ui/kanban-store`):
+   *   1. THE VENDOR'S `onMoveCard` PROP - the React wrapper routes the store's `move-card` action to a
+   *      prop of that name (`toHandlerName('move-card')` in the vendor's own `Kanban.jsx`). It is NOT in
+   *      the package's types (checked: `grep -rn onMoveCard node_modules/@svar-ui/react-kanban` is empty;
+   *      no `on*` action props are declared at all), so it is a naming convention, not a contract - which
+   *      is exactly why it is not the only route. It gets the `from` BLANK on purpose: the server action
+   *      derives the authoritative source from Neon (`deriveSourceBucket`), so the vendor does not have to
+   *      know where the card came from.
+   *
+   *   2. THE STORE'S OWN LAYOUT, polled and diffed - `state.viewData.columns[].cards[]` is which column
+   *      holds which cards RIGHT NOW (the structure the vendor's store types declare). Whatever moved the
+   *      card, this sees it.
+   *
+   * Whichever fires first wins: the guard writes each `id -> column` once per 5 seconds, so a move can
+   * never be written twice, and a write loop cannot form while the server data catches up. The trace
+   * records WHICH route saw it, so a single drag answers the question with evidence instead of argument.
+   */
+  const writtenRef = useRef<Map<string, number>>(new Map())
+
+  const applyMove = useCallback(
+    (cardId: string, from: string, to: string, via: 'event' | 'layout') => {
+      if (!onMove) return
+      const id = String(cardId ?? '').trim()
+      const target = String(to ?? '').trim()
+      if (!id || !target) return
+      const key = `${id}:${target}`
+      const now = Date.now()
+      if (now - (writtenRef.current.get(key) ?? 0) < 5000) return
+      writtenRef.current.set(key, now)
+      trace({ phase: via === 'event' ? 'event-move' : 'observed-move', cardId: id, from, to: target })
+      void writeMove(id, from, target)
+        .then((result) => {
+          if (!result.ok) {
+            trace({
+              phase: 'write-refused',
+              cardId: id,
+              from,
+              to: target,
+              detail: result.error ?? 'no reason given',
+            })
+            onResync?.()
+          } else {
+            trace({ phase: 'write-ok', cardId: id, from, to: target, detail: `via=${via}` })
+          }
+        })
+        .catch((error: unknown) => {
+          trace({
+            phase: 'write-threw',
+            cardId: id,
+            from,
+            to: target,
+            detail: String((error as Error)?.message ?? error),
+          })
+          setError(`move failed: ${String((error as Error)?.message ?? error)}`)
+          onResync?.()
+        })
+    },
+    [onMove, onResync, trace, writeMove],
+  )
+
+  /**
+   * ROUTE 1 — the vendor's action prop.
+   */
+  const handleMoveCard = useCallback(
+    (data: { id?: unknown; column?: unknown } | undefined) => {
+      applyMove(String(data?.id ?? ''), '', String(data?.column ?? ''), 'event')
+    },
+    [applyMove],
+  )
+
+  /**
+   * ROUTE 2 — WATCH THE STORE'S OWN LAYOUT.
+   *
+   * Earlier attempts diffed `api.getCards()`, which returns the CARDS STORE (the original flat input),
+   * not the layout the operator is looking at - so the watcher saw nothing, ever. The live board is
+   * `state.viewData.columns[].cards[]`, per the vendor's store types (`@svar-ui/kanban-store`):
    *
    *     State = { ..., viewData: { columns: ColumnView[] } }
    *     ColumnView = { id, label, ..., cards: KanbanCard[] }
-   *
-   * So the live board is `state.viewData.columns[].cards[]`: which column holds which cards RIGHT NOW.
-   * Diffing that against the previous pass means the write follows the state, not a callback - a drop, a
-   * keyboard move, or any future vendor mechanism is all the same to this code. Each change is written
-   * once (5s guard against a write loop while the server data catches up).
    */
   const snapshotRef = useRef<Map<string, string>>(new Map())
-  const writtenRef = useRef<Map<string, number>>(new Map())
   const announcedRef = useRef(false)
 
   useEffect(() => {
@@ -124,14 +202,54 @@ export function StoryKanbanBoard({
       return layout
     }
 
-    const trace = (payload: Record<string, unknown>) => {
-      // Fire-and-forget: the trace must never affect the board.
-      void fetch('/api/portal/move-trace', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true,
-      }).catch(() => {})
+    const tick = () => {
+      const layout = readLayout()
+      if (!layout || layout.size === 0) return
+
+      if (!announcedRef.current) {
+        announcedRef.current = true
+        // "the watcher is alive and this is what it can see" - the fact that was missing every time.
+        trace({ phase: 'watcher-alive', detail: `cards=${layout.size}` })
+      }
+
+      const previous = snapshotRef.current
+      if (previous.size === 0) {
+        snapshotRef.current = layout
+        return
+      }
+      for (const [id, column] of layout) {
+        const before = previous.get(id)
+        if (!before || before === column) continue
+        applyMove(id, before, column, 'layout')
+      }
+      snapshotRef.current = layout
+    }
+
+    const timer = setInterval(tick, 400)
+    return () => clearInterval(timer)
+  }, [applyMove, mounted, onMove, trace])
+
+  useEffect(() => {
+    if (!mounted || !onMove) return
+
+    const readLayout = (): Map<string, string> | null => {
+      const api = apiRef.current
+      if (!api) return null
+      let state: {
+        viewData?: { columns?: Array<{ id?: unknown; cards?: Array<{ id?: unknown }> }> }
+      }
+      try {
+        state = api.getState() as typeof state
+      } catch {
+        return null
+      }
+      const columns = state?.viewData?.columns ?? []
+      const layout = new Map<string, string>()
+      for (const column of columns) {
+        const columnId = String(column?.id ?? '')
+        for (const card of column?.cards ?? []) layout.set(String(card?.id), columnId)
+      }
+      return layout
     }
 
     const tick = () => {
@@ -210,6 +328,10 @@ export function StoryKanbanBoard({
               cards={cards}
               columns={columns}
               init={handleInit}
+              // ROUTE 1: the vendor routes the store's `move-card` action to a prop of this name. Not in
+              // the package's types, so it is a convention rather than a contract - the watcher below is
+              // the route that does not depend on the vendor at all.
+              onMoveCard={handleMoveCard}
               // Which card property decides the column. One string, so the board
               // does not need our model to be reshaped.
               columnAccessor="column"
