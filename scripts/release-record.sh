@@ -25,6 +25,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 RECORD="${RELEASE_RECORD_FILE:-docs/agent/releases.md}"
+
+# TWO QUESTIONS, NEVER ONE (Grok, 2026-09-15). `receiptFor(sha)` is what DEV_OPS may cite: an eligible row for
+# THAT sha. `productionIs()` is what the live probe says NOW. A perfectly good old receipt answers the first and
+# lies about the second, and that is why eligibility alone was not enough. An unset RELEASE_PROBE_CMD defaults
+# to the production root the deploy script itself uses, because a default that is not a real check makes every
+# row ineligible while looking configured; `skip` is the honest opt-out. Rows are never expired — history is
+# not rewritten — so the freshness question is answered live instead.
+PROBE_URL="${CULEBRALUXE_PROD_URL:-https://www.culebraluxe.com}"
+PROBE_CMD="${RELEASE_PROBE_CMD:-curl -fsS -o /dev/null -w '%{http_code}' \"$PROBE_URL\" | grep -q 200}"
 MODE="all"
 LAST_N="10"
 VERIFY_SHA=""
@@ -33,6 +42,7 @@ case "${1:-}" in
   --build) MODE="build" ;;
   --deploy) MODE="deploy" ;;
   --probe) MODE="probe" ;;
+  --production) MODE="production" ;;
   --last) MODE="last"; LAST_N="${2:-10}" ;;
   --verify) MODE="verify"; VERIFY_SHA="${2:-}" ;;
   "" ) ;;
@@ -70,6 +80,23 @@ if [ "$MODE" = "verify" ]; then
     exit 0
   fi
   printf 'NOT ELIGIBLE — no receipt for %s with a passing build, deploy and live probe\n' "$VERIFY_SHA"
+  exit 1
+fi
+
+if [ "$MODE" = "production" ]; then
+  # productionIs() — what production answers NOW. It makes NO claim about any sha: pairing a live answer with a
+  # sha it did not measure is exactly the stale-but-self-consistent receipt, arrived at from the other side.
+  if [ "$PROBE_CMD" = "skip" ]; then
+    printf 'PRODUCTION NOW — probe disabled by request (no answer; this is not a pass)\n'
+    exit 1
+  fi
+  printf 'PRODUCTION NOW — %s\n' "$PROBE_URL"
+  printf '  probe: %s\n' "$PROBE_CMD"
+  if bash -c "$PROBE_CMD"; then
+    printf '  answer: SERVING\n  (this answers what is serving NOW; a receipt for a sha is --verify <sha>)\n'
+    exit 0
+  fi
+  printf '  answer: NOT SERVING\n  (the live probe failed; any sha must be verified against a fresh release)\n'
   exit 1
 fi
 
