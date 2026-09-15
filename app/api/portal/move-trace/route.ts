@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { captureServerLog } from '@/lib/server-error-capture'
+import { recordError } from '@/db/app-error'
+import { sql as errorSql } from '@/db/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -40,15 +41,26 @@ async function POSTHandler(req: NextRequest): Promise<NextResponse> {
   const to = clip(body.to)
   const detail = clip(body.detail)
 
-  captureServerLog(
-    'info',
-    'cockpit.move-trace',
-    `${phase}` +
-      (cardId ? ` card=${cardId}` : '') +
-      (from || to ? ` ${from} -> ${to}` : '') +
-      (detail ? ` (${detail})` : ''),
-    { route: '/portal/tech' },
-  )
+  // RECORDED WITH AN EXPLICIT EXECUTOR. `captureServerLog` depends on the registered seam, and in this
+  // route's context that was not registered - so the endpoint answered 200 and wrote NOTHING, which is
+  // exactly the silence this whole trace was built to end (measured: a probe POST returned 200 and left
+  // no row). An explicit executor cannot be unregistered.
+  await recordError(
+    {
+      kind: 'INFO',
+      operation: 'cockpit.move-trace',
+      message:
+        `${phase}` +
+        (cardId ? ` card=${cardId}` : '') +
+        (from || to ? ` ${from} -> ${to}` : '') +
+        (detail ? ` (${detail})` : ''),
+      route: '/portal/tech',
+      level: 'info',
+    },
+    errorSql,
+  ).catch(() => {
+    // A failure to trace must never fail the board.
+  })
 
   return NextResponse.json({ ok: true })
 }
