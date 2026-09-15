@@ -113,7 +113,12 @@ async function main(): Promise<void> {
     ...(stopAfter ? { stopAfter } : {}),
   })
   console.log(JSON.stringify({ brain, ...result }, null, 2))
-  if (result.exhausted && !result.stoppedAfter) process.exitCode = 2
+  // An exit 2 with no steps is "held", not "crashed": say which task is holding it, so an operator clears a
+  // stale claim instead of re-running blind.
+  if (result.exhausted && !result.stoppedAfter) {
+    if (result.blockedReason) console.log(`  held — ${result.blockedReason}`)
+    process.exitCode = 2
+  }
 }
 
 main().catch((error) => {

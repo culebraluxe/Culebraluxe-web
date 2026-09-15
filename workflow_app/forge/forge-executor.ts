@@ -111,6 +111,8 @@ export type DriveForgeStoryResult = {
   status: string | null
   steps: string[]
   exhausted: boolean
+  /** Why there was nothing to drive, when active tasks exist but none is ready. */
+  blockedReason?: string
   needsHuman: boolean
   /** The node the driver parked at (set when stopAfter was honored), else null. */
   stoppedAfter: string | null
@@ -189,6 +191,11 @@ export async function driveForgeStory(
     }
 
     if (!tasks.some((task) => task.status === 'ready')) {
+      // NO WORK TO DRIVE IS NOT THE SAME AS NOTHING TO DO. Every active task is claimed or running: by a live
+      // peer, or by a run that died holding its claim — on 2026-09-15 a disturbed run left one, and the next
+      // invocation exited 2 with `steps: []`, which reads as a crash and is actually "held". Naming the
+      // holders is the difference between an operator clearing a stale claim and re-running blindly, so it
+      // rides the result rather than having to be inferred from the control plane.
       return {
         instanceId,
         status: await instanceStatus(instanceId),
@@ -196,6 +203,9 @@ export async function driveForgeStory(
         exhausted: true,
         needsHuman: false,
         stoppedAfter,
+        blockedReason: `no ready task; active: ${tasks
+          .map((task) => `${task.nodeId}=${task.status}`)
+          .join(', ')}`,
       }
     }
 
