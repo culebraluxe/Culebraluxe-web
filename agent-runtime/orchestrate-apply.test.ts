@@ -16,6 +16,13 @@ const story = {
   goal: 'Keep Assay failure in repair.',
 }
 
+// THE FOLLOW PATH RESOLVES THE EXECUTION TARGET INSTEAD OF ASSUMING ONE. It used to stamp every lane it
+// queued as 'DEV' — on a PROD control plane, which is how a lead lane came to record target DEV while
+// running under APP_ENV=production (2026-09-15). It now asks `resolveExecutionTarget()`, which REFUSES an
+// undeclared environment ("a lane can never land somewhere unnamed"). These tests exercise that enqueue
+// path, so they declare TEST for themselves and assert the declared target comes through.
+process.env.EXECUTION_ENV = 'TEST'
+
 /** Complete Smith contract fixture (merged board + packet truth). */
 const completeStory = {
   architectBrief: 'Build the execution-contract gate slice.',
@@ -280,6 +287,8 @@ test('Ready with a complete contract hydrates Lead PRE only when the runtime is 
   assert.equal(enqueued.length, 1)
   assert.equal(enqueued[0]?.role, 'lead')
   assert.equal(enqueued[0]?.modelProfile, 'lead-pro')
+  // HYDRATE INHERITS, IT DOES NOT RESOLVE: the fixture item records DEV, so the hydrated lane carries DEV.
+  // (The FOLLOW path is the one that resolves the declaration — see the note at the top of this file.)
   assert.equal(enqueued[0]?.executionEnvironment, 'DEV')
 })
 

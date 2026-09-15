@@ -23,6 +23,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+// The lane-follow path RESOLVES the execution target and refuses an undeclared environment, so a test that
+// exercises an enqueue must declare one. See the note in orchestrate-apply.test.ts.
+process.env.EXECUTION_ENV = 'TEST'
+
 import {
   ASSAY_FAILURE_EVIDENCE,
   candidateVerifiedEvidenceLine,

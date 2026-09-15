@@ -1,4 +1,5 @@
 import { buildLaneEnqueue, type LaneEnqueueEnvelope } from './enqueue-lane'
+import { resolveExecutionTarget } from '../lib/execution-target'
 import {
   executionContractFailureText,
   validateExecutionContract,
@@ -292,7 +293,12 @@ export async function followFinishedLane(input: {
   const contract = gateSmithEnvelope({
     lane,
     story: merged,
-    executionTarget: 'DEV',
+    // THE TARGET IS RESOLVED, NEVER ASSUMED. This was the literal 'DEV', so every lane the follow path
+    // queued was stamped DEV on a PROD control plane (measured 2026-09-15: the lead item the architect's
+    // completion created carried `target DEV` and then ran). `resolveExecutionTarget()` answers from the
+    // declaration and REFUSES an undeclared environment, which is the behaviour a lane needs: a lane that
+    // cannot say where it is running must not start.
+    executionTarget: resolveExecutionTarget(),
     envelope: decision.envelope,
     registry: input.registry,
   })
@@ -312,7 +318,8 @@ export async function followFinishedLane(input: {
     role: decision.envelope.role,
     modelProfile: decision.envelope.modelProfile,
     specialInstructions: decision.envelope.specialInstructions,
-    executionEnvironment: 'DEV',
+    // Resolved, not assumed — see the note on the execution contract above.
+    executionEnvironment: resolveExecutionTarget(),
   })
   return lane
 }
