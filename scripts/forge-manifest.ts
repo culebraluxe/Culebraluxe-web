@@ -158,6 +158,26 @@ export function resolveManifestPath(root: string, path: string): boolean {
   return (docsBasenameIndex(root).get(base) ?? []).length === 1
 }
 
+/**
+ * Does this packet DECLARE THE PATH AS NEW — a deliverable of this story that does not exist yet?
+ *
+ * The marker is mechanical: the path and `(new)` on the same line. A story's own deliverables do not exist
+ * on the base ref — that is what "build this" means — and reporting them as MISSING rows made
+ * `manifest-cites-missing-path` red-light the harness on exactly the stories that had not been built yet,
+ * the ones that need the gates most (measured 2026-09-15 on ENG-FORGE-DOCTOR-01: three rows, every one of
+ * them a file the story exists to create).
+ *
+ * Exported because a row is a path you can OPEN, and so the rule has ONE definition here rather than a
+ * second opinion wherever rows are read. The rows for pending deliverables are dropped below; the lint
+ * never has to know why, because it is never handed a path it must resolve and cannot.
+ */
+export function declaresNew(packetContent: string, path: string): boolean {
+  if (!packetContent || !path || path.includes('\n')) return false
+  return packetContent
+    .split('\n')
+    .some((line) => line.includes(path) && /\(\s*new\s*\)/i.test(line))
+}
+
 export type BuiltManifest = {
   scope: string
   file: string
@@ -180,19 +200,7 @@ export function buildManifest(
   // writing it in this command. Handling it here rather than special-casing the packet
   // keeps the rule "a missing row is a bug" true for every other path.
   const ownFile = `${MANIFEST_DIR}/${manifestFileName(scope)}.md`
-  // A STORY'S OWN DELIVERABLES DO NOT EXIST YET — that is what "build this" means. The packet says so, and
-  // the marker is mechanical: a path on the same line as `(new)`. Reporting those as MISSING rows made the
-  // lint fail with `manifest-cites-missing-path` on every packet that declares new files (measured
-  // 2026-09-15 on ENG-FORGE-DOCTOR-01: three rows, every one of them a file the story exists to create),
-  // which red-lit the harness for exactly the stories that had not been built yet — the ones that need the
-  // gates most. Same shape as `ownFile` above, and for the same reason: handling it here keeps the rule
-  // "a missing row is a bug" true for every other path.
-  const declaresNew = (path: string): boolean =>
-    Boolean(path) &&
-    !path.includes('\n') &&
-    packetContent.split('\n').some((line) => line.includes(path) && /\(\s*new\s*\)/i.test(line))
-  const exists = (path: string) =>
-    path === ownFile || resolveManifestPath(root, path) || declaresNew(path)
+  const exists = (path: string) => path === ownFile || resolveManifestPath(root, path)
 
   let entries: ManifestEntry[]
   if (hasPacket || scope.includes('/')) {
@@ -230,6 +238,14 @@ export function buildManifest(
     }
     entries = rows
   }
+
+  // A row is a path you can OPEN. A deliverable the packet declares `(new)` cannot be opened yet, so it is
+  // not a row — and because it is not a row, the lint is never handed a path it must resolve and cannot.
+  // The rule has one definition (`declaresNew` above) instead of two opinions, which is what broke on
+  // 2026-09-15: the generator said MISSING and the lint said a lie, and between them the harness was red for
+  // the very story that was waiting to be built.
+  const pending = entries.filter((entry) => declaresNew(packetContent, entry.path)).map((entry) => entry.path)
+  entries = entries.filter((entry) => !pending.includes(entry.path))
 
   const commit = git(['rev-parse', '--short', 'HEAD'], root).trim() || 'unknown'
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], root).trim() || 'unknown'
