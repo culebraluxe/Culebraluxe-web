@@ -79,56 +79,86 @@ export function StoryKanbanBoard({
   )
 
   /**
-   * WATCH THE STORE — the write follows the widget's own state, whatever mechanism moved it.
+   * WATCH THE STORE'S OWN LAYOUT — the write follows the widget's state, whatever moved it.
    *
-   * Three attempts through the vendor's event plumbing all failed for different reasons: a blocking
-   * `intercept` (the card sprang back), an `onMoveCard` prop the vendor routes by convention but does
-   * not declare (the card moved on screen and NOTHING reached the database - and the error table was
-   * empty, so the handler had simply never run), and `api.on('move-card', …)` which is declared but
-   * evidently does not receive the drop either.
+   * Four attempts failed before this one. Three hooked the vendor's event plumbing (a blocking
+   * `intercept`, an undeclared `onMoveCard` prop, then the declared `api.on('move-card')`) and none of
+   * them ever ran: the card moved on screen, nothing reached the database, and the error table stayed
+   * empty. The fourth diffed `api.getCards()` - which returns the CARDS STORE, the original flat input,
+   * not the layout the operator is looking at.
    *
-   * So this stops trying to catch the event. The widget's own card list IS its state (`api.getCards()`,
-   * declared in the vendor's types): whatever moves a card - a drop, a keyboard action, a future vendor
-   * code path - the list changes. Polling it and diffing against the last snapshot means the write
-   * follows the STATE rather than a callback, which is the only thing three failed attempts have in
-   * common. The diff is idempotent: each card's column is written once per change.
+   * THE AUTHORITATIVE LAYOUT, from the vendor's own store types (`@svar-ui/kanban-store`):
+   *
+   *     State = { ..., viewData: { columns: ColumnView[] } }
+   *     ColumnView = { id, label, ..., cards: KanbanCard[] }
+   *
+   * So the live board is `state.viewData.columns[].cards[]`: which column holds which cards RIGHT NOW.
+   * Diffing that against the previous pass means the write follows the state, not a callback - a drop, a
+   * keyboard move, or any future vendor mechanism is all the same to this code. Each change is written
+   * once (5s guard against a write loop while the server data catches up).
    */
   const snapshotRef = useRef<Map<string, string>>(new Map())
   const writtenRef = useRef<Map<string, number>>(new Map())
+  const announcedRef = useRef(false)
 
   useEffect(() => {
     if (!mounted || !onMove) return
-    const tick = () => {
+
+    const readLayout = (): Map<string, string> | null => {
       const api = apiRef.current
-      if (!api) return
-      let current: KanbanCard[]
-      try {
-        current = api.getCards() as KanbanCard[]
-      } catch {
-        return
+      if (!api) return null
+      let state: {
+        viewData?: { columns?: Array<{ id?: unknown; cards?: Array<{ id?: unknown }> }> }
       }
-      const snapshot = new Map<string, string>()
-      for (const card of current) snapshot.set(String(card.id), String(card.column ?? ''))
+      try {
+        state = api.getState() as typeof state
+      } catch {
+        return null
+      }
+      const columns = state?.viewData?.columns ?? []
+      const layout = new Map<string, string>()
+      for (const column of columns) {
+        const columnId = String(column?.id ?? '')
+        for (const card of column?.cards ?? []) layout.set(String(card?.id), columnId)
+      }
+      return layout
+    }
+
+    const trace = (payload: Record<string, unknown>) => {
+      // Fire-and-forget: the trace must never affect the board.
+      void fetch('/api/portal/move-trace', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      }).catch(() => {})
+    }
+
+    const tick = () => {
+      const layout = readLayout()
+      if (!layout || layout.size === 0) return
+
+      if (!announcedRef.current) {
+        announcedRef.current = true
+        // "the watcher is alive and this is what it can see" - the fact that was missing every time.
+        trace({ phase: 'watcher-alive', detail: `cards=${layout.size}` })
+      }
+
       const previous = snapshotRef.current
       if (previous.size === 0) {
-        // First pass is the baseline: the board has just been given its data, nothing has moved yet.
-        snapshotRef.current = snapshot
+        snapshotRef.current = layout
         return
       }
       const now = Date.now()
-      for (const [id, column] of snapshot) {
+      for (const [id, column] of layout) {
         const before = previous.get(id)
         if (!before || before === column) continue
-        // Guard against a write loop: if this exact move was just written, the server data has not
-        // come back yet and re-writing it would spin.
         const key = `${id}:${column}`
-        const lastWrite = writtenRef.current.get(key) ?? 0
-        if (now - lastWrite < 5000) continue
+        if (now - (writtenRef.current.get(key) ?? 0) < 5000) continue
         writtenRef.current.set(key, now)
+        trace({ phase: 'observed-move', cardId: id, from: before, to: column })
         void writeMove(id, before, column)
           .then((result) => {
-            // A refusal means the database did not accept the move: put the board back rather than let
-            // the screen disagree with the row.
             if (!result.ok) onResync?.()
           })
           .catch((error: unknown) => {
@@ -136,11 +166,12 @@ export function StoryKanbanBoard({
             onResync?.()
           })
       }
-      snapshotRef.current = snapshot
+      snapshotRef.current = layout
     }
+
     const timer = setInterval(tick, 400)
     return () => clearInterval(timer)
-  }, [mounted, onMove, writeMove])
+  }, [mounted, onMove, onResync, writeMove])
 
   const handleInit = useCallback(
     (api: KanbanInstanceApi) => {
