@@ -113,6 +113,42 @@ test('a baselined failure is reported, not blocked', () => {
   assert.match(baselined.find((f) => f.rule === 'skills-unknown')?.message ?? '', /pre-existing \(baselined\)/)
 })
 
+test('a map page citing a file that does not exist fails; real paths pass', () => {
+  const missing = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/MAP-test.md',
+        content: 'Open `services/ghost/ghost-service.ts` first.\n',
+      },
+    ],
+  })
+  const hit = missing.find((f) => f.rule === 'map-cites-missing-path')
+  assert.ok(hit, 'expected the map rule to catch a path that does not exist')
+  assert.match(hit.message, /services\/ghost/)
+
+  const real = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/MAP-test.md',
+        content: 'Open `services/property/property-service.ts` or `db/storyboard.ts`.\n',
+      },
+    ],
+  })
+  assert.deepEqual(real.filter((f) => f.rule === 'map-cites-missing-path'), [])
+})
+
+test('the real map pages only point at files that exist', () => {
+  // The map is only worth having if it cannot point into thin air. This is the test that makes the
+  // claim mechanical: it scans ORIENTATION.md and MAP-*.md exactly as the CLI does.
+  const mapPages = loadHarnessFiles().filter((f) => /docs\/agent\/(ORIENTATION|MAP-)/.test(f.path))
+  assert.ok(mapPages.length >= 3, `expected to have found the map pages, found ${mapPages.length}`)
+  const findings = lintHarness({ files: mapPages })
+  assert.deepEqual(
+    findings.filter((f) => f.rule === 'map-cites-missing-path').map((f) => f.message),
+    [],
+  )
+})
+
 test('the real repo passes the lint with its recorded debt', () => {
   // The gate has to be usable on HEAD today, or it gets switched off on day one. Warnings are expected
   // (the skills-directory drift, and the baselined packets); failures are not.

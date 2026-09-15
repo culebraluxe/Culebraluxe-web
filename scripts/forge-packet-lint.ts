@@ -100,9 +100,60 @@ function headingsIn(content: string): Array<{ name: string; line: number; body: 
   return out
 }
 
+/**
+ * Repo paths a MAP cites must exist.
+ *
+ * This is what separates a map from prose: a map that points at a file that moved is worse than no map,
+ * because it wastes the reader's time and teaches them to distrust it. Applied to the orientation/map
+ * pages only (ORIENTATION.md, MAP-*.md) - the historical log is allowed to mention files that are gone,
+ * because that is what history is.
+ */
+function citedRepoPaths(content: string): string[] {
+  const out: string[] = []
+  for (const match of content.matchAll(/`([A-Za-z0-9_./*<>{}-]+)`/g)) {
+    const token = match[1]
+    if (!token.includes('/')) continue // not a path (table names, commands without paths)
+    if (token.startsWith('/')) continue // a route, not a repo path
+    if (/^https?:/.test(token)) continue
+    if (token.startsWith('.next/') || token.startsWith('.vercel/') || token.startsWith('.git/')) continue
+    if (/[<>{}]/.test(token)) continue // placeholder like services/<domain>/
+    if (/\.(md|ts|tsx|mjs|js|json|sql|xml|css)$/.test(token) || token.endsWith('/')) out.push(token)
+  }
+  return [...new Set(out)]
+}
+
+function pathExists(repoRoot: string, token: string): boolean {
+  const cleaned = token.replace(/\/$/, '')
+  if (cleaned.includes('*')) {
+    // A glob: try the directory part, then require at least one match.
+    const dir = cleaned.slice(0, cleaned.lastIndexOf('/'))
+    const base = cleaned.slice(cleaned.lastIndexOf('/') + 1)
+    try {
+      const re = new RegExp(`^${base.split('*').map(escapeRegExp).join('.*')}$`)
+      return readdirSync(join(repoRoot, dir)).some((name) => re.test(name))
+    } catch {
+      return false
+    }
+  }
+  try {
+    return statSync(join(repoRoot, cleaned)).isFile() || statSync(join(repoRoot, cleaned)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function isMapPage(path: string): boolean {
+  return /docs\/agent\/(ORIENTATION|MAP-[^/]+)\.md$/.test(path)
+}
+
 function isPacket(path: string): boolean {
   return /docs\/agent\/packets\/[^/]+\.md$/.test(path) && !/README\.md$/.test(path)
 }
+
 
 /**
  * True when a list item sits under a prohibition heading (`Never`, `Do not`, `Ask first`).
@@ -126,9 +177,11 @@ export function lintHarness(input: {
   files: readonly HarnessFile[]
   knownSkills?: readonly string[]
   baseline?: readonly string[]
+  repoRoot?: string
 }): Finding[] {
   const known = input.knownSkills ?? KNOWN_SKILLS
   const baselined = new Set(input.baseline ?? [])
+  const repoRoot = input.repoRoot ?? process.cwd()
   const findings: Finding[] = []
 
   for (const file of input.files) {
@@ -196,6 +249,19 @@ export function lintHarness(input: {
             message: `looks like a ${shape.name}`,
           })
         }
+      }
+    }
+
+    // RULE 7 — a MAP must only point at files that exist (see citedRepoPaths above).
+    if (isMapPage(file.path)) {
+      for (const cited of citedRepoPaths(file.content)) {
+        if (pathExists(repoRoot, cited)) continue
+        findings.push({
+          level: 'fail',
+          rule: 'map-cites-missing-path',
+          file: file.path,
+          message: `cites \`${cited}\`, which does not exist — the map has drifted from the code`,
+        })
       }
     }
 
@@ -279,6 +345,8 @@ export function loadHarnessFiles(repoRoot = process.cwd()): HarnessFile[] {
   add(join(repoRoot, 'docs/agent/MEMORY.md'))
   addDir(join(repoRoot, 'docs/agent/packets'), (n) => n.endsWith('.md'))
   addDir(join(repoRoot, 'docs/agent/skills'), (n) => n.endsWith('.md'))
+  // The MAP pages: they claim to point at real files, so they are scanned (rule 7 checks the claim).
+  addDir(join(repoRoot, 'docs/agent'), (n) => /^(ORIENTATION|MAP-.+)\.md$/.test(n))
   addDir(join(repoRoot, 'agent-runtime'), (n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))
 
   return out
