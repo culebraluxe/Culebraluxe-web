@@ -1,5 +1,42 @@
 /** @type {import('next').NextConfig} */
+import { execSync } from 'node:child_process'
+
+// ---------------------------------------------------------------------------
+// BUILD STAMP — the artifact names its own source.
+//
+// Production is built LOCALLY (`scripts/vercel-build-prod.sh`) and deployed PREBUILT
+// (`vercel deploy --prebuilt --prod`). Two consequences, both measured on 2026-09-14:
+//
+//   1. Next does NOT inline `NEXT_PUBLIC_*` into SERVER code - the built server chunk kept the
+//      literal string `NEXT_PUBLIC_COCKPIT_SHA` and read `process.env` at request time. A locally
+//      built artifact never has the build shell's environment at runtime, so the Cockpit's version
+//      corner would have read `sha unknown` in production. (Caught by grepping the artifact before
+//      deploying it, which is the only place this is visible.)
+//   2. `next.config`'s `env` IS inlined into both client and server bundles at build time.
+//
+// So the commit and the build time are resolved HERE, while the build is running, and compiled into
+// the code. `git rev-parse` makes this work even if nobody exports anything; the env vars (set by the
+// build script) win when present, which keeps CI/platform builds working unchanged.
+//
+// What it is for: `V2 · <sha>` in the Cockpit's corner and `/api/build-info`, both compared against
+// HEAD by the deploy script. Without it, "did the deploy actually go live?" has no answer.
+// ---------------------------------------------------------------------------
+function run(cmd) {
+  try {
+    return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return ''
+  }
+}
+
+const cockpitSha = process.env.NEXT_PUBLIC_COCKPIT_SHA || run('git rev-parse --short HEAD')
+
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_COCKPIT_SHA: cockpitSha,
+    NEXT_PUBLIC_COCKPIT_BUILT_AT:
+      process.env.NEXT_PUBLIC_COCKPIT_BUILT_AT || new Date().toISOString(),
+  },
   images: {
     unoptimized: true,
   },
