@@ -85,13 +85,6 @@ export function StoryKanbanBoard({
     [onMove],
   )
 
-  const handleInit = useCallback(
-    (api: KanbanInstanceApi) => {
-      apiRef.current = api
-    },
-    [],
-  )
-
   /**
    * THE MOVE — observed, never blocked.
    *
@@ -104,8 +97,8 @@ export function StoryKanbanBoard({
    * The playground page in this repo (`app/portal/tech/kanban/page.tsx`) is the vendor's own pattern and
    * it works because NOTHING intervenes: the store removes the card from the old lane, adds it to the
    * new one, and adjusts the counts - "just like taking a yellow sticky off the wall and moving it one
-   * left" (the captain). So the board now does exactly that, and the database write is a SIDE EFFECT
-   * that happens after the card has already moved: `onMoveCard` is the store's passive event, not a gate.
+   * left" (the captain). So the board does exactly that, and the database write is a SIDE EFFECT that
+   * happens after the card has already moved.
    *
    * If the write FAILS the board says so and asks the parent to re-sync, so the one case where the
    * screen could disagree with the database corrects itself instead of lying.
@@ -116,17 +109,40 @@ export function StoryKanbanBoard({
       const id = String(data?.id ?? '')
       const to = String(data?.column ?? '')
       if (!id || !to) return
-      // The origin column comes from the cards we last rendered, read BEFORE any refresh: `move-card`
-      // carries only `{ id, column, before }`, so the vendor cannot tell us where it came from.
+      // The origin column: from the cards we last rendered, read before any refresh. The vendor's event
+      // carries only the destination, and if we cannot tell (an empty string) the ACTION derives it from
+      // the database - a move is never refused for want of it.
       const matches = cardsRef.current.filter((c) => String(c.id) === id)
       const columnsForCard = [...new Set(matches.map((c) => String(c.column ?? '')))]
       const from = columnsForCard[0] ?? ''
       if (from === to) return
-      void writeMove(id, from, to).then((result) => {
-        if (!result.ok) onResync?.()
-      })
+      void writeMove(id, from, to)
+        .then((result) => {
+          if (!result.ok) onResync?.()
+        })
+        .catch((error: unknown) => {
+          // A thrown action (a server error) must not become a silent unhandled rejection: the board
+          // says what happened and re-syncs, so a card can never sit in a lane the database rejected.
+          setError(`move failed: ${String((error as Error)?.message ?? error)}`)
+          onResync?.()
+        })
     },
     [onMove, onResync, writeMove],
+  )
+
+  const handleInit = useCallback(
+    (api: KanbanInstanceApi) => {
+      apiRef.current = api
+      // LISTEN THROUGH THE TYPED API, not a prop-name convention.
+      //
+      // `api.on('move-card', …)` is declared in the vendor's own types
+      // (`StoreActions['move-card'] = { id, column?, before? }`) and is PASSIVE: the store performs the
+      // move and this observes it. An earlier attempt passed an `onMoveCard` prop, which the vendor
+      // routes by name convention but does NOT declare - and with the write never reaching the database
+      // the card still moved on screen, which is the worst version of that bug: it looks like it worked.
+      api.on('move-card', (data) => handleMoveCard(data as Record<string, unknown>))
+    },
+    [handleMoveCard],
   )
 
   return (
@@ -146,9 +162,6 @@ export function StoryKanbanBoard({
               cards={cards}
               columns={columns}
               init={handleInit}
-              // THE STORE'S OWN MOVE EVENT (passive), not a gate. The vendor routes `move-card` to
-              // `onMoveCard`; the widget moves the card and this observes it.
-              onMoveCard={handleMoveCard}
               // Which card property decides the column. One string, so the board
               // does not need our model to be reshaped.
               columnAccessor="column"

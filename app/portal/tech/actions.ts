@@ -5,7 +5,9 @@ import { redirect } from "next/navigation"
 
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
-import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork } from "@/db/storyboard"
+import { setActiveWork, setStoryboardStatus, listStoryIdsWithStatus, listActiveWork, clearActiveWork, getStoryboardStory } from "@/db/storyboard"
+import type { StoryBucket } from "@/lib/story-moves"
+import { storyLifecycleOf } from "@/lib/storyboard-data"
 import { setAgentWorkDispatchOptions, withdrawQueuedAgentWork } from "@/db/agent-work"
 import {
   cancelForgeBatch,
@@ -94,10 +96,18 @@ async function moveStoryBucketActionHandler(
   // NORMALIZE AT THE BOUNDARY. A column id is a VIEW name (`next-version`), a bucket is a RULE name
   // (`next`); casting one to the other let `next-version` through as if it were valid and refused
   // every drag out of NEXT VERSION with a rule that looked arbitrary. See normalizeStoryBucket.
-  const source = normalizeStoryBucket(from)
   const target = normalizeStoryBucket(to)
-  if (!source) return { ok: false, error: `Unknown column: ${from}` }
   if (!target) return { ok: false, error: `Unknown column: ${to}` }
+
+  // THE SOURCE CAN ALWAYS BE KNOWN, so a move is never refused for want of it.
+  //
+  // The board's card carries its column, but the vendor's passive move event reports only the TARGET
+  // (`StoreActions['move-card'] = { id, column?, before? }`), so a perfectly good drag could arrive
+  // with the origin missing - and the old code answered that with "Unknown column", which is a refusal
+  // the operator can do nothing about. The DATABASE always knows where a story really is, so derive it
+  // here: bench membership first (the bench is an intent row, not a status), then the status itself.
+  const source = normalizeStoryBucket(from) ?? (await deriveSourceBucket(storyId))
+  if (!source) return { ok: false, error: `could not tell where ${storyId} came from` }
 
   // NO GATE. There is deliberately no table of forbidden pairs here: a sticky note goes wherever the
   // captain puts it (2026-09-14). The two honest refusals below are about NAMES, not permissions — an
@@ -158,6 +168,27 @@ async function moveStoryBucketActionHandler(
   }
 
   return { ok: true }
+}
+
+/**
+ * WHERE IS THIS STORY RIGHT NOW, according to the database?
+ *
+ * Used when the gesture cannot say (the vendor's move event reports only the destination). Order
+ * matters: the bench is an INTENT row and beats the status; `Ready` means the engine has it even though
+ * `Ready` maps to the `open` lifecycle; `Batched` stages. Everything else reads straight off the status.
+ */
+async function deriveSourceBucket(storyId: string): Promise<StoryBucket | null> {
+  const story = await getStoryboardStory(storyId).catch(() => null)
+  if (!story) return null
+  const onBench = (await listActiveWork()).some((s) => s.id === storyId)
+  if (onBench) return 'bench'
+  if (story.status === (STATUS_BY_BUCKET.batch ?? 'Batched')) return 'batch'
+  if (story.status === ENGINE_DISPATCH_STATUS) return 'engine'
+  const lifecycle = storyLifecycleOf(story.status)
+  if (lifecycle === 'backlog') return 'backlog'
+  if (lifecycle === 'closed') return 'closed'
+  if (lifecycle === 'next-version') return 'next'
+  return 'open'
 }
 
 /** What to say when a story is pulled back out of the run queue. */
