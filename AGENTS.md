@@ -54,14 +54,19 @@ Never
 
 ## Reporting to the captain
 
-Default report is three items, in this order, and nothing else:
+Default report is four items, in this order, and nothing else:
 
 1. FINISHED — yes/no, one line.
 2. NEXT — the single next action.
 3. PROBLEMS FOUND — one line each, max 4.
+4. **WHAT DO YOU WANT FROM CAPTAIN — the exact steps, if anything is needed.** Every report ends with this
+   section, always present. "Nothing" is a valid and useful answer, and so is a single word to type. When
+   something IS needed, write it as steps the captain can act on without asking a follow-up question: the
+   literal command, the literal click path, or the literal word to say. Never bury an ask inside prose, and
+   never end a report with a question that requires re-reading the report to answer.
 
 Number every line. Never use asterisks or bullets in reports to the captain: each
-item must be referenceable by number ("problem 2", "next 1"). No tables, no
+item must be referenceable by number ("problem 2", "next 1", "captain 3"). No tables, no
 verification dumps, no file lists, no restating the plan. Detail only when asked.
 The captain reads for status and blockers, not completeness. Exact files and tests
 still get reported — named in one line, not pasted.
