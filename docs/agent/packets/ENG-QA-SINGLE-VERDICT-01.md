@@ -3,7 +3,8 @@
 ## Goal
 
 Make the QA verdict have exactly **one author**: `adjudicateAssay` in `workflow_app/forge/agents/qa/run.ts`, which
-already speaks `PASS | FAIL | INCOMPLETE`. `agents/assay-collect.ts` stays the collector. `forge-role-mapping.ts`
+already speaks `PASS | FAIL | INCOMPLETE`. `workflow_app/forge/agents/assay-collect.ts` stays the collector.
+`workflow_app/forge/forge-role-mapping.ts`
 becomes a **projector only** — it stops computing a verdict and stops relabelling one.
 
 ## Why
