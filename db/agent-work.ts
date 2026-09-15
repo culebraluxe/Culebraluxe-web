@@ -643,6 +643,18 @@ export async function enqueueAgentWorkCommand(
     executionPolicy?: string
     executionEnvironment?: string | null
     /**
+     * ROUTING (ENG-FORGE-FACTORY-01 Phase 1): the kind and model policy this lane runs under.
+     *
+     * THE INSERT USED TO DROP THESE. Every other read path selected `kind`/`model_policy` — including
+     * this function's own RETURNING list — but the INSERT never wrote them, so a lane enqueued by the
+     * lane-follow path was born without routing and the worker reported `routing: unrecorded (queued
+     * before migration 179)` for an item created seconds earlier on a PROD control plane (measured
+     * 2026-09-15, the lead lane after an architect completed). Omitting them STILL means null — an
+     * unrecorded lane stays honest rather than inheriting a default nobody chose.
+     */
+    kind?: ForgeKind | null
+    modelPolicy?: ForgeModelPolicy | null
+    /**
      * ENG-FORGE-SPLIT-01 — parallel-group membership.
      *
      * A SPLIT child MUST declare its group+slot. Without a group id it is
@@ -753,13 +765,14 @@ export async function enqueueAgentWorkCommand(
         insert into agent_work_item (
           story_id, state, priority, role, model_profile, special_instructions,
           max_attempts, execution_policy, execution_environment,
-          parallel_group_id, parallel_slot
+          parallel_group_id, parallel_slot, kind, model_policy
         ) values (
           ${input.storyId}, 'Ready', ${input.priority ?? 0},
           ${input.role ?? null}, ${input.modelProfile ?? null},
           ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3},
           ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null},
-          ${input.parallelGroupId ?? null}, ${input.parallelSlot ?? null}
+          ${input.parallelGroupId ?? null}, ${input.parallelSlot ?? null},
+          ${input.kind ?? null}, ${input.modelPolicy ?? null}
         )
         returning id, story_id, state, priority, queued_at, claimed_at,
           claimed_by, started_at, finished_at, story_run_id, error_text,

@@ -213,6 +213,49 @@ test('Scout done with no brief stops: no second Scout and no Smith', async () =>
   assert.deepEqual(enqueued, [])
 })
 
+test('a followed lane INHERITS the routing of the lane that finished', async () => {
+  const enqueued: Array<{ role: string; kind?: string | null; modelPolicy?: string | null }> = []
+  const followed = await followFinishedLane({
+    storyId: 'ENG-FORGE-V3-03-WITH-BRIEF',
+    finishedRole: 'scout',
+    resultStatus: 'Complete',
+    // The architect lane ran as feature/cheap; the lead lane it hands off to must record the same, or the
+    // worker logs `routing: unrecorded` for work that was routed seconds earlier and the ROI rollup loses
+    // the lane entirely (measured on PROD 2026-09-15).
+    kind: 'feature',
+    modelPolicy: 'cheap',
+    getStory: async () => completeStory,
+    enqueue: async (input) => {
+      enqueued.push({ role: input.role, kind: input.kind, modelPolicy: input.modelPolicy })
+    },
+    repoRoot: '/definitely/missing',
+  })
+
+  assert.equal(followed, 'lead')
+  assert.equal(enqueued.length, 1)
+  assert.equal(enqueued[0]?.role, 'lead')
+  assert.equal(enqueued[0]?.kind, 'feature')
+  assert.equal(enqueued[0]?.modelPolicy, 'cheap')
+})
+
+test('a followed lane with no routing stays UNRECORDED rather than inventing one', async () => {
+  const enqueued: Array<{ kind?: string | null; modelPolicy?: string | null }> = []
+  await followFinishedLane({
+    storyId: 'ENG-FORGE-V3-03-WITH-BRIEF',
+    finishedRole: 'scout',
+    resultStatus: 'Complete',
+    getStory: async () => completeStory,
+    enqueue: async (input) => {
+      enqueued.push({ kind: input.kind, modelPolicy: input.modelPolicy })
+    },
+    repoRoot: '/definitely/missing',
+  })
+
+  // null is honest: a legacy lane predating migration 179 has no routing, and the worker's log says so.
+  assert.equal(enqueued[0]?.kind, null)
+  assert.equal(enqueued[0]?.modelPolicy, null)
+})
+
 test('Scout done with a complete contract follows to Lead PRE (V6 gate, not direct Smith)', async () => {
   const enqueued: Array<{ role: string; modelProfile: string }> = []
   const followed = await followFinishedLane({

@@ -814,6 +814,10 @@ async function runFinishCommand(
     storyId: finished.workItem.storyId,
     finishedRole: finished.workItem.role,
     resultStatus: normalized.resultStatus,
+    // Routing is carried into the next lane, not re-decided: the kind/policy were chosen at dispatch and
+    // every lane of this unit of work runs under them (ENG-FORGE-FACTORY-01 Phase 1).
+    kind: finished.workItem.kind ?? null,
+    modelPolicy: finished.workItem.modelPolicy ?? null,
   })
   if (followed) {
     console.log('followed with lane', followed)

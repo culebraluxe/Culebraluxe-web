@@ -4,6 +4,7 @@ import {
   isCleanAssayResult,
 } from '../agent-runtime/orchestrate-apply'
 import { parseAssayCommands } from '../agent-runtime/assay-plan'
+import type { ForgeKind, ForgeModelPolicy } from '../lib/forge-kind'
 import { storyFieldsFromBoardAndGit } from '../agent-runtime/orchestrate'
 import {
   isTerminalAssayRole,
@@ -115,6 +116,9 @@ export async function runForgeFollow(input: {
   finishedRole: string | null
   resultStatus?: string | null
   testsSummary?: string | null
+  /** The finished lane's routing; the lane it hands off to inherits it. */
+  kind?: ForgeKind | null
+  modelPolicy?: ForgeModelPolicy | null
 }): Promise<string | null> {
   if (!planForgeNight().follow) return null
   if (!input.finishedRole || isTerminalAssayRole(input.finishedRole)) return null
@@ -181,6 +185,9 @@ export async function runForgeFollow(input: {
     finishedRole: input.finishedRole,
     resultStatus: input.resultStatus,
     testsSummary: input.testsSummary ?? null,
+    // Inherited from the lane that finished, so the followed lane keeps its routing.
+    kind: input.kind ?? null,
+    modelPolicy: input.modelPolicy ?? null,
     candidateSha,
     leadPhase,
     leadDecision,

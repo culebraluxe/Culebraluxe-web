@@ -1,5 +1,6 @@
 import { buildLaneEnqueue, type LaneEnqueueEnvelope } from './enqueue-lane'
 import { resolveExecutionTarget } from '../lib/execution-target'
+import type { ForgeKind, ForgeModelPolicy } from '../lib/forge-kind'
 import {
   executionContractFailureText,
   validateExecutionContract,
@@ -48,6 +49,14 @@ export type HydrateDeps = {
     maxAttempts?: number
     executionPolicy?: string
     executionEnvironment?: string | null
+    /**
+     * ROUTING CARRIES FORWARD. A followed lane belongs to the same unit of work as the lane that handed
+     * off, so the kind and policy chosen at dispatch are passed on rather than re-decided (or dropped,
+     * which is what happened: the enqueue insert wrote neither, so followed lanes logged
+     * `routing: unrecorded` and never reached the ROI rollup).
+     */
+    kind?: ForgeKind | null
+    modelPolicy?: ForgeModelPolicy | null
   }) => Promise<unknown>
   persistContract?: (
     storyId: string,
@@ -226,6 +235,9 @@ export async function followFinishedLane(input: {
   finishedRole: string
   resultStatus?: string | null
   testsSummary?: string | null
+  /** Routing of the lane that just finished; the lane it hands off to runs under the same decision. */
+  kind?: ForgeKind | null
+  modelPolicy?: ForgeModelPolicy | null
   getStory: (id: string) => Promise<StoryPacketFields | null>
   enqueue: HydrateDeps['enqueue']
   repoRoot?: string
@@ -320,6 +332,9 @@ export async function followFinishedLane(input: {
     specialInstructions: decision.envelope.specialInstructions,
     // Resolved, not assumed — see the note on the execution contract above.
     executionEnvironment: resolveExecutionTarget(),
+    // Carried forward from the lane that handed off, so the followed lane is attributable too.
+    kind: input.kind ?? null,
+    modelPolicy: input.modelPolicy ?? null,
   })
   return lane
 }
