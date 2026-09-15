@@ -8,14 +8,14 @@ What we know is not right, recorded so it is not lost and not re-discovered. Thr
    holds findings we chose not to fix on day one; they are listed here in prose so a person reading
    this file knows they exist without running the gate.
 
-Last reviewed: 2026-09-15 (PIRATE-01, ENG-FORGE-FACTORY-01 Phases 1, 2 and 3).
+Last reviewed: 2026-09-15 (PIRATE-01, ENG-FORGE-FACTORY-01 Phases 1, 2, 3 and 4).
 
 ## Blocking
 
 Nothing. `pnpm forge:harness`, `pnpm db:parity`, `pnpm test:app` and `pnpm smoke:prod` are all green as
 of the review date; the Phase 1 probe passes on DEV with net zero, `pnpm forge:decision check` reports the
-seven decision rows and their mirrors agreeing, and `probe-learn-dedupe` proves the learn loop's de-dupe
-against a real Postgres.
+seven decision rows and their mirrors agreeing, `probe-learn-dedupe` proves the learn loop's de-dupe
+against a real Postgres, and `pnpm forge:roi` reads the live rollup.
 
 ## Waiting on the sprint-end release (a decision, not an oversight)
 
@@ -42,6 +42,16 @@ against a real Postgres.
   the batch fire and is proven on DEV (dry run + the de-dupe probe), but no launchd pass has executed it
   against the live board yet. The first night run is the end-to-end proof; watch `app_error` for
   `forge-learn-pass-failed` and the worker log for the `learn:` lines.
+- **Every ROI row reads `unrecorded` until a post-Phase-1 attempt finishes.** `pnpm forge:roi` on PROD shows
+  506 attempts in one bucket because kind/policy were added today and no attempt has run since. Exit: it
+  resolves itself on the first night run; if it still reads `unrecorded` after one, the copy at dispatch is
+  not happening and that is a Phase 1 bug, not a rollup bug.
+- **The ROI window is attempts-by-work-item, not spend-by-run.** One story with three attempts counts three
+  times, which is correct for "what did the night batch cost" and wrong for "what did this story cost".
+  Exit: a per-story view, if anyone ever asks for one.
+- **`cost_usd` is still empty almost everywhere** (vendor-reported actuals arrive late): the strip reports
+  widget coverage instead of pretending to know dollars. Already true before this story; recorded so nobody
+  "fixes" it by inventing a rate.
 
 ## Non-blocking, in the order I would pay them
 

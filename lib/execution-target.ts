@@ -22,7 +22,15 @@
 // DATABASE_URL fallback — is refused BEFORE external work begins.
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from 'node:fs'
+// BARE specifier, not : this module is walked by the EDGE compilation (instrumentation -> db/client ->
+// database-gateway -> here), where webpack cannot stub a -scheme request but CAN stub a bare
+// builtin. Measured 2026-09-15:  failed the build with UnhandledSchemeError while bare 
+// resolved to the empty-module fallback configured in next.config.mjs. Node resolves both identically.
+// BARE specifier, not "node:fs": this module is walked by the EDGE compilation
+// (instrumentation.ts -> db/client -> db/database-gateway -> here), and webpack's edge pass cannot stub a
+// "node:"-scheme request (UnhandledSchemeError, measured 2026-09-15) but CAN resolve a bare builtin to the
+// empty-module fallback configured in next.config.mjs. Node resolves both forms identically.
+import { readFileSync } from 'fs'
 
 export type ExecutionEnvironment = 'DEV' | 'PROD' | 'TEST' | 'LOCAL'
 

@@ -1,4 +1,7 @@
-import { randomUUID } from 'node:crypto'
+// BARE specifier, not "node:crypto", for the same reason as lib/execution-target.ts: the edge compilation
+// walks this module and cannot stub a "node:"-scheme request, while a bare builtin resolves to the
+// empty-module fallback in next.config.mjs. Node and Edge both resolve the bare name.
+import { randomUUID } from 'crypto'
 import type { QueryExecutor, QueryRow } from './query-executor'
 import { captureError, setErrorExecutor } from './app-error'
 import { declareControlPlane, describeControlPlane } from '../lib/execution-target'

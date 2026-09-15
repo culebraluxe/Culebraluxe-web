@@ -15,6 +15,7 @@ import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { cockpitVersionLabel } from "@/lib/cockpit-version"
 import { getStagingBatch, listForgeBatches, listStagingBatchItems } from "@/db/forge-batch"
+import { listKindRoi } from "@/db/forge-roi"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -164,6 +165,9 @@ export default async function TechPage({
         // anyone fires it (ENG-FORGE-FACTORY-01 Phase 1). The kinds live on `forge_batch_item`, not on
         // the story, which is why this is a second read rather than a field of `batchStories`.
         stagingKinds={(await listStagingBatchItems()).map((item) => item.kind)}
+        // PHASE 4: the thin session rollup — last 7 days, count and widget cost by kind. Read here, not in
+        // the component, because the component is a client component and this is a database read.
+        roi={await listKindRoi(7)}
         activeWork={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}

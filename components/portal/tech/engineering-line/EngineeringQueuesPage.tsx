@@ -32,6 +32,7 @@ import type { StoryBucket } from '@/lib/story-moves'
 import { SORTER_COLUMNS, buildSorterCards } from '@/lib/sorter-board'
 import type { ForgeBatch } from '@/db/forge-batch'
 import { summarizeKinds } from '@/lib/forge-kind'
+import type { RoiSummary } from '@/lib/forge-roi'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
@@ -135,6 +136,13 @@ export type EngineeringQueuesPageProps = {
    * fires it. Absent means "not read" — the row then shows no kind rather than a default.
    */
   stagingKinds?: string[] | null
+  /**
+   * The thin session rollup (Phase 4, Object 4): last 7 days, count and WIDGET cost by kind.
+   *
+   * Null means the read failed or was not attempted, and the strip then says nothing rather than
+   * showing zeroes: a rollup of nothing is not the same fact as no rollup.
+   */
+  roi?: RoiSummary | null
 }
 
 const QUEUES: Array<{
@@ -199,6 +207,7 @@ export function EngineeringQueuesPage({
   hold,
   batchStories,
   stagingKinds,
+  roi,
   versionLabel,
   batches,
   stagingBatch,
@@ -475,6 +484,36 @@ export function EngineeringQueuesPage({
           </div>
         ))}
       </section>
+
+      {/* SESSION ROI — last 7 days, count and WIDGET cost by kind (Phase 4, Object 4).
+          The packet's purpose: enough signal that the night batch stops being token-maxxed by accident.
+          It says WIDGETS, not dollars, on the face of it: there is no widgets-to-dollars rate in this
+          system, and a number rendered next to a currency symbol would be a wrong decision waiting. */}
+      {roi && roi.rows.length > 0 ? (
+        <section className="mb-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">
+            ENGINE ROI
+            <span className="ml-2 font-normal tracking-[0.08em] text-slate-500">
+              last {roi.windowDays} days · {roi.unit}
+            </span>
+          </p>
+          <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
+            {roi.rows.map((row) => (
+              <span key={`${row.kind}-${row.policy}`} className="text-[11px] text-slate-300">
+                <span className="text-white">{row.kind}</span>
+                <span className="text-slate-500">/{row.policy}</span> · {row.attempts} attempt
+                {row.attempts === 1 ? '' : 's'} · {row.costWidgets} widgets
+                {row.costKnown < row.attempts ? ` (cost on ${row.costKnown})` : ''}
+                {row.meanWallMinutes === null ? '' : ` · ${row.meanWallMinutes}m mean`}
+              </span>
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-slate-500">
+            attempts {roi.totals.attempts} · done {roi.totals.completed} · failed {roi.totals.failed} · widgets{' '}
+            {roi.totals.costWidgets} · cost captured on {roi.coverage.costKnown}/{roi.coverage.attempts}
+          </p>
+        </section>
+      ) : null}
 
       {/* SORTER — the assembly line. This is where stories get SORTED; the bands
           below are where the WORK happens, which is why the bench and the engine
