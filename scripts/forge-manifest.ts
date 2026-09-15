@@ -200,7 +200,16 @@ export function buildManifest(
   // writing it in this command. Handling it here rather than special-casing the packet
   // keeps the rule "a missing row is a bug" true for every other path.
   const ownFile = `${MANIFEST_DIR}/${manifestFileName(scope)}.md`
-  const exists = (path: string) => path === ownFile || resolveManifestPath(root, path)
+  const ownsFile = (path: string) => path === ownFile
+  // A cited line may be a COMMAND, not a path (`node --import tsx --test path/to/x.test.ts`). The lint
+  // already extracts the path out of it; if the generator does not, the two disagree about the same row
+  // again — one says MISSING, the other says fine (2026-09-15, on the Assay line of a new packet).
+  const exists = (path: string) =>
+    ownsFile(path) ||
+    resolveManifestPath(root, path) ||
+    path
+      .split(/\s+/)
+      .some((token) => token.includes('/') && resolveManifestPath(root, token))
 
   let entries: ManifestEntry[]
   if (hasPacket || scope.includes('/')) {
