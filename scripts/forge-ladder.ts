@@ -42,11 +42,11 @@ const LADDER: LadderRung[] = [
     goal:
       'One command that answers "is the control plane clear?" before any test, instead of hand-writing the query every time.',
     scope:
-      'scripts/forge-doctor.ts (new, read-only operator command) and workflow_app/forge/forge-doctor-report.ts (new, the pure formatter it renders). No existing file changes.',
+      'scripts/forge-doctor.ts (new, read-only operator command) and workflow_app/forge/forge-doctor-report.ts (new, the pure formatter it renders: the control-plane report AND the mailbox postcard block). No existing file changes.',
     acceptance:
-      'pnpm forge:doctor prints instances, open tasks, open work items and active engine claims, plus the age of the oldest active claim, and writes nothing: no update, no insert, no claim. The formatting is a pure function with a unit test.',
+      'pnpm forge:doctor prints instances, open tasks, open work items and active engine claims, plus the age of the oldest active claim, and writes nothing: no update, no insert, no claim. It also renders the POSTCARD block the Grok<->DeepSeek mailbox asks for - board-vs-table agreement, active decision count, the 7-day ROI rows and the newest learn-pass attempt - so a reply is one command instead of five hand-pasted ones. Rendering is a pure function with a unit test, including the empty-control-plane case and the board-drifted-from-table case.',
     notes:
-      'Requested after a night of clearing stale claims by hand before every run. forge:clean is the writer; this is its read-only sibling, so an operator can look before deciding to clean. Read-only is a hard requirement: a doctor that mutates is not a doctor.',
+      'Requested after a night of clearing stale claims by hand before every run. forge:clean is the writer; this is its read-only sibling, so an operator can look before deciding to clean. Read-only is a hard requirement: a doctor that mutates is not a doctor. The postcard half was added 2026-09-15 when the mailbox protocol went live and the reply had to be assembled by hand from five commands; the doctor already reads every one of those facts, so printing them is the same read, not a second tool.',
     assayCommands:
       '- `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts`',
   },
