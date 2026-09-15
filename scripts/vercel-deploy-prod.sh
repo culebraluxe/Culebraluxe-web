@@ -52,8 +52,21 @@ DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod)"
 # "no answer" - a check that cannot pass is worse than no check.
 PROD_URL="${CULEBRALUXE_PROD_URL:-https://www.culebraluxe.com}"
 EXPECTED_SHA="$(git rev-parse --short HEAD)"
-LIVE_SHA="$(curl -fsS -L --max-time 25 "${PROD_URL%/}/api/build-info" 2>/dev/null \
-  | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
+# WAIT FOR THE ALIAS. A deployment is created before the production domain points at it (measured
+# 2026-09-14: the domain still served the previous sha seconds after a successful deploy, and was
+# serving the new one inside a minute). Checking once would report a false failure; checking by hand
+# would train everyone to ignore the check.
+VERIFY_ATTEMPTS="${DEPLOY_VERIFY_ATTEMPTS:-15}"
+VERIFY_SLEEP_SECONDS="${DEPLOY_VERIFY_SLEEP_SECONDS:-10}"
+LIVE_SHA=""
+for attempt in $(seq 1 "$VERIFY_ATTEMPTS"); do
+  LIVE_SHA="$(curl -fsS -L --max-time 25 "${PROD_URL%/}/api/build-info" 2>/dev/null \
+    | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
+  [[ "$LIVE_SHA" == "$EXPECTED_SHA" ]] && break
+  printf '  waiting for the production alias... (%s/%s, live=%s)\n' \
+    "$attempt" "$VERIFY_ATTEMPTS" "${LIVE_SHA:-no answer}"
+  sleep "$VERIFY_SLEEP_SECONDS"
+done
 
 printf '\nPRODUCTION DEPLOY COMPLETE\n'
 printf '  deployment: %s\n' "$DEPLOYMENT_URL"

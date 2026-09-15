@@ -4,6 +4,24 @@ Follow THIS rather than improvising: it touches only things that are safe to tou
 says what you should see. `pnpm forge:batch:status` is READ-ONLY — run it as often as you like,
 before and after each step.
 
+## HOW A CHANGE REACHES PRODUCTION NOW
+
+Production is built on this Mac and deployed prebuilt:
+
+    bash scripts/vercel-build-prod.sh     # builds .vercel/output, stamps the commit; deploys nothing
+    bash scripts/vercel-deploy-prod.sh    # needs main + a clean tree + a matching stamp; verifies live
+
+Both scripts require **Node 24** (`/opt/homebrew/opt/node@24/bin/node`) and this shell defaults to
+Node 26, so run them as:
+
+    PATH="/opt/homebrew/opt/node@24/bin:$PATH" bash scripts/vercel-build-prod.sh
+    PATH="/opt/homebrew/opt/node@24/bin:$PATH" bash scripts/vercel-deploy-prod.sh
+
+The deploy ends with `VERIFIED: production is serving <sha>` or a loud failure, waiting up to ~2
+minutes for the production alias to move before deciding. Check by hand at any time:
+
+    curl -s https://www.culebraluxe.com/api/build-info      # {"version":"V2","sha":"…","builtAt":"…"}
+
 ## BEFORE YOU START — two facts that decide the script
 
 1. **The unattended worker is running every 3 minutes.** Anything in the ENGINE QUEUE gets claimed
