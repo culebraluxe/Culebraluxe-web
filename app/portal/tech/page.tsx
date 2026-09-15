@@ -113,6 +113,14 @@ export default async function TechPage({
 
   // ENGINE BATCH: stories staged for the next group handed to Forge. Staged means status 'Batched',
   // which dispatches nothing - `sendEngineBatchAction` is the deliberate act that queues them.
+  //
+  // The KIND is read here too, and it has to be read separately: it lives on the batch MEMBER
+  // (`forge_batch_item.kind`, migration 179), not on the story. Attaching it where both facts are in hand
+  // is the same rule the dispatch copy follows, and it is why a card can show its kind before anyone
+  // fires the batch. A story with no member row reads `null` and the card shows no chip, rather than
+  // inventing a default the dispatch never wrote.
+  const stagingItems = await listStagingBatchItems()
+  const kindByStory = new Map(stagingItems.map((item) => [item.storyId, item.kind]))
   const batchStories = (stories ?? [])
     .filter((s) => s.status === 'Batched')
     .map((s) => ({
@@ -121,6 +129,7 @@ export default async function TechPage({
       status: s.status,
       priority: s.priority,
       completion: s.completion,
+      kind: kindByStory.get(s.id) ?? null,
     }))
 
   // The engine's lanes are read from the engine ledger. A failure here is reported IN THE LANE
@@ -163,8 +172,8 @@ export default async function TechPage({
         stagingBatch={await getStagingBatch()}
         // The staged members' KINDS, so the batch roster can say what kind of work is staged before
         // anyone fires it (ENG-FORGE-FACTORY-01 Phase 1). The kinds live on `forge_batch_item`, not on
-        // the story, which is why this is a second read rather than a field of `batchStories`.
-        stagingKinds={(await listStagingBatchItems()).map((item) => item.kind)}
+        // the story — the same read that annotates the staged CARDS above, used once for both.
+        stagingKinds={stagingItems.map((item) => item.kind)}
         // PHASE 4: the thin session rollup — last 7 days, count and widget cost by kind. Read here, not in
         // the component, because the component is a client component and this is a database read.
         roi={await listKindRoi(7)}

@@ -42,10 +42,8 @@ Scoped only. Do not run the full regression suite.
 - `pnpm exec tsx --test agent-runtime/harness-owned-commit.test.ts agent-runtime/readiness.test.ts agent-runtime/gateway/cli-agent-adapter.test.ts agent-runtime/gateway/provider.test.ts agent-runtime/team.test.ts agent-runtime/orchestrate.test.ts agent-runtime/orchestrate-apply.test.ts agent-runtime/repositories.assay.test.ts`
 
 ## Skills
-- TypeScript
-- Node fetch / HTTP error handling
-- Forge worker lifecycle
-- test seams / dependency injection
+
+workflow
 
 ## Loop
 Architect packet -> Smith -> candidate commit -> Assay -> main. Preserve Forge code automatically through the harness-owned commit path. No swarm, no provider change, no schema.

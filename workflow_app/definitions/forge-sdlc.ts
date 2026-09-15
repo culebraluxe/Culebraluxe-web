@@ -39,7 +39,7 @@ export function parseForgeSdlc(): ParsedProcessDefinition {
   const validation = validateParsedDefinition(parsed, forgeCommandIsRouted)
   if (!validation.valid) {
     throw new Error(
-      `FORGE_SDLC-v1.xml failed validation:\n${validation.errors
+      `${FORGE_SDLC_KEY}-v${FORGE_SDLC_VERSION}.xml failed validation:\n${validation.errors
         .map((e) => `  - ${e}`)
         .join('\n')}`,
     )
@@ -56,7 +56,8 @@ export function parseForgeSdlc(): ParsedProcessDefinition {
 // STOPS for human judgment before implementation (reusing the existing `hold`
 // wait + resume — NOT a new end state).
 //
-// FORGE_SDLC_VERSION stays 3 (ACTIVE). v4 is not reachable until it is seeded
+// FORGE_SDLC_VERSION was 3 (ACTIVE) when v4 was parked; it is 6 today, and v6 is the definition the
+// loader above reads. v4 is not reachable until it is seeded
 // into process_definitions (version 4) in DEV+PROD and this constant flips to
 // 4 in a coordinated activation. This loader exists so the definition is
 // parse-validated BEFORE activation — never activated broken.

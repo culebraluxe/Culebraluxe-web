@@ -4,3 +4,7 @@
 - Luxury editorial. Do not restyle the house for a ticket.
 - iPad targets ~48px.
 - Derive UI from available data. No listing-specific hardcoding.
+
+## Anchored to
+- `app/globals.css` — where the brand tokens and the house geometry actually live.
+

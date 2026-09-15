@@ -11,3 +11,7 @@ Installed (npm dep `^6.34.0`, script `knip => knip`). `knip.json` is currently *
 
 ## Never
 - Delete a symbol solely on a knip "unused" hit without confirming it is not referenced by code/tests outside the default scan roots.
+
+## Anchored to
+- `./knip.json` — the in-repo config this pack runs against (root-level, hence the `./`).
+

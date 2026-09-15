@@ -14,3 +14,7 @@ Installed (Homebrew). **NOT yet integrated** into the Assay runner — run manua
 
 ## Never
 - Treat a clean `semgrep` as proof of security; treat hits as review findings, not auto-fixes.
+
+## Anchored to
+- `scripts/forge-packet-lint.ts` — the in-repo static-analysis gate this pack complements; it is what runs on every release today.
+

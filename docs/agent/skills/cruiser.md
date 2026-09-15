@@ -16,3 +16,7 @@ Installed (npm dep `^18.2.0`). Gate is live via the config — a cycle fails CI/
 
 ## Never
 - "Fix" a cycle by routing around a layer (e.g. app calling the DB gateway directly) — that is the exact architecture drift the gate exists to catch.
+
+## Anchored to
+- `./.dependency-cruiser.js` — the config that encodes these rules and hard-fails a cycle.
+

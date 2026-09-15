@@ -56,7 +56,7 @@ explicitly distinct from the global (⌘K) CommandPalette.
 - **Selection identity is stable ids, not display names.** Arborist composite ids are
   `poleId`, `poleId::projectId`, `parent::workNodeId`
   (`ui/projects/tree-projection.ts:40-120`); dispatch uses the real model ids
-  (`components/portal/projects-workspace.tsx:889-908`). URL state therefore uses real
+  (`components/portal/projects-workspace.tsx:760-784`). URL state therefore uses real
   ids and never names.
 - **Pane 1 owns the local search.** The "Find work…" input filters the arborist tree by
   `searchText` within the active domain (`components/portal/projects-workspace.tsx:375-383`,

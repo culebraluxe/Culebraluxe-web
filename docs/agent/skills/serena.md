@@ -14,3 +14,11 @@ Installed (global `~/.local/bin/serena`). **NOT yet wired** into the Forge runti
 
 ## Never
 - Grep for a symbol when `serena` can resolve implementations/references unambiguously (rename safety).
+
+## Anchored to
+
+Nothing in this repository yet, and that is stated rather than papered over: serena is a global tool
+(`~/.local/bin/serena`) with no config, index or wrapper committed here, so this pack carries the one
+standing `skill-not-anchored` warning. It clears the day the Forge runtime adapter exposes serena as a
+tool (then this line points at the adapter) or the day the pack is deleted.
+

@@ -67,7 +67,8 @@ pnpm exec tsx --test \
 ```
 
 ## Skills
-Small runtime/CLI observability change. Prefer one formatting/helper seam plus narrow integration over broad adapter changes.
+
+workflow
 
 ## Loop
 Architect packet → Smith → harness-owned candidate commit → Assay → accepted result → main.

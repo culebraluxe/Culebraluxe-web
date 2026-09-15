@@ -4,3 +4,7 @@
 - Existing signed agreements stay immutable unless the story says otherwise.
 - Prefer the current form pipeline over a one-off generator.
 - Do not leak provider URLs or raw webhook payloads into form metadata.
+
+## Anchored to
+- `lib/forms/form-instance-io.ts` — the read/write seam routes import; `db/form-service-repository.ts` holds the SQL.
+

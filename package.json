@@ -48,7 +48,7 @@
     "mailbox:intake": "node --env-file=.env.local --import tsx scripts/apple-mail-envelope-intake.ts prod",
     "mailbox:promote": "node --env-file=.env.local --import tsx scripts/promote-applemail.ts prod",
     "whatsapp:webhook:test": "bash scripts/send-whatsapp-webhook-fixture.sh",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

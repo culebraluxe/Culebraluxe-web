@@ -151,3 +151,51 @@ test('no story id is ever drawn twice across the whole board', () => {
   assert.equal(seen.get('BACK-1'), 'backlog')
   assert.equal(seen.has('DONE-1'), false, 'finished work must not appear on the sorter')
 })
+
+// ---------------------------------------------------------------------------
+// THE KIND RIDES THE CARD (Phase 1 follow-up). The kind is chosen on the batch MEMBER
+// (`forge_batch_item.kind`, migration 179), not on the story, so the sorter must pass it
+// through rather than look it up. What matters to the board is the difference between "read as
+// fix" and "not read": a card with no kind must render no chip, never a default the dispatch
+// never wrote.
+// ---------------------------------------------------------------------------
+
+test('a staged card carries its kind, and an unread kind stays null rather than guessing', () => {
+  const cards = buildSorterCards({
+    panels: panels([], [story('PLAIN-1', 'Batched')]),
+    batchStories: [
+      {
+        id: 'KIND-1',
+        title: 'KIND-1 title',
+        status: 'Batched',
+        priority: 'MEDIUM',
+        completion: 0,
+        kind: 'fix',
+      },
+      {
+        id: 'PLAIN-1',
+        title: 'PLAIN-1 title',
+        status: 'Batched',
+        priority: 'MEDIUM',
+        completion: 0,
+      },
+    ],
+  })
+
+  const byId = new Map(cards.map((c) => [c.id, c]))
+  assert.equal(byId.get('KIND-1')?.column, 'batch')
+  assert.equal(byId.get('KIND-1')?.kind, 'fix')
+  // The absence is the assertion: no kind was read for this story, so the card must not claim one.
+  assert.equal(byId.get('PLAIN-1')?.kind, null)
+})
+
+test('a kind survives the other columns too, so one card shape serves the whole board', () => {
+  const cards = buildSorterCards({
+    panels: panels([], []),
+    activeWork: [{ ...story('BENCH-1', 'In Progress'), kind: 'judgment' }],
+  })
+  const bench = cards.find((c) => c.id === 'BENCH-1')
+  assert.equal(bench?.column, 'bench')
+  assert.equal(bench?.kind, 'judgment')
+})
+

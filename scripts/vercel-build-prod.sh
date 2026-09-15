@@ -38,6 +38,20 @@ vercel pull --yes --environment=production
 printf '\nClearing previous prebuilt output...\n'
 rm -rf .vercel/output
 
+# THE HARNESS GATES THE RELEASE. This is the last automatic checkpoint before production, so it is where a
+# drifted manifest, a hand-edited vendor block, or a packet citing a path that no longer exists should stop
+# the build rather than ship. Deliberately not a commit hook: the repo has none, and this is the moment the
+# checks are worth the wait. `set -e` above means a harness failure aborts the release here.
+printf '\nRunning the harness gates (packet lint, manifests, vendor blocks)...\n'
+pnpm forge:harness
+
+# START THE BUILD FROM A CLEAN .next. `vercel build` builds ON TOP of whatever tree is already there, and
+# repeated release builds had left 2,035 duplicate generated files (`cache-life.d 3.ts` and friends - the
+# macOS copy-on-conflict rename), which is what broke `tsc` and `next build` until someone pruned by hand.
+# Deleting the tree first is the source fix; pruning the duplicates afterwards is not.
+printf '\nClearing the previous build output (.next)...\n'
+rm -rf .next
+
 printf '\nBuilding production artifact locally...\n'
 # STAMP THE ARTIFACT WITH ITS OWN SOURCE. A local prebuilt deploy may have no Vercel git variables at
 # all, and the Cockpit's corner plus /api/build-info are how a deploy is verified - so the commit and

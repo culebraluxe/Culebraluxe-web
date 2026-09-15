@@ -44,11 +44,8 @@ Scoped only. Do not run the full regression suite.
 - `pnpm exec tsx --test agent-runtime/harness-owned-commit.test.ts agent-runtime/readiness.test.ts agent-runtime/gateway/cli-agent-adapter.test.ts agent-runtime/gateway/provider.test.ts agent-runtime/team.test.ts agent-runtime/orchestrate.test.ts agent-runtime/orchestrate-apply.test.ts agent-runtime/repositories.assay.test.ts`
 
 ## Skills
-- TypeScript
-- Git plumbing / fast-forward safety
-- child-process execution
-- Forge lifecycle and Assay semantics
-- focused test seams
+
+workflow
 
 ## Loop
 Architect packet -> Smith -> candidate commit -> Assay -> outer Forge safe publish to main. No PR ceremony, no force push, no swarm, no schema.

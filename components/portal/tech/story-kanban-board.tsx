@@ -343,6 +343,15 @@ export function StoryKanbanBoard({
                   </div>
                   <p className="text-[11px] leading-snug">{String(card.title ?? '')}</p>
                   <p className="text-[10px] opacity-60">
+                    {/* THE KIND, ON THE CARD (Phase 1 follow-up). A staged story's kind is chosen on the
+                        batch member, so before this the operator could see the batch's kind MIX but not
+                        which card was which. Rendered only when the kind was actually read: an absent
+                        chip means "not read", never a default. */}
+                    {card.kind ? (
+                      <span className="mr-1 rounded bg-[#c6a15b]/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#c6a15b]">
+                        {String(card.kind)}
+                      </span>
+                    ) : null}
                     {String(card.priority ?? '')} · {Math.round(Number(card.completion ?? 0))}%
                   </p>
                 </div>

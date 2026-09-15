@@ -6,6 +6,10 @@ import {
   forgeSdlcTopology,
   resetForgeSdlcTopologyCache,
 } from './forge-topology'
+// The expected version comes from the loader, which is the module that reads the XML. Retyping the number
+// here is what let this assertion sit at `1` while the definition was at v6 (and the guard below throw on
+// a live path) — a test that restates a constant cannot catch the constant moving.
+import { FORGE_SDLC_VERSION } from '../workflow_app/definitions/forge-sdlc'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V9 — FORGE_SDLC superset as the live topology contract.
@@ -21,7 +25,7 @@ test('ENG-FORGE-V9: FORGE_SDLC superset loads as the live topology', () => {
   resetForgeSdlcTopologyCache()
   const topology = forgeSdlcTopology()
   assert.equal(topology.key, 'FORGE_SDLC')
-  assert.equal(topology.version, 1)
+  assert.equal(topology.version, FORGE_SDLC_VERSION)
   assert.equal(topology.dynamicForkId, 'split_dispatch')
   assert.ok(topology.nodeIds.has('classify_work'))
   assert.ok(topology.nodeIds.has('execution_shape'))

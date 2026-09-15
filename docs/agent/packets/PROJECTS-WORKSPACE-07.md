@@ -39,7 +39,8 @@ replay-safe domain completion projection.
   rendered at `components/portal/projects-workspace.tsx:796`.
 - Listing form evidence seam: `lib/forms/listing-canonical-binding.ts:75` (`latestListingEvidence`,
   `template_id = 'LISTING-01'`, matches person via `person_id` or deal participant).
-- Form instances: `db/document-form-instance.ts:284` (`listFormInstances`), `:123` (`getFormInstance`).
+- Form instances: `lib/forms/form-instance-io.ts:121` (`listFormInstances`), `:102` (`getFormInstance`) — the
+  routes import this module; the SQL underneath is `db/form-service-repository.ts:269` / `:131`.
   Route: `app/portal/forms/[formId]/page.tsx`; the FormEditorSurface already surfaces the signature
   request (`components/portal/forms/form-editor-surface.tsx:142`). Signature start = `sendFormForSignatureAction`
   (`app/portal/forms/actions.ts`, `actions-core.ts:306`).

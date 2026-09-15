@@ -45,11 +45,8 @@ Scoped only. Do not run the full regression suite.
 If a command fails, stop and report Hold/failure evidence. Do not report Complete.
 
 ## Skills
-- TypeScript
-- git/worktree/ref handling
-- Forge lane orchestration
-- Assay normalization
-- fail-closed state machines
+
+workflow
 
 ## Loop
 Architect packet -> Smith -> exact candidate Assay -> publish to main only after clean matching-candidate evidence. No swarm, no provider change, no schema unless unavoidable.

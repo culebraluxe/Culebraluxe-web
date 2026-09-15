@@ -52,6 +52,12 @@ export type SorterCard = {
   status: string
   priority: string
   completion: number
+  /**
+   * The work's KIND (`lib/forge-kind.ts`) when the source knows it. `null` means "not read", which is
+   * deliberately different from "no kind": the board should say nothing rather than print a default the
+   * dispatch never wrote.
+   */
+  kind?: string | null
 }
 
 /** The shape of a story row these cards need. Structural, so tests need no database. */
@@ -61,6 +67,8 @@ export type SorterStory = {
   status: string
   priority: string
   completion: number
+  /** Staged work carries its kind; a lifecycle story usually does not. */
+  kind?: string | null
 }
 
 /** An engine ledger card: one per ATTEMPT, which is why the id carries the attempt. */
@@ -136,6 +144,7 @@ export function buildSorterCards(input: SorterInput): SorterCard[] {
       status: story.status,
       priority: story.priority,
       completion: story.completion,
+      kind: story.kind ?? null,
     })
   }
 

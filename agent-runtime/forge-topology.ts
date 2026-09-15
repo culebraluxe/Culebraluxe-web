@@ -1,10 +1,10 @@
-import { parseForgeSdlc } from '../workflow_app/definitions/forge-sdlc'
+import { FORGE_SDLC_VERSION, parseForgeSdlc } from '../workflow_app/definitions/forge-sdlc'
 import { forgeCommandIsRouted } from '../workflow_app/forge-command-types'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V9 — FORGE_SDLC superset as the live topology contract.
 //
-// FORGE_SDLC-v1.xml (the authoritative superset: classify -> research/bug/
+// The FORGE_SDLC definition the loader pins (`FORGE_SDLC-v6.xml`, the authoritative superset: classify -> research/bug/
 // feature/hotfix/migration -> Lead -> SOLO|SMITH|SPLIT(<dynamic-fork>) -> QA ->
 // DEV_OPS publish/migrate/deploy/smoke -> complete|cancelled|failed|
 // archive_research, with HOLD/resume) is loaded through the shared four-layer
@@ -59,8 +59,16 @@ function structuralInvariants(topology: ForgeSdlcTopology): string[] {
   if (topology.key !== 'FORGE_SDLC') {
     problems.push(`FORGE_SDLC key is '${topology.key}', expected 'FORGE_SDLC'`)
   }
-  if (topology.version !== 1) {
-    problems.push(`FORGE_SDLC version is '${topology.version}', expected 1`)
+  // THE EXPECTED VERSION IS IMPORTED, NEVER RETYPED. This was a literal `1` while the loader already
+  // exported FORGE_SDLC_VERSION; when the definition advanced to v6 the two drifted, and because
+  // `ensureForgeSdlcTopology()` is called by `scripts/forge-orchestrate-wake.ts` that drift was not only
+  // five failing ENG-FORGE-V9 tests — it was a throw on a LIVE path. One source of truth: the constant
+  // from the module that reads the XML.
+  if (topology.version !== FORGE_SDLC_VERSION) {
+    problems.push(
+      `FORGE_SDLC version is '${topology.version}', expected ${FORGE_SDLC_VERSION} ` +
+        '(workflow_app/definitions/forge-sdlc.ts FORGE_SDLC_VERSION)',
+    )
   }
   for (const id of ['start', 'classify_work', 'execution_shape', 'qa_result', 'hold']) {
     if (!topology.nodeIds.has(id)) {

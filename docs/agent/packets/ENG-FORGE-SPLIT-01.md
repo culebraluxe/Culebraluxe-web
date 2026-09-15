@@ -5,8 +5,9 @@
 `lead_pre` can already choose `SPLIT`: `FORGE_SDLC-v1.xml` forks `split_dispatch`
 (`minimum=2 maximum=8`, `plan-variable=splitPlan`, `join=split_join`) and the executor
 runs siblings concurrently (`forge-executor.ts:279`, `cap = min(splitConcurrency, siblings)`).
-Every child already gets its **own** 0-based slice (`engine.ts:1966` — `splitBranch:
-planVariable[branchIndex]`) and its **own** workspace (`resolveForgeExecutionRunId(…, splitChild)`
+Every child already gets its **own** 0-based slice
+(`workflow_engine/lib/workflow/engine.ts:1966-1975` — `splitBranch: splitPlan`, where `splitPlan` is
+`variables[node.planVariable][branchIndex]`) and its **own** workspace (`resolveForgeExecutionRunId(…, splitChild)`
 → `-split-<index>`; `"0"` is truthy so even the first child is isolated).
 
 The lane is dark for three reasons only:
