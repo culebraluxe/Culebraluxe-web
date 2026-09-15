@@ -8,25 +8,40 @@
 // version?" is "look at the corner", nobody has to guess, and nobody has to be
 // paranoid about their cache.
 //
-// The commit comes from Vercel's build environment (server-rendered, so no
-// client env plumbing and no secret). Locally it is honest about being local.
+// WHERE THE SHA COMES FROM: production is built LOCALLY (`bash scripts/vercel-build-prod.sh`)
+// and deployed prebuilt (`vercel deploy --prebuilt --prod`), so Vercel's own git
+// variables may not be set at all. The build script therefore stamps the commit into
+// `NEXT_PUBLIC_COCKPIT_SHA`, which is inlined into the bundle at build time - the
+// artifact names its own source rather than asking the platform what it thinks it is.
+// Vercel's variables remain as fallbacks for a platform build, and a local build says
+// so honestly instead of inventing a sha.
 // ---------------------------------------------------------------------------
 
 export const COCKPIT_VERSION = 'V2'
 
+function cleaned(value: string | undefined): string | null {
+  const text = (value ?? '').trim()
+  return text.length > 0 ? text : null
+}
+
 export function cockpitBuildLabel(): string {
   const sha =
-    process.env.VERCEL_GIT_COMMIT_SHA ??
-    process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ??
-    process.env.GIT_COMMIT_SHA ??
-    ''
-  const short = sha.trim().slice(0, 7)
-  if (short) return short
-  // Not deployed (a developer's machine, or a preview without git metadata).
+    cleaned(process.env.NEXT_PUBLIC_COCKPIT_SHA) ??
+    cleaned(process.env.VERCEL_GIT_COMMIT_SHA) ??
+    cleaned(process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA) ??
+    cleaned(process.env.GIT_COMMIT_SHA)
+  if (sha) return sha.slice(0, 7)
+  // Not a stamped production artifact (a developer's machine, or a build that never went through the
+  // release script). Say that plainly - `sha unknown` in production is a real finding, not a cosmetic one.
   return process.env.NODE_ENV === 'production' ? 'sha unknown' : 'local'
 }
 
-/** What the corner shows: `V2 · cf21241`. */
+/** When this artifact was built, from the same stamp. Empty string when unstamped. */
+export function cockpitBuiltAt(): string {
+  return cleaned(process.env.NEXT_PUBLIC_COCKPIT_BUILT_AT) ?? ''
+}
+
+/** What the corner shows: `V2 · f61ebbc`. */
 export function cockpitVersionLabel(): string {
   return `${COCKPIT_VERSION} · ${cockpitBuildLabel()}`
 }

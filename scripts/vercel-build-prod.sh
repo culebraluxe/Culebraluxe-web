@@ -39,6 +39,13 @@ printf '\nClearing previous prebuilt output...\n'
 rm -rf .vercel/output
 
 printf '\nBuilding production artifact locally...\n'
+# STAMP THE ARTIFACT WITH ITS OWN SOURCE. A local prebuilt deploy may have no Vercel git variables at
+# all, and the Cockpit's corner plus /api/build-info are how a deploy is verified - so the commit and
+# build time go into the bundle at build time (NEXT_PUBLIC_* is inlined) rather than being asked of the
+# platform afterwards.
+export NEXT_PUBLIC_COCKPIT_SHA="$(git rev-parse --short HEAD)"
+export NEXT_PUBLIC_COCKPIT_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '  stamped: %s at %s\n' "$NEXT_PUBLIC_COCKPIT_SHA" "$NEXT_PUBLIC_COCKPIT_BUILT_AT"
 vercel build --prod
 
 [[ -f .vercel/output/config.json ]] || fail "Build completed without .vercel/output/config.json"
