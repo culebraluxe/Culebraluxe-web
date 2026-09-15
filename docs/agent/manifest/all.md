@@ -1,17 +1,18 @@
 # Scope manifest — all
 
-<!-- GENERATED FILE. Do not hand-edit: the packet lint fails when it drifts from a fresh render. -->
+<!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
+     (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-15 06:13:10Z
-- commit: `57798d2` (working tree dirty) on `main`
+- generated: 2026-09-15 06:34:28Z
+- commit: `f462e76` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest all`
 - rows: 30 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
-- `AGENTS.md` — handbook · always-read handbook · last touched 2026-09-13
+- `AGENTS.md` — handbook · always-read handbook · last touched 2026-09-15
 - `docs/agent/ORIENTATION.md` — handbook · always-read handbook · last touched 2026-09-15
-- `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-09-14
+- `docs/agent/MEMORY.md` — handbook · always-read handbook · last touched 2026-09-15
 - `docs/agent/CURRENT.md` — handbook · always-read handbook · last touched 2026-09-14
 - `docs/agent/AGENT_WORKER_SCHEDULER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/ARCH-HANDOFF.md` — index · top-level harness page · last touched 2026-09-11
@@ -35,7 +36,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/SOP-DEV-REFRESH.md` — index · top-level harness page · last touched 2026-09-12
 - `docs/agent/STORY_EXECUTION_CONTRACT.md` — index · top-level harness page · last touched untracked
 - `docs/agent/TEST_ISOLATION.md` — index · top-level harness page · last touched untracked
-- `docs/agent/VENDOR-ADAPTERS.md` — index · top-level harness page · last touched untracked
+- `docs/agent/VENDOR-ADAPTERS.md` — index · top-level harness page · last touched 2026-09-15
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — index · top-level harness page · last touched 2026-09-13
 - `docs/agent/WORKTREE_EXECUTION.md` — index · top-level harness page · last touched untracked
 - `docs/agent/knip-intent.md` — index · top-level harness page · last touched 2026-09-11

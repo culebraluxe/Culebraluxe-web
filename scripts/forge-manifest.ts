@@ -237,12 +237,32 @@ export function buildManifest(
   }
 }
 
-/** Row-level diff between the file on disk and a fresh render, for --check output. */
-export function manifestDrift(onDisk: string, fresh: string): { added: string[]; removed: string[] } {
+/**
+ * Row-level diff between the file on disk and a fresh render.
+ *
+ * STRUCTURAL LANES ONLY, by default. Measured the first time it mattered: Grok landed
+ * `docs/agent/packets/ENG-FORGE-FACTORY-01.md` (282 lines, one file, no overlap with any
+ * file this story touched) and the lexical tail of FORGE-GATES-01's manifest moved — so the
+ * gate went red on a commit that had nothing to do with that story. A gate that fails on a
+ * co-worker's docs commit is a gate someone switches off, and the value of the freshness
+ * check is the part that actually rots: did the packet's cited paths change, did a row's
+ * file disappear, did the story's own commits touch something new. The lexical tail is a
+ * convenience list and is reported separately, as information.
+ *
+ * Safety is unchanged either way: a row pointing at a path that is gone still fails the
+ * packet lint (rule 8), which parses rows rather than comparing renders.
+ */
+export function manifestDrift(
+  onDisk: string,
+  fresh: string,
+  options: { lanes?: 'structural' | 'all' } = {},
+): { added: string[]; removed: string[] } {
+  const lanes = options.lanes ?? 'structural'
   const rows = (markdown: string) =>
     markdown
       .split('\n')
       .filter((line) => line.startsWith('- `'))
+      .filter((line) => lanes === 'all' || !isLexicalRow(line))
       .map((line) => line.slice(0, line.lastIndexOf(' · last touched')))
   const before = rows(onDisk)
   const after = rows(fresh)
@@ -252,6 +272,17 @@ export function manifestDrift(onDisk: string, fresh: string): { added: string[];
     added: after.filter((row) => !beforeSet.has(row)),
     removed: before.filter((row) => !afterSet.has(row)),
   }
+}
+
+/** A manifest row whose lane is `lexical` — the corpus-dependent tail. */
+export function isLexicalRow(line: string): boolean {
+  return / — lexical · /.test(line)
+}
+
+/** How many lexical rows a fresh render would change: reported, never failed. */
+export function lexicalDriftCount(onDisk: string, fresh: string): number {
+  const drift = manifestDrift(onDisk, fresh, { lanes: 'all' })
+  return drift.added.length + drift.removed.length
 }
 
 export function writeIfChanged(path: string, content: string): boolean {
@@ -299,12 +330,18 @@ function checkOne(root: string, built: BuiltManifest, json: boolean): boolean {
   const onDisk = existsSync(path) ? readFileSync(path, 'utf8') : ''
   const drift = manifestDrift(onDisk, built.markdown)
   const fresh = onDisk !== '' && drift.added.length === 0 && drift.removed.length === 0
+  // Reported, never failed: the lexical tail follows the whole harness corpus, so every
+  // docs commit in this repo can move it. Regenerate when you want the tail current.
+  const lexical = onDisk === '' ? 0 : lexicalDriftCount(onDisk, built.markdown)
   if (json) {
-    console.log(JSON.stringify({ file: built.file, fresh, drift }, null, 2))
+    console.log(JSON.stringify({ file: built.file, fresh, drift, lexicalRowsBehind: lexical }, null, 2))
     return fresh
   }
   if (fresh) {
-    console.log(`ok    ${built.file} (${built.entries.length} rows)`)
+    console.log(
+      `ok    ${built.file} (${built.entries.length} rows)` +
+        (lexical > 0 ? `\n      lexical tail: ${lexical} row(s) behind a fresh render (informational)` : ''),
+    )
     return true
   }
   console.log(

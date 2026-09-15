@@ -248,7 +248,8 @@ export function renderManifest(entries: readonly ManifestEntry[], meta: Manifest
   const lines: string[] = []
   lines.push(`# Scope manifest — ${meta.scope}`)
   lines.push('')
-  lines.push('<!-- GENERATED FILE. Do not hand-edit: the packet lint fails when it drifts from a fresh render. -->')
+  lines.push('<!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows')
+  lines.push('     (handbook, packet, cited, commit, index); the lexical tail is informational. -->')
   lines.push('')
   lines.push(`- generated: ${meta.generatedAt}`)
   lines.push(`- commit: \`${meta.commit}\`${meta.dirty ? ' (working tree dirty)' : ''} on \`${meta.branch}\``)

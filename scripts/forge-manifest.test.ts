@@ -12,7 +12,7 @@ import {
   renderManifest,
   tokenize,
 } from '../lib/scope-manifest'
-import { buildManifest, manifestDrift, parseArgs } from './forge-manifest'
+import { buildManifest, lexicalDriftCount, manifestDrift, parseArgs } from './forge-manifest'
 
 // ---------------------------------------------------------------------------
 // The manifest's own tests. Two kinds, both needed:
@@ -155,6 +155,29 @@ test('drift is reported as added and removed rows, not as a wall of text', () =>
   const drift = manifestDrift(before, after)
   assert.deepEqual(drift.added, ['- `lib/new.ts` — cited · cited by X-01'])
   assert.deepEqual(drift.removed, [])
+})
+
+test('a docs commit elsewhere moves the lexical tail without failing the gate', () => {
+  // Measured 2026-09-15: Grok landed ENG-FORGE-FACTORY-01.md (282 lines, one file, no
+  // overlap with this story's files) and the lexical tail of another story's manifest moved.
+  // The gate went red on a commit that had nothing to do with that story. The structural
+  // rows are what rot; the tail is information.
+  const onDisk =
+    '- `AGENTS.md` — handbook · always-read handbook · last touched 2026-09-13\n' +
+    '- `docs/agent/RUNLOG.md` — lexical · term match: agent, story · last touched 2026-09-14\n'
+  const fresh =
+    '- `AGENTS.md` — handbook · always-read handbook · last touched 2026-09-13\n' +
+    '- `docs/agent/packets/ENG-FORGE-FACTORY-01.md` — lexical · term match: factory, kind · last touched 2026-09-15\n'
+  assert.deepEqual(manifestDrift(onDisk, fresh), { added: [], removed: [] })
+  assert.equal(lexicalDriftCount(onDisk, fresh), 2)
+  // ...but a structural change is still drift, which is the part that matters.
+  const structural = manifestDrift(onDisk, '- `AGENTS.md` — handbook · always-read handbook · last touched 2026-09-13\n')
+  assert.equal(structural.removed.length, 0)
+  assert.equal(
+    manifestDrift(onDisk, '- `docs/agent/packets/X-01.md` — packet · the packet for X-01 · last touched 2026-09-15\n')
+      .removed.length,
+    1,
+  )
 })
 
 test('the real repo: PIRATE-01 ranks its packet first and cites real files', () => {
