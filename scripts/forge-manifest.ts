@@ -12,8 +12,10 @@
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+
+import { writeIfChanged as writeArtifactIfChanged } from '../lib/artifact-file'
 
 import {
   manifestFileName,
@@ -286,10 +288,7 @@ export function lexicalDriftCount(onDisk: string, fresh: string): number {
 }
 
 export function writeIfChanged(path: string, content: string): boolean {
-  if (existsSync(path) && readFileSync(path, 'utf8') === content) return false
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, content, 'utf8')
-  return true
+  return writeArtifactIfChanged(path, content)
 }
 
 function listManifestFiles(root: string): string[] {

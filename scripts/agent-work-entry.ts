@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 
 import { recoverStaleAgentWorkIndustrial } from '../db/agent-work-recovery'
 import { fireDueForgeBatches } from '../db/forge-batch'
+import { runLearnPass } from '../agent-runtime/learn-loop'
+import { captureServerLog } from '../lib/server-error-capture'
 import { interactiveSql } from '../lib/neon-interactive'
 
 function staleAfterMinutes(): number {
@@ -52,6 +54,32 @@ async function main(): Promise<number> {
       `batch ${fired.batchId}: queued=${fired.queued}` +
         (fired.failed.length ? ` skipped=${fired.failed.length}` : ''),
     )
+  }
+
+  // THE LEARN LOOP, right after the batch fire (ENG-FORGE-FACTORY-01 Phase 3).
+  //
+  // After the night batch is on its way, the pass looks at what changed since it last looked: the
+  // silent-failure hunter over the changed files, plus the stale-claim query. It may file AT MOST ONE learn
+  // item, and it never files a second one for a pattern that already has an open item (a partial unique
+  // index enforces that, not this code).
+  //
+  // It runs AFTER the fire so a learn item filed now can be staged into the batch that is about to run,
+  // rather than waiting for the next one.
+  //
+  // NEVER FATAL. The worker was woken to run work; a learning pass that throws must not stop that. The
+  // failure is captured rather than swallowed - one of the decisions in force is that a silent refusal is a
+  // defect, and this is exactly the shape it warns about.
+  try {
+    const learned = await runLearnPass({ root: process.cwd(), apply: true })
+    if (learned.filed) {
+      console.log(
+        `learn: filed ${learned.filed.storyId} (${learned.filed.key}, ${learned.filed.severity}, via ${learned.filed.via})`,
+      )
+    }
+    if (learned.skipped.length) console.log(`learn: skipped ${learned.skipped.join(', ')} (already open)`)
+    if (learned.deferred.length) console.log(`learn: deferred ${learned.deferred.join(', ')} (cap is one per pass)`)
+  } catch (error) {
+    captureServerLog('warn', 'forge-learn-pass-failed', error instanceof Error ? error.message : String(error))
   }
 
   const tsxCli = resolve(process.cwd(), 'node_modules/tsx/dist/cli.mjs')

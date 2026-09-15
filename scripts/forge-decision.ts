@@ -43,7 +43,7 @@ import {
   type ForgeDecisionStatus,
 } from '@/lib/forge-decision'
 import { describeControlPlane } from '@/lib/execution-target'
-import { writeIfChanged } from './forge-manifest'
+import { writeIfChanged } from '@/lib/artifact-file'
 
 const MIRROR_DIR = 'docs/agent/decisions'
 
