@@ -115,10 +115,31 @@ inv_log "start: cwd=$REPO_ROOT max_passes=$MAX_PASSES"
 # Git is planned/runtime code truth; Neon is durable execution truth. Sync only
 # the primary control-plane checkout and only by fast-forward. Any dirty or
 # divergent checkout fails closed before Forge claims another work item.
-branch="$(git branch --show-current 2>/dev/null || true)"
+#
+# THE GIT ERROR IS NEVER DISCARDED. This check ran with `2>/dev/null` until 2026-09-15 and, when it failed,
+# said only "found ''" — so a fail-closed check read as a mystery. It had in fact failed on EVERY scheduled
+# tick since 2026-09-03 (463 invocations) because macOS TCC denies a launchd-spawned process access to
+# ~/Documents: git could not read its own working directory ("fatal: Unable to read current working
+# directory: Operation not permitted") and printed an empty branch, so the worker never reached
+# `pnpm agent:work` and Forge was silently dead for twelve days. Print what git said, and say out loud that
+# a permission failure is the likely cause.
+branch_err_file="$(mktemp -t culebraluxe-branch.XXXXXX)"
+branch="$(git branch --show-current 2>"$branch_err_file" || true)"
+branch_err="$(tr '\n' ' ' < "$branch_err_file" 2>/dev/null | sed 's/[[:space:]]*$//')"
+rm -f "$branch_err_file"
 if [ "$branch" != "main" ]; then
   echo "agent-worker: expected control-plane checkout on main, found '$branch'" >&2
-  inv_log "stop: checkout-not-main branch=$branch"
+  if [ -n "$branch_err" ]; then
+    echo "agent-worker: git said: $branch_err" >&2
+    case "$branch_err" in
+      *"Operation not permitted"*|*"Permission denied"*)
+        echo "agent-worker: this is a macOS privacy (TCC) denial, not a git problem. The worker runs from" >&2
+        echo "agent-worker: launchd, which cannot read ~/Documents unless the responsible binary is granted" >&2
+        echo "agent-worker: Full Disk Access (System Settings > Privacy & Security > Full Disk Access)." >&2
+        ;;
+    esac
+  fi
+  inv_log "stop: checkout-not-main branch='$branch' git-error='$branch_err'"
   exit 2
 fi
 inv_log "git-sync: start origin/main"
