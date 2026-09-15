@@ -8,7 +8,7 @@ What we know is not right, recorded so it is not lost and not re-discovered. Thr
    holds findings we chose not to fix on day one; they are listed here in prose so a person reading
    this file knows they exist without running the gate.
 
-Last reviewed: 2026-09-15 (PIRATE-01, ENG-FORGE-FACTORY-01 Phases 1, 2, 3 and 4).
+Last reviewed: 2026-09-15 (PIRATE-01, ENG-FORGE-FACTORY-01 Phases 1, 2, 3 and 4, and the release of `ce553e9`).
 
 ## Blocking
 
@@ -17,15 +17,28 @@ of the review date; the Phase 1 probe passes on DEV with net zero, `pnpm forge:d
 seven decision rows and their mirrors agreeing, `probe-learn-dedupe` proves the learn loop's de-dupe
 against a real Postgres, and `pnpm forge:roi` reads the live rollup.
 
-## Waiting on the sprint-end release (a decision, not an oversight)
+## Released (2026-09-15)
 
-- **Production is behind `main` on purpose.** The captain's call on 2026-09-15: release once, at the end of
-  this sprint, rather than per story. Everything since the last deploy is waiting — the harness gates
-  (packet-lint + manifests + vendor blocks), the board repair of the five V5 stories, Factory Phase 1
-  (kind + policy), Phase 2 (the decision institution) and Phase 3 (the learn loop). Exit: at the end of the
-  sprint, `bash scripts/vercel-build-prod.sh` then `bash scripts/vercel-deploy-prod.sh`, which verifies the
-  live sha and ends in the live smoke. `pnpm smoke:prod` reports the gap in commits on every run, so
-  "behind" is never a surprise.
+- **Production is current as of `ce553e9`.** `bash scripts/vercel-build-prod.sh` → `bash scripts/vercel-deploy-prod.sh`
+  shipped the harness gates, the board repair, and Factory Phases 1–4; the deploy verified the live sha and
+  ended in the live smoke (4/4, including the sha assertion), and protected routes answer 307 to `/login`
+  rather than 500, which is what proves the edge middleware and the edge-safe instrumentation load.
+- **Two build paths now have to keep working, and that is a new obligation, not a detail:**
+
+  1. `vercel build --prod` → `pnpm run build` → `next build` (**Turbopack**, Next 16's default). It REFUSES a
+     project that has a `webpack` config and no `turbopack` config — that error is what broke the first
+     release attempt, and it only appeared once the edge fix added a `webpack` key. `turbopack: {}` in
+     `next.config.mjs` is the fix, and it must stay.
+  2. `pnpm exec next build --webpack` (the QA command in `AGENTS.md`) — this is the path that needs the
+     edge-only builtin fallbacks, because webpack walks instrumentation's dynamic import graph.
+
+  Exit: pick ONE bundler. Either make `pnpm run build` be `next build --webpack` so the release runs exactly
+  what QA runs, or drop the webpack config and verify Turbopack passes the same edge graph. Until then, a
+  green `next build --webpack` does NOT prove the release builds — measured today, webpack was green while
+  `vercel build` failed.
+- **`node:`-scheme imports are not stubbable in the edge compilation.** `lib/execution-target.ts` and
+  `db/database-gateway.ts` now import bare `fs`/`crypto` for that reason. Exit: if Next stops bundling
+  instrumentation for Edge, revert to the `node:` form and delete this line.
 
 ## Cleanup with the next phase (not owed by anyone today)
 
