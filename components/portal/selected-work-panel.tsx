@@ -45,6 +45,32 @@ function plusThirtyMinutes(iso: string): string {
   return new Date(new Date(iso).getTime() + 30 * 60 * 1000).toISOString()
 }
 
+const LOCAL_APPLE_SYNC_URL = "http://127.0.0.1:47831/sync"
+
+/**
+ * Fast path only. The server action has ALREADY committed the durable Apple command
+ * to Neon before this runs. On this Mac the loopback listener wakes EventKit now;
+ * on iPhone/iPad (or if the Mac listener is down) this quietly returns false and the
+ * normal scheduled Mac sync drains the exact same durable command later.
+ */
+async function kickLocalAppleSync(): Promise<boolean> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 1500)
+  try {
+    const response = await fetch(LOCAL_APPLE_SYNC_URL, {
+      method: "POST",
+      mode: "cors",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+    return response.ok
+  } catch {
+    return false
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 export function SelectedWorkPanel({
   node,
   onSaved,
@@ -133,6 +159,11 @@ export function SelectedWorkPanel({
           return
         }
         setRouteStatus(`Saved · Apple Calendar queued${alert ? " · alert 15 min before" : ""}.`)
+        void kickLocalAppleSync().then((kicked) => {
+          if (kicked) {
+            setRouteStatus(`Saved · syncing to Apple Calendar now${alert ? " · alert 15 min before" : ""}.`)
+          }
+        })
       } else {
         const result = await queueAppleReminderForWbsAction(node.id, { alert })
         if (!result.ok) {
@@ -140,6 +171,11 @@ export function SelectedWorkPanel({
           return
         }
         setRouteStatus(`Saved · Apple Reminder queued${alert && dueAt ? " · alert 9 AM on due date" : ""}.`)
+        void kickLocalAppleSync().then((kicked) => {
+          if (kicked) {
+            setRouteStatus(`Saved · syncing to Apple Reminders now${alert && dueAt ? " · alert 9 AM on due date" : ""}.`)
+          }
+        })
       }
 
       onSaved?.()
