@@ -306,19 +306,31 @@ export function forgeEvidenceFromAgentResult(input: {
       // Live on 2026-09-13, found by running the chain end to end.
       const candidate = commitSha(current.candidateSha)
       const verified = commitSha(result.assayEvidence?.verifiedSha)
-      const exact = Boolean(
-        clean &&
-          result.assayEvidence?.verdict === 'PASS' &&
-          !result.assayEvidence.failureCode &&
-          candidate &&
-          verified === candidate,
-      )
+      // A GAP IS NOT A DEFECT — and this projection was where that distinction died.
+      //
+      // `collectAssayEvidence` is careful to separate "we could not measure" (INCOMPLETE -> verificationGap)
+      // from "we measured and it broke" (FAIL). This projection then flattened both into
+      // `qaPassed:false` plus `failureClass:'CODE_DEFECT'` and DROPPED the gap flag entirely, so the router
+      // — which HOLDs on a verification gap — never saw one. The consequence is the loop measured on
+      // 2026-09-15: qa_verify failed, repair was dispatched at a candidate it had never tested, the repair
+      // reproduced the SAME candidate SHA, and the engine repeated it three times before a human killed it.
+      //
+      // So: the gap travels through, and only a real measurement failure is called a code defect.
+      //
+      // The gap arrives on `current.verificationGap` (the durable evidence row, read AFTER the work), not on
+      // the verdict: `assayEvidence.verdict` is typed PASS|FAIL, so INCOMPLETE has no way to appear here —
+      // the type is the proof that the gap must ride the flag or it is lost entirely.
+      const verificationGap = current.verificationGap === true
+      const verdictIsPass =
+        result.assayEvidence?.verdict === 'PASS' && !result.assayEvidence?.failureCode
+      const exact = Boolean(clean && verdictIsPass && candidate && verified === candidate)
       return {
         ...marked,
         ...(candidate ? { candidateSha: candidate } : {}),
         qaPassed: exact,
         ...(verified ? { qaVerifiedSha: verified } : {}),
-        ...(!exact ? { failureClass: 'CODE_DEFECT' as const } : {}),
+        ...(verificationGap ? { verificationGap: true } : {}),
+        ...(!exact && !verificationGap ? { failureClass: 'CODE_DEFECT' as const } : {}),
       }
     }
     case 'deploy': {
