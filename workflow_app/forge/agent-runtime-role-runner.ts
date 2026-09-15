@@ -1020,7 +1020,7 @@ export function createAgentRuntimeForgeRoleRunner(
     // pinned: an unpinnable workspace is a verification gap for a human, never a code defect for repair.
     const candidateShaForAssay =
       typeof evidence.candidateSha === 'string' ? evidence.candidateSha.trim() : ''
-    if (candidateShaForAssay) {
+    if (candidateShaForAssay && roleCwd !== process.cwd()) {
       const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
       if (headBefore !== candidateShaForAssay) {
         await commandRunner(roleCwd)(`git checkout --detach ${candidateShaForAssay}`)
