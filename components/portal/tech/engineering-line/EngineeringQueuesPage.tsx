@@ -29,23 +29,9 @@ import {
 } from '@/app/portal/tech/actions'
 import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
-import { STORY_BUCKETS, bucketSideEffect, normalizeStoryBucket } from '@/lib/story-moves'
 import { SORTER_COLUMNS, buildSorterCards } from '@/lib/sorter-board'
 import type { ForgeBatch } from '@/db/forge-batch'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
-
-/**
- * NAMES FOR THE "move to…" CONTROL — the captain's own column names where he has one.
- */
-const MOVE_LABEL: Record<StoryBucket, string> = {
-  backlog: 'Backlog',
-  open: 'Open',
-  bench: 'Bench',
-  batch: 'Batch',
-  engine: 'Run Q',
-  closed: 'Close',
-  next: 'Next ver',
-}
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
 import type { StoryboardStory, StoryRun } from '@/db/storyboard'
@@ -459,7 +445,7 @@ export function EngineeringQueuesPage({
           <p className="text-[11px] font-semibold tracking-[0.16em] text-white">
             SORTER
             <span className="ml-2 font-normal tracking-[0.08em] text-slate-400">
-              backlog → open → work bench → engine batch → engine run q
+              drag a card anywhere · nothing is enforced
             </span>
           </p>
           {/*
@@ -610,19 +596,11 @@ export function EngineeringQueuesPage({
           <StoryKanbanBoard
             cards={sorterCards}
             columns={sorterColumns}
-            // THE CONTROL. Every other column, for every card — the gate is gone (the captain, 2026-09-14:
-            // "these are just sticky notes ... i can just pick a sticky note off the white board kahnban
-            // and move it where ever i want"). What each destination DOES is still worth knowing, so the
-            // hints come from the same module that defines the writes.
-            movesFor={(card) => {
-              const from = normalizeStoryBucket(String(card.column ?? ''))
-              if (!from) return []
-              return STORY_BUCKETS.filter((to) => to !== from).map((to) => ({
-                to,
-                label: MOVE_LABEL[to],
-                hint: bucketSideEffect(to) ?? undefined,
-              }))
-            }}
+            // NO MENUS, NO GATES — just drag the card. The captain, 2026-09-14: "i dont want gates, flows
+            // or drop downs ... the whole point of this is super simple: move the story back and forth."
+            // The `move to…` control is gone; grabbing a card and dropping it in another column is the
+            // whole interface. (The board still refuses a move that would draw one story twice, and the
+            // write's own reason is shown above the board - that is a bug guard, not a gate.)
             onMove={async (cardId, from, to) => {
               // The rules live in lib/story-moves.ts; the write lives in the action; a refusal comes
               // back as ok:false and the card snaps back - AND SAYS WHY. The board used to swallow the

@@ -31,7 +31,6 @@ export function StoryKanbanBoard({
   cards,
   columns,
   onMove,
-  movesFor,
 }: {
   cards: StoryKanbanCard[]
   columns: StoryKanbanColumn[]
@@ -46,18 +45,6 @@ export function StoryKanbanBoard({
     from: string,
     to: string,
   ) => Promise<{ ok: boolean; error?: string; note?: string }>
-  /**
-   * WHERE A CARD MAY GO. With the gate gone (2026-09-14) that is every other column, so this renders as
-   * ONE compact "move to…" control per card rather than a wall of seven buttons. The captain's words:
-   *
-   *   "i dont want any rules ... these are just sticky notes on a kahnban in real life i can just pick a
-   *    sticky note off the white board kahnban and move it where ever i want"
-   *
-   * A select is the closest thing to picking the note up and putting it down somewhere else, and it is
-   * one call to one action that writes one row — it never touches the vendor's store, its drop index or
-   * its drag state, so it cannot land on a board that has already moved on.
-   */
-  movesFor?: (card: KanbanCard) => Array<{ to: string; label: string; hint?: string }>
 }) {
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -163,50 +150,18 @@ export function StoryKanbanBoard({
               // Which card property decides the column. One string, so the board
               // does not need our model to be reshaped.
               columnAccessor="column"
-              cardContent={({ card }) => {
-                // The buttons are the deterministic path: one action call, one row written, and the
-                // server render is the only thing that moves a card (see `movesFor`).
-                const targets = movesFor?.(card) ?? []
-                return (
-                  <div className="px-0.5 py-0.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-[10px] opacity-70">{String(card.id)}</span>
-                      <span className="text-[10px] opacity-60">{String(card.status ?? '')}</span>
-                    </div>
-                    <p className="text-[11px] leading-snug">{String(card.title ?? '')}</p>
-                    <p className="text-[10px] opacity-60">
-                      {String(card.priority ?? '')} · {Math.round(Number(card.completion ?? 0))}%
-                    </p>
-                    {targets.length ? (
-                      <div className="mt-1.5 flex items-center gap-1.5">
-                        <select
-                          // PICK THE NOTE UP, PUT IT DOWN ELSEWHERE. One control, every column.
-                          defaultValue=""
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            e.stopPropagation()
-                            const to = e.target.value
-                            e.target.value = ''
-                            if (!to) return
-                            void writeMove(String(card.id), String(card.column ?? ''), to)
-                          }}
-                          title={`Move ${String(card.id)} to another column`}
-                          className="max-w-[9.5rem] flex-1 cursor-pointer rounded border border-white/15 bg-[#0b1220] px-1 py-[1px] text-[9px] uppercase tracking-[0.08em] text-slate-300 hover:border-[#c6a15b]/50 hover:text-[#e0c489]"
-                        >
-                          <option value="">move to…</option>
-                          {targets.map((t) => (
-                            <option key={t.to} value={t.to} title={t.hint}>
-                              {t.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : null}
+              cardContent={({ card }) => (
+                <div className="px-0.5 py-0.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10px] opacity-70">{String(card.id)}</span>
+                    <span className="text-[10px] opacity-60">{String(card.status ?? '')}</span>
                   </div>
-                )
-              }}
+                  <p className="text-[11px] leading-snug">{String(card.title ?? '')}</p>
+                  <p className="text-[10px] opacity-60">
+                    {String(card.priority ?? '')} · {Math.round(Number(card.completion ?? 0))}%
+                  </p>
+                </div>
+              )}
             />
           ) : (
             <div className="flex h-96 items-center justify-center text-sm font-light text-slate-400">
