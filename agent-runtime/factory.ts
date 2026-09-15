@@ -317,7 +317,13 @@ export function createAgentRuntimeRegistry(
     config && typeof config === 'object' && ('deepseek' in config || 'opencode' in config || 'team' in config || 'builderFlashOverride' in config || 'deepseekWorkspace' in config)
       ? (config as CreateAgentRuntimeRegistryOptions)
       : { deepseek: config as DeepSeekHarnessConfig, opencode: openCodeConfig }
-  const deepseekConfig = opts.deepseek ?? (config as DeepSeekHarnessConfig)
+  // THE FALLBACK IS THE DEFAULT CONFIG, NOT THE OPTIONS OBJECT. `config` may be an options bag
+  // (`{ opencode, team, builderFlashOverride, ... }`) with no `deepseek` key; the old fallback cast
+  // THAT object as a DeepSeekHarnessConfig, so `cliBin` was undefined and every DeepSeek profile
+  // (scout/architect/lead) reported "CLI entrypoint not found or not executable: undefined" on a
+  // machine where the CLI was installed and executable (measured on PROD 2026-09-15, which is what
+  // stopped the first real story run of the day). Options name what to OVERRIDE; absence means default.
+  const deepseekConfig = opts.deepseek ?? defaultDeepSeekConfig()
   const resolvedOpenCodeConfig = opts.opencode ?? openCodeConfig
   const team = forgeTeamWithBuilderFlashOverride(
     opts.team ?? DEFAULT_FORGE_TEAM,

@@ -513,10 +513,18 @@ export async function claimSpecificAgentWork(
           updated_at = now()
       where id = ${workItemId}
         and state = 'Ready'
+      -- THE RETURNING LIST IS A READ CONTRACT and must match listAgentWorkItems (no backticks here:
+      -- inside a tagged template they close the literal). kind/model_policy
+      -- were missing HERE, so the worker's routing line printed "unrecorded (queued before migration
+      -- 179)" for an item whose row plainly carried kind=feature, policy=cheap — measured on PROD
+      -- 2026-09-15, and the same "a value exists and never reaches its reader" shape as everything
+      -- else that day. An item is claimed once and then read for its whole life, so a column missing
+      -- from this list is a column the runtime can never see.
       returning id, story_id, state, priority, queued_at, claimed_at,
         claimed_by, started_at, finished_at, story_run_id, error_text,
         role, model_profile, special_instructions, runtime_adapter,
-        external_run_id, attempts, max_attempts, created_at, updated_at
+        external_run_id, attempts, max_attempts, execution_policy, execution_environment,
+        stop_after, launch_intent, kind, model_policy, created_at, updated_at
     `
     const row = claimedRows[0] as AgentWorkRow | undefined
     return row ? mapWorkItem(row) : null
@@ -893,7 +901,7 @@ export async function claimNextAgentWork(
         claimed_by, started_at, finished_at, story_run_id, error_text,
         role, model_profile, special_instructions, runtime_adapter,
         external_run_id, attempts, max_attempts, execution_policy, execution_environment,
-        created_at, updated_at
+        stop_after, launch_intent, kind, model_policy, created_at, updated_at
     `
     const claimedRow = claimedRows[0] as AgentWorkRow | undefined
     if (!claimedRow) return null
