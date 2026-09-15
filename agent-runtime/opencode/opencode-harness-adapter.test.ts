@@ -459,10 +459,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-test('V5-21 session continuity is OFF by default and only on under the env gate', () => {
+test('V5-21 session continuity is ON by default with an explicit opt-out (ENG-FORGE-WARM-SESSION-01)', () => {
   const env = (x: Record<string, string>): NodeJS.ProcessEnv => x as unknown as NodeJS.ProcessEnv
-  assert.equal(forgeSessionContinuityEnabled(env({})), false, 'must be default OFF')
+  // The rule inverted after this test was written: one live session per execution generation is the
+  // DESIGN, not an experiment (a cold-starting role pays to re-read what the previous role already read),
+  // so continuity is on unless the operator opts out. Recorded here because the stale expectation — not
+  // the code — was the defect: the suite was red for it while the behaviour was documented and intended.
+  assert.equal(forgeSessionContinuityEnabled(env({})), true, 'must be default ON')
   assert.equal(forgeSessionContinuityEnabled(env({ FORGE_SESSION_CONTINUITY: '0' })), false)
+  assert.equal(forgeSessionContinuityEnabled(env({ FORGE_SESSION_CONTINUITY: 'off' })), false)
   assert.equal(forgeSessionContinuityEnabled(env({ FORGE_SESSION_CONTINUITY: '1' })), true)
   assert.equal(SESSION_CONTINUITY_ENV, 'FORGE_SESSION_CONTINUITY')
 })

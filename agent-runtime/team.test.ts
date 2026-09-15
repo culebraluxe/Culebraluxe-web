@@ -34,13 +34,18 @@ test('player roster is separate from harness selection', () => {
   assert.equal('harness' in FORGE_PLAYERS['deepseek-flash'], false)
 })
 
-test('same model may use different harnesses by mapped position', () => {
+test('the harness is a per-position axis; OpenCode is primary and DSH keeps only the escalation grades', () => {
   const scout = resolveForgeAssignment('scout')
   const smith = resolveForgeAssignment('smith')
   assert.equal(scout.playerId, 'deepseek-flash')
   assert.equal(smith.playerId, 'deepseek-flash')
-  assert.equal(scout.harnessId, 'forge-native')
+  // EVERY position that can start runs on OpenCode (the captain's primary harness, 2026-09-15). The
+  // legacy DeepSeek Harness (forge-native) survives on the Smith ESCALATION grades only, which is what
+  // makes it a cold backup rather than a dependency of a normal run.
+  assert.equal(scout.harnessId, 'opencode')
   assert.equal(smith.harnessId, 'opencode')
+  assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.upgrade?.harnessId, 'forge-native')
+  assert.equal(DEFAULT_FORGE_TEAM.assignments.smith.emergency?.harnessId, 'forge-native')
 })
 
 test('default team keeps all core execution on the local sequential field', () => {
@@ -76,10 +81,13 @@ test('implemented harness mappings are distinct from host runtime readiness', ()
 })
 
 test('default role model choices live only in the team map', () => {
+  // OpenCode is pinned to ONE model today (`OPENCODE_PINNED_MODEL`), and the factory fails closed on any
+  // other, so every OpenCode position carries the pinned player. The seats keep their identity and their
+  // profiles; what they run on is still decided here and nowhere else.
   assert.equal(resolveForgeAssignment('scout').playerId, 'deepseek-flash')
-  assert.equal(resolveForgeAssignment('architect').playerId, 'deepseek-pro')
-  assert.equal(resolveForgeAssignment('dev_ops').playerId, 'deepseek-pro')
-  assert.equal(resolveForgeAssignment('lead').playerId, 'deepseek-pro')
+  assert.equal(resolveForgeAssignment('architect').playerId, 'deepseek-flash')
+  assert.equal(resolveForgeAssignment('dev_ops').playerId, 'deepseek-flash')
+  assert.equal(resolveForgeAssignment('lead').playerId, 'deepseek-flash')
   assert.equal(resolveForgeAssignment('smith').playerId, 'deepseek-flash')
   assert.equal(resolveForgeAssignment('assay').playerId, 'forge-deterministic-assay')
 })

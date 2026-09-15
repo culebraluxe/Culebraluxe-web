@@ -63,7 +63,7 @@ function withProfileEnv(value: string | undefined, fn: () => void): void {
   }
 }
 
-test('default Smith is OpenCode while V6 Assay is deterministic Forge runtime', () => {
+test('default routing: every model-backed seat is OpenCode, V6 Assay stays the deterministic runtime', () => {
   withProfileEnv(undefined, () => {
     const registry: AgentRuntimeRegistry = createAgentRuntimeRegistry(
       deepSeekReadyConfig(),
@@ -71,9 +71,12 @@ test('default Smith is OpenCode while V6 Assay is deterministic Forge runtime', 
     )
     assert.ok(registry.listAdapters().includes('opencode-harness'))
     assert.ok(registry.listAdapters().includes('forge-assay'))
+    // OPENCODE IS THE PRIMARY HARNESS (captain, 2026-09-15). Every seat that runs a model goes through it;
+    // the legacy DeepSeek Harness (forge-native) is a cold backup and keeps only the Smith escalation
+    // grades. Assay is not a model seat at all — it is the deterministic Forge runtime, and stays so.
     const expected: Record<string, string> = {
-      'scout-volume': 'deepseek-harness:deepseek/deepseek-v4-flash',
-      'architect-pro': 'deepseek-harness:deepseek/deepseek-chat',
+      'scout-volume': 'opencode-harness',
+      'architect-pro': 'opencode-harness',
       'builder-flash': 'opencode-harness',
       'verifier-mini': 'forge-assay',
     }
@@ -105,8 +108,8 @@ test('explicit Smith OpenCode routing does not reroute Assay', () => {
       true,
       'ready when the CLI/config are qualified',
     )
-    assert.equal(registry.resolveProfile('scout-volume').adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
-    assert.equal(registry.resolveProfile('architect-pro').adapterId, 'deepseek-harness:deepseek/deepseek-chat')
+    assert.equal(registry.resolveProfile('scout-volume').adapterId, 'opencode-harness')
+    assert.equal(registry.resolveProfile('architect-pro').adapterId, 'opencode-harness')
     assert.equal(registry.resolveProfile('verifier-mini').adapterId, 'forge-assay')
 
     const smith = registry.resolveAdapter('builder-flash', {
@@ -256,9 +259,10 @@ test('factory finding #8: shared registry memoizes per process', () => {
 
 test('factory finding #6: sharing a profile across lanes with different capabilities fails closed', () => {
   // architect requires [storyboard.read, config.read]; archive shares the
-  // architect-pro profile today. Point archive at the assay lane's narrower
-  // ASSAY set via the same profile name: same player/harness route would
-  // silently widen/narrow privilege, so the factory refuses.
+  // architect-pro profile today. Point assay at the SAME profile and the SAME player+harness (a profile
+  // must map to one player+harness everywhere, so any other combination is refused earlier and for a
+  // different reason) while giving it the lane's narrower ASSAY capability set: the profile would silently
+  // widen/narrow privilege, so the factory refuses on capability.
   const team = {
     ...DEFAULT_FORGE_TEAM,
     assignments: {
@@ -266,8 +270,8 @@ test('factory finding #6: sharing a profile across lanes with different capabili
       assay: {
         ...DEFAULT_FORGE_TEAM.assignments.assay,
         profile: 'architect-pro',
-        playerId: 'deepseek-pro' as const,
-        harnessId: 'forge-native' as const,
+        playerId: 'deepseek-flash' as const,
+        harnessId: 'opencode' as const,
       },
     },
   }
@@ -282,19 +286,23 @@ test('factory finding #6: sharing a profile across lanes with different capabili
   )
 })
 
-test('spend vision: forge-native profiles route to model-pinned adapters', () => {
+test('spend vision: the native grades still get model-pinned adapters; OpenCode seats share one', () => {
   const registry = createAgentRuntimeRegistry({
     deepseek: deepSeekReadyConfig(),
     opencode: openCodeReadyConfig(),
   })
-  // scout-volume (flash) and architect-pro (pro) share the forge-native
-  // harness but must NOT share an adapter: each gets its exact model.
-  const scout = registry.resolveProfile('scout-volume')
-  const architect = registry.resolveProfile('architect-pro')
-  assert.notEqual(scout.adapterId, architect.adapterId)
-  assert.equal(scout.adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
-  assert.equal(architect.adapterId, 'deepseek-harness:deepseek/deepseek-chat')
-  assert.ok(registry.listAdapters().includes('deepseek-harness:deepseek/deepseek-v4-flash'))
+  // The startable seats all run on OpenCode, which is pinned to ONE model today, so they share the one
+  // OpenCode adapter — the honest current state, and the reason per-profile OpenCode models are a
+  // follow-up rather than a detail.
+  assert.equal(registry.resolveProfile('scout-volume').adapterId, 'opencode-harness')
+  assert.equal(registry.resolveProfile('architect-pro').adapterId, 'opencode-harness')
+  // The Smith ESCALATION grades are the forge-native profiles that remain, and each still routes to the
+  // adapter pinned to its exact model. That is the spend-vision rule the native path exists for.
+  assert.equal(registry.resolveProfile('builder-plus').adapterId, 'deepseek-harness:deepseek/deepseek-chat')
+  assert.equal(
+    registry.resolveProfile('builder-emergency').adapterId,
+    'deepseek-harness:deepseek/deepseek-chat',
+  )
   assert.ok(registry.listAdapters().includes('deepseek-harness:deepseek/deepseek-chat'))
 })
 

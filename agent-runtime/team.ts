@@ -182,25 +182,34 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
       position: 'scout',
       profile: 'scout-volume',
       playerId: 'deepseek-flash',
-      harnessId: 'forge-native',
+      // OPENCODE IS THE PRIMARY HARNESS (captain, 2026-09-15). forge-native (the DeepSeek Harness,
+      // DSH) was the stop-gap that got this machine running while OpenCode was being wired; DSH is now
+      // a cold backup, and every position that can run on OpenCode must. scout's player already matches
+      // OPENCODE_PINNED_MODEL, so this is a harness swap with no model change.
+      harnessId: 'opencode',
       fieldId: 'local',
       lineage: 'deepseek-volume',
     },
     architect: {
       position: 'architect',
       profile: 'architect-pro',
-      playerId: 'deepseek-pro',
-      harnessId: 'forge-native',
+      // OpenCode is pinned to ONE model (`OPENCODE_PINNED_MODEL` = deepseek/deepseek-v4-flash) and the
+      // factory FAILS CLOSED when a profile maps to any other, so the architect must run on the flash
+      // player to use OpenCode at all. The cost is real and recorded: the architect seat is a judgment
+      // seat, and it is running on the volume model until per-profile OpenCode models exist (follow-up).
+      // It is still strictly better than a lane that cannot start: DSH has no provider configured here.
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
       fieldId: 'local',
-      lineage: 'deepseek-judgment',
+      lineage: 'deepseek-volume',
     },
     lead: {
       position: 'lead',
       profile: 'lead-pro',
-      playerId: 'deepseek-pro',
-      harnessId: 'forge-native',
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
       fieldId: 'local',
-      lineage: 'deepseek-judgment',
+      lineage: 'deepseek-volume',
     },
     smith: {
       position: 'smith',
@@ -227,8 +236,10 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
     inspector: {
       position: 'inspector',
       profile: 'reviewer-other',
-      playerId: 'deepseek-pro',
-      harnessId: 'forge-native',
+      // Same one-model pin: OpenCode refuses any player but the flash model, so the reviewer runs on it
+      // too. Its OWN lineage below is what keeps independent review independent, not the player.
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
       fieldId: 'local',
       // Factory finding #10: dedicated review lineage, distinct from every
       // Smith grade lineage (deepseek-volume / deepseek-judgment), so an
@@ -246,11 +257,13 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
     },
     archive: {
       position: 'archive',
+      // Shares `architect-pro` with the architect seat, and a profile must map to ONE player+harness
+      // everywhere it is used (the factory fails closed otherwise), so the archive lane moves with it.
       profile: 'architect-pro',
-      playerId: 'deepseek-pro',
-      harnessId: 'forge-native',
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
       fieldId: 'local',
-      lineage: 'deepseek-judgment',
+      lineage: 'deepseek-volume',
     },
     night: {
       position: 'night',
@@ -277,8 +290,10 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
     dev_ops: {
       position: 'dev_ops',
       profile: 'devops-pro',
-      playerId: 'deepseek-pro',
-      harnessId: 'forge-native',
+      // Same one-model pin as the other native positions; the release lane cannot be the one seat still
+      // pointed at a harness with no configured provider.
+      playerId: 'deepseek-flash',
+      harnessId: 'opencode',
       fieldId: 'local',
       lineage: 'deepseek-operations',
     },
