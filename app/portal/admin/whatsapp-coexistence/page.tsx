@@ -39,12 +39,31 @@ type SessionEvent = {
   [key: string]: unknown
 }
 
+type CompletionResult = {
+  ok: boolean
+  error?: string
+  warning?: string
+  subscribed?: boolean
+  wabaId?: string
+  phoneNumberId?: string
+  phoneStatus?: {
+    id?: string
+    displayPhoneNumber?: string | null
+    isOnBusinessApp?: boolean | null
+    platformType?: string | null
+    status?: string | null
+    codeVerificationStatus?: string | null
+  } | null
+}
+
 export default function WhatsAppCoexistencePage() {
   const [sdkReady, setSdkReady] = useState(false)
   const [safetyConfirmed, setSafetyConfirmed] = useState(false)
   const [status, setStatus] = useState("Loading Meta SDK…")
   const [sessionEvent, setSessionEvent] = useState<SessionEvent | null>(null)
-  const [authorizationCodeReceived, setAuthorizationCodeReceived] = useState(false)
+  const [authorizationCode, setAuthorizationCode] = useState<string | null>(null)
+  const [completionStarted, setCompletionStarted] = useState(false)
+  const [completionResult, setCompletionResult] = useState<CompletionResult | null>(null)
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -67,7 +86,7 @@ export default function WhatsAppCoexistencePage() {
 
       setSessionEvent(candidate)
       if (candidate.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
-        setStatus("Coexistence onboarding finished in Meta.")
+        setStatus("Coexistence onboarding finished in Meta. Waiting for the authorization code…")
       } else {
         setStatus(`Meta Embedded Signup event: ${candidate.event ?? "unknown"}`)
       }
@@ -103,6 +122,60 @@ export default function WhatsAppCoexistencePage() {
     }
   }, [])
 
+  // Meta returns the session asset IDs and the one-time authorization code over
+  // two independent channels. Complete the transaction only after BOTH have
+  // arrived. This is the server-side step the old launcher was missing.
+  useEffect(() => {
+    if (completionStarted || !authorizationCode) return
+    if (sessionEvent?.event !== "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") return
+
+    const wabaId = sessionEvent.data?.waba_id?.trim()
+    if (!wabaId) return
+
+    setCompletionStarted(true)
+    setStatus("Meta signup finished. Completing Coexistence on the CulebraLuxe server…")
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/integrations/whatsapp/coexistence/complete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            code: authorizationCode,
+            wabaId,
+            phoneNumberId: sessionEvent.data?.phone_number_id ?? null,
+          }),
+        })
+        const payload = await response.json().catch(() => null) as CompletionResult | null
+
+        if (!response.ok || !payload?.ok) {
+          setCompletionResult(payload)
+          setStatus(`Server completion failed: ${payload?.error ?? `HTTP ${response.status}`}`)
+          return
+        }
+
+        setCompletionResult(payload)
+        const phone = payload.phoneStatus
+        if (phone?.isOnBusinessApp === true && phone.platformType === "CLOUD_API") {
+          setStatus("Coexistence complete. Meta now reports the existing Business App number connected to Cloud API.")
+          return
+        }
+
+        if (phone) {
+          setStatus(
+            `Server completion succeeded. Meta phone status: is_on_biz_app=${String(phone.isOnBusinessApp)}, platform_type=${phone.platformType ?? "unknown"}.`,
+          )
+          return
+        }
+
+        setStatus(payload.warning ?? "Server completion succeeded. Recheck Meta phone status in a moment.")
+      } catch (error) {
+        setCompletionResult({ ok: false, error: error instanceof Error ? error.message : "Network error" })
+        setStatus("Server completion failed before Meta could be confirmed.")
+      }
+    })()
+  }, [authorizationCode, completionStarted, sessionEvent])
+
   const canLaunch = sdkReady && safetyConfirmed
 
   function launchCoexistence() {
@@ -110,17 +183,22 @@ export default function WhatsAppCoexistencePage() {
 
     setStatus("Opening Meta Coexistence Embedded Signup…")
     setSessionEvent(null)
-    setAuthorizationCodeReceived(false)
+    setAuthorizationCode(null)
+    setCompletionStarted(false)
+    setCompletionResult(null)
 
     // Important: FB.login must run synchronously from this click handler or browsers can block the popup.
     window.FB.login(
       (response) => {
-        if (response.authResponse?.code) {
-          setAuthorizationCodeReceived(true)
+        const code = response.authResponse?.code?.trim()
+        if (code) {
+          // Never render or log the one-time code. Keep it only in memory long
+          // enough to hand it to our authenticated server completion endpoint.
+          setAuthorizationCode(code)
           setStatus((current) =>
-            current === "Coexistence onboarding finished in Meta."
-              ? current
-              : "Meta returned the Embedded Signup authorization code.",
+            current.startsWith("Coexistence onboarding finished in Meta.")
+              ? "Meta signup finished. Completing Coexistence on the CulebraLuxe server…"
+              : "Meta returned the Embedded Signup authorization code. Waiting for the finish event…",
           )
           return
         }
@@ -147,8 +225,9 @@ export default function WhatsAppCoexistencePage() {
           <p className="text-xs uppercase tracking-[0.28em] text-brand-gold">Private diagnostic</p>
           <h1 className="mt-3 font-serif text-3xl">WhatsApp Coexistence Launcher</h1>
           <p className="mt-3 text-sm text-brand-ivory/70">
-            Launches Meta Embedded Signup in WhatsApp Business App coexistence mode. This page does not
-            disconnect, migrate, register, or modify a phone number by itself.
+            Launches Meta Embedded Signup in WhatsApp Business App coexistence mode, then completes the
+            returned authorization transaction server-side. It does not register, migrate, disconnect,
+            replace, or delete the existing phone number.
           </p>
         </div>
 
@@ -179,14 +258,14 @@ export default function WhatsAppCoexistencePage() {
               className="mt-1 size-4 accent-[var(--color-brand-gold)]"
             />
             <span className="text-sm leading-6 text-brand-ivory/80">
-              I am connecting an existing WhatsApp Business App number through Coexistence. I will stop
+              I am connecting the existing WhatsApp Business App number through Coexistence. I will stop
               if Meta shows migration, unregister, disconnect, replace, or delete language.
             </span>
           </label>
 
           <button
             type="button"
-            disabled={!canLaunch}
+            disabled={!canLaunch || completionStarted}
             onClick={launchCoexistence}
             className="rounded-xl border border-brand-gold/40 bg-brand-gold/10 px-5 py-3 text-sm font-medium text-brand-gold disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -200,7 +279,7 @@ export default function WhatsAppCoexistencePage() {
         </section>
 
         <section className="rounded-2xl border border-brand-gold/25 bg-white/5 p-6">
-          <h2 className="font-medium">What this launcher sends to Meta</h2>
+          <h2 className="font-medium">Coexistence transaction</h2>
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-brand-ivory/50">featureType</dt>
@@ -211,15 +290,41 @@ export default function WhatsAppCoexistencePage() {
               <dd className="mt-1 font-mono text-xs">3</dd>
             </div>
             <div>
-              <dt className="text-brand-ivory/50">response_type</dt>
-              <dd className="mt-1 font-mono text-xs">code</dd>
+              <dt className="text-brand-ivory/50">Authorization code returned</dt>
+              <dd className="mt-1 text-xs">{authorizationCode ? "Yes" : "Not yet"}</dd>
             </div>
             <div>
-              <dt className="text-brand-ivory/50">Authorization code returned</dt>
-              <dd className="mt-1 text-xs">{authorizationCodeReceived ? "Yes" : "Not yet"}</dd>
+              <dt className="text-brand-ivory/50">Server completion</dt>
+              <dd className="mt-1 text-xs">
+                {completionResult?.ok ? "Complete" : completionStarted ? "Running" : "Not started"}
+              </dd>
             </div>
           </dl>
         </section>
+
+        {completionResult?.phoneStatus ? (
+          <section className="rounded-2xl border border-brand-gold/25 bg-white/5 p-6">
+            <h2 className="font-medium">Meta phone status after completion</h2>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-brand-ivory/50">Business App</dt>
+                <dd className="mt-1 font-mono text-xs">{String(completionResult.phoneStatus.isOnBusinessApp)}</dd>
+              </div>
+              <div>
+                <dt className="text-brand-ivory/50">Platform</dt>
+                <dd className="mt-1 font-mono text-xs">{completionResult.phoneStatus.platformType ?? "unknown"}</dd>
+              </div>
+              <div>
+                <dt className="text-brand-ivory/50">Number</dt>
+                <dd className="mt-1 font-mono text-xs">{completionResult.phoneStatus.displayPhoneNumber ?? "not returned"}</dd>
+              </div>
+              <div>
+                <dt className="text-brand-ivory/50">Status</dt>
+                <dd className="mt-1 font-mono text-xs">{completionResult.phoneStatus.status ?? "not returned"}</dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
 
         {sessionEvent ? (
           <section className="rounded-2xl border border-brand-gold/25 bg-white/5 p-6">
@@ -232,8 +337,9 @@ export default function WhatsAppCoexistencePage() {
 
         <section className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-6">
           <p className="text-sm text-brand-ivory/80">
-            Do not use Meta&apos;s ordinary phone migration/disconnect flow for the existing Business App number.
-            This launcher explicitly requests the coexistence onboarding branch.
+            The server completion exchanges Meta&apos;s one-time code and subscribes the existing WABA. It
+            deliberately contains no phone registration endpoint. Do not use Meta&apos;s ordinary phone
+            migration/disconnect flow for the existing Business App number.
           </p>
         </section>
       </div>
