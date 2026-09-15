@@ -82,6 +82,46 @@ async function main(): Promise<number> {
     captureServerLog('warn', 'forge-learn-pass-failed', error instanceof Error ? error.message : String(error))
   }
 
+  // WHICH PATH RUNS THIS PASS (see workflow_app/forge/worker-dispatch.ts).
+  //
+  // `planForgeNight().driveEngine` used to be read by NOTHING, so a Ready story sat until a human ran
+  // `pnpm forge:engine --story …` by hand — and the lane path it fell through to cannot finish a story
+  // (no deliverable capture: the architect reports Complete and leaves no brief, so the Lead handoff
+  // refuses). This is the flag's consumer.
+  const { listAgentWorkItems } = await import('../db/agent-work')
+  const { planForgeNight } = await import('../workflow_app/forge/forge-night-driver')
+  const { chooseWorkerDispatch } = await import('../workflow_app/forge/worker-dispatch')
+  const readyItems = (await listAgentWorkItems().catch(() => null)) ?? []
+  const dispatch = chooseWorkerDispatch({
+    plan: planForgeNight(),
+    ready: readyItems
+      .filter((item) => item.state === 'Ready')
+      .map((item) => ({ storyId: item.storyId, queuedAt: item.queuedAt, kind: item.kind })),
+  })
+  console.log(`dispatch: ${dispatch.kind} — ${dispatch.reason}`)
+
+  if (dispatch.kind === 'engine') {
+    const engineWorker = resolve(process.cwd(), 'scripts/forge-engine-worker.ts')
+    const engine = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', engineWorker, '--story', dispatch.storyId, '--work-type', dispatch.workType],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: 'inherit',
+        // One bounded engine drive per pass. The engine loops roles (and its own repair cycles) inside
+        // this; the bound exists so a pathological run cannot hold the scheduler forever.
+        timeout: 45 * 60 * 1000,
+      },
+    )
+    if (engine.error) throw engine.error
+    if (engine.signal) {
+      console.error(`forge:engine child terminated by signal ${engine.signal}`)
+      return 1
+    }
+    return engine.status ?? 1
+  }
+
   const tsxCli = resolve(process.cwd(), 'node_modules/tsx/dist/cli.mjs')
   const agentWork = resolve(process.cwd(), 'scripts/agent-work.ts')
   const child = spawnSync(
