@@ -35,7 +35,9 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
   const report = adjudicateAssay({ plan, commands: results, staticGate: ports.runStatic?.() ?? null })
 
   if (report.verdict !== 'PASS') {
-    const failed = results.filter((r) => !r.passed).map((r) => r.command)
+    // Only commands that RAN and failed are "failed commands". An unmeasurable one is a gap, and listing it
+    // here would send repair after code that was never tested.
+    const failed = results.filter((r) => !r.passed && !r.unmeasurable).map((r) => r.command)
     return {
       ...evidence,
       qaPassed: false,

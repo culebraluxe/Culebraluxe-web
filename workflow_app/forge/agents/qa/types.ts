@@ -9,6 +9,18 @@ export type CommandResult = {
   exitCode: number
   passed: boolean
   excerpt: string
+  /**
+   * TRUE when the command could not be RUN at all — a spawn error (bad cwd, missing binary) or a timeout
+   * kill — as opposed to running and reporting failure.
+   *
+   * These were the same thing until 2026-09-15, and it made QA look flaky and too strict: `spawnSync`
+   * returns `status: null` for a command it never started, the runner coerced that to `exitCode: 1`, and
+   * the adjudicator recorded `CMD_FAIL <command>` for a proof that passes when it can actually be run
+   * (measured: the doctor's frozen proof exits 0 with 11/11 in the candidate worktree, while the QA lane
+   * recorded it as failed). "We could not check" is not "we checked and it broke" — the module already
+   * distinguishes those for an empty plan; it must do it per command too.
+   */
+  unmeasurable?: boolean
 }
 
 export type StaticSlice = {

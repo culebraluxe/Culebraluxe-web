@@ -12,6 +12,11 @@ import type { StaticGateResult } from '../forge-static-gate'
 const EXCERPT_CAP = 240
 const DEFAULT_TIMEOUT_MS = 600_000
 
+/** One bounded, single-line excerpt of a command's output (stored as evidence, not read as a log). */
+function excerptOf(output: string): string {
+  return output.replace(/\s+/g, ' ').trim().slice(0, EXCERPT_CAP)
+}
+
 /**
  * Bounded, synchronous command execution for the Assay lane.
  *
@@ -32,11 +37,20 @@ export function commandRunner(
       maxBuffer: 32 * 1024 * 1024,
     })
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    // COULD NOT RUN is not the same as RAN AND FAILED. `spawnSync` reports `status: null` when it never
+    // started the process (ENOENT on the cwd or the shell, a timeout kill), and coercing that to exit 1
+    // made every such command read as a test failure — which is how a passing proof came back as CMD_FAIL.
+    const couldNotRun = Boolean(result.error) || Boolean(result.signal)
     return {
       command,
-      exitCode: result.status ?? 1,
-      passed: result.status === 0,
-      excerpt: output.replace(/\s+/g, ' ').trim().slice(0, EXCERPT_CAP),
+      exitCode: result.status ?? (couldNotRun ? -1 : 1),
+      passed: !couldNotRun && result.status === 0,
+      unmeasurable: couldNotRun,
+      excerpt: couldNotRun
+        ? `COULD NOT RUN (cwd=${cwd}): ${
+            result.error ? String(result.error.message) : `killed by ${String(result.signal)}`
+          } ${output}`.replace(/\s+/g, ' ').trim().slice(0, EXCERPT_CAP)
+        : excerptOf(output),
     }
   }
 }
