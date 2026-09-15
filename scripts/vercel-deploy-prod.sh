@@ -26,6 +26,14 @@ git diff --cached --quiet --ignore-submodules -- || fail "Staged files are waiti
 [[ -f .vercel/output/config.json ]] || fail "No prebuilt artifact found. Run: bash scripts/vercel-build-prod.sh"
 [[ -f .vercel/culebraluxe-prod-build-sha ]] || fail "No build provenance stamp found. Rebuild with: bash scripts/vercel-build-prod.sh"
 
+# THE ARTIFACT'S OWN BUILD MUST NOT BE DISTURBED. `vercel deploy --prebuilt` uploads `.vercel/output` AND
+# reads `.next/required-server-files.json`, which only a Vercel-compatible build writes. Running a plain
+# `next build` (or `pnpm exec next build`) after `vercel build` overwrites `.next` and removes that file:
+# the deploy then fails with Vercel's cryptic `Error: File does not exist:
+# ".next/required-server-files.json"` (measured 2026-09-14, after a verification build - the artifact had
+# been valid minutes earlier). Failing here says what happened and what to do about it.
+[[ -f .next/required-server-files.json ]] || fail "The build output in .next is not from the prebuilt build (missing .next/required-server-files.json). Something ran a plain 'next build' after the release build. Rebuild and deploy without building in between: bash scripts/vercel-build-prod.sh"
+
 CURRENT_SHA="$(git rev-parse HEAD)"
 BUILT_SHA="$(cat .vercel/culebraluxe-prod-build-sha)"
 [[ "$CURRENT_SHA" == "$BUILT_SHA" ]] || fail "Prebuilt artifact belongs to a different commit. Rebuild before deploying."
