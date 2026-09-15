@@ -103,14 +103,19 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "deploy" ]; then
   fi
 fi
 if [ "$MODE" = "all" ] || [ "$MODE" = "deploy" ] || [ "$MODE" = "probe" ]; then
-  # THE LIVE PROBE. Unset is recorded as skipped and makes the row ineligible: we never call a release
-  # verified because a file exists. Set it to a real check, e.g.
-  #   export RELEASE_PROBE_CMD='curl -fsS -o /dev/null -w "%{http_code}" https://<prod-host>/api/health | grep -q 200'
-  if [ -n "${RELEASE_PROBE_CMD:-}" ]; then
-    printf -- '--- probe ---\n'; bash -c "$RELEASE_PROBE_CMD"; PROBE_RC="$?"
-    printf -- '--- probe exit: %s ---\n' "$PROBE_RC"
+  # THE LIVE PROBE. It defaults to the production host the deploy script itself uses, because a default that
+  # is not a real check would make every row ineligible while looking configured:
+  #   * RELEASE_PROBE_CMD unset  -> probe the prod host's root and require 200
+  #   * RELEASE_PROBE_CMD=skip   -> recorded as skipped, never eligible (the honest opt-out)
+  #   * RELEASE_PROBE_CMD=<cmd>  -> your check; its exit code is the record's
+  PROBE_URL="${CULEBRALUXE_PROD_URL:-https://www.culebraluxe.com}"
+  PROBE_CMD="${RELEASE_PROBE_CMD:-curl -fsS -o /dev/null -w '%{http_code}' \"$PROBE_URL\" | grep -q 200}"
+  if [ "$PROBE_CMD" = "skip" ]; then
+    printf -- '--- probe skipped by request (this row can never be an eligible receipt) ---\n'
   else
-    printf -- '--- probe skipped: RELEASE_PROBE_CMD is not set (this row can never be an eligible receipt) ---\n'
+    printf -- '--- probe: %s ---\n' "$PROBE_CMD"
+    bash -c "$PROBE_CMD"; PROBE_RC="$?"
+    printf -- '--- probe exit: %s ---\n' "$PROBE_RC"
   fi
 fi
 set -e
