@@ -9,6 +9,7 @@ import {
   postSlackNotification,
   type ForgeSlackContext,
 } from '../agent-runtime/slack-notifier'
+import { describeRouting } from '../lib/forge-kind'
 
 async function main(): Promise<void> {
   if ((process.env.APP_ENV ?? 'development') !== 'production') {
@@ -289,6 +290,15 @@ async function runClaimCommand(): Promise<void> {
   console.log('claimed', workItem.id, '->', story.id)
   console.log('story:', story.id, '—', story.title)
   console.log('workstream:', workstreamName(story.workstream), '| priority:', story.priority)
+  // ROUTING (ENG-FORGE-FACTORY-01 Phase 1): the kind and the policy the item was dispatched
+  // under, in the log line the operator actually reads. A legacy item prints "unrecorded"
+  // rather than a default it never ran as.
+  console.log(
+    'routing:',
+    workItem.kind || workItem.modelPolicy
+      ? describeRouting(workItem.kind, workItem.modelPolicy ?? undefined)
+      : 'unrecorded (queued before migration 179)',
+  )
   console.log(
     'command:', workItem.role ?? '(no role)', '|',
     workItem.modelProfile ?? '(no model profile)', '|',

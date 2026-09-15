@@ -1,5 +1,13 @@
 import { ENGINE_DISPATCH_STATUS } from '../lib/story-moves'
 import { setStoryboardStatus } from './storyboard'
+import { setWorkItemRouting } from './agent-work'
+import {
+  asForgeKind,
+  asModelPolicy,
+  policyForBatch,
+  type ForgeKind,
+  type ForgeModelPolicy,
+} from '../lib/forge-kind'
 import type { QueryExecutor } from './query-executor'
 
 let defaultExecutor: QueryExecutor | null = null
@@ -40,6 +48,8 @@ export type ForgeBatch = {
   createdAt: string
   createdBy: string | null
   note: string | null
+  /** `cheap` unless the row says `judgment` (migration 179). The night run is cheap by default. */
+  modelPolicy: ForgeModelPolicy
   storyCount: number
   queuedCount: number
   skippedCount: number
@@ -73,6 +83,7 @@ export function mapForgeBatch(row: Record<string, unknown>): ForgeBatch {
     createdAt: isoOrNull(row.created_at) ?? '',
     createdBy: row.created_by == null ? null : String(row.created_by),
     note: row.note == null ? null : String(row.note),
+    modelPolicy: asModelPolicy(row.model_policy),
     storyCount: Number(row.story_count ?? 0),
     queuedCount: Number(row.queued_count ?? 0),
     skippedCount: Number(row.skipped_count ?? 0),
@@ -126,7 +137,7 @@ export async function getForgeBatch(
 ): Promise<ForgeBatch | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note,
+    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note, b.model_policy,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id) as story_count,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Queued') as queued_count,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Skipped') as skipped_count
@@ -145,7 +156,7 @@ export async function listForgeBatches(
 ): Promise<ForgeBatch[]> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note,
+    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note, b.model_policy,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id) as story_count,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Queued') as queued_count,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Skipped') as skipped_count
@@ -159,6 +170,14 @@ export async function listForgeBatches(
 export type FireForgeBatchResult = {
   batchId: string
   queued: number
+  /**
+   * How many queued items actually received their kind + policy. Counted rather than assumed:
+   * the copy is a second write after the dispatch trigger, and "queued 3, stamped 3" is the
+   * only honest way to say it happened. A stamp of 0 happens when the story already had a
+   * claimed or running item (the trigger's conflict clause keeps that row), which is a real
+   * state and not a failure — but it must be visible.
+   */
+  stamped: number
   failed: Array<{ storyId: string; error: string }>
 }
 
@@ -174,13 +193,18 @@ export async function fireForgeBatch(
 ): Promise<FireForgeBatchResult> {
   const q = execute ?? (await executor())
   const members = (await q`
-    select story_id from forge_batch_item
+    select story_id, kind from forge_batch_item
     where batch_id = ${batchId} and state = 'Staged'
     order by story_id
-  `) as Array<{ story_id: string }>
+  `) as Array<{ story_id: string; kind: string }>
+
+  // ONE policy for the batch, resolved once: `cheap` unless the row says `judgment`.
+  const batchRow = await getForgeBatch(batchId, q)
+  const modelPolicy = policyForBatch(batchRow?.modelPolicy)
 
   const failed: Array<{ storyId: string; error: string }> = []
   let queued = 0
+  let stamped = 0
   for (const member of members) {
     try {
       // THE DISPATCH ITSELF: status Ready -> the engine's own trigger creates the work item.
@@ -189,6 +213,10 @@ export async function fireForgeBatch(
         update forge_batch_item set state = 'Queued', queued_at = now(), error_text = null
         where batch_id = ${batchId} and story_id = ${member.story_id}
       `
+      // THE COPY: the trigger sees only the story row, so the routing decision is written
+      // here, where both the batch item and the queue row are in hand.
+      const kind = asForgeKind(member.kind)
+      stamped += await setWorkItemRouting(member.story_id, { kind, modelPolicy }, q)
       queued += 1
     } catch (error) {
       const message = String((error as Error)?.message ?? error)
@@ -204,7 +232,7 @@ export async function fireForgeBatch(
     update forge_batch set status = 'Fired', fired_at = now()
     where id = ${batchId} and status <> 'Fired'
   `
-  return { batchId, queued, failed }
+  return { batchId, queued, stamped, failed }
 }
 
 /** Mark a batch cancelled before it fires (nothing has been dispatched). */
@@ -263,7 +291,7 @@ export async function fireDueForgeBatches(
 export async function getStagingBatch(execute?: QueryExecutor): Promise<ForgeBatch | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note,
+    select b.id, b.label, b.status, b.scheduled_for, b.fired_at, b.created_at, b.created_by, b.note, b.model_policy,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id) as story_count,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Queued') as queued_count,
       (select count(*)::int from forge_batch_item i where i.batch_id = b.id and i.state = 'Skipped') as skipped_count
@@ -314,6 +342,48 @@ export async function stageStoryForBatch(
   return { batchId: batch.id, members: Number(rows[0]?.c ?? 0) }
 }
 
+/**
+ * SET THE KIND on a staged member (before it fires).
+ *
+ * The kind is chosen where the work is chosen — on the batch row — so the cockpit and the probes
+ * can label a member without rebuilding the batch. Only `Staged` members are touched: once a
+ * member is queued its routing is already on the work item, and the historical record should say
+ * what it actually ran as.
+ */
+export async function setStagedItemKind(
+  storyId: string,
+  kind: ForgeKind,
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update forge_batch_item set kind = ${asForgeKind(kind)}
+    where story_id = ${storyId} and state = 'Staged'
+    returning batch_id
+  `
+  return rows.length
+}
+
+/**
+ * SET THE POLICY of the open staging batch (`cheap` | `judgment`).
+ *
+ * This is the operator's one lever over cost: the default is already `cheap`, so this exists to
+ * mark the batch that genuinely needs judgment — and it is written on the batch, never per story,
+ * because per-story model choice is the thing the packet's stop condition forbids.
+ */
+export async function setStagingBatchPolicy(
+  policy: ForgeModelPolicy,
+  execute?: QueryExecutor,
+): Promise<number> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    update forge_batch set model_policy = ${asModelPolicy(policy)}
+    where status = 'Staged'
+    returning id
+  `
+  return rows.length
+}
+
 /** UNSTAGE: the story leaves the table with the card. Only un-fired membership is removed. */
 export async function unstageStoryForBatch(
   storyId: string,
@@ -326,6 +396,21 @@ export async function unstageStoryForBatch(
     returning batch_id
   `
   return rows.length
+}
+
+/** The staged members of the open staging batch, with their kinds (the roster's data). */
+export async function listStagingBatchItems(
+  execute?: QueryExecutor,
+): Promise<Array<{ storyId: string; kind: ForgeKind }>> {
+  const q = execute ?? (await executor())
+  const rows = (await q`
+    select i.story_id, i.kind
+    from forge_batch_item i
+    join forge_batch b on b.id = i.batch_id
+    where b.status = 'Staged' and i.state = 'Staged'
+    order by i.story_id
+  `) as Array<{ story_id: string; kind: string }>
+  return rows.map((row) => ({ storyId: String(row.story_id), kind: asForgeKind(row.kind) }))
 }
 
 /** Stories whose status says staged but which have no row yet (staged before the table existed). */

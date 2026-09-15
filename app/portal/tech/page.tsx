@@ -14,7 +14,7 @@ import {
 import { createAuthJsSessionAdapter } from "@/lib/auth/authjs-session-adapter"
 import { resolvePortalAccess } from "@/lib/auth/require-portal-access"
 import { cockpitVersionLabel } from "@/lib/cockpit-version"
-import { getStagingBatch, listForgeBatches } from "@/db/forge-batch"
+import { getStagingBatch, listForgeBatches, listStagingBatchItems } from "@/db/forge-batch"
 import {
   buildStoryBoardCockpit,
   buildStoryBoardModel,
@@ -160,6 +160,10 @@ export default async function TechPage({
         versionLabel={cockpitVersionLabel()}
         batches={await listForgeBatches(5)}
         stagingBatch={await getStagingBatch()}
+        // The staged members' KINDS, so the batch roster can say what kind of work is staged before
+        // anyone fires it (ENG-FORGE-FACTORY-01 Phase 1). The kinds live on `forge_batch_item`, not on
+        // the story, which is why this is a second read rather than a field of `batchStories`.
+        stagingKinds={(await listStagingBatchItems()).map((item) => item.kind)}
         activeWork={activeQueue}
         selectedStory={selectedStory}
         selectedIsActive={selectedIsActive}

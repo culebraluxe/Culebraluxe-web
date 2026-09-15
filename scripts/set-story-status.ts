@@ -79,7 +79,7 @@ async function main(): Promise<number> {
     return 1
   }
 
-  const all = await listStoryboardStories()
+  const all = (await listStoryboardStories()) ?? []
   const byId = new Map(all.map((story) => [String(story.id), story]))
   const targets = options.ids.map((id) => ({ id, story: byId.get(id) }))
   const missing = targets.filter((target) => !target.story)

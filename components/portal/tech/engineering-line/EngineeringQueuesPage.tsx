@@ -31,6 +31,7 @@ import { storyLifecycleOf } from '@/lib/storyboard-data'
 import type { StoryBucket } from '@/lib/story-moves'
 import { SORTER_COLUMNS, buildSorterCards } from '@/lib/sorter-board'
 import type { ForgeBatch } from '@/db/forge-batch'
+import { summarizeKinds } from '@/lib/forge-kind'
 import { COCKPIT_VERSION } from '@/lib/cockpit-version'
 
 import type { StoryBoardCockpitData, StoryLifecycle, StoryRecord } from '@/lib/storyboard-data'
@@ -127,6 +128,13 @@ export type EngineeringQueuesPageProps = {
     priority: string
     completion: number
   }> | null
+  /**
+   * The KINDS of the staged members (`qa|fix|feature|crm|judgment|learn`, migration 179).
+   *
+   * Per member, not per batch, so the roster can say what kind of work is staged before anyone
+   * fires it. Absent means "not read" — the row then shows no kind rather than a default.
+   */
+  stagingKinds?: string[] | null
 }
 
 const QUEUES: Array<{
@@ -190,6 +198,7 @@ export function EngineeringQueuesPage({
   queuedCards,
   hold,
   batchStories,
+  stagingKinds,
   versionLabel,
   batches,
   stagingBatch,
@@ -278,6 +287,11 @@ export function EngineeringQueuesPage({
     stagingBatch && stagingBatch.storyCount !== stagedOnBoard
       ? ` · the table holds ${stagingBatch.storyCount}, the board shows ${stagedOnBoard}`
       : ''
+  // WHAT KIND OF WORK IS STAGED (Phase 1): the batch roster is per batch, the kind is per member, so
+  // the honest summary is the mix. Deterministic via `summarizeKinds`, because this line is redrawn
+  // every 30 seconds by the auto-refresh and a wandering order would read as a change.
+  const kindMix = summarizeKinds(stagingKinds ?? [])
+  const policyNote = stagingBatch ? ` · policy ${stagingBatch.modelPolicy}` : ''
   const [moveError, setMoveError] = useState<string | null>(null)
   // The story log is the thing the captain is looking FOR, so it starts open.
   const [showLifecycle, setShowLifecycle] = useState(true)
@@ -482,6 +496,18 @@ export function EngineeringQueuesPage({
           */}
           <div className="flex flex-wrap items-center gap-2">
             {batchResult ? <span className="text-[10px] text-slate-300">{batchResult}</span> : null}
+            {/* WHAT IS STAGED, AND HOW EXPENSIVE IT WILL BE (Phase 1). The kind mix comes from the
+                batch items, the policy from the batch row; both are read, so an absent value shows
+                nothing rather than a default nobody chose. */}
+            {kindMix ? (
+              <span
+                className="text-[10px] uppercase tracking-[0.12em] text-slate-400"
+                title="The kinds staged in this batch, from forge_batch_item.kind. The kind picks the starting lane and the default model policy."
+              >
+                {kindMix}
+                {policyNote}
+              </span>
+            ) : null}
             <button
               type="button"
               disabled={batchSending || batchCount === 0}
