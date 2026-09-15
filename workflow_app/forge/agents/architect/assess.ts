@@ -1,7 +1,7 @@
 import { fileOf, unique } from '../shared/path'
 import type { ArchitectHandoff } from '../architect-handoff'
 // The seam ceiling has ONE definition and the live architect contract owns it.
-import { MAX_SEAMS_PER_FINDING } from '../../forge-shaping'
+import { MAX_SEAMS_PER_FINDING, seamForNewFile } from '../../forge-shaping'
 
 /** Return true if `repoPath` exists as a blob or tree on `baseRef`. */
 export type SeamExists = (baseRef: string, repoPath: string) => boolean
@@ -55,7 +55,14 @@ export function assessArchitectHandoff(
         const path = fileOf(seam)
         if (!path) continue
         if (!options.existsOnBaseRef(handoff.baseRef, path)) {
-          reasons.push(`${prefix}scope ${path} does not exist on ${handoff.baseRef.slice(0, 12)}`)
+          // A NEW FILE IS NOT ITS OWN SEAM, AND A SIBLING FILE IS NOT ITS SURFACE. Name the FIX, not just the
+          // fault: these reasons feed the bounded self-heal reprompt, and a generic message wastes the retry.
+          // The Architect that declared a sibling file on 2026-09-15 spent a whole HOLD learning what this
+          // sentence says — the seam for a new file is its directory, and `seamForNewFile` owns that rule.
+          reasons.push(
+            `${prefix}scope ${path} does not exist on ${handoff.baseRef.slice(0, 12)} — if this file is NEW, ` +
+              `declare its directory instead: ${seamForNewFile(path)}`,
+          )
         }
       }
     }

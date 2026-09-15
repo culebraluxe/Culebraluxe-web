@@ -418,6 +418,24 @@ export function smithUnitForNode(
 /** The chunk ceiling a REQUIRED finding must respect before it must be decomposed. */
 export const MAX_SEAMS_PER_FINDING = 3
 
+/**
+ * THE SEAM FOR A FILE THE STORY CREATES — one definition, and `assess.ts` cites this function rather than
+ * restating the rule (Grok, 2026-09-15: the packet describes an instance of the law, the function IS the law,
+ * and the function wins if the two drift).
+ *
+ * A new file does not exist on the base ref, so it cannot be its own seam; and a sibling file is not its
+ * surface. The seam is the DIRECTORY that will hold it, which does exist as a tree — the only shape that
+ * satisfies the fail-closed check in `agents/architect/assess.ts` and gives the Lead something to route.
+ *
+ * Measured 2026-09-15: the Architect declared the sibling `scripts/forge-batch-status.ts` for the new
+ * `scripts/forge-doctor.ts`, the Lead refused the entire route at `lead_pre`, and the story could not move
+ * until the seam read `scripts`. That is a HOLD that one sentence would have prevented.
+ */
+export function seamForNewFile(repoPath: string): string {
+  const cut = repoPath.lastIndexOf('/')
+  return cut === -1 ? '.' : repoPath.slice(0, cut)
+}
+
 export type ArchitectBriefAssessment = {
   verdict: 'OK' | 'HOLD'
   reasons: string[]
