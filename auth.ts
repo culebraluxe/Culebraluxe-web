@@ -40,6 +40,26 @@ export function breakGlassSubject(appUserId: string): string {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // Explicitly bind the env-backed Auth.js signing secret.
   secret: process.env.AUTH_SECRET,
+  // TRUST THE REQUEST HOST — the fix for a production login that could not work.
+  //
+  // 2026-09-14: the portal's Google sign-in failed in production, sending the browser to
+  // `localhost:3000`. Auth.js v5 builds the OAuth `redirect_uri` from a BASE URL, and when neither
+  // `AUTH_URL` is set nor the host is trusted, that base URL is the development default
+  // (`http://localhost:3000`). Production had `AUTH_SECRET`, `AUTH_GOOGLE_ID` and
+  // `AUTH_GOOGLE_SECRET` and NOTHING pinning the URL - so Google was asked to return to a machine
+  // that does not exist. Nothing in the build or deploy output hinted at it; the only symptom was a
+  // browser error in a redirect chain, which is the worst place to find a configuration gap.
+  //
+  // `trustHost` makes Auth.js derive the URL from the request's forwarded host, which Vercel sets
+  // correctly, so the redirect follows whichever canonical host the visitor is on instead of a
+  // hardcoded dev fallback. `AUTH_URL` is also set in the Vercel project as an explicit canonical
+  // (`https://www.culebraluxe.com`) - the belt to this pair of braces, because a pinned URL is
+  // deterministic and a trusted host is forgiving.
+  //
+  // NOTE FOR WHOEVER CHANGES THE DOMAIN: the callback URI registered with Google is
+  // `<canonical host>/api/auth/callback/google`, so the Vercel `AUTH_URL` and the Google console
+  // entry must agree on the host (apex 308-redirects to www, so www is the one that matters).
+  trustHost: true,
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
