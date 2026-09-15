@@ -1,0 +1,391 @@
+// ---------------------------------------------------------------------------
+// forge:manifest — "here are the exact files to read for this scope".
+//
+//   pnpm forge:manifest PIRATE-01          # write docs/agent/manifest/PIRATE-01.md
+//   pnpm forge:manifest PIRATE-01 --check  # exit 1 when the file has drifted
+//   pnpm forge:manifest --check-all        # every manifest on disk is fresh
+//   pnpm forge:manifest PIRATE-01 --format json
+//
+// Pirated (idea, not code) from OpenContext's `oc context manifest`, rebuilt so rows
+// are RANKED rather than alphabetical and a stale row is a gate failure rather than a
+// footnote. Ranking and rendering live in lib/scope-manifest.ts.
+// ---------------------------------------------------------------------------
+
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
+
+import {
+  manifestFileName,
+  rankManifestEntries,
+  renderManifest,
+  type ManifestEntry,
+  type ManifestMeta,
+} from '../lib/scope-manifest'
+
+const MANIFEST_DIR = 'docs/agent/manifest'
+const HISTORY_DEPTH = 400
+
+function repoRoot(): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+  } catch {
+    return process.cwd()
+  }
+}
+
+export function git(args: string[], root: string): string {
+  try {
+    return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * One `git log` pass answers three questions: when each path was last touched, which
+ * files the scope's own commits changed, and how many such commits there were.
+ * A per-path `git log -1` would be ~130 subprocesses for the same answer.
+ */
+export function readHistory(
+  root: string,
+  scope: string,
+): { lastTouched: Record<string, string>; scopePaths: string[]; scopeCommits: number } {
+  const raw = git(['log', '--pretty=format:__C__%cs%x1f%s', '--name-only', '-n', String(HISTORY_DEPTH)], root)
+  const lastTouched: Record<string, string> = {}
+  const scopePaths = new Set<string>()
+  let scopeCommits = 0
+  let date = ''
+  let matchesScope = false
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('__C__')) {
+      const [when, subject = ''] = line.slice(5).split('\x1f')
+      date = when?.trim() ?? ''
+      matchesScope = scope.length > 0 && subject.toUpperCase().includes(scope.toUpperCase())
+      if (matchesScope) scopeCommits += 1
+      continue
+    }
+    const path = line.trim()
+    if (!path) continue
+    if (!lastTouched[path]) lastTouched[path] = date
+    if (matchesScope) scopePaths.add(path)
+  }
+  return { lastTouched, scopePaths: [...scopePaths], scopeCommits }
+}
+
+function walkMarkdown(root: string, dir: string): Array<{ path: string; content: string }> {
+  const out: Array<{ path: string; content: string }> = []
+  const full = join(root, dir)
+  if (!existsSync(full)) return out
+  for (const name of readdirSync(full)) {
+    const child = join(full, name)
+    if (statSync(child).isDirectory()) {
+      if (name === 'manifest' || name === 'scratch') continue
+      out.push(...walkMarkdown(root, join(dir, name)))
+      continue
+    }
+    if (!name.endsWith('.md')) continue
+    out.push({ path: relative(root, child), content: readFileSync(child, 'utf8') })
+  }
+  return out
+}
+
+/**
+ * The lexical candidate set. Deliberately a plain lexical restriction before any
+ * scoring: identifiers are exact-match queries, and the corpus is small enough that
+ * the whole harness tree is a fine candidate set.
+ */
+export function loadCorpus(root: string, scope: string): Array<{ path: string; content: string }> {
+  const files = walkMarkdown(root, 'docs/agent')
+  if (existsSync(join(root, 'AGENTS.md'))) {
+    files.push({ path: 'AGENTS.md', content: readFileSync(join(root, 'AGENTS.md'), 'utf8') })
+  }
+  const dirScope = scope.includes('/') ? scope.replace(/\/+$/, '') : null
+  if (!dirScope) return files
+  return files.filter((file) => file.path.startsWith(dirScope))
+}
+
+function topLevelPages(root: string): string[] {
+  const out: string[] = []
+  for (const name of readdirSync(join(root, 'docs/agent'))) {
+    if (name.endsWith('.md')) out.push(`docs/agent/${name}`)
+  }
+  return out.sort()
+}
+
+const docsBasenameCache = new Map<string, Map<string, string[]>>()
+
+function docsBasenameIndex(root: string): Map<string, string[]> {
+  const cached = docsBasenameCache.get(root)
+  if (cached) return cached
+  const index = new Map<string, string[]>()
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name)
+      if (statSync(full).isDirectory()) {
+        walk(full)
+        continue
+      }
+      const list = index.get(name) ?? []
+      list.push(relative(root, full))
+      index.set(name, list)
+    }
+  }
+  try {
+    walk(join(root, 'docs'))
+  } catch {
+    /* no docs tree: nothing to resolve against */
+  }
+  docsBasenameCache.set(root, index)
+  return index
+}
+
+/**
+ * Is this cited path real?
+ *
+ * Packets cite three ways: repo-relative (`scripts/forge-manifest.ts`), doc-relative
+ * (`packets/README.md`, meaning `docs/agent/packets/README.md`), and by bare basename. A
+ * manifest that reports the second form as missing would be crying wolf on a convention
+ * the packets already use — measured on FORGE-GATES-01, where `packets/README.md` exists
+ * and was being reported as gone. Only a path that resolves nowhere is a finding.
+ */
+export function resolveManifestPath(root: string, path: string): boolean {
+  if (existsSync(join(root, path))) return true
+  if (existsSync(join(root, 'docs/agent', path))) return true
+  const base = path.slice(path.lastIndexOf('/') + 1)
+  return (docsBasenameIndex(root).get(base) ?? []).length === 1
+}
+
+export type BuiltManifest = {
+  scope: string
+  file: string
+  entries: ManifestEntry[]
+  meta: ManifestMeta
+  markdown: string
+}
+
+export function buildManifest(
+  root: string,
+  scope: string,
+  options: { lexicalLimit?: number } = {},
+): BuiltManifest {
+  const packetPath = `docs/agent/packets/${scope}.md`
+  const hasPacket = existsSync(join(root, packetPath))
+  const packetContent = hasPacket ? readFileSync(join(root, packetPath), 'utf8') : ''
+  const { lastTouched, scopePaths, scopeCommits } = readHistory(root, scope)
+  // A packet that documents its own manifest (`docs/agent/manifest/<scope>.md`, which
+  // PIRATE-01 does) must not report that file missing on the very first run: we are
+  // writing it in this command. Handling it here rather than special-casing the packet
+  // keeps the rule "a missing row is a bug" true for every other path.
+  const ownFile = `${MANIFEST_DIR}/${manifestFileName(scope)}.md`
+  const exists = (path: string) => path === ownFile || resolveManifestPath(root, path)
+
+  let entries: ManifestEntry[]
+  if (hasPacket || scope.includes('/')) {
+    entries = rankManifestEntries({
+      scope,
+      packetPath: hasPacket ? packetPath : null,
+      packetContent,
+      commitPaths: scopePaths,
+      commitCount: scopeCommits,
+      lastTouched,
+      corpus: loadCorpus(root, scope),
+      exists,
+      lexicalLimit: options.lexicalLimit,
+    })
+  } else {
+    // No packet and no directory: this is the "what is in the harness" scope. List the
+    // handbook and the index pages rather than pretending a ranking exists.
+    const rows = rankManifestEntries({
+      scope,
+      lastTouched,
+      exists,
+      corpus: [],
+    })
+    const seen = new Set(rows.map((entry) => entry.path))
+    for (const path of topLevelPages(root)) {
+      if (seen.has(path)) continue
+      rows.push({
+        path,
+        lane: 'index',
+        detail: 'top-level harness page',
+        lastTouched: lastTouched[path] ?? null,
+        missing: false,
+        score: 0,
+      })
+    }
+    entries = rows
+  }
+
+  const commit = git(['rev-parse', '--short', 'HEAD'], root).trim() || 'unknown'
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], root).trim() || 'unknown'
+  const dirty = git(['status', '--porcelain'], root).trim().length > 0
+  const meta: ManifestMeta = {
+    scope,
+    generatedAt: `${new Date().toISOString().slice(0, 19).replace('T', ' ')}Z`,
+    commit,
+    branch,
+    dirty,
+    command: `pnpm forge:manifest ${scope}`,
+  }
+  return {
+    scope,
+    file: `${MANIFEST_DIR}/${manifestFileName(scope)}.md`,
+    entries,
+    meta,
+    markdown: renderManifest(entries, meta),
+  }
+}
+
+/** Row-level diff between the file on disk and a fresh render, for --check output. */
+export function manifestDrift(onDisk: string, fresh: string): { added: string[]; removed: string[] } {
+  const rows = (markdown: string) =>
+    markdown
+      .split('\n')
+      .filter((line) => line.startsWith('- `'))
+      .map((line) => line.slice(0, line.lastIndexOf(' · last touched')))
+  const before = rows(onDisk)
+  const after = rows(fresh)
+  const beforeSet = new Set(before)
+  const afterSet = new Set(after)
+  return {
+    added: after.filter((row) => !beforeSet.has(row)),
+    removed: before.filter((row) => !afterSet.has(row)),
+  }
+}
+
+export function writeIfChanged(path: string, content: string): boolean {
+  if (existsSync(path) && readFileSync(path, 'utf8') === content) return false
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content, 'utf8')
+  return true
+}
+
+function listManifestFiles(root: string): string[] {
+  const dir = join(root, MANIFEST_DIR)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => `${MANIFEST_DIR}/${name}`)
+    .sort()
+}
+
+function scopeFromManifestFile(file: string): string {
+  return file.replace(/^.*\//, '').replace(/\.md$/, '')
+}
+
+export type Options = { check: boolean; checkAll: boolean; json: boolean; lexicalLimit?: number; scope: string }
+
+export function parseArgs(argv: string[]): Options {
+  const options: Options = { check: false, checkAll: false, json: false, scope: '' }
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]
+    if (arg === '--check') options.check = true
+    else if (arg === '--check-all') options.checkAll = true
+    else if (arg === '--format') {
+      options.json = argv[i + 1] === 'json'
+      i += 1
+    } else if (arg === '--lexical') {
+      options.lexicalLimit = Number(argv[i + 1])
+      i += 1
+    } else if (!arg.startsWith('--')) options.scope = arg
+  }
+  if (!options.scope && !options.checkAll) options.scope = 'all'
+  return options
+}
+
+function checkOne(root: string, built: BuiltManifest, json: boolean): boolean {
+  const path = join(root, built.file)
+  const onDisk = existsSync(path) ? readFileSync(path, 'utf8') : ''
+  const drift = manifestDrift(onDisk, built.markdown)
+  const fresh = onDisk !== '' && drift.added.length === 0 && drift.removed.length === 0
+  if (json) {
+    console.log(JSON.stringify({ file: built.file, fresh, drift }, null, 2))
+    return fresh
+  }
+  if (fresh) {
+    console.log(`ok    ${built.file} (${built.entries.length} rows)`)
+    return true
+  }
+  console.log(
+    `FAIL  ${built.file}${onDisk === '' ? ' does not exist' : ' has drifted from a fresh render'}` +
+      `\n      ${drift.added.length} row(s) would be added, ${drift.removed.length} removed` +
+      `\n      regenerate: ${built.meta.command}`,
+  )
+  for (const row of drift.added.slice(0, 5)) console.log(`      + ${row}`)
+  for (const row of drift.removed.slice(0, 5)) console.log(`      - ${row}`)
+  return false
+}
+
+function main(): number {
+  const root = repoRoot()
+  const options = parseArgs(process.argv.slice(2))
+
+  if (options.checkAll) {
+    const files = listManifestFiles(root)
+    if (files.length === 0) {
+      console.log('forge:manifest — no manifests on disk yet (run: pnpm forge:manifest PIRATE-01)')
+      return 0
+    }
+    let ok = true
+    let totalRows = 0
+    for (const file of files) {
+      const built = buildManifest(root, scopeFromManifestFile(file), { lexicalLimit: options.lexicalLimit })
+      totalRows += built.entries.length
+      ok = checkOne(root, { ...built, file }, options.json) && ok
+    }
+    if (!options.json) {
+      console.log(
+        `\nforge:manifest — ${files.length} manifest(s), ${totalRows} rows, ${ok ? 'all fresh' : 'DRIFTED'}`,
+      )
+    }
+    return ok ? 0 : 1
+  }
+
+  const built = buildManifest(root, options.scope, { lexicalLimit: options.lexicalLimit })
+  if (options.check) return checkOne(root, built, options.json) ? 0 : 1
+
+  if (options.json) {
+    console.log(
+      JSON.stringify(
+        {
+          scope: built.scope,
+          file: built.file,
+          meta: built.meta,
+          rows: built.entries.length,
+          missing: built.entries.filter((entry) => entry.missing).map((entry) => entry.path),
+          entries: built.entries,
+        },
+        null,
+        2,
+      ),
+    )
+    return built.entries.some((entry) => entry.missing) ? 1 : 0
+  }
+
+  const changed = writeIfChanged(join(root, built.file), built.markdown)
+  const byLane = built.entries.reduce<Record<string, number>>((acc, entry) => {
+    acc[entry.lane] = (acc[entry.lane] ?? 0) + 1
+    return acc
+  }, {})
+  console.log(`${changed ? 'wrote' : 'unchanged'}  ${built.file}`)
+  console.log(
+    `  rows: ${built.entries.length}  (${Object.entries(byLane)
+      .map(([lane, count]) => `${lane} ${count}`)
+      .join(', ')})`,
+  )
+  const missing = built.entries.filter((entry) => entry.missing)
+  if (missing.length > 0) {
+    console.log('  MISSING paths — a row that lies is a bug; fix or remove the reference:')
+    for (const entry of missing) console.log(`    ${entry.path}  (${entry.lane})`)
+    return 1
+  }
+  console.log('  open the rows top-down; the why column says why each one is here.')
+  return 0
+}
+
+// The CLI entry, matched on the exact basename so this module's test file does not
+// call process.exit inside the test runner.
+if (process.argv[1] && /(^|\/)forge-manifest\.ts$/.test(process.argv[1])) {
+  process.exit(main())
+}

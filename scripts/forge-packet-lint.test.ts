@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import test from 'node:test'
 
+import { renderVendorBlock, upsertVendorBlock } from '../lib/agent-vendor-block'
 import { lintHarness, loadBaseline, loadHarnessFiles } from './forge-packet-lint'
+
+const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
 
 // ---------------------------------------------------------------------------
 // The lint's own tests. Each rule gets a fixture that MUST fail and one that must pass, because a gate
@@ -95,7 +101,14 @@ test('the skills directory drift is reported as a warning, never a failure', () 
     knownSkills: ['neon', 'ui'],
   })
   const warns = findings.filter((f) => f.level === 'warn').map((f) => f.rule).sort()
-  assert.deepEqual(warns, ['known-skill-has-no-file', 'skill-file-not-in-known'])
+  // rule 11 adds one warning per pack here: neither fixture names a repo path, which is
+  // exactly the "describes code it does not point at" case. Still warnings, never failures.
+  assert.deepEqual(warns, [
+    'known-skill-has-no-file',
+    'skill-file-not-in-known',
+    'skill-not-anchored',
+    'skill-not-anchored',
+  ])
   assert.deepEqual(findings.filter((f) => f.level === 'fail'), [])
 })
 
@@ -160,4 +173,85 @@ test('the real repo passes the lint with its recorded debt', () => {
     [],
   )
   assert.ok(files.length > 10, 'expected to have scanned the harness')
+})
+
+// --- rules 8-11, added by PIRATE-01 for the generated artefacts -----------------
+
+test('a manifest row naming a path that is not on disk fails', () => {
+  const findings = lintHarness({
+    files: [
+      {
+        path: 'docs/agent/manifest/TEST-01.md',
+        content: '- `lib/scope-manifest.ts` — cited · cited by TEST-01 · last touched 2026-09-15\n' +
+          '- `services/ghost/ghost.ts` — cited · cited by TEST-01 · last touched 2026-09-15\n',
+      },
+    ],
+  })
+  const hits = findings.filter((f) => f.rule === 'manifest-cites-missing-path')
+  assert.equal(hits.length, 1)
+  assert.match(hits[0].message, /services\/ghost\/ghost\.ts/)
+})
+
+test('a vendor block that drifted from a fresh render fails', () => {
+  const block = renderVendorBlock()
+  const fresh = upsertVendorBlock('# Adapter\n', block)
+  const edited = fresh.replace('Only the Builder role commits', 'Anyone may commit')
+
+  const ok = lintHarness({ files: [{ path: 'AGENTS.md', content: readFileSync(join(repoRoot, 'AGENTS.md'), 'utf8') }, { path: 'CLAUDE.md', content: fresh }] })
+  assert.deepEqual(ok.filter((f) => f.rule === 'vendor-block-drift'), [])
+
+  const drifted = lintHarness({
+    files: [
+      { path: 'AGENTS.md', content: readFileSync(join(repoRoot, 'AGENTS.md'), 'utf8') },
+      { path: 'CLAUDE.md', content: edited },
+    ],
+  })
+  assert.equal(drifted.filter((f) => f.rule === 'vendor-block-drift').length, 1)
+})
+
+test('a guardrail whose handbook sentence is gone fails', () => {
+  const findings = lintHarness({
+    files: [
+      { path: 'AGENTS.md', content: readFileSync(join(repoRoot, 'AGENTS.md'), 'utf8').replace('Commit secrets or `.env.local`', 'Commit anything') },
+    ],
+  })
+  const hit = findings.find((f) => f.rule === 'guardrail-anchor-missing')
+  assert.ok(hit, 'expected the anchor rule to catch a removed handbook sentence')
+  assert.match(hit.message, /Commit secrets/)
+})
+
+test('a citation past the end of a file fails; a real range passes', () => {
+  const past = lintHarness({
+    files: [packet('## Context refs\n\nsee `lib/scope-manifest.ts:99999`\n')],
+  })
+  assert.ok(past.find((f) => f.rule === 'evidence-line-past-eof'), 'expected the range to be checked')
+
+  const real = lintHarness({
+    files: [packet('## Context refs\n\nsee `lib/scope-manifest.ts:1-5`\n')],
+  })
+  assert.deepEqual(real.filter((f) => f.rule === 'evidence-line-past-eof'), [])
+})
+
+test('a citation to a file that exists nowhere fails, a bare-name shorthand does not', () => {
+  const gone = lintHarness({
+    files: [packet('## Context refs\n\nsee `engine-that-never-was.ts:1966`\n')],
+  })
+  assert.ok(gone.find((f) => f.rule === 'evidence-cites-missing-file'))
+
+  // Shorthand convention: 15 of the 16 hits on the first live run were this, which is why
+  // the resolver exists. `scope-manifest.ts` exists once, so its range is verifiable.
+  const shorthand = lintHarness({
+    files: [packet('## Context refs\n\nsee `scope-manifest.ts:1-5`\n')],
+  })
+  assert.deepEqual(shorthand.filter((f) => f.level === 'fail'), [])
+})
+
+test('a skill pack with no existing repo path is a warning, not a failure', () => {
+  const findings = lintHarness({
+    files: [{ path: 'docs/agent/skills/forms.md', content: '# forms\n\nAsk the user first.\n' }],
+    knownSkills: ['forms'],
+  })
+  const hit = findings.find((f) => f.rule === 'skill-not-anchored')
+  assert.ok(hit, 'expected the anchoring warning')
+  assert.equal(hit.level, 'warn')
 })

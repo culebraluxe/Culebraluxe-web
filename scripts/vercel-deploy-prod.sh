@@ -90,8 +90,14 @@ if [[ "$LIVE_SHA" != "$EXPECTED_SHA" ]]; then
 fi
 printf '\nVERIFIED: production is serving %s.\n' "$LIVE_SHA"
 printf 'In the Cockpit, the corner reads V2 · %s.\n' "$LIVE_SHA"
-if [[ "$LIVE_SHA" != "$EXPECTED_SHA" ]]; then
-  fail "Deployed artifact reports sha ${LIVE_SHA} but HEAD is ${EXPECTED_SHA}. Something else is serving production."
+
+# AND THEN ASK THE SITE ITSELF. The sha check above proves the right artefact is aliased;
+# it says nothing about whether the pages render. A deploy that aliases a build whose
+# /buyers 500s would pass every check above and report VERIFIED.
+# `--expect-head` makes the sha assertion part of the smoke too, so the two checks cannot
+# drift apart; the smoke's page markers are strings the pages own, not byte counts.
+printf '\nLIVE SMOKE (does production actually work)\n'
+if ! (cd "$ROOT_DIR" && node --import tsx scripts/prod-smoke.ts --expect-head); then
+  fail "Deployed and aliased, but the live smoke failed. Production is answering but not behaving - see the checks above."
 fi
-printf '\nVERIFIED: production is serving %s.\n' "$LIVE_SHA"
-printf 'In the Cockpit, the corner reads V2 · %s.\n' "$LIVE_SHA"
+printf '\nRELEASE COMPLETE AND SMOKED.\n'

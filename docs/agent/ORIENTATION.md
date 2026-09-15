@@ -50,15 +50,25 @@ produce code, and whose state is itself in Neon (work items, tasks, runs, eviden
 ## The commands that matter
 
 ```
+pnpm forge:harness           # ONE gate for the harness: vendor blocks + manifests fresh, lint, harness tests
+pnpm forge:manifest <ID>     # write docs/agent/manifest/<ID>.md — the ranked files to read for that story
+pnpm forge:manifest --check-all   # every manifest on disk is fresh (part of forge:harness)
+pnpm forge:sync-agents       # regenerate the managed block in vendor pointer files (CLAUDE.md and friends)
 pnpm forge:batch:status      # read-only truth: batch table, engine queue, bench, board-vs-table agreement
-pnpm forge:packet-lint       # harness gate: packets, skills, MEMORY, allowlists (fails on new violations)
+pnpm forge:packet-lint       # harness gate: packets, skills, MEMORY, maps, manifests, vendor blocks
 pnpm forge:clean             # clear stale engine claims BEFORE any engine run or test
+pnpm smoke:prod              # ask production whether it works (pages + build stamp), not just whether it deployed
 node --import tsx --test workflow_app/tests/*.test.ts    # app/engine suite
 pnpm test:agent-runtime      # harness suite (30 files)
+pnpm test:harness            # script-level gate tests (packet lint, manifest, vendor blocks)
 pnpm db:parity               # DEV vs PROD schema drift (a release gate)
 pnpm db:migrate <file> <dev|prod> --note "…"             # schema change, with a recorded ledger row
 git diff --check && pnpm exec next build --webpack       # per AGENTS.md
 ```
+
+`pnpm forge:packet-lint` takes `--format json` when something needs to read it rather than a person.
+Story status, engine state and batch state are still in Neon: a manifest lists files, and never pretends
+to be status.
 
 Production is built **locally** and deployed prebuilt (Node 24 is required):
 

@@ -1,6 +1,6 @@
 {
   "note": "Debt recorded when pnpm forge:packet-lint was introduced (2026-09-15, FORGE-GATES-01). Each key is `path::rule`; a finding listed here is reported as a warning instead of failing the lint, so a NEW violation blocks while this pre-existing debt does not disable the gate on day one. Remove keys as the debt is paid; never add a key to silence a violation you just introduced.",
-  "debt": "Four V4 packets use `## Skills` as a free-text capability list (16 'skills' in one of them) rather than naming packs from KNOWN_SKILLS. The packet format (docs/agent/packets/README.md) says it lists packs; either those sections should name real packs or the field should be emptied. Not fixed here because this story may not touch them.",
+  "debt": "Two separate debts, both in packets this story does not touch. (1) Four V4 packets use `## Skills` as a free-text capability list (16 'skills' in one of them) rather than naming packs from KNOWN_SKILLS, while the packet format (docs/agent/packets/README.md) says it lists packs. (2) Three citations from before the current file layout are stale: `engine.ts`, and `db/document-form-instance.ts`, no longer exist anywhere in the tree, and `components/portal/projects-workspace.tsx` has shrunk to 877 lines while PROJECTS-WORKSPACE-12 still cites 889-908. Found by rule 10 on its first live run (2026-09-15, PIRATE-01); the rule was calibrated first - its first draft fired 16 times, and 15 of those were the packets' bare-filename shorthand, so a basename resolver now handles that instead of a stricter rule that people would switch off.",
   "findings": [
     "docs/agent/packets/ENG-FORGE-V4-10.md::skills-unknown",
     "docs/agent/packets/ENG-FORGE-V4-10.md::skills-too-many",
@@ -9,6 +9,10 @@
     "docs/agent/packets/ENG-FORGE-V4-10C.md::skills-unknown",
     "docs/agent/packets/ENG-FORGE-V4-10C.md::skills-too-many",
     "docs/agent/packets/ENG-FORGE-V4-11.md::skills-unknown",
-    "docs/agent/packets/ENG-FORGE-V4-11.md::skills-too-many"
+    "docs/agent/packets/ENG-FORGE-V4-11.md::skills-too-many",
+    "docs/agent/packets/ENG-FORGE-SPLIT-01.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-07.md::evidence-cites-missing-file",
+    "docs/agent/packets/PROJECTS-WORKSPACE-12.md::evidence-line-past-eof",
+    "docs/agent/manifest/FORGE-GATES-01.md::manifest-cites-missing-path"
   ]
 }

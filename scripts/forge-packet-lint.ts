@@ -17,6 +17,13 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 import { KNOWN_SKILLS } from '../agent-runtime/skills'
+import {
+  MANAGED_VENDOR_FILES,
+  hasVendorBlock,
+  orphanedGuardrails,
+  vendorBlockDrifted,
+} from '../lib/agent-vendor-block'
+import { lineCitations } from '../lib/scope-manifest'
 
 export type Finding = {
   level: 'fail' | 'warn'
@@ -144,6 +151,92 @@ function pathExists(repoRoot: string, token: string): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Source roots the basename resolver walks. Bounded on purpose: this is a lint, not an indexer. */
+const SOURCE_ROOTS = [
+  'app',
+  'components',
+  'lib',
+  'services',
+  'db',
+  'scripts',
+  'agent-runtime',
+  'workflow_app',
+  'ui',
+  'testv2',
+  'db/migrations',
+]
+
+const basenameCache = new Map<string, Map<string, string[]>>()
+
+/**
+ * basename -> repo-relative paths, so a packet's shorthand citation
+ * (`projects-workspace.tsx:639-656`) can still be verified.
+ *
+ * Measured 2026-09-15: 15 of the 16 hits from the first live run of rule 10 were this
+ * shorthand, not stale claims. A gate that fails a writing convention gets switched off,
+ * so the resolver exists instead of a stricter rule.
+ */
+function basenameIndex(repoRoot: string): Map<string, string[]> {
+  const cached = basenameCache.get(repoRoot)
+  if (cached) return cached
+  const index = new Map<string, string[]>()
+  const walk = (dir: string, depth: number) => {
+    if (depth > 10) return
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      if (name === 'node_modules' || name.startsWith('.')) continue
+      const full = join(dir, name)
+      let isDirectory = false
+      try {
+        isDirectory = statSync(full).isDirectory()
+      } catch {
+        continue
+      }
+      if (isDirectory) {
+        walk(full, depth + 1)
+        continue
+      }
+      const list = index.get(name) ?? []
+      list.push(relative(repoRoot, full))
+      index.set(name, list)
+    }
+  }
+  for (const root of SOURCE_ROOTS) walk(join(repoRoot, root), 0)
+  basenameCache.set(repoRoot, index)
+  return index
+}
+
+type ResolvedCitation = { kind: 'file'; path: string } | { kind: 'none' } | { kind: 'ambiguous' }
+
+/**
+ * Packets and manifests cite three ways: repo-relative (`scripts/forge-manifest.ts`),
+ * doc-relative (`packets/README.md`, meaning `docs/agent/packets/README.md`), and by bare
+ * basename. One resolver handles all three, and rules 8 and 10 share it — measured
+ * 2026-09-15, they disagreed while each had its own copy, and the gate reported a path as
+ * missing that the generator had just resolved.
+ */
+function resolveCitation(repoRoot: string, path: string): ResolvedCitation {
+  if (pathExists(repoRoot, path)) return { kind: 'file', path }
+  if (path.includes('/')) {
+    const docRelative = join('docs/agent', path)
+    if (pathExists(repoRoot, docRelative)) return { kind: 'file', path: docRelative }
+  }
+  const matches = basenameIndex(repoRoot).get(path.replace(/^.*\//, '')) ?? []
+  if (matches.length === 1) return { kind: 'file', path: matches[0] }
+  return matches.length === 0 ? { kind: 'none' } : { kind: 'ambiguous' }
+}
+
+/** `content.split('\n').length` is one too many for a file ending in a newline. */
+function countLines(content: string): number {
+  const lines = content.split('\n')
+  return content.endsWith('\n') ? lines.length - 1 : lines.length
 }
 
 function isMapPage(path: string): boolean {
@@ -315,6 +408,104 @@ export function lintHarness(input: {
     }
   }
 
+  // RULE 8 — a generated scope manifest must not point at a path that is gone. Same
+  // principle as rule 7: the value of a generated index is that it cannot lie, and a
+  // row for a deleted file is a lie the reader cannot see. Parse the rows rather than
+  // re-deriving them here: the manifest CLI owns the ranking, the lint owns the claim.
+  for (const file of input.files) {
+    if (!/docs\/agent\/manifest\/[^/]+\.md$/.test(file.path)) continue
+    for (const line of file.content.split('\n')) {
+      const row = /^- `([^`]+)`( \*\*MISSING\*\*)? — /.exec(line)
+      if (!row) continue
+      if (resolveCitation(repoRoot, row[1]).kind === 'none') {
+        findings.push({
+          level: 'fail',
+          rule: 'manifest-cites-missing-path',
+          file: file.path,
+          message: `row \`${row[1]}\` resolves to no file — regenerate: pnpm forge:manifest <scope>, or fix the reference in the packet`,
+        })
+      }
+    }
+  }
+
+  // RULE 9 — the two halves of the vendor-block mechanism (lib/agent-vendor-block.ts):
+  // a block that drifted from a fresh render, and a guardrail whose sentence is no longer
+  // in AGENTS.md. The second one is the whole point of replicating a rule: a generated
+  // file must never assert something the handbook stopped saying.
+  const agents = input.files.find((file) => file.path === 'AGENTS.md')
+  if (agents) {
+    for (const guardrail of orphanedGuardrails(agents.content)) {
+      findings.push({
+        level: 'fail',
+        rule: 'guardrail-anchor-missing',
+        file: agents.path,
+        message: `AGENTS.md no longer contains "${guardrail.anchoredBy}", so the generated block still asserts it`,
+      })
+    }
+    for (const file of input.files) {
+      if (!(MANAGED_VENDOR_FILES as readonly string[]).includes(file.path)) continue
+      if (!hasVendorBlock(file.content)) continue
+      if (vendorBlockDrifted(file.content)) {
+        findings.push({
+          level: 'fail',
+          rule: 'vendor-block-drift',
+          file: file.path,
+          message: 'the generated block differs from a fresh render — run: pnpm forge:sync-agents',
+        })
+      }
+    }
+  }
+
+  // RULE 10 — evidence cites a file AND a range; a range past the end of the file is a
+  // stale claim that reads as precision. Applied to packets and maps, the two places we
+  // ask a reader to verify a statement against a specific line.
+  for (const file of input.files) {
+    if (!isPacket(file.path) && !isMapPage(file.path)) continue
+    for (const citation of lineCitations(file.content)) {
+      const resolved = resolveCitation(repoRoot, citation.path)
+      if (resolved.kind === 'ambiguous') continue // two files share the name; not this gate's call
+      if (resolved.kind === 'none') {
+        findings.push({
+          level: 'fail',
+          rule: 'evidence-cites-missing-file',
+          file: file.path,
+          message: `cites \`${citation.raw}\` but no file named \`${citation.path}\` exists`,
+        })
+        continue
+      }
+      let lineCount: number
+      try {
+        lineCount = countLines(readFileSync(join(repoRoot, resolved.path), 'utf8'))
+      } catch {
+        continue
+      }
+      if (citation.end > lineCount) {
+        findings.push({
+          level: 'fail',
+          rule: 'evidence-line-past-eof',
+          file: file.path,
+          message: `cites \`${citation.raw}\` but \`${resolved.path}\` has ${lineCount} lines`,
+        })
+      }
+    }
+  }
+
+  // RULE 11 (warn) — a skill pack is loadable knowledge, so it should anchor to the code
+  // it describes. Seven packs are pure prose today; warning rather than failing is the
+  // same day-one decision as rule 6, and the count is the number worth watching.
+  for (const file of input.files) {
+    if (!/docs\/agent\/skills\/[^/]+\.md$/.test(file.path) || /README\.md$/.test(file.path)) continue
+    const anchored = citedRepoPaths(file.content).some((path) => pathExists(repoRoot, path))
+    if (!anchored) {
+      findings.push({
+        level: 'warn',
+        rule: 'skill-not-anchored',
+        file: file.path,
+        message: 'names no repo path that exists — the pack describes code it does not point at',
+      })
+    }
+  }
+
   // Debt recorded at the baseline is reported, not blocking - see LintBaseline above.
   return findings.map((finding) => {
     if (finding.level !== 'fail' || !baselined.has(baselineKey(finding))) return finding
@@ -348,6 +539,10 @@ export function loadHarnessFiles(repoRoot = process.cwd()): HarnessFile[] {
   // The MAP pages: they claim to point at real files, so they are scanned (rule 7 checks the claim).
   addDir(join(repoRoot, 'docs/agent'), (n) => /^(ORIENTATION|MAP-.+)\.md$/.test(n))
   addDir(join(repoRoot, 'agent-runtime'), (n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))
+  // Generated scope manifests: each row claims a path on disk (rule 8 checks the claim).
+  addDir(join(repoRoot, 'docs/agent/manifest'), (n) => n.endsWith('.md'))
+  // Vendor pointer files that carry a generated block (rule 9 checks it has not drifted).
+  for (const name of MANAGED_VENDOR_FILES) add(join(repoRoot, name))
 
   return out
 }
@@ -364,12 +559,33 @@ export function loadBaseline(repoRoot = process.cwd()): string[] {
 }
 
 function main(): number {
+  const argv = process.argv.slice(2)
+  const json = argv.includes('--format') && argv[argv.indexOf('--format') + 1] === 'json'
   const files = loadHarnessFiles()
   const baseline = loadBaseline()
   const findings = lintHarness({ files, baseline })
   const failures = findings.filter((f) => f.level === 'fail')
   const warnings = findings.filter((f) => f.level === 'warn')
   const baselinedCount = warnings.filter((f) => f.message.startsWith('pre-existing (baselined)')).length
+
+  // The machine view. A gate the cockpit or the engine can consume is a gate that can be
+  // rendered where the work happens; the human view below stays the default.
+  if (json) {
+    console.log(
+      JSON.stringify(
+        {
+          filesScanned: files.length,
+          failures: failures.length,
+          warnings: warnings.length,
+          baselined: baselinedCount,
+          findings: findings.map((f) => ({ ...f, baselined: f.message.startsWith('pre-existing (baselined)') })),
+        },
+        null,
+        2,
+      ),
+    )
+    return failures.length > 0 ? 1 : 0
+  }
 
   for (const f of findings) {
     const where = f.line ? `${f.file}:${f.line}` : f.file
