@@ -58,19 +58,12 @@ export function StoryKanbanBoard({
   // engine is already running this". That is a fact about what happened, not a refusal, so it is shown
   // as its own line rather than passed off as an error.
   const [notice, setNotice] = useState<string | null>(null)
-  // Latest cards for the intercept handler: it runs outside React's render, so a
-  // closure over props would go stale after the first server refresh.
-  const cardsRef = useRef(cards)
-  // The api is handed to us once by the widget; keep it so the header can use it.
+  // The api is handed to us once by the widget; the store watcher and the header both use it.
   const apiRef = useRef<KanbanInstanceApi | null>(null)
 
   useEffect(() => {
     setMounted(true)
   }, [])
-
-  useEffect(() => {
-    cardsRef.current = cards
-  }, [cards])
 
   // ONE WRITE PATH, two ways in (a drop and a button). The message shown is always the action's own
   // words, so a refusal names its cause whichever gesture produced it.
@@ -86,63 +79,74 @@ export function StoryKanbanBoard({
   )
 
   /**
-   * THE MOVE — observed, never blocked.
+   * WATCH THE STORE — the write follows the widget's own state, whatever mechanism moved it.
    *
-   * The vendor's `intercept('move-card')` BLOCKS the widget's own move until we answer, and every
-   * variation of that answer produced the wrong thing in production: `false` cancelled the move (the
-   * card sprang back to its lane on release - "i let go the story i was moving immediately falls back
-   * to original state"), and answering asynchronously gave the store time to be re-initialised from a
-   * server refresh mid-drop, which once dragged an ADJACENT card into the wrong lane.
+   * Three attempts through the vendor's event plumbing all failed for different reasons: a blocking
+   * `intercept` (the card sprang back), an `onMoveCard` prop the vendor routes by convention but does
+   * not declare (the card moved on screen and NOTHING reached the database - and the error table was
+   * empty, so the handler had simply never run), and `api.on('move-card', …)` which is declared but
+   * evidently does not receive the drop either.
    *
-   * The playground page in this repo (`app/portal/tech/kanban/page.tsx`) is the vendor's own pattern and
-   * it works because NOTHING intervenes: the store removes the card from the old lane, adds it to the
-   * new one, and adjusts the counts - "just like taking a yellow sticky off the wall and moving it one
-   * left" (the captain). So the board does exactly that, and the database write is a SIDE EFFECT that
-   * happens after the card has already moved.
-   *
-   * If the write FAILS the board says so and asks the parent to re-sync, so the one case where the
-   * screen could disagree with the database corrects itself instead of lying.
+   * So this stops trying to catch the event. The widget's own card list IS its state (`api.getCards()`,
+   * declared in the vendor's types): whatever moves a card - a drop, a keyboard action, a future vendor
+   * code path - the list changes. Polling it and diffing against the last snapshot means the write
+   * follows the STATE rather than a callback, which is the only thing three failed attempts have in
+   * common. The diff is idempotent: each card's column is written once per change.
    */
-  const handleMoveCard = useCallback(
-    (data: Record<string, unknown>) => {
-      if (!onMove) return
-      const id = String(data?.id ?? '')
-      const to = String(data?.column ?? '')
-      if (!id || !to) return
-      // The origin column: from the cards we last rendered, read before any refresh. The vendor's event
-      // carries only the destination, and if we cannot tell (an empty string) the ACTION derives it from
-      // the database - a move is never refused for want of it.
-      const matches = cardsRef.current.filter((c) => String(c.id) === id)
-      const columnsForCard = [...new Set(matches.map((c) => String(c.column ?? '')))]
-      const from = columnsForCard[0] ?? ''
-      if (from === to) return
-      void writeMove(id, from, to)
-        .then((result) => {
-          if (!result.ok) onResync?.()
-        })
-        .catch((error: unknown) => {
-          // A thrown action (a server error) must not become a silent unhandled rejection: the board
-          // says what happened and re-syncs, so a card can never sit in a lane the database rejected.
-          setError(`move failed: ${String((error as Error)?.message ?? error)}`)
-          onResync?.()
-        })
-    },
-    [onMove, onResync, writeMove],
-  )
+  const snapshotRef = useRef<Map<string, string>>(new Map())
+  const writtenRef = useRef<Map<string, number>>(new Map())
+
+  useEffect(() => {
+    if (!mounted || !onMove) return
+    const tick = () => {
+      const api = apiRef.current
+      if (!api) return
+      let current: KanbanCard[]
+      try {
+        current = api.getCards() as KanbanCard[]
+      } catch {
+        return
+      }
+      const snapshot = new Map<string, string>()
+      for (const card of current) snapshot.set(String(card.id), String(card.column ?? ''))
+      const previous = snapshotRef.current
+      if (previous.size === 0) {
+        // First pass is the baseline: the board has just been given its data, nothing has moved yet.
+        snapshotRef.current = snapshot
+        return
+      }
+      const now = Date.now()
+      for (const [id, column] of snapshot) {
+        const before = previous.get(id)
+        if (!before || before === column) continue
+        // Guard against a write loop: if this exact move was just written, the server data has not
+        // come back yet and re-writing it would spin.
+        const key = `${id}:${column}`
+        const lastWrite = writtenRef.current.get(key) ?? 0
+        if (now - lastWrite < 5000) continue
+        writtenRef.current.set(key, now)
+        void writeMove(id, before, column)
+          .then((result) => {
+            // A refusal means the database did not accept the move: put the board back rather than let
+            // the screen disagree with the row.
+            if (!result.ok) onResync?.()
+          })
+          .catch((error: unknown) => {
+            setError(`move failed: ${String((error as Error)?.message ?? error)}`)
+            onResync?.()
+          })
+      }
+      snapshotRef.current = snapshot
+    }
+    const timer = setInterval(tick, 400)
+    return () => clearInterval(timer)
+  }, [mounted, onMove, writeMove])
 
   const handleInit = useCallback(
     (api: KanbanInstanceApi) => {
       apiRef.current = api
-      // LISTEN THROUGH THE TYPED API, not a prop-name convention.
-      //
-      // `api.on('move-card', …)` is declared in the vendor's own types
-      // (`StoreActions['move-card'] = { id, column?, before? }`) and is PASSIVE: the store performs the
-      // move and this observes it. An earlier attempt passed an `onMoveCard` prop, which the vendor
-      // routes by name convention but does NOT declare - and with the write never reaching the database
-      // the card still moved on screen, which is the worst version of that bug: it looks like it worked.
-      api.on('move-card', (data) => handleMoveCard(data as Record<string, unknown>))
     },
-    [handleMoveCard],
+    [],
   )
 
   return (
