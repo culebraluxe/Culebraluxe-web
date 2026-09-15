@@ -60,8 +60,17 @@ export type StoryFormInput = {
   completedAt: string | null
 }
 
-/** Outcome statuses allowed on a run (Planned / In Progress are not outcomes). */
-export const RUN_RESULT_STATUSES = [
+/**
+ * Outcome statuses allowed on a run (Planned / In Progress are not outcomes).
+ *
+ * NOT EXPORTED, deliberately: this file is a `"use server"` module, and Next requires such a file to
+ * export ONLY async functions. An exported array is "found object" to that check, and — the part that
+ * cost hours — it does not fail the build: it makes EVERY server action in the application fail at
+ * request time with a generic "An error occurred in the Server Components render" (React #441), so the
+ * Cockpit's drags moved cards on screen and never reached the database, with nothing in `app_error`.
+ * The type below is exported instead, which is erased at compile time and therefore allowed.
+ */
+const RUN_RESULT_STATUSES = [
   'Complete',
   'Partial',
   'Blocked',
