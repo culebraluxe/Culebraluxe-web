@@ -42,21 +42,33 @@ printf '  project: %s\n\n' "$VERCEL_PROJECT_ID"
 DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod)"
 
 # VERIFY WHAT WENT LIVE. The artifact stamps its own commit (`NEXT_PUBLIC_COCKPIT_SHA`, set by the build
-# script) and serves it from /api/build-info. Comparing that against HEAD is the only check that catches
-# "the deploy succeeded but the OLD artifact is serving" - which is exactly the failure the locally built
-# path could introduce, and which no deploy output would reveal.
+# script and compiled in by next.config) and serves it from /api/build-info. Comparing that against HEAD
+# is the only check that catches "the deploy succeeded but the OLD artifact is serving" - which is exactly
+# the failure the locally built path could introduce, and which no deploy output would reveal.
+#
+# WHICH URL: the CANONICAL domain, not the deployment URL. Vercel Authentication protects
+# `*.vercel.app` deployment URLs (measured 2026-09-14: the deployment URL answered 302 to a login page
+# while the production domain answered 200), so asking the deployment URL could only ever report
+# "no answer" - a check that cannot pass is worse than no check.
+PROD_URL="${CULEBRALUXE_PROD_URL:-https://www.culebraluxe.com}"
 EXPECTED_SHA="$(git rev-parse --short HEAD)"
-LIVE_SHA="$(curl -fsS --max-time 20 "${DEPLOYMENT_URL%/}/api/build-info" 2>/dev/null \
+LIVE_SHA="$(curl -fsS -L --max-time 25 "${PROD_URL%/}/api/build-info" 2>/dev/null \
   | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
 
 printf '\nPRODUCTION DEPLOY COMPLETE\n'
-printf '%s\n' "$DEPLOYMENT_URL"
+printf '  deployment: %s\n' "$DEPLOYMENT_URL"
+printf '  canonical:  %s\n' "$PROD_URL"
 printf '  expected sha: %s\n' "$EXPECTED_SHA"
 printf '  live sha:     %s\n' "${LIVE_SHA:-<no answer from /api/build-info>}"
 
 if [[ -z "$LIVE_SHA" ]]; then
-  fail "Deployed, but /api/build-info did not answer - cannot confirm what is live. Check the deployment URL above."
+  fail "Deployed, but ${PROD_URL}/api/build-info did not answer - cannot confirm what is live."
 fi
+if [[ "$LIVE_SHA" != "$EXPECTED_SHA" ]]; then
+  fail "Deployed artifact reports sha ${LIVE_SHA} but HEAD is ${EXPECTED_SHA}. Something else is serving production."
+fi
+printf '\nVERIFIED: production is serving %s.\n' "$LIVE_SHA"
+printf 'In the Cockpit, the corner reads V2 · %s.\n' "$LIVE_SHA"
 if [[ "$LIVE_SHA" != "$EXPECTED_SHA" ]]; then
   fail "Deployed artifact reports sha ${LIVE_SHA} but HEAD is ${EXPECTED_SHA}. Something else is serving production."
 fi
