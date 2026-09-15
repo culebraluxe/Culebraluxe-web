@@ -17,7 +17,7 @@
 // left on this screen, and no interaction that only moves pixels.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import {
@@ -362,7 +362,7 @@ export function EngineeringQueuesPage({
   // when a story moves from OPEN or WORKBENCH to ENGINE RUN Q" - and it was the collision still
   // possible. The assignment is now one pass with one `claimed` set, covered by
   // `workflow_app/tests/sorter-board.test.ts`.
-  const sorterCards = useMemo(
+  const builtSorterCards = useMemo(
     () =>
       buildSorterCards({
         panels: cockpit.panels as unknown as Parameters<typeof buildSorterCards>[0]['panels'],
@@ -371,8 +371,34 @@ export function EngineeringQueuesPage({
         engineRuns: engineCards,
         queuedCards: queuedCards ?? [],
       }),
-    [cockpit, activeWork, batchStories, engineRuns, queuedCards],
+    [cockpit, activeWork, batchStories, engineCards, queuedCards],
   )
+
+  /**
+   * KEEP THE CARD ARRAY'S IDENTITY WHEN NOTHING CHANGED.
+   *
+   * The vendor's own demo (`demos/cases/BasicInit.jsx`) passes constants and never re-renders the board,
+   * so its store is built once and the drag is entirely local. This screen cannot do that - it re-reads
+   * PROD every 30 seconds - and EVERY new `cards` array re-initialises the widget's store
+   * (`useEffect(..., [cards, columns, ...]) => store.init(...)` in the vendor's Kanban.jsx). A re-init
+   * during or just after a drop is what bounces a card back to the lane it came from.
+   *
+   * So the array handed to the board keeps its identity while the CONTENT is unchanged: a refresh that
+   * changes nothing now costs the store nothing. When the data really does change (another writer, the
+   * engine advancing a story, a write this screen just made) the identity changes and the board
+   * re-initialises - which is what makes the database the truth without fighting the drag.
+   */
+  const sorterSignature = builtSorterCards
+    .map((c) => `${c.id}:${c.column}:${c.status}`)
+    .join('|')
+  const stableSorterRef = useRef<{ signature: string; cards: typeof builtSorterCards }>({
+    signature: '',
+    cards: [],
+  })
+  if (stableSorterRef.current.signature !== sorterSignature) {
+    stableSorterRef.current = { signature: sorterSignature, cards: builtSorterCards }
+  }
+  const sorterCards = stableSorterRef.current.cards
 
   const sorterColumns = useMemo(
     () => SORTER_COLUMNS.map((c) => ({ id: c.id, label: c.label })),
