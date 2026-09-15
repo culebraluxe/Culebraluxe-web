@@ -105,8 +105,17 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 if [ ! -f "$REPO_ROOT/.env.local" ]; then
+  # NAME THE RESOLVED ROOT. The deployed copy lives outside the repository, so if AGENT_WORKER_REPO is
+  # unset its fallback ("<deployed dir>/..") points at a folder that is not a checkout — which is exactly
+  # what a manual `pnpm agent:scheduler:run` hit on 2026-09-15 while the scheduled job was failing for a
+  # different reason (TCC). Two different failures, one useless message.
   echo "agent-worker: .env.local missing; cannot execute production control-plane work" >&2
-  inv_log "end: exit=2 env-local-missing"
+  echo "agent-worker: resolved repo root: $REPO_ROOT" >&2
+  if [ -z "${AGENT_WORKER_REPO:-}" ]; then
+    echo "agent-worker: AGENT_WORKER_REPO is not set and this copy is not inside the repository. Set it to" >&2
+    echo "agent-worker: the checkout path, the way the LaunchAgent plist does." >&2
+  fi
+  inv_log "end: exit=2 env-local-missing repo=$REPO_ROOT"
   exit 2
 fi
 

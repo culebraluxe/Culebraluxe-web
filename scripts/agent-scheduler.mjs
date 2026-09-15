@@ -242,7 +242,23 @@ export function runOnce() {
   }
   // IMPORTANT: this is the exact file path launchd executes. Diagnostic runs
   // must never exercise a different copy than the scheduled worker.
-  const r = spawnSync('/bin/bash', [p.deployedWrapper], { stdio: 'inherit' })
+  //
+  // THE ENVIRONMENT IS PART OF THAT FIDELITY. The plist passes AGENT_WORKER_REPO (the checkout, which
+  // lives under ~/Documents); without it the deployed wrapper falls back to "<deployed dir>/..", a folder
+  // with no repository and no .env.local, so `pnpm agent:scheduler:run` died with ".env.local missing"
+  // while the scheduled job was dying separately at its branch check. Neither failure explained the other,
+  // and the manual path is the one an operator reaches for when the scheduled one is silent. Pass what the
+  // plist passes.
+  const r = spawnSync('/bin/bash', [p.deployedWrapper], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      HOME: p.home,
+      AGENT_WORKER_REPO: p.repo,
+      AGENT_WORKER_LOG_DIR: p.logDir,
+      AGENT_WORKER_ID: process.env.AGENT_WORKER_ID ?? 'scheduler',
+    },
+  })
   process.exit(r.status ?? 1)
 }
 
