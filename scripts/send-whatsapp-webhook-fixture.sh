@@ -12,16 +12,18 @@ MODE="post"
 
 usage() {
   cat <<'USAGE'
-Send a signed synthetic inbound message to the CulebraLuxe WhatsApp webhook.
+Send a signed synthetic WhatsApp message to the CulebraLuxe webhook.
 
 Usage:
   pnpm whatsapp:webhook:test [options]
 
 Options:
-  --from PHONE       Sender phone. Defaults to +1 617-251-6169.
+  --from PHONE       Counterparty phone. Defaults to +1 617-251-6169.
+                     For inbound it is the sender; for --echo it is the recipient.
                      A 10-digit US number is automatically prefixed with 1.
   --env-file FILE    Override the env file. Defaults to .env.local when present.
   --url URL          Override the production webhook URL.
+  --echo             Send a synthetic smb_message_echoes outbound event.
   --handshake        Test only the Meta verification handshake.
   -h, --help         Show this help.
 
@@ -54,6 +56,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "--url requires a URL." >&2; exit 2; }
       WEBHOOK_URL="$2"
       shift 2
+      ;;
+    --echo)
+      MODE="echo"
+      shift
       ;;
     --handshake)
       MODE="handshake"
@@ -152,7 +158,7 @@ if [[ ${#FROM_DIGITS} -eq 10 ]]; then
   FROM_DIGITS="1${FROM_DIGITS}"
 fi
 if [[ ! "$FROM_DIGITS" =~ ^[1-9][0-9]{9,14}$ ]]; then
-  echo "Invalid sender phone: $FROM_PHONE" >&2
+  echo "Invalid counterparty phone: $FROM_PHONE" >&2
   exit 2
 fi
 
@@ -168,15 +174,26 @@ fi
 
 NOW="$(date +%s)"
 MESSAGE_ID="wamid.CULEBRALUXE_FIXTURE.${NOW}.${RANDOM}"
-BODY="$(printf '%s' '{"object":"whatsapp_business_account","entry":[{"id":"WABA_FIXTURE","changes":[{"field":"messages","value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"'"$OWNED_DIGITS"'","phone_number_id":"'"$WHATSAPP_PHONE_NUMBER_ID"'"},"contacts":[{"profile":{"name":"CulebraLuxe Fixture"},"wa_id":"'"$FROM_DIGITS"'"}],"messages":[{"from":"'"$FROM_DIGITS"'","id":"'"$MESSAGE_ID"'","timestamp":"'"$NOW"'","type":"text","text":{"body":"synthetic inbound from fixture"}}]}}]}]}')"
+
+if [[ "$MODE" == "echo" ]]; then
+  BODY="$(printf '%s' '{"object":"whatsapp_business_account","entry":[{"id":"WABA_FIXTURE","changes":[{"field":"smb_message_echoes","value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"'"$OWNED_DIGITS"'","phone_number_id":"'"$WHATSAPP_PHONE_NUMBER_ID"'"},"message_echoes":[{"from":"'"$OWNED_DIGITS"'","to":"'"$FROM_DIGITS"'","id":"'"$MESSAGE_ID"'","timestamp":"'"$NOW"'","type":"text","text":{"body":"synthetic outbound echo from fixture"}}]}}]}]}')"
+  EVENT_LABEL="synthetic outbound WhatsApp echo event"
+  DISPLAY_FROM="$OWNED_DIGITS"
+  DISPLAY_TO="$FROM_DIGITS"
+else
+  BODY="$(printf '%s' '{"object":"whatsapp_business_account","entry":[{"id":"WABA_FIXTURE","changes":[{"field":"messages","value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"'"$OWNED_DIGITS"'","phone_number_id":"'"$WHATSAPP_PHONE_NUMBER_ID"'"},"contacts":[{"profile":{"name":"CulebraLuxe Fixture"},"wa_id":"'"$FROM_DIGITS"'"}],"messages":[{"from":"'"$FROM_DIGITS"'","id":"'"$MESSAGE_ID"'","timestamp":"'"$NOW"'","type":"text","text":{"body":"synthetic inbound from fixture"}}]}}]}]}')"
+  EVENT_LABEL="synthetic inbound WhatsApp event"
+  DISPLAY_FROM="$FROM_DIGITS"
+  DISPLAY_TO="$OWNED_DIGITS"
+fi
 
 SIGNATURE="$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WHATSAPP_APP_SECRET" | awk '{print $NF}')"
 RESPONSE_FILE="$(mktemp "${TMPDIR:-/tmp}/culebraluxe-wa-fixture.XXXXXX")"
 trap 'rm -f "$RESPONSE_FILE"' EXIT
 
-echo "Sending synthetic inbound WhatsApp event"
-echo "  From: +$FROM_DIGITS"
-echo "  To:   +$OWNED_DIGITS"
+echo "Sending $EVENT_LABEL"
+echo "  From: +$DISPLAY_FROM"
+echo "  To:   +$DISPLAY_TO"
 echo "  ID:   $MESSAGE_ID"
 echo "  URL:  $WEBHOOK_URL"
 
