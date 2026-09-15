@@ -1,6 +1,7 @@
 "use server"
 import { withServerErrorCapture } from '@/lib/error-capture-seam'
-import { captureError } from '@/db/app-error'
+import { recordError } from '@/db/app-error'
+import { sql as errorSql } from '@/db/client'
 
 import { redirect } from "next/navigation"
 
@@ -108,12 +109,20 @@ async function moveStoryBucketActionHandler(
     // Returning the message instead means the board prints the real reason, the trace records it, and
     // the next attempt is diagnosable. The throw is still captured for the durable log.
     const message = String((error as Error)?.message ?? error)
-    captureError({
-      kind: (error as Error)?.name || 'Error',
-      operation: 'portal/tech/actions.moveStoryBucketAction',
-      message: `move ${cardId} ${from}->${to} threw: ${message}`,
-      level: 'error',
-    })
+    // Recorded with an EXPLICIT executor: the registration seam is not guaranteed in a server-action
+    // context, and a capture that silently does nothing is how this failure stayed quiet for hours.
+    void recordError(
+      {
+        kind: (error as Error)?.name || 'Error',
+        operation: 'portal/tech/actions.moveStoryBucketAction',
+        message: `move ${cardId} ${from}->${to} threw: ${message}`,
+        stack: String((error as Error)?.stack ?? '').slice(0, 4000),
+        route: '/portal/tech',
+        level: 'error',
+        meta: { digest: (error as { digest?: unknown })?.digest ?? null },
+      },
+      errorSql,
+    ).catch(() => {})
     return { ok: false, error: `the write threw: ${message}` }
   }
 }
