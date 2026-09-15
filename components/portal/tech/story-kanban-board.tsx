@@ -159,9 +159,22 @@ export function StoryKanbanBoard({
         trace({ phase: 'observed-move', cardId: id, from: before, to: column })
         void writeMove(id, before, column)
           .then((result) => {
-            if (!result.ok) onResync?.()
+            if (!result.ok) {
+              // WHY the write was refused, in the browser's own words - the last gap in the chain.
+              trace({
+                phase: 'write-refused',
+                cardId: id,
+                from: before,
+                to: column,
+                detail: result.error ?? 'no reason given',
+              })
+              onResync?.()
+            } else {
+              trace({ phase: 'write-ok', cardId: id, from: before, to: column })
+            }
           })
           .catch((error: unknown) => {
+            trace({ phase: 'write-threw', cardId: id, from: before, to: column, detail: String((error as Error)?.message ?? error) })
             setError(`move failed: ${String((error as Error)?.message ?? error)}`)
             onResync?.()
           })
