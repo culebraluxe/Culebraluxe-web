@@ -4,6 +4,13 @@ import { join } from 'node:path'
 const KNOWN = ['neon', 'forms', 'workflow', 'ui', 'planner'] as const
 export type SkillId = (typeof KNOWN)[number]
 
+/**
+ * The known skill ids, exported so the harness lint (`scripts/forge-packet-lint.ts`) can fail a packet
+ * that names a skill that does not exist, and warn about the drift between this list and the files in
+ * `docs/agent/skills/`. It is the same list `parseSkillIds` filters against - one source, two readers.
+ */
+export const KNOWN_SKILLS: readonly string[] = KNOWN
+
 export function parseSkillIds(raw: string | null | undefined): SkillId[] {
   if (!raw) return []
   const tokens = raw

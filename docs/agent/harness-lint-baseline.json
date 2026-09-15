@@ -1,0 +1,14 @@
+{
+  "note": "Debt recorded when pnpm forge:packet-lint was introduced (2026-09-15, FORGE-GATES-01). Each key is `path::rule`; a finding listed here is reported as a warning instead of failing the lint, so a NEW violation blocks while this pre-existing debt does not disable the gate on day one. Remove keys as the debt is paid; never add a key to silence a violation you just introduced.",
+  "debt": "Four V4 packets use `## Skills` as a free-text capability list (16 'skills' in one of them) rather than naming packs from KNOWN_SKILLS. The packet format (docs/agent/packets/README.md) says it lists packs; either those sections should name real packs or the field should be emptied. Not fixed here because this story may not touch them.",
+  "findings": [
+    "docs/agent/packets/ENG-FORGE-V4-10.md::skills-unknown",
+    "docs/agent/packets/ENG-FORGE-V4-10.md::skills-too-many",
+    "docs/agent/packets/ENG-FORGE-V4-10B.md::skills-unknown",
+    "docs/agent/packets/ENG-FORGE-V4-10B.md::skills-too-many",
+    "docs/agent/packets/ENG-FORGE-V4-10C.md::skills-unknown",
+    "docs/agent/packets/ENG-FORGE-V4-10C.md::skills-too-many",
+    "docs/agent/packets/ENG-FORGE-V4-11.md::skills-unknown",
+    "docs/agent/packets/ENG-FORGE-V4-11.md::skills-too-many"
+  ]
+}

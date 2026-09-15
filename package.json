@@ -61,6 +61,8 @@
     "forge:story:reset": "APP_ENV=production EXECUTION_ENV=PROD node --import tsx --env-file=.env.local scripts/forge-story-reset.ts",
     "forge:clean": "APP_ENV=production EXECUTION_ENV=PROD node --import tsx --env-file=.env.local scripts/forge-story-reset.ts clean --force",
     "forge:batch:status": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-batch-status.ts",
+    "forge:packet-lint": "node --import tsx scripts/forge-packet-lint.ts",
+    "test:agent-runtime": "node --import tsx --test agent-runtime/*.test.ts",
     "forge:record-stories": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-record-stories.ts",
     "forge:ladder": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-ladder.ts",
     "forge:story:run": "APP_ENV=production EXECUTION_ENV=PROD node --env-file=.env.local --import tsx scripts/exec-batch1-story.ts",
