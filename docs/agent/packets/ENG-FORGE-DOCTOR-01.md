@@ -43,7 +43,22 @@ No other existing file changes.
 - `db/agent-work.ts` claim/insert/update functions and `db/storyboard.ts` write paths.
 - The Grok↔DeepSeek mailbox protocol beyond *rendering* the postcard facts.
 
-## Assay (SCOPED)
+## Architect brief
+
+**Seam contract for this story (read before declaring scope).** `scripts/forge-doctor.ts` and
+`workflow_app/forge/forge-doctor-report.ts` **do not exist yet** — this story creates them. A declared seam
+must exist on the pinned baseRef as a blob **or a tree** (`workflow_app/forge/agents/architect/assess.ts:53-61`),
+and the Lead routes a new file by its **directory** seam. So declare the directory, not a sibling file:
+
+- for `scripts/forge-doctor.ts`, declare the seam **`scripts/`** (the tree) — **not** `scripts/forge-batch-status.ts`,
+  which is a different file and does not cover the new one;
+- for `workflow_app/forge/forge-doctor-report.ts`, declare the seam **`workflow_app/forge/`**;
+- for the test, the seam **`workflow_app/tests/`**.
+
+A sibling file is not a seam for a new file: it names a surface the new file is not on, and the routing
+validator then refuses the whole route. Held on 2026-09-15 for exactly this — the Lead named the missing
+`scripts/` seam and confirmed the route is otherwise one Smith (five SAME_UNIT findings, no split).
+
 
 - `node --import tsx --test workflow_app/tests/forge-doctor-report.test.ts`
 
