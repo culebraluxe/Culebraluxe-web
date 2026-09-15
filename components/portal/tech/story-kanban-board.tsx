@@ -31,6 +31,7 @@ export function StoryKanbanBoard({
   cards,
   columns,
   onMove,
+  onResync,
 }: {
   cards: StoryKanbanCard[]
   columns: StoryKanbanColumn[]
@@ -45,6 +46,11 @@ export function StoryKanbanBoard({
     from: string,
     to: string,
   ) => Promise<{ ok: boolean; error?: string; note?: string }>
+  /**
+   * Called when a write FAILED, so the parent can re-sync the board with the database. Without it a
+   * failed write would leave the card drawn where the database does not have it.
+   */
+  onResync?: () => void
 }) {
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,55 +88,45 @@ export function StoryKanbanBoard({
   const handleInit = useCallback(
     (api: KanbanInstanceApi) => {
       apiRef.current = api
+    },
+    [],
+  )
+
+  /**
+   * THE MOVE — observed, never blocked.
+   *
+   * The vendor's `intercept('move-card')` BLOCKS the widget's own move until we answer, and every
+   * variation of that answer produced the wrong thing in production: `false` cancelled the move (the
+   * card sprang back to its lane on release - "i let go the story i was moving immediately falls back
+   * to original state"), and answering asynchronously gave the store time to be re-initialised from a
+   * server refresh mid-drop, which once dragged an ADJACENT card into the wrong lane.
+   *
+   * The playground page in this repo (`app/portal/tech/kanban/page.tsx`) is the vendor's own pattern and
+   * it works because NOTHING intervenes: the store removes the card from the old lane, adds it to the
+   * new one, and adjusts the counts - "just like taking a yellow sticky off the wall and moving it one
+   * left" (the captain). So the board now does exactly that, and the database write is a SIDE EFFECT
+   * that happens after the card has already moved: `onMoveCard` is the store's passive event, not a gate.
+   *
+   * If the write FAILS the board says so and asks the parent to re-sync, so the one case where the
+   * screen could disagree with the database corrects itself instead of lying.
+   */
+  const handleMoveCard = useCallback(
+    (data: Record<string, unknown>) => {
       if (!onMove) return
-      // INTERCEPT, not ON: intercept can return a Promise<boolean>, so the widget waits for the write
-      // and puts the card back when it fails.
-      //
-      // LET THE WIDGET MOVE THE CARD — the drop STAYS where it was put.
-      //
-      // This is the fix for the captain's report: "i let go and the story immediately falls back to its
-      // original state". The interceptor used to return `false` even on success, which CANCELS the
-      // widget's own move, and the card was supposed to reappear in the new column from the server
-      // render - it did not, because the vendor's store keeps its own copy of each card, so cancelling
-      // the local move left the node in its OLD lane. That is the opposite of the demo behaviour he
-      // described: "you can move a node from one lane to another lane, it removes it from old lane and
-      // adds it to new lane". He is right: the widget's own move is the interaction, and the database
-      // write is the side effect.
-      //
-      //   `true`  -> the write SUCCEEDED, so the widget keeps its move (the card stays in the new lane).
-      //   `false` -> the write FAILED, or the move is ambiguous, so the widget puts the card back.
-      //
-      // THE OTHER HALF OF THE OLD BUG, handled at the other end: re-initialising the vendor's store
-      // mid-drop is what once dragged an ADJACENT card into the wrong lane ("i move the story left to
-      // right and it pulls some adjacent story to the right"). The parent therefore does NOT refresh
-      // during the drop - it refreshes after the move has settled (see `onMove` in the sorter).
-      void api.intercept('move-card', async (data) => {
-        const id = String(data.id)
-        const to = String(data.column ?? '')
-        // THE SOURCE MUST BE DERIVED, and the vendor cannot help: `move-card` carries only
-        // `{ id, column, before }`, so the origin column has to come from our model. That derivation
-        // is only sound when a card id appears in ONE column - and it silently did not: a bench story
-        // also sat in OPEN (the bench is an intent row, the status stays `In Progress`), so `find`
-        // returned the OPEN card and every drag off the bench reported `from='open'`. Bench -> Open
-        // then read as a no-op and Bench -> Batch staged the story without clearing the bench.
-        const matches = cardsRef.current.filter((c) => String(c.id) === id)
-        const columnsForCard = [...new Set(matches.map((c) => String(c.column ?? '')))]
-        if (columnsForCard.length > 1) {
-          // A card in two columns is ambiguous. Refuse it visibly rather than move the wrong story.
-          setError(
-            `Board error: ${id} appears in ${columnsForCard.join(' and ')}. One story, one column.`,
-          )
-          return false
-        }
-        const from = columnsForCard[0] ?? ''
-        if (!to) return false
-        // Reordering inside one column is not a status change and is not persisted; let it happen.
-        if (from === to) return true
-        const result = await writeMove(id, from, to)
-        return result.ok
+      const id = String(data?.id ?? '')
+      const to = String(data?.column ?? '')
+      if (!id || !to) return
+      // The origin column comes from the cards we last rendered, read BEFORE any refresh: `move-card`
+      // carries only `{ id, column, before }`, so the vendor cannot tell us where it came from.
+      const matches = cardsRef.current.filter((c) => String(c.id) === id)
+      const columnsForCard = [...new Set(matches.map((c) => String(c.column ?? '')))]
+      const from = columnsForCard[0] ?? ''
+      if (from === to) return
+      void writeMove(id, from, to).then((result) => {
+        if (!result.ok) onResync?.()
       })
     },
-    [onMove, writeMove],
+    [onMove, onResync, writeMove],
   )
 
   return (
@@ -150,6 +146,9 @@ export function StoryKanbanBoard({
               cards={cards}
               columns={columns}
               init={handleInit}
+              // THE STORE'S OWN MOVE EVENT (passive), not a gate. The vendor routes `move-card` to
+              // `onMoveCard`; the widget moves the card and this observes it.
+              onMoveCard={handleMoveCard}
               // Which card property decides the column. One string, so the board
               // does not need our model to be reshaped.
               columnAccessor="column"

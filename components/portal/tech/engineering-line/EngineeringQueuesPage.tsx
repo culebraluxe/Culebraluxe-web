@@ -602,25 +602,23 @@ export function EngineeringQueuesPage({
             // whole interface. (The board still refuses a move that would draw one story twice, and the
             // write's own reason is shown above the board - that is a bug guard, not a gate.)
             onMove={async (cardId, from, to) => {
-              // ONE WRITE, THEN A SETTLED REFRESH.
+              // THE WRITE IS A SIDE EFFECT OF THE MOVE, NOT A GATE ON IT.
               //
-              // The write is the action; the board shows the card in its new lane because the WIDGET was
-              // allowed to keep its own move (see the interceptor in story-kanban-board.tsx). What must
-              // NOT happen is a server refresh DURING the drop: new `cards` re-initialise the vendor's
-              // store, and doing that mid-move is what once dragged an ADJACENT card into the wrong lane.
-              // So the refresh is deferred a beat, after the drop has been applied - it then re-affirms
-              // exactly what the drop already showed, including any refusal the write produced.
+              // The board has already moved the card (the vendor store's own non-blocking move event).
+              // This writes the row and returns the result only so the board can report it. On SUCCESS
+              // nothing is refreshed: a server refresh re-initialises the vendor's store, and doing that
+              // right after a drop is what bounced the card back to its lane. On FAILURE the board asks
+              // the parent to re-sync (onResync below) - the one case where the screen could disagree
+              // with the database.
               setMoveError(null)
               const result = await moveStoryBucketAction(cardId, from, to)
               if (result.ok) {
-                window.setTimeout(() => router.refresh(), 400)
-                // Say what happened, so a successful write is visible and not just assumed.
                 return { ...result, note: result.note ?? `${cardId} → ${to}` }
               }
               setMoveError(result.error ?? `the board refused ${from} → ${to}`)
               return result
-              return result
             }}
+            onResync={() => router.refresh()}
           />
         </div>
       </section>
