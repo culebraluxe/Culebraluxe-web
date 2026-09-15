@@ -41,7 +41,20 @@ export function cockpitBuiltAt(): string {
   return cleaned(process.env.NEXT_PUBLIC_COCKPIT_BUILT_AT) ?? ''
 }
 
-/** What the corner shows: `V2 · f61ebbc`. */
+/**
+ * A MONOTONIC BUILD COUNTER — `r1387` and up, never repeating.
+ *
+ * The captain's ask: "we should increment that counter so we know we have the right build every time we
+ * change this for this". The commit count is exactly that: it changes on every commit and only goes up,
+ * so a glance at the corner answers "is this the build I just released?" without reading a hash.
+ */
+export function cockpitRevision(): string {
+  const rev = cleaned(process.env.NEXT_PUBLIC_COCKPIT_REVISION)
+  return rev ? `r${rev}` : ''
+}
+
+/** What the corner shows: `V2 · r1387 · 3b2bfca`. */
 export function cockpitVersionLabel(): string {
-  return `${COCKPIT_VERSION} · ${cockpitBuildLabel()}`
+  const rev = cockpitRevision()
+  return [`V${COCKPIT_VERSION.replace(/^V/, '')}`, rev, cockpitBuildLabel()].filter(Boolean).join(' · ')
 }

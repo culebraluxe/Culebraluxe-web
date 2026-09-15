@@ -30,10 +30,15 @@ function run(cmd) {
 }
 
 const cockpitSha = process.env.NEXT_PUBLIC_COCKPIT_SHA || run('git rev-parse --short HEAD')
+// A COUNTER THAT ONLY EVER GOES UP (the captain's ask): "we should increment that counter so we know we
+// have the right build every time we change this". The commit count does exactly that - it changes on
+// every commit, it is monotonic, and it needs no state to keep in sync.
+const cockpitRevision = process.env.NEXT_PUBLIC_COCKPIT_REVISION || run('git rev-list --count HEAD')
 
 const nextConfig = {
   env: {
     NEXT_PUBLIC_COCKPIT_SHA: cockpitSha,
+    NEXT_PUBLIC_COCKPIT_REVISION: cockpitRevision,
     NEXT_PUBLIC_COCKPIT_BUILT_AT:
       process.env.NEXT_PUBLIC_COCKPIT_BUILT_AT || new Date().toISOString(),
   },

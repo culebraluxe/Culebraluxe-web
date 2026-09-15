@@ -1,5 +1,6 @@
 "use server"
 import { withServerErrorCapture } from '@/lib/error-capture-seam'
+import { captureError } from '@/db/app-error'
 
 import { redirect } from "next/navigation"
 
@@ -83,6 +84,41 @@ export const clearWorkBenchAction = withServerErrorCapture(
 // the handoff, and the consequence is explicit and intended: a drop here QUEUES
 // REAL FORGE WORK in PROD. It is the only bucket whose write starts something.
 async function moveStoryBucketActionHandler(
+  cardId: string,
+  from: string,
+  to: string,
+): Promise<{ ok: boolean; error?: string; note?: string }> {
+  try {
+    return await moveStoryBucketInner(cardId, from, to)
+  } catch (error) {
+    // NEXT'S OWN CONTROL-FLOW ERRORS MUST PASS THROUGH. `redirect()` and `notFound()` are implemented by
+    // throwing; catching them here would turn an access denial into a confusing "the write threw".
+    const digest = (error as { digest?: unknown })?.digest
+    if (typeof digest === 'string' && (digest.startsWith('NEXT_REDIRECT') || digest === 'NEXT_NOT_FOUND')) {
+      throw error
+    }
+    // A THROWN SERVER ACTION TELLS THE OPERATOR NOTHING.
+    //
+    // In production, an exception that escapes a server action reaches the browser as React error #441
+    // - "An error occurred in the Server Components render… digest…" - with the real message stripped.
+    // That is exactly what a drag produced on 2026-09-15: the client traced `write-threw … #441`, the
+    // database was untouched, and nothing in `app_error` explained it (the capture executor is not
+    // registered in that context, so `captureError` dropped it silently - a second defect).
+    //
+    // Returning the message instead means the board prints the real reason, the trace records it, and
+    // the next attempt is diagnosable. The throw is still captured for the durable log.
+    const message = String((error as Error)?.message ?? error)
+    captureError({
+      kind: (error as Error)?.name || 'Error',
+      operation: 'portal/tech/actions.moveStoryBucketAction',
+      message: `move ${cardId} ${from}->${to} threw: ${message}`,
+      level: 'error',
+    })
+    return { ok: false, error: `the write threw: ${message}` }
+  }
+}
+
+async function moveStoryBucketInner(
   cardId: string,
   from: string,
   to: string,
