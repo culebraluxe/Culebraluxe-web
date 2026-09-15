@@ -51,6 +51,17 @@ const nextConfig = {
   // connection-string modules that only resolve in a real Node runtime. Bundling it
   // is how you get a build that succeeds and a runtime that cannot connect.
   serverExternalPackages: ['pg'],
+  // BOTH BUNDLERS ARE DECLARED, and that is not decoration.
+  //
+  // Next 16 builds with Turbopack by default, and it REFUSES a project that has a `webpack` config and no
+  // `turbopack` config ("This build is using Turbopack, with a `webpack` config and no `turbopack` config.
+  // This may be a mistake."). That error broke the release build on 2026-09-15 the moment the edge fix
+  // below added a `webpack` key — measured: `vercel build --prod` → `pnpm run build` → `next build`
+  // (Turbopack) → build error, while `next build --webpack` (the command in AGENTS.md) was green.
+  //
+  // So: an explicit empty Turbopack config here, and the webpack config below applies to the webpack
+  // path. Neither bundler is left to guess, and the release path keeps working with the Turbopack default.
+  turbopack: {},
   // EDGE-SAFE INSTRUMENTATION (measured 2026-09-15, found by running `pnpm exec next build`).
   //
   // `instrumentation.ts` is compiled for BOTH runtimes. Its database write is already guarded at
