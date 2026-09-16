@@ -239,12 +239,20 @@ test('an Assay lane with no resolvable candidate fails closed (never main)', () 
 })
 
 // ---------------------------------------------------------------------------
-// Terminal normalization (criteria 3 + 4): V4-11 cannot become Complete.
+// THE VERDICT IS THE RULING. (Replaces "V4-11 cannot become Complete".)
+//
+// These tests used to require a Hold whenever the Assay's workspace evidence named a base other than the Smith
+// candidate. That rule is void, not merely relaxed: QA has no relationship to git, its verified/candidate sha
+// fields are null by design, and under NO TREES there is no per-lane worktree to provision from `main` — so the
+// conjunction could never be satisfied and EVERY Assay run was finalized Hold while every frozen command passed
+// (measured 2026-09-16, run 5a1494f6: verdict PASS, summary "Assay PASS | … -> exit 0", run row Hold).
+//
+// What replaces it: a clean verdict finalizes clean. A lane's git labels are metadata about the ruling; they
+// are not the ruling and they cannot overwrite it. The V4-11 protection still holds by construction — the
+// frozen proofs run in the checkout the lane was handed, and that checkout IS the candidate.
 // ---------------------------------------------------------------------------
 
-test('V4-11: verifier Assay provisioned from main cannot normalize to Complete', () => {
-  // Clean summary, but the workspace evidence says base=main@<mainSHA> while
-  // the Smith candidate is <candidate>. This is exactly the V4-11 shape.
+test('a clean verdict finalizes clean even when the evidence carries no candidate sha', () => {
   const normalized = normalizeAgentFinishForRole(
     'verifier',
     {
@@ -253,14 +261,31 @@ test('V4-11: verifier Assay provisioned from main cannot normalize to Complete',
     },
     context(CANDIDATE),
   )
-  assert.equal(normalized.resultStatus, 'Hold')
-  assert.notEqual(normalized.resultStatus, 'Complete')
-  assert.equal(normalized.commitHash, null)
-  assert.match(normalized.notes, /does not equal Smith candidate/)
-  assert.match(normalized.notes, /549866555152/)
+  assert.equal(normalized.resultStatus, 'Complete', 'the verdict decides, not the git labels')
+  assert.equal(normalized.commitHash, null, 'an Assay lane still records no commit of its own')
 })
 
-test('reviewer role gets the same wrong-base Hold semantics', () => {
+test('a clean verdict finalizes clean with no context at all', () => {
+  const normalized = normalizeAgentFinishForRole('verifier', cleanInput, null)
+  assert.equal(normalized.resultStatus, 'Complete')
+  assert.equal(normalized.commitHash, null)
+})
+
+test('an UNCLEAN verdict still holds, and says why', () => {
+  const normalized = normalizeAgentFinishForRole(
+    'verifier',
+    {
+      ...cleanInput,
+      resultStatus: 'Failed',
+      testsSummary: 'CMD_FAIL: node --import tsx --test x.test.ts -> exit 1',
+    },
+    context(CANDIDATE),
+  )
+  assert.equal(normalized.resultStatus, 'Hold')
+  assert.equal(normalized.commitHash, null)
+})
+
+test('reviewer role finalizes by its verdict too, not by git labels', () => {
   const normalized = normalizeAgentFinishForRole(
     'reviewer',
     {
@@ -269,11 +294,12 @@ test('reviewer role gets the same wrong-base Hold semantics', () => {
     },
     context(CANDIDATE),
   )
-  assert.equal(normalized.resultStatus, 'Hold')
-  assert.match(normalized.notes, /does not equal Smith candidate/)
+  assert.equal(normalized.resultStatus, 'Complete')
 })
 
-test('clean Assay that verified the exact candidate stays Complete + records the SHA', () => {
+test('a clean Assay records no sha claim of its own any more', () => {
+  // The lane used to append "Assay verified candidate <sha>". QA records no git identity, so that line was a
+  // claim about something QA does not own; the notes now carry the lane's own summary and nothing added.
   const normalized = normalizeAgentFinishForRole(
     'verifier',
     {
@@ -284,32 +310,29 @@ test('clean Assay that verified the exact candidate stays Complete + records the
   )
   assert.equal(normalized.resultStatus, 'Complete')
   assert.equal(normalized.commitHash, null)
-  assert.match(normalized.notes, /Assay verified candidate 549866555152/)
+  assert.doesNotMatch(normalized.notes, /Assay verified candidate/)
 })
 
-test('Assay with a clean summary but no candidate fails closed to Hold', () => {
-  for (const role of ['reviewer', 'verifier']) {
-    const normalized = normalizeAgentFinishForRole(
-      role,
-      {
-        ...cleanInput,
-        notes: notesWithBase(MAIN_BASE, 'main'),
-      },
-      context(null),
-    )
-    assert.equal(normalized.resultStatus, 'Hold', role)
-    assert.match(normalized.notes, /no Smith candidate commit exists/)
-  }
-})
-
-test('Assay with clean summary but no workspace evidence fails closed to Hold', () => {
+test('a clean verdict needs no candidate to finalize clean', () => {
   const normalized = normalizeAgentFinishForRole(
     'verifier',
-    { ...cleanInput, notes: 'Assay ran but recorded no workspace line' },
+    {
+      ...cleanInput,
+      notes: notesWithBase(MAIN_BASE, 'main'),
+    },
+    context(null),
+  )
+  assert.equal(normalized.resultStatus, 'Complete')
+  assert.doesNotMatch(normalized.notes, /no Smith candidate commit exists/)
+})
+
+test('a clean verdict needs no workspace evidence to finalize clean', () => {
+  const normalized = normalizeAgentFinishForRole(
+    'verifier',
+    { ...cleanInput, notes: 'Assay ran; the workspace line is not required for a verdict' },
     context(CANDIDATE),
   )
-  assert.equal(normalized.resultStatus, 'Hold')
-  assert.match(normalized.notes, /no workspace base evidence was recorded/)
+  assert.equal(normalized.resultStatus, 'Complete')
 })
 
 test('verifier failed/missing command evidence is never Complete (no context either)', () => {

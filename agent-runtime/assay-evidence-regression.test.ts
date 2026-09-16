@@ -68,7 +68,9 @@ test('V5-11-shaped exact-candidate Assay with 0 fail remains Complete', () => {
 
   assert.equal(normalized.resultStatus, 'Complete')
   assert.equal(normalized.commitHash, null)
-  assert.match(normalized.notes, /Assay verified candidate 82749b75d3aa/)
+  // The lane no longer appends "Assay verified candidate <sha>": QA records no git identity, so that line was
+  // a claim about something QA does not own. The verdict is the ruling and it is recorded as the verdict.
+  assert.doesNotMatch(normalized.notes, /Assay verified candidate/)
 })
 
 test('configured Assay commands are never fabricated as failed commands', () => {

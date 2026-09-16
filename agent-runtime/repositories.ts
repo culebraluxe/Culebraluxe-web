@@ -44,7 +44,6 @@ import {
 import { runMachineEvidenceFromFinish } from './run-machine-evidence'
 import {
   assayHoldEvidenceLine,
-  candidateVerifiedEvidenceLine,
   isAssayTerminalRole,
   isCleanAssayEvidence,
   smithCandidateSha,
@@ -120,28 +119,20 @@ export function normalizeAgentFinishForRole(
     return { ...input, commitHash: null }
   }
 
-  const candidateSha = smithCandidateSha([{ commitHash: context.candidateSha }])
-  const verifiedSha =
-    structured?.verifiedSha ?? verifiedShaFromWorkspaceEvidence(input.notes)
-  const structuredCandidateMatches = structured
-    ? structured.candidateSha === candidateSha
-    : true
-  const verifiedExactCandidate = Boolean(
-    cleanEvidence &&
-      candidateSha &&
-      verifiedSha === candidateSha &&
-      structuredCandidateMatches,
-  )
-
-  if (verifiedExactCandidate) {
-    return {
-      ...input,
-      notes: [input.notes.trim(), candidateVerifiedEvidenceLine(candidateSha!)]
-        .filter(Boolean)
-        .join('\n\n'),
-      commitHash: null,
-    }
+  // THE VERDICT IS THE RULING, AND THE SHA CONJUNCT IS DELETED.
+  //
+  // This used to finalize an Assay run as Hold unless the evidence proved `verifiedSha === candidateSha` AND
+  // `structured.candidateSha === candidateSha`. QA records NO git identity by rule — those fields are null by
+  // design — so the conjunction could never be true and EVERY Assay run was finalized Hold while every frozen
+  // command passed. Measured 2026-09-16 on run 5a1494f6: verdict PASS, summary "Assay PASS | … -> exit 0",
+  // durable qa_passed=true, and both the run row and its artifact said Hold. A lane's git labels are metadata
+  // ABOUT the ruling; they never get to be the ruling, and they never get to overwrite it.
+  if (cleanEvidence) {
+    return { ...input, commitHash: null }
   }
+
+  const candidateSha = smithCandidateSha([{ commitHash: context.candidateSha }])
+  const verifiedSha = structured?.verifiedSha ?? verifiedShaFromWorkspaceEvidence(input.notes)
 
   const structuredFailure = structured?.failureCode
     ? `Assay Hold: ${structured.failureCode}: ${structured.failureDetail ?? 'structured verification failed.'}`
