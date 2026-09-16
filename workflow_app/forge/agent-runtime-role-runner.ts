@@ -199,6 +199,9 @@ export type AgentRuntimeForgeRunnerOptions = {
   launchIntent?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 }
 
+// The lanes whose job is MEASUREMENT: only they may refuse over a workspace, because only they run proofs.
+const ASSAY_NODES = new Set(['qa_verify', 'fast_qa_verify', 'repair_qa'])
+
 // The candidate SHA's field declaration lives in the mediator module (shared with the role mapping), so the
 // gate, the pin and the mapping cannot disagree about what a sha is.
 
@@ -1028,14 +1031,17 @@ export function createAgentRuntimeForgeRoleRunner(
     // human, never dropped into an empty candidate that quietly measures nothing. Absent stays absent and is
     // handled by the workspace guard below: absence is a different fact from a malformed value.
     const candidateShaMediation = mediateField(CANDIDATE_SHA, evidence.candidateSha)
-    if (!candidateShaMediation.ok && candidateShaMediation.reason !== 'EMPTY') {
+    // THE ASSAY BLOCK BELONGS TO ASSAY LANES (Grok, 2026-09-16). This code sits on the shared collect path, so
+    // without the guard a leftover candidateSha on Lead or Inspector threw a QA-shaped gap for work that never
+    // assays. The lane check is the scope; the refusals below are unchanged for the lanes that do measure.
+    if (ASSAY_NODES.has(nodeId) && !candidateShaMediation.ok && candidateShaMediation.reason !== 'EMPTY') {
       throw new Error(
         `ASSAY_WORKSPACE_NOT_CANDIDATE: ${describeRefusal(candidateShaMediation)} — a gap for a human, not a ` +
           'defect to repair',
       )
     }
     const candidateShaForAssay = candidateShaMediation.ok ? String(candidateShaMediation.value) : ''
-    if (candidateShaForAssay && roleCwd === process.cwd()) {
+    if (ASSAY_NODES.has(nodeId) && candidateShaForAssay && roleCwd === process.cwd()) {
       // NO WORKTREE IS NOT PERMISSION TO MEASURE THE OPERATOR'S CHECKOUT (Grok, 2026-09-16). Without a
       // worktreesRoot this lane fell back to process.cwd() — the pin was skipped for exactly that case and the
       // proofs ran against whatever HEAD the worker happened to hold: the 15 Sep loop with the safety catch
@@ -1045,7 +1051,7 @@ export function createAgentRuntimeForgeRoleRunner(
           'the candidate (a gap for a human, not a defect to repair)',
       )
     }
-    if (candidateShaForAssay) {
+    if (ASSAY_NODES.has(nodeId) && candidateShaForAssay) {
       const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
       if (headBefore !== candidateShaForAssay) {
         await commandRunner(roleCwd)(`git checkout --detach ${candidateShaForAssay}`)

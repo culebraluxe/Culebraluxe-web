@@ -118,10 +118,10 @@ export function mediateField(declaration: FieldDeclaration, raw: unknown): Field
 
   // kind === 'closed' — the decision path. Exact match, then declared aliases, and nothing else.
   const table = new Map<string, string>()
-  for (const value of accepted) {
-    table.set(value.toLowerCase(), value)
-    table.set(value.replace(/[^a-z0-9]/gi, '').toLowerCase(), value)
-  }
+  for (const value of accepted) table.set(value.toLowerCase(), value)
+  // A DECLARED ALIAS IS THE ONLY ALIAS (Grok, 2026-09-16). This used to also register a punctuation-stripped
+  // form, which quietly made `SAME_UNIT` accept `SAMEUNIT` — an undeclared synonym invented by the mediator
+  // itself, which is exactly the second-writer behaviour this module exists to prevent.
   for (const [alias, target] of Object.entries(d.aliases ?? {})) table.set(alias.toLowerCase(), target)
 
   const stated = statedValue(text, d.field).toLowerCase()
