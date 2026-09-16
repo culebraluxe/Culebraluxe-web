@@ -173,33 +173,22 @@ test('ENG-21 CLI: unknown subcommand and help behave', async () => {
   assert.equal(bare.text, usage())
 })
 
-test('ENG-21: buildAgentInvokerWorkspaces resolves the approved base fail-closed', () => {
-  // Default: workspace execution enabled at the accepted integration tracking
-  // ref (origin/main) so successors never branch from a stale local main.
-  const def = buildAgentInvokerWorkspaces('w1', {})
-  assert.ok(def)
-  assert.equal(def.workerId, 'w1')
-  assert.equal(def.baseRef, 'origin/main')
-  assert.equal(typeof def.provision, 'function')
-
-  // Explicit approved base override wins.
-  const over = buildAgentInvokerWorkspaces('w1', {
-    AGENT_WORKSPACE_BASE_REF: 'release/v1',
-  })
-  assert.equal(over?.baseRef, 'release/v1')
-
-  // AGENT_WORKSPACE_WORKTREES_ROOT relocates the worktree directory.
-  const rooted = buildAgentInvokerWorkspaces('w1', {
-    AGENT_WORKSPACE_WORKTREES_ROOT: '/tmp/agent-worktrees',
-  })
-  assert.equal(rooted?.worktreesRoot, '/tmp/agent-worktrees')
-
-  // AGENT_WORKSPACE_DISABLED=1 restores the legacy shared-checkout path
-  // explicitly (documented escape hatch).
-  assert.equal(
-    buildAgentInvokerWorkspaces('w1', { AGENT_WORKSPACE_DISABLED: '1' }),
-    undefined,
-  )
-  // Only the literal '1' disables; anything else keeps isolation on.
-  assert.ok(buildAgentInvokerWorkspaces('w1', { AGENT_WORKSPACE_DISABLED: 'yes' }))
+test('NO TREES (2026-09-16): buildAgentInvokerWorkspaces hands out nothing, for any environment', () => {
+  // This test used to assert the workspace this builder handed every lane — its approved base, its
+  // relocatable worktrees root, and the AGENT_WORKSPACE_DISABLED escape hatch. The root defaulted to
+  // `../Culebraluxe-worktrees`, so a tree reappeared the moment a story started (83 of them, and another
+  // at c1f37086 even after the estate was deleted), and the worktree-file apparatus behind it grew into a
+  // second workflow whose output nobody could query. The builder now returns nothing, so the only
+  // assertion left is the one that matters: NO shape of environment can make it produce a tree again.
+  const envs: Array<Record<string, string>> = [
+    {},
+    { AGENT_WORKSPACE_BASE_REF: 'release/v1' },
+    { AGENT_WORKSPACE_WORKTREES_ROOT: '/tmp/agent-worktrees' },
+    { AGENT_WORKSPACE_DISABLED: '1' },
+    { AGENT_WORKSPACE_DISABLED: 'yes' },
+    { AGENT_WORKSPACE_BASE_REF: 'origin/main', AGENT_WORKSPACE_WORKTREES_ROOT: '/tmp/agent-worktrees' },
+  ]
+  for (const env of envs) {
+    assert.equal(buildAgentInvokerWorkspaces('w1', env), undefined, JSON.stringify(env))
+  }
 })

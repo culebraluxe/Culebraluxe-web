@@ -20,6 +20,7 @@ import {
   executeClaimedAgentCommand,
   resolveForgeExecutionRunId,
 } from '../../agent-runtime/invoker'
+import { commitSha } from '../../agent-runtime/candidate-assay-handoff'
 import {
   buildRepoContextQuery,
   latestScoutResearch,
@@ -115,7 +116,6 @@ import {
 import { serialLaunchDoor, serialScopeMissReasons } from './forge-serial-doors'
 import { recordTraceEvent, listTraceEvents } from '../../db/workflow-trace'
 import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
-import { deriveWorktreePath } from '../../lib/worker-workspace/provisioner'
 import {
   acceptedLeadRouting,
   buildLeadRoutingContext,
@@ -242,6 +242,33 @@ const FAST_SMITH_NODES = new Set(['fast_smith', 'fast_repair_smith'])
  * One git read in a workspace, or null. Used by DOOR 3 to ask whether the worktree still
  * holds nothing but the base commit — a failed read is null, never a fabricated answer.
  */
+/**
+ * Nodes that PRODUCE a candidate commit, and therefore the only ones allowed to declare `candidateSha`
+ * in the durable evidence. See the merge at the attempt tail: with no worktree there is no pinned base to
+ * read a candidate FROM, so the row is the only handoff QA has.
+ */
+const CANDIDATE_PRODUCING_NODES: ReadonlySet<string> = new Set([
+  'smith',
+  'fast_smith',
+  'repair_smith',
+  'lead_solo_implement',
+])
+
+/**
+ * Nodes whose lane MAY COMMIT — the same set the invoker derives from the role and the Lead phase
+ * (`builder`, `dev_ops`, and a Lead in `implement`/`post`). They are the only lanes allowed to start on a
+ * checkout that carries the operator's uncommitted work. See the refusal before the enqueue.
+ */
+const LANE_MAY_COMMIT_NODES: ReadonlySet<string> = new Set([
+  'smith',
+  'fast_smith',
+  'repair_smith',
+  'lead_solo_implement',
+  'lead_implement',
+  'lead_post',
+  'deploy',
+])
+
 function readGit(cwd: string, args: string[]): string | null {
   try {
     return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim() || null
@@ -760,6 +787,29 @@ export function createAgentRuntimeForgeRoleRunner(
     // Resolved and asserted ONCE at lane start (top of this function): the work
     // item, the trace events and the run all carry this same value.
     const target = laneTarget
+
+    // ---------------------------------------------------------------------
+    // ONE WRITER IN THE CHECKOUT, AND THE CAPTAIN IS ONE OF THEM.
+    //
+    // With no worktree a commit-capable lane commits in the SAME checkout the operator works in. Measured
+    // 2026-09-16: the Smith created `08b569f8` on `main` while the operator's own uncommitted edits sat in
+    // that checkout — nothing stopped them from being committed with the lane's work. So a lane that MAY
+    // commit refuses to start on a checkout carrying uncommitted TRACKED changes, and names them. Untracked
+    // files are not a refusal: no commit this lane makes would include them.
+    //
+    // Checked BEFORE the work item is enqueued, so a refusal spends nothing.
+    // ---------------------------------------------------------------------
+    if (LANE_MAY_COMMIT_NODES.has(nodeId)) {
+      const dirty = readGit(process.cwd(), ['status', '--porcelain', '--untracked-files=no'])
+      if (dirty) {
+        const named = dirty.split('\n').slice(0, 8).join(' | ')
+        throw new Error(
+          `Forge ${nodeId} refuses to start: the checkout has uncommitted tracked changes and this lane may commit ` +
+            `(it works in the operator's checkout, not in a tree of its own). Commit or stash first. dirty=[${named}]`,
+        )
+      }
+    }
+
     const queued = await work.enqueue({
       storyId: resolvedStory.id,
       ...lane.envelope,
@@ -871,29 +921,35 @@ export function createAgentRuntimeForgeRoleRunner(
     // work — and QA will happily pass an unrelated change (observed live: a story whose
     // proof was green at base shipped a one-line deletion elsewhere and passed).
     //
-    // Checked HERE, before the work item is enqueued and claimed, because the point is to
-    // spend nothing: the lane that writes code is the lane that must not start. It runs only
-    // on the FIRST attempt of a code-writing lane, and only while the worktree still holds
-    // nothing but the base commit — on a repair attempt the worktree carries the previous
-    // candidate, so "the proof passes" is no longer evidence about the baseline.
+    // NO TREE, SO THE BASELINE IS THE DIRECTORY THE LANE WORKS IN. This door used to derive a
+    // per-execution worktree path and give up when there was none — and after NO TREES there never is one
+    // (`buildAgentInvokerWorkspaces` returns nothing, so `workspaces?.worktreesRoot` is always undefined),
+    // which means it had quietly stopped evaluating anything at all. A door that cannot fire is not a door.
+    //
+    // Checked HERE, before the work item is claimed, because the point is to spend nothing: the lane that
+    // writes code is the lane that must not start. It runs only on the FIRST attempt of a code-writing lane,
+    // and only while the checkout still holds nothing but the base commit — on a repair attempt the checkout
+    // carries the previous candidate, so "the proof passes" is no longer evidence about the baseline.
     //
     // The proofs are the story's own frozen commands (never model prose), and an
     // unexecutable command counts as unmet, never as a pass.
     // ---------------------------------------------------------------------
     const writesCode = plan.lane === 'smith' || nodeId === 'lead_solo_implement'
-    if (writesCode && attempt === 0 && workspaces?.worktreesRoot) {
-      const baselineCwd = deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
+    if (writesCode && attempt === 0) {
+      const baselineCwd = process.cwd()
       const frozenProofs = leadRoutingContext.allowedProofs.filter((command) => command.trim())
-      // STILL NOTHING BUT THE BASE? Ask git what this worktree has committed that the
-      // approved base ref does not: zero commits means the tree is the baseline. Comparing
-      // HEAD to the REF would be wrong — the engine pins an exact base COMMIT
-      // (`origin/main@<sha>`) while the ref itself moves on, so a stale ref makes a fresh
-      // worktree look different and the door silently skips (observed live).
-      const aheadOfBase = readGit(baselineCwd, ['rev-list', '--count', `${workspaces.baseRef}..HEAD`])
+      // STILL NOTHING BUT THE BASE? Ask git what the checkout has committed that the approved base ref does
+      // not: zero commits means it is the baseline. Comparing HEAD to the REF would be wrong — the engine pins
+      // an exact base COMMIT (`origin/main@<sha>`) while the ref itself moves on, so a stale ref makes a fresh
+      // checkout look different and the door silently skips (observed live).
+      const baseRef = workspaces?.baseRef ?? 'origin/main'
+      const aheadOfBase = readGit(baselineCwd, ['rev-list', '--count', `${baseRef}..HEAD`])
+      // An UNREADABLE count is not "at base": the door skips and SAYS SO rather than refusing a story it
+      // could not measure. Only a measured zero opens the proof run below.
       const atBase = aheadOfBase === '0'
       // A DOOR THAT SKIPS SILENTLY IS NOT A DOOR. Every evaluation records its inputs and
       // its decision, so "why did nothing happen?" is answerable from the TECH view instead
-      // of by inference. This is going in BEFORE any claim that the gate works.
+      // of by inference.
       captureServerLog(
         'info',
         'forge.baseline-acceptance',
@@ -1210,6 +1266,23 @@ export function createAgentRuntimeForgeRoleRunner(
       typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
         ? evidence.candidateSha
         : undefined
+    // THE CANDIDATE MUST BE IN THE ROW BEFORE ANYONE ASKS FOR IT.
+    //
+    // With no worktree there is no pinned base to read a candidate FROM, so the durable evidence is the only
+    // place the next lane can find one — and nothing wrote it. Measured live on 2026-09-16
+    // (ENG-QA-SINGLE-VERDICT-01): the Smith completed with candidate `08b569f8…`, QA ran 100 seconds later
+    // and reported `candidate=(none) verified=(none)` / CANDIDATE_MISMATCH, because this generation's
+    // `forge_workflow_evidence.candidate_sha` was still NULL; the value appeared at 08:34, after the release
+    // tail had already been reached. The lane that PRODUCES the candidate writes it, once, here — so every
+    // later reader (QA, publish, deploy, the board) reads one fact from one row.
+    if (CANDIDATE_PRODUCING_NODES.has(nodeId)) {
+      const committed = commitSha(candidateSha)
+      if (committed) {
+        await mergeForgeWorkflowEvidence(task.processInstanceId, resolvedStory.id, {
+          candidateSha: committed,
+        })
+      }
+    }
     // ENG-FORGE-OBS-SERIAL-01 box 1 — what the SERIAL lane's candidate did outside
     // its accepted assignment, carried to the HOLD/self-heal assembly below.
     let serialScopeMiss: string[] = []

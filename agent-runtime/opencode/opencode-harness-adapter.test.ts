@@ -44,6 +44,7 @@ import {
   SESSION_CONTINUITY_ENV,
 } from './opencode-harness-adapter'
 import type { OpenCodeHandle, OpenCodeRunResult } from './opencode-client'
+import { verifiedShaFromWorkspaceEvidence } from '../candidate-assay-handoff'
 import type {
   AgentExecutionContext,
   AgentExecutionWorkspace,
@@ -260,19 +261,27 @@ test('startExternal runs opencode in the exact worker worktree with the pinned m
   }
 })
 
-test('startExternal refuses to run outside the Forge-provided isolated worktree', async () => {
+test('startExternal runs in the working directory it was given (NO TREES, 2026-09-16)', async () => {
+  // This test replaced `startExternal refuses to run outside the Forge-provided isolated worktree`: that
+  // refusal was the bug. The estate was deleted, the invoker stopped handing out a workspace (51750b83),
+  // and the refusal then killed the architect lane on every start (engine task 65f40df2, 07:26) with
+  // "requires the Forge-provisioned isolated worker worktree". No lane owns a tree; each one runs in the
+  // directory it was given.
+  const captured: Array<Record<string, unknown>> = []
   const adapter = new OpenCodeHarnessAdapter(DEPS, {
     cliBin: 'opencode',
     workspace: process.cwd(),
     model: OPENCODE_PINNED_MODEL,
-    startRun: (() => {
-      throw new Error('startRun must not be reached without isolation')
-    }) as never,
+    startRun: (opts) => {
+      captured.push({ ...opts })
+      return handleFor({ status: 'success', exitCode: 0, stdout: 'done', stderr: '' })
+    },
   })
-  await assert.rejects(
-    () => (adapter as any).startExternal(context(command())),
-    /isolated worker worktree/,
-  )
+  // context(command()) carries NO executionWorkspace.
+  const start = await (adapter as any).startExternal(context(command()))
+  assert.ok(start.externalRunId.startsWith('opencode-'))
+  assert.equal(captured.length, 1, 'the harness is started, not refused')
+  assert.equal(captured[0].cwd, process.cwd())
 })
 
 test('startExternal fails closed when the explicit model is missing or different', async () => {
@@ -435,6 +444,34 @@ test('a worker commit in the worktree is read as the factual candidate (AC5)', a
   }
 })
 
+test('NO TREES: a run with no executionWorkspace still yields evidence (not null)', async () => {
+  // The architect lane's death, pinned: `startExternal` shed its demand for a Forge-provisioned
+  // worktree in 53556ce7, but `resultExternal` kept the SAME refusal and answered `null`, so the
+  // base class died on `result!.notes` and the engine ledger recorded
+  // `Cannot read properties of null (reading 'notes')` instead of the run's real result
+  // (engine tasks e599df3a, d4266df9, 2026-09-16).
+  const adapter = new OpenCodeHarnessAdapter(DEPS, {
+    cliBin: 'opencode',
+    workspace: process.cwd(),
+    model: OPENCODE_PINNED_MODEL,
+    startRun: () =>
+      handleFor({ status: 'success', exitCode: 0, stdout: 'Tests: 3/3 pass', stderr: '' }),
+  })
+  const cmd = command()
+  // context(cmd) carries NO executionWorkspace — the world after NO TREES.
+  await (adapter as any).startExternal(context(cmd))
+  const evidence = await (adapter as any).resultExternal(cmd, context(cmd))
+
+  assert.ok(evidence, 'a successful run must produce evidence, not null')
+  assert.equal(evidence.resultStatus, 'Complete')
+  assert.equal(evidence.completion, 100)
+  // It measured the directory it was given, and it says so factually.
+  assert.match(evidence.notes, new RegExp(`worktree=${escapeRegExp(process.cwd())}`))
+  // No isolated workspace means no `base=<ref>@<sha>` line, so nothing can read this run as proof
+  // that a candidate was verified — `verifiedShaFromWorkspaceEvidence` must honestly find nothing.
+  assert.equal(verifiedShaFromWorkspaceEvidence(evidence.notes), null)
+})
+
 test('failed result maps to null (shared base terminalizes as failure)', async () => {
   const { workspace, cleanup } = makeWorkspace()
   try {
@@ -453,6 +490,31 @@ test('failed result maps to null (shared base terminalizes as failure)', async (
   } finally {
     cleanup()
   }
+})
+
+test('NO TREES: a lane that committed nothing reports NO commit, not the inherited HEAD', async () => {
+  // Measured 2026-09-16 (ENG-QA-SINGLE-VERDICT-01): the smith created 08b569f8, and the lead_post run and
+  // BOTH dev_ops runs each recorded 08b569f8 as their OWN commit — a commit-capable lane that committed
+  // nothing claimed whatever HEAD it happened to find. The baseline is now where HEAD stood when the lane
+  // STARTED. This covers the no-workspace path (the one that leaked); the isolated path's "HEAD advanced past
+  // the approved base" rule is the AC5 test above, unchanged.
+  const headBefore = git(process.cwd(), ['rev-parse', 'HEAD'])
+  const adapter = new OpenCodeHarnessAdapter(DEPS, {
+    cliBin: 'opencode',
+    workspace: process.cwd(),
+    model: OPENCODE_PINNED_MODEL,
+    // The model does nothing, so HEAD cannot move.
+    startRun: () => handleFor({ status: 'success', exitCode: 0, stdout: 'nothing to do', stderr: '' }),
+  })
+  const cmd = command()
+  // context(cmd) carries NO executionWorkspace, so the lane runs in the working directory it was given.
+  await (adapter as any).startExternal(context(cmd))
+  const evidence = await (adapter as any).resultExternal(cmd, context(cmd))
+
+  assert.ok(evidence, 'a successful run still produces evidence')
+  assert.equal(evidence.commitHash, null, 'this lane committed nothing — it claims nothing')
+  // The fact behind the null: the checkout really did sit still.
+  assert.equal(git(process.cwd(), ['rev-parse', 'HEAD']), headBefore)
 })
 
 function escapeRegExp(value: string): string {

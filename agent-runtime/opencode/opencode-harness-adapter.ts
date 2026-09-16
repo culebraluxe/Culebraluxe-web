@@ -76,6 +76,7 @@ import {
 } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
 import { applyRtkToEnv, forgeToolRoleForAgentRole } from '../../workflow_app/forge/forge-tool-seams'
+import { captureServerLog } from '../../lib/server-error-capture'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -266,6 +267,32 @@ export function resolveOpenCodeModel(
   return value
 }
 
+/**
+ * Read the session id recorded for this story+lane, or null when there is nothing to resume.
+ *
+ * BEST-EFFORT BY CONTRACT: the pointer is an optimisation, never a precondition. A read that fails
+ * (control plane unreachable, table not yet migrated, env misconfigured) is reported as an observed
+ * warning and the lane starts a FRESH session — because the alternative is a lane that dies at START and
+ * blames itself for a bookkeeping fault. The write side of the same pointer is tolerated the same way at
+ * the end of `resultExternal`.
+ */
+async function readRecordedSessionId(
+  context: AgentExecutionContext,
+): Promise<string | null> {
+  try {
+    const { readVendorSessionId } = await import('../../db/forge-vendor-session')
+    return await readVendorSessionId(context.command.storyId, 'opencode')
+  } catch (err) {
+    captureServerLog(
+      'warn',
+      'forge.vendor-session.read',
+      `no recorded opencode session for story ${context.command.storyId}: ${(err as Error).message}`,
+      { storyId: context.command.storyId, route: 'forge:vendor-session' },
+    )
+    return null
+  }
+}
+
 /** Non-throwing readiness variant: returns a blocker reason or null. */
 export function openCodeModelBlocker(
   model: string | null | undefined,
@@ -298,6 +325,18 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
   private harnessUsage: HarnessUsage | null = null
   /** Wall-clock start of the OpenCode process (factual elapsed-time evidence). */
   private startedAtMs: number | null = null
+  /**
+   * WHERE HEAD STOOD WHEN THIS LANE STARTED, so a run can only claim a commit it made.
+   *
+   * Without a Forge-provisioned workspace there is no pinned base commit, and `readWorkerCommitHash(dir,
+   * null)` answers with the plain HEAD — so a commit-CAPABLE lane that committed nothing reported whatever
+   * commit it happened to find. Measured on 2026-09-16 (`ENG-QA-SINGLE-VERDICT-01`): the smith created
+   * `08b569f8`, and the `lead_post` run AND both `dev_ops` runs recorded `08b569f8` as their OWN commit.
+   * Non-commit roles were safe only because the write policy revokes their hash, which is a second, unrelated
+   * guard doing this job. Captured before the harness process starts; `null` means the read failed, and a
+   * failed read then claims nothing rather than claiming HEAD.
+   */
+  private headAtStart: string | null = null
 
   constructor(
     deps: ConstructorParameters<typeof AgentRuntimeAdapter>[0],
@@ -362,11 +401,15 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // in a worktree file. Same continuity, same token savings — one session serving the generation — and now
     // it is auditable in a query instead of living on one laptop. No id recorded means a fresh session; the
     // old `--continue` guess ("whatever session the project touched last") is gone with the file it needed.
-    const sessionId = continuityEnabled
-      ? await (
-          await import('../../db/forge-vendor-session')
-        ).readVendorSessionId(context.command.storyId, 'opencode')
-      : null
+    //
+    // A POINTER THAT CANNOT BE READ IS NOT A REASON TO REFUSE THE WORK. Continuity is an OPTIMISATION, so an
+    // unreadable row degrades to "start fresh" — the same way an unreadable harness store is tolerated below
+    // and a failed write is tolerated above. It must never throw: `readVendorSessionId` reaches the
+    // control-plane database, and a lane that died at START because a bookkeeping read failed would spend
+    // nothing and report a database fault as its own failure (measured 2026-09-16: `startExternal` threw
+    // DATABASE_UNAVAILABLE on EVERY path once the pointer moved into the row, taking the whole opencode
+    // harness suite red with it, because the suite runs without a control plane).
+    const sessionId = continuityEnabled ? await readRecordedSessionId(context) : null
     const continueSession = false
     this.pinnedSessionId = sessionId ?? null
     // Baseline BEFORE the turn: one session serves every role of the generation, so this
@@ -378,6 +421,10 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // application database.
     const childEnv = buildChildProcessEnv(target)
     this.startedAtMs = Date.now()
+    // WHERE HEAD STOOD BEFORE THE MODEL TOUCHED ANYTHING. Read here, immediately before the harness is
+    // spawned, because after it runs there is no way to tell this lane's commit from the checkout it
+    // inherited — see `headAtStart`.
+    this.headAtStart = await readWorkerCommitHash(workspace)
     // V5-24: RTK transparency. Shims for the supported commands (git/ls/tree/gh)
     // are generated for THIS worktree and prepended to the child PATH, so the
     // model keeps typing `git status` and transparently gets `rtk git status`.
@@ -480,13 +527,16 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     }
 
     const model = resolveOpenCodeModel(this.config.model)
-    const executionWorkspace = context.executionWorkspace
-    const workspace = executionWorkspace?.worktreePath
-    if (!workspace || !executionWorkspace) {
-      // startExternal already refused to run without an isolated workspace;
-      // this is defense-in-depth for direct hook misuse.
-      return null
-    }
+    // NO TREES. EVER. (Captain, 2026-09-16). A lane measures the CODE, and the code is wherever the lane was
+    // told to run — a working directory, not a tree it owns. This was the LAST refusal left over from the
+    // worktree era: `startExternal` shed its demand for `context.executionWorkspace` in `53556ce7`, this
+    // hook kept it and answered `null`, and every successful run of a lane that had no worktree then ended
+    // as `Cannot read properties of null (reading 'notes')` in the engine ledger — the architect lane, engine
+    // tasks `e599df3a` (07:28) and `d4266df9` (07:39), its real result thrown away and the TypeError named
+    // as the cause. The directory below is the SAME one `startExternal` spawned in, so the evidence
+    // describes the run that actually happened instead of a tree that was never allowed to exist.
+    const executionWorkspace = context.executionWorkspace ?? null
+    const workspace = executionWorkspace?.worktreePath ?? process.cwd()
 
     // V5-21 / WARM-SESSION-01: record the ACTUAL session id this run executed in, so the
     // next role of this generation pins that exact session with `--session <id>` instead
@@ -515,10 +565,14 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // dirty (no commit), the outer Forge policy wrapper creates the candidate
     // commit itself via commitWorkerWorkspaceChanges. Null is persisted when
     // the checkout is exactly at the approved base commit — never fabricated.
-    const commitHash = await readWorkerCommitHash(
-      workspace,
-      executionWorkspace.baseCommit,
-    )
+    //
+    // THE BASELINE IS WHAT THIS LANE STARTED FROM, not merely where the checkout happens to point. With a
+    // Forge-provisioned workspace that is the approved base commit (unchanged behaviour). WITHOUT one there is
+    // no pinned base, so the baseline is the HEAD captured in `startExternal` — which is what keeps a lane
+    // that committed nothing from reporting the previous lane's commit as its own. A baseline that could not
+    // be read claims NOTHING: an unknown starting point is not evidence that this lane committed.
+    const baseline = executionWorkspace?.baseCommit ?? this.headAtStart
+    const commitHash = baseline ? await readWorkerCommitHash(workspace, baseline) : null
 
     const elapsedMs =
       this.startedAtMs !== null ? Date.now() - this.startedAtMs : null
@@ -528,7 +582,12 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       `Run metadata: harness=opencode model=${model} worktree=${workspace} exit=${result.exitCode ?? 'n/a'}${
         elapsedMs !== null ? ` elapsed_ms=${elapsedMs}` : ''
       }`,
-      workspaceEvidenceLine(executionWorkspace),
+      // The workspace evidence line is emitted only when a Forge-provisioned
+      // workspace exists, exactly as `deepseek-harness-adapter.ts` does: the run
+      // metadata line below already states the directory the lane ran in, and a
+      // line claiming a `base=<ref>@<sha>` that no workspace pinned would be the
+      // fabricated proof `verifiedShaFromWorkspaceEvidence` exists to refuse.
+      executionWorkspace ? workspaceEvidenceLine(executionWorkspace) : null,
       result.stdout.trim() ? `Assistant output:\n${result.stdout.trim()}` : 'No assistant text captured.',
       result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : null,
     ]

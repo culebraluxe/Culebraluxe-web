@@ -8,16 +8,27 @@ import {
   resolveWorkspaceRunId,
 } from './invoker'
 
-test('serial Forge roles share one execution-scoped workspace id', () => {
-  const workspaces = buildAgentInvokerWorkspaces('forge-engine-357', {
-    ...process.env,
-    AGENT_WORKSPACE_BASE_REF: 'origin/main',
-  })
-
-  assert.ok(workspaces)
-  assert.equal(workspaces.executionId, 'forge-engine-357')
-  assert.equal(resolveWorkspaceRunId(workspaces.executionId), 'forge-engine-357')
-  assert.equal(resolveWorkspaceRunId(workspaces.executionId), resolveWorkspaceRunId(workspaces.executionId))
+test('NO TREES: no lane is ever handed a workspace (2026-09-16)', () => {
+  // These tests used to assert the workspace `buildAgentInvokerWorkspaces` handed out — whose root
+  // defaulted to `../Culebraluxe-worktrees`, so a tree reappeared the moment a story started (83
+  // worktrees, and another at c1f37086 even after the estate was deleted). The builder now returns
+  // nothing: no lane provisions a tree, every lane runs in the working directory it was given, and its
+  // output is its ROW. The lineage helpers in this file still define the canonical execution key; what
+  // changed is that nothing on disk is keyed by it any more.
+  assert.equal(
+    buildAgentInvokerWorkspaces('forge-engine-357', {
+      ...process.env,
+      AGENT_WORKSPACE_BASE_REF: 'origin/main',
+    }),
+    undefined,
+  )
+  // An explicit execution id changes nothing: there is no workspace to name, and no env opt-in brings
+  // one back (the old AGENT_WORKSPACE_DISABLED escape hatch is gone with the machinery it disabled).
+  assert.equal(buildAgentInvokerWorkspaces('forge-engine-357', { ...process.env }, `${PID}-e1`), undefined)
+  assert.equal(
+    buildAgentInvokerWorkspaces('forge-engine-357', { ...process.env, AGENT_WORKSPACE_DISABLED: '1' }),
+    undefined,
+  )
 })
 
 test('only an explicit split child id fans out a second workspace lineage', () => {
@@ -80,14 +91,17 @@ test('WORKSPACE Case H: REPLAN advances the generation and gets a new workspace'
   assert.equal(forgeExecutionGenerationKey(PID, 1), `${PID}-e1`)
 })
 
-test('WORKSPACE: an explicit execution-id override wins over the worker-derived key', () => {
-  const workspaces = buildAgentInvokerWorkspaces(
-    'forge-engine-357',
-    { ...process.env, AGENT_WORKSPACE_BASE_REF: 'origin/main' },
-    `${PID}-e1`,
+test('WORKSPACE: the execution key is still resolved, and still ignores workerId', () => {
+  // The execution id is still computed at the runner (`resolveForgeExecutionRunId`, above) and passed
+  // into `buildAgentInvokerWorkspaces`, which now ignores it — there is no workspace to key. What this
+  // pins is the value itself, so the lineage stays answerable from the ledger even though no directory
+  // is named after it, and that the worker id remains the executor/claim identity, never the lineage.
+  const override = resolveForgeExecutionRunId(PID, 1)
+  assert.equal(override, `${PID}-e1`)
+  assert.equal(buildAgentInvokerWorkspaces('forge-engine-357', { ...process.env }, override), undefined)
+  assert.equal(
+    resolveForgeExecutionRunId(PID, 1),
+    resolveForgeExecutionRunId(PID, 1),
+    'two different workers still collide to the same serial key',
   )
-  assert.ok(workspaces)
-  assert.equal(workspaces.executionId, `${PID}-e1`)
-  // workerId remains the executor/claim identity, not the lineage.
-  assert.equal(workspaces.workerId, 'forge-engine-357')
 })

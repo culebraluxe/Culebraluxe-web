@@ -1,5 +1,6 @@
 import { PortalWriteError } from '../lib/portal-write-error'
 import { costWidgets } from '../workflow_app/forge/forge-estimator'
+import { completionIsLegal } from '../workflow_app/forge/forge-board-sync'
 import type {
   StoryPriority,
   StoryStatus,
@@ -1017,14 +1018,45 @@ export async function startStoryRun(
 }
 
 /**
+ * THE STORY'S COMPLETION FOR A FINISHED RUN — and the status it is true WITH.
+ *
+ * ASTRA item 6 (migration 182) is a DATABASE rule: `completion` may only read 100 when the status IS
+ * `Complete`, because 100 is a claim that the story is finished and nothing was checking the pair.
+ * `finishStoryRun` copied the RUN's completion onto the STORY unconditionally, and a QA lane whose result
+ * is `Hold` still reports completion 100 for ITSELF — every frozen command ran — so the writer asked for a
+ * pair the database must refuse and the lane died on a raw constraint error instead of recording its
+ * verdict (2026-09-16, ENG-QA-SINGLE-VERDICT-01 `qa_verify`, engine task 4f1a0e66). This helper is the
+ * applier finally calling the exported rule, `completionIsLegal`: the status and the completion are
+ * computed together, because the pair is the fact and neither half is true alone.
+ *
+ * A run that did not complete gives the story a completion BELOW 100. 99 is not a measured percentage — it
+ * is the largest value the rule permits — and it is deliberately not 100: the run's own number stays on the
+ * run row, where it is true OF THE RUN.
+ */
+export function storyCompletionForRun(
+  resultStatus: string,
+  runCompletion: number | null | undefined,
+): { status: string; completion: number } {
+  const status = resultStatus === 'Cancelled' ? 'Hold' : resultStatus
+  // `completion` is NOT NULL with a default of 0, so a run that reported no number gets 0, not null.
+  const proposed = resultStatus === 'Complete' ? 100 : (runCompletion ?? 0)
+  return {
+    status,
+    completion: completionIsLegal(proposed, status) ? proposed : 99,
+  }
+}
+
+/**
  * Finish an execution run:
  *   - sets the run's ended_at, result_status, completion, notes, and optional
  *     commit_hash / tests_summary; run notes are APPENDED to any live progress
  *     narrative already persisted during the run (never destroys it)
- *   - updates the parent story: status = result_status (a 'Cancelled' run maps
- *     to the story status 'Hold'), completion = run completion; a Complete
- *     result forces completion = 100 and sets completed_at = now(); anything
- *     else leaves completed_at null
+ *   - updates the parent story as one pair, through `storyCompletionForRun`:
+ *     status = result_status (a 'Cancelled' run maps to the story status 'Hold'),
+ *     and completion = the run's, EXCEPT that 100 is only written when the status
+ *     is 'Complete' (ASTRA item 6 / migration 182 — the database refuses the
+ *     other pair). A Complete result sets completed_at = now(); anything else
+ *     leaves completed_at null.
  * Human story notes are never overwritten.
  */
 export async function finishStoryRun(
@@ -1117,10 +1149,10 @@ export async function finishStoryRun(
     if (run.costSource == null) run.costSource = 'widgets'
   }
 
-  const completion =
-    input.resultStatus === 'Complete' ? 100 : input.completion
-  const storyStatus =
-    input.resultStatus === 'Cancelled' ? 'Hold' : input.resultStatus
+  const { status: storyStatus, completion } = storyCompletionForRun(
+    input.resultStatus,
+    input.completion,
+  )
   const storyRows = await q`
     update storyboard_story
     set status = ${storyStatus},

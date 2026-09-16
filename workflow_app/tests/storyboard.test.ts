@@ -7,6 +7,7 @@ import {
   isStoryboardTableReady,
   listStoryboardStories,
   setStoryboardStatus,
+  storyCompletionForRun,
   updateStoryboardStory,
 } from '../../db/storyboard'
 import { PortalWriteError } from '../../lib/portal-write-error'
@@ -385,3 +386,70 @@ test('architect_brief_updated_at stamps only when the architect brief changes', 
   )
   assert.notEqual(rebriefed.architectBriefUpdatedAt, stampedAt)
 })
+
+// ---------------------------------------------------------------------------
+// ASTRA item 6 / migration 182 — 100 IS ONLY TRUE WITH `Complete`, IN THE SAME WRITE.
+//
+// Measured live on 2026-09-16: the QA lane of ENG-QA-SINGLE-VERDICT-01 finished with the verdict
+// `Hold` / CANDIDATE_MISMATCH and completion 100 OF ITS OWN RUN, and `finishStoryRun` copied that 100
+// onto the story. The database refused the pair
+// (`storyboard_story_completion_requires_complete`), `work.finish` threw a raw constraint error, and the
+// lane died without recording its verdict (engine task 4f1a0e66). The rule was already exported
+// (`completionIsLegal`) and the writer was not calling it. These tests pin the pair.
+// ---------------------------------------------------------------------------
+
+test('storyCompletionForRun: a Complete run is the only writer of 100', () => {
+  assert.deepEqual(storyCompletionForRun('Complete', 100), {
+    status: 'Complete',
+    completion: 100,
+  })
+})
+
+test('storyCompletionForRun: a Hold run cannot claim 100 for the story', () => {
+  // The exact live case: the Assay ran every frozen command (its OWN completion is 100) and the verdict
+  // was Hold. The story is not finished, so it must not read 100.
+  const pair = storyCompletionForRun('Hold', 100)
+  assert.equal(pair.status, 'Hold')
+  assert.ok(pair.completion < 100, 'the database refuses 100 without Complete')
+  assert.equal(pair.completion, 99)
+})
+
+test('storyCompletionForRun: a Cancelled run becomes a Hold story, still never 100', () => {
+  const pair = storyCompletionForRun('Cancelled', 100)
+  assert.equal(pair.status, 'Hold')
+  assert.equal(pair.completion, 99)
+})
+
+test('storyCompletionForRun: a run below 100 is carried through unchanged', () => {
+  assert.deepEqual(storyCompletionForRun('In Progress', 40), {
+    status: 'In Progress',
+    completion: 40,
+  })
+  assert.deepEqual(storyCompletionForRun('Failed', 0), {
+    status: 'Failed',
+    completion: 0,
+  })
+})
+
+test('storyCompletionForRun: a run that reported no number gets 0, not null', () => {
+  // `storyboard_story.completion` is NOT NULL with a default of 0 — writing null would be a second crash.
+  for (const missing of [null, undefined]) {
+    assert.deepEqual(storyCompletionForRun('Hold', missing), {
+      status: 'Hold',
+      completion: 0,
+    })
+  }
+})
+
+test('storyCompletionForRun: every pair it returns is legal by the exported rule', () => {
+  for (const status of ['Complete', 'Hold', 'In Progress', 'Failed', 'Cancelled']) {
+    for (const runCompletion of [null, 0, 40, 99, 100]) {
+      const pair = storyCompletionForRun(status, runCompletion)
+      assert.ok(
+        pair.completion === 100 ? pair.status === 'Complete' : true,
+        `${status}/${runCompletion} produced ${pair.completion} with ${pair.status}`,
+      )
+    }
+  }
+})
+

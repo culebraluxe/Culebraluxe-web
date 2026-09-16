@@ -125,6 +125,20 @@ export const FORGE_HUMAN_GATE_NODES: ReadonlySet<string> = new Set([
   // FAST_LANE (workType FAST) ends here: Smith produced code + unit tests and
   // the operator runs the QA loop manually before approving/cancelling.
   'fast_confirmation',
+  // THE RELEASE TAIL IS THE CAPTAIN'S, NOT THE CHAIN'S (Captain, 2026-09-16).
+  //
+  // "nothing should be automatically deploying without me. the furthest it can get is check to main.
+  // i do the build i do deploy." So the driver PARKS the moment the engine has work ready at the deploy
+  // node, and the DEV_OPS lane never runs inside a chain. Before this, a story whose QA passed walked
+  // straight into `dev_ops`, ran it twice, and held on `role did not deliver devops-receipt` — two model
+  // attempts spent to discover a rule the captain had already stated, and a chain that reached for
+  // production on its own authority.
+  //
+  // The DEV_OPS capability is not removed: it still checks git/Vercel state and records a receipt when the
+  // CAPTAIN runs it, and a batch-sliced story still records an honest deferral (`batch_deploy`). What is
+  // removed is the automatic attempt.
+  'deploy',
+  'production_smoke',
 ])
 
 /** Terminal node(s) per stop-after role — the driver parks the moment one of

@@ -46,9 +46,30 @@ export const DEFAULT_SHARED_LINKS = ['node_modules', '.env.local'] as const
 // Small git helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * THE GIT BINARY, RESOLVED EXPLICITLY.
+ *
+ * `execFile('git', …)` resolves through the process PATH, which is fine in a login shell and NOT fine in the
+ * unattended worker or a lane whose child environment has been sanitized: measured 2026-09-16, the
+ * `lead_post` lane died with `spawn git ENOENT` — a message that names the launch and not the reason, and
+ * that killed the lane. Every lane commit read goes through `runGit` below, so resolving here covers them.
+ *
+ * Order: an explicit `FORGE_GIT_BIN`, then the standard absolute locations, then plain `git` so a machine
+ * that genuinely only has it on PATH still works. Absolute-first is deliberate: PATH is the thing that is
+ * unreliable, so it is the fallback rather than the first answer.
+ */
+export function gitBinary(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = (env.FORGE_GIT_BIN ?? '').trim()
+  if (explicit) return explicit
+  for (const candidate of ['/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git']) {
+    if (existsSync(candidate)) return candidate
+  }
+  return 'git'
+}
+
 async function runGit(cwd: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', args, {
+    const { stdout } = await execFileAsync(gitBinary(), args, {
       cwd,
       encoding: 'utf8',
     })

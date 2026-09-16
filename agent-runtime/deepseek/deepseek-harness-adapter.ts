@@ -37,7 +37,6 @@ import {
 } from '../test-mode'
 import { buildChildProcessEnv } from '../../lib/execution-target'
 import { readWorkerCommitHash } from '../../lib/worker-workspace'
-import { execFileSync } from 'node:child_process'
 
 const DEEPSEEK_CAPABILITIES: AgentCapability[] = [
   'workspace.fs.read',
@@ -225,6 +224,15 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
   /** Newest DSH session present in the workspace BEFORE this run spawned —
    * used to reject a stale pre-run session during in-run discovery. */
   private sessionBaseline: string | null = null
+  /**
+   * WHERE HEAD STOOD WHEN THIS LANE STARTED, so a run can only claim a commit it made.
+   *
+   * The pre-ENG-21 shared-checkout read answered with the plain HEAD (`git log -1 --format=%H`), so a
+   * commit-CAPABLE lane that committed nothing reported whatever commit it found — the same leak measured on
+   * the OpenCode path on 2026-09-16, where `lead_post` and two `dev_ops` runs each claimed the smith's
+   * `08b569f8`. Captured before spawn; `null` means the read failed, and a failed read then claims nothing.
+   */
+  private headAtStart: string | null = null
 
   constructor(
     deps: ConstructorParameters<typeof AgentRuntimeAdapter>[0],
@@ -264,6 +272,9 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
 
     const task = this.taskBuilder(context.command, context)
     const startRun = this.config.startRun ?? startDshRun
+    // WHERE HEAD STOOD BEFORE THE MODEL TOUCHED ANYTHING — read immediately before the spawn, because
+    // afterwards there is no way to tell this lane's commit from the checkout it inherited. See `headAtStart`.
+    this.headAtStart = await readWorkerCommitHash(workspace)
     // DEV safety: the spawned harness (and any test process it spawns) must
     // NOT inherit an APP_ENV/DATABASE_URL set that resolves to the production
     // application database. buildChildProcessEnv builds a sanitized child env
@@ -417,15 +428,12 @@ export class DeepSeekHarnessAdapter extends AgentRuntimeAdapter {
         context.executionWorkspace.baseCommit,
       )
     } else {
-      // Legacy shared-checkout path: keep the pre-ENG-21 read byte-for-byte.
-      try {
-        commitHash = execFileSync('git', ['log', '-1', '--format=%H'], {
-          cwd: workspace,
-          encoding: 'utf8',
-        }).trim() || null
-      } catch {
-        commitHash = null
-      }
+      // Legacy shared-checkout path: `git log -1 --format=%H`, but only when the commit is THIS lane's —
+      // the same rule the isolated path has always had. The pre-ENG-21 read answered with the plain HEAD,
+      // so a lane that committed nothing claimed the previous lane's commit as its own.
+      commitHash = this.headAtStart
+        ? await readWorkerCommitHash(workspace, this.headAtStart)
+        : null
     }
 
     const notes = [

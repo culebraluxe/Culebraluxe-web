@@ -69,12 +69,25 @@ test('baseline: the runner refuses to start a code lane on already-satisfied acc
   assert.match(RUNNER, /if \(baseline\.satisfiedAtBase\) throw new Error\(baseline\.reason\)/)
   assert.match(
     RUNNER,
-    /writesCode && attempt === 0 && workspaces\?\.worktreesRoot/,
+    /if \(writesCode && attempt === 0\)/,
     'only the first attempt of a code-writing lane',
+  )
+  // NO TREES: the door evaluates the CHECKOUT the lane works in. It used to be gated on
+  // `workspaces?.worktreesRoot`, which is always undefined now, so the door could never fire at all —
+  // the assertion that used to sit here (pinning that condition) was pinning a dead gate.
+  assert.doesNotMatch(
+    RUNNER,
+    /writesCode && attempt === 0 &&/,
+    'the door must not be gated on a worktree that no longer exists',
   )
   assert.match(
     RUNNER,
-    /rev-list', '--count', `\$\{workspaces\.baseRef\}\.\.HEAD`/,
+    /const baselineCwd = process\.cwd\(\)/,
+    'the baseline is the directory the lane works in',
+  )
+  assert.match(
+    RUNNER,
+    /readGit\(baselineCwd, \['rev-list', '--count', `\$\{baseRef\}\.\.HEAD`\]\)/,
     'the baseline is decided by git, and the ref is allowed to have moved on',
   )
   assert.match(

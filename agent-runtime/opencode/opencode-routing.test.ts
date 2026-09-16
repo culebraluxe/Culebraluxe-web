@@ -298,12 +298,16 @@ test('spend vision: the native grades still get model-pinned adapters; OpenCode 
   assert.equal(registry.resolveProfile('architect-pro').adapterId, 'opencode-harness')
   // The Smith ESCALATION grades are the forge-native profiles that remain, and each still routes to the
   // adapter pinned to its exact model. That is the spend-vision rule the native path exists for.
-  assert.equal(registry.resolveProfile('builder-plus').adapterId, 'deepseek-harness:deepseek/deepseek-chat')
+  // The player is `deepseek-flash` (team.ts), so the exact model is `deepseek/deepseek-v4-flash` — this
+  // expectation still named the pre-rename `deepseek-chat` and was the last stale copy of it
+  // (e4f72880 corrected the other three the same way: the test follows the design, the design does not
+  // follow the test).
+  assert.equal(registry.resolveProfile('builder-plus').adapterId, 'deepseek-harness:deepseek/deepseek-v4-flash')
   assert.equal(
     registry.resolveProfile('builder-emergency').adapterId,
-    'deepseek-harness:deepseek/deepseek-chat',
+    'deepseek-harness:deepseek/deepseek-v4-flash',
   )
-  assert.ok(registry.listAdapters().includes('deepseek-harness:deepseek/deepseek-chat'))
+  assert.ok(registry.listAdapters().includes('deepseek-harness:deepseek/deepseek-v4-flash'))
 })
 
 test('spend vision: dsh model patch pins the exact provider/model', () => {

@@ -199,3 +199,47 @@ test('an INCOMPLETE gap survives collection and the router HOLDs instead of repa
     'the router HOLDs rather than sending repair after untested code',
   )
 })
+
+// ---------------------------------------------------------------------------
+// THE CAPTAIN'S RULE (2026-09-16): "if the QA fails first time there should not
+// be a retry unless the chain fixes something, otherwise it is wasting compute."
+//
+// The enforcement is structural, not a budget: the deterministic Assay decides
+// PASS or not-pass and NOTHING ELSE — it authors no REPAIR/REPLAN disposition —
+// and `routeQaResult` fails closed into HOLD without one. So a first QA failure
+// can never dispatch a repair. Only a lane that CLASSIFIES the failure (a model,
+// which this path does not run) could author a disposition, and that is the
+// "unless the chain fixes something" case.
+// ---------------------------------------------------------------------------
+
+test('a deterministic QA FAIL authors no disposition, so the router can only HOLD — never repair', () => {
+  const dir = scratch()
+  try {
+    const realFailure = collectAssayEvidence({ candidateSha: SHA } as never, {
+      assayCommands: ['node -e "process.exit(3)"'],
+      runCommand: commandRunner(dir),
+    } as unknown as RoleEffectPorts)
+
+    assert.equal(realFailure.qaPassed, false, 'a command that ran and failed is NOT a pass')
+    assert.equal(
+      (realFailure as { disposition?: string }).disposition,
+      undefined,
+      'the Assay authors no repair disposition — it is a test runner, not a classifier',
+    )
+
+    const route = routeQaResult({
+      verdict: 'FAIL',
+      disposition: (realFailure as { disposition?: never }).disposition,
+      state: { repairAttempts: 0, replanAttempts: 0 },
+    })
+    assert.equal(route.action, 'hold', 'no disposition means no retry, on the first failure')
+    assert.equal(
+      route.action === 'hold' ? route.reason?.includes('disposition') : false,
+      true,
+      'and the HOLD says why, so the operator is not left guessing',
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+

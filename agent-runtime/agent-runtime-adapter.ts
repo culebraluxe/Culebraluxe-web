@@ -14,7 +14,7 @@
 // this contract.
 // ---------------------------------------------------------------------------
 
-import { captureServerLog } from '../lib/server-error-capture'
+import { captureServerError, captureServerLog } from '../lib/server-error-capture'
 import { recordToolArtifact } from '../db/forge-artifact'
 import type {
   AgentExecutionContext,
@@ -257,41 +257,60 @@ export abstract class AgentRuntimeAdapter {
     }
 
     if (status.lifecycle === 'failed') {
-      await this.deps.work.fail(
-        command.workItemId,
+      return this.terminalizeRun(
+        command,
         this.externalErrorText ?? 'runtime failed',
+        'fail',
       )
-      const item = await this.deps.work.get(command.workItemId)
-      return this.normalizeEvidenceFromRun(item!.storyRunId!, command)
     }
 
     if (status.lifecycle === 'cancelled') {
-      await this.deps.work.cancel(command.workItemId, this.externalErrorText ?? 'runtime cancelled')
-      const item = await this.deps.work.get(command.workItemId)
-      return this.normalizeEvidenceFromRun(item!.storyRunId!, command)
+      return this.terminalizeRun(
+        command,
+        this.externalErrorText ?? 'runtime cancelled',
+        'cancel',
+      )
     }
 
     // Success path.
     const result = await this.resultExternal(command, ctxWithRun)
+    if (!result) {
+      // A RUN THAT SAYS IT SUCCEEDED AND HANDS BACK NOTHING IS A CONTRADICTION, NOT A VERDICT.
+      //
+      // This line used to be `result!.notes`: the non-null assertion turned a hook's empty answer
+      // into `TypeError: Cannot read properties of null (reading 'notes')` thrown BY the code whose
+      // whole job is to record what a lane did — so the only failure that reached the engine ledger
+      // was the recorder's own crash, and the real one was lost (architect lane, 2026-09-16, engine
+      // tasks e599df3a and d4266df9). A missing result is a defect in the adapter contract rather
+      // than an expected vendor outcome, so it is captured durably AND named on the work item.
+      const reason =
+        `${this.runtimeAdapterId} reported a successful run and returned no evidence for ` +
+        `work item ${command.workItemId}; the run cannot be judged from nothing and is recorded as a failure.`
+      captureServerError('agent-runtime:result-hook', new Error(reason), {
+        storyId: command.storyId,
+        route: 'agent-runtime:result-hook',
+      })
+      return this.terminalizeRun(command, reason, 'fail')
+    }
     // ENG-FORGE-V4-10C: every run that executed inside an isolated workspace
     // records its base commit as machine-scannable evidence. V6 also carries
     // structured Assay evidence beside this human-readable compatibility line.
-    const notes = withWorkspaceEvidence(ctxWithRun.executionWorkspace, result!.notes)
+    const notes = withWorkspaceEvidence(ctxWithRun.executionWorkspace, result.notes)
     const finished = await this.deps.work.finish(command.workItemId, {
-      resultStatus: result!.resultStatus,
-      completion: result!.completion,
+      resultStatus: result.resultStatus,
+      completion: result.completion,
       notes,
-      commitHash: result!.commitHash,
-      testsSummary: result!.testsSummary,
-      assayEvidence: result!.assayEvidence ?? null,
-      modelUsed: result!.modelUsed ?? null,
+      commitHash: result.commitHash,
+      testsSummary: result.testsSummary,
+      assayEvidence: result.assayEvidence ?? null,
+      modelUsed: result.modelUsed ?? null,
       // The adapter measured this role's spend against the session it pinned; carry it to
       // the run row. Absent when the harness store could not be read (unmeasured, honestly).
-      harnessUsage: result!.harnessUsage ?? null,
+      harnessUsage: result.harnessUsage ?? null,
     })
     const evidence = {
       ...this.normalizeEvidence(finished.run as any, command),
-      assayEvidence: result!.assayEvidence ?? null,
+      assayEvidence: result.assayEvidence ?? null,
     }
     // The completion path is the one every ordinary lane takes, so this is the call that makes an
     // architect, lead or smith run visible in forge_tool_artifact (Captain, 2026-09-16).
@@ -513,6 +532,43 @@ export abstract class AgentRuntimeAdapter {
     const evidence = await this.normalizeEvidenceFromRunInner(runId, command)
     await this.recordRunArtifact(evidence, command, runId)
     return evidence
+  }
+
+  /**
+   * TERMINALIZE A RUN AS FAILED (OR CANCELLED) WITHOUT CRASHING, AND NAME THE CAUSE.
+   *
+   * A lane's death must be RECORDED, never reported as a TypeError thrown by the recorder itself. Both
+   * branches this replaces ended in a non-null assertion (`item!.storyRunId!`), so a work item whose run
+   * link was missing took the process down and the ledger's `last_error` named the assertion instead of
+   * the failure. The reason is written to the work item — which is what the engine ledger reads back —
+   * the run's own row supplies the normalized evidence, and when there is no run row to read the reason
+   * IS the evidence rather than a second guess at what happened.
+   */
+  private async terminalizeRun(
+    command: AgentWorkCommand,
+    reason: string,
+    terminal: 'fail' | 'cancel',
+  ): Promise<AgentRunEvidence> {
+    if (terminal === 'cancel') {
+      await this.deps.work.cancel(command.workItemId, reason)
+    } else {
+      await this.deps.work.fail(command.workItemId, reason)
+    }
+    const item = await this.deps.work.get(command.workItemId)
+    if (item?.storyRunId) return this.normalizeEvidenceFromRun(item.storyRunId, command)
+    return {
+      resultStatus: terminal === 'cancel' ? 'Cancelled' : 'Failed',
+      completion: 0,
+      notes: reason,
+      testsSummary: null,
+      commitHash: null,
+      runtimeAdapter: this.runtimeAdapterId,
+      modelProfile: command.modelProfile,
+      externalRunId: this.externalRunId,
+      executionEnvironment: command.executionEnvironment ?? null,
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+    }
   }
 
   private async normalizeEvidenceFromRunInner(
