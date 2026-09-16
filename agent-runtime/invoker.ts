@@ -117,23 +117,16 @@ export function buildAgentInvokerWorkspaces(
   env: NodeJS.ProcessEnv = process.env,
   executionIdOverride?: string,
 ): AgentInvokerWorkspaces | undefined {
-  if ((env.AGENT_WORKSPACE_DISABLED ?? '0').trim() === '1') return undefined
-  const baseRef = resolveApprovedBaseRef(env)
-  // NO TREE FOR ANY LANE (Captain, 2026-09-16). The worktree root is deliberately never read from the
-  // environment any more: no lane provisions a tree, every lane runs in the working directory it was given,
-  // and QA's verdict is its row. The variable is left unread so nothing can quietly resurrect a worktree —
-  // the earlier tree apparatus cost a night of runs and produced verdicts about a tree instead of the code.
-  const worktreesRoot: string | undefined = undefined
-  const executionId = executionIdOverride?.trim()
-    ? executionIdOverride.trim()
-    : resolveWorkspaceRunId(workerId)
-  return {
-    workerId,
-    executionId,
-    baseRef,
-    ...(worktreesRoot ? { worktreesRoot } : {}),
-    provision: provisionOrRecoverWorkerWorkspace,
-  }
+  // NO TREES. EVER. (Captain, 2026-09-16). This builder handed every lane a workspace whose root defaulted to
+  // `../Culebraluxe-worktrees` (lib/worker-workspace/provisioner.ts:42), so a tree came back the moment a run
+  // started even after the estate was deleted — 83 worktrees, then another at c1f37086. It now returns nothing:
+  // no lane provisions a tree, every lane runs in the working directory it was given, and its output is its row.
+  // The parameters stay so the two call sites (scripts/agent-work.ts:340, scripts/agent-runtime-deepseek.ts:120)
+  // do not change.
+  void workerId
+  void env
+  void executionIdOverride
+  return undefined
 }
 
 export async function claimNextAgentCommand(
