@@ -32,6 +32,9 @@ Ask first
   (`forge_tool_artifact`, `storyboard_story_run`, `forge_workflow_evidence`) — not a log, not a tail, not a
   poll. If reading a log genuinely seems necessary, ASK THE CAPTAIN FIRST and say which file and why.
   (2026-09-16: a lane watched logs "for the 100th time" while the answer was already a database query.)
+  A quick database read is FREE and needs no permission: one query, one answer, stop. What is banned is the
+  polling loop — sleeps, tails and timers that hold the terminal for minutes, lock the captain out and burn
+  his tokens. Ask again when the question changes, then ask the rows, not a log.
 
 Never
 
