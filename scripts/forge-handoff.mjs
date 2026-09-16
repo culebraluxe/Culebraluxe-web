@@ -52,6 +52,28 @@ const list = (name) =>
 // exist — a silent lie in a frozen-acceptance field. Repeat the flag instead.
 const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 
+// THE MEDIATOR AT THE BOUNDARY (captain, 2026-09-16). A model may write anything it likes; this is where its
+// words become a row. Mechanical shape tolerance only — case, quotes, whitespace, DECLARED synonyms — and a
+// value outside the declared set is REFUSED HERE, naming the field and the accepted set, instead of reaching
+// Postgres and surfacing as a database error that sends the reader hunting the wrong fault. Nothing is
+// inferred and nothing is defaulted: a decision with a default is a decision nobody made.
+import { ARCHITECT_HINT, LEAD_DECISION, LEAD_SIZE, describeRefusal, mediateField } from '../lib/field-mediator'
+
+/** Mediate a REQUIRED closed value. Returns null after printing the refusal; the caller exits 2. */
+const closed = (declaration, raw, flag) => {
+  const mediated = mediateField(declaration, raw ?? '')
+  if (mediated.ok) return String(mediated.value)
+  console.error(`forge-handoff: ${describeRefusal(mediated)} (--${flag})`)
+  return null
+}
+
+/** Mediate an OPTIONAL closed value: absent stays absent, which is a different fact from a bad value. */
+const closedOptional = (declaration, raw, flag) => {
+  const given = (raw ?? '').trim()
+  if (given === '') return { value: null, given: false }
+  return { value: closed(declaration, given, flag), given: true }
+}
+
 const storyId = arg('story')
 const processInstanceId = arg('process')
 const taskId = arg('task')
@@ -275,7 +297,14 @@ if (arg('finding-id')) {
   const seams = list('seams')
   const requiredRaw = (arg('required') ?? '').trim().toLowerCase()
   const required = requiredRaw === '' ? true : !['false', '0', 'no'].includes(requiredRaw)
-  const hint = (arg('hint') ?? '').trim() || null
+  // THE HINT CROSSES THE MEDIATOR. It used to go straight into SQL, so an unknown hint was refused by the
+  // DATABASE and read as a driver problem. Absent stays absent (hint is optional); a bad hint is refused here,
+  // naming the field and the accepted set.
+  const hint = closedOptional(ARCHITECT_HINT, arg('hint'), 'hint')
+  if (hint.given && hint.value === null) {
+    await pool.end()
+    process.exit(2)
+  }
 
   if (!findingId || !summary || seams.length === 0) {
     console.error(
@@ -352,6 +381,16 @@ if (show || !arg('decision')) {
 }
 
 const assignments = arg('assignments')
+
+// THE DECISION AND THE SIZE CROSS THE MEDIATOR BEFORE THEY REACH SQL. `--decision` is required here (an
+// absent one routed to --show above), so a value outside the set is refused with the accepted set; `--size`
+// is optional and absent stays absent.
+const decisionValue = closed(LEAD_DECISION, arg('decision'), 'decision')
+const sizeValue = closedOptional(LEAD_SIZE, arg('size'), 'size')
+if (decisionValue === null || (sizeValue.given && sizeValue.value === null)) {
+  await pool.end()
+  process.exit(2)
+}
 try {
   const written = await pool.query(
     `insert into forge_role_contract
@@ -379,8 +418,8 @@ try {
       taskId,
       nodeId,
       attempt,
-      arg('decision'),
-      arg('size'),
+      decisionValue,
+      sizeValue.value,
       arg('size-reason'),
       arg('reason'),
       assignments == null ? null : Number.parseInt(assignments, 10),
