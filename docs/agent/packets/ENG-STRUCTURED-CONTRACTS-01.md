@@ -55,6 +55,21 @@ nights.
 
 Test mode: **SCOPED**. No FULL regression for this story.
 
+## The rule we are enforcing (captain, 2026-09-16)
+
+**Write whatever you want; do not pass it that way.** A lane may narrate in prose, use braces, write an essay —
+none of that is anyone's business, and nothing here forbids it. What **crosses a seam** must be formatted to
+fit Neon: a named field in a row, or a token from a closed set. Clean the kitchen after you use it — the next
+agent must never be killed by a parse error somebody left behind.
+
+Enforcement is **structural, not rhetorical**:
+
+- the writer — our code, never the model's free text — validates before insert and refuses with the **field
+  name**, so a bad value is a gate failure naming a field, never a lane failure blamed on a model;
+- silent tolerance is itself the defect: a value that cannot be represented is refused, not coerced and not
+  dropped;
+- free text may remain in the transcript as evidence; it is never the transport.
+
 ## Acceptance criteria
 
 1. The doctor answers worker liveness **from Neon**; a test proves the happy path does not read the log, and a
