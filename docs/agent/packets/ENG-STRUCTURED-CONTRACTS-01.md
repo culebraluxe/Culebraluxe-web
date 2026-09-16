@@ -112,7 +112,10 @@ Architect is still told the rules as the first line of defence rather than the o
    of a clean pass.
 3. No role is *required* to emit JSON: with the reply parsers deleted, a lane still routes from its fields —
    proved by a test that removes the parser input and asserts the row-based path still decides.
-4. No parser may overrule a row. If the two ever disagree, the row wins and the disagreement is recorded.
+4. **No parser may outvote a row, and no winner is picked.** If a reply parser and the rows disagree, that is a
+   REFUSAL (HOLD) naming both — the handbook rule, not "the row silently wins", because a silent winner is how
+   a disagreement becomes invisible. The fixture Grok asked for: a row saying `HOLD` with a parser saying
+   `SAME_UNIT`/`SMITH` must persist `HOLD`, record both sources, and HOLD. A grep for `JSON.parse` is not a test.
 5. Every policy in the policy→model map names a model that runs headless with tokens; a policy pointing at an
    interactive-only model fails a test rather than a run.
 6. A guard test fails if a new JSON contract is introduced into a role prompt or a lane's handoff.

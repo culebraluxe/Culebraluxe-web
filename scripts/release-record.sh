@@ -155,7 +155,17 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "deploy" ] || [ "$MODE" = "probe" ]; then
     # /api/build-info is the deploy script's own sha probe (scripts/vercel-deploy-prod.sh:71), so the record
     # and the release agree by construction rather than by luck.
     LIVE_SHA="$(curl -fsS -L --max-time 25 "${PROBE_URL%/}/api/build-info" 2>/dev/null | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
-    if [ -n "$LIVE_SHA" ] && [ "${LIVE_SHA#"$BUILD_SHA"}" != "$LIVE_SHA" ]; then
+    # THE STAMP IS SHORTER THAN THE ROW SHA (Grok, 2026-09-16). Production labels its build with a 7-character
+    # stamp (cockpitBuildLabel) while a row records 12, so "live starts with the row sha" could never be true
+    # and NO receipt could ever say yes. So compare the SHORTER of the two, from 7 characters up, in either
+    # direction — still never a loose match: one character of agreement is not a match.
+    sha_matches() {
+      local a="$1" b="$2" n
+      if [ "${#a}" -lt "${#b}" ]; then n="${#a}"; else n="${#b}"; fi
+      [ "$n" -ge 7 ] || return 1
+      [ "${a:0:$n}" = "${b:0:$n}" ]
+    }
+    if [ -n "$LIVE_SHA" ] && sha_matches "$LIVE_SHA" "$BUILD_SHA"; then
       PROBE_RC=0
       printf -- '--- probe: /api/build-info serves %s, this row measured %s ---\n' "$LIVE_SHA" "$BUILD_SHA"
     else
