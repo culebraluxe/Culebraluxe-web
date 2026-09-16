@@ -28,6 +28,8 @@ type TestStory = {
   acceptance: string
   notes: string
   assayCommands: string
+  /** The sprint the deployment defers to. Wave 2 is batch 2. */
+  batch?: number
 }
 
 
@@ -125,6 +127,97 @@ const STORIES: TestStory[] = [
       'only, so this test fails if the scoping regresses.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-qa-verdict-visible.test.ts`',
   },
+  // --- WAVE 2 — run these like a stranger would: drive, watch, touch nothing --------------------
+  {
+    id: 'ENG-FORGE-RELEASE-MARKERS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 2,
+    title: 'A resolved release stops reporting the failure it resolved',
+    goal:
+      'When a release stage succeeds after failing, the story stops reporting the old failure, so a ' +
+      'router that reads the failed stage cannot send a resolved story back to the stage that succeeded.',
+    scope:
+      'workflow_app/forge/db-release-executor.ts (clear the markers with the success it records), ' +
+      'workflow_app/tests/forge-release-markers.test.ts (new).',
+    acceptance:
+      'Given a release stage that failed and then succeeded, the durable evidence reports failureClass ' +
+      'null and failedReleaseStage null after the success, and the success flag true. A failure NOT yet ' +
+      'followed by a success keeps its markers — the record is corrected, never blanked.',
+    notes:
+      'FOUND 2026-09-16 while closing ENG-FORGE-RECEIPT-KIND-01: the publish succeeded, origin/main ' +
+      'advanced, and the row still read failure_class=ENVIRONMENT with failed_release_stage=PUBLISH. ' +
+      'devops_resume_router routes ON failedReleaseStage, so a resolved failure can send a story back to ' +
+      'the stage that already succeeded.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-release-markers.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-LANE-LABELS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 2,
+    title: 'Each run is named by its lane, in words',
+    goal:
+      'A story view names each run by the lane that produced it — Architect, Lead, Smith, QA, DEV_OPS — ' +
+      'instead of a raw run_type token.',
+    scope:
+      'workflow_app/forge/forge-visibility.ts (additive label per run), ' +
+      'workflow_app/tests/forge-lane-labels.test.ts (new).',
+    acceptance:
+      'Every run_type the engine writes maps to a human label. An unknown run_type is reported verbatim ' +
+      'rather than guessed, and never as an empty string.',
+    notes:
+      'WRITTEN 2026-09-16: reading a story history meant translating run_type tokens by hand, so the ' +
+      'operator could not see at a glance which lane did what.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-lane-labels.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-QA-NO-GIT-GUARD-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 2,
+    title: 'A guard test keeps QA out of git',
+    goal:
+      'A test fails if a QA module reads git or carries a sha, so the rule that QA answers only "did the ' +
+      'tests pass" cannot regress silently.',
+    scope: 'workflow_app/tests/forge-qa-no-git.test.ts (new).',
+    acceptance:
+      'The test reads the QA modules as text and fails if any of them names a sha field, runs a git ' +
+      'command, or checks lineage; it passes on the current tree, and it fails if such a reference is ' +
+      'added back.',
+    notes:
+      'WRITTEN 2026-09-16 after the publish gate demanded a QA-held sha and refused every release ' +
+      '(instance 8fc792a6: qa_passed=true, qa_verified_sha=null, publish_succeeded=false). QA answers ' +
+      'for the tests; the release path asks for that answer.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/forge-qa-no-git.test.ts`\n' +
+      '- `node --import tsx --test workflow_app/tests/forge-qa-seam.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-REPAIR-BUDGET-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 2,
+    title: 'A story reports the repair budget it has left',
+    goal:
+      'A story view reports the repairs and replans it has used and how many remain, so a story about to ' +
+      'exhaust its budget is visible before it holds.',
+    scope:
+      'workflow_app/forge/forge-visibility.ts (additive), ' +
+      'workflow_app/tests/forge-repair-budget.test.ts (new).',
+    acceptance:
+      'Used and remaining counts are read from the durable counters against the engine caps. An unknown ' +
+      'cap reports remaining as null, NEVER as zero — "we do not know" and "none left" are different ' +
+      'facts, and only one of them is a hold.',
+    notes:
+      'WRITTEN 2026-09-16: a story that runs out of repair budget holds, and nothing on the board showed ' +
+      'how close it was until it did.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-repair-budget.test.ts`',
+  },
 ]
 
 /**
@@ -145,7 +238,7 @@ async function recordOne(story: TestStory, apply: boolean): Promise<void> {
       priority: story.priority,
       status: 'Planned',
       notes: story.notes,
-      batch: null,
+      batch: story.batch ?? null,
       goal: story.goal,
       scope: story.scope,
       dependencies: null,

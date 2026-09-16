@@ -84,6 +84,20 @@ fi
 
 git rev-parse HEAD > .vercel/culebraluxe-prod-build-sha
 
+# TIDY THE INTERMEDIATE TREE. `vercel build` leaves macOS copy-on-conflict duplicates behind — measured
+# 2026-09-16: 740 files named "cache-life.d 2.ts", "routes.d 2.ts" and so on, produced DURING the build even
+# though this script deletes `.next` first, so clearing beforehand does not prevent them. They sit inside
+# `.next/types`, which `tsc` includes, so the next typecheck fails with duplicate-identifier errors until
+# someone prunes them. The deployable artifact is `.vercel/output` and is untouched by this.
+printf '\nRemoving duplicate generated files from the intermediate tree...\n'
+DUPLICATES="$(find .next -name '* [0-9].*' -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$DUPLICATES" != "0" ]]; then
+  find .next -name '* [0-9].*' -type f -delete 2>/dev/null || true
+  printf '  removed %s duplicate file(s)\n' "$DUPLICATES"
+else
+  printf '  none found\n'
+fi
+
 printf '\nLOCAL BUILD COMPLETE\n'
 printf 'Artifact: .vercel/output\n'
 printf 'Size:     %s\n' "$(du -sh .vercel/output | awk '{print $1}')"
