@@ -1247,9 +1247,8 @@ export function createAgentRuntimeForgeRoleRunner(
       // only proves "every child produced a SHA", not "that SHA was in its lane".
       // Fail-closed: an unresolvable diff or any out-of-scope path refuses the child.
       if (splitAssignmentContract) {
-        const cwd = workspaces?.worktreesRoot
-          ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
-          : process.cwd()
+        // NO TREE FOR ANY LANE (Captain, 2026-09-16): the lane works where it was told to work.
+        const cwd = process.cwd()
         const changedFiles = await changedFilesForCandidate({
           cwd,
           baseRef: workspaces?.baseRef ?? 'origin/main',
@@ -1304,9 +1303,8 @@ export function createAgentRuntimeForgeRoleRunner(
     // (Until b484301 this lane enforced nothing; door 1 above now guarantees the
     // contract exists, so "no assignment → nothing to enforce" is unreachable here.)
     if (executesLeadWorkOrders && candidateSha) {
-      const cwd = workspaces?.worktreesRoot
-        ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
-        : process.cwd()
+      // NO TREE FOR ANY LANE (Captain, 2026-09-16): the lead reads its candidate diff where the code lives.
+      const cwd = process.cwd()
       const serialIdentity = {
         storyId: resolvedStory.id,
         processInstanceId: task.processInstanceId,

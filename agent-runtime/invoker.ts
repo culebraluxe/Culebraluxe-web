@@ -119,7 +119,11 @@ export function buildAgentInvokerWorkspaces(
 ): AgentInvokerWorkspaces | undefined {
   if ((env.AGENT_WORKSPACE_DISABLED ?? '0').trim() === '1') return undefined
   const baseRef = resolveApprovedBaseRef(env)
-  const worktreesRoot = (env.AGENT_WORKSPACE_WORKTREES_ROOT ?? '').trim() || undefined
+  // NO TREE FOR ANY LANE (Captain, 2026-09-16). The worktree root is deliberately never read from the
+  // environment any more: no lane provisions a tree, every lane runs in the working directory it was given,
+  // and QA's verdict is its row. The variable is left unread so nothing can quietly resurrect a worktree —
+  // the earlier tree apparatus cost a night of runs and produced verdicts about a tree instead of the code.
+  const worktreesRoot: string | undefined = undefined
   const executionId = executionIdOverride?.trim()
     ? executionIdOverride.trim()
     : resolveWorkspaceRunId(workerId)
