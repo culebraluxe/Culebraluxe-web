@@ -57,7 +57,7 @@ const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 // value outside the declared set is REFUSED HERE, naming the field and the accepted set, instead of reaching
 // Postgres and surfacing as a database error that sends the reader hunting the wrong fault. Nothing is
 // inferred and nothing is defaulted: a decision with a default is a decision nobody made.
-import { ARCHITECT_HINT, LEAD_DECISION, LEAD_SIZE, describeRefusal, mediateField } from '../lib/field-mediator'
+import { ARCHITECT_HINT, ARCHITECT_REQUIRED, LEAD_DECISION, LEAD_SIZE, describeRefusal, mediateField } from '../lib/field-mediator'
 
 /** Mediate a REQUIRED closed value. Returns null after printing the refusal; the caller exits 2. */
 const closed = (declaration, raw, flag) => {
@@ -315,8 +315,22 @@ if (arg('finding-id')) {
   const findingId = (arg('finding-id') ?? '').trim()
   const summary = (arg('summary') ?? '').trim()
   const seams = list('seams')
-  const requiredRaw = (arg('required') ?? '').trim().toLowerCase()
-  const required = requiredRaw === '' ? true : !['false', '0', 'no'].includes(requiredRaw)
+  // ASTRA'S ITEM 4 (2026-09-16): AN INVALID `required` REFUSES. It used to be `!['false','0','no'].includes(raw)`,
+  // so `--required maybe` silently became TRUE — an unreadable value read as a yes, which is winner-picking by
+  // fallthrough. Spellings now come from the mediator's boolean vocabulary (one definition, not a second list),
+  // an explicit true/false keeps its meaning, and an OMITTED flag keeps the documented default: a finding is
+  // required unless the Architect says otherwise. Absence and a bad value are different facts.
+  const requiredRaw = (arg('required') ?? '').trim()
+  let required = true
+  if (requiredRaw !== '') {
+    const mediated = mediateField({ ...ARCHITECT_REQUIRED, decision: false }, requiredRaw)
+    if (!mediated.ok) {
+      console.error(`forge-handoff: ${describeRefusal(mediated)} (--required)`)
+      await pool.end()
+      process.exit(2)
+    }
+    required = Boolean(mediated.value)
+  }
   // THE HINT CROSSES THE MEDIATOR. It used to go straight into SQL, so an unknown hint was refused by the
   // DATABASE and read as a driver problem. Absent stays absent (hint is optional); a bad hint is refused here,
   // naming the field and the accepted set.
