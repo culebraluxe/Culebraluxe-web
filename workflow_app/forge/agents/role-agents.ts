@@ -130,12 +130,18 @@ export class DevOpsAgent extends ForgePhaseAgent {
     }
     const receipt = ports.releaseEvidence
     if (!receipt?.success || !receipt.receiptId.trim()) return next
-    if (receipt.kind === 'production_verification') {
-      next.productionVerificationReceipt = receipt.receiptId.trim()
-      if (receipt.artifactSha) next.productionVerifiedSha = receipt.artifactSha.toLowerCase()
-    } else {
-      next.deploymentReceipt = receipt.receiptId.trim()
-      if (receipt.artifactSha) next.deployedSha = receipt.artifactSha.toLowerCase()
+    switch (receipt.kind) {
+      case 'deployment':
+        next.deploymentReceipt = receipt.receiptId.trim()
+        if (receipt.artifactSha) next.deployedSha = receipt.artifactSha.toLowerCase()
+        break
+      case 'production_verification':
+        next.productionVerificationReceipt = receipt.receiptId.trim()
+        if (receipt.artifactSha) next.productionVerifiedSha = receipt.artifactSha.toLowerCase()
+        break
+      case 'integration':
+      default:
+        break
     }
     return next
   }
