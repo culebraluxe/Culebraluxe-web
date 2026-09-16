@@ -1,6 +1,6 @@
 import { engineSql } from '../engine-client'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
-import { listForgeHolds } from '../../db/forge-hold'
+import { latestOpenForgeHold, listForgeHolds, type ForgeStoryHold } from '../../db/forge-hold'
 import type { ForgeGateEvidence } from './forge-facts'
 
 export type ForgeVisibilitySnapshot = {
@@ -34,7 +34,32 @@ export type ForgeVisibilitySnapshot = {
     costWidgets: number | null
   }>
   holds: unknown[]
+  hold: ForgeHoldLine | null
   divergenceWarning: string | null
+}
+
+export const FORGE_HOLD_UNKNOWN = 'unknown'
+
+export type ForgeHoldLine = {
+  reason: string
+  originatingNode: string | null
+  failureClass: string | null
+  resumeTarget: string | null
+  since: string | null
+  processInstanceId: string | null
+}
+
+export function forgeHoldLine(hold: ForgeStoryHold | null | undefined): ForgeHoldLine | null {
+  if (!hold) return null
+  const reason = hold.reason?.trim()
+  return {
+    reason: reason ? reason : FORGE_HOLD_UNKNOWN,
+    originatingNode: hold.originatingNode ?? null,
+    failureClass: hold.failureClass ?? null,
+    resumeTarget: hold.resumeTarget ?? null,
+    since: hold.since ?? null,
+    processInstanceId: hold.processInstanceId ?? null,
+  }
 }
 
 const shaKeys = [
@@ -209,6 +234,7 @@ export async function forgeVisibilitySnapshot(
     commandVisits,
     splitBranches,
     holds: await listForgeHolds(storyId),
+    hold: forgeHoldLine(await latestOpenForgeHold(storyId)),
     divergenceWarning,
   }
 }
