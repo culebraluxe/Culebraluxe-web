@@ -38,7 +38,14 @@ Ask first
 
 Never
 
-- Commit secrets or `.env.local`.
+- Create a worktree, a per-lane tree, or any file-based parallel to the database workflow.
+  **NO TREES. EVER.** There is ONE workflow and it is the rows (`forge_tool_artifact`,
+  `storyboard_story_run`, `forge_engine_task_execution`, `app_error`). A tree is not scratch a lane may
+  make for itself — it is a second workflow whose output nobody can query or audit, and on 2026-09-16 it
+  produced verdicts about a tree instead of about the code, killed every QA pass, and grew to 83 worktrees
+  under `Documents/Culebraluxe-worktrees/` plus a `.assay-workspaces/` directory, all deleted. The estate is
+  zero and it stays zero. Scratch that a command creates and consumes inside itself is fine; a directory
+  that outlives the command, or that another lane reads, is a tree. See `docs/agent/MEMORY.md`.
 - Push, merge, or rebase from a worker.
 - Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0).
 - Reset PROD, copy DEV over PROD, or truncate canonical history.
