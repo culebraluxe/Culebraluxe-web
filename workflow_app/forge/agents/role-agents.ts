@@ -154,6 +154,29 @@ export class FailureClassifierAgent extends ForgePhaseAgent {
   collect(evidence: ForgeGateEvidence, raw: string, _ports: RoleEffectPorts = {}): ForgeGateEvidence {
     const marked = parseForgeEvidenceMarker(raw)
     const failureClass = parseFailureClass(raw)
+    const classifierLabel =
+      failureClass ?? ((marked.failureClass as ForgeGateEvidence['failureClass'] | undefined) ?? null)
+    // A STAGE THAT ALREADY RECORDED ITS CLASS KEEPS IT (captain, 2026-09-16).
+    //
+    // This collect() is the LAST writer before the evidence row is persisted, so an unguarded
+    // write here is what actually replaced PUBLISH_CONFLICT with ENVIRONMENT on
+    // ENG-FORGE-RECEIPT-KIND-01 — after the publisher had already recorded the accurate class
+    // with the stage that failed. When a release stage recorded both a class and the stage,
+    // that class is the record of why and the classifier's own label is kept as metadata.
+    // `stageFailureClass` is the durable copy because a marker/typed label may have overwritten
+    // `failureClass` earlier in the runner's merge. With no stage-recorded class the classifier
+    // label stands exactly as it did before.
+    const stageRecorded = evidence.failedReleaseStage
+      ? (evidence.stageFailureClass ?? evidence.failureClass)
+      : undefined
+    if (stageRecorded) {
+      return {
+        ...evidence,
+        ...marked,
+        failureClass: stageRecorded,
+        ...(classifierLabel ? { classifierFailureClass: classifierLabel } : {}),
+      }
+    }
     return { ...evidence, ...marked, ...(failureClass ? { failureClass } : {}) }
   }
 }

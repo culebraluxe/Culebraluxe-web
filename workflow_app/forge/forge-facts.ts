@@ -124,6 +124,21 @@ export type ForgeGateEvidence = {
     | 'DERIVED_REFRESH'
     | 'DEPLOY'
     | 'SMOKE'
+  /**
+   * ENG-FORGE-FAILURE-LABEL-01 — the failure_classifier's own label, kept as METADATA.
+   *
+   * When a release stage already recorded the accurate class with `failedReleaseStage`, the
+   * classifier may add its opinion here but may not replace `failureClass`. The stage class
+   * stays authoritative because the router reads the stage, not the classifier.
+   */
+  classifierFailureClass?: ForgeGateEvidence['failureClass'] | null
+  /**
+   * ENG-FORGE-FAILURE-LABEL-01 — the class the failing release stage recorded, carried so the
+   * classifier cannot lose it. A later writer (the classifier's own marker or typed evidence)
+   * may overwrite `failureClass`; this is the durable copy `FailureClassifierAgent.collect`
+   * restores from.
+   */
+  stageFailureClass?: ForgeGateEvidence['failureClass'] | null
   /** publish_result */
   publishSucceeded?: boolean
   /** migration_required */

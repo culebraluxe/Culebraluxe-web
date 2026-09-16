@@ -369,6 +369,32 @@ export function forgeEvidenceFromAgentResult(input: {
           : {}),
       }
     }
+    // A FAILING STAGE'S CLASS OUTRANKS THE CLASSIFIER (captain, 2026-09-16).
+    //
+    // The release stages record the accurate class WITH the stage that failed: the publisher
+    // writes PUBLISH_CONFLICT/PUBLISH (db-release-executor.ts) and the deploy and smoke
+    // branches above write DEPLOYMENT/DEPLOY and PRODUCTION_SMOKE/SMOKE. The failure_classifier
+    // runs afterwards and its label is ADVISORY. It may add its opinion as metadata, but it may
+    // not replace the record of why the stage failed — the router reads `failedReleaseStage`,
+    // so a replaced class is a wrong record of why. Observed live on ENG-FORGE-RECEIPT-KIND-01:
+    // PUBLISH_CONFLICT became ENVIRONMENT.
+    case 'failure_classifier': {
+      const stageClass = current.failedReleaseStage ? current.failureClass : undefined
+      if (!stageClass || !current.failedReleaseStage) return marked
+      const classifierLabel =
+        (marked.failureClass as ForgeGateEvidence['failureClass'] | undefined) ??
+        current.classifierFailureClass ??
+        undefined
+      return {
+        ...marked,
+        failureClass: stageClass,
+        failedReleaseStage: current.failedReleaseStage,
+        // The durable copy the collector restores from: a marker or typed label can overwrite
+        // `failureClass` before `collect` runs, but it never emits this key.
+        stageFailureClass: stageClass,
+        ...(classifierLabel ? { classifierFailureClass: classifierLabel } : {}),
+      }
+    }
     default:
       return marked
   }
