@@ -28,6 +28,18 @@ cd "$REPO_ROOT" || {
 }
 
 ENV_OVERRIDE="$REPO_ROOT/.env.scheduler"
+
+# REF NOISE GUARD. Git forbids spaces in ref names, so any file under .git/refs whose name contains a space
+# is provably not a ref: it is a conflict copy left by the file-sync layer when the poller and the engine's
+# worktrees wrote refs in the same moment (13 of them on 2026-09-16; one blocked a push as `bad object
+# refs/remotes/origin/main 2` and would have blocked this wrapper's `git pull --ff-only` on an unattended
+# tick, which is the exact failure this guard exists to prevent). Deleting them is always safe — they cannot
+# be checked out, pushed or resolved. Objects are content-addressed and are deliberately untouched here.
+REF_NOISE="$(find "$REPO_ROOT/.git/refs" -name '* *' -print 2>/dev/null | wc -l | tr -d ' ')"
+if [ "${REF_NOISE:-0}" != "0" ]; then
+  find "$REPO_ROOT/.git/refs" -name '* *' -delete 2>/dev/null
+  echo "git-ref-noise: removed ${REF_NOISE} unresolved conflict copy(ies) from .git/refs"
+fi
 if [ -f "$ENV_OVERRIDE" ]; then
   set -a
   # shellcheck disable=SC1090
