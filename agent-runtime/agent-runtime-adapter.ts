@@ -289,10 +289,14 @@ export abstract class AgentRuntimeAdapter {
       // the run row. Absent when the harness store could not be read (unmeasured, honestly).
       harnessUsage: result!.harnessUsage ?? null,
     })
-    return {
+    const evidence = {
       ...this.normalizeEvidence(finished.run as any, command),
       assayEvidence: result!.assayEvidence ?? null,
     }
+    // The completion path is the one every ordinary lane takes, so this is the call that makes an
+    // architect, lead or smith run visible in forge_tool_artifact (Captain, 2026-09-16).
+    await this.recordRunArtifact(evidence, command, (finished.run as { id?: string } | null)?.id ?? null)
+    return evidence
   }
 
   /** Query runtime status from persisted canonical state + optional vendor detail. */
@@ -452,21 +456,21 @@ export abstract class AgentRuntimeAdapter {
   }
 
   /**
-   * EVERY AGENT WRITES ITS ARTIFACT TO NEON (Captain, 2026-09-16). This is the base class's single funnel: every
-   * adapter returns its evidence through here, so ONE write puts a verdict row in `forge_tool_artifact` for every
-   * lane — by inheritance, not by each lane remembering to do it. The verdict, summary and sha come straight from
-   * the run row; nothing is inferred. A failed write warns and never fails the run, because a missing artifact
-   * row must be visible rather than crash the lane that produced it.
+   * Write this lane's artifact to Neon: the verdict and the work it did, keyed to the story and the run.
+   *
+   * Called from BOTH ways a run can finish — the normal completion at the end of `execute` and the
+   * terminal/result-lookup branch — because they normalize evidence through two different methods, and
+   * hooking one of them left every ordinary lane silent (2026-09-16: the lead lane finished with no row).
    */
-  protected async normalizeEvidenceFromRun(
-    runId: string,
+  private async recordRunArtifact(
+    evidence: AgentRunEvidence,
     command: AgentWorkCommand,
-  ): Promise<AgentRunEvidence> {
-    const evidence = await this.normalizeEvidenceFromRunInner(runId, command)
+    storyRunId: string | null,
+  ): Promise<void> {
     try {
       await recordToolArtifact({
         storyId: command.storyId,
-        storyRunId: runId,
+        storyRunId,
         tool: this.runtimeAdapterId,
         kind: 'run-verdict',
         verdict: evidence.resultStatus,
@@ -484,11 +488,30 @@ export abstract class AgentRuntimeAdapter {
         },
       })
     } catch (err) {
-      captureServerLog('warn', 'agent-runtime.artifact-write', `${this.runtimeAdapterId} ${runId}: ${(err as Error).message}`)
+      captureServerLog(
+        'warn',
+        'agent-runtime.artifact-write',
+        `${this.runtimeAdapterId} ${storyRunId ?? 'no-run'}: ${(err as Error).message}`,
+      )
       console.warn(
-        `artifact write skipped (${this.runtimeAdapterId} run ${runId}): ${(err as Error).message}`,
+        `artifact write skipped (${this.runtimeAdapterId} run ${storyRunId ?? 'unknown'}): ${(err as Error).message}`,
       )
     }
+  }
+
+  /**
+   * EVERY AGENT WRITES ITS ARTIFACT TO NEON (Captain, 2026-09-16). This is the base class's single funnel: every
+   * adapter returns its evidence through here, so ONE write puts a verdict row in `forge_tool_artifact` for every
+   * lane — by inheritance, not by each lane remembering to do it. The verdict, summary and sha come straight from
+   * the run row; nothing is inferred. A failed write warns and never fails the run, because a missing artifact
+   * row must be visible rather than crash the lane that produced it.
+   */
+  protected async normalizeEvidenceFromRun(
+    runId: string,
+    command: AgentWorkCommand,
+  ): Promise<AgentRunEvidence> {
+    const evidence = await this.normalizeEvidenceFromRunInner(runId, command)
+    await this.recordRunArtifact(evidence, command, runId)
     return evidence
   }
 
