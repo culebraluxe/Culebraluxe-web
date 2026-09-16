@@ -296,7 +296,7 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
     architectureReviewRequired: evidence.architectureReviewRequired,
     qaReviewRequired: evidence.qaReviewRequired,
     qaReviewPassed: evidence.qaReviewPassed,
-    // ONE REQUIREMENT (Captain, 2026-09-16): QA passes when QA says it passed. No second condition rides
+    // ONE REQUIREMENT: QA passes when QA says it passed. No second condition rides
     // along with it — no lineage conjunct, no extra gate — because a QA verdict with a rider attached is a
     // verdict nobody can act on, and a lane that passes its check must not be blocked by a rule it was never
     // told about. Sha lineage for the release path is checked where the release happens (db-release-executor).

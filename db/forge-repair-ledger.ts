@@ -116,7 +116,7 @@ export async function incrementForgeReplan(
  * disposition CHECK constraint rejects anything outside REPAIR/REPLAN/ESCALATE.
  */
 /**
- * A CLEAN QA PASS IS A DISPOSITION TOO (Captain, 2026-09-16).
+ * A CLEAN QA PASS IS A DISPOSITION TOO.
  *
  * `forge_last_qa_disposition` was written ONLY by `recordForgeQaFailure`, so a story that passed left the field
  * null — and the chain, which reads that field to decide whether QA is done, saw no verdict and re-ran QA on

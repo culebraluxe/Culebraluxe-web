@@ -8,7 +8,7 @@ import type { RoleEffectPorts } from './ports'
 import { adjudicateAssay, runAssayCommands } from './qa/run'
 
 /**
- * THE QA VERDICT: DID THE TESTS PASS (Captain, 2026-09-16).
+ * THE QA VERDICT: DID THE TESTS PASS.
  *
  * QA has no relationship to git and no role in committing, promoting or advising on a release. It runs the
  * story's frozen proofs in the directory it was given, and it writes down what they did. Everything that
@@ -21,13 +21,19 @@ import { adjudicateAssay, runAssayCommands } from './qa/run'
 export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEffectPorts): ForgeGateEvidence {
   const commands = ports.assayCommands ?? []
 
-  // NOTHING TO TEST IS NOT A FAILURE: "if there is nothing to test then go to sleep". No commands, or no
-  // way to run them, is nothing to do — it does not block, and it does not claim a pass either. What
-  // refuses a QA-applicable story with no assayable contract is the READY GATE, one step earlier.
-  if (!commands.length || typeof ports.runCommand !== 'function') {
-    return { ...evidence, qaPassed: true }
+  // NO RUNNER IS A FAILURE, not a pass. The lane was handed a plan it cannot execute.
+  if (typeof ports.runCommand !== 'function') {
+    return {
+      ...evidence,
+      qaPassed: false,
+      deliverableRejection: 'QA FAIL: the lane was handed assay commands but no way to run them.',
+    }
   }
 
+  // AN EMPTY PLAN IS A FAILURE
+  // In a working system QA cannot be reached without a Smith having produced work and without the story
+  // carrying its frozen proofs, so no commands means something upstream is broken. The adjudicator reports
+  // it as a FAIL with `NO_ASSAY_COMMANDS` and the branch below records that reason on the row.
   const plan = { commands }
   const results = runAssayCommands(plan, ports.runCommand)
   const report = adjudicateAssay({ plan, commands: results, staticGate: ports.runStatic?.() ?? null })

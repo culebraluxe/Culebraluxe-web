@@ -81,7 +81,7 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
     case 'qa_verify':
       return {
         lane: 'assay',
-        // QA ASKS NOBODY FOR A VERDICT (Captain, 2026-09-16): it is a deterministic test runner, so there
+        // QA ASKS NOBODY FOR A VERDICT: it is a deterministic test runner, so there
         // is no disposition to request, no failure to classify, and no release advice to give. The lane runs
         // the story's frozen proofs and writes what they did.
       }
@@ -298,7 +298,7 @@ export function forgeEvidenceFromAgentResult(input: {
       return { ...marked, qaReviewPassed: clean }
     case 'qa_verify':
     case 'fast_qa_verify': {
-      // PROJECTOR, AND NOTHING ELSE — QA HAS NO RELATIONSHIP TO GIT (Captain, 2026-09-16).
+      // PROJECTOR, AND NOTHING ELSE — QA HAS NO RELATIONSHIP TO GIT.
       //
       // The QA verdict has exactly one author: `adjudicateAssay` (agents/qa/run.ts), applied by
       // `collectAssayEvidence`. This branch used to read `result.assayEvidence.verdict`/`verifiedSha` and

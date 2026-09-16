@@ -104,18 +104,23 @@ test('a failed command and a command that could not run are named separately in 
   }
 })
 
-test('the QA collector blocks on nothing when there is nothing to test', () => {
-  // "if there is nothing to test then go to sleep" — no commands, or no way to run them, is nothing to do.
-  // This used to return a gap and a rejection, which HELD the chain: a lane with no work blocked everything.
+test('the QA collector FAILS when there is nothing to test', () => {
+  // QA is reached only after a
+  // Smith produced work, on a story that carries its own frozen proofs, so no commands means something
+  // upstream is broken — and a broken upstream is NAMED. It is not passed (that is how an empty plan shipped
+  // green) and it is not held behind a gap (that hides why the chain stopped).
   const ports = {
     assayCommands: [],
     runCommand: commandRunner(join(tmpdir(), 'forge-qa-seam-nope-9f2c')),
   } as unknown as RoleEffectPorts
 
   const evidence = collectAssayEvidence({} as never, ports)
-  assert.equal(evidence.qaPassed, true, 'nothing to test does not block')
-  assert.equal((evidence as { verificationGap?: boolean }).verificationGap, undefined)
-  assert.equal((evidence as { deliverableRejection?: string }).deliverableRejection, undefined)
+  assert.equal(evidence.qaPassed, false, 'nothing to test is a failure')
+  assert.match(
+    (evidence as { deliverableRejection?: string }).deliverableRejection ?? '',
+    /NO_ASSAY_COMMANDS/,
+    'the failure names what is missing',
+  )
 })
 
 // ---------------------------------------------------------------------------

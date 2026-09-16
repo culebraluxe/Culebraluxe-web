@@ -48,7 +48,7 @@ function forgeFactFamily(lowerRunType: string): ForgeFactFamily | null {
  * (assay-evidence.ts evaluateAssayEvidence). A gap can never be fixed by repairing
  * the candidate -> it must route to HOLD, not smith (the FINAL-02 deadlock).
  *
- * RETIRED as a READER rule (Captain, 2026-09-16 — "one verdict, one vocabulary").
+ * RETIRED as a READER rule.
  *
  * This Set let this module RE-DERIVE a QA verdict from a failure-code vocabulary that belongs to the
  * Assay lane, so two places spoke about one measurement in two languages — and on 2026-09-16 that
@@ -160,27 +160,27 @@ export async function readStoryGateEvidence(
   storyId: string,
   opts: { runInstanceId?: string | null } = {},
 ): Promise<ForgeGateEvidence> {
-  // An EXPLICIT instance id wins (probes and tests set it deliberately); `undefined` resolves the live run;
-  // an explicit `null` means "no run in flight", which is the history-as-a-view read.
+  // An EXPLICIT instance id wins (probes and tests set it deliberately); `undefined` resolves the live run.
   const runInstanceId =
     opts.runInstanceId !== undefined ? opts.runInstanceId : await activeRunInstanceId(storyId)
-  // SCOPED TO THE RUN'S OWN ROWS: a story run answers only when the ledger says it belongs to this instance.
-  const rows = (await engineSql()`
-    select r.run_type, r.result_status, r.commit_hash, r.failure_code
-    from storyboard_story_run r
-    where r.story_id = ${storyId}
-      and (
-        ${runInstanceId}::text is null
-        or exists (
-          select 1
-          from forge_engine_task_execution e
-          where e.story_run_id = r.id
-            and e.process_instance_id::text = ${runInstanceId}
-        )
-      )
-    order by r.started_at desc nulls last, r.created_at desc
-    limit 50
-  `) as ForgeRunRowShape[]
+  // NO RUN, NO VERDICT. With no run in flight there is no run whose verdict could be read, so
+  // NONE is read — not the newest row, not the story's history. Answering from history is exactly how a pass
+  // from one run answered for another. The story-level counters below are not run verdicts and are still read.
+  const rows: ForgeRunRowShape[] = runInstanceId
+    ? ((await engineSql()`
+        select r.run_type, r.result_status, r.commit_hash, r.failure_code
+        from storyboard_story_run r
+        where r.story_id = ${storyId}
+          and exists (
+            select 1
+            from forge_engine_task_execution e
+            where e.story_run_id = r.id
+              and e.process_instance_id::text = ${runInstanceId}
+          )
+        order by r.started_at desc nulls last, r.created_at desc
+        limit 50
+      `) as ForgeRunRowShape[])
+    : []
   const evidence = mapRunsToGateEvidence(rows)
 
   // V11-S1: merge the durable repair/replan observers + last QA disposition from

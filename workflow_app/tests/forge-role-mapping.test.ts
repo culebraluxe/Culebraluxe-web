@@ -172,8 +172,7 @@ test('ENG-QA-SINGLE-VERDICT-01: the QA mapping is a projector, not a second verd
     }),
     current: { candidateSha: SHA },
   })
-  // THE PROJECTOR PROJECTS NOTHING ABOUT THE QA VERDICT (Captain, 2026-09-16: "QA has no relationship to git
-  // PERIOD"). This assertion used to REQUIRE `{ candidateSha: SHA }` on the projection, because the
+  // THE PROJECTOR PROJECTS NOTHING ABOUT THE QA VERDICT. This assertion used to REQUIRE `{ candidateSha: SHA }` on the projection, because the
   // deterministic Assay could not run without a candidate and reported a gap on every story. The lane needs
   // no candidate now, so projecting one is not a service to it — it is the git relationship that kept QA
   // unable to answer a simple question. The mapping must author no verdict AND hand the lane no identity.

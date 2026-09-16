@@ -410,14 +410,13 @@ test('storyCompletionForRun: a Hold run cannot claim 100 for the story', () => {
   // was Hold. The story is not finished, so it must not read 100.
   const pair = storyCompletionForRun('Hold', 100)
   assert.equal(pair.status, 'Hold')
-  assert.ok(pair.completion < 100, 'the database refuses 100 without Complete')
-  assert.equal(pair.completion, 99)
+  assert.equal(pair.completion, 0, 'the story claims nothing rather than a number nobody measured')
 })
 
 test('storyCompletionForRun: a Cancelled run becomes a Hold story, still never 100', () => {
   const pair = storyCompletionForRun('Cancelled', 100)
   assert.equal(pair.status, 'Hold')
-  assert.equal(pair.completion, 99)
+  assert.equal(pair.completion, 0)
 })
 
 test('storyCompletionForRun: a run below 100 is carried through unchanged', () => {

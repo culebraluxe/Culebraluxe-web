@@ -313,7 +313,7 @@ export abstract class AgentRuntimeAdapter {
       assayEvidence: result.assayEvidence ?? null,
     }
     // The completion path is the one every ordinary lane takes, so this is the call that makes an
-    // architect, lead or smith run visible in forge_tool_artifact (Captain, 2026-09-16).
+    // architect, lead or smith run visible in forge_tool_artifact.
     await this.recordRunArtifact(evidence, command, (finished.run as { id?: string } | null)?.id ?? null)
     return evidence
   }
@@ -519,7 +519,7 @@ export abstract class AgentRuntimeAdapter {
   }
 
   /**
-   * EVERY AGENT WRITES ITS ARTIFACT TO NEON (Captain, 2026-09-16). This is the base class's single funnel: every
+   * EVERY AGENT WRITES ITS ARTIFACT TO NEON. This is the base class's single funnel: every
    * adapter returns its evidence through here, so ONE write puts a verdict row in `forge_tool_artifact` for every
    * lane — by inheritance, not by each lane remembering to do it. The verdict, summary and sha come straight from
    * the run row; nothing is inferred. A failed write warns and never fails the run, because a missing artifact

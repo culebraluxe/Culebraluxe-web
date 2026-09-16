@@ -10,7 +10,7 @@ const qaRow = (over: Partial<ForgeRunRowShape>): ForgeRunRowShape => ({
 })
 
 // ---------------------------------------------------------------------------
-// ONE VERDICT, ONE VOCABULARY (Captain, 2026-09-16).
+// ONE VERDICT, ONE VOCABULARY.
 //
 // This module used to RE-DERIVE a QA verdict from a failure-code list of its own
 // (`MISSING_ASSAY_PLAN`, `ASSAY_POLICY_FAILED` -> `verificationGap`), so the same

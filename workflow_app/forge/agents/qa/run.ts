@@ -34,6 +34,10 @@ export function adjudicateAssay(input: {
   staticGate?: StaticSlice | null
 }): QaReport {
   const blockers: string[] = []
+  // AN EMPTY PLAN IS A FAILURE. QA is reached only after a Smith produced work, on a story
+  // that carries its own frozen proofs, so no commands means upstream is broken — and a broken upstream is
+  // named, not passed.
+  if (input.plan.commands.length === 0) blockers.push('NO_ASSAY_COMMANDS')
   if (input.commands.length !== input.plan.commands.length) blockers.push('ASSAY_COMMAND_DRIFT')
 
   const failed = input.commands.filter((c) => !c.passed)

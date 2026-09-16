@@ -1029,9 +1029,10 @@ export async function startStoryRun(
  * applier finally calling the exported rule, `completionIsLegal`: the status and the completion are
  * computed together, because the pair is the fact and neither half is true alone.
  *
- * A run that did not complete gives the story a completion BELOW 100. 99 is not a measured percentage — it
- * is the largest value the rule permits — and it is deliberately not 100: the run's own number stays on the
- * run row, where it is true OF THE RUN.
+ * A run that did not complete gives the story a completion BELOW 100. Where the run's own number cannot be
+ * true OF THE STORY (an interrupted lane reports 100 for ITSELF while the story is not finished), the story
+ * claims NOTHING — 0, the column's own default — rather than a percentage nobody measured. The run's number
+ * stays on the run row, where it is true.
  */
 export function storyCompletionForRun(
   resultStatus: string,
@@ -1042,7 +1043,7 @@ export function storyCompletionForRun(
   const proposed = resultStatus === 'Complete' ? 100 : (runCompletion ?? 0)
   return {
     status,
-    completion: completionIsLegal(proposed, status) ? proposed : 99,
+    completion: completionIsLegal(proposed, status) ? proposed : 0,
   }
 }
 

@@ -11,7 +11,7 @@ async function executor(): Promise<QueryExecutor> {
 }
 
 /**
- * The vendor session pointer for a story and its lane (Captain, 2026-09-16).
+ * The vendor session pointer for a story and its lane.
  *
  * A session id is a POINTER and a valuable one: one session serves a whole generation, so the next role
  * resumes the same context instead of rebuilding it — real token money. It used to live in the worktree file

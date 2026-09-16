@@ -32,7 +32,7 @@ export type StaticSlice = {
 }
 
 /**
- * THE VERDICT IS "DID THE TESTS PASS" (Captain, 2026-09-16).
+ * THE VERDICT IS "DID THE TESTS PASS".
  *
  * Two states, because that is the whole question. There used to be a third, `INCOMPLETE`, for "we could not
  * run it" — and it existed to route a gap to a HOLD instead of sending repair after untested code. Repair

@@ -501,7 +501,7 @@ export async function claimSpecificAgentWork(
           limit 1
         `
       : await tx`
-          -- ONE SERIAL CHAIN PER STORY, NOT ONE PER SYSTEM (Captain, 2026-09-16). The historical rule refused
+          -- ONE SERIAL CHAIN PER STORY, NOT ONE PER SYSTEM. The historical rule refused
           -- any serial claim while ANY item anywhere was active, which queued every story behind every other
           -- story: three stories ready, one ran. PROD's own index already states what was meant —
           -- agent_work_item_one_serial_active_per_story — and the invariant the lock exists to protect is

@@ -372,7 +372,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // reach an unisolated/shared checkout, and OpenCode must not choose or
     // create its own workspace. Missing isolation fails closed with a
     // truthful reason — no fallback to the shared checkout.
-    // NO TREES. EVER. (Captain, 2026-09-16). There is no Forge-provisioned worker worktree any more: the
+    // NO TREES. EVER.. There is no Forge-provisioned worker worktree any more: the
     // estate was deleted, the invoker no longer hands one out, and no lane may recreate one. The refusal that
     // demanded a worktree is what killed the architect lane on every start (engine task 65f40df2, 07:26) with
     // "requires the Forge-provisioned isolated worker worktree". The lane now runs in the working directory it
@@ -397,7 +397,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // guess that is only correct while exactly one lane is live.
     const continuityEnabled = forgeSessionContinuityEnabled(process.env)
     // The marker file is no longer read: the pointer lives in the row (see below).
-    // THE POINTER COMES FROM THE ROW (Captain, 2026-09-16): the session id lives in forge_vendor_session, not
+    // THE POINTER COMES FROM THE ROW: the session id lives in forge_vendor_session, not
     // in a worktree file. Same continuity, same token savings — one session serving the generation — and now
     // it is auditable in a query instead of living on one laptop. No id recorded means a fresh session; the
     // old `--continue` guess ("whatever session the project touched last") is gone with the file it needed.
@@ -527,7 +527,7 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     }
 
     const model = resolveOpenCodeModel(this.config.model)
-    // NO TREES. EVER. (Captain, 2026-09-16). A lane measures the CODE, and the code is wherever the lane was
+    // NO TREES. EVER.. A lane measures the CODE, and the code is wherever the lane was
     // told to run — a working directory, not a tree it owns. This was the LAST refusal left over from the
     // worktree era: `startExternal` shed its demand for `context.executionWorkspace` in `53556ce7`, this
     // hook kept it and answered `null`, and every successful run of a lane that had no worktree then ended

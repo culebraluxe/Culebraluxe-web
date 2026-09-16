@@ -111,18 +111,17 @@ const cmd = (command: string, exitCode: number) => ({
   excerpt: '',
 })
 
-test('assay: nothing to test is nothing to block on (Captain, 2026-09-16)', () => {
-  // OVERTURNED BY THE CAPTAIN: this test used to require INCOMPLETE, which HOLDs the chain, so a QA lane
-  // with no test plan to run blocked everything downstream. His rule: "it should never block anything — if
-  // there is nothing to test then go to sleep". An empty plan is nothing to do, not something wrong; the
-  // READY GATE is what refuses a story with no assayable contract.
+test('assay: an empty plan is a failure, and the failure is named', () => {
+  // The empty plan used to PASS ("nothing to test is nothing to do"). It cannot happen in a working chain:
+  // QA is reached only after the Smith produced work, on a story that carries its own frozen proofs. So it is
+  // a FAILURE with a named blocker — not a pass, not an INCOMPLETE gap that holds the chain and hides why.
   const report = adjudicateAssay({ plan: { commands: [] }, commands: [] })
-  assert.equal(report.verdict, 'PASS')
-  assert.deepEqual(report.blockers, [])
+  assert.equal(report.verdict, 'FAIL')
+  assert.ok(report.blockers.includes('NO_ASSAY_COMMANDS'))
 })
 
 test('assay: the verdict is the tests. No SHA is read, echoed or reported', () => {
-  // QA HAS NO RELATIONSHIP TO GIT (Captain, 2026-09-16). The report carries no git identity at all, so
+  // QA HAS NO RELATIONSHIP TO GIT. The report carries no git identity at all, so
   // nothing downstream can make a verdict depend on one.
   const command = 'node --test x.test.ts'
   const report = runAssay({ plan: { commands: [command] }, runCommand: () => cmd(command, 0) })

@@ -117,7 +117,7 @@ export function buildAgentInvokerWorkspaces(
   env: NodeJS.ProcessEnv = process.env,
   executionIdOverride?: string,
 ): AgentInvokerWorkspaces | undefined {
-  // NO TREES. EVER. (Captain, 2026-09-16). This builder handed every lane a workspace whose root defaulted to
+  // NO TREES. EVER.. This builder handed every lane a workspace whose root defaulted to
   // `../Culebraluxe-worktrees` (lib/worker-workspace/provisioner.ts:42), so a tree came back the moment a run
   // started even after the estate was deleted — 83 worktrees, then another at c1f37086. It now returns nothing:
   // no lane provisions a tree, every lane runs in the working directory it was given, and its output is its row.

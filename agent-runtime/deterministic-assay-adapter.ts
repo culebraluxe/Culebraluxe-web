@@ -264,7 +264,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       assayCommands: context.story.assayCommands,
     })
     const plan = frozenPlan.ok ? frozenPlan : null
-    // THE DIRECTORY QA RUNS IN — and the only thing it needs (Captain, 2026-09-16). No worktree is
+    // THE DIRECTORY QA RUNS IN — and the only thing it needs. No worktree is
     // required and none is derived: the lane works where it was told to work.
     const workspace = context.executionWorkspace?.worktreePath ?? process.cwd()
     const policyViolations: string[] = []
@@ -393,7 +393,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
 
     this.evidence = finalizeAssayEvidence({
       version: 1,
-      // QA RECORDS NO GIT IDENTITY (Captain, 2026-09-16). The evidence is the tests: what ran, what each
+      // QA RECORDS NO GIT IDENTITY. The evidence is the tests: what ran, what each
       // returned, and whether it could run at all. The SHA fields on this type are vestigial here and are
       // always null — QA has no relationship to git, no role in committing, promoting or advising on a
       // release.

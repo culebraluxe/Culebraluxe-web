@@ -144,7 +144,7 @@ export function parseAssayTestCounters(output: string): AssayTestCounters {
  * Pure arithmetic Assay verdict. No tests_summary, notes, model prose, or
  * sentiment scan can influence this function.
  *
- * AND NO GIT IDENTITY (Captain, 2026-09-16). This used to open by comparing a candidate SHA with a verified
+ * AND NO GIT IDENTITY. This used to open by comparing a candidate SHA with a verified
  * SHA and returning CANDIDATE_MISMATCH when either was missing or they differed — which meant a QA whose
  * tests all passed reported FAIL, with a code about labels, because it had no SHA to compare (measured
  * 2026-09-16: both drives held on CANDIDATE_MISMATCH while the proofs were never in question). QA answers

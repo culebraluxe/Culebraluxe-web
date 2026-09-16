@@ -39,7 +39,7 @@ test('ENG-FORGE-V10: provided pass facts route only with exact candidate lineage
 })
 
 test('ENG-FORGE-V10: QA passes on QA’s own verdict; lineage still refuses on the release path', () => {
-  // Captain, 2026-09-16: QA has ONE requirement — that it passed. No second condition rides along with the
+  // QA has ONE requirement — that it passed. No second condition rides along with the
   // QA verdict, so a lane that reports success is not blocked by a rule it was never handed.
   assert.equal(projectForgeGateFacts({ qaPassed: true }).qaPassed, true)
   const candidate = 'b'.repeat(40)

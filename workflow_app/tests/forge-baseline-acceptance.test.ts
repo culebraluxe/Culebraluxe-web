@@ -69,25 +69,26 @@ test('baseline: the runner refuses to start a code lane on already-satisfied acc
   assert.match(RUNNER, /if \(baseline\.satisfiedAtBase\) throw new Error\(baseline\.reason\)/)
   assert.match(
     RUNNER,
-    /if \(writesCode && attempt === 0\)/,
-    'only the first attempt of a code-writing lane',
+    /if \(writesCode && attempt === 0 && workspaces\?\.worktreesRoot\)/,
+    'only the first attempt of a code-writing lane, and only where a per-execution tree exists',
   )
-  // NO TREES: the door evaluates the CHECKOUT the lane works in. It used to be gated on
-  // `workspaces?.worktreesRoot`, which is always undefined now, so the door could never fire at all —
-  // the assertion that used to sit here (pinning that condition) was pinning a dead gate.
+  // NO TREES GATES THIS DOOR OFF, AND THAT IS THE STATE IT IS LEFT IN. The condition is a per-execution
+  // worktree path, which `buildAgentInvokerWorkspaces` no longer produces, so the door cannot fire. Pointing
+  // it at the working directory (my attempt, reverted 2026-09-16) made it run the story's proofs a SECOND
+  // time before the code lane started — the duplicate execution the CTO ruled out.
   assert.doesNotMatch(
     RUNNER,
-    /writesCode && attempt === 0 &&/,
-    'the door must not be gated on a worktree that no longer exists',
-  )
-  assert.match(
-    RUNNER,
     /const baselineCwd = process\.cwd\(\)/,
-    'the baseline is the directory the lane works in',
+    'no second proof run against the working directory',
   )
   assert.match(
     RUNNER,
-    /readGit\(baselineCwd, \['rev-list', '--count', `\$\{baseRef\}\.\.HEAD`\]\)/,
+    /const baselineCwd = deriveWorktreePath\(workspaces\.worktreesRoot, resolvedStory\.id, executionId\)/,
+    'the baseline is a per-execution tree, and there is no tree',
+  )
+  assert.match(
+    RUNNER,
+    /readGit\(baselineCwd, \['rev-list', '--count', `\$\{workspaces\.baseRef\}\.\.HEAD`\]\)/,
     'the baseline is decided by git, and the ref is allowed to have moved on',
   )
   assert.match(

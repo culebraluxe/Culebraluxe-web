@@ -21,7 +21,7 @@ import {
   resolveForgeExecutionRunId,
 } from '../../agent-runtime/invoker'
 import { commitSha } from '../../agent-runtime/candidate-assay-handoff'
-import { gitBinary } from '../../lib/worker-workspace/provisioner'
+import { deriveWorktreePath, gitBinary } from '../../lib/worker-workspace/provisioner'
 import {
   buildRepoContextQuery,
   latestScoutResearch,
@@ -254,47 +254,6 @@ const CANDIDATE_PRODUCING_NODES: ReadonlySet<string> = new Set([
   'repair_smith',
   'lead_solo_implement',
 ])
-
-/**
- * Nodes whose lane MAY COMMIT — the same set the invoker derives from the role and the Lead phase
- * (`builder`, `dev_ops`, and a Lead in `implement`/`post`). They are the only lanes allowed to start on a
- * checkout that carries the operator's uncommitted work. See the refusal before the enqueue.
- */
-const LANE_MAY_COMMIT_NODES: ReadonlySet<string> = new Set([
-  'smith',
-  'fast_smith',
-  'repair_smith',
-  'lead_solo_implement',
-  'lead_implement',
-  'lead_post',
-  'deploy',
-])
-
-/**
- * Read the checkout's TRACKED dirty state as a RESULT — "clean" and "could not read" are different facts,
- * and `readGit` collapses both into `null`. Kept for callers that must tell them apart; the commit-time
- * checkout guard that used it was removed on the CTO's ruling (2026-09-16): it blocked lanes while the
- * operator was working and he did not ask for it.
- */
-function readTrackedDirtyState(
-  cwd: string,
-): { readable: true; dirty: string } | { readable: false } {
-  try {
-    const out = execFileSync(gitBinary(), ['status', '--porcelain', '--untracked-files=no'], {
-      cwd,
-      encoding: 'utf8',
-    }).trim()
-    return { readable: true, dirty: out }
-  } catch (err) {
-    // Captured, not swallowed: the reason we refused is the reason an operator needs to read.
-    captureServerLog(
-      'warn',
-      'forge.checkout-guard',
-      `git status unreadable in ${cwd}: ${(err as Error).message}`,
-    )
-    return { readable: false }
-  }
-}
 
 function readGit(cwd: string, args: string[]): string | null {
   try {
@@ -933,31 +892,21 @@ export function createAgentRuntimeForgeRoleRunner(
     // work — and QA will happily pass an unrelated change (observed live: a story whose
     // proof was green at base shipped a one-line deletion elsewhere and passed).
     //
-    // NO TREE, SO THE BASELINE IS THE DIRECTORY THE LANE WORKS IN. This door used to derive a
-    // per-execution worktree path and give up when there was none — and after NO TREES there never is one
-    // (`buildAgentInvokerWorkspaces` returns nothing, so `workspaces?.worktreesRoot` is always undefined),
-    // which means it had quietly stopped evaluating anything at all. A door that cannot fire is not a door.
-    //
-    // Checked HERE, before the work item is claimed, because the point is to spend nothing: the lane that
-    // writes code is the lane that must not start. It runs only on the FIRST attempt of a code-writing lane,
-    // and only while the checkout still holds nothing but the base commit — on a repair attempt the checkout
-    // carries the previous candidate, so "the proof passes" is no longer evidence about the baseline.
-    //
-    // The proofs are the story's own frozen commands (never model prose), and an
-    // unexecutable command counts as unmet, never as a pass.
-    // ---------------------------------------------------------------------
+    // NO TREE, SO THIS DOOR CANNOT FIRE. Left exactly as it was found: gated on a per-execution worktree path,
+    // which `buildAgentInvokerWorkspaces` no longer produces. Re-pointing it at the working directory (my
+    // attempt, reverted 2026-09-16) made it run the story's proofs a SECOND time before the code lane — the
+    // duplicate execution the CTO ruled out. The premise it guards ("a story must be falsifiable") is carried
+    // by the story's own contract instead: everything is red until proven green.
     const writesCode = plan.lane === 'smith' || nodeId === 'lead_solo_implement'
-    if (writesCode && attempt === 0) {
-      const baselineCwd = process.cwd()
+    if (writesCode && attempt === 0 && workspaces?.worktreesRoot) {
+      const baselineCwd = deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
       const frozenProofs = leadRoutingContext.allowedProofs.filter((command) => command.trim())
-      // STILL NOTHING BUT THE BASE? Ask git what the checkout has committed that the approved base ref does
-      // not: zero commits means it is the baseline. Comparing HEAD to the REF would be wrong — the engine pins
-      // an exact base COMMIT (`origin/main@<sha>`) while the ref itself moves on, so a stale ref makes a fresh
-      // checkout look different and the door silently skips (observed live).
-      const baseRef = workspaces?.baseRef ?? 'origin/main'
-      const aheadOfBase = readGit(baselineCwd, ['rev-list', '--count', `${baseRef}..HEAD`])
-      // An UNREADABLE count is not "at base": the door skips and SAYS SO rather than refusing a story it
-      // could not measure. Only a measured zero opens the proof run below.
+      // STILL NOTHING BUT THE BASE? Ask git what this worktree has committed that the
+      // approved base ref does not: zero commits means the tree is the baseline. Comparing
+      // HEAD to the REF would be wrong — the engine pins an exact base COMMIT
+      // (`origin/main@<sha>`) while the ref itself moves on, so a stale ref makes a fresh
+      // worktree look different and the door silently skips (observed live).
+      const aheadOfBase = readGit(baselineCwd, ['rev-list', '--count', `${workspaces.baseRef}..HEAD`])
       const atBase = aheadOfBase === '0'
       // A DOOR THAT SKIPS SILENTLY IS NOT A DOOR. Every evaluation records its inputs and
       // its decision, so "why did nothing happen?" is answerable from the TECH view instead
@@ -1078,7 +1027,7 @@ export function createAgentRuntimeForgeRoleRunner(
     // DEV_OPS receipt). Only the effects the runner can honestly supply are
     // passed; an omitted port is skipped, and the parent gate below still HOLDs
     // when the corresponding field is absent. The parent remains the decider.
-    // NO TREE FOR QA (Captain, 2026-09-16): QA runs the tests and writes its record to the database. This lane
+    // NO TREE FOR QA: QA runs the tests and writes its record to the database. This lane
     // works in the directory it was given. It does NOT derive a candidate worktree, pin a SHA into someone's
     // checkout, or measure a tree of its own — "the tree" is not QA's to own, and its verdict is the row.
     const roleCwd = process.cwd()
@@ -1167,7 +1116,7 @@ export function createAgentRuntimeForgeRoleRunner(
       // worktree, plus the live static gate (architecture is the hard gate and a
       // SKIPPED arch gate is not a fail).
       assayCommands: leadRoutingContext.allowedProofs,
-      // NO TREE, SO NOTHING TO PIN: every assay command simply runs (Captain, 2026-09-16). QA's job is to run
+      // NO TREE, SO NOTHING TO PIN: every assay command simply runs. QA's job is to run
       // the proofs and write the record — the row is the evidence, not a checkout.
       runCommand: (command: string) => commandRunner(roleCwd)(command),
       // The candidate worktree has the code but NO node_modules, so the hard arch
@@ -1332,7 +1281,7 @@ export function createAgentRuntimeForgeRoleRunner(
       // only proves "every child produced a SHA", not "that SHA was in its lane".
       // Fail-closed: an unresolvable diff or any out-of-scope path refuses the child.
       if (splitAssignmentContract) {
-        // NO TREE FOR ANY LANE (Captain, 2026-09-16): the lane works where it was told to work.
+        // NO TREE FOR ANY LANE: the lane works where it was told to work.
         const cwd = process.cwd()
         const changedFiles = await changedFilesForCandidate({
           cwd,
@@ -1388,7 +1337,7 @@ export function createAgentRuntimeForgeRoleRunner(
     // (Until b484301 this lane enforced nothing; door 1 above now guarantees the
     // contract exists, so "no assignment → nothing to enforce" is unreachable here.)
     if (executesLeadWorkOrders && candidateSha) {
-      // NO TREE FOR ANY LANE (Captain, 2026-09-16): the lead reads its candidate diff where the code lives.
+      // NO TREE FOR ANY LANE: the lead reads its candidate diff where the code lives.
       const cwd = process.cwd()
       const serialIdentity = {
         storyId: resolvedStory.id,

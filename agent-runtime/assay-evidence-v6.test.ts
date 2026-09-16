@@ -72,7 +72,7 @@ test('passed must equal total when both counters exist', () => {
   assert.equal(evaluateAssayEvidence(evidence).pass, false)
 })
 
-test('the Assay verdict consults NO git identity (Captain, 2026-09-16)', () => {
+test('the Assay verdict consults NO git identity', () => {
   // This test used to assert that a candidate/verified SHA mismatch failed the assay. QA HAS NO RELATIONSHIP
   // TO GIT: it cannot even produce those values any more (both are always null), so the check was not just
   // wrong for the new design, it was unreachable. What matters is pinned here instead: whatever a SHA field

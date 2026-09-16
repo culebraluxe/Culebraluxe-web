@@ -154,7 +154,7 @@ test('deterministic Assay executes frozen Story Run commands, not stale envelope
     assert.equal(evidence?.runtimeAdapter, 'forge-assay')
     assert.equal(evidence?.resultStatus, 'Complete')
     assert.equal(evidence?.assayEvidence?.verdict, 'PASS')
-    // NO GIT IDENTITY ON A QA RESULT (Captain, 2026-09-16): the evidence is the tests.
+    // NO GIT IDENTITY ON A QA RESULT: the evidence is the tests.
     assert.equal(evidence?.assayEvidence?.candidateSha, null)
     assert.equal(evidence?.assayEvidence?.verifiedSha, null)
   } finally {
@@ -225,7 +225,7 @@ test('deterministic Assay: a stalled command times out and terminalizes (never h
 
 test('deterministic Assay needs no candidate directive and no worktree: the tests are the verdict', async () => {
   // This test used to prove the lane fell back to the worktree HEAD so it could satisfy its own
-  // CANDIDATE_MISMATCH check. That check is gone (Captain, 2026-09-16 — QA has no relationship to git), so
+  // CANDIDATE_MISMATCH check. That check is gone, so
   // what is pinned now is the thing that actually matters: with no candidate directive, and with no
   // execution workspace at all, a green test run is a PASS.
   const w = workspace()
