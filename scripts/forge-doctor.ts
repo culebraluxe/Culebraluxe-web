@@ -29,9 +29,16 @@ import { getStagingBatch } from '@/db/forge-batch'
 import { listActiveDecisions } from '@/db/forge-decision'
 import { listEngineQueuedCards, listEngineRunCards } from '@/db/forge-engine-task-execution'
 import { listRoiAttempts, ROI_DEFAULT_WINDOW_DAYS } from '@/db/forge-roi'
-import { listStoryboardStories } from '@/db/storyboard'
+import { readForgeWorkflowEvidence } from '@/db/forge-workflow-evidence'
+import { listStoryboardRuns, listStoryboardStories, type StoryRun } from '@/db/storyboard'
 import { describeRoiRow, summarizeRoi } from '@/lib/forge-roi'
 import { readLearnAnchor } from '@/agent-runtime/learn-loop'
+import {
+  checkQaRunVerdictConsistency,
+  isQaRunType,
+  renderQaConsistencyLine,
+  type QaConsistencyResult,
+} from '@/workflow_app/forge/forge-qa-consistency'
 import {
   renderForgeDoctorReport,
   type DoctorControlPlane,
@@ -175,12 +182,76 @@ async function gatherPostcard(): Promise<DoctorPostcard> {
   }
 }
 
+type QaConsistencyRow = { storyId: string; runId: string; result: QaConsistencyResult }
+
+/**
+ * QA run/verdict agreement across every story with a QA-lane run.
+ *
+ * READ-ONLY: it issues no insert, no update and no claim. `listStoryboardRuns`
+ * is newest-first, so the FIRST QA run seen for a story is its latest. A story
+ * with no QA run, or a QA run with no durable verdict, reports `unknown` — never
+ * a false `agree`.
+ */
+async function gatherQaConsistency(): Promise<string> {
+  let runs: StoryRun[] | null = null
+  try {
+    runs = await listStoryboardRuns()
+  } catch {
+    runs = null
+  }
+  if (!runs || runs.length === 0) {
+    return 'QA CONSISTENCY\n  (no storyboard runs available)'
+  }
+
+  const latestQaRunByStory = new Map<string, StoryRun>()
+  for (const run of runs) {
+    if (!isQaRunType(run.runType)) continue
+    if (!latestQaRunByStory.has(run.storyId)) latestQaRunByStory.set(run.storyId, run)
+  }
+
+  const rows: QaConsistencyRow[] = []
+  for (const [storyId, run] of latestQaRunByStory) {
+    let verdict: boolean | null = null
+    try {
+      const evidence = await readForgeWorkflowEvidence(storyId)
+      verdict = evidence.qaPassed ?? null
+    } catch {
+      verdict = null
+    }
+    rows.push({
+      storyId,
+      runId: run.id,
+      result: checkQaRunVerdictConsistency({ runStatus: run.resultStatus, verdict }),
+    })
+  }
+
+  const agree = rows.filter((row) => row.result.state === 'agree').length
+  const unknown = rows.filter((row) => row.result.state === 'unknown').length
+  const disagree = rows.filter((row) => row.result.state === 'disagree')
+
+  const lines = ['QA CONSISTENCY']
+  lines.push(
+    `  qa runs checked: ${rows.length} (agree ${agree} / unknown ${unknown} / DISAGREE ${disagree.length})`,
+  )
+  if (rows.length === 0) lines.push('  (no QA lane runs recorded)')
+  for (const row of disagree) {
+    lines.push(`  ${row.storyId}: ${renderQaConsistencyLine(row.result)}`)
+  }
+  return lines.join('\n')
+}
+
 async function main(): Promise<void> {
-  const [controlPlane, postcard] = await Promise.all([gatherControlPlane(), gatherPostcard()])
+  const [controlPlane, postcard, qaConsistency] = await Promise.all([
+    gatherControlPlane(),
+    gatherPostcard(),
+    gatherQaConsistency(),
+  ])
   const worker = readWorkerLiveness()
   console.log(
     renderForgeDoctorReport({ controlPlane, worker, postcard, now: new Date().toISOString() }),
   )
+  console.log('')
+  console.log(qaConsistency)
 }
 
 void main()
