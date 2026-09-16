@@ -115,6 +115,24 @@ export async function incrementForgeReplan(
  * Record the machine-readable QA disposition + failure reason for a FAIL. The
  * disposition CHECK constraint rejects anything outside REPAIR/REPLAN/ESCALATE.
  */
+/**
+ * A CLEAN QA PASS IS A DISPOSITION TOO (Captain, 2026-09-16).
+ *
+ * `forge_last_qa_disposition` was written ONLY by `recordForgeQaFailure`, so a story that passed left the field
+ * null — and the chain, which reads that field to decide whether QA is done, saw no verdict and re-ran QA on
+ * every pass. That is the infinite QA loop: not a failing test, a missing writer for the passing case.
+ */
+export async function recordForgeQaPass(storyId: string, execute?: QueryExecutor): Promise<void> {
+  const q = execute ?? (await executor())
+  await q`
+    update storyboard_story
+    set forge_last_qa_disposition = 'PASS',
+        forge_last_failure_reason = null,
+        updated_at = now()
+    where id = ${storyId}
+  `
+}
+
 export async function recordForgeQaFailure(
   storyId: string,
   input: { disposition: QaDisposition; reason: string },

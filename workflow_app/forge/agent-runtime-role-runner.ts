@@ -29,6 +29,7 @@ import {
   withScoutResearch,
 } from '../../agent-runtime/repo-context'
 import { listActiveDecisions } from '../../db/forge-decision'
+import { recordForgeQaPass } from '../../db/forge-repair-ledger'
 import {
   DECISION_INJECTION_CAP,
   decisionDomainForStory,
@@ -1240,6 +1241,15 @@ export function createAgentRuntimeForgeRoleRunner(
     // projector already existed and NOTHING called them, so the check was inert and a
     // failing QA could be handed another loop on an unchanged candidate — exactly the
     // 3am spend this guard exists to stop.
+    // A CLEAN QA PASS IS RECORDED TOO (Captain, 2026-09-16). Until now only the FAILURE path wrote
+    // `forge_last_qa_disposition`, so a passing story left it null — and the chain, which reads that field to
+    // decide whether QA is finished, saw no verdict and re-ran QA every pass. One QA pass, recorded once, and
+    // the chain advances. The verdict is the same fact either way; only its writer was missing.
+    if ((nodeId === 'qa_verify' || nodeId === 'fast_qa_verify') && evidence.qaPassed === true) {
+      await recordForgeQaPass(resolvedStory.id)
+      console.log(`[${nodeId}] QA PASS recorded as the story disposition — the chain may advance.`)
+    }
+
     if ((nodeId === 'qa_verify' || nodeId === 'fast_qa_verify') && evidence.qaPassed === false) {
       // SAY WHY THE VERDICT IS FALSE. This is the recording gap that cost a night: the Assay
       // judged the candidate and wrote "Assay verdict: PASS" into its own run row, while this
