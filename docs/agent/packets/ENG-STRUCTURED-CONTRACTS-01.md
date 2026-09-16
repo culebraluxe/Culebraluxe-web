@@ -64,9 +64,13 @@ agent must never be killed by a parse error somebody left behind.
 
 Enforcement is **structural, not rhetorical**:
 
-- the writer — our code, never the model's free text — validates before insert and refuses with the **field
-  name**, so a bad value is a gate failure naming a field, never a lane failure blamed on a model;
-- silent tolerance is itself the defect: a value that cannot be represented is refused, not coerced and not
+- the writer — our code, never the model's free text — validates before insert and **REJECTS the write, naming
+  the field**, so a bad value is a gate failure naming a field, never a lane failure blamed on a model;
+- **a word on words: nothing here is a model refusing to cooperate.** *Reject* means OUR validator refusing an
+  unrepresentable value; *HOLD* means the system stopping when two sources disagree (see `AGENTS.md`, Never).
+  A model never refuses — it emits text, and our code decides what that text means. If a sentence in this
+  repo reads as "the model refused", the sentence is wrong, not the model;
+- silent tolerance is itself the defect: a value that cannot be represented is rejected, not coerced and not
   dropped;
 - free text may remain in the transcript as evidence; it is never the transport.
 

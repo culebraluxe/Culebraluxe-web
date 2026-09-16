@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-16 02:02:56Z
-- commit: `0274f7c1` (working tree dirty) on `main`
+- generated: 2026-09-16 02:10:05Z
+- commit: `4fd266db` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest ENG-STRUCTURED-CONTRACTS-01`
 - rows: 20 — packet, cited paths and story commits first, lexical matches after
 
@@ -28,5 +28,5 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/preserved/arch-handoff/ARCH-HANDOFF-pre-cleanup-2026-09-12.md` — lexical · term match: read, query, story, evidence · last touched 2026-09-11
 - `docs/agent/RUNLOG 2.md` — lexical · term match: agent, log, role, builder · last touched untracked
 - `docs/agent/FORGE-WORKSHOP.md` — lexical · term match: culebraluxe, manifest, handoff, source · last touched 2026-09-13
-- `docs/agent/packets/ENG-FORGE-DOCTOR-01.md` — lexical · term match: forge, doctor, read, goal · last touched 2026-09-15
 - `docs/agent/packets/FORGE-HOLES-WORKORDER.md` — lexical · term match: forge, grok, last, recorded · last touched 2026-09-12
+- `docs/agent/packets/ENG-FORGE-DOCTOR-01.md` — lexical · term match: forge, doctor, read, goal · last touched 2026-09-15
