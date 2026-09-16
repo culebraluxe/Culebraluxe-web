@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { gitBinary } from '../lib/worker-workspace/provisioner'
 
 export type WritePolicy = {
   allowCommit: boolean
@@ -33,7 +34,7 @@ export function revokeForbiddenCommit(input: {
   }
   if (input.baseCommit) {
     try {
-      execFileSync('git', ['reset', '--hard', input.baseCommit], {
+      execFileSync(gitBinary(), ['reset', '--hard', input.baseCommit], {
         cwd: input.workspace,
         encoding: 'utf8',
       })

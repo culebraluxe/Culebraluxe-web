@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process'
+import { gitBinary } from '../../lib/worker-workspace/provisioner'
 
 import type { ReleaseEvidence } from './forge-release-receipt'
 
@@ -138,7 +139,7 @@ export function releaseEvidenceFromIntegration(
 /** Git containment probe: is `sha` an ancestor of `ref` in this working tree? */
 export function gitIsAncestor(cwd: string, sha: string, ref: string): boolean {
   try {
-    execFileSync('git', ['merge-base', '--is-ancestor', sha, ref], {
+    execFileSync(gitBinary(), ['merge-base', '--is-ancestor', sha, ref], {
       cwd,
       stdio: 'ignore',
     })

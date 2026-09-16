@@ -1,4 +1,5 @@
-import { engineSql } from '../engine-client'
+import { engineConfigured, engineSql } from '../engine-client'
+import { FORGE_SDLC_KEY } from '../definitions/forge-sdlc'
 import type { ForgeGateEvidence } from './forge-facts'
 
 // ---------------------------------------------------------------------------
@@ -121,13 +122,54 @@ export function mapRunsToGateEvidence(rows: ForgeRunRowShape[]): ForgeGateEviden
   return evidence
 }
 
+/**
+ * WHEN DID THE LIVE GENERATION BEGIN? — the boundary that makes a gate fact about THIS run instead of
+ * about the story's whole history.
+ *
+ * Every gate fact below is derived from `storyboard_story_run` rows, and those rows OUTLIVE an engine
+ * reset: the story's runs are never deleted, so a read scoped only by `story_id` sees every generation it
+ * has ever had. Measured 2026-09-16: `ENG-QA-SINGLE-VERDICT-01` carried ten clean `assay` rows from earlier
+ * that morning, the live assay held, and a story-wide read certified the pass — the newest-measurement rule
+ * in `mapRunsToGateEvidence` is what finally made the newest row win, and this boundary is what stops a
+ * fresh read (a restart, a re-plan, a gate evaluated before this generation writes its own QA row) from
+ * reading an older generation's verdict at all.
+ *
+ * Null means NO live generation, and then history is the honest read: nothing is running, so "what has been
+ * measured for this story" is the only true answer, and it is a view rather than a routing input.
+ */
+async function activeGenerationStart(storyId: string): Promise<string | null> {
+  if (!engineConfigured()) return null
+  // The lookup is spelled HERE rather than borrowed from `forge-engine-runtime` on purpose: that module
+  // imports `application-port`, which imports this reader, so borrowing it closed a cycle the architecture
+  // gate refuses (dependency-cruiser `no-circular`, caught 2026-09-16). The DEFINITION KEY still comes from
+  // its one home, so the fact that identifies a Forge instance is not duplicated — only the query is.
+  const rows = (await engineSql()`
+    select pi.created_at::text as created_at
+    from process_instances pi
+    join process_definitions pd on pd.id = pi.definition_id
+    where pi.subject_type = 'story'
+      and pi.subject_id = ${storyId}
+      and pi.status = 'active'
+      and pd.key = ${FORGE_SDLC_KEY}
+    order by pi.created_at desc
+    limit 1
+  `) as Array<{ created_at?: unknown }>
+  const value = rows[0]?.created_at
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
 export async function readStoryGateEvidence(
   storyId: string,
+  opts: { since?: string | null } = {},
 ): Promise<ForgeGateEvidence> {
+  // An EXPLICIT `since` wins (probes and tests set it deliberately); `undefined` means "resolve the live
+  // generation"; an explicit `null` means "no boundary", which is how the no-live-generation read is spelled.
+  const since = opts.since !== undefined ? opts.since : await activeGenerationStart(storyId)
   const rows = (await engineSql()`
     select run_type, result_status, commit_hash, failure_code
     from storyboard_story_run
     where story_id = ${storyId}
+      and (${since}::timestamptz is null or coalesce(started_at, created_at) >= ${since}::timestamptz)
     order by started_at desc nulls last, created_at desc
     limit 50
   `) as ForgeRunRowShape[]

@@ -16,11 +16,12 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { gitBinary } from './provisioner'
 
 const run = promisify(execFile)
 
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await run('git', args, { cwd, maxBuffer: 8 * 1024 * 1024 })
+  const { stdout } = await run(gitBinary(), args, { cwd, maxBuffer: 8 * 1024 * 1024 })
   return stdout
 }
 

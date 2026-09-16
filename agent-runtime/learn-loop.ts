@@ -23,6 +23,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gitBinary } from '../lib/worker-workspace/provisioner'
 
 import { listStaleAgentWork } from '../db/agent-work'
 import { getStagingBatch } from '../db/forge-batch'
@@ -100,7 +101,7 @@ function writeLearnAnchor(root: string, anchor: LearnAnchor): void {
 export function changedFilesInWindow(root: string, sinceIso: string, limit = MAX_FILES_PER_WINDOW): LearnFile[] {
   let raw = ''
   try {
-    raw = execFileSync('git', ['log', `--since=${sinceIso}`, '--name-only', '--pretty=format:__C__%cI'], {
+    raw = execFileSync(gitBinary(), ['log', `--since=${sinceIso}`, '--name-only', '--pretty=format:__C__%cI'], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
@@ -313,7 +314,7 @@ export async function runLearnPass(input: {
     // or a human packets it. Warn-and-leave-dirty is the old bug with a log line, so we do not do that either.
     const learnBranch = (() => {
       try {
-        return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        return execFileSync(gitBinary(), ['rev-parse', '--abbrev-ref', 'HEAD'], {
           cwd: input.root,
           encoding: 'utf8',
         }).trim()
@@ -346,8 +347,8 @@ export async function runLearnPass(input: {
     if (input.apply && packetWritten) {
       const relative = join('docs/agent/packets', `${storyId}.md`)
       try {
-        execFileSync('git', ['add', '--', relative], { cwd: input.root, stdio: 'ignore' })
-        execFileSync('git', ['commit', '-q', '-m', `learn: packet ${storyId}`, '--', relative], {
+        execFileSync(gitBinary(), ['add', '--', relative], { cwd: input.root, stdio: 'ignore' })
+        execFileSync(gitBinary(), ['commit', '-q', '-m', `learn: packet ${storyId}`, '--', relative], {
           cwd: input.root,
           stdio: 'ignore',
         })

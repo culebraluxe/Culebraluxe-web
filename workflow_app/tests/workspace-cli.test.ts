@@ -19,6 +19,7 @@ import {
   type WorkspaceCliDeps,
 } from '../../scripts/workspace-cli'
 import { buildAgentInvokerWorkspaces } from '../../agent-runtime/invoker'
+import { gitBinary } from '../../lib/worker-workspace/provisioner'
 import type {
   WorkerWorkspace,
   WorkerWorkspaceListItem,
@@ -171,6 +172,22 @@ test('ENG-21 CLI: unknown subcommand and help behave', async () => {
   const bare = await runWorkspaceCliCore(fakeDeps(), [])
   assert.equal(bare.code, 2)
   assert.equal(bare.text, usage())
+})
+
+test('gitBinary resolves an absolute binary, so a lane never depends on PATH', () => {
+  // `spawn git ENOENT` killed the lead_post lane on 2026-09-16. Every lane git read now goes through this
+  // resolver, so the failure cannot come from a PATH that lacks git's directory.
+  // An explicit override wins — that is the operator's escape hatch on an unusual machine.
+  assert.equal(gitBinary({ FORGE_GIT_BIN: '/custom/git' } as never), '/custom/git')
+  // Default: an ABSOLUTE path that exists on this machine, not the bare name.
+  const resolved = gitBinary({} as never)
+  assert.ok(
+    resolved.startsWith('/') || resolved === 'git',
+    `resolved to ${resolved} — must be an absolute path when one exists`,
+  )
+  if (resolved !== 'git') {
+    assert.ok(resolved.endsWith('git'), `resolved to ${resolved}`)
+  }
 })
 
 test('NO TREES (2026-09-16): buildAgentInvokerWorkspaces hands out nothing, for any environment', () => {

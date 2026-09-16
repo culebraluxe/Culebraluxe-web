@@ -1,4 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { gitBinary } from '../../lib/worker-workspace/provisioner'
 
 import {
   AgentRuntimeAdapter,
@@ -123,7 +124,7 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
 
     if (context.policy.allowCommit && context.executionWorkspace) {
       try {
-        const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
+        const head = execFileSync(gitBinary(), ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
         const base = context.executionWorkspace.baseCommit
         commitHash = head && head !== base ? head : null
         if (!commitHash) {
@@ -138,7 +139,7 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
       }
     } else if (context.policy.allowCommit) {
       try {
-        commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim() || null
+        commitHash = execFileSync(gitBinary(), ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim() || null
       } catch {
         commitHash = null
       }

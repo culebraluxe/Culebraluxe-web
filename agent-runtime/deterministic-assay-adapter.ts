@@ -12,6 +12,7 @@ import type {
   AgentWorkCommand,
 } from './types'
 import { ASSAY_CAPABILITIES } from './lanes'
+import { gitBinary } from '../lib/worker-workspace/provisioner'
 import type { AgentCapability } from './capabilities'
 import {
   assayCandidateFromInstructions,
@@ -185,7 +186,7 @@ export async function runAssayCommand(input: {
 
 function gitHead(cwd: string): string | null {
   try {
-    const value = execFileSync('git', ['rev-parse', 'HEAD'], {
+    const value = execFileSync(gitBinary(), ['rev-parse', 'HEAD'], {
       cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],

@@ -21,6 +21,7 @@ import {
   resolveForgeExecutionRunId,
 } from '../../agent-runtime/invoker'
 import { commitSha } from '../../agent-runtime/candidate-assay-handoff'
+import { gitBinary } from '../../lib/worker-workspace/provisioner'
 import {
   buildRepoContextQuery,
   latestScoutResearch,
@@ -269,10 +270,43 @@ const LANE_MAY_COMMIT_NODES: ReadonlySet<string> = new Set([
   'deploy',
 ])
 
+/**
+ * Read the checkout's TRACKED dirty state as a RESULT, because "clean" and "could not read" are different
+ * facts and `readGit` collapses both into `null` (its `|| null` turns an empty status into null as well).
+ * A guard that cannot tell them apart PASSES when it cannot measure — the one thing a guard protecting the
+ * operator's uncommitted work must never do.
+ */
+function readTrackedDirtyState(
+  cwd: string,
+): { readable: true; dirty: string } | { readable: false } {
+  try {
+    const out = execFileSync(gitBinary(), ['status', '--porcelain', '--untracked-files=no'], {
+      cwd,
+      encoding: 'utf8',
+    }).trim()
+    return { readable: true, dirty: out }
+  } catch (err) {
+    // Captured, not swallowed: the reason we refused is the reason an operator needs to read.
+    captureServerLog(
+      'warn',
+      'forge.checkout-guard',
+      `git status unreadable in ${cwd}: ${(err as Error).message}`,
+    )
+    return { readable: false }
+  }
+}
+
 function readGit(cwd: string, args: string[]): string | null {
   try {
-    return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim() || null
-  } catch {
+    return execFileSync(gitBinary(), args, { cwd, encoding: 'utf8' }).trim() || null
+  } catch (err) {
+    // A failed read used to be indistinguishable from an empty one. It is not: name the command and the
+    // directory, so the next `spawn git ENOENT` arrives with the two facts that diagnose it.
+    captureServerLog(
+      'warn',
+      'forge.git-read',
+      `git ${args.join(' ')} failed in ${cwd}: ${(err as Error).message}`,
+    )
     return null
   }
 }
@@ -800,9 +834,18 @@ export function createAgentRuntimeForgeRoleRunner(
     // Checked BEFORE the work item is enqueued, so a refusal spends nothing.
     // ---------------------------------------------------------------------
     if (LANE_MAY_COMMIT_NODES.has(nodeId)) {
-      const dirty = readGit(process.cwd(), ['status', '--porcelain', '--untracked-files=no'])
-      if (dirty) {
-        const named = dirty.split('\n').slice(0, 8).join(' | ')
+      const state = readTrackedDirtyState(process.cwd())
+      if (!state.readable) {
+        // FAIL CLOSED ON AN UNMEASURABLE CHECKOUT. Passing here would mean the guard protects nothing
+        // exactly when it cannot see — and the cost of refusing is one operator command, against the cost
+        // of a lane committing work nobody can see.
+        throw new Error(
+          `Forge ${nodeId} refuses to start: the checkout's dirty state could not be read (git status failed) ` +
+            `and this lane may commit. Fix the git read, then re-dispatch.`,
+        )
+      }
+      if (state.dirty) {
+        const named = state.dirty.split('\n').slice(0, 8).join(' | ')
         throw new Error(
           `Forge ${nodeId} refuses to start: the checkout has uncommitted tracked changes and this lane may commit ` +
             `(it works in the operator's checkout, not in a tree of its own). Commit or stash first. dirty=[${named}]`,
