@@ -147,7 +147,12 @@ test('ENG-FORGE-SHAPE-01: the Lead is handed the durable Architect findings', ()
 })
 
 
-test('ENG-FORGE-V10: QA pass requires structured verification of the exact candidate', () => {
+test('ENG-QA-SINGLE-VERDICT-01: the QA mapping is a projector, not a second verdict author', () => {
+  // This branch used to read `result.assayEvidence.verdict`/`verifiedSha` and write
+  // qaPassed/qaVerifiedSha/failureClass itself. `collectAssayEvidence` (QAAgent.collect,
+  // after this projection) is the writer, deriving every verdict field from
+  // `adjudicateAssay`. Assert the projection contract so a reintroduced second verdict
+  // computation fails here.
   const pass = forgeEvidenceFromAgentResult({
     nodeId: 'qa_verify',
     result: result({
@@ -167,16 +172,16 @@ test('ENG-FORGE-V10: QA pass requires structured verification of the exact candi
     }),
     current: { candidateSha: SHA },
   })
-  assert.equal(pass.qaPassed, true)
-  assert.equal(pass.qaVerifiedSha, SHA)
   // The candidate MUST ride the evidence: `collectAssayEvidence` binds the assay to
   // `evidence.candidateSha`. Omitting it left the deterministic Assay with NO_CANDIDATE,
   // scored INCOMPLETE, and reported a verification GAP on every story — so no story
-  // could ever pass QA, while this row still carried a verified SHA. That is exactly
-  // why this assertion exists.
-  assert.equal(pass.candidateSha, SHA)
+  // could ever pass QA. That is exactly why this assertion exists.
+  assert.deepEqual(pass, { candidateSha: SHA })
+  assert.equal(pass.qaPassed, undefined, 'the projector must not author a verdict')
+  assert.equal(pass.qaVerifiedSha, undefined, 'the projector must not certify a SHA')
+  assert.equal(pass.failureClass, undefined, 'a gap is never a code defect in any projection')
 
-  // Scope C: the FAST lane's deterministic QA node derives the same evidence.
+  // Scope C: the FAST lane's deterministic QA node projects the same evidence.
   const fast = forgeEvidenceFromAgentResult({
     nodeId: 'fast_qa_verify',
     result: result({
@@ -196,10 +201,19 @@ test('ENG-FORGE-V10: QA pass requires structured verification of the exact candi
     }),
     current: { candidateSha: SHA },
   })
-  assert.equal(fast.qaPassed, true)
-  assert.equal(fast.qaVerifiedSha, SHA)
-  assert.equal(fast.candidateSha, SHA, 'the fast lane binds the same candidate')
+  assert.deepEqual(fast, { candidateSha: SHA }, 'the fast lane projects the same candidate and no verdict')
 
+  // A durable gap is carried through so the router can see it; the verdict itself is
+  // still not computed here.
+  const gap = forgeEvidenceFromAgentResult({
+    nodeId: 'qa_verify',
+    result: result(),
+    current: { candidateSha: SHA, verificationGap: true },
+  })
+  assert.deepEqual(gap, { candidateSha: SHA, verificationGap: true })
+
+  // A mismatched candidate in the agent-runtime evidence cannot manufacture a verdict
+  // here: the projector does not read that evidence at all.
   const mismatch = forgeEvidenceFromAgentResult({
     nodeId: 'qa_verify',
     result: result({
@@ -219,7 +233,7 @@ test('ENG-FORGE-V10: QA pass requires structured verification of the exact candi
     }),
     current: { candidateSha: SHA },
   })
-  assert.equal(mismatch.qaPassed, false)
+  assert.deepEqual(mismatch, { candidateSha: SHA })
 })
 
 test('ENG-FORGE-V10: DEV_OPS deployment and smoke require exact-artifact receipts', () => {

@@ -298,44 +298,26 @@ export function forgeEvidenceFromAgentResult(input: {
       return { ...marked, qaReviewPassed: clean }
     case 'qa_verify':
     case 'fast_qa_verify': {
-      // THE CANDIDATE SHA MUST RIDE THE EVIDENCE.
+      // PROJECTOR ONLY (ENG-QA-SINGLE-VERDICT-01). The QA verdict has exactly one
+      // author: `adjudicateAssay` (workflow_app/forge/agents/qa/run.ts), applied by
+      // `collectAssayEvidence` via `QAAgent.collect` AFTER this projection. This branch
+      // used to read `result.assayEvidence.verdict`/`verifiedSha` and write
+      // `qaPassed`/`qaVerifiedSha`/`failureClass` itself — a second verdict author whose
+      // `CODE_DEFECT` survived collect (which spreads evidence and never clears
+      // `failureClass`), so a gap adjudicated INCOMPLETE after mapping was persisted as
+      // `verificationGap:true` AND `failureClass:CODE_DEFECT`.
       //
-      // `collectAssayEvidence` reads `evidence.candidateSha` to bind the assay to the
-      // candidate. Computing it here and NOT returning it left the deterministic Assay
-      // with NO_CANDIDATE, which the adjudicator scores INCOMPLETE -> the QA lane
-      // reported a verification GAP on every story, so no story could ever pass QA.
-      //
-      // Worse, it read as a contradiction: the harness adapter passed the same candidate
-      // and its verified SHA was durable, so the row showed `qa_verified_sha` set while
-      // `qa_passed` was false. The gap branch recorded no reason, so nothing said why.
-      // Live on 2026-09-13, found by running the chain end to end.
+      // It now projects only what the collector needs to bind the assay: the candidate
+      // SHA from the durable evidence, and the durable gap flag when one was already
+      // recorded. `assayEvidence.verdict` is typed PASS|FAIL and cannot express
+      // INCOMPLETE, so it is not consulted at all; `QaVerdict` (PASS|FAIL|INCOMPLETE) is
+      // the only verdict type on this path.
       const candidate = commitSha(current.candidateSha)
-      const verified = commitSha(result.assayEvidence?.verifiedSha)
-      // A GAP IS NOT A DEFECT — and this projection was where that distinction died.
-      //
-      // `collectAssayEvidence` is careful to separate "we could not measure" (INCOMPLETE -> verificationGap)
-      // from "we measured and it broke" (FAIL). This projection then flattened both into
-      // `qaPassed:false` plus `failureClass:'CODE_DEFECT'` and DROPPED the gap flag entirely, so the router
-      // — which HOLDs on a verification gap — never saw one. The consequence is the loop measured on
-      // 2026-09-15: qa_verify failed, repair was dispatched at a candidate it had never tested, the repair
-      // reproduced the SAME candidate SHA, and the engine repeated it three times before a human killed it.
-      //
-      // So: the gap travels through, and only a real measurement failure is called a code defect.
-      //
-      // The gap arrives on `current.verificationGap` (the durable evidence row, read AFTER the work), not on
-      // the verdict: `assayEvidence.verdict` is typed PASS|FAIL, so INCOMPLETE has no way to appear here —
-      // the type is the proof that the gap must ride the flag or it is lost entirely.
       const verificationGap = current.verificationGap === true
-      const verdictIsPass =
-        result.assayEvidence?.verdict === 'PASS' && !result.assayEvidence?.failureCode
-      const exact = Boolean(clean && verdictIsPass && candidate && verified === candidate)
       return {
         ...marked,
         ...(candidate ? { candidateSha: candidate } : {}),
-        qaPassed: exact,
-        ...(verified ? { qaVerifiedSha: verified } : {}),
         ...(verificationGap ? { verificationGap: true } : {}),
-        ...(!exact && !verificationGap ? { failureClass: 'CODE_DEFECT' as const } : {}),
       }
     }
     case 'deploy': {

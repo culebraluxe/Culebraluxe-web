@@ -9,6 +9,8 @@ import { collectAssayEvidence } from '../forge/agents/assay-collect'
 import type { RoleEffectPorts } from '../forge/agents/ports'
 import { adjudicateAssay, runAssayCommands } from '../forge/agents/qa/run'
 import type { CommandResult } from '../forge/agents/qa/types'
+import { forgeEvidenceFromAgentResult } from '../forge/forge-role-mapping'
+import { routeQaResult } from '../forge/qa-repair-policy'
 
 // ---------------------------------------------------------------------------
 // THE QA SEAM — the base set.
@@ -116,5 +118,84 @@ test('the QA collector reports a gap as a gap and never as a failed command', ()
     (evidence as { failedCommands?: string[] }).failedCommands,
     undefined,
     'nothing failed — nothing was measured, and repair must not be sent after it',
+  )
+})
+
+// ---------------------------------------------------------------------------
+// ENG-QA-SINGLE-VERDICT-01 — ONE ADJUDICATOR.
+//
+// The QA verdict must have exactly one author: `adjudicateAssay`. The mapping is a
+// projector, the collector applies the adjudicator's PASS|FAIL|INCOMPLETE, and the
+// router HOLDs on an INCOMPLETE gap instead of sending repair after untested code.
+// ---------------------------------------------------------------------------
+
+const SHA = 'a'.repeat(40)
+
+test('the QA mapping is a projector: no verdict is authored outside adjudicateAssay', () => {
+  // The mapping used to read `result.assayEvidence.verdict`/`verifiedSha` and write
+  // qaPassed/qaVerifiedSha/failureClass — a second QA-verdict author. It now projects
+  // only the candidate plus the durable gap, so `collectAssayEvidence` (fed by
+  // `adjudicateAssay`) is the sole writer. Asserting on the projection output keys
+  // makes a reintroduced second computation fail here.
+  const mapped = forgeEvidenceFromAgentResult({
+    nodeId: 'qa_verify',
+    result: {
+      resultStatus: 'Complete',
+      completion: 100,
+      notes: '',
+      testsSummary: null,
+      commitHash: null,
+      runtimeAdapter: 'tunit',
+      modelProfile: 'tunit',
+      externalRunId: 'run-1',
+      startedAt: new Date(0).toISOString(),
+      endedAt: new Date(1).toISOString(),
+      assayEvidence: {
+        version: 1,
+        verdict: 'PASS',
+        failureCode: null,
+        failureDetail: null,
+        candidateSha: SHA,
+        verifiedSha: SHA,
+        requiredCommands: ['node --test'],
+        commandResults: [],
+        policyViolations: [],
+        startedAt: new Date(0).toISOString(),
+        endedAt: new Date(1).toISOString(),
+      },
+    },
+    current: { candidateSha: SHA },
+  })
+  assert.equal(mapped.qaPassed, undefined, 'the projector must not author a verdict')
+  assert.equal(mapped.qaVerifiedSha, undefined, 'the projector must not certify a SHA')
+  assert.equal(mapped.failureClass, undefined, 'a gap is never CODE_DEFECT in any projection')
+  assert.equal(mapped.candidateSha, SHA, 'the candidate still rides the evidence for the collector')
+})
+
+test('an INCOMPLETE gap survives collection and the router HOLDs instead of repairing untested code', () => {
+  const ports = {
+    assayCommands: ['echo not-runnable-here'],
+    runCommand: commandRunner(join(tmpdir(), 'forge-qa-seam-router-nope-9f2c')),
+  } as unknown as RoleEffectPorts
+
+  const evidence = collectAssayEvidence({ candidateSha: SHA } as never, ports)
+  assert.equal(evidence.qaPassed, false)
+  assert.equal(evidence.verificationGap, true, 'INCOMPLETE reaches the router as a gap')
+  assert.equal(
+    (evidence as { failureClass?: string }).failureClass,
+    undefined,
+    'a gap is never CODE_DEFECT in any projection',
+  )
+
+  const route = routeQaResult({
+    verdict: 'FAIL',
+    disposition: 'REPAIR',
+    state: { repairAttempts: 0, replanAttempts: 0 },
+    verificationGap: evidence.verificationGap === true,
+  })
+  assert.equal(
+    route.action,
+    'hold',
+    'the router HOLDs rather than sending repair after untested code',
   )
 })
