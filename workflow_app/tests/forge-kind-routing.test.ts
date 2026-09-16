@@ -123,9 +123,9 @@ test('an unknown kind or policy reads as the default rather than throwing', () =
 
 test('describeRouting names the kind, the policy, the model and the lane', () => {
   assert.equal(describeRouting('fix'), 'fix/cheap → deepseek/deepseek-v4-flash · starts Scout')
-  assert.equal(describeRouting('judgment'), 'judgment/judgment → deepseek/deepseek-chat · starts Architect')
+  assert.equal(describeRouting('judgment'), 'judgment/dear → deepseek/deepseek-chat · starts Architect')
   // An explicit policy wins over the kind's default: that is what the batch row decides.
-  assert.equal(describeRouting('qa', 'judgment'), 'qa/judgment → deepseek/deepseek-chat · starts Scout')
+  assert.equal(describeRouting('qa', 'judgment'), 'qa/dear → deepseek/deepseek-chat · starts Scout')
 })
 
 test('the kind mix is deterministic, so a 30-second refresh cannot look like a change', () => {
