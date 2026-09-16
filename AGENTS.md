@@ -28,6 +28,10 @@ Ask first
   claimed work). Stop it first — `pnpm agent:scheduler:stop` — confirm nothing is in flight with
   `pnpm forge:doctor` (`open engine tasks: 0`, `active claims: 0`), do the work, then resume with
   `pnpm agent:scheduler:install`.
+- Reading a log file. Status is read from the database. To learn what a run did, ask the rows
+  (`forge_tool_artifact`, `storyboard_story_run`, `forge_workflow_evidence`) — not a log, not a tail, not a
+  poll. If reading a log genuinely seems necessary, ASK THE CAPTAIN FIRST and say which file and why.
+  (2026-09-16: a lane watched logs "for the 100th time" while the answer was already a database query.)
 
 Never
 
