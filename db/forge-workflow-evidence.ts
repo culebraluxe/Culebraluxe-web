@@ -113,14 +113,28 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
   }
 }
 
+/**
+ * The merge payload plus the ONE explicit signal the release path needs.
+ *
+ * The failure markers (`failure_class`, `failed_release_stage`, `last_failure`) use
+ * `coalesce`, so an omitted OR null value PRESERVES the stored marker — a failure not
+ * yet followed by a success must keep its markers. `releaseFailureResolved: true` is
+ * the explicit clear the release executor writes with the success that resolves a
+ * stage, so the router cannot send a resolved story back to the stage that succeeded.
+ * It follows the `lead_decision`/`split_count` precedent: an explicit write is
+ * authoritative, every other write preserves what is known.
+ */
+export type ForgeEvidenceMerge = ForgeGateEvidence & { releaseFailureResolved?: boolean }
+
 /** Merge newly observed facts; omitted values preserve previously known truth. */
 export async function mergeForgeWorkflowEvidence(
   processInstanceId: string,
   storyId: string,
-  evidence: ForgeGateEvidence,
+  evidence: ForgeEvidenceMerge,
   execute?: QueryExecutor,
 ): Promise<void> {
   const q = execute ?? (await executor())
+  const clearReleaseFailure = evidence.releaseFailureResolved === true
   await q`
     insert into forge_workflow_evidence (
       process_instance_id, story_id, work_type, research_disposition,
@@ -174,9 +188,14 @@ export async function mergeForgeWorkflowEvidence(
       qa_review_passed = coalesce(excluded.qa_review_passed, forge_workflow_evidence.qa_review_passed),
       qa_passed = coalesce(excluded.qa_passed, forge_workflow_evidence.qa_passed),
       deployment_deferred_to_batch = coalesce(excluded.deployment_deferred_to_batch, forge_workflow_evidence.deployment_deferred_to_batch),
-      failure_class = coalesce(excluded.failure_class, forge_workflow_evidence.failure_class),
-      failed_release_stage = coalesce(excluded.failed_release_stage, forge_workflow_evidence.failed_release_stage),
-      last_failure = coalesce(excluded.last_failure, forge_workflow_evidence.last_failure),
+      -- An explicit release resolution clears the three markers together; every other
+      -- write coalesces, so an unresolved failure keeps its markers.
+      failure_class = case when ${clearReleaseFailure} then null
+        else coalesce(excluded.failure_class, forge_workflow_evidence.failure_class) end,
+      failed_release_stage = case when ${clearReleaseFailure} then null
+        else coalesce(excluded.failed_release_stage, forge_workflow_evidence.failed_release_stage) end,
+      last_failure = case when ${clearReleaseFailure} then null
+        else coalesce(excluded.last_failure, forge_workflow_evidence.last_failure) end,
       publish_succeeded = coalesce(excluded.publish_succeeded, forge_workflow_evidence.publish_succeeded),
       migration_required = coalesce(excluded.migration_required, forge_workflow_evidence.migration_required),
       migration_files = coalesce(excluded.migration_files, forge_workflow_evidence.migration_files),

@@ -103,6 +103,10 @@ export function createDbForgeReleaseExecutor(
           }
           const failedReleaseStage =
             migrationCommand.target === 'dev' ? ('DEV_MIGRATION' as const) : ('PROD_MIGRATION' as const)
+          // A success resolves the failure ONLY when this is the stage that failed. A
+          // different stage's success must not erase an unresolved failure and mis-route
+          // the devops_resume_router back to the stage that already succeeded.
+          const resolvedStage = result.success && evidence.failedReleaseStage === failedReleaseStage
           await mergeEvidence(context.processInstanceId, context.storyId, {
             ...(migrationCommand.target === 'dev'
               ? migrationCommand.verify
@@ -116,7 +120,9 @@ export function createDbForgeReleaseExecutor(
                   failureClass: 'MIGRATION' as const,
                   failedReleaseStage,
                 }
-              : {}),
+              : resolvedStage
+                ? { releaseFailureResolved: true }
+                : {}),
           })
           return { commandType: envelope.commandType, outcome: 'success', message: result.detail }
         }
@@ -139,6 +145,8 @@ export function createDbForgeReleaseExecutor(
           } catch (error) {
             result = { success: false, detail: String((error as Error)?.message ?? error) }
           }
+          const resolvedStage =
+            result.success && evidence.failedReleaseStage === ('DERIVED_REFRESH' as const)
           await mergeEvidence(context.processInstanceId, context.storyId, {
             ...(verify
               ? { derivedRefreshVerified: result.success }
@@ -148,7 +156,9 @@ export function createDbForgeReleaseExecutor(
                   failureClass: 'ENVIRONMENT' as const,
                   failedReleaseStage: 'DERIVED_REFRESH' as const,
                 }
-              : {}),
+              : resolvedStage
+                ? { releaseFailureResolved: true }
+                : {}),
           })
           return { commandType: envelope.commandType, outcome: 'success', message: result.detail }
         }
@@ -209,6 +219,7 @@ export function createDbForgeReleaseExecutor(
         await mergeEvidence(context.processInstanceId, context.storyId, {
           publishSucceeded: true,
           publishedSha: result.publishedMainHash,
+          ...(evidence.failedReleaseStage === 'PUBLISH' ? { releaseFailureResolved: true } : {}),
         })
         return {
           commandType: envelope.commandType,
