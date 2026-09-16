@@ -43,26 +43,47 @@ test('ENG-FORGE-V10: QA passes on QA’s own verdict; lineage still refuses on t
   // QA verdict, so a lane that reports success is not blocked by a rule it was never handed.
   assert.equal(projectForgeGateFacts({ qaPassed: true }).qaPassed, true)
   const candidate = 'b'.repeat(40)
-  const other = 'c'.repeat(40)
   const evidence: ForgeGateEvidence = {
     qaPassed: true,
     publishSucceeded: true,
     candidateSha: candidate,
-    qaVerifiedSha: other,
     publishedSha: candidate,
   }
-  assert.match(forgeLineageError(evidence, 'qa') ?? '', /expected candidate/)
-  // QA's word stands on its own even when the sha does not match; the mismatch is refused where the release
-  // actually happens — the publish fact below, and db-release-executor's PRE-QA lineage guard.
+  // QA's word stands on its own: no sha rides along with it, and no sha can stand in for it.
   assert.equal(projectForgeGateFacts(evidence).qaPassed, true)
-  assert.equal(projectForgeGateFacts(evidence).publishSucceeded, false)
+  // The release path requires the VERDICT, not a sha QA does not own.
+  assert.equal(forgeLineageError(evidence, 'qa'), null)
+  assert.equal(forgeLineageError(evidence, 'publish'), null)
+  assert.equal(projectForgeGateFacts(evidence).publishSucceeded, true)
+})
+
+test('ENG-FORGE-V10: no QA verdict means nothing releases, at any stage', () => {
+  const sha = 'e'.repeat(40)
+  const unverified: ForgeGateEvidence = {
+    candidateSha: sha,
+    publishedSha: sha,
+    deployedSha: sha,
+    productionVerifiedSha: sha,
+    deploymentRequired: true,
+    deploymentSucceeded: true,
+    productionVerified: true,
+    publishSucceeded: true,
+    // qaPassed absent: everything else is present, and it is still not enough.
+  }
+  assert.match(forgeLineageError(unverified, 'qa') ?? '', /QA has not passed/)
+  assert.match(forgeLineageError(unverified, 'publish') ?? '', /QA has not passed/)
+  const facts = projectForgeGateFacts(unverified)
+  assert.equal(facts.qaPassed, false)
+  assert.equal(facts.publishSucceeded, false)
+  assert.equal(facts.deploymentSucceeded, false)
+  assert.equal(facts.productionVerified, false)
 })
 
 test('ENG-FORGE-V10: deployment and production verification enforce the same artifact', () => {
   const sha = 'd'.repeat(40)
   const evidence: ForgeGateEvidence = {
     candidateSha: sha,
-    qaVerifiedSha: sha,
+    qaPassed: true,
     publishedSha: sha,
     deployedSha: sha,
     productionVerifiedSha: sha,

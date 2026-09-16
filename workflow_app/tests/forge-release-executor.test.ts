@@ -43,11 +43,34 @@ test('ENG-FORGE-V10: publish command publishes and records the exact QA-approved
   assert.deepEqual(writes, [{ publishSucceeded: true, publishedSha: SHA }])
 })
 
-test('ENG-FORGE-V10: publish refuses a candidate not verified by QA', async () => {
+test('ENG-FORGE-V10: a QA pass with NO sha is enough to publish', async () => {
+  // MEASURED LIVE, 2026-09-16, instance 8fc792a6: QA passed, wrote no sha (`qa_verified_sha=null`), and the
+  // publish gate refused with 'qaVerifiedSha is missing or invalid' — so the executor recorded
+  // publishSucceeded=false and the chain went to repair_devops. QA has no relationship to git; the fact the
+  // release path may require from it is the verdict.
+  const writes: ForgeGateEvidence[] = []
+  const executor = createDbForgeReleaseExecutor('/repo', {
+    readEvidence: async () => ({ candidateSha: SHA, qaPassed: true }),
+    mergeEvidence: async (_instance, _story, evidence) => {
+      writes.push(evidence)
+    },
+    publish: async (input) => {
+      assert.equal(input.candidateCommit, SHA)
+      return { outcome: 'published', candidateCommit: SHA, publishedMainHash: SHA }
+    },
+  })
+
+  const result = await executor.execute(command())
+  assert.equal(result.outcome, 'success')
+  assert.deepEqual(writes, [{ publishSucceeded: true, publishedSha: SHA }])
+})
+
+test('ENG-FORGE-V10: publish refuses a candidate QA has not passed', async () => {
   const writes: ForgeGateEvidence[] = []
   let publishCalls = 0
   const executor = createDbForgeReleaseExecutor('/repo', {
-    readEvidence: async () => ({ candidateSha: SHA, qaVerifiedSha: 'b'.repeat(40), qaPassed: true }),
+    // No verdict at all. A sha cannot stand in for the answer to "did the tests pass".
+    readEvidence: async () => ({ candidateSha: SHA, qaPassed: null }),
     mergeEvidence: async (_instance, _story, evidence) => {
       writes.push(evidence)
     },

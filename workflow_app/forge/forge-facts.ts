@@ -200,14 +200,21 @@ export function forgeLineageError(
   const candidate = normalizedSha(evidence.candidateSha)
   if (!candidate) return 'candidateSha is missing or invalid'
 
-  const qa = normalizedSha(evidence.qaVerifiedSha)
-  if (!qa) return 'qaVerifiedSha is missing or invalid'
-  if (qa !== candidate) return `QA verified ${qa}, expected candidate ${candidate}`
+  // THE QA LINK IS A VERDICT, NOT A SHA. QA has no relationship to git: it runs the story's frozen proofs
+  // and records what they did. Demanding a QA-held sha made every publish refuse (measured live 2026-09-16,
+  // instance 8fc792a6: `qa_passed=true`, `qa_verified_sha=null`, so this gate answered
+  // 'qaVerifiedSha is missing or invalid', the executor recorded `publishSucceeded=false`, and the chain
+  // went to repair_devops). What the release path may require is the verdict itself.
+  if (evidence.qaPassed !== true) return 'QA has not passed for this candidate'
   if (stage === 'qa') return null
 
   const published = normalizedSha(evidence.publishedSha)
   if (!published) return 'publishedSha is missing or invalid'
-  if (published !== candidate) return `published ${published}, expected candidate ${candidate}`
+  // AN INTEGRATED PUBLISH IS A PUBLISH. When main has moved, the publisher merges the candidate onto the
+  // current head, re-runs the frozen proofs against the integrated tree, and publishes THAT commit — so the
+  // published sha is legitimately not the candidate sha. Demanding equality made a successful integration
+  // read as a failed publish. The executor is the authority on what it published; this gate requires that
+  // something was published.
   if (stage === 'publish') return null
 
   if (stage === 'deploy') {
