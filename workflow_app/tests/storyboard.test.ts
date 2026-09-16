@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   createStoryboardStory,
@@ -433,6 +434,34 @@ test('storyCompletionForRun: a run below 100 is carried through unchanged', () =
 test('storyCompletionForRun: a run that reported no number gets 0, not null', () => {
   // `storyboard_story.completion` is NOT NULL with a default of 0 — writing null would be a second crash.
   for (const missing of [null, undefined]) {
+
+// ---------------------------------------------------------------------------
+// THE ARCHITECT'S OWN WRITER MAINTAINS ITS OWN TIMESTAMP.
+//
+// Migration 024 added `architect_brief_updated_at` for one fact: WHEN the brief last changed. The board
+// editor (`updateStoryboardStory`) stamps it. The writer the ARCHITECT lane actually goes through
+// (`setStoryArchitectBrief`) did not, so every engine-written brief carried the contract and a null
+// timestamp — measured 2026-09-16, six of six completed stories — and "when did this contract land" was
+// unanswerable. A column that only one of its two writers maintains is a column that lies.
+//
+// A source fence rather than a fake-level test: the FakeDb models the board editor's CASE, and teaching it a
+// second statement would model the SQL under test, which is how the original gap stayed invisible.
+// ---------------------------------------------------------------------------
+
+test('the architect brief writer stamps architect_brief_updated_at when the brief changes', () => {
+  const source = readFileSync(new URL('../../db/storyboard.ts', import.meta.url), 'utf8')
+  const at = source.indexOf('export async function setStoryArchitectBrief')
+  assert.ok(at > 0, 'setStoryArchitectBrief must exist')
+  const body = source.slice(at, source.indexOf('return rows.length > 0', at))
+
+  assert.match(body, /architect_brief_updated_at = case/, 'the brief writer must stamp the change time')
+  assert.match(
+    body,
+    /when architect_brief is distinct from/,
+    'and it must stamp ONLY when the brief actually changed — the same rule the board editor uses',
+  )
+})
+
     assert.deepEqual(storyCompletionForRun('Hold', missing), {
       status: 'Hold',
       completion: 0,

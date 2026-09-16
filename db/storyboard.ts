@@ -415,6 +415,15 @@ export async function setStoryArchitectBrief(
   const rows = await q`
     update storyboard_story
     set architect_brief = ${brief},
+        -- WHEN THE BRIEF LAST CHANGED, stamped by the writer that changes it. Migration 024 added this column
+        -- for exactly that fact, and updateStoryboardStory (the board editor) stamps it — but this function,
+        -- which is the path the ARCHITECT lane writes through, set the brief and left the column null.
+        -- Measured 2026-09-16: six of six engine-written briefs carried a brief and no timestamp, so "when did
+        -- this contract land" was unanswerable. Same expression as the board editor, so the two writers cannot
+        -- disagree about what "changed" means: a rewrite stamps, an identical rewrite does not.
+        architect_brief_updated_at = case
+          when architect_brief is distinct from ${brief}::text
+          then now() else architect_brief_updated_at end,
         updated_at = now()
     where id = ${storyId}
     returning id
