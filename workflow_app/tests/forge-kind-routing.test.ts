@@ -99,14 +99,24 @@ test('every kind routes to a policy and a starting lane', () => {
   assert.equal(FORGE_KINDS.length, 6, 'the packet allows six kinds; adding one is a HOLD')
 })
 
-test('there are exactly two policies and two model names — not a model picker', () => {
+test('there are exactly two policies, and every one names a priceable model', () => {
   assert.deepEqual([...FORGE_MODEL_POLICIES], ['cheap', 'judgment'])
   assert.equal(Object.keys(MODEL_FOR_POLICY).length, 2)
   assert.equal(modelForPolicy('cheap'), 'deepseek/deepseek-v4-flash')
-  assert.equal(modelForPolicy('judgment'), 'deepseek/deepseek-chat')
-  // The names must be the ones the price table already knows, or the cost lens cannot price them.
-  assert.ok(MODEL_FOR_POLICY.cheap.model.includes('deepseek-v4-flash'))
-  assert.ok(MODEL_FOR_POLICY.judgment.model.includes('deepseek-chat'))
+  // TEMPORARY AND DELIBERATE (captain, 2026-09-16): judgment names flash too, because `deepseek-chat` is the
+  // interactive-only tier — it cannot be billed per token, so a seat sent there cannot answer, and every "dear"
+  // run was silently a flash run anyway. The guard's POINT is unchanged and enforced below: exactly two
+  // policies, and every policy names a model the price table can price (which is what keeps the cost lens
+  // honest and stops a third provider creeping in). When the Captain's research names the replacement billable
+  // pro id, this one assertion changes back.
+  assert.equal(modelForPolicy('judgment'), 'deepseek/deepseek-v4-flash')
+  for (const policy of FORGE_MODEL_POLICIES) {
+    const named = MODEL_FOR_POLICY[policy].model
+    assert.ok(
+      ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-chat'].includes(named),
+      `${policy} names ${named}, which the price table cannot price`,
+    )
+  }
 })
 
 test('an unknown kind or policy reads as the default rather than throwing', () => {
@@ -123,9 +133,9 @@ test('an unknown kind or policy reads as the default rather than throwing', () =
 
 test('describeRouting names the kind, the policy, the model and the lane', () => {
   assert.equal(describeRouting('fix'), 'fix/cheap → deepseek/deepseek-v4-flash · starts Scout')
-  assert.equal(describeRouting('judgment'), 'judgment/dear → deepseek/deepseek-chat · starts Architect')
+  assert.equal(describeRouting('judgment'), 'judgment/dear → deepseek/deepseek-v4-flash · starts Architect')
   // An explicit policy wins over the kind's default: that is what the batch row decides.
-  assert.equal(describeRouting('qa', 'judgment'), 'qa/dear → deepseek/deepseek-chat · starts Scout')
+  assert.equal(describeRouting('qa', 'judgment'), 'qa/dear → deepseek/deepseek-v4-flash · starts Scout')
 })
 
 test('the kind mix is deterministic, so a 30-second refresh cannot look like a change', () => {

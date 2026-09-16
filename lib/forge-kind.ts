@@ -69,7 +69,14 @@ export const KIND_ROUTING: Record<ForgeKind, KindRouting> = {
  */
 export const MODEL_FOR_POLICY: Record<ForgeModelPolicy, { model: string; note: string }> = {
   cheap: { model: 'deepseek/deepseek-v4-flash', note: 'volume work: cheap, fast, good enough' },
-  judgment: { model: 'deepseek/deepseek-chat', note: 'architecture, scoring, HOLD decisions' },
+  // EVERYTHING RUNS FLASH (captain, 2026-09-16). `deepseek-chat` is the interactive-only tier — it cannot be
+  // billed per token, so a seat sent there cannot answer at all, and a silent unable-to-run seat is worse than a
+  // cheap honest run. This flips back the moment the Captain's research names the replacement billable "pro" id;
+  // that one line is the only change.
+  judgment: {
+    model: 'deepseek/deepseek-v4-flash',
+    note: 'architecture, scoring, HOLD decisions (flash until a billable pro id is confirmed)',
+  },
 }
 
 export function isForgeKind(value: unknown): value is ForgeKind {
