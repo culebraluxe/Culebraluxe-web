@@ -74,6 +74,26 @@ const closedOptional = (declaration, raw, flag) => {
   return { value: closed(declaration, given, flag), given: true }
 }
 
+/**
+ * Mediate a flag that may be REPEATED (Astra, 2026-09-16). `arg()` reads only the first occurrence, so
+ * `--decision SOLO --decision HOLD` silently took SOLO — a conflict resolved by argument order, which is
+ * exactly the winner-picking this system forbids. Two different answers is a HOLD naming both, in any order,
+ * with any delimiter, for however many repetitions.
+ */
+const closedUnique = (declaration, name, flag) => {
+  const mediated = values(name).map((raw) => closed(declaration, raw, flag))
+  if (mediated.some((value) => value === null)) return null
+  const unique = [...new Set(mediated)]
+  if (unique.length > 1) {
+    console.error(
+      `forge-handoff: ${flag}: CONFLICT — repeated flags said ${unique.join(' | ')}. Nothing is picked; ` +
+        'state one value and HOLD on the disagreement.',
+    )
+    return null
+  }
+  return unique.length === 1 ? unique[0] : null
+}
+
 const storyId = arg('story')
 const processInstanceId = arg('process')
 const taskId = arg('task')
@@ -342,7 +362,7 @@ if (arg('finding-id')) {
         summary,
         required,
         seams,
-        hint,
+        hint.value,
         list('preconditions'),
         list('postconditions'),
         list('classes'),
@@ -385,7 +405,7 @@ const assignments = arg('assignments')
 // THE DECISION AND THE SIZE CROSS THE MEDIATOR BEFORE THEY REACH SQL. `--decision` is required here (an
 // absent one routed to --show above), so a value outside the set is refused with the accepted set; `--size`
 // is optional and absent stays absent.
-const decisionValue = closed(LEAD_DECISION, arg('decision'), 'decision')
+const decisionValue = closedUnique(LEAD_DECISION, 'decision', 'decision')
 const sizeValue = closedOptional(LEAD_SIZE, arg('size'), 'size')
 if (decisionValue === null || (sizeValue.given && sizeValue.value === null)) {
   await pool.end()
