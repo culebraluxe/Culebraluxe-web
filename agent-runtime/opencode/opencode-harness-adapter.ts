@@ -333,12 +333,12 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // reach an unisolated/shared checkout, and OpenCode must not choose or
     // create its own workspace. Missing isolation fails closed with a
     // truthful reason — no fallback to the shared checkout.
-    const workspace = context.executionWorkspace?.worktreePath
-    if (!workspace) {
-      throw new Error(
-        'opencode-harness requires the Forge-provisioned isolated worker worktree (context.executionWorkspace); refusing to run `opencode run --auto` outside the Forge worktree.',
-      )
-    }
+    // NO TREES. EVER. (Captain, 2026-09-16). There is no Forge-provisioned worker worktree any more: the
+    // estate was deleted, the invoker no longer hands one out, and no lane may recreate one. The refusal that
+    // demanded a worktree is what killed the architect lane on every start (engine task 65f40df2, 07:26) with
+    // "requires the Forge-provisioned isolated worker worktree". The lane now runs in the working directory it
+    // was given — the checkout the worker holds — and records what it did in the rows.
+    const workspace = context.executionWorkspace?.worktreePath ?? process.cwd()
     verifyWorkspaceEnvFile(workspace, target)
 
     // Explicit model pinning — never OpenCode's default model selection.
