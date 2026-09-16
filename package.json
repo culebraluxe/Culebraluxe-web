@@ -77,6 +77,7 @@
     "forge:roi": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-roi.ts",
     "test:agent-runtime": "node --import tsx --test agent-runtime/*.test.ts",
     "forge:record-stories": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-record-stories.ts",
+    "forge:test-stories": "APP_ENV=production EXECUTION_ENV=PROD node --env-file=.env.local --import tsx scripts/forge-test-stories.ts",
     "forge:ladder": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-ladder.ts",
     "forge:story:run": "APP_ENV=production EXECUTION_ENV=PROD node --env-file=.env.local --import tsx scripts/exec-batch1-story.ts",
     "test:persistence": "node --env-file=.env.local --import tsx --test-concurrency=1 --test testv2/engine_tests/persistence/*.test.ts workflow_app/tests/persistence/*.test.ts",
