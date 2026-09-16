@@ -68,6 +68,7 @@ import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
+import { describeRefusal, mediateField, type FieldDeclaration } from '../../lib/field-mediator'
 import { parseArchitectHandoff } from './agents/architect-handoff'
 import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
@@ -197,6 +198,10 @@ export type AgentRuntimeForgeRunnerOptions = {
    */
   launchIntent?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 }
+
+// THE SHA AS A FIELD, declared once: the gate, the pin and the measurement all read this definition, so they
+// cannot disagree about what a candidate sha is.
+const CANDIDATE_SHA_FIELD: FieldDeclaration = { field: 'candidateSha', kind: 'sha', decision: true }
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
 
@@ -1018,8 +1023,19 @@ export function createAgentRuntimeForgeRoleRunner(
     // engine walked that loop. A verdict computed against the wrong tree is worse than no verdict, because it
     // looks like evidence. So pin the workspace to the candidate first, and FAIL CLOSED if it cannot be
     // pinned: an unpinnable workspace is a verification gap for a human, never a code defect for repair.
-    const candidateShaForAssay =
-      typeof evidence.candidateSha === 'string' ? evidence.candidateSha.trim() : ''
+    // THE SHA CROSSES THE FAILSAFE (captain, 2026-09-16). This is the value the entire measurement hangs on:
+    // candidate a54d8639 was reported as `Could not find …` because this number was never verified. So it is
+    // mediated, not trusted — shape tolerance only — and a value that is NOT a sha is refused as a gap for a
+    // human, never dropped into an empty candidate that quietly measures nothing. Absent stays absent and is
+    // handled by the workspace guard below: absence is a different fact from a malformed value.
+    const candidateShaMediation = mediateField(CANDIDATE_SHA_FIELD, evidence.candidateSha)
+    if (!candidateShaMediation.ok && candidateShaMediation.reason !== 'EMPTY') {
+      throw new Error(
+        `ASSAY_WORKSPACE_NOT_CANDIDATE: ${describeRefusal(candidateShaMediation)} — a gap for a human, not a ` +
+          'defect to repair',
+      )
+    }
+    const candidateShaForAssay = candidateShaMediation.ok ? String(candidateShaMediation.value) : ''
     if (candidateShaForAssay && roleCwd === process.cwd()) {
       // NO WORKTREE IS NOT PERMISSION TO MEASURE THE OPERATOR'S CHECKOUT (Grok, 2026-09-16). Without a
       // worktreesRoot this lane fell back to process.cwd() — the pin was skipped for exactly that case and the
