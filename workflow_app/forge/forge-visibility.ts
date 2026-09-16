@@ -3,6 +3,7 @@ import { sql } from '../../db/client'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { latestOpenForgeHold, listForgeHolds, type ForgeStoryHold } from '../../db/forge-hold'
 import { listStoryRuns } from '../../db/storyboard'
+import { DEFAULT_REPAIR_BUDGET } from './qa-repair-policy'
 import type { ForgeGateEvidence } from './forge-facts'
 
 export const FORGE_SPEND_UNRECORDED_LANE = 'unrecorded'
@@ -130,6 +131,75 @@ export function forgeSpendBlock(runs: readonly ForgeSpendRun[]): ForgeSpendBlock
     }))
     .sort((a, b) => a.lane.localeCompare(b.lane))
   return { lanes, total: spendDimension(runs) }
+}
+
+/**
+ * One bounded-autonomy budget as used against its cap. `used` and `cap` are `null`
+ * when the durable counter or the engine cap is unknown — an unmeasured value is not
+ * a zero. `remaining` is `null` whenever either is unknown, otherwise `max(0, cap-used)`;
+ * `exhausted` is `remaining === 0` when known, and `null` when it is not. "We do not
+ * know" and "none left" are different facts, and only the second is a hold.
+ */
+export type ForgeBudgetDimension = {
+  used: number | null
+  cap: number | null
+  remaining: number | null
+  exhausted: boolean | null
+}
+
+/** The repair and replan budgets of one story, each against its engine cap. */
+export type ForgeRepairBudgetBlock = {
+  repair: ForgeBudgetDimension
+  replan: ForgeBudgetDimension
+}
+
+function knownCount(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function budgetDimension(
+  used: number | null | undefined,
+  cap: number | null | undefined,
+): ForgeBudgetDimension {
+  const u = knownCount(used)
+  const c = knownCount(cap)
+  if (u === null || c === null) return { used: u, cap: c, remaining: null, exhausted: null }
+  const remaining = Math.max(0, c - u)
+  return { used: u, cap: c, remaining, exhausted: remaining === 0 }
+}
+
+/**
+ * The repair/replan budget of a story: the durable attempt counters read against the
+ * engine caps. Pure and synchronous so the acceptance fixture is a unit test, not a
+ * screenshot. An absent counter is `null`, never coerced to 0.
+ */
+export function forgeRepairBudgetBlock(input: {
+  repairAttempts?: number | null
+  replanAttempts?: number | null
+  maxRepairAttempts?: number | null
+  maxReplanAttempts?: number | null
+}): ForgeRepairBudgetBlock {
+  return {
+    repair: budgetDimension(input.repairAttempts, input.maxRepairAttempts),
+    replan: budgetDimension(input.replanAttempts, input.maxReplanAttempts),
+  }
+}
+
+/**
+ * The snapshot's wiring: the durable evidence counters against the engine's own caps.
+ * This is the exact call `forgeVisibilitySnapshot` makes, kept pure so the wiring
+ * itself is under the frozen fixture rather than only the dimension math.
+ */
+export function forgeRepairBudgetFromEvidence(evidence: {
+  repairAttempts?: number | null
+  replanAttempts?: number | null
+}): ForgeRepairBudgetBlock {
+  return forgeRepairBudgetBlock({
+    repairAttempts: evidence.repairAttempts,
+    replanAttempts: evidence.replanAttempts,
+    maxRepairAttempts: DEFAULT_REPAIR_BUDGET.maxRepairAttempts,
+    maxReplanAttempts: DEFAULT_REPAIR_BUDGET.maxReplanAttempts,
+  })
 }
 
 export const FORGE_QA_ASSAY_ARTIFACT_KIND = 'qa-assay-evidence'
@@ -261,6 +331,7 @@ export type ForgeVisibilitySnapshot = {
   holds: unknown[]
   hold: ForgeHoldLine | null
   spend: ForgeSpendBlock
+  repairBudget: ForgeRepairBudgetBlock
   qaVerdict: ForgeQaVerdict | null
   divergenceWarning: string | null
 }
@@ -458,6 +529,7 @@ export async function forgeVisibilitySnapshot(
   const evidence = await readForgeWorkflowEvidence(storyId)
   const e = evidence ?? {}
   const spend = forgeSpendBlock(await listStoryRuns(storyId))
+  const repairBudget = forgeRepairBudgetFromEvidence(e)
   const shaChain: ForgeVisibilitySnapshot['shaChain'] = {
     candidateSha: e.candidateSha ?? null,
     qaVerifiedSha: e.qaVerifiedSha ?? null,
@@ -496,6 +568,7 @@ export async function forgeVisibilitySnapshot(
     holds: await listForgeHolds(storyId),
     hold: forgeHoldLine(await latestOpenForgeHold(storyId)),
     spend,
+    repairBudget,
     qaVerdict,
     divergenceWarning,
   }
