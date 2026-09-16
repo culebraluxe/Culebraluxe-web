@@ -38,8 +38,10 @@ test('ENG-FORGE-V10: provided pass facts route only with exact candidate lineage
   assert.equal(facts.publishSucceeded, true)
 })
 
-test('ENG-FORGE-V10: boolean success cannot bypass missing or mismatched SHA lineage', () => {
-  assert.equal(projectForgeGateFacts({ qaPassed: true }).qaPassed, false)
+test('ENG-FORGE-V10: QA passes on QA’s own verdict; lineage still refuses on the release path', () => {
+  // Captain, 2026-09-16: QA has ONE requirement — that it passed. No second condition rides along with the
+  // QA verdict, so a lane that reports success is not blocked by a rule it was never handed.
+  assert.equal(projectForgeGateFacts({ qaPassed: true }).qaPassed, true)
   const candidate = 'b'.repeat(40)
   const other = 'c'.repeat(40)
   const evidence: ForgeGateEvidence = {
@@ -50,7 +52,9 @@ test('ENG-FORGE-V10: boolean success cannot bypass missing or mismatched SHA lin
     publishedSha: candidate,
   }
   assert.match(forgeLineageError(evidence, 'qa') ?? '', /expected candidate/)
-  assert.equal(projectForgeGateFacts(evidence).qaPassed, false)
+  // QA's word stands on its own even when the sha does not match; the mismatch is refused where the release
+  // actually happens — the publish fact below, and db-release-executor's PRE-QA lineage guard.
+  assert.equal(projectForgeGateFacts(evidence).qaPassed, true)
   assert.equal(projectForgeGateFacts(evidence).publishSucceeded, false)
 })
 
