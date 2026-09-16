@@ -110,7 +110,9 @@ export function mediateField(declaration: FieldDeclaration, raw: unknown): Field
 
   if (d.kind === 'sha') {
     const v = statedValue(text, d.field)
-    if (!/^[0-9a-f]{7,40}$/i.test(v)) return refuse(d, 'NOT_A_SHA', text)
+    // SHA-1 is 40 characters and SHA-256 is 64, so the window covers both: a rule that refused a value the
+    // old normalizers accepted would be a regression dressed as consistency.
+    if (!/^[0-9a-f]{7,64}$/i.test(v)) return refuse(d, 'NOT_A_SHA', text)
     return { ok: true, value: v.toLowerCase(), source: 'raw' }
   }
 
@@ -145,9 +147,38 @@ export function mediateField(declaration: FieldDeclaration, raw: unknown): Field
   return refuse(d, 'NOT_IN_SET', text)
 }
 
-/** The ONE polite retry: the caller re-asks with the accepted set spelled out, then HOLDs. */
+/** The ONE retry sentence the caller may send back, with the accepted set spelled out, before it HOLDs. */
 export function describeRefusal(refusal: FieldRefusal): string {
   const accepted = refusal.accepted.length > 0 ? ` accepted: ${refusal.accepted.join(' | ')}` : ''
   const got = refusal.raw.length > 0 ? ` — got ${JSON.stringify(refusal.raw.slice(0, 80))}` : ''
   return `${refusal.field}: ${refusal.reason}${accepted}${got}`
+}
+
+// ---------------------------------------------------------------------------
+// SHARED FIELD DECLARATIONS
+//
+// A field declared in the module that governs it, imported by every lane that carries it. Two call sites
+// writing their own regex for the same value is how two opinions start (2026-09-16: the Assay pin judged a
+// candidate sha with one rule and the role mapping with another).
+// ---------------------------------------------------------------------------
+
+/** The candidate sha every lane publishes and QA verifies. */
+export const CANDIDATE_SHA: FieldDeclaration = { field: 'candidateSha', kind: 'sha', decision: true }
+
+/** The Lead's routing decision — the one value that costs nights when it is wrong. */
+export const LEAD_DECISION: FieldDeclaration = {
+  field: 'leadDecision',
+  kind: 'closed',
+  accepted: ['SMITH', 'SPLIT', 'HOLD', 'SOLO'],
+  aliases: { single: 'SOLO' },
+  decision: true,
+}
+
+/** The Lead's size call: a closed set, never a free adjective. */
+export const LEAD_SIZE: FieldDeclaration = {
+  field: 'leadSize',
+  kind: 'closed',
+  accepted: ['TRIVIAL', 'SMALL', 'MEDIUM', 'LARGE'],
+  aliases: { tiny: 'TRIVIAL', big: 'LARGE' },
+  decision: true,
 }

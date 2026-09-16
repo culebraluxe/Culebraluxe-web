@@ -221,9 +221,14 @@ function cleanResult(result: AgentRunEvidence): boolean {
   return result.completion === 100 && /^(complete|success|pass)$/i.test(result.resultStatus.trim())
 }
 
+// ONE RULE FOR A SHA (captain, 2026-09-16). This function carried its own regex while the Assay pin judged the
+// same field with a different one — two normalizers, two opinions, one value. The mediator owns the shape now,
+// so the Smith's candidate and QA's verification are judged by exactly the same rule.
+import { CANDIDATE_SHA, mediateField } from '../../lib/field-mediator'
+
 function commitSha(value: string | null | undefined): string | null {
-  const sha = value?.trim().toLowerCase() ?? ''
-  return /^[0-9a-f]{7,64}$/.test(sha) ? sha : null
+  const mediated = mediateField(CANDIDATE_SHA, value)
+  return mediated.ok ? String(mediated.value) : null
 }
 
 export function forgeEvidenceFromAgentResult(input: {

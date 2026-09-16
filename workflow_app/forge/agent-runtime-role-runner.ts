@@ -68,7 +68,7 @@ import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
-import { describeRefusal, mediateField, type FieldDeclaration } from '../../lib/field-mediator'
+import { CANDIDATE_SHA, describeRefusal, mediateField } from '../../lib/field-mediator'
 import { parseArchitectHandoff } from './agents/architect-handoff'
 import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
@@ -199,9 +199,8 @@ export type AgentRuntimeForgeRunnerOptions = {
   launchIntent?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 }
 
-// THE SHA AS A FIELD, declared once: the gate, the pin and the measurement all read this definition, so they
-// cannot disagree about what a candidate sha is.
-const CANDIDATE_SHA_FIELD: FieldDeclaration = { field: 'candidateSha', kind: 'sha', decision: true }
+// The candidate SHA's field declaration lives in the mediator module (shared with the role mapping), so the
+// gate, the pin and the mapping cannot disagree about what a sha is.
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
 
@@ -1028,7 +1027,7 @@ export function createAgentRuntimeForgeRoleRunner(
     // mediated, not trusted — shape tolerance only — and a value that is NOT a sha is refused as a gap for a
     // human, never dropped into an empty candidate that quietly measures nothing. Absent stays absent and is
     // handled by the workspace guard below: absence is a different fact from a malformed value.
-    const candidateShaMediation = mediateField(CANDIDATE_SHA_FIELD, evidence.candidateSha)
+    const candidateShaMediation = mediateField(CANDIDATE_SHA, evidence.candidateSha)
     if (!candidateShaMediation.ok && candidateShaMediation.reason !== 'EMPTY') {
       throw new Error(
         `ASSAY_WORKSPACE_NOT_CANDIDATE: ${describeRefusal(candidateShaMediation)} — a gap for a human, not a ` +
