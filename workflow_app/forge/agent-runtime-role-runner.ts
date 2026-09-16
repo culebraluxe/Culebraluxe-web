@@ -1042,22 +1042,15 @@ export function createAgentRuntimeForgeRoleRunner(
     }
     const candidateShaForAssay = candidateShaMediation.ok ? String(candidateShaMediation.value) : ''
     if (ASSAY_NODES.has(nodeId) && candidateShaForAssay && roleCwd === process.cwd()) {
-      // PROVISION THE MISSING WORKSPACE (Captain, 2026-09-16). A RESUMED task carries a candidate but the driver
-      // hands it no worktree, so this lane had nowhere legal to measure and the story could never finish. The rule
-      // is unchanged — the primary checkout is NEVER the candidate — so the candidate is materialized instead: one
-      // detached worktree at that exact sha. Everything below (pin, dirty check, command runner) then works on it,
-      // and the pin still proves HEAD == candidate before a single command runs. This widens nothing.
-      const scratch = `${process.cwd()}/.assay-workspaces/${resolvedStory.id}-${candidateShaForAssay.slice(0, 12)}`
-      await commandRunner(process.cwd())(`mkdir -p ${process.cwd()}/.assay-workspaces`)
-      await commandRunner(process.cwd())(`git worktree add --detach "${scratch}" ${candidateShaForAssay}`)
-      const scratchHead = readGit(scratch, ['rev-parse', 'HEAD'])?.trim() ?? ''
-      if (scratchHead === '') {
-        throw new Error(
-          `ASSAY_WORKSPACE_NOT_CANDIDATE: could not materialize a worktree for ` +
-            `${candidateShaForAssay.slice(0, 12)} (a gap for a human, not a defect to repair)`,
-        )
-      }
-      roleCwd = scratch
+      // NO WORKTREE IS NOT PERMISSION TO MEASURE THE OPERATOR'S CHECKOUT (Grok, 2026-09-16). Without a
+      // worktreesRoot this lane fell back to process.cwd() — the pin was skipped for exactly that case and the
+      // proofs ran against whatever HEAD the worker happened to hold. A lane that cannot materialize the
+      // candidate records a GAP; it never assays the primary tree, and it never provisions a workspace of its
+      // own (that is the executor's business).
+      throw new Error(
+        'ASSAY_WORKSPACE_NOT_CANDIDATE: no worktree to pin this assay to, and the primary checkout is never ' +
+          'the candidate (a gap for a human, not a defect to repair)',
+      )
     }
     if (ASSAY_NODES.has(nodeId) && candidateShaForAssay) {
       const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
