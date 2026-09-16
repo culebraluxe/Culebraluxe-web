@@ -1,4 +1,5 @@
 import { engineSql } from '../engine-client'
+import { sql } from '../../db/client'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { latestOpenForgeHold, listForgeHolds, type ForgeStoryHold } from '../../db/forge-hold'
 import { listStoryRuns } from '../../db/storyboard'
@@ -90,6 +91,102 @@ export function forgeSpendBlock(runs: readonly ForgeSpendRun[]): ForgeSpendBlock
   return { lanes, total: spendDimension(runs) }
 }
 
+export const FORGE_QA_ASSAY_ARTIFACT_KIND = 'qa-assay-evidence'
+
+/** One frozen command and the exit code the assay measured for it. */
+export type ForgeQaCommandResult = {
+  command: string
+  exitCode: number | null
+}
+
+/**
+ * The QA verdict of ONE run. The block is `null` — NO VERDICT — when the run has no
+ * QA artifact of its own. It never falls back to another run or to the story's
+ * history: a run that measured nothing says so, rather than inheriting a verdict.
+ *
+ * The block carries no SHA on purpose. Artifact identity lives in `shaChain`; a
+ * verdict is a measurement, not an identity, and a stale SHA beside a fresh verdict
+ * is how one run's pass got read as another's.
+ */
+export type ForgeQaVerdict = {
+  runId: string
+  verdict: 'PASS' | 'FAIL'
+  qaPassed: boolean
+  commands: ForgeQaCommandResult[]
+}
+
+/** The durable artifact fields the verdict block reads. */
+export type ForgeQaArtifactRow = {
+  storyRunId: string | null
+  kind: string | null
+  verdict: string | null
+  detail: unknown
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  if (typeof value === 'string') {
+    try {
+      return asRecord(JSON.parse(value))
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * The verdict of the run `runId`, from that run's OWN QA artifacts, newest first.
+ *
+ * Pure and synchronous so the acceptance fixture is a unit test, not a screenshot.
+ * A row for another run, or of another kind, is not this run's verdict — and when no
+ * row matches, the answer is `null`, never a best-of-history pass.
+ */
+export function forgeQaVerdictBlock(
+  runId: string,
+  rows: readonly ForgeQaArtifactRow[],
+): ForgeQaVerdict | null {
+  const run = (runId ?? '').trim()
+  if (!run) return null
+  const artifact = rows.find(
+    (r) =>
+      (r.storyRunId ?? '').trim() === run &&
+      (r.kind ?? '').trim() === FORGE_QA_ASSAY_ARTIFACT_KIND,
+  )
+  if (!artifact) return null
+  const verdict = (artifact.verdict ?? '').trim().toUpperCase()
+  // A row with no readable verdict is NOT a FAIL — it is no verdict at all.
+  if (verdict !== 'PASS' && verdict !== 'FAIL') return null
+  const detail = asRecord(artifact.detail)
+  const required = stringList(detail?.requiredCommands)
+  const results = Array.isArray(detail?.commandResults) ? detail.commandResults : []
+  const byCommand = new Map<string, number | null>()
+  const measured: ForgeQaCommandResult[] = []
+  for (const raw of results) {
+    const rec = asRecord(raw)
+    if (!rec || typeof rec.command !== 'string' || !rec.command) continue
+    byCommand.set(rec.command, numberOrNull(rec.exitCode))
+    measured.push({ command: rec.command, exitCode: numberOrNull(rec.exitCode) })
+  }
+  // The FROZEN commands are the truth: every one is named, and one with no measured
+  // result reads `null` — an unmeasured exit code is not a zero.
+  const commands =
+    required.length > 0
+      ? required.map((command) => ({ command, exitCode: byCommand.get(command) ?? null }))
+      : measured
+  return { runId: run, verdict, qaPassed: verdict === 'PASS', commands }
+}
+
 export type ForgeVisibilitySnapshot = {
   storyId: string
   instance: { id: string | null; status: string | null; currentNodes: string[] }
@@ -123,6 +220,7 @@ export type ForgeVisibilitySnapshot = {
   holds: unknown[]
   hold: ForgeHoldLine | null
   spend: ForgeSpendBlock
+  qaVerdict: ForgeQaVerdict | null
   divergenceWarning: string | null
 }
 
@@ -187,6 +285,31 @@ export function forgeVisibilityEquality(chain: {
     deployedEqualsPublished: Boolean(published && deployed && published === deployed),
     productionEqualsPublished: Boolean(published && production && published === production),
   }
+}
+
+/**
+ * The run's OWN QA artifacts, newest first, with the machine `detail` the assay wrote.
+ * Scoped to `story_run_id`, so a verdict can never answer for another run. The read
+ * lives in the verdict block's own surface; `forgeQaVerdictBlock` owns the shape.
+ */
+async function readQaArtifactsForRun(runId: string): Promise<ForgeQaArtifactRow[]> {
+  const rows = (await sql`
+    select story_run_id, kind, verdict, detail
+    from forge_tool_artifact
+    where story_run_id = ${runId}
+    order by created_at desc
+  `) as Array<{
+    story_run_id: string | null
+    kind: string | null
+    verdict: string | null
+    detail: unknown
+  }>
+  return rows.map((r) => ({
+    storyRunId: r.story_run_id,
+    kind: r.kind,
+    verdict: r.verdict,
+    detail: r.detail,
+  }))
 }
 
 export async function forgeVisibilitySnapshot(
@@ -284,6 +407,13 @@ export async function forgeVisibilitySnapshot(
       }))
   }
 
+  // THE VERDICT BELONGS TO THE RUN WE ARE VIEWING. The newest execution row that names
+  // a run is the run in flight; no run means no verdict — never the story's history.
+  const viewedRunId = execution.find((row) => row.storyRunId)?.storyRunId ?? null
+  const qaVerdict = viewedRunId
+    ? forgeQaVerdictBlock(viewedRunId, await readQaArtifactsForRun(viewedRunId))
+    : null
+
   const evidence = await readForgeWorkflowEvidence(storyId)
   const e = evidence ?? {}
   const spend = forgeSpendBlock(await listStoryRuns(storyId))
@@ -325,6 +455,7 @@ export async function forgeVisibilitySnapshot(
     holds: await listForgeHolds(storyId),
     hold: forgeHoldLine(await latestOpenForgeHold(storyId)),
     spend,
+    qaVerdict,
     divergenceWarning,
   }
 }
