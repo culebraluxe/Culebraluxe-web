@@ -1,4 +1,5 @@
 import type { ForgeGateEvidence } from '../forge-facts'
+import { mediateField, type FieldDeclaration } from '../../../lib/field-mediator'
 import {
   forgeRoleNodePlan,
   type ForgeRoleNodePlan,
@@ -19,6 +20,19 @@ const ARCHITECT_NODES = new Set(['architect', 'repair_architect', 'research_arch
 
 const RESEARCH_DISPOSITIONS = new Set(['IMPLEMENT', 'ARCHIVE', 'HOLD'])
 const LEAD_DECISIONS = new Set(['SMITH', 'SPLIT', 'HOLD', 'SOLO'])
+
+// THE FAILSAFE, AT THE FIRST REAL DECISION (captain, 2026-09-16). This value crosses into a row, so it goes
+// through the mediator rather than being trusted: mechanical shape work only — case, whitespace, fences and
+// DECLARED synonyms — while anything outside the declared set is refused WITH the accepted set, never coerced
+// and never given a default, because a decision with a default is a decision nobody made. One definition of
+// the set: the declaration reads LEAD_DECISIONS, so the gate and the mediator cannot drift apart.
+const LEAD_DECISION_FIELD: FieldDeclaration = {
+  field: 'leadDecision',
+  kind: 'closed',
+  accepted: [...LEAD_DECISIONS],
+  aliases: { single: 'SOLO' },
+  decision: true,
+}
 const FAILURE_CLASSES = new Set([
   'CODE_DEFECT',
   'TEST_DEFECT',
@@ -230,9 +244,11 @@ export class ForgePhaseAgent {
         : 'research_disposition'
     }
     if (this.plan.lane === 'lead' && this.plan.leadPhase === 'pre' && this.nodeId !== 'failure_classifier') {
-      const d = String(evidence.leadDecision ?? '')
-      if (!LEAD_DECISIONS.has(d)) return 'lead_decision'
-      if (d === 'SPLIT' && !(Number(evidence.splitCount) > 0)) return 'lead_decision.splitCount'
+      const decision = mediateField(LEAD_DECISION_FIELD, evidence.leadDecision)
+      // Refused for any reason — absent, outside the set, unrepresentable — is the same gate outcome as before,
+      // but the reason now names the field and the accepted set instead of silently reading as a model failure.
+      if (!decision.ok) return 'lead_decision'
+      if (decision.value === 'SPLIT' && !(Number(evidence.splitCount) > 0)) return 'lead_decision.splitCount'
       return null
     }
     return null
