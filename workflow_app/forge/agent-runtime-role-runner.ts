@@ -1237,8 +1237,28 @@ export function createAgentRuntimeForgeRoleRunner(
     // tail had already been reached. The lane that PRODUCES the candidate writes it, once, here — so every
     // later reader (QA, publish, deploy, the board) reads one fact from one row.
     if (CANDIDATE_PRODUCING_NODES.has(nodeId)) {
-      const committed = commitSha(candidateSha)
+      // A LANE THAT ALREADY COMMITTED STILL HOLDS THE CANDIDATE.
+      //
+      // A run's commit is RUN-RELATIVE: the harness snapshots HEAD before the model starts and reports a
+      // commit only when HEAD moved during THAT run. So a second attempt at the same node can never report
+      // one — HEAD already contains the first attempt's work. Measured live 2026-09-16
+      // (ENG-FORGE-QA-VERDICT-VISIBLE-01): the Smith committed df8465f2 with its frozen proof passing 7/7,
+      // the retry had nothing new to commit, `smith-candidate` missed on both attempts, and the chain HELD —
+      // a false hold on work that was already done and already in main.
+      //
+      // The story's candidate is the commit its checkout STANDS ON. When this run reports none, the candidate
+      // the row already holds is re-affirmed IF AND ONLY IF the checkout still stands on it — a sha from
+      // another generation can never equal HEAD, so this cannot resurrect a stale candidate and cannot reopen
+      // the inherited-HEAD claim the snapshot was added to stop.
+      const reported = commitSha(candidateSha)
+      const heldCandidate = commitSha(current.candidateSha)
+      const head = reported ? null : commitSha(readGit(roleCwd, ['rev-parse', 'HEAD']))
+      const reaffirmed =
+        !reported && heldCandidate && head && heldCandidate === head ? heldCandidate : null
+      const committed = reported ?? reaffirmed
       if (committed) {
+        // The deliverable check reads the EVIDENCE, not the row, so the re-affirmed candidate lands on both.
+        evidence.candidateSha = committed
         await mergeForgeWorkflowEvidence(task.processInstanceId, resolvedStory.id, {
           candidateSha: committed,
         })
