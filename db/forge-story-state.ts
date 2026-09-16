@@ -10,7 +10,14 @@ async function executor(): Promise<QueryExecutor> {
   return defaultExecutor
 }
 
-/** V6 lane completion is not story completion. */
+/**
+ * V6 lane completion is not story completion.
+ *
+ * ASTRA ITEM 6 follow-through (2026-09-16): a story that moves BACK to `In Progress` cannot keep claiming 100%
+ * completion. This was the transition the new constraint caught on the QA story — the row still read 100 from an
+ * earlier state, the status flipped to In Progress, and the database refused the pair. Clearing it here is the
+ * honest write: no verified completion exists for work that is running again.
+ */
 export async function markForgeStoryInProgress(
   storyId: string,
   execute?: QueryExecutor,
@@ -19,6 +26,7 @@ export async function markForgeStoryInProgress(
   await q`
     update storyboard_story
     set status = 'In Progress',
+        completion = 0,
         completed_at = null,
         updated_at = now()
     where id = ${storyId}
