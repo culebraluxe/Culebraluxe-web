@@ -472,7 +472,16 @@ export abstract class AgentRuntimeAdapter {
         verdict: evidence.resultStatus,
         summary: evidence.testsSummary ?? null,
         sha: evidence.commitHash ?? null,
-        detail: { notes: evidence.notes },
+        detail: {
+          notes: evidence.notes,
+          testsSummary: evidence.testsSummary ?? null,
+          completion: evidence.completion,
+          modelProfile: command.modelProfile ?? null,
+          externalRunId: evidence.externalRunId ?? null,
+          executionEnvironment: evidence.executionEnvironment ?? null,
+          startedAt: evidence.startedAt ?? null,
+          endedAt: evidence.endedAt ?? null,
+        },
       })
     } catch (err) {
       captureServerLog('warn', 'agent-runtime.artifact-write', `${this.runtimeAdapterId} ${runId}: ${(err as Error).message}`)
