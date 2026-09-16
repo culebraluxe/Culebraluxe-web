@@ -130,11 +130,17 @@ async function main(): Promise<number> {
   // 4. The sha assertion, only when the caller asks for it (the deploy path does).
   const wanted = expectedSha || (expectHead && head ? head.short : '')
   if (wanted) {
+    // THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN. `/api/build-info` serves `cockpitBuildLabel()`, the
+    // first SEVEN characters of the stamped commit, while `--expect-head` supplies `git rev-parse --short`,
+    // which lengthens as the repository grows (it returned 8 here on 2026-09-16). Comparing the strings whole
+    // asked "did git's abbreviation grow", not "is the live build HEAD". Compare the length they SHARE.
+    const shared = Math.min(liveSha.length, wanted.length)
+    const agrees = liveSha !== '' && shared > 0 && liveSha.slice(0, shared) === wanted.slice(0, shared)
     checks.push({
       name: `live sha equals ${wanted}`,
       url: `${base}/api/build-info`,
-      ok: liveSha === wanted,
-      detail: liveSha === wanted ? `serving ${liveSha}` : `live ${liveSha || '<no answer>'} vs expected ${wanted}`,
+      ok: agrees,
+      detail: agrees ? `serving ${liveSha}` : `live ${liveSha || '<no answer>'} vs expected ${wanted}`,
     })
   }
 

@@ -60,6 +60,22 @@ DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod)"
 # "no answer" - a check that cannot pass is worse than no check.
 PROD_URL="${CULEBRALUXE_PROD_URL:-https://www.culebraluxe.com}"
 EXPECTED_SHA="$(git rev-parse --short HEAD)"
+# THE TWO SIDES ARE NOT THE SAME WIDTH, BY DESIGN.
+#
+# `/api/build-info` serves `cockpitBuildLabel()`, which reports the first SEVEN characters of the stamped
+# commit so the Cockpit's corner reads "V2 · 0907b18". `git rev-parse --short HEAD` is NOT fixed at seven:
+# git lengthens the abbreviation as the repository grows, and on 2026-09-16 it began returning EIGHT
+# characters. Comparing the strings whole therefore measured "did git's abbreviation grow" rather than "is
+# production serving HEAD" — the release failed its last check on a deploy that had gone live and smoked
+# clean, and the smoke never ran because the script exits here. Both sides are compared at the length they
+# SHARE, which is the question that was meant: is the live build HEAD?
+shasAgree() {
+  local live="${1:-}" expected="${2:-}"
+  [[ -n "$live" && -n "$expected" ]] || return 1
+  local length="${#live}"
+  (( ${#expected} < length )) && length="${#expected}"
+  [[ "${live:0:$length}" == "${expected:0:$length}" ]]
+}
 # WAIT FOR THE ALIAS. A deployment is created before the production domain points at it (measured
 # 2026-09-14: the domain still served the previous sha seconds after a successful deploy, and was
 # serving the new one inside a minute). Checking once would report a false failure; checking by hand
@@ -70,7 +86,7 @@ LIVE_SHA=""
 for attempt in $(seq 1 "$VERIFY_ATTEMPTS"); do
   LIVE_SHA="$(curl -fsS -L --max-time 25 "${PROD_URL%/}/api/build-info" 2>/dev/null \
     | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
-  [[ "$LIVE_SHA" == "$EXPECTED_SHA" ]] && break
+  shasAgree "$LIVE_SHA" "$EXPECTED_SHA" && break
   printf '  waiting for the production alias... (%s/%s, live=%s)\n' \
     "$attempt" "$VERIFY_ATTEMPTS" "${LIVE_SHA:-no answer}"
   sleep "$VERIFY_SLEEP_SECONDS"
@@ -85,7 +101,7 @@ printf '  live sha:     %s\n' "${LIVE_SHA:-<no answer from /api/build-info>}"
 if [[ -z "$LIVE_SHA" ]]; then
   fail "Deployed, but ${PROD_URL}/api/build-info did not answer - cannot confirm what is live."
 fi
-if [[ "$LIVE_SHA" != "$EXPECTED_SHA" ]]; then
+if ! shasAgree "$LIVE_SHA" "$EXPECTED_SHA"; then
   fail "Deployed artifact reports sha ${LIVE_SHA} but HEAD is ${EXPECTED_SHA}. Something else is serving production."
 fi
 printf '\nVERIFIED: production is serving %s.\n' "$LIVE_SHA"
