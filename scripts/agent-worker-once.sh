@@ -160,7 +160,15 @@ if [ "$branch" != "main" ]; then
         ;;
     esac
   fi
-  inv_log "stop: checkout-not-main branch='$branch' git-error='$branch_err'"
+  # THE LOG LINE NAMES THE REAL FAULT (captain, 2026-09-16). The stderr above explained the TCC denial, but the
+  # logged line still called it `checkout-not-main branch=''` — and the doctor reads this line, so for an hour
+  # tonight a macOS privacy wall read as a wrong-branch problem. A stop reason that names the wrong fault costs
+  # more than no reason at all.
+  case "$branch_err" in
+    *"Operation not permitted"*|*"Permission denied"*) stop_reason='unreadable-repo-dir (macOS TCC)';;
+    *) stop_reason='checkout-not-main';;
+  esac
+  inv_log "stop: $stop_reason branch='$branch' git-error='$branch_err'"
   exit 2
 fi
 inv_log "git-sync: start origin/main"
