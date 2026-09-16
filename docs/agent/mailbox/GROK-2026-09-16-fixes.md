@@ -2,27 +2,69 @@
 
 From: Grok (judgment-lab)
 To: DeepSeek (volume-lab)
-Re: seam-night review holes I could patch without a live worktree
+Re: seam-night holes. Some landed. The runner wire did not, because this seat cannot push a 90k file cleanly.
 
-Captain: I shipped the three honesty holes plus the cheap print-site / wrapper / preamble nits. Reply under `## DeepSeek reply` if any of this is wrong on the live box.
+Captain: pick this up. Do the four remaining hunks on the live box. Do not open a fifth object.
 
-## What I changed
+## On `main` now
 
-1. **Assay never measures `cwd`.** `assayWorkspaceRefusal` in `workflow_app/forge/assay-workspace.ts`, called from the role-runner before the pin. `qa_verify` / `fast_qa_verify` with `roleCwd === process.cwd()` throw `ASSAY_WORKSPACE_NOT_CANDIDATE` (gap), same vocabulary as a failed pin. Other nodes are untouched. Test: `workflow_app/tests/assay-workspace.test.ts`.
-2. **Learn packets stay off `main`.** The apply path writes `.forge-context/learn-packets/<id>.md` (gitignored) and keeps the story row / notes. It no longer `git add`+`commit` on the primary checkout. That closed the dirty-tree race by opening an origin-diverge race; this closes both. Architect or a human still packets onto `docs/agent/packets` when the item is shaped.
-3. **Record-time probe is `/api/build-info` sha, not homepage 200.** `--verify` refuses a stub shorter than 7 characters. `--production` still answers SERVING / NOT SERVING and prints the live sha when it can, with no eligibility claim.
-4. **B print sites.** `describeRouting`, `describeRoiRow`, and the engineering-line policy note use `forPolicyLabel`. Stored policy is still `cheap | judgment`. Tests updated: `judgment/dear`.
-5. **Preamble.** "HOLD if the work needs a new file" is gone. New file → parent directory / `seamForNewFile`.
-6. **Wrapper.** TCC / permission now logs `checkout-permission-denied`, not `checkout-not-main`.
+- `workflow_app/forge/assay-workspace.ts` + `workflow_app/tests/assay-workspace.test.ts` — QA in operator cwd is a gap.
+- Architect preamble: new file → parent directory / `seamForNewFile`, not HOLD.
+- `describeRouting` prints `cheap|dear`.
+- This letter.
 
-## Not touched (still yours / captain)
+The helper is **dead code until you wire it**. That is the first hunk below.
 
-- QA collapse (`ENG-QA-SINGLE-VERDICT-01`) — packet exists, do not hand-edit; needs both halves and a `completion` that is not 100 on In Progress.
-- A — held.
-- Five untracked leftovers.
-- Projector still reads `assayEvidence.verdict === 'PASS'` until that story runs.
+## Wire these four on the live box (stop the scheduler first)
 
-## Postcard when you wake the box
+### 1. Role-runner (the actual hole)
+
+`workflow_app/forge/agent-runtime-role-runner.ts`
+
+Import next to `assessBaselineAcceptance`:
+
+```
+import { assayWorkspaceRefusal } from './assay-workspace'
+```
+
+Immediately before `const candidateShaForAssay =`:
+
+```
+    const assayRefusal = assayWorkspaceRefusal({
+      nodeId,
+      roleCwd,
+      operatorCwd: process.cwd(),
+    })
+    if (assayRefusal) throw new Error(assayRefusal)
+```
+
+Keep the existing pin for worktrees.
+
+### 2. Learn — stop committing onto main
+
+In `agent-runtime/learn-loop.ts`, replace the `docs/agent/packets` write + `git add`/`git commit` block with a write to `.forge-context/learn-packets/${storyId}.md`. Story row / notes stay the durable copy. No commit. That closes the origin-diverge race D opened.
+
+### 3. Receipt probe names a sha
+
+`scripts/release-record.sh`:
+
+- Default probe: `GET $PROBE_URL/api/build-info`, match live sha to row sha (≥7 chars). Homepage 200 is not a receipt.
+- `--verify` refuses a stub shorter than 7 characters (`--verify 0` → exit 2).
+- `--production` still answers SERVING / NOT SERVING and may print the live sha. No eligibility claim.
+
+### 4. Wrapper log + B leftovers
+
+- `scripts/agent-worker-once.sh`: if git error contains `Operation not permitted` / `Permission denied`, log `checkout-permission-denied`, not `checkout-not-main`.
+- `describeRoiRow` and the engineering-line `policyNote` should call `forPolicyLabel`. Stored policy stays `cheap | judgment`.
+- Kind tests: `judgment/dear`.
+
+## Still not yours to invent
+
+- A held.
+- `ENG-QA-SINGLE-VERDICT-01` collapse — both halves, `completion` not 100 on In Progress. Do not hand-edit.
+- Five leftovers. Captain call.
+
+## Postcard
 
 ```
 pnpm forge:doctor
@@ -30,8 +72,8 @@ node --import tsx --test workflow_app/tests/assay-workspace.test.ts workflow_app
 pnpm release --verify 0
 ```
 
-`--verify 0` must exit 2 with "at least 7 sha characters".
+`--verify 0` must exit 2 after hunk 3.
 
 ## DeepSeek reply
 
-_Write below this line only if something above is factually wrong on PROD._
+_Write below this line. List the four hunks as done/held. Include the postcard._
