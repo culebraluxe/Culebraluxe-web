@@ -1,7 +1,94 @@
 import { engineSql } from '../engine-client'
 import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
 import { latestOpenForgeHold, listForgeHolds, type ForgeStoryHold } from '../../db/forge-hold'
+import { listStoryRuns } from '../../db/storyboard'
 import type { ForgeGateEvidence } from './forge-facts'
+
+export const FORGE_SPEND_UNRECORDED_LANE = 'unrecorded'
+
+/**
+ * One spend quantity as read from the durable run rows. `null` means UNMEASURED,
+ * never zero: a measured zero and an unmeasured zero are different facts.
+ */
+export type ForgeSpendDimension = {
+  tokensInput: number | null
+  tokensOutput: number | null
+  costUsd: number | null
+  costWidgets: number | null
+  costSource: string | null
+}
+
+export type ForgeLaneSpend = {
+  lane: string
+  runs: number
+  spend: ForgeSpendDimension
+}
+
+export type ForgeSpendBlock = {
+  lanes: ForgeLaneSpend[]
+  total: ForgeSpendDimension
+}
+
+/** The durable-run fields the spend block reads. `StoryRun` structurally satisfies this. */
+export type ForgeSpendRun = {
+  runType: string | null
+  tokensInput?: number | null
+  tokensOutput?: number | null
+  costUsd?: number | null
+  costWidgets?: number | null
+  costSource?: string | null
+}
+
+/**
+ * Sum of the KNOWN values. All-unknown is `null` (never 0); a known 0 stays 0.
+ * `Number.isFinite` keeps a NaN or non-number out of the total instead of poisoning it.
+ */
+function sumKnown(values: Array<number | null | undefined>): number | null {
+  const known = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  if (known.length === 0) return null
+  return known.reduce((sum, v) => sum + v, 0)
+}
+
+/** Distinct non-blank sources, sorted and joined; `null` when no run recorded one. */
+function mergeCostSources(values: Array<string | null | undefined>): string | null {
+  const known = [
+    ...new Set(values.map((v) => v?.trim()).filter((v): v is string => Boolean(v))),
+  ].sort()
+  return known.length === 0 ? null : known.join('+')
+}
+
+function spendDimension(runs: readonly ForgeSpendRun[]): ForgeSpendDimension {
+  return {
+    tokensInput: sumKnown(runs.map((r) => r.tokensInput)),
+    tokensOutput: sumKnown(runs.map((r) => r.tokensOutput)),
+    costUsd: sumKnown(runs.map((r) => r.costUsd)),
+    costWidgets: sumKnown(runs.map((r) => r.costWidgets)),
+    costSource: mergeCostSources(runs.map((r) => r.costSource)),
+  }
+}
+
+/**
+ * The spend of a story's own runs, per lane and in total, from the durable run rows.
+ *
+ * Lane identity is `run_type` (the Forge lane: scout|architect|lead|smith|inspector|
+ * assay|archive|night). A run whose lane is null/blank lands in an `unrecorded`
+ * bucket and is never dropped — an unrecorded lane is a fact, not a zero.
+ *
+ * Pure and synchronous so the acceptance fixture is a unit test, not a screenshot.
+ */
+export function forgeSpendBlock(runs: readonly ForgeSpendRun[]): ForgeSpendBlock {
+  const buckets = new Map<string, ForgeSpendRun[]>()
+  for (const run of runs) {
+    const lane = (run.runType ?? '').trim() || FORGE_SPEND_UNRECORDED_LANE
+    const bucket = buckets.get(lane)
+    if (bucket) bucket.push(run)
+    else buckets.set(lane, [run])
+  }
+  const lanes = [...buckets.entries()]
+    .map(([lane, rows]) => ({ lane, runs: rows.length, spend: spendDimension(rows) }))
+    .sort((a, b) => a.lane.localeCompare(b.lane))
+  return { lanes, total: spendDimension(runs) }
+}
 
 export type ForgeVisibilitySnapshot = {
   storyId: string
@@ -35,6 +122,7 @@ export type ForgeVisibilitySnapshot = {
   }>
   holds: unknown[]
   hold: ForgeHoldLine | null
+  spend: ForgeSpendBlock
   divergenceWarning: string | null
 }
 
@@ -198,6 +286,7 @@ export async function forgeVisibilitySnapshot(
 
   const evidence = await readForgeWorkflowEvidence(storyId)
   const e = evidence ?? {}
+  const spend = forgeSpendBlock(await listStoryRuns(storyId))
   const shaChain: ForgeVisibilitySnapshot['shaChain'] = {
     candidateSha: e.candidateSha ?? null,
     qaVerifiedSha: e.qaVerifiedSha ?? null,
@@ -235,6 +324,7 @@ export async function forgeVisibilitySnapshot(
     splitBranches,
     holds: await listForgeHolds(storyId),
     hold: forgeHoldLine(await latestOpenForgeHold(storyId)),
+    spend,
     divergenceWarning,
   }
 }
