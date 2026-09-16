@@ -35,10 +35,12 @@ nights.
   and exit code). No JSON in the worker's own path.
 - `scripts/forge-doctor.ts` + `workflow_app/forge/forge-doctor-report.ts`: worker liveness is a **query**. The
   log becomes history, read only when the row is absent, and the report says which source answered.
-- `workflow_app/forge/agents/architect-handoff.ts` + the typed-evidence reader: once rows are authoritative,
-  **delete the JSON reply fallbacks** rather than keeping a parser that can outvote the rows.
+- `workflow_app/forge/agents/architect-handoff.ts` — see `ENG-CONTRACT-PARSER-RETIREMENT-01`: the reply-parser
+  retirement is its own story now, so this one stays additive and small. This story does not delete a parser.
 - `lib/forge-kind.ts` + the policy→model map: a policy may name only a **tokens-runnable, headless** model.
-  `judgment` currently resolves to an interactive-only model and must not fill a seat.
+  `judgment` currently resolves toward `deepseek-pro`/`deepseek-chat`, which is interactive-only — so either
+  point `judgment` at the headless model in use (`deepseek-flash`) or route it to `cheap`. **An empty seat is a
+  skip, not a silent no-op**: a lane that cannot be run headless must say so rather than appear to have run.
 
 ## Do not touch
 
@@ -80,7 +82,7 @@ Enforcement is **structural, not rhetorical**:
 turns a value into a row, and it is the ONLY writer. It exists because telling the Architect the rules is not
 enough — the rules must be a failsafe, not a request.
 
-`lib/field-mediator.ts` (new) — `mediateField(declaration, raw)` where a declaration is
+`lib/field-mediator.ts` — **SHIPPED** (`7d6d4390`, shared declarations added since): `mediateField(declaration, raw)` where a declaration is
 `{ field, kind: 'closed' | 'text' | 'number' | 'boolean' | 'sha', accepted?, aliases?, maxLength? }` and the
 result is `{ ok: true, value }` or `{ ok: false, field, accepted, reason }`.
 
