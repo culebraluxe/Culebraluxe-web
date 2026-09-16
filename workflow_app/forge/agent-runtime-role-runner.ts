@@ -1171,7 +1171,22 @@ export function createAgentRuntimeForgeRoleRunner(
       // worktree, plus the live static gate (architecture is the hard gate and a
       // SKIPPED arch gate is not a fail).
       assayCommands: leadRoutingContext.allowedProofs,
-      runCommand: commandRunner(roleCwd),
+      // ASTRA'S ITEM 3(c) (2026-09-16): VERIFY THE TREE STILL HOLDS THE CANDIDATE WHILE WE MEASURE IT. The pin
+      // above proves where we START; nothing proved the workspace had not moved since — a branch switch, a
+      // rebase or a stray checkout mid-run would have produced a verdict about a tree that is not the candidate,
+      // which is the failure this whole lane was fixed for. Every assay command re-checks first, and a moved
+      // workspace is a GAP (a fact for a human), never a failed proof.
+      runCommand: (command: string) => {
+        const headNow = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
+        if (ASSAY_NODES.has(nodeId) && candidateShaForAssay && headNow !== candidateShaForAssay) {
+          throw new Error(
+            `ASSAY_WORKSPACE_MOVED: the workspace is ${headNow.slice(0, 12)} but the candidate is ` +
+              `${candidateShaForAssay.slice(0, 12)} — the tree moved while measuring, so nothing measured here ` +
+              'can certify the candidate (a gap for a human, not a defect to repair)',
+          )
+        }
+        return commandRunner(roleCwd)(command)
+      },
       // The candidate worktree has the code but NO node_modules, so the hard arch
       // gate must be pointed at the PRIMARY checkout's binaries or it silently
       // "skips" — and a skipped arch gate is not a fail. process.cwd() is the
