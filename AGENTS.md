@@ -23,6 +23,11 @@ Ask first
 - Destructive PROD data changes.
 - A second coding queue, a vendor-shaped rules file as source of truth, or two writers on one story.
 - Relaxing the system-wide single-active lock.
+- Driving the engine or editing between Forge runs while the SCHEDULER is live. It ticks every 180s, so a check
+  and an edit are not atomic and two writers will collide (2026-09-15: a manual drive and the poller both
+  claimed work). Stop it first — `pnpm agent:scheduler:stop` — confirm nothing is in flight with
+  `pnpm forge:doctor` (`open engine tasks: 0`, `active claims: 0`), do the work, then resume with
+  `pnpm agent:scheduler:install`.
 
 Never
 
