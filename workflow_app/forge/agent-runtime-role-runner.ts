@@ -1010,78 +1010,10 @@ export function createAgentRuntimeForgeRoleRunner(
     // DEV_OPS receipt). Only the effects the runner can honestly supply are
     // passed; an omitted port is skipped, and the parent gate below still HOLDs
     // when the corresponding field is absent. The parent remains the decider.
-    // The candidate's OWN worktree, computed the same way the serial and split
-    // lanes compute it. Assay commands and the static gate run THERE, never in
-    // this checkout.
-    let roleCwd = workspaces?.worktreesRoot
-      ? deriveWorktreePath(workspaces.worktreesRoot, resolvedStory.id, executionId)
-      : process.cwd()
-    // THE ASSAY MEASURES THE CANDIDATE OR IT DOES NOT MEASURE AT ALL.
-    //
-    // On 2026-09-15 this lane measured a workspace that did not hold the candidate: candidate a54d8639
-    // contained `workflow_app/tests/forge-doctor-report.test.ts` (185 lines, its own frozen proof) and the
-    // Assay reported `Could not find 'workflow_app/tests/forge-doctor-report.test.ts'` with `verified=none`
-    // — then repair was dispatched at code that had never been checked out, reproduced the same SHA, and the
-    // engine walked that loop. A verdict computed against the wrong tree is worse than no verdict, because it
-    // looks like evidence. So pin the workspace to the candidate first, and FAIL CLOSED if it cannot be
-    // pinned: an unpinnable workspace is a verification gap for a human, never a code defect for repair.
-    // THE SHA CROSSES THE FAILSAFE (captain, 2026-09-16). This is the value the entire measurement hangs on:
-    // candidate a54d8639 was reported as `Could not find …` because this number was never verified. So it is
-    // mediated, not trusted — shape tolerance only — and a value that is NOT a sha is refused as a gap for a
-    // human, never dropped into an empty candidate that quietly measures nothing. Absent stays absent and is
-    // handled by the workspace guard below: absence is a different fact from a malformed value.
-    const candidateShaMediation = mediateField(CANDIDATE_SHA, evidence.candidateSha)
-    // THE ASSAY BLOCK BELONGS TO ASSAY LANES (Grok, 2026-09-16). This code sits on the shared collect path, so
-    // without the guard a leftover candidateSha on Lead or Inspector threw a QA-shaped gap for work that never
-    // assays. The lane check is the scope; the refusals below are unchanged for the lanes that do measure.
-    if (ASSAY_NODES.has(nodeId) && !candidateShaMediation.ok && candidateShaMediation.reason !== 'EMPTY') {
-      throw new Error(
-        `ASSAY_WORKSPACE_NOT_CANDIDATE: ${describeRefusal(candidateShaMediation)} — a gap for a human, not a ` +
-          'defect to repair',
-      )
-    }
-    const candidateShaForAssay = candidateShaMediation.ok ? String(candidateShaMediation.value) : ''
-    // THE PRIMARY CHECKOUT IS A LEGAL ASSAY WORKSPACE (Captain, 2026-09-16). Worktree materialization is
-    // reverted, so there is no worktreesRoot and this lane runs in the primary checkout — and the guard that
-    // refused exactly that is what killed the worker on every QA pass (worker 62853, 2026-09-16 07:02,
-    // ASSAY_WORKSPACE_NOT_CANDIDATE at this line). The candidate is still enforced, not trusted: the pin below
-    // detaches HEAD to the mediated candidate SHA and re-reads it, refusing if it did not take. Measuring the
-    // wrong tree stays impossible; refusing to measure at all is no longer an option.
-    if (ASSAY_NODES.has(nodeId) && candidateShaForAssay) {
-      const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
-      if (headBefore !== candidateShaForAssay) {
-        await commandRunner(roleCwd)(`git checkout --detach ${candidateShaForAssay}`)
-        const headAfter = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
-        if (headAfter !== candidateShaForAssay) {
-          throw new Error(
-            `ASSAY_WORKSPACE_NOT_CANDIDATE: assay workspace is ${headAfter.slice(0, 12)} but the candidate ` +
-              `is ${candidateShaForAssay.slice(0, 12)}; refusing to measure a tree that does not hold the ` +
-              'candidate (a gap for a human, not a defect to repair)',
-          )
-        }
-      }
-      // ASTRA'S ITEM 3 (2026-09-16): PINNING THE RIGHT SHA IS NOT ENOUGH.
-      //
-      // (a) A SHORT SHA IS A PREFIX, NOT AN IDENTITY: resolve it to the full commit before trusting it, or two
-      //     different tips can look like the same candidate.
-      const resolvedCandidate =
-        readGit(roleCwd, ['rev-parse', '--verify', `${candidateShaForAssay}^{commit}`])?.trim() ?? ''
-      if (resolvedCandidate === '') {
-        throw new Error(
-          `ASSAY_WORKSPACE_NOT_CANDIDATE: ${candidateShaForAssay} does not resolve to a commit in this ` +
-            'workspace (a gap for a human, not a defect to repair)',
-        )
-      }
-      // (b) A DIRTY TREE CANNOT CERTIFY A CLEAN HEAD: uncommitted edits in the workspace get measured alongside
-      //     the candidate and then reported as the candidate's result. Refuse rather than certify that.
-      const dirty = readGit(roleCwd, ['status', '--porcelain'])
-      if (dirty !== null && dirty.trim() !== '') {
-        throw new Error(
-          `ASSAY_WORKSPACE_DIRTY: the assay workspace has uncommitted changes, so measuring here cannot ` +
-            `certify candidate ${resolvedCandidate.slice(0, 12)} — a gap for a human, not a defect to repair`,
-        )
-      }
-    }
+    // NO TREE FOR QA (Captain, 2026-09-16): QA runs the tests and writes its record to the database. This lane
+    // works in the directory it was given. It does NOT derive a candidate worktree, pin a SHA into someone's
+    // checkout, or measure a tree of its own — "the tree" is not QA's to own, and its verdict is the row.
+    const roleCwd = process.cwd()
     // The candidate diff, read HERE rather than trusting the model's claim. It is
     // the same measurement the serial/split lanes make later; git's diff is the
     // authority for what a Smith actually touched.
@@ -1167,22 +1099,9 @@ export function createAgentRuntimeForgeRoleRunner(
       // worktree, plus the live static gate (architecture is the hard gate and a
       // SKIPPED arch gate is not a fail).
       assayCommands: leadRoutingContext.allowedProofs,
-      // ASTRA'S ITEM 3(c) (2026-09-16): VERIFY THE TREE STILL HOLDS THE CANDIDATE WHILE WE MEASURE IT. The pin
-      // above proves where we START; nothing proved the workspace had not moved since — a branch switch, a
-      // rebase or a stray checkout mid-run would have produced a verdict about a tree that is not the candidate,
-      // which is the failure this whole lane was fixed for. Every assay command re-checks first, and a moved
-      // workspace is a GAP (a fact for a human), never a failed proof.
-      runCommand: (command: string) => {
-        const headNow = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
-        if (ASSAY_NODES.has(nodeId) && candidateShaForAssay && headNow !== candidateShaForAssay) {
-          throw new Error(
-            `ASSAY_WORKSPACE_MOVED: the workspace is ${headNow.slice(0, 12)} but the candidate is ` +
-              `${candidateShaForAssay.slice(0, 12)} — the tree moved while measuring, so nothing measured here ` +
-              'can certify the candidate (a gap for a human, not a defect to repair)',
-          )
-        }
-        return commandRunner(roleCwd)(command)
-      },
+      // NO TREE, SO NOTHING TO PIN: every assay command simply runs (Captain, 2026-09-16). QA's job is to run
+      // the proofs and write the record — the row is the evidence, not a checkout.
+      runCommand: (command: string) => commandRunner(roleCwd)(command),
       // The candidate worktree has the code but NO node_modules, so the hard arch
       // gate must be pointed at the PRIMARY checkout's binaries or it silently
       // "skips" — and a skipped arch gate is not a fail. process.cwd() is the
