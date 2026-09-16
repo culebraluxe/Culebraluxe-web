@@ -31,24 +31,31 @@ export type StaticSlice = {
   knipFindings?: string[]
 }
 
-export type QaVerdict = 'PASS' | 'FAIL' | 'INCOMPLETE'
+/**
+ * THE VERDICT IS "DID THE TESTS PASS" (Captain, 2026-09-16).
+ *
+ * Two states, because that is the whole question. There used to be a third, `INCOMPLETE`, for "we could not
+ * run it" — and it existed to route a gap to a HOLD instead of sending repair after untested code. Repair
+ * is no longer dispatched on a QA failure at all (fail once, stop), so the third state has no job left: a
+ * command that could not run did not pass, and each command's own `unmeasurable` flag records WHY on the
+ * row. QA advises nothing and promotes nothing; it reports what the tests did.
+ */
+export type QaVerdict = 'PASS' | 'FAIL'
 
 export type QaReport = {
   version: 1
-  /** Candidate Smith produced. */
-  evaluatedSha: string
-  verifiedSha: string | null
   verdict: QaVerdict
   commands: CommandResult[]
   staticGate: StaticSlice | null
   blockers: string[]
-  /** Present only when a model is invited AFTER a FAIL to classify, never to verdict. */
-  failureClass?: string | null
 }
 
+/**
+ * What QA is given: the story's frozen proofs, and nothing else. No candidate, no SHA, no lineage — QA has
+ * no relationship to git and no role in committing, promoting or advising on a release.
+ */
 export type AssayPlan = {
-  candidateSha: string
-  /** Frozen story/chunk proofs. Empty plan is INCOMPLETE, never PASS. */
+  /** Frozen story/chunk proofs. Empty means there is nothing to test. */
   commands: string[]
 }
 

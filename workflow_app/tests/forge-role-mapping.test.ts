@@ -172,14 +172,16 @@ test('ENG-QA-SINGLE-VERDICT-01: the QA mapping is a projector, not a second verd
     }),
     current: { candidateSha: SHA },
   })
-  // The candidate MUST ride the evidence: `collectAssayEvidence` binds the assay to
-  // `evidence.candidateSha`. Omitting it left the deterministic Assay with NO_CANDIDATE,
-  // scored INCOMPLETE, and reported a verification GAP on every story — so no story
-  // could ever pass QA. That is exactly why this assertion exists.
-  assert.deepEqual(pass, { candidateSha: SHA })
+  // THE PROJECTOR PROJECTS NOTHING ABOUT THE QA VERDICT (Captain, 2026-09-16: "QA has no relationship to git
+  // PERIOD"). This assertion used to REQUIRE `{ candidateSha: SHA }` on the projection, because the
+  // deterministic Assay could not run without a candidate and reported a gap on every story. The lane needs
+  // no candidate now, so projecting one is not a service to it — it is the git relationship that kept QA
+  // unable to answer a simple question. The mapping must author no verdict AND hand the lane no identity.
+  assert.deepEqual(pass, {}, 'the mapper authors no verdict and hands the lane no SHA')
   assert.equal(pass.qaPassed, undefined, 'the projector must not author a verdict')
   assert.equal(pass.qaVerifiedSha, undefined, 'the projector must not certify a SHA')
-  assert.equal(pass.failureClass, undefined, 'a gap is never a code defect in any projection')
+  assert.equal(pass.candidateSha, undefined, 'the projector must not hand QA a git identity')
+  assert.equal(pass.verificationGap, undefined, 'and must not restore a gap flag')
 
   // Scope C: the FAST lane's deterministic QA node projects the same evidence.
   const fast = forgeEvidenceFromAgentResult({
@@ -201,16 +203,16 @@ test('ENG-QA-SINGLE-VERDICT-01: the QA mapping is a projector, not a second verd
     }),
     current: { candidateSha: SHA },
   })
-  assert.deepEqual(fast, { candidateSha: SHA }, 'the fast lane projects the same candidate and no verdict')
+  assert.deepEqual(fast, {}, 'the fast lane projects no verdict and no SHA either')
 
-  // A durable gap is carried through so the router can see it; the verdict itself is
-  // still not computed here.
+  // A durable gap flag is NOT restored either: the QA lane authors its own outcome, and a fresh read that
+  // has no gap of its own must not inherit one.
   const gap = forgeEvidenceFromAgentResult({
     nodeId: 'qa_verify',
     result: result(),
     current: { candidateSha: SHA, verificationGap: true },
   })
-  assert.deepEqual(gap, { candidateSha: SHA, verificationGap: true })
+  assert.deepEqual(gap, {})
 
   // A mismatched candidate in the agent-runtime evidence cannot manufacture a verdict
   // here: the projector does not read that evidence at all.
@@ -233,7 +235,7 @@ test('ENG-QA-SINGLE-VERDICT-01: the QA mapping is a projector, not a second verd
     }),
     current: { candidateSha: SHA },
   })
-  assert.deepEqual(mismatch, { candidateSha: SHA })
+  assert.deepEqual(mismatch, {}, 'the projector reads no assay evidence, so no SHA can ride through it')
 })
 
 test('ENG-FORGE-V10: DEV_OPS deployment and smoke require exact-artifact receipts', () => {

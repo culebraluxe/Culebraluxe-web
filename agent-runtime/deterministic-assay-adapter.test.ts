@@ -154,8 +154,9 @@ test('deterministic Assay executes frozen Story Run commands, not stale envelope
     assert.equal(evidence?.runtimeAdapter, 'forge-assay')
     assert.equal(evidence?.resultStatus, 'Complete')
     assert.equal(evidence?.assayEvidence?.verdict, 'PASS')
-    assert.equal(evidence?.assayEvidence?.candidateSha, w.sha)
-    assert.equal(evidence?.assayEvidence?.verifiedSha, w.sha)
+    // NO GIT IDENTITY ON A QA RESULT (Captain, 2026-09-16): the evidence is the tests.
+    assert.equal(evidence?.assayEvidence?.candidateSha, null)
+    assert.equal(evidence?.assayEvidence?.verifiedSha, null)
   } finally {
     w.cleanup()
   }
@@ -222,7 +223,11 @@ test('deterministic Assay: a stalled command times out and terminalizes (never h
   }
 })
 
-test('deterministic Assay: no candidate directive falls back to worktree HEAD (no CANDIDATE_MISMATCH loop)', async () => {
+test('deterministic Assay needs no candidate directive and no worktree: the tests are the verdict', async () => {
+  // This test used to prove the lane fell back to the worktree HEAD so it could satisfy its own
+  // CANDIDATE_MISMATCH check. That check is gone (Captain, 2026-09-16 — QA has no relationship to git), so
+  // what is pinned now is the thing that actually matters: with no candidate directive, and with no
+  // execution workspace at all, a green test run is a PASS.
   const w = workspace()
   try {
     const runner: AssayCommandRunner = async ({ command }) => ({
@@ -235,26 +240,32 @@ test('deterministic Assay: no candidate directive falls back to worktree HEAD (n
       stdoutTail: 'clean',
       stderrTail: '',
     })
-    // NOTE: deliberately NO withAssayCandidateDirective - simulate the engine
-    // forgetting to pin the candidate. The worktree HEAD must stand in for it.
     const instructions = withAssayPlanDirective('stale plan', {
       mode: 'FULL',
       commands: ['must-not-run-from-envelope'],
     })
     const cmd = command(instructions)
-    const ctx = context(w.cwd, w.sha, cmd, 'verify-one\nverify-two')
+    // NO executionWorkspace: the lane runs in the directory it is given.
+    const ctx: AgentExecutionContext = {
+      command: cmd,
+      story: context(w.cwd, w.sha, cmd, 'verify-one\nverify-two').story,
+      policy: { allowCommit: false, allowDevDbWrite: false, allowControlPlaneWrite: true },
+      capabilities: [],
+      storyRunId: 'run-1',
+    }
     const adapter = new ExposedAssay(
       { work: {} as never, runs: {} as never },
       { runCommand: runner, commandTimeoutMs: 1_000 },
     )
     await adapter.startForTest(ctx)
     const status = await terminalStatus(adapter, cmd, ctx)
-    assert.equal(status.lifecycle, 'success')
     const evidence = await adapter.resultForTest(cmd, ctx)
+
+    assert.equal(status.lifecycle, 'success')
     assert.equal(evidence?.resultStatus, 'Complete')
     assert.equal(evidence?.assayEvidence?.verdict, 'PASS')
-    assert.equal(evidence?.assayEvidence?.candidateSha, w.sha)
-    assert.equal(evidence?.assayEvidence?.verifiedSha, w.sha)
+    assert.equal(evidence?.assayEvidence?.candidateSha, null)
+    assert.equal(evidence?.assayEvidence?.verifiedSha, null)
   } finally {
     w.cleanup()
   }

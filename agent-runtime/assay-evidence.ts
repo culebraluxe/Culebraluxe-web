@@ -143,22 +143,16 @@ export function parseAssayTestCounters(output: string): AssayTestCounters {
 /**
  * Pure arithmetic Assay verdict. No tests_summary, notes, model prose, or
  * sentiment scan can influence this function.
+ *
+ * AND NO GIT IDENTITY (Captain, 2026-09-16). This used to open by comparing a candidate SHA with a verified
+ * SHA and returning CANDIDATE_MISMATCH when either was missing or they differed — which meant a QA whose
+ * tests all passed reported FAIL, with a code about labels, because it had no SHA to compare (measured
+ * 2026-09-16: both drives held on CANDIDATE_MISMATCH while the proofs were never in question). QA answers
+ * one question: did the tests pass. The SHA fields on this type are vestigial and unused here.
  */
 export function evaluateAssayEvidence(
   evidence: Omit<AssayEvidence, 'verdict' | 'failureCode' | 'failureDetail'>,
 ): AssayVerdict {
-  const candidate = normalizeSha(evidence.candidateSha)
-  const verified = normalizeSha(evidence.verifiedSha)
-  if (!candidate || !verified || candidate !== verified) {
-    return {
-      pass: false,
-      failureCode: 'CANDIDATE_MISMATCH',
-      detail:
-        `Assay candidate mismatch: candidate=${candidate ?? '(none)'} ` +
-        `verified=${verified ?? '(none)'}.`,
-    }
-  }
-
   if (evidence.requiredCommands.length === 0) {
     return {
       pass: false,

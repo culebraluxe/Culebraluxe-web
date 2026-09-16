@@ -81,9 +81,9 @@ export function forgeRoleNodePlan(nodeId: string): ForgeRoleNodePlan {
     case 'qa_verify':
       return {
         lane: 'assay',
-        evidenceInstruction:
-          `${STRUCTURED_PREFIX} {"disposition":"REPAIR|REPLAN|ESCALATE","failedCriteria":["..."],"failedCommands":["..."]} ` +
-          '(on FAIL, emit the machine disposition REPAIR/REPLAN/ESCALATE plus failed criteria/commands; REPAIR = plan valid, REPLAN = plan invalid, ESCALATE = cannot auto-recover)',
+        // QA ASKS NOBODY FOR A VERDICT (Captain, 2026-09-16): it is a deterministic test runner, so there
+        // is no disposition to request, no failure to classify, and no release advice to give. The lane runs
+        // the story's frozen proofs and writes what they did.
       }
     case 'repair_devops':
     case 'deploy':
@@ -298,27 +298,18 @@ export function forgeEvidenceFromAgentResult(input: {
       return { ...marked, qaReviewPassed: clean }
     case 'qa_verify':
     case 'fast_qa_verify': {
-      // PROJECTOR ONLY (ENG-QA-SINGLE-VERDICT-01). The QA verdict has exactly one
-      // author: `adjudicateAssay` (workflow_app/forge/agents/qa/run.ts), applied by
-      // `collectAssayEvidence` via `QAAgent.collect` AFTER this projection. This branch
-      // used to read `result.assayEvidence.verdict`/`verifiedSha` and write
-      // `qaPassed`/`qaVerifiedSha`/`failureClass` itself — a second verdict author whose
-      // `CODE_DEFECT` survived collect (which spreads evidence and never clears
-      // `failureClass`), so a gap adjudicated INCOMPLETE after mapping was persisted as
-      // `verificationGap:true` AND `failureClass:CODE_DEFECT`.
+      // PROJECTOR, AND NOTHING ELSE — QA HAS NO RELATIONSHIP TO GIT (Captain, 2026-09-16).
       //
-      // It now projects only what the collector needs to bind the assay: the candidate
-      // SHA from the durable evidence, and the durable gap flag when one was already
-      // recorded. `assayEvidence.verdict` is typed PASS|FAIL and cannot express
-      // INCOMPLETE, so it is not consulted at all; `QaVerdict` (PASS|FAIL|INCOMPLETE) is
-      // the only verdict type on this path.
-      const candidate = commitSha(current.candidateSha)
-      const verificationGap = current.verificationGap === true
-      return {
-        ...marked,
-        ...(candidate ? { candidateSha: candidate } : {}),
-        ...(verificationGap ? { verificationGap: true } : {}),
-      }
+      // The QA verdict has exactly one author: `adjudicateAssay` (agents/qa/run.ts), applied by
+      // `collectAssayEvidence`. This branch used to read `result.assayEvidence.verdict`/`verifiedSha` and
+      // write a verdict of its own (a second author), and later projected the durable candidate SHA and the
+      // durable `verificationGap` flag into the lane so the collector could "bind the assay" — which is how
+      // a QA that had nothing to do with git ended up requiring a SHA, a worktree and a promotion check to
+      // report a test result.
+      //
+      // It now projects NOTHING about the verdict. The lane runs the story's frozen proofs in the directory
+      // it is given and reports pass or fail; there is no candidate to hand it and no gap flag to restore.
+      return marked
     }
     case 'deploy': {
       const published = commitSha(current.publishedSha)

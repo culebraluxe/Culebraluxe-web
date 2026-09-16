@@ -72,12 +72,15 @@ test('passed must equal total when both counters exist', () => {
   assert.equal(evaluateAssayEvidence(evidence).pass, false)
 })
 
-test('candidate SHA mismatch fails before publication', () => {
+test('the Assay verdict consults NO git identity (Captain, 2026-09-16)', () => {
+  // This test used to assert that a candidate/verified SHA mismatch failed the assay. QA HAS NO RELATIONSHIP
+  // TO GIT: it cannot even produce those values any more (both are always null), so the check was not just
+  // wrong for the new design, it was unreachable. What matters is pinned here instead: whatever a SHA field
+  // says, the verdict is the tests' arithmetic. Lineage on the release path is checked where the release
+  // happens, not by QA.
   const evidence = base()
   evidence.verifiedSha = 'c'.repeat(40)
-  const verdict = evaluateAssayEvidence(evidence)
-  assert.equal(verdict.pass, false)
-  assert.equal(verdict.failureCode, 'CANDIDATE_MISMATCH')
+  assert.equal(evaluateAssayEvidence(evidence).pass, true, 'a SHA cannot fail a green test run')
 })
 
 test('all required commands must execute in immutable order', () => {

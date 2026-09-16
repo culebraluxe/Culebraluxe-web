@@ -111,43 +111,59 @@ const cmd = (command: string, exitCode: number) => ({
   excerpt: '',
 })
 
-test('assay: an empty plan is INCOMPLETE, never PASS', () => {
-  const report = adjudicateAssay({ plan: { candidateSha: 'abc123', commands: [] }, commands: [] })
-  assert.equal(report.verdict, 'INCOMPLETE')
-  assert.equal(report.verifiedSha, null)
+test('assay: nothing to test is nothing to block on (Captain, 2026-09-16)', () => {
+  // OVERTURNED BY THE CAPTAIN: this test used to require INCOMPLETE, which HOLDs the chain, so a QA lane
+  // with no test plan to run blocked everything downstream. His rule: "it should never block anything — if
+  // there is nothing to test then go to sleep". An empty plan is nothing to do, not something wrong; the
+  // READY GATE is what refuses a story with no assayable contract.
+  const report = adjudicateAssay({ plan: { commands: [] }, commands: [] })
+  assert.equal(report.verdict, 'PASS')
+  assert.deepEqual(report.blockers, [])
 })
 
-test('assay: a non-zero command is FAIL and certifies no SHA', () => {
+test('assay: the verdict is the tests. No SHA is read, echoed or reported', () => {
+  // QA HAS NO RELATIONSHIP TO GIT (Captain, 2026-09-16). The report carries no git identity at all, so
+  // nothing downstream can make a verdict depend on one.
+  const command = 'node --test x.test.ts'
+  const report = runAssay({ plan: { commands: [command] }, runCommand: () => cmd(command, 0) })
+  assert.equal(report.verdict, 'PASS')
+  assert.deepEqual(
+    Object.keys(report).filter((k) => /sha/i.test(k)),
+    [],
+    'no SHA field on a QA report',
+  )
+})
+
+test('assay: a non-zero command is FAIL and names the command that failed', () => {
+  const command = 'node --test x.test.ts'
+  const report = adjudicateAssay({ plan: { commands: [command] }, commands: [cmd(command, 1)] })
+  assert.equal(report.verdict, 'FAIL')
+  assert.deepEqual(report.blockers, [`CMD_FAIL ${command}`])
+})
+
+test('assay: a command that could not run did NOT pass, and says why', () => {
+  // The third verdict is gone: "did the tests pass" has two answers. A command that never started did not
+  // pass, and its own `unmeasurable` flag is what records that on the row.
   const command = 'node --test x.test.ts'
   const report = adjudicateAssay({
-    plan: { candidateSha: 'abc123', commands: [command] },
-    commands: [cmd(command, 1)],
+    plan: { commands: [command] },
+    commands: [{ ...cmd(command, -1), passed: false, unmeasurable: true }],
   })
   assert.equal(report.verdict, 'FAIL')
-  assert.equal(report.verifiedSha, null)
-})
-
-test('assay: PASS binds verifiedSha to the candidate SHA', () => {
-  const command = 'node --test x.test.ts'
-  const report = runAssay({
-    plan: { candidateSha: 'abc123', commands: [command] },
-    runCommand: () => cmd(command, 0),
-  })
-  assert.equal(report.verdict, 'PASS')
-  assert.equal(report.verifiedSha, 'abc123')
+  assert.deepEqual(report.blockers, [`CMD_UNMEASURABLE ${command}`])
 })
 
 test('assay: the architecture gate fails the story; a skipped arch gate does not', () => {
   const command = 'node --test x.test.ts'
   const failed = adjudicateAssay({
-    plan: { candidateSha: 'abc123', commands: [command] },
+    plan: { commands: [command] },
     commands: [cmd(command, 0)],
     staticGate: { archRan: true, archOk: false, archErrors: ['cycle'] },
   })
   assert.equal(failed.verdict, 'FAIL')
 
   const skipped = adjudicateAssay({
-    plan: { candidateSha: 'abc123', commands: [command] },
+    plan: { commands: [command] },
     commands: [cmd(command, 0)],
     staticGate: { archRan: false, archOk: false, archErrors: [] },
   })

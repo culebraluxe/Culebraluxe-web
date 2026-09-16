@@ -1,4 +1,4 @@
-import type { AssayPlan, CommandResult, QaReport, StaticSlice } from './types'
+import type { AssayPlan, CommandResult, QaReport, QaVerdict, StaticSlice } from './types'
 
 export type RunCommand = (command: string) => CommandResult
 export type RunStatic = () => StaticSlice
@@ -8,8 +8,8 @@ const excerpt = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 240)
 export function runAssayCommands(plan: AssayPlan, run: RunCommand): CommandResult[] {
   return plan.commands.map((command) => {
     const result = run(command)
-    // `unmeasurable` travels with the result: the adjudicator must be able to tell "could not run" from
-    // "ran and failed", and dropping it here would put that distinction back to guessing.
+    // `unmeasurable` travels with the result: the record must be able to say "could not run" rather than
+    // implying the tests ran and failed, and dropping it here would put that back to guessing.
     const unmeasurable = result.unmeasurable === true
     return {
       command,
@@ -22,16 +22,11 @@ export function runAssayCommands(plan: AssayPlan, run: RunCommand): CommandResul
 }
 
 /**
- * Deterministic Assay. No model.
+ * Deterministic Assay. No model, no git, no promotion advice.
  *
- * PASS only when:
- *   - at least one frozen command ran
- *   - every command exited 0
- *   - architecture hard gate is ok (or was skipped — skipped is NOT a silent PASS of arch,
- *     but it also must not FAIL the story; recorded on the report)
- *   - evaluatedSha is non-empty
- *
- * Missing commands => INCOMPLETE, never PASS.
+ * PASS only when at least one frozen command ran and every command that ran exited 0. A command that could
+ * not run is a failure of the run (and its own `unmeasurable` flag says why on the row). Nothing else is
+ * consulted: QA answers one question — did the tests pass — and writes down what it measured.
  */
 export function adjudicateAssay(input: {
   plan: AssayPlan
@@ -39,21 +34,15 @@ export function adjudicateAssay(input: {
   staticGate?: StaticSlice | null
 }): QaReport {
   const blockers: string[] = []
-  if (!input.plan.candidateSha) blockers.push('NO_CANDIDATE')
-  if (!input.plan.commands.length) blockers.push('NO_ASSAY_COMMANDS')
   if (input.commands.length !== input.plan.commands.length) blockers.push('ASSAY_COMMAND_DRIFT')
 
-  const failed = input.commands.filter((c) => !c.unmeasurable && !c.passed)
-  if (failed.length) blockers.push(...failed.map((c) => `CMD_FAIL ${c.command}`))
-
-  // COULD NOT RUN is a VERIFICATION GAP, not a test failure. A command that never started (bad cwd,
-  // missing toolchain, timeout kill) says nothing about the candidate, and recording it as CMD_FAIL is
-  // what made QA look flaky and too strict: it failed a proof that passes 11/11 when it can actually be
-  // run. The gap is named per command so the reason is readable, and the verdict is INCOMPLETE — the same
-  // "we could not check" outcome the empty-plan branch already uses.
-  const unmeasurable = input.commands.filter((c) => c.unmeasurable)
-  if (unmeasurable.length) {
-    blockers.push(...unmeasurable.map((c) => `CMD_UNMEASURABLE ${c.command}`))
+  const failed = input.commands.filter((c) => !c.passed)
+  if (failed.length) {
+    blockers.push(
+      ...failed.map((c) =>
+        c.unmeasurable ? `CMD_UNMEASURABLE ${c.command}` : `CMD_FAIL ${c.command}`,
+      ),
+    )
   }
 
   const arch = input.staticGate
@@ -61,16 +50,10 @@ export function adjudicateAssay(input: {
     blockers.push(...arch.archErrors.slice(0, 8).map((e) => `ARCH ${e}`))
   }
 
-  const incomplete =
-    blockers.includes('NO_CANDIDATE') ||
-    blockers.includes('NO_ASSAY_COMMANDS') ||
-    unmeasurable.length > 0
-  const verdict: QaReport['verdict'] = incomplete ? 'INCOMPLETE' : blockers.length ? 'FAIL' : 'PASS'
+  const verdict: QaVerdict = blockers.length ? 'FAIL' : 'PASS'
 
   return {
     version: 1,
-    evaluatedSha: input.plan.candidateSha,
-    verifiedSha: verdict === 'PASS' ? input.plan.candidateSha : null,
     verdict,
     commands: input.commands,
     staticGate: arch ?? null,

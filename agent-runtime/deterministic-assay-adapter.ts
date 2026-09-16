@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { execFileSync } from 'node:child_process'
 
 import {
   AgentRuntimeAdapter,
@@ -12,10 +11,8 @@ import type {
   AgentWorkCommand,
 } from './types'
 import { ASSAY_CAPABILITIES } from './lanes'
-import { gitBinary } from '../lib/worker-workspace/provisioner'
 import type { AgentCapability } from './capabilities'
 import {
-  assayCandidateFromInstructions,
   assayEvidenceSummary,
   finalizeAssayEvidence,
   parseAssayTestCounters,
@@ -184,19 +181,6 @@ export async function runAssayCommand(input: {
   })
 }
 
-function gitHead(cwd: string): string | null {
-  try {
-    const value = execFileSync(gitBinary(), ['rev-parse', 'HEAD'], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim().toLowerCase()
-    return /^[0-9a-f]{40}$/.test(value) ? value : null
-  } catch {
-    return null
-  }
-}
-
 function failedCommandResult(command: string, error: unknown): AssayCommandResult {
   return {
     command,
@@ -238,19 +222,16 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     this.evidence = null
     this.execution = this.executePlan(context)
       .catch(async (error) => {
-        const workspace = context.executionWorkspace?.worktreePath ?? null
-        const verifiedSha = workspace ? gitHead(workspace) : null
-        const candidateSha =
-          assayCandidateFromInstructions(context.command.specialInstructions) ??
-          verifiedSha
+        // A runtime exception is recorded with the SAME shape as a normal run: what was planned, what ran
+        // (nothing), and the violation. No git identity — QA records tests, not commits.
         const frozenPlan = planAssay({
           testMode: context.story.testMode,
           assayCommands: context.story.assayCommands,
         })
         this.evidence = finalizeAssayEvidence({
           version: 1,
-          candidateSha,
-          verifiedSha,
+          candidateSha: null,
+          verifiedSha: null,
           requiredCommands: frozenPlan.ok ? frozenPlan.commands : [],
           commandResults: [],
           policyViolations: [
@@ -276,38 +257,31 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
 
   private async executePlan(context: AgentExecutionContext): Promise<void> {
     const startedAt = new Date().toISOString()
-    const instructions = context.command.specialInstructions
+    // NO INSTRUCTIONS ARE READ. The lane used to parse a candidate directive out of the task text; QA has no
+    // relationship to git, so there is nothing in the task for it to parse.
     const frozenPlan = planAssay({
       testMode: context.story.testMode,
       assayCommands: context.story.assayCommands,
     })
     const plan = frozenPlan.ok ? frozenPlan : null
-    const workspace = context.executionWorkspace?.worktreePath ?? null
-    const verifiedSha = workspace ? gitHead(workspace) : null
-    // Fall back to the worktree HEAD when no explicit candidate directive was
-    // stamped: the QA worktree IS the Smith candidate. Without this, an engine
-    // that does not pin the directive can never PASS (CANDIDATE_MISMATCH -> the
-    // infinite repair-Smith loop). Exact-SHA pinning still wins when present.
-    const candidateSha =
-      assayCandidateFromInstructions(instructions) ?? verifiedSha
+    // THE DIRECTORY QA RUNS IN — and the only thing it needs (Captain, 2026-09-16). No worktree is
+    // required and none is derived: the lane works where it was told to work.
+    const workspace = context.executionWorkspace?.worktreePath ?? process.cwd()
     const policyViolations: string[] = []
     const commandResults: AssayCommandResult[] = []
     const requiredCommands = plan?.commands ?? []
 
-    if (!workspace) {
-      policyViolations.push(
-        'Assay requires an isolated exact-candidate worktree; no execution workspace was provided.',
-      )
-    }
+    // NO CANDIDATE, NO SHA, NO LINEAGE. QA answers one question — did the tests pass — and it answers it by
+    // running the story's frozen proofs in the directory above. This lane used to push two policy violations
+    // that hinged on an isolated candidate worktree and an "immutable candidate SHA": with no tree both were
+    // unsatisfiable, so every run FAILED with CANDIDATE_MISMATCH while the tests themselves were never in
+    // question (measured 2026-09-16, both drives). That is what made QA look broken and blocked the chain.
     if (!plan || requiredCommands.length === 0) {
       policyViolations.push(
         frozenPlan.ok
           ? 'Assay frozen Story Run command plan is empty.'
           : `Assay frozen Story Run plan is invalid: ${frozenPlan.reason}`,
       )
-    }
-    if (!candidateSha) {
-      policyViolations.push('Assay immutable candidate SHA is missing or invalid.')
     }
 
     if (plan?.mode !== 'FULL') {
@@ -322,23 +296,21 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
     }
 
     let env: Record<string, string | undefined> | null = null
-    if (workspace && policyViolations.length === 0) {
-      try {
-        const target = parseExecutionEnvironment(
-          context.executionEnvironment ?? context.command.executionEnvironment,
-          'DEV',
-        )
-        assertExecutionTargetSafe(target)
-        verifyWorkspaceEnvFile(workspace, target)
-        env = buildChildProcessEnv(target)
-      } catch (error) {
-        policyViolations.push(
-          `Execution-target safety rejected Assay: ${String((error as Error)?.message ?? error)}`,
-        )
-      }
+    try {
+      const target = parseExecutionEnvironment(
+        context.executionEnvironment ?? context.command.executionEnvironment,
+        'DEV',
+      )
+      assertExecutionTargetSafe(target)
+      verifyWorkspaceEnvFile(workspace, target)
+      env = buildChildProcessEnv(target)
+    } catch (error) {
+      policyViolations.push(
+        `Execution-target safety rejected Assay: ${String((error as Error)?.message ?? error)}`,
+      )
     }
 
-    if (workspace && env && policyViolations.length === 0) {
+    if (env && policyViolations.length === 0) {
       const timeoutMs =
         this.config.commandTimeoutMs ??
         Number(process.env.FORGE_ASSAY_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS)
@@ -388,7 +360,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
       policyViolations.length === 0 &&
       commandResults.length === requiredCommands.length &&
       commandResults.every((r) => r.exitCode === 0)
-    if (workspace && allCommandsPassed && !this.cancelled) {
+    if (allCommandsPassed && !this.cancelled) {
       try {
         const gate = runStaticGate({ workspace, config: '.dependency-cruiser.js' })
         if (!gate.archOk) {
@@ -401,7 +373,7 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
         await recordStaticGateArtifact({
           storyId: context.story.id,
           storyRunId: context.storyRunId,
-          sha: candidateSha ?? verifiedSha ?? null,
+          sha: null,
           archOk: gate.archOk,
           archErrorCount: gate.archErrors.length,
           semgrepRan: gate.semgrepRan,
@@ -421,8 +393,12 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
 
     this.evidence = finalizeAssayEvidence({
       version: 1,
-      candidateSha,
-      verifiedSha,
+      // QA RECORDS NO GIT IDENTITY (Captain, 2026-09-16). The evidence is the tests: what ran, what each
+      // returned, and whether it could run at all. The SHA fields on this type are vestigial here and are
+      // always null — QA has no relationship to git, no role in committing, promoting or advising on a
+      // release.
+      candidateSha: null,
+      verifiedSha: null,
       requiredCommands,
       commandResults,
       policyViolations,
