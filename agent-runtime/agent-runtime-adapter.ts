@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { captureServerLog } from '../lib/server-error-capture'
+import { recordToolArtifact } from '../db/forge-artifact'
 import type {
   AgentExecutionContext,
   AgentRunEvidence,
@@ -450,7 +451,39 @@ export abstract class AgentRuntimeAdapter {
     }
   }
 
+  /**
+   * EVERY AGENT WRITES ITS ARTIFACT TO NEON (Captain, 2026-09-16). This is the base class's single funnel: every
+   * adapter returns its evidence through here, so ONE write puts a verdict row in `forge_tool_artifact` for every
+   * lane — by inheritance, not by each lane remembering to do it. The verdict, summary and sha come straight from
+   * the run row; nothing is inferred. A failed write warns and never fails the run, because a missing artifact
+   * row must be visible rather than crash the lane that produced it.
+   */
   protected async normalizeEvidenceFromRun(
+    runId: string,
+    command: AgentWorkCommand,
+  ): Promise<AgentRunEvidence> {
+    const evidence = await this.normalizeEvidenceFromRunInner(runId, command)
+    try {
+      await recordToolArtifact({
+        storyId: command.storyId,
+        storyRunId: runId,
+        tool: this.runtimeAdapterId,
+        kind: 'run-verdict',
+        verdict: evidence.resultStatus,
+        summary: evidence.testsSummary ?? null,
+        sha: evidence.commitHash ?? null,
+        detail: { notes: evidence.notes },
+      })
+    } catch (err) {
+      captureServerLog('warn', 'agent-runtime.artifact-write', `${this.runtimeAdapterId} ${runId}: ${(err as Error).message}`)
+      console.warn(
+        `artifact write skipped (${this.runtimeAdapterId} run ${runId}): ${(err as Error).message}`,
+      )
+    }
+    return evidence
+  }
+
+  private async normalizeEvidenceFromRunInner(
     runId: string,
     command: AgentWorkCommand,
   ): Promise<AgentRunEvidence> {
