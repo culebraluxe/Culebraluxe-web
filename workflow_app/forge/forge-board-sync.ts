@@ -292,10 +292,20 @@ export function deriveBoardSync(input: {
 }
 
 /**
- * The durable note. It names the commits that shipped the work and states
- * EXPLICITLY whether PROD holds run/work-item evidence for it — an absence is
- * recorded as an absence, never papered over with an estimate.
+ * ASTRA'S ITEM 6 (2026-09-16): 100 IS ONLY TRUE WITH `Complete`, IN THE SAME WRITE.
+ *
+ * Four rows read `completion = 100` while their status said `Hold` or `In Progress` — 249 rows were honest.
+ * A completion without the status it implies is a claim nobody verified, and it survives in the board for
+ * months because nothing checks it. This predicate is the rule; the planner below satisfies it by construction,
+ * the applier must call it before it writes, and it is exported so a future write path cannot forget it.
+ *
+ * Deliberately NOT receipt-gated yet (Grok's refinement): the release record has zero rows, so requiring an
+ * eligible receipt today would freeze every future completion. The order is: this rule first, the receipt
+ * requirement once a real release has produced a row.
  */
+export function completionIsLegal(completion: number | null, resultingStatus: string): boolean {
+  return completion !== 100 || resultingStatus === 'Complete'
+}
 export function buildSyncNote(input: {
   storyId: string
   ship: ShipEvidence
