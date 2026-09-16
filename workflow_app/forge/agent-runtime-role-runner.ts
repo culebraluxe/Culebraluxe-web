@@ -1041,17 +1041,12 @@ export function createAgentRuntimeForgeRoleRunner(
       )
     }
     const candidateShaForAssay = candidateShaMediation.ok ? String(candidateShaMediation.value) : ''
-    if (ASSAY_NODES.has(nodeId) && candidateShaForAssay && roleCwd === process.cwd()) {
-      // NO WORKTREE IS NOT PERMISSION TO MEASURE THE OPERATOR'S CHECKOUT (Grok, 2026-09-16). Without a
-      // worktreesRoot this lane fell back to process.cwd() — the pin was skipped for exactly that case and the
-      // proofs ran against whatever HEAD the worker happened to hold. A lane that cannot materialize the
-      // candidate records a GAP; it never assays the primary tree, and it never provisions a workspace of its
-      // own (that is the executor's business).
-      throw new Error(
-        'ASSAY_WORKSPACE_NOT_CANDIDATE: no worktree to pin this assay to, and the primary checkout is never ' +
-          'the candidate (a gap for a human, not a defect to repair)',
-      )
-    }
+    // THE PRIMARY CHECKOUT IS A LEGAL ASSAY WORKSPACE (Captain, 2026-09-16). Worktree materialization is
+    // reverted, so there is no worktreesRoot and this lane runs in the primary checkout — and the guard that
+    // refused exactly that is what killed the worker on every QA pass (worker 62853, 2026-09-16 07:02,
+    // ASSAY_WORKSPACE_NOT_CANDIDATE at this line). The candidate is still enforced, not trusted: the pin below
+    // detaches HEAD to the mediated candidate SHA and re-reads it, refusing if it did not take. Measuring the
+    // wrong tree stays impossible; refusing to measure at all is no longer an option.
     if (ASSAY_NODES.has(nodeId) && candidateShaForAssay) {
       const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
       if (headBefore !== candidateShaForAssay) {
