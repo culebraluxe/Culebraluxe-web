@@ -314,6 +314,25 @@ export async function runLearnPass(input: {
         windowEnd: windowEndIso,
       }),
     )
+    // D (Grok, 2026-09-15): this file lands on the PRIMARY checkout, and the unattended worker's next tick
+    // opens with `git pull --ff-only`, which dies on a dirty tree. Observed live: three
+    // LEARN-SWALLOWED-CATCH-*.md packets sitting untracked, waiting to block a pull. The pass that writes the
+    // file also COMMITS it — current branch, NO push: a learn packet is history, not a release.
+    if (input.apply && packetWritten) {
+      const relative = join('docs/agent/packets', `${storyId}.md`)
+      try {
+        execFileSync('git', ['add', '--', relative], { cwd: input.root, stdio: 'ignore' })
+        execFileSync('git', ['commit', '-q', '-m', `learn: packet ${storyId}`, '--', relative], {
+          cwd: input.root,
+          stdio: 'ignore',
+        })
+      } catch (err) {
+        // Never fail the pass for this: the row and the story are already durable, and a packet left dirty is
+        // visible on the next tick's git-sync. The warning lands in the worker log, where an unattended
+        // failure has to be legible.
+        console.warn(`learn: packet not committed (${relative}): ${(err as Error).message}`)
+      }
+    }
 
     let batchId: string | null = null
     if (via === 'ready') {

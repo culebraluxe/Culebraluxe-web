@@ -24,6 +24,18 @@ export type ForgeModelPolicy = (typeof FORGE_MODEL_POLICIES)[number]
 export const DEFAULT_FORGE_KIND: ForgeKind = 'fix'
 export const DEFAULT_MODEL_POLICY: ForgeModelPolicy = 'cheap'
 
+/**
+ * THE POLICY AXIS AND THE LAB AXIS MUST NOT SHARE A WORD (Grok, 2026-09-15).
+ *
+ * `judgment` as a POLICY means "dear DeepSeek chat" — it is a SPEND grade. `judgment-lab` means Grok, a
+ * different seat entirely. Printing `judgment` in a log line, a cockpit chip or an ROI row reads as the lab,
+ * so every human-facing label says `dear` (or `cheap`) while the stored value stays exactly as it is. This is
+ * a display name: never a second policy, never a reason to route a lane to another model.
+ */
+export function forPolicyLabel(policy: ForgeModelPolicy): string {
+  return policy === 'judgment' ? 'dear' : 'cheap'
+}
+
 /** The first lane a kind starts in. It does NOT replace Lead's SMITH/SPLIT decision later. */
 export type ForgeLaneStart = 'Scout' | 'Architect' | 'Assay'
 
