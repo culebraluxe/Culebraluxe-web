@@ -38,6 +38,7 @@ Ask first
 
 Never
 
+- Commit secrets or `.env.local`.
 - Create a worktree, a per-lane tree, or any file-based parallel to the database workflow.
   **NO TREES. EVER.** There is ONE workflow and it is the rows (`forge_tool_artifact`,
   `storyboard_story_run`, `forge_engine_task_execution`, `app_error`). A tree is not scratch a lane may
