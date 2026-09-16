@@ -383,12 +383,14 @@ export async function listActiveAgentWorkForStory(
 }
 
 /**
- * Every work item that is HOLDING THE SINGLE-ACTIVE LOCK, newest claim first.
+ * Every work item that is HOLDING THE CLAIM LOCK FOR ITS OWN STORY, newest claim first.
  *
- * `claimSpecificAgentWork` refuses while ANY item anywhere is Claimed/Running/Paused — that
- * is the system-wide single-active rule, and it is deliberate. What was missing was the
- * ability to say WHO is holding it: a claim that failed only reported "could not claim",
- * which is unactionable when the blocker is another story's remainder from an hour ago.
+ * `claimSpecificAgentWork` refuses only while an item of the SAME STORY is Claimed/Running/Paused (the
+ * per-story rule since 2026-09-16; before that it refused while any item anywhere was active, which serialized
+ * every story behind every other story). What was missing was the ability to say WHO is holding it: a claim
+ * that failed only reported "could not claim", which is unactionable when the blocker is another story's
+ * remainder from an hour ago — and reporting *other* stories' items as blockers of this one would now be a
+ * different lie, so the reader stays scoped to the story it was asked about.
  *
  * Read-only. The runner uses it only to explain a refusal, never to route around one.
  */
@@ -495,11 +497,20 @@ export async function claimSpecificAgentWork(
           select id from agent_work_item
           where state in ('Claimed', 'Running', 'Paused')
             and parallel_group_id is null
+            and story_id = (select story_id from agent_work_item where id = ${workItemId})
           limit 1
         `
       : await tx`
+          -- ONE SERIAL CHAIN PER STORY, NOT ONE PER SYSTEM (Captain, 2026-09-16). The historical rule refused
+          -- any serial claim while ANY item anywhere was active, which queued every story behind every other
+          -- story: three stories ready, one ran. PROD's own index already states what was meant —
+          -- agent_work_item_one_serial_active_per_story — and the invariant the lock exists to protect is
+          -- "never two writers on ONE story". Scoping to the story preserves that exactly while letting
+          -- different stories run concurrently. The advisory lock above still serializes the claim transaction
+          -- itself, and the per-slot index still guards split siblings.
           select id from agent_work_item
           where state in ('Claimed', 'Running', 'Paused')
+            and story_id = (select story_id from agent_work_item where id = ${workItemId})
           limit 1
         `
     if (activeRows.length > 0) return null
