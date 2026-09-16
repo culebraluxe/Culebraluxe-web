@@ -61,13 +61,14 @@ import {
   recordSplitChildCandidate,
 } from '../../db/forge-split-children'
 import { splitJoinHoldReasons } from './split-join'
-import { getStoryboardStory, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
+import { getStoryboardStory, listStoryCommitHashes, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { assertForgeExecutionTarget, assertForgeLaneMayStart } from './forge-execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { assessArchitectBrief } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
+import { storyScopeBase } from './story-scope-base'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
 import { CANDIDATE_SHA, describeRefusal, mediateField } from '../../lib/field-mediator'
@@ -363,6 +364,18 @@ export function createAgentRuntimeForgeRoleRunner(
     // Architect findings and runtime capability — NEVER from model output. Read
     // once per attempt; the same `current` is reused for gate evidence below.
     const current = await readForgeWorkflowEvidence(resolvedStory.id)
+    // WHERE THE STORY STARTED — the base every scope check in this attempt diffs against.
+    //
+    // This used to be `workspaces?.baseRef ?? 'origin/main'`, and under NO TREES `workspaces` is always
+    // undefined, so the scope gate measured against the remote. While every lane published its own commit that
+    // was close enough; under a deferred-publish sprint origin sits a whole sprint behind, so the "candidate
+    // diff" became every file the sprint touched and completed work was held as out-of-scope (measured
+    // 2026-09-16: ENG-FORGE-QA-CONSISTENCY-01, 17 commits behind origin, 31 paths outside a one-file
+    // assignment). The story's base is the parent of the first commit THE STORY made — already recorded, so
+    // nothing new has to be written to know it.
+    const storyBaseCommit = storyScopeBase(await listStoryCommitHashes(resolvedStory.id).catch(() => []), (commit) =>
+      commitSha(readGit(process.cwd(), ['rev-parse', `${commit}^`])),
+    )
     // Batch-sliced rollout (migration 148): record the deferral as soon as the story
     // is known to be a batch story — NOT only at the deploy node — because definition
     // v6's qa_result decision reads `releaseDeferred` to hold the whole release tail
@@ -883,6 +896,9 @@ export function createAgentRuntimeForgeRoleRunner(
         : null
     const executionId = resolveForgeExecutionRunId(task.processInstanceId, replanAttempts, splitChild)
     const workspaces = buildAgentInvokerWorkspaces(options.workerId, undefined, executionId)
+    // THE BASE EVERY SCOPE CHECK DIFFS AGAINST, resolved once the worktree answer exists: the story's own base
+    // when it has one, then the worktree's (unreachable under NO TREES), and only then the remote ref.
+    const scopeBase = storyBaseCommit ?? workspaces?.baseRef ?? 'origin/main'
 
     // ---------------------------------------------------------------------
     // DOOR 3 — BASELINE ACCEPTANCE (a story must be FALSIFIABLE).
@@ -1038,7 +1054,7 @@ export function createAgentRuntimeForgeRoleRunner(
       typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
         ? evidence.candidateSha.trim()
         : null
-    const collectMergeBase = workspaces?.baseRef ?? 'origin/main'
+    const collectMergeBase = scopeBase
     const collectDiff = collectCandidateSha
       ? await changedFilesForCandidate({
           cwd: roleCwd,
@@ -1221,7 +1237,7 @@ export function createAgentRuntimeForgeRoleRunner(
       nodeId,
       attempt: attempt + 1,
       worktreePath: roleCwd,
-      baseCommit: workspaces?.baseRef ?? 'origin/main',
+      baseCommit: scopeBase,
     }
     const candidateSha =
       typeof evidence.candidateSha === 'string' && evidence.candidateSha.trim()
@@ -1305,7 +1321,7 @@ export function createAgentRuntimeForgeRoleRunner(
         const cwd = process.cwd()
         const changedFiles = await changedFilesForCandidate({
           cwd,
-          baseRef: workspaces?.baseRef ?? 'origin/main',
+          baseRef: scopeBase,
           candidateSha: evidence.candidateSha,
         })
         // OBSERVER (phase 1): record the candidate's commit and scope verdict
@@ -1320,7 +1336,7 @@ export function createAgentRuntimeForgeRoleRunner(
           nodeId,
           attempt: splitAssignmentContract.identity.attempt,
           worktreePath: cwd,
-          baseCommit: workspaces?.baseRef ?? 'origin/main',
+          baseCommit: scopeBase,
         }
         const observed = observeCandidateCommit(forgeObserverSink, observerIdentity, {
           candidateSha: evidence.candidateSha,
@@ -1366,12 +1382,12 @@ export function createAgentRuntimeForgeRoleRunner(
         nodeId,
         attempt: attempt + 1,
         worktreePath: cwd,
-        baseCommit: workspaces?.baseRef ?? 'origin/main',
+        baseCommit: scopeBase,
       }
       try {
         const changedFiles = await changedFilesForCandidate({
           cwd,
-          baseRef: workspaces?.baseRef ?? 'origin/main',
+          baseRef: scopeBase,
           candidateSha,
         })
         const observed = observeCandidateCommit(forgeObserverSink, serialIdentity, {
@@ -1395,7 +1411,7 @@ export function createAgentRuntimeForgeRoleRunner(
             notes: raw,
             runnerDiff: {
               candidateSha,
-              mergeBase: workspaces?.baseRef ?? 'origin/main',
+              mergeBase: scopeBase,
               changedPaths: changedFiles,
             },
           })

@@ -1057,6 +1057,30 @@ export function storyCompletionForRun(
 }
 
 /**
+ * THE COMMITS THIS STORY MADE, newest first — the input to its scope base.
+ *
+ * A scope check must diff a candidate against where THE STORY started, not against a remote ref. Under a
+ * deferred-publish sprint `origin/main` sits a whole sprint behind, so diffing from it reports every file the
+ * sprint touched (measured 2026-09-16: 17 commits behind, 31 paths "outside" a single-file assignment). The
+ * story's own commits are already recorded here, so the base needs no new writer.
+ */
+export async function listStoryCommitHashes(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<string[]> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select commit_hash, started_at
+    from storyboard_story_run
+    where story_id = ${storyId} and commit_hash is not null
+    order by started_at desc nulls last, created_at desc
+  `
+  return (rows as Array<{ commit_hash: string | null }>)
+    .map((row) => String(row.commit_hash ?? '').trim())
+    .filter((sha) => sha.length > 0)
+}
+
+/**
  * Finish an execution run:
  *   - sets the run's ended_at, result_status, completion, notes, and optional
  *     commit_hash / tests_summary; run notes are APPENDED to any live progress
