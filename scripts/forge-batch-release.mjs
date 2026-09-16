@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { sliceForBatch, sliceOf } from '../workflow_app/forge/forge-batch-slice.ts'
 
 const argv = process.argv.slice(2)
 const only = argv.includes('--batch') ? Number(argv[argv.indexOf('--batch') + 1]) : null
@@ -23,7 +24,7 @@ const url = target === 'dev' ? process.env.DATABASE_URL_DEV : process.env.DATABA
 const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
 const rows = await pool.query(
   `select s.id, s.batch, s.status, s.batch_deploy,
-          e.qa_passed, e.published_sha, e.deployment_deferred_to_batch,
+          e.qa_passed, e.published_sha, e.deployed_sha, e.deployment_deferred_to_batch,
           e.deployment_receipt, e.production_verified
      from storyboard_story s
      left join forge_workflow_evidence e on e.story_id = s.id
@@ -31,31 +32,32 @@ const rows = await pool.query(
     order by s.batch nulls last, s.id`,
 )
 
-const byBatch = new Map()
-for (const r of rows.rows) {
-  if (only !== null && r.batch !== only) continue
-  const key = r.batch ?? 'none'
-  if (!byBatch.has(key)) byBatch.set(key, [])
-  byBatch.get(key).push(r)
-}
+const stories = rows.rows.map((r) => ({
+  id: r.id,
+  batch: r.batch,
+  status: r.status,
+  qaPassed: r.qa_passed,
+  publishedSha: r.published_sha,
+  deployedSha: r.deployed_sha,
+  productionVerified: r.production_verified,
+  deploymentReceipt: r.deployment_receipt,
+  deploymentDeferredToBatch: r.deployment_deferred_to_batch,
+}))
+
+// The slice is the RECORDED deferral target; a row with no deferral is in no
+// slice and is never guessed into one.
+const batches = [...new Set(stories.map(sliceOf).filter((b) => b !== null))].sort((a, b) => a - b)
 
 console.log(`batch release view (${target.toUpperCase()}) — deferred deployments are NOT deployments\n`)
-for (const [batch, items] of [...byBatch.entries()].sort()) {
+for (const batch of batches) {
+  if (only !== null && batch !== only) continue
   console.log(`BATCH ${batch}`)
-  for (const r of items) {
-    const state = r.deployment_receipt
-      ? 'DEPLOYED (receipt)'
-      : r.production_verified
-        ? 'DEPLOYED (verified)'
-        : r.deployment_deferred_to_batch != null
-          ? `DEFERRED -> batch ${r.deployment_deferred_to_batch}`
-          : r.qa_passed
-            ? 'QA passed, deploy not recorded'
-            : `${r.status}`
-    console.log(`  ${r.id}  ${state}${r.published_sha ? `  published=${String(r.published_sha).slice(0, 8)}` : ''}`)
+  for (const entry of sliceForBatch(stories, batch)) {
+    const published = entry.publishedSha ? `  published=${String(entry.publishedSha).slice(0, 8)}` : ''
+    console.log(`  ${entry.id}  ${entry.state}${published}`)
   }
   console.log('')
 }
-const deferred = rows.rows.filter((r) => r.deployment_deferred_to_batch != null && !r.deployment_receipt)
+const deferred = stories.filter((r) => sliceOf(r) !== null && !r.deploymentReceipt && !r.productionVerified)
 console.log(`${deferred.length} story(ies) carry a deferred deployment; none of them claims production verification.`)
 await pool.end()
