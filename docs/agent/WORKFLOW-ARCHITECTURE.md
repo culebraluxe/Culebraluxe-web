@@ -59,8 +59,8 @@ part that should outlive the model. **[built]** — this is the existing V6 shap
    may be split at all.
 3. **LEAD** — decide the route: SOLO / SMITH / ASSAY / HOLD, plus the work order.
 4. **SMITH** — write the change in its own worktree. One bounded packet. Never invent siblings.
-5. **QA / ASSAY / INSPECTOR** — verify the *exact candidate* against the story's frozen proofs.
-   Adversarial by design: its job is to refuse.
+5. **QA / ASSAY / INSPECTOR** — run the story's frozen proofs and return a verdict, PASS or FAIL.
+   QA carries no git identity and freezes no commit; adversarial by design, its job is to refuse.
 6. **DEV_OPS** — release: migrations, publish, deploy, verify. Owns the PROD schema gate.
 
 ### Normal delivery
@@ -111,7 +111,7 @@ cannot be re-reviewed and accepted by a second evaluator. **[built]**
 ### The publish path — the fix that mattered most
 
 ```
-QA PASS -> candidate SHA frozen
+QA PASS (the verdict)
    |
    v
 is remote main an ancestor of the candidate?
@@ -137,11 +137,13 @@ from anything but the newest main was unpublishable forever — while every indi
 reporting success. That produced the pass → repair → turn-cap loop that looked like model
 stupidity and was actually arithmetic. **[measured]** 2026-09-13.
 
-### Exact-candidate identity — the central invariant
+### The candidate commit is the release unit
 
-`candidateSha` is carried as process state from Smith's commit, through QA, into release. QA
-verifies **that** SHA; DEV_OPS publishes **that** SHA. Nothing recomputes "the current candidate",
-because "current" is a moving target and a moving target cannot be verified. **[built]**
+Smith's commit is the candidate: one exact commit, never "the current tree". QA does not verify a
+SHA and carries no git identity — its verdict is PASS or FAIL over the story's frozen proofs.
+DEV_OPS publishes the candidate only when that verdict passed; when main has moved, the publisher
+merges the candidate, re-runs the frozen proofs on the integrated tree, and publishes that commit.
+Nothing recomputes "the current candidate", because "current" is a moving target. **[built]**
 
 ### Budgets and counters above every door
 
@@ -210,10 +212,11 @@ There is no implicit target. `APP_ENV`/`VERCEL_ENV` must declare it or resolutio
 DEV default is precisely how a Forge script wrote DEV while the board read PROD. **[built]** —
 `lib/execution-target.ts`, `db/database-gateway.ts`, `db/forge-db.ts`.
 
-### Law 5 — Exact identity, or no verification
+### Law 5 — A release names one exact commit
 
-See Part II. Verifying "the current candidate" is verifying nothing. Carry the SHA as process
-state, verify that SHA, publish that SHA. **[built]**
+See Part II. Verifying "the current tree" is verifying nothing. Smith's commit is the candidate and
+DEV_OPS publishes that commit — but the gate is QA's verdict (PASS or FAIL over the frozen proofs),
+not a SHA QA holds. **[built]**
 
 ### Law 6 — A retry must be able to finish
 
@@ -316,8 +319,8 @@ The seven additions below are the author's V7 list, carried here with status. Th
 4. **DEV_OPS as a subprocess** — publish → migration required? → DEV migrate+verify → PROD
    migrate+verify → deployment → smoke → COMPLETE. A future non-Vercel/non-Neon project then gets
    a different release subprocess without touching the SDLC. **[proposed]**
-5. **Exact-candidate identity as a tested invariant** — carried through QA and DevOps, with V7
-   acceptance tests proving it (Law 5). **[built in code, not yet tested as an invariant]**
+5. **The candidate commit as a tested invariant** — Smith's commit is the release unit and publish
+   names it; V7 acceptance tests proving it (Law 5). **[built in code, not yet tested as an invariant]**
 6. **Idempotent/resumable agent commands** — durable execution key
    `workflowInstanceId + nodeId + attempt`; a retry must recognise prior work rather than spawn a
    second Smith or republish (Law 7). **[proposed]**
@@ -356,7 +359,7 @@ Reviewed OSS offering versus Forge, layer by layer. The overlap is substantial:
 | Checkpointing | durable Run + append-only evidence |
 | Execution logs | run/work evidence + flight recorder |
 | Tool execution | harness/tool layer |
-| Validation | QA / Assay exact-candidate gate |
+| Validation | QA / Assay verdict over the frozen proofs |
 | Parallel agents | N-Smith architecture (not yet built) |
 | Human control | Story Board / Hold / approval boundaries |
 
@@ -382,8 +385,8 @@ says Hold, which is true?" That is the split-truth category this repo spent days
 
 **Where Forge is genuinely ahead:** CrewAI is a general-purpose agent framework; Forge is a
 software-delivery machine with authority boundaries. The intellectual property is the chain
-`Story Contract → Story Run → exact candidate SHA → QA evidence against that SHA → DEV_OPS
-publishes THAT SHA → deployment + migration evidence → Complete`. CrewAI can orchestrate agents.
+`Story Contract → Story Run → Smith's candidate commit → QA verdict (PASS/FAIL) over the frozen
+proofs → DEV_OPS publishes the candidate → deployment + migration evidence → Complete`. CrewAI can orchestrate agents.
 Forge knows what it means for software to be **truthfully shipped**.
 
 Discipline: finish proving V6.1 and the six-role topology, then do a deliberate gap review —
@@ -401,7 +404,7 @@ Visibility built on ambiguous plumbing displays confident lies (Law 3). Order ma
    call boundary, applied as a named team variant in `team.ts`. Today launchd and a shell can route
    differently, so the Portal would display one harness while the run used another.
 2. `PolicyDeepSeek/OpenCode.resultExternal` duplication → one `commitAndRevokePolicyEvidence()`
-   helper. The exact-candidate seam must not drift between harnesses (Law 5).
+   helper. The candidate-commit seam must not drift between harnesses (Law 5).
 3. Boot-time `throw` for an unused `pi` mapping → a blocked `pi-harness` placeholder. One dead map
    entry currently kills all hydration.
 4. DeepSeek readiness uses `existsSync` (no `X_OK`) plus unconditional delegated auth → uniform
@@ -518,9 +521,10 @@ Run this ladder before forming a theory. Every rung exists because it was the an
    `integration-unverified`, `integration-conflict`, claim blockers, `HOLD` + reason.
 4. **How many turns has this generation spent?** Above the cap the turn was never dispatched, and
    the real fault is an earlier door.
-5. **Is the candidate still the candidate?** Compare the frozen `candidateSha` against what QA
-   verified and what publish published. A mismatch means identity drifted and every report since is
-   suspect.
+5. **Which commit is the candidate?** Smith's commit is the candidate, and publish names the commit
+   it actually published. An integrated publish legitimately publishes a different commit, and that
+   tree's frozen proofs were re-run. An unnamed commit means identity drifted and every report since
+   is suspect.
 6. **Read the first violation, not the last error.** `first_viol` (migration 176); later errors are
    usually downstream.
 7. **Only then** read the flight recorder for the instance, and if a screen looks wrong, check
@@ -544,8 +548,10 @@ Run this ladder before forming a theory. Every rung exists because it was the an
   The XML names positions.
 - **Player / Profile / Lineage** — who performs it, with which capabilities, model and harness.
   The team map names players.
-- **Candidate SHA** — the exact commit a story's delivery is, from Smith's commit through publish.
-- **Assay** — verification of the exact candidate against the story's frozen proofs.
+- **Candidate** — Smith's exact commit, the release unit from commit through publish. QA carries no
+  sha; its verdict is PASS or FAIL over the frozen proofs.
+- **Assay** — verification of the story's frozen proofs; the verdict is PASS or FAIL, and QA carries
+  no git identity.
 - **HOLD** — a durable deliberate stop with a reason, an originating node, evidence, and a resume
   event. Not an error.
 - **Packet SHA** — the identity of the story contract at snapshot time; a mismatch means the run
