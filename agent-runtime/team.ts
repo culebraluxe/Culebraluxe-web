@@ -220,14 +220,14 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
       lineage: 'deepseek-volume',
       upgrade: {
         profile: 'builder-plus',
-        playerId: 'deepseek-pro',
+        playerId: 'deepseek-flash',
         harnessId: 'forge-native',
         fieldId: 'local',
         lineage: 'deepseek-judgment',
       },
       emergency: {
         profile: 'builder-emergency',
-        playerId: 'deepseek-pro',
+        playerId: 'deepseek-flash',
         harnessId: 'forge-native',
         fieldId: 'local',
         lineage: 'deepseek-judgment',
@@ -274,14 +274,14 @@ export const DEFAULT_FORGE_TEAM: ForgeTeam = {
       lineage: 'deepseek-volume',
       upgrade: {
         profile: 'builder-plus',
-        playerId: 'deepseek-pro',
+        playerId: 'deepseek-flash',
         harnessId: 'forge-native',
         fieldId: 'local',
         lineage: 'deepseek-judgment',
       },
       emergency: {
         profile: 'builder-emergency',
-        playerId: 'deepseek-pro',
+        playerId: 'deepseek-flash',
         harnessId: 'forge-native',
         fieldId: 'local',
         lineage: 'deepseek-judgment',
