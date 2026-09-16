@@ -173,11 +173,13 @@ test('a failed store read is visible in the prompt, not silent', () => {
   assert.equal(withDecisionContext('Lane=smith', { decisions: [] }), 'Lane=smith')
 })
 
-test('only Lead, Smith and the unattended night lane receive decisions', () => {
-  assert.equal(laneNeedsDecisions('lead'), true)
-  assert.equal(laneNeedsDecisions('smith'), true)
-  assert.equal(laneNeedsDecisions('night'), true)
-  for (const lane of ['scout', 'architect', 'inspector', 'assay', 'dev_ops', null]) {
+test('the lanes that decide or obey receive decisions; the rest do not', () => {
+  // architect writes the contract, inspector flags stale decisions: a rule neither of them can read is a
+  // rule they will contradict in prose (Grok, 2026-09-15).
+  for (const lane of ['lead', 'smith', 'night', 'architect', 'inspector']) {
+    assert.equal(laneNeedsDecisions(lane), true, `${lane} must receive the decision block`)
+  }
+  for (const lane of ['scout', 'assay', 'dev_ops', null]) {
     assert.equal(laneNeedsDecisions(lane), false, `${lane} should not receive the decision block`)
   }
 })

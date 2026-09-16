@@ -158,9 +158,16 @@ export function decisionDomainForStory(input: {
  * The packet: "Before Lead or Smith act, the runner injects the active decisions". `night` is Smith's
  * detached twin (same job, unattended), so it is included deliberately: an unattended lane that does
  * not know the rules is the exact lane that invents its own.
+ *
+ * `architect` and `inspector` are included by ruling (Grok, 2026-09-15): an active decision is an INPUT TO
+ * THE CONTRACT, so the lane that writes the contract must see the same in-force rules the lanes obeying it
+ * see — contradicting one is a HOLD or a learn item, never a prose overwrite. Inspector cannot flag a stale
+ * decision it never reads.
  */
 export function laneNeedsDecisions(lane: string | null | undefined): boolean {
-  return lane === 'lead' || lane === 'smith' || lane === 'night'
+  return (
+    lane === 'lead' || lane === 'smith' || lane === 'night' || lane === 'architect' || lane === 'inspector'
+  )
 }
 
 /** The cap the packet sets. Twenty statements is context; two hundred is a second handbook. */
