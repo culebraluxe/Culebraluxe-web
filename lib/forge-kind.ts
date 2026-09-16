@@ -32,8 +32,10 @@ export const DEFAULT_MODEL_POLICY: ForgeModelPolicy = 'cheap'
  * so every human-facing label says `dear` (or `cheap`) while the stored value stays exactly as it is. This is
  * a display name: never a second policy, never a reason to route a lane to another model.
  */
-export function forPolicyLabel(policy: ForgeModelPolicy): string {
-  return policy === 'judgment' ? 'dear' : 'cheap'
+export function forPolicyLabel(policy: string): string {
+  // Unknown values pass through UNCHANGED: `unrecorded` is a real, honest state (routing that was never
+  // recorded) and must never be relabelled as a policy somebody chose. Only the one collision is renamed.
+  return policy === 'judgment' ? 'dear' : policy
 }
 
 /** The first lane a kind starts in. It does NOT replace Lead's SMITH/SPLIT decision later. */

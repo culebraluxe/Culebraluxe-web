@@ -1,4 +1,6 @@
 // ---------------------------------------------------------------------------
+import { forPolicyLabel } from './forge-kind'
+
 // FORGE ROI — the thin session rollup (ENG-FORGE-FACTORY-01 Phase 4, Object 4).
 //
 // THE POINT IS TO STOP TOKEN-MAXXING THE NIGHT BATCH: "last 7 days, count and cost by kind" is enough to
@@ -141,7 +143,7 @@ export function summarizeRoi(attempts: readonly RoiAttempt[], windowDays = 7): R
 export function describeRoiRow(row: RoiRow): string {
   const wall = row.meanWallMinutes === null ? 'wall n/a' : `${row.meanWallMinutes}m mean`
   return (
-    `${row.kind}/${row.policy} · ${row.attempts} attempt(s) · ${row.completed} done` +
+    `${row.kind}/${forPolicyLabel(row.policy)} · ${row.attempts} attempt(s) · ${row.completed} done` +
     `${row.failed ? ` · ${row.failed} failed` : ''} · ${wall} · ${row.costWidgets} widgets` +
     `${row.costKnown < row.attempts ? ` (cost on ${row.costKnown})` : ''}`
   )
