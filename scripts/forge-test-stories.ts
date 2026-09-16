@@ -218,6 +218,97 @@ const STORIES: TestStory[] = [
       'how close it was until it did.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-repair-budget.test.ts`',
   },
+  // --- WAVE 3 — the same test again, on the fixed machine: drive, watch, touch NOTHING -----------
+  {
+    id: 'ENG-FORGE-BATCH-SLICE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 3,
+    title: 'The batch release can see the slice it is releasing',
+    goal:
+      'The sprint release lists every story whose deployment is deferred to its batch, so the stories ' +
+      'waiting to be released can actually be found.',
+    scope:
+      'workflow_app/forge/forge-batch-slice.ts (new, pure predicate), scripts/forge-batch-release.mjs ' +
+      '(use it), workflow_app/tests/forge-batch-slice.test.ts (new).',
+    acceptance:
+      'A story whose deployment is deferred to batch N is IN the slice for batch N even when published_sha ' +
+      'is null. A story with no deferral and nothing published is not. A story published but deferred is ' +
+      'reported as published-and-undeployed. A row with no batch number belongs to no slice — null, never a ' +
+      'guess.',
+    notes:
+      'FOUND 2026-09-16: forge-batch-release.mjs listed waiting stories by published_sha, but a batch story ' +
+      'defers publish as well as deploy (qa_result routes releaseDeferred straight to complete), so ' +
+      'published_sha is always null and the tool could never see the very stories waiting for it.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-batch-slice.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-DOC-QA-RULE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 3,
+    title: 'The architecture doc stops describing the QA rule that was deleted',
+    goal:
+      'The workflow architecture document states the QA rule that the machine actually implements — the ' +
+      'verdict is PASS or FAIL, and no sha rides along with it.',
+    scope:
+      'docs/agent/WORKFLOW-ARCHITECTURE.md (the four places that still state the sha-era invariant), ' +
+      'workflow_app/tests/forge-qa-doc-rule.test.ts (new fence test).',
+    acceptance:
+      'The document no longer states that a QA pass freezes a candidate sha, that the candidate sha is ' +
+      'carried into release, or that the candidate module QA verified is re-checked. A fence test reads the ' +
+      'document and fails if that wording returns.',
+    notes:
+      'FOUND 2026-09-16: the doc still told a reader to compare the frozen candidateSha against what QA ' +
+      'verified — a check that no longer exists — at lines 114, 142, 385 and 521. Lanes read these docs.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-qa-doc-rule.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-FAILURE-LABEL-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 3,
+    title: 'A release failure keeps the class its own stage recorded',
+    goal:
+      'When a release stage fails and records what failed, a later classifier may add its own label as ' +
+      'metadata but may not replace the stage-accurate class.',
+    scope:
+      'workflow_app/forge/forge-role-mapping.ts (the failure_classifier branch), ' +
+      'workflow_app/tests/forge-failure-label.test.ts (new).',
+    acceptance:
+      'Given a failed release stage that recorded PUBLISH_CONFLICT with failedReleaseStage PUBLISH, the ' +
+      'failure class after the classifier runs is still PUBLISH_CONFLICT, and the classifier label is ' +
+      'preserved as metadata. With no stage-recorded class, the classifier label stands as it does today.',
+    notes:
+      'FOUND 2026-09-16 on ENG-FORGE-RECEIPT-KIND-01: the publish failed and the executor recorded ' +
+      'failureClass=PUBLISH_CONFLICT with failedReleaseStage=PUBLISH, then the classifier replaced it with ' +
+      'ENVIRONMENT. The router reads failedReleaseStage, so a wrong label is a wrong record of why.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-failure-label.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-QA-CONSISTENCY-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 3,
+    title: 'A QA run and its verdict disagreeing is reported, not discovered by hand',
+    goal:
+      'A read-only check reports when a QA run row and the durable verdict disagree, so the class of bug ' +
+      'found on 2026-09-16 is caught by the doctor instead of by a person reading rows.',
+    scope:
+      'workflow_app/forge/forge-qa-consistency.ts (new, pure), scripts/forge-doctor.ts (report the line), ' +
+      'workflow_app/tests/forge-qa-consistency.test.ts (new).',
+    acceptance:
+      'Given a run status and a verdict, the check reports agree or names both values. A run with no ' +
+      'verdict reports unknown — never agree. It writes nothing: it is a report, not a repair.',
+    notes:
+      'WRITTEN 2026-09-16: every QA run that night recorded Hold while its verdict was PASS, because the ' +
+      'run finalizer demanded a sha QA does not own. Nothing compared the two records; a reading person did.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-qa-consistency.test.ts`',
+  },
 ]
 
 /**

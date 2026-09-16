@@ -256,6 +256,22 @@ const CANDIDATE_PRODUCING_NODES: ReadonlySet<string> = new Set([
   'lead_solo_implement',
 ])
 
+/**
+ * Is `ancestor` in `descendant`'s history? Exit code, not stdout: `git merge-base --is-ancestor` prints
+ * nothing on success, so a text read cannot tell success from failure.
+ */
+function isAncestor(cwd: string, ancestor: string, descendant: string): boolean {
+  try {
+    execFileSync(gitBinary(), ['merge-base', '--is-ancestor', ancestor, descendant], {
+      cwd,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 function readGit(cwd: string, args: string[]): string | null {
   try {
     return execFileSync(gitBinary(), args, { cwd, encoding: 'utf8' }).trim() || null
@@ -1269,8 +1285,16 @@ export function createAgentRuntimeForgeRoleRunner(
       const reported = commitSha(candidateSha)
       const heldCandidate = commitSha(current.candidateSha)
       const head = reported ? null : commitSha(readGit(roleCwd, ['rev-parse', 'HEAD']))
+      // STILL IN THE TREE, not equal to HEAD. Equality was too strict by one commit: any commit landing after
+      // the story's own — another lane's, or the engine's own fix — pushed HEAD past the candidate and the
+      // lane could no longer re-affirm the work it had already committed (measured 2026-09-16 twice: a scope
+      // hold left da4003cb recorded, then the next COMMIT made HEAD differ and the retry held on
+      // `smith-candidate`). An ancestor check asks the question that matters: is the story's commit still
+      // there? A stale sha from another generation is not an ancestor of this HEAD, so the guard still holds.
       const reaffirmed =
-        !reported && heldCandidate && head && heldCandidate === head ? heldCandidate : null
+        !reported && heldCandidate && head && (heldCandidate === head || isAncestor(roleCwd, heldCandidate, head))
+          ? heldCandidate
+          : null
       const committed = reported ?? reaffirmed
       if (committed) {
         // The deliverable check reads the EVIDENCE, not the row, so the re-affirmed candidate lands on both.
