@@ -182,3 +182,22 @@ export const LEAD_SIZE: FieldDeclaration = {
   aliases: { tiny: 'TRIVIAL', big: 'LARGE' },
   decision: true,
 }
+
+/**
+ * The Architect's hint — the field that decides whether a finding is this story's work at all.
+ *
+ * Declared here because `scripts/forge-handoff.mjs` currently passes it straight into SQL and lets the DATABASE
+ * refuse an unknown value, which turns "the model wrote a hint we do not accept" into a database error and
+ * sends the reader hunting the wrong fault. The CLI should refuse it with the accepted set, the same way the
+ * Lead's decision does.
+ */
+export const ARCHITECT_HINT: FieldDeclaration = {
+  field: 'hint',
+  kind: 'closed',
+  accepted: ['SAME_UNIT', 'SPLIT_CHILD', 'FOLLOW_UP_STORY', 'NOTE', 'HOLD'],
+  aliases: { sameunit: 'SAME_UNIT', followup: 'FOLLOW_UP_STORY' },
+  decision: true,
+}
+
+/** A finding's `required` flag: our own parsing may tolerate spellings, but the value is a decision. */
+export const ARCHITECT_REQUIRED: FieldDeclaration = { field: 'required', kind: 'boolean', decision: true }
