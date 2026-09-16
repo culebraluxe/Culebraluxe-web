@@ -8,6 +8,41 @@ import type { ForgeGateEvidence } from './forge-facts'
 export const FORGE_SPEND_UNRECORDED_LANE = 'unrecorded'
 
 /**
+ * The label an absent `run_type` reads as. A missing lane is a fact, not a blank:
+ * it is named `Unrecorded` rather than an empty string that reads like "no lane".
+ */
+export const FORGE_LANE_LABEL_UNRECORDED = 'Unrecorded'
+
+/**
+ * The human lane label for each `run_type` the engine writes. The view names the
+ * lane in words instead of the raw token. `inspector` and `assay` are both the QA
+ * capability, so they share one label; `dev_ops` is here even though the Lane=
+ * envelope regex omits it, because it reaches `run_type` through the role fallback.
+ */
+const FORGE_LANE_LABELS: Record<string, string> = {
+  scout: 'Scout',
+  architect: 'Architect',
+  lead: 'Lead',
+  smith: 'Smith',
+  inspector: 'QA',
+  assay: 'QA',
+  archive: 'Archive',
+  night: 'Night',
+  dev_ops: 'DEV_OPS',
+}
+
+/**
+ * The lane label for a run. Pure and synchronous so the acceptance fixture is a
+ * unit test, not a screenshot. An unknown token is reported verbatim (trimmed),
+ * never guessed; an absent token reads `Unrecorded`, never an empty string.
+ */
+export function forgeLaneLabel(runType: string | null | undefined): string {
+  const token = (runType ?? '').trim()
+  if (!token) return FORGE_LANE_LABEL_UNRECORDED
+  return FORGE_LANE_LABELS[token] ?? token
+}
+
+/**
  * One spend quantity as read from the durable run rows. `null` means UNMEASURED,
  * never zero: a measured zero and an unmeasured zero are different facts.
  */
@@ -21,6 +56,7 @@ export type ForgeSpendDimension = {
 
 export type ForgeLaneSpend = {
   lane: string
+  label: string
   runs: number
   spend: ForgeSpendDimension
 }
@@ -86,7 +122,12 @@ export function forgeSpendBlock(runs: readonly ForgeSpendRun[]): ForgeSpendBlock
     else buckets.set(lane, [run])
   }
   const lanes = [...buckets.entries()]
-    .map(([lane, rows]) => ({ lane, runs: rows.length, spend: spendDimension(rows) }))
+    .map(([lane, rows]) => ({
+      lane,
+      label: forgeLaneLabel(rows[0]?.runType),
+      runs: rows.length,
+      spend: spendDimension(rows),
+    }))
     .sort((a, b) => a.lane.localeCompare(b.lane))
   return { lanes, total: spendDimension(runs) }
 }
