@@ -74,6 +74,36 @@ Enforcement is **structural, not rhetorical**:
   dropped;
 - free text may remain in the transcript as evidence; it is never the transport.
 
+## The mediator — the failsafe at the write boundary (captain, 2026-09-16)
+
+**Neon is the wire format.** A model may emit any shape it likes; the mediator is the one piece of code that
+turns a value into a row, and it is the ONLY writer. It exists because telling the Architect the rules is not
+enough — the rules must be a failsafe, not a request.
+
+`lib/field-mediator.ts` (new) — `mediateField(declaration, raw)` where a declaration is
+`{ field, kind: 'closed' | 'text' | 'number' | 'boolean' | 'sha', accepted?, aliases?, maxLength? }` and the
+result is `{ ok: true, value }` or `{ ok: false, field, accepted, reason }`.
+
+**MAY** (mechanical and lossless): strip code fences and backticks; trim; accept `key: value`, `key = value`
+or a bare token; case-fold into a *declared* closed set; apply a *declared* alias table; coerce `"true"`/`"1"`
+to boolean and numeric strings to numbers; extract a **descriptive** field from prose.
+
+**MAY NOT** — and this is the failsafe's safety property:
+
+- infer a value, or supply one that is missing;
+- choose between two candidates, or "repair" a malformed handoff;
+- use a default for a **decision** field (a decision with a default is a decision nobody made);
+- accept anything outside the declared set.
+
+Any of those makes the mediator a **second writer**, which `AGENTS.md` (Never) forbids outright.
+
+On failure the mediator returns the field, the accepted set and the reason. The caller re-asks **once** with
+the accepted set spelled out (`size accepted: SOLO | SMITH | SPLIT | HOLD`), then **HOLDs**. A mediator that
+cannot decide HOLDs; it never guesses.
+
+Every role value crosses `mediateField` before insert, in the writer — so no lane can write around it, and the
+Architect is still told the rules as the first line of defence rather than the only one.
+
 ## Acceptance criteria
 
 1. The doctor answers worker liveness **from Neon**; a test proves the happy path does not read the log, and a
