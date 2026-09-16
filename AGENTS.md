@@ -38,6 +38,11 @@ Never
 - Keep a git commit as Scout, Assay, or Inspector.
 - Special-case Casa Luar or any one listing in application code.
 - Treat WhatsApp as a new identity type.
+- Let two sources answer one fact. One fact has ONE writer; if two ever disagree, that is a REFUSAL (HOLD)
+  naming both, never a resolution that picks a winner. A fallback parser, a second adjudicator, a cached copy
+  or a log line must never outvote the row. (2026-09-16: the Architect reply parser still stood beside the
+  findings rows, and the QA verdict had three authors — both produced verdicts nobody could trust, and both
+  were ours, not a model's.)
 
 ## Project
 
