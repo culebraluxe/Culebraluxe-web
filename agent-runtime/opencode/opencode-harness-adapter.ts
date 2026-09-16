@@ -357,9 +357,17 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
     // marker written before ids were recorded, because "the project's last session" is a
     // guess that is only correct while exactly one lane is live.
     const continuityEnabled = forgeSessionContinuityEnabled(process.env)
-    const markerPath = forgeSessionMarkerPath(workspace)
-    const sessionId = continuityEnabled ? readForgeSessionId(workspace) : null
-    const continueSession = continuityEnabled && !sessionId && existsSync(markerPath)
+    // The marker file is no longer read: the pointer lives in the row (see below).
+    // THE POINTER COMES FROM THE ROW (Captain, 2026-09-16): the session id lives in forge_vendor_session, not
+    // in a worktree file. Same continuity, same token savings — one session serving the generation — and now
+    // it is auditable in a query instead of living on one laptop. No id recorded means a fresh session; the
+    // old `--continue` guess ("whatever session the project touched last") is gone with the file it needed.
+    const sessionId = continuityEnabled
+      ? await (
+          await import('../../db/forge-vendor-session')
+        ).readVendorSessionId(context.command.storyId, 'opencode')
+      : null
+    const continueSession = false
     this.pinnedSessionId = sessionId ?? null
     // Baseline BEFORE the turn: one session serves every role of the generation, so this
     // role's spend is the difference across its turn, not the session's lifetime total.
@@ -463,9 +471,10 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       // generation then starts fresh and records its own id, so a dead session costs one
       // role rather than every role after it. Leaving the marker in place would reuse the
       // corpse; never clearing on success would leave no id to reuse at all.
-      const failedWorkspace = context.executionWorkspace?.worktreePath
-      if (failedWorkspace && this.pinnedSessionId) {
-        writeForgeSessionId(failedWorkspace, null)
+      if (this.pinnedSessionId) {
+        void import('../../db/forge-vendor-session')
+          .then((m) => m.writeVendorSessionId(context.command.storyId, 'opencode', null))
+          .catch((err) => console.warn(`vendor-session clear skipped: ${String(err)}`))
       }
       return null
     }
@@ -492,7 +501,11 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
       const measured = this.pinnedSessionId
         ? readSessionUsage({ sessionId: this.pinnedSessionId })
         : readHarnessUsage({ harnessStartedAtMs: this.startedAtMs ?? Date.now() })
-      if (measured?.sessionId) writeForgeSessionId(workspace, measured.sessionId)
+      if (measured?.sessionId) {
+        void import('../../db/forge-vendor-session')
+          .then((m) => m.writeVendorSessionId(context.command.storyId, 'opencode', measured.sessionId))
+          .catch((err) => console.warn(`vendor-session write skipped: ${String(err)}`))
+      }
       this.harnessUsage = measured ? usageDelta(measured, this.sessionBaseline) : null
     }
 
