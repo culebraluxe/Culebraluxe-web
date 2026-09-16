@@ -306,14 +306,39 @@ export async function runLearnPass(input: {
       })
     }
 
-    const packetWritten = writeIfChanged(
-      join(input.root, 'docs/agent/packets', `${storyId}.md`),
-      renderLearnPacket(filed, {
-        storyId,
-        windowStart: windowStart.toISOString(),
-        windowEnd: windowEndIso,
-      }),
-    )
+    // A GIT FILE ONLY ON A learn/* BRANCH (Grok, 2026-09-16). Committing the packet on `main` closed the
+    // dirty-file race and opened an origin-diverge one: the next `git pull --ff-only` dies the moment origin's
+    // main has moved, and a mailbox commit is enough to move it. So on main this pass writes NO git file — the
+    // row and the story are already durable, and the template travels in the story notes until the Architect
+    // or a human packets it. Warn-and-leave-dirty is the old bug with a log line, so we do not do that either.
+    const learnBranch = (() => {
+      try {
+        return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+          cwd: input.root,
+          encoding: 'utf8',
+        }).trim()
+      } catch {
+        return ''
+      }
+    })()
+    const onLearnBranch = learnBranch.startsWith('learn/')
+    if (input.apply && !onLearnBranch) {
+      console.warn(
+        `learn: no packet file written (branch '${learnBranch || 'unknown'}' is not learn/*); ` +
+          'the story row carries the learn',
+      )
+    }
+    const packetWritten =
+      input.apply && onLearnBranch
+        ? writeIfChanged(
+            join(input.root, 'docs/agent/packets', `${storyId}.md`),
+            renderLearnPacket(filed, {
+              storyId,
+              windowStart: windowStart.toISOString(),
+              windowEnd: windowEndIso,
+            }),
+          )
+        : false
     // D (Grok, 2026-09-15): this file lands on the PRIMARY checkout, and the unattended worker's next tick
     // opens with `git pull --ff-only`, which dies on a dirty tree. Observed live: three
     // LEARN-SWALLOWED-CATCH-*.md packets sitting untracked, waiting to block a pull. The pass that writes the

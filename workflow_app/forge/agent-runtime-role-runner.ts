@@ -1020,7 +1020,17 @@ export function createAgentRuntimeForgeRoleRunner(
     // pinned: an unpinnable workspace is a verification gap for a human, never a code defect for repair.
     const candidateShaForAssay =
       typeof evidence.candidateSha === 'string' ? evidence.candidateSha.trim() : ''
-    if (candidateShaForAssay && roleCwd !== process.cwd()) {
+    if (candidateShaForAssay && roleCwd === process.cwd()) {
+      // NO WORKTREE IS NOT PERMISSION TO MEASURE THE OPERATOR'S CHECKOUT (Grok, 2026-09-16). Without a
+      // worktreesRoot this lane fell back to process.cwd() — the pin was skipped for exactly that case and the
+      // proofs ran against whatever HEAD the worker happened to hold: the 15 Sep loop with the safety catch
+      // off. A lane that cannot materialize the candidate records a GAP; it never assays the primary tree.
+      throw new Error(
+        'ASSAY_WORKSPACE_NOT_CANDIDATE: no worktree to pin this assay to, and the primary checkout is never ' +
+          'the candidate (a gap for a human, not a defect to repair)',
+      )
+    }
+    if (candidateShaForAssay) {
       const headBefore = readGit(roleCwd, ['rev-parse', 'HEAD'])?.trim() ?? ''
       if (headBefore !== candidateShaForAssay) {
         await commandRunner(roleCwd)(`git checkout --detach ${candidateShaForAssay}`)

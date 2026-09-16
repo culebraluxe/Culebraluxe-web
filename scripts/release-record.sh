@@ -69,6 +69,12 @@ fi
 
 if [ "$MODE" = "verify" ]; then
   [ -n "$VERIFY_SHA" ] || { printf 'ERROR: --verify needs a sha\n' >&2; exit 2; }
+  # A ONE-CHARACTER PREFIX MATCHES EVERYTHING (Grok, 2026-09-16: `--verify 0` could hit a row). Seven
+  # characters is the shortest git-unique-in-practice prefix; shorter is refused rather than answered.
+  [ "${#VERIFY_SHA}" -ge 7 ] || {
+    printf 'ERROR: --verify needs at least 7 characters of a sha (a shorter prefix matches too much)\n' >&2
+    exit 2
+  }
   # ELIGIBLE means: build, deploy and probe all zero, AND the row's sha is the sha asked about. A short sha
   # matches its full form; nothing else does.
   if complete_rows | awk -F'|' -v want="$VERIFY_SHA" '
@@ -139,10 +145,24 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "deploy" ] || [ "$MODE" = "probe" ]; then
   PROBE_CMD="${RELEASE_PROBE_CMD:-curl -fsS -o /dev/null -w '%{http_code}' \"$PROBE_URL\" | grep -q 200}"
   if [ "$PROBE_CMD" = "skip" ]; then
     printf -- '--- probe skipped by request (this row can never be an eligible receipt) ---\n'
-  else
-    printf -- '--- probe: %s ---\n' "$PROBE_CMD"
+  elif [ -n "${RELEASE_PROBE_CMD:-}" ]; then
+    printf -- '--- probe (override): %s ---\n' "$PROBE_CMD"
     bash -c "$PROBE_CMD"; PROBE_RC="$?"
     printf -- '--- probe exit: %s ---\n' "$PROBE_RC"
+  else
+    # SHA-NAMED PROBE (Grok, 2026-09-16). A homepage 200 says "something is serving"; it does not say the sha
+    # in this row is what is being served, which is the only thing an eligible receipt may claim.
+    # /api/build-info is the deploy script's own sha probe (scripts/vercel-deploy-prod.sh:71), so the record
+    # and the release agree by construction rather than by luck.
+    LIVE_SHA="$(curl -fsS -L --max-time 25 "${PROBE_URL%/}/api/build-info" 2>/dev/null | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
+    if [ -n "$LIVE_SHA" ] && [ "${LIVE_SHA#"$BUILD_SHA"}" != "$LIVE_SHA" ]; then
+      PROBE_RC=0
+      printf -- '--- probe: /api/build-info serves %s, this row measured %s ---\n' "$LIVE_SHA" "$BUILD_SHA"
+    else
+      PROBE_RC=1
+      printf -- '--- probe FAILED: /api/build-info says %s, this row measured %s (not the same sha) ---\n' \
+        "${LIVE_SHA:-<no answer>}" "$BUILD_SHA"
+    fi
   fi
 fi
 set -e
