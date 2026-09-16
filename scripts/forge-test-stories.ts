@@ -309,7 +309,118 @@ const STORIES: TestStory[] = [
       'run finalizer demanded a sha QA does not own. Nothing compared the two records; a reading person did.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-qa-consistency.test.ts`',
   },
+  // --- WAVE 4 — the security findings, as stories. APP surface, not the engine --------------------
+  {
+    id: 'SEC-MEDIA-DOC-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'High',
+    batch: 4,
+    title: 'An executed contract is not served to whoever holds its id',
+    goal:
+      'Downloading a document requires an authenticated portal session, and the decision is ONE named ' +
+      'function the tests interrogate.',
+    scope:
+      'lib/auth/document-access.ts (new, pure decision), app/api/media/documents/[id]/route.ts (call it), ' +
+      'workflow_app/tests/document-access.test.ts (new).',
+    acceptance:
+      'No session → no bytes, and the response is 401 rather than a 404 that hides the rule. An ' +
+      'authenticated portal session → bytes, with the decision made by the named function. A non-document ' +
+      'media type stays 404. The function is pure: session facts in, allow|deny with a reason out, so the ' +
+      'rule cannot disagree with itself in two places.',
+    notes:
+      'FOUND 2026-09-16 by a code review, then verified by reading the route: it validated the UUID and ' +
+      'served any row with media_type = document — no session, no authority, no publication gate — while ' +
+      'its sibling under /api/media/[id] at least requires a session. What lands in that table with that ' +
+      'type: db/signature-reconciliation.ts:154 (the signed artifact from BoldSign) and ' +
+      'db/issued-document.ts:158 (issued PDFs). HONEST BOUNDARY: this story adds the session gate and the ' +
+      'pure decision; binding a document to its OWNING record authority is bigger (the media row may carry ' +
+      'no owner link) and belongs in its own story — say so in the notes rather than implying this story ' +
+      'solved it. The sibling conflating authentication with authorization is NOT fixed here either.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/document-access.test.ts`',
+  },
+  {
+    id: 'SEC-SILENT-CATCH-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 4,
+    title: 'A swallowed catch cannot pass as an empty success',
+    goal:
+      'Silent-failure detection blocks instead of filing a nightly note, and the routes that return an ' +
+      'empty success from a bare catch are fixed rather than exempted.',
+    scope:
+      'agent-runtime/silent-failure-patterns.ts (the detector), the blocking entry point (script/lint), the ' +
+      'six routes named in the notes, workflow_app/tests/silent-failure-gate.test.ts (new).',
+    acceptance:
+      'The check exits non-zero and names file and line when a handler returns an empty success — null, [], ' +
+      'or {rows: [], total: 0} — out of a catch. A catch that reports the error and returns an error ' +
+      'response is NOT flagged. The known offenders are fixed, not exempted: an exemption list is the same ' +
+      'lie moved to a new file.',
+    notes:
+      'FOUND 2026-09-16 by a code review, and it matches AGENTS.md, which calls a swallowed catch a defect, ' +
+      'and agent-runtime/silent-failure-patterns.ts, which already detects it. Known offenders, all bare ' +
+      'catches returning empty success with a comment calling it safe: ' +
+      'app/api/portal/clients/[personId]/route.ts:33, .../clients/[personId]/history/route.ts:37, ' +
+      '.../clients/[personId]/relationship-channels/route.ts:69, app/api/portal/clients/agents/route.ts:28, ' +
+      'app/api/portal/issues/route.ts:56, app/api/portal/relationship-evidence-review/route.ts:51. In a CRM ' +
+      'an empty list reads as "this client has nothing", which is indistinguishable from the truth and ' +
+      'would never be reported as an outage.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/silent-failure-gate.test.ts`',
+  },
+  {
+    id: 'SEC-ROUTE-MANIFEST-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 4,
+    title: 'Every route declares its authority, and drift fails',
+    goal:
+      'Generate a manifest of every route handler with the authority it requires, and fail on a handler ' +
+      'that decides nothing and on drift between the declaration and the code.',
+    scope:
+      'scripts/route-authority-manifest.ts (new, generator + check), workflow_app/tests/route-authority.test.ts (new).',
+    acceptance:
+      'Every file under app/api/**/route.ts appears in the manifest. A route with no authority decision ' +
+      'must be declared UNGUARDED with a reason and the story that will fix it. A route that is neither ' +
+      'guarded nor declared fails. The manifest is GENERATED, never hand-edited — a hand-kept table drifts ' +
+      'silently, which is the bug this exists to catch.',
+    notes:
+      'WRITTEN 2026-09-16 after a code review found three authorization holes by reading the code, one of ' +
+      'them Critical. A table plus a conformance test catches the class mechanically, the same way the ' +
+      'dead-citation lint is what makes agent evidence auditable. The highest-leverage item in that review: ' +
+      'it would have caught the documents route, the sibling route, and the inert middleware branch.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/route-authority.test.ts`',
+  },
+  {
+    id: 'AUTH-CAPABILITIES-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'Medium-High',
+    batch: 4,
+    title: 'The middleware stops describing a capability check that never runs',
+    goal:
+      'Delete the edge branch that reads a claim nothing stamps, and make the file describe what it ' +
+      'actually does. Stamping the claim is a separate story, named, not implied.',
+    scope:
+      'middleware.ts, lib/auth/middleware-policy.ts, workflow_app/tests/middleware-capabilities.test.ts (new).',
+    acceptance:
+      'No branch remains on a claim that no writer produces, and the comment describes what the file does. ' +
+      'A test fails if a capability check reappears without a writer for that claim. The deletion is ' +
+      'recorded in the notes as the decision this story took.',
+    notes:
+      'FOUND 2026-09-16 by a code review, then verified: capabilities is read at middleware.ts:79 and ' +
+      'consumed at lib/auth/middleware-policy.ts:44, and written NOWHERE. It arrived with bf45e1aa (AUTH-02 ' +
+      'Portal authorization, 2026-08-22): the design stamped a capability snapshot at sign-in, while the jwt ' +
+      'callback stamps only sub and provider — so the Edge layer has been inert since it landed and every ' +
+      'authenticated session passes it. A security file that claims a control it does not have is how the ' +
+      'next reader stops checking. Related opening for a later story: the sibling media route checks only ' +
+      'token.sub and never the authority it names.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/middleware-capabilities.test.ts`',
+  },
 ]
+
+
 
 /**
  * Write one story as Planned. A story that already exists is REPORTED, not rewritten: its notes are the
