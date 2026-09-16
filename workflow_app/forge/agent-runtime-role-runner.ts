@@ -1064,6 +1064,27 @@ export function createAgentRuntimeForgeRoleRunner(
           )
         }
       }
+      // ASTRA'S ITEM 3 (2026-09-16): PINNING THE RIGHT SHA IS NOT ENOUGH.
+      //
+      // (a) A SHORT SHA IS A PREFIX, NOT AN IDENTITY: resolve it to the full commit before trusting it, or two
+      //     different tips can look like the same candidate.
+      const resolvedCandidate =
+        readGit(roleCwd, ['rev-parse', '--verify', `${candidateShaForAssay}^{commit}`])?.trim() ?? ''
+      if (resolvedCandidate === '') {
+        throw new Error(
+          `ASSAY_WORKSPACE_NOT_CANDIDATE: ${candidateShaForAssay} does not resolve to a commit in this ` +
+            'workspace (a gap for a human, not a defect to repair)',
+        )
+      }
+      // (b) A DIRTY TREE CANNOT CERTIFY A CLEAN HEAD: uncommitted edits in the workspace get measured alongside
+      //     the candidate and then reported as the candidate's result. Refuse rather than certify that.
+      const dirty = readGit(roleCwd, ['status', '--porcelain'])
+      if (dirty !== null && dirty.trim() !== '') {
+        throw new Error(
+          `ASSAY_WORKSPACE_DIRTY: the assay workspace has uncommitted changes, so measuring here cannot ` +
+            `certify candidate ${resolvedCandidate.slice(0, 12)} — a gap for a human, not a defect to repair`,
+        )
+      }
     }
     // The candidate diff, read HERE rather than trusting the model's claim. It is
     // the same measurement the serial/split lanes make later; git's diff is the
