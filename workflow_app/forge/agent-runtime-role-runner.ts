@@ -271,10 +271,10 @@ const LANE_MAY_COMMIT_NODES: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Read the checkout's TRACKED dirty state as a RESULT, because "clean" and "could not read" are different
- * facts and `readGit` collapses both into `null` (its `|| null` turns an empty status into null as well).
- * A guard that cannot tell them apart PASSES when it cannot measure — the one thing a guard protecting the
- * operator's uncommitted work must never do.
+ * Read the checkout's TRACKED dirty state as a RESULT — "clean" and "could not read" are different facts,
+ * and `readGit` collapses both into `null`. Kept for callers that must tell them apart; the commit-time
+ * checkout guard that used it was removed on the CTO's ruling (2026-09-16): it blocked lanes while the
+ * operator was working and he did not ask for it.
  */
 function readTrackedDirtyState(
   cwd: string,
@@ -821,37 +821,6 @@ export function createAgentRuntimeForgeRoleRunner(
     // Resolved and asserted ONCE at lane start (top of this function): the work
     // item, the trace events and the run all carry this same value.
     const target = laneTarget
-
-    // ---------------------------------------------------------------------
-    // ONE WRITER IN THE CHECKOUT, AND THE CAPTAIN IS ONE OF THEM.
-    //
-    // With no worktree a commit-capable lane commits in the SAME checkout the operator works in. Measured
-    // 2026-09-16: the Smith created `08b569f8` on `main` while the operator's own uncommitted edits sat in
-    // that checkout — nothing stopped them from being committed with the lane's work. So a lane that MAY
-    // commit refuses to start on a checkout carrying uncommitted TRACKED changes, and names them. Untracked
-    // files are not a refusal: no commit this lane makes would include them.
-    //
-    // Checked BEFORE the work item is enqueued, so a refusal spends nothing.
-    // ---------------------------------------------------------------------
-    if (LANE_MAY_COMMIT_NODES.has(nodeId)) {
-      const state = readTrackedDirtyState(process.cwd())
-      if (!state.readable) {
-        // FAIL CLOSED ON AN UNMEASURABLE CHECKOUT. Passing here would mean the guard protects nothing
-        // exactly when it cannot see — and the cost of refusing is one operator command, against the cost
-        // of a lane committing work nobody can see.
-        throw new Error(
-          `Forge ${nodeId} refuses to start: the checkout's dirty state could not be read (git status failed) ` +
-            `and this lane may commit. Fix the git read, then re-dispatch.`,
-        )
-      }
-      if (state.dirty) {
-        const named = state.dirty.split('\n').slice(0, 8).join(' | ')
-        throw new Error(
-          `Forge ${nodeId} refuses to start: the checkout has uncommitted tracked changes and this lane may commit ` +
-            `(it works in the operator's checkout, not in a tree of its own). Commit or stash first. dirty=[${named}]`,
-        )
-      }
-    }
 
     const queued = await work.enqueue({
       storyId: resolvedStory.id,
