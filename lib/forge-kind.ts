@@ -114,7 +114,7 @@ export function describeRouting(kind: unknown, policy?: unknown): string {
   const resolvedKind = asForgeKind(kind)
   const routing = KIND_ROUTING[resolvedKind]
   const resolvedPolicy = policy === undefined ? routing.policy : asModelPolicy(policy)
-  return `${resolvedKind}/${resolvedPolicy} → ${MODEL_FOR_POLICY[resolvedPolicy].model} · starts ${routing.laneStart}`
+  return `${resolvedKind}/${forPolicyLabel(resolvedPolicy)} → ${MODEL_FOR_POLICY[resolvedPolicy].model} · starts ${routing.laneStart}`
 }
 
 /**
