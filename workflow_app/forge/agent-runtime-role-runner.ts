@@ -22,6 +22,7 @@ import {
 } from '../../agent-runtime/invoker'
 import { commitSha } from '../../agent-runtime/candidate-assay-handoff'
 import { deriveWorktreePath, gitBinary } from '../../lib/worker-workspace/provisioner'
+import { renderAllowedScopeMarker } from '../../lib/worker-workspace/commit'
 import {
   buildRepoContextQuery,
   latestScoutResearch,
@@ -289,6 +290,35 @@ function readGit(cwd: string, args: string[]): string | null {
 
 function runtimeInterrupted(resultStatus: string, completion: number): boolean {
   return completion < 100 || /interrupted|error|cancelled/i.test(resultStatus)
+}
+
+/**
+ * ENG-FORGE-SURFACE-SUPPLIER-01 — the ONE production supplier of a lane's declared
+ * write surface. The engine stamps a lane's declared surface on its task form data
+ * (`surface` as a string array, or the split assignment slice under `splitBranch`).
+ * Absent or empty means the lane declared none, so it runs ALONE — a lane is never
+ * co-scheduled on an unknown surface.
+ */
+export function forgeLaneSurface(task: {
+  formData?: Record<string, unknown> | null
+}): string[] | null {
+  const form = task?.formData ?? null
+  if (!form) return null
+  const clean = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value
+          .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+          .map((entry) => entry.trim())
+      : []
+  const direct = clean(form.surface)
+  if (direct.length > 0) return direct
+  const slice = form.splitBranch
+  if (slice && typeof slice === 'object') {
+    const plan = (slice as { plan?: { chunks?: Array<{ surface?: unknown }> } }).plan
+    const fromPlan = (plan?.chunks ?? []).flatMap((chunk) => clean(chunk.surface))
+    if (fromPlan.length > 0) return fromPlan
+  }
+  return null
 }
 
 export function createAgentRuntimeForgeRoleRunner(
@@ -736,6 +766,12 @@ export function createAgentRuntimeForgeRoleRunner(
       return smithWorkOrdersFromFindings(findingIds, handoff)
     })()
 
+    // ENG-FORGE-SURFACE-SUPPLIER-01: the SAME declared surface the wave was planned
+    // from, stamped as a machine line so the harness-owned commit seam carries it as
+    // allowedScope instead of falling back to `git add -A`.
+    const laneDeclaredSurface =
+      splitAssignmentContract?.allowedScope ?? serialAssignmentContract?.allowedScope ?? []
+    const allowedScopeMarker = renderAllowedScopeMarker(laneDeclaredSurface)
     const extraInstructions = [
       correctiveNote,
       identityInstruction,
@@ -763,6 +799,7 @@ export function createAgentRuntimeForgeRoleRunner(
       resolvedStory.scope?.trim()
         ? `DECLARED SURFACES (authoritative — work within these; do NOT survey or glob the repository):\n${resolvedStory.scope.trim()}`
         : null,
+      allowedScopeMarker || null,
       buildRunGuardrailsDirective(),
       buildBrevityDirective(),
       buildRunPassDirective(),

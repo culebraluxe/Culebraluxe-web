@@ -311,6 +311,18 @@ export function leadShapePlan(decision: WorkShapeDecision): LeadShapePlan {
 }
 
 /**
+ * ENG-FORGE-SURFACE-SUPPLIER-01 — the deterministic size floor the shaper owes the
+ * Lead. Size is otherwise the model's self-rating (its feature vector), so a plan whose
+ * required findings span two or more independent seam groups could still be rated SMALL.
+ * Units contain ONLY required executable findings (adjacent ones are quarantined to
+ * follow-ups), so two or more units is exactly "required findings spanning two or more
+ * groups". The floor reads the shaper's groups, never the model's all-1 rating.
+ */
+export function shapeSizeFloor(decision: WorkShapeDecision): 'SMALL' | 'MEDIUM' {
+  return decision.units.length >= 2 ? 'MEDIUM' : 'SMALL'
+}
+
+/**
  * Mutation-authority scope for a SINGLE selected unit. This is what keeps Smith
  * bounded: a chosen unit owns ONLY its seams (+ an explicit fallback when a unit
  * declares none), never the seams of sibling units or follow-up findings.

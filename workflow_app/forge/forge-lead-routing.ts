@@ -4,6 +4,7 @@ import { assessSmithDispatch } from './forge-dispatch-gate'
 import { dispatchabilityFor } from './forge-dispatchability'
 import type { DispatchabilityFeatures } from './forge-dispatchability'
 import type { SmithExecutionPlan } from './forge-execution-shaping'
+import { shapeArchitectFindings, shapeSizeFloor, type FindingDisposition } from './forge-shaping'
 
 export type Route = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
 export type Size = 'SMALL' | 'MEDIUM' | 'LARGE'
@@ -180,6 +181,23 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     }
   }
   if (p.decision === 'SOLO' && p.size !== 'SMALL') errors.push('SOLO requires SMALL work')
+  // ENG-FORGE-SURFACE-SUPPLIER-01 — the MEDIUM floor comes from the SHAPER's seam
+  // groups, not the model's all-1 feature self-rating. Units contain only required
+  // executable findings, so >=2 units is exactly "required findings span >=2 groups".
+  const shaperShape = shapeArchitectFindings({
+    findings: context.findings.map((f) => ({
+      id: f.id,
+      summary: f.id,
+      required: f.required,
+      seams: f.seams,
+      ...(f.hint ? { hint: f.hint as FindingDisposition } : {}),
+    })),
+  })
+  if (p.size === 'SMALL' && shapeSizeFloor(shaperShape) === 'MEDIUM') {
+    errors.push(
+      `required findings span ${shaperShape.units.length} shaper seam groups — the deterministic size floor is MEDIUM, not SMALL`,
+    )
+  }
   if (!unique(p.assignments.map(a => a.id))) errors.push('Duplicate assignment IDs')
   if (!p.mergeChecks.length || p.mergeChecks.some(c => !context.allowedProofs.includes(c))) {
     errors.push('Integrated acceptance must use the frozen story proof commands')

@@ -6,7 +6,14 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { driveForgeStory, planWave, type WaveLane } from '../forge/forge-executor'
-import { commitWorkerWorkspaceChanges } from '../../lib/worker-workspace/commit'
+import { forgeLaneSurface } from '../forge/agent-runtime-role-runner'
+import { shapeArchitectFindings, shapeSizeFloor } from '../forge/forge-shaping'
+import { reviewLeadProposal } from '../forge/forge-lead-routing'
+import {
+  commitWorkerWorkspaceChanges,
+  parseAllowedScopeMarker,
+  renderAllowedScopeMarker,
+} from '../../lib/worker-workspace/commit'
 
 test('ENG-FORGE-V10: production driver refuses to invent a role runner', async () => {
   await assert.rejects(
@@ -138,5 +145,137 @@ test('ENG-FORGE-PARALLEL-WAVE-01: a declared-only commit carries only declared p
       .map((line) => line.trim())
       .filter(Boolean),
     ['declared.txt'],
+  )
+})
+
+test('ENG-FORGE-SURFACE-SUPPLIER-01: the supplier feeds planWave so two non-fanout lanes with disjoint surfaces share one wave', () => {
+  const a = forgeLaneSurface({ formData: { surface: ['workflow_app/a.ts'] } })
+  const b = forgeLaneSurface({ formData: { surface: ['workflow_app/b.ts'] } })
+  assert.deepEqual(a, ['workflow_app/a.ts'])
+  assert.deepEqual(b, ['workflow_app/b.ts'])
+  const plan = planWave([lane('smith', a), lane('qa_verify', b)], 2)
+  assert.equal(plan.ok, true)
+  if (!plan.ok) return
+  assert.equal(plan.batches.length, 1)
+  assert.deepEqual(
+    plan.batches[0].map((entry) => entry.lane),
+    ['smith', 'qa_verify'],
+  )
+})
+
+test('ENG-FORGE-SURFACE-SUPPLIER-01: a lane with no declared surface still runs alone', () => {
+  const undeclared = forgeLaneSurface({ formData: {} })
+  assert.equal(undeclared, null)
+  const plan = planWave([lane('smith', undeclared), lane('qa_verify', ['workflow_app/b.ts'])], 2)
+  assert.equal(plan.ok, true)
+  if (!plan.ok) return
+  assert.deepEqual(
+    plan.batches.map((batch) => batch.length),
+    [1, 1],
+  )
+})
+
+test('ENG-FORGE-SURFACE-SUPPLIER-01: the declared surface round-trips through the commit marker', () => {
+  const surface = ['lib/worker-workspace/commit.ts', 'workflow_app/forge/forge-shaping.ts']
+  const rendered = renderAllowedScopeMarker(surface)
+  assert.ok(rendered.startsWith('FORGE_ALLOWED_SCOPE:'))
+  assert.deepEqual(parseAllowedScopeMarker(rendered), surface)
+  assert.equal(parseAllowedScopeMarker('no marker here'), null)
+  assert.equal(renderAllowedScopeMarker([]), '')
+})
+
+test('ENG-FORGE-SURFACE-SUPPLIER-01: a commit that exists is never reported as nothing', async () => {
+  const cwd = repo()
+  writeFileSync(join(cwd, 'declared.txt'), 'mine\n')
+  const result = await commitWorkerWorkspaceChanges(cwd, 'FORGE: never nothing', {
+    allowedScope: ['declared.txt'],
+  })
+  assert.equal(result.changed, true)
+  assert.ok(result.commitHash, 'a commit was made, so its sha must be returned')
+  assert.equal(git(cwd, ['rev-parse', 'HEAD']), result.commitHash)
+  assert.equal(result.refused, undefined)
+})
+
+const FROZEN_PROOF = 'node --import tsx --test workflow_app/tests/forge-executor-contract.test.ts'
+
+test('ENG-FORGE-SURFACE-SUPPLIER-01: the MEDIUM floor comes from the shaper seam groups, not the model rating', () => {
+  const oneGroup = shapeArchitectFindings({
+    findings: [
+      { id: 'a', summary: 'a', required: true, seams: ['workflow_app/a.ts'] },
+      { id: 'b', summary: 'b', required: true, seams: ['workflow_app/a.ts'] },
+    ],
+  })
+  assert.equal(oneGroup.units.length, 1)
+  assert.equal(shapeSizeFloor(oneGroup), 'SMALL')
+
+  const twoGroups = shapeArchitectFindings({
+    findings: [
+      { id: 'a', summary: 'a', required: true, seams: ['workflow_app/a.ts'] },
+      { id: 'b', summary: 'b', required: true, seams: ['workflow_app/b.ts'] },
+      { id: 'c', summary: 'c', required: false, seams: ['workflow_app/c.ts'] },
+    ],
+  })
+  assert.equal(twoGroups.units.length, 2)
+  assert.equal(shapeSizeFloor(twoGroups), 'MEDIUM')
+})
+
+test('ENG-FORGE-SURFACE-SUPPLIER-01: a SMALL plan over two shaper seam groups is refused', () => {
+  const review = reviewLeadProposal(
+    {
+      version: 1,
+      decision: 'SMITH',
+      size: 'SMALL',
+      sizeReason: 'the model rated every feature 1',
+      reason: 'one smith',
+      assignments: [
+        {
+          id: 'a1',
+          findingIds: ['a', 'b'],
+          dependsOn: [],
+          evidenceRefs: ['story_goal'],
+          reasoning: 'do the bounded work',
+          features: {
+            semanticSurface: 1,
+            dependencyDepth: 1,
+            uncertainty: 1,
+            contextBurden: 1,
+            proofBurden: 1,
+            coupling: 1,
+            changeNovelty: 1,
+            workerFit: 1,
+          },
+          plan: {
+            size: 'SMALL',
+            chunks: [
+              {
+                id: 1,
+                outcome: 'o',
+                surface: ['workflow_app/a.ts'],
+                invariant: 'i',
+                proof: FROZEN_PROOF,
+                dependsOn: [],
+              },
+            ],
+          },
+        },
+      ],
+      mergeChecks: [FROZEN_PROOF],
+    },
+    {
+      findings: [
+        { id: 'a', required: true, seams: ['workflow_app/a.ts'] },
+        { id: 'b', required: true, seams: ['workflow_app/b.ts'] },
+      ],
+      evidenceRefs: ['story_goal'],
+      splitEnabled: true,
+      maxSmiths: 2,
+      allowedProofs: [FROZEN_PROOF],
+    },
+  )
+  assert.equal(review.ok, false)
+  if (review.ok) return
+  assert.ok(
+    review.errors.some((error) => error.includes('size floor is MEDIUM')),
+    `expected a MEDIUM floor error, got: ${review.errors.join(' | ')}`,
   )
 })

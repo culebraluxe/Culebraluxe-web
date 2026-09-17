@@ -41,7 +41,7 @@ import {
   readyAdapterReadiness,
   type AdapterReadiness,
 } from './readiness'
-import { commitWorkerWorkspaceChanges } from '../lib/worker-workspace'
+import { commitWorkerWorkspaceChanges, parseAllowedScopeMarker } from '../lib/worker-workspace/commit'
 
 export function defaultDeepSeekConfig(): DeepSeekHarnessConfig {
   return {
@@ -145,16 +145,19 @@ async function commitAndRevokePolicyEvidence(input: {
   sourceLabel: string
 }): Promise<AgentRunEvidence> {
   const { evidence, command, context, workspace, sourceLabel } = input
-  void command
   let committedEvidence = evidence
   if (
     context.policy.allowCommit &&
     context.executionWorkspace &&
     !evidence.commitHash
   ) {
+    // ENG-FORGE-SURFACE-SUPPLIER-01: carry the SAME declared surface the lane was
+    // launched with into the commit seam. Absent marker preserves legacy behaviour.
+    const allowedScope = parseAllowedScopeMarker(command.specialInstructions)
     const committed = await commitWorkerWorkspaceChanges(
       workspace,
       `${context.story.id}: ${context.story.title}`,
+      allowedScope ? { allowedScope } : {},
     )
     if (committed.commitHash) {
       committedEvidence = {

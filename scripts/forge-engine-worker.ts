@@ -1,4 +1,7 @@
-import { createAgentRuntimeForgeRoleRunner } from '../workflow_app/forge/agent-runtime-role-runner'
+import {
+  createAgentRuntimeForgeRoleRunner,
+  forgeLaneSurface,
+} from '../workflow_app/forge/agent-runtime-role-runner'
 import { driveForgeStory } from '../workflow_app/forge/forge-executor'
 import { assertForgeLaneMayStart } from '../workflow_app/forge/forge-execution-target'
 import {
@@ -107,6 +110,10 @@ async function main(): Promise<void> {
       ...(launchIntent ? { launchIntent } : {}),
     }),
     workerId,
+    // ENG-FORGE-SURFACE-SUPPLIER-01: the lane's declared surface reaches planWave.
+    // Without a supplier every non-fanout lane is surface:null and runs alone, so the
+    // wave is live only for smith_split_work, which the old code already batched.
+    surfaceOf: (task) => forgeLaneSurface(task),
     // SPLIT concurrency: default 2 (the lane is enabled by default now).
     splitConcurrency: Math.max(1, Math.trunc(Number(process.env.FORGE_SPLIT_CONCURRENCY ?? '2')) || 2),
     onProgress: (message) => console.log(`[${stamp()}] ${message}`),
