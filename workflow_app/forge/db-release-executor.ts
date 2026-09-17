@@ -1,4 +1,5 @@
 import { publishAcceptedCandidate } from '../../lib/worker-workspace'
+import { engineSql } from '../engine-client'
 import { getStoryboardStory } from '../../db/storyboard'
 import { parseAssayCommands } from '../../agent-runtime/assay-plan'
 import { runAssayCommand } from '../../agent-runtime/deterministic-assay-adapter'
@@ -39,6 +40,28 @@ function requireContext(envelope: ForgeCommandEnvelope): {
   const processInstanceId = envelope.processInstanceId?.trim()
   const storyId = envelope.storyId?.trim()
   return processInstanceId && storyId ? { processInstanceId, storyId } : null
+}
+
+/**
+ * The refresh command that minted the receipt this verification is checking.
+ *
+ * Refresh and verify are distinct XML command-nodes, so each carries a distinct deterministic
+ * commandId and the verify command cannot know the refresh's id by construction. The engine's
+ * `process_commands` ledger records it for this run, so the identity is resolved from the row
+ * rather than guessed — no schema change, and no timestamp proxy that could accept a stale
+ * receipt. A missing row returns null, and the verifier then fails closed.
+ */
+async function currentDerivedRefreshCommandId(processInstanceId: string): Promise<string | null> {
+  const rows = (await engineSql()`
+    select command_id
+    from process_commands
+    where process_instance_id = ${processInstanceId}
+      and command_type = ${FORGE_REFRESH_DERIVED_MODELS}
+    order by visit_sequence desc
+    limit 1
+  `) as Array<{ command_id?: unknown }>
+  const value = rows[0]?.command_id
+  return typeof value === 'string' && value.trim() ? value : null
 }
 
 /**
@@ -140,7 +163,11 @@ export function createDbForgeReleaseExecutor(
               models: evidence.derivedModels ?? [],
             }
             result = verify
-              ? await operations.verifyDerived(input)
+              ? await operations.verifyDerived({
+                  ...input,
+                  attemptCommandId:
+                    (await currentDerivedRefreshCommandId(context.processInstanceId)) ?? '',
+                })
               : await operations.refreshDerived({ ...input, commandId: envelope.commandId })
           } catch (error) {
             result = { success: false, detail: String((error as Error)?.message ?? error) }

@@ -108,7 +108,12 @@ test('shared pool: no operation closes the pool another caller is using', async 
 test('shared pool: a caller can still run a query after another caller finished', async () => {
   const pool = sharedPool()
   const ops = createForgeReleaseOperations({ poolForTarget: () => pool })
-  const verified = await ops.verifyDerived({ storyId: 's1', target: 'dev', models: ['mv_one'] })
+  const verified = await ops.verifyDerived({
+    storyId: 's1',
+    target: 'dev',
+    models: ['mv_one'],
+    attemptCommandId: 'c1',
+  })
   assert.equal(verified.success, true)
   const after = await pool.query('select 1')
   assert.equal(after.rowCount, 1, 'a later caller could still query the shared pool')
@@ -117,7 +122,12 @@ test('shared pool: a caller can still run a query after another caller finished'
 test('shared pool: the pool lifecycle is owned by process shutdown, not one operation', async () => {
   const pool = sharedPool()
   const ops = createForgeReleaseOperations({ poolForTarget: () => pool })
-  await ops.verifyDerived({ storyId: 's1', target: 'dev', models: ['mv_one'] })
+  await ops.verifyDerived({
+    storyId: 's1',
+    target: 'dev',
+    models: ['mv_one'],
+    attemptCommandId: 'c1',
+  })
   await ops.refreshDerived({
     commandId: 'c2',
     storyId: 's1',

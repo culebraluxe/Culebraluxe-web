@@ -31,6 +31,11 @@ export interface ForgeReleaseOperations {
     storyId: string
     target: ForgeReleaseTarget
     models: string[]
+    /**
+     * The refresh command that minted the receipt this verification is checking. Required:
+     * a receipt minted by an earlier release attempt must never satisfy a later verification.
+     */
+    attemptCommandId: string
   }): Promise<ForgeOperationResult>
 }
 
@@ -54,14 +59,27 @@ function migrationPath(repoRoot: string, file: string): string {
   return candidate
 }
 
-function quotedModel(model: string): string {
+/**
+ * THE ONE DERIVED-MODEL IDENTITY RESOLVER (ENG-FORGE-VERIFY-IDENTITY-01).
+ *
+ * A derived model is an optional schema qualifier plus a name. An unqualified model resolves
+ * to `public`, so the refresh path (which quotes the model) and the verify path (which matches
+ * `pg_matviews` by schema AND name) agree on which object they are talking about. An unsafe
+ * identifier is refused here, before it reaches SQL.
+ */
+function derivedModelIdentity(model: string): { schema: string; name: string } {
   if (!/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i.test(model)) {
     throw new Error(`unsafe derived model identifier: ${model}`)
   }
-  return model
-    .split('.')
-    .map((part) => `"${part}"`)
-    .join('.')
+  const [schema, name] = model.includes('.') ? model.split('.') : ['public', model]
+  return { schema, name }
+}
+
+function quotedModel(model: string): string {
+  const { schema, name } = derivedModelIdentity(model)
+  // An unqualified model stays unqualified, so a refresh keeps resolving through search_path
+  // exactly as before; only the verify join pins it, and it pins it to public.
+  return model.includes('.') ? `"${schema}"."${name}"` : `"${name}"`
 }
 
 async function migrationContents(repoRoot: string, files: string[]) {
@@ -524,21 +542,44 @@ export function createForgeReleaseOperations(deps: ForgeReleaseOperationsDeps = 
     },
 
     async verifyDerived(input) {
+      // THE ATTEMPT IS PART OF THE VERIFICATION. A refresh receipt minted by an earlier
+      // release attempt (or an earlier run) must never satisfy this one, so the current
+      // attempt's refresh command is required and matched, not inferred from recency.
+      const attempt = input.attemptCommandId?.trim()
+      if (!attempt) {
+        return {
+          success: false,
+          detail: 'verifyDerived requires the current release attempt identity (attemptCommandId)',
+        }
+      }
       const pool = poolForTarget(input.target)
       for (const model of input.models) {
-        const name = model.includes('.') ? model.split('.')[1] : model
+        let identity: { schema: string; name: string }
+        try {
+          identity = derivedModelIdentity(model)
+        } catch (error) {
+          return { success: false, detail: String((error as Error)?.message ?? error) }
+        }
+        // THE OBJECT IS SCHEMA-QUALIFIED. `pg_matviews` carries a `schemaname`; joining on
+        // `matviewname` alone accepted a same-named view in another schema as this object.
         const result = await pool.query(
           `select 1
            from forge_derived_refresh_execution r
-           join pg_matviews mv on mv.matviewname = $4 and mv.ispopulated = true
+           join pg_matviews mv
+             on mv.schemaname = $5 and mv.matviewname = $4 and mv.ispopulated = true
            where r.story_id = $1 and r.target = $2 and r.model_name = $3
-             and r.success = true
+             and r.command_id = $6 and r.success = true
            order by r.executed_at desc
            limit 1`,
-          [input.storyId, input.target, model, name],
+          [input.storyId, input.target, model, identity.name, identity.schema, attempt],
         )
         if (result.rowCount !== 1) {
-          return { success: false, detail: `${model} has no verified populated refresh` }
+          return {
+            success: false,
+            detail:
+              `${model} has no populated refresh receipt minted for the current release ` +
+              `attempt (${identity.schema}.${identity.name})`,
+          }
         }
       }
       return { success: true, detail: `verified ${input.models.join(', ')}` }
