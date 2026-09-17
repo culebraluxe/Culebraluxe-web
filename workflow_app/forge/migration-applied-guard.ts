@@ -12,6 +12,9 @@
 // no database. Code must never land ahead of the column it writes.
 // ---------------------------------------------------------------------------
 
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { forgeDb, forgeDbTargetForUrl } from '../../db/forge-db'
 
 export type MigrationAppliedAssessment = {
@@ -93,4 +96,100 @@ export async function guardMigrationApplied(input: {
 }): Promise<MigrationAppliedAssessment> {
   const ledger = input.ledgerFilenames ?? (await readProdMigrationLedger())
   return assessMigrationApplied({ changedPaths: input.changedPaths, ledgerFilenames: ledger })
+}
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-MIGRATION-START-01 — no run STARTS while a migration in the repo is
+// unapplied on PROD.
+//
+// The completion guard above sees a story that reaches the release lane. A story
+// parked before DEV_OPS never gets there, and DEV_OPS owns migrations, so the same
+// fact moves in FRONT of the run: read the repo file LIST and the LEDGER TABLE only
+// (never a story diff — at start the work has not happened yet), and refuse to start
+// when any db/migrations/*.sql is unledgered, naming every file. An unreadable ledger
+// fails CLOSED to the named refusal, never to a silent start.
+// ---------------------------------------------------------------------------
+
+export type MigrationPreflightAssessment = {
+  ok: boolean
+  /** Every repo migration the ledger does not carry, in repo-list order. */
+  unapplied: string[]
+  /** The named refusal when ok is false, null otherwise. */
+  refusal: string | null
+}
+
+/** The start-seam refusal, naming EVERY unapplied repo file (never a story diff). */
+export function migrationPreflightRefusal(unapplied: readonly string[]): string {
+  return (
+    'repository migrations are not recorded in the PROD schema_migration ledger: ' +
+    `${unapplied.join(', ')}`
+  )
+}
+
+/**
+ * The pure start decision: every db/migrations/*.sql file in the repo LIST must be carried
+ * by the ledger. The repo list is a filesystem answer, not a change set — nothing has
+ * happened yet. Reuses the change-set assessment for the comparison only; the refusal it
+ * returns is the repo-shaped one above.
+ */
+export function assessMigrationPreflight(input: {
+  repoPaths: Iterable<string>
+  ledgerFilenames: Iterable<string>
+}): MigrationPreflightAssessment {
+  const assessment = assessMigrationApplied({
+    changedPaths: Array.from(input.repoPaths),
+    ledgerFilenames: input.ledgerFilenames,
+  })
+  return {
+    ok: assessment.ok,
+    unapplied: assessment.unapplied,
+    refusal: assessment.ok ? null : migrationPreflightRefusal(assessment.unapplied),
+  }
+}
+
+/** The repository-relative db/migrations/*.sql paths on disk, sorted. */
+export function listRepoMigrationFiles(repoRoot: string = process.cwd()): string[] {
+  const dir = join(repoRoot, 'db', 'migrations')
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => `db/migrations/${entry.name}`)
+    .sort()
+}
+
+/**
+ * The start-seam preflight. Reads the repo file LIST and the PROD ledger, and NEVER throws:
+ * an unreadable ledger fails CLOSED to the named refusal so the run refuses to start rather
+ * than starting silently. The ledger reader is injectable for the both-directions proof.
+ */
+export async function preflightMigrationStart(
+  input: {
+    repoPaths?: Iterable<string>
+    ledgerFilenames?: Iterable<string>
+    readLedger?: () => Promise<string[]>
+  } = {},
+): Promise<MigrationPreflightAssessment> {
+  let repoPaths: string[]
+  try {
+    repoPaths = input.repoPaths ? Array.from(input.repoPaths) : listRepoMigrationFiles()
+  } catch (error) {
+    return {
+      ok: false,
+      unapplied: [],
+      refusal: `could not read the repository migration list (db/migrations): ${String(
+        (error as Error)?.message ?? error,
+      )}; refusing to start`,
+    }
+  }
+  try {
+    const ledger = input.ledgerFilenames ?? (await (input.readLedger ?? readProdMigrationLedger)())
+    return assessMigrationPreflight({ repoPaths, ledgerFilenames: ledger })
+  } catch (error) {
+    return {
+      ok: false,
+      unapplied: [],
+      refusal: `could not read the PROD schema_migration ledger: ${String(
+        (error as Error)?.message ?? error,
+      )}; refusing to start`,
+    }
+  }
 }

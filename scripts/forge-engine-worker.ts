@@ -17,6 +17,7 @@ import {
   architectContractFromNotes,
   resolveAcceptanceAssertions,
 } from '../workflow_app/forge/forge-architect-contract'
+import { preflightMigrationStart } from '../workflow_app/forge/migration-applied-guard'
 
 const args = process.argv.slice(2)
 const value = (flag: string): string | undefined => {
@@ -70,6 +71,31 @@ async function main(): Promise<void> {
   })
   if (!dual.ok) {
     throw new Error(`Forge dual-write refused for story ${storyId}`)
+  }
+
+  // ENG-FORGE-MIGRATION-START-01 — NO RUN STARTS WHILE A MIGRATION IN THE REPO IS UNAPPLIED ON PROD.
+  //
+  // The completion guard (ENG-FORGE-MIGRATION-APPLIED-01) only sees a story that reaches the
+  // release lane; a story parked before DEV_OPS never gets there, and DEV_OPS owns migrations.
+  // So the same fact moves in FRONT of the run: read the repo file LIST and the PROD ledger
+  // table only (never a story diff — at start the work has not happened), refuse to start when
+  // any db/migrations/*.sql is unledgered, name every file, and fail CLOSED to the named
+  // refusal when the ledger cannot be read. This runs before the ready gate and before any
+  // work item exists, so a refusal spends nothing on a turn.
+  //
+  // A fresh instance is gated; a resume of an already-active instance is NOT, because that
+  // resume is the only path that reaches the DEV_OPS lane which applies the migration. A
+  // blanket gate would deadlock the engine.
+  if (!engineActive) {
+    const preflight = await preflightMigrationStart()
+    if (!preflight.ok) {
+      const reason = `migration-preflight: ${preflight.refusal ?? 'repository migrations are unapplied on PROD'}`
+      await markForgeStoryHumanHold(storyId, reason)
+      console.log(
+        JSON.stringify({ brain, migrationPreflight: 'HOLD', storyId, reason }, null, 2),
+      )
+      return
+    }
   }
 
   // Ready gate: a QA-applicable story must NOT leave Planned (start a fresh
