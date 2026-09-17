@@ -79,7 +79,11 @@ import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
-import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
+import {
+  getForgeRoleContract,
+  getLatestForgeRoleContractForStory,
+  type ForgeRoleContract,
+} from '../../db/forge-role-contract'
 import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
 import { listStoryForgeFindingHandoff } from '../../db/forge-role-finding'
 import type { LeadAssignment } from './forge-lead-routing'
@@ -1286,9 +1290,31 @@ export function createAgentRuntimeForgeRoleRunner(
     // ONE READER resolves the two declaration places in a STATED order: the HANDOFF declaration (the
     // Lead's contract row, else the Architect's contract in the brief) WINS; the STORY-AUTHOR row is the
     // fallback; neither yields no map at all, so the absent case is unchanged (undefined, not `{}`).
+    // THE HANDOFF DECLARATION MUST REACH ITS CONSUMER. The Lead writes its contract under `lead_pre`,
+    // but QA runs under a DIFFERENT task — so a task-scoped read returns nothing there and a
+    // Lead-declared mapping would never be seen by the lane that consumes it. For the QA lane, read the
+    // newest `lead_pre` contract for THIS story/process; the read is best-effort, but a failure is
+    // RECORDED (never swallowed), because a mapping that vanishes silently is the whole defect this
+    // story exists to fix.
+    let leadContract: ForgeRoleContract | null = recordedContract
+    if (plan.lane === 'assay') {
+      try {
+        leadContract = await getLatestForgeRoleContractForStory({
+          storyId: resolvedStory.id,
+          processInstanceId: String(task.processInstanceId),
+          nodeId: 'lead_pre',
+        })
+      } catch (error) {
+        captureServerLog(
+          'warn',
+          'forge.acceptance-map.contract-read',
+          String((error as Error)?.message ?? error),
+        )
+      }
+    }
     const acceptanceResolution = resolveAcceptanceAssertions({
       handoff:
-        recordedContract?.acceptanceAssertions ??
+        leadContract?.acceptanceAssertions ??
         architectContractFromNotes(resolvedStory.architectBrief)?.acceptanceAssertions ??
         null,
       story: resolvedStory.acceptanceAssertions ?? null,
