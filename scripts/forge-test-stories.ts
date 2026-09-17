@@ -1721,34 +1721,80 @@ const STORIES: TestStory[] = [
     priority: 'Medium',
     batch: 99,
     title:
-      'A re-verified story earns a fresh named proof: QA re-executes the named assertions rather than reading a proof that cannot carry names',
+      'An assertion ref names something the proof can print: a file-qualified ref resolves by its name tail',
     goal:
-      'When a story is re-verified, the proof the ruling reads is one that NAMES the assertions that ran, ' +
-      'so a correct mapping is never ruled UNPROVEN for want of a name in an old proof.',
+      'A ref written path#name (the Forge convention for a named thing inside a file) is satisfied by a ' +
+      'marker line that names that assertion, so a correct mapping is never UNPROVEN because of how the ref ' +
+      'was spelled.',
     scope:
-      'the QA node proof acquisition path (workflow_app/forge/agents/qa/run.ts) so that a re-verify ' +
-      're-executes the named assertions and captures their names, plus workflow_app/tests/' +
-      'proof-names.test.ts (new).',
+      'assertion ref resolution in the QA adjudicator (workflow_app/forge/agents/qa/run.ts, the ' +
+      'assertionOutcome reader), workflow_app/tests/assertion-executed.test.ts (extend with the ' +
+      'file-qualified ref cases), and the directive/prompt text that states the accepted ref format where ' +
+      'the mapping is declared.',
     acceptance:
-      'A re-verified story whose mapped assertions pass is ruled PASS on the strength of a proof that names ' +
-      'each assertion, even when the story original run proof reported counts only. A re-executed assertion ' +
-      'that fails is FAIL, not UNPROVEN. A mapping whose assertion cannot be resolved to a runnable name is ' +
-      'UNPROVEN and says which ref could not be resolved. A test drives all three against a count-only proof ' +
-      'and a named proof.',
+      'A ref of the form <path>#<name> is satisfied by a marker line whose text contains <name>, and the ' +
+      'clause is PASS. A ref of that form whose <name> appears only on a non-marker line (a suite header, ' +
+      'echoed source) is still UNPROVEN, so the marker rule is not weakened to gain tolerance. A ref with ' +
+      'no # behaves exactly as today. A failed marker line naming <name> is FAIL, never UNPROVEN. The ' +
+      'accepted ref format is stated where the mapping is declared, so a lane can write a ref the proof is ' +
+      'able to print. A test drives every case.',
     notes:
-      'LIVE FINDING 2026-09-17 18:06, recorded the moment it was measured: ENG-FORGE-MIGRATION-START-01 was ' +
-      're-verified through the operator door with a mapping that is already correct and file-qualified ' +
-      '("Given one or more db/migrations/*.sql file" -> workflow_app/tests/migration-preflight.test.ts#' +
-      'refuses when the repo list carries migrations the ledger lacks), and QA ruled UNPROVEN with ' +
-      'ASSERTION_NOT_RUN naming that exact ref, while the same file passes 10/10 when run directly. The ref ' +
-      'was right and the proof had no names to find: it was captured before ENG-FORGE-ASSERTION-RAN-01 landed, ' +
-      'by an invocation that reports counts. Until this story lands, every story whose proof predates the ' +
-      'naming rule is UNPROVEN on re-verify regardless of how correct its mapping is. Sibling of ' +
-      'ENG-FORGE-ASSERTION-RAN-01 (which asks that an assertion ran) and of ENG-FORGE-START-BASE-01 (which ' +
-      'asks which base a lane started from): all three are about a ruling resting on a fact the run did not ' +
-      'record. HONEST BOUNDARY: this does not change what a PASS means and does not let a bare count buy a ' +
-      'PASS - it makes the re-verify produce the named evidence the gate already demands.',
-    assayCommands: '- `node --import tsx --test workflow_app/tests/proof-names.test.ts`',
+      'CORRECTED 2026-09-17 18:20 (Cline) — MY EARLIER DIAGNOSIS ON THIS STORY WAS WRONG AND THIS IS THE ' +
+      'MEASURED CAUSE. I filed it at 18:06 saying the PROOF was too old to carry names. That was wrong: the ' +
+      'proof for ENG-FORGE-MIGRATION-START-01 DOES name each assertion ("refuses when the repo list carries ' +
+      'migrations the ledger lacks" appears on a marker line, and the file passes 10/10). The real defect is ' +
+      'a GRAMMAR COLLISION: the mapping declared the ref ' +
+      '"workflow_app/tests/migration-preflight.test.ts#refuses when the repo list carries migrations the ' +
+      'ledger lacks", but the reader requires the whole ref to appear on a marker line, and a marker line ' +
+      'carries the NAME, never the PATH — so a file-qualified ref can never match anything, no matter how ' +
+      'recent or complete the proof is. It is UNPROVEN by SPELLING, not by AGE. Two facts made this easy to ' +
+      'get wrong and are worth keeping: (1) the canonical ref form in the ACCEPTANCE-PROOF tests is a BARE ' +
+      'name ("asserts-wired-flag" against marker line "asserts-wired-flag"), which is why ' +
+      'ENG-FORGE-ASSERTION-RAN-01 (whose lane declared bare names) PASSed while MIGRATION-START-01 (whose ' +
+      'handoff declared path#name) did not; (2) the Forge already uses path#symbol everywhere else (seams, ' +
+      'scope), so a lane reaching for a file-qualified ref follows our own convention rather than making a ' +
+      'mistake. So the fix is BOTH: the reader resolves a path#name ref by its name tail while still ' +
+      'demanding that tail sit on a marker line, and the ref format is stated where lanes declare it. Sibling ' +
+      'of ENG-FORGE-ASSERTION-RAN-01 (an assertion must have RUN) and ENG-FORGE-START-BASE-01 (a lane ' +
+      'records the base it started from): all three are a ruling resting on something the run never ' +
+      'established. HONEST BOUNDARY: this does not weaken the marker rule (a name echoed from source still ' +
+      'does not count) and does not let a bare count buy a PASS.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/assertion-executed.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-STALE-READER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 98,
+    title:
+      'A ruling names the revision it was made by: a verdict from code older than the candidate is stale, not authoritative',
+    goal:
+      'A QA ruling carries the revision of the adjudicator that produced it, and a ruling made by code older ' +
+      'than the change it judged is flagged as stale rather than reported as a verdict on that change.',
+    scope:
+      'the QA verdict record and the adjudicator revision stamp (workflow_app/forge/agents/qa/run.ts, ' +
+      'workflow_app/forge/agents/qa/types.ts) plus workflow_app/tests/reader-revision.test.ts (new).',
+    acceptance:
+      'A QA ruling records the code revision the adjudicator ran, and a ruling made by code OLDER than the ' +
+      'candidate change is flagged as stale rather than reported as a verdict on the candidate. A fresh ' +
+      'process that judges the same candidate and the same proof is not flagged. A test drives both, ' +
+      'including a reader loaded before the change it is judging.',
+    notes:
+      'LIVE EVIDENCE 2026-09-17 18:36 (Cline) — A RULING MADE BY CODE OLDER THAN THE FIX IT JUDGED. The ' +
+      'engine process for ENG-FORGE-PROOF-NAMES-01 started 18:25:53; its lane committed the adjudicator fix ' +
+      'at 18:29:58. QA then ruled UNPROVEN (18:31) using the PRE-FIX reader held in that process memory, ' +
+      'reporting ASSERTION_NOT_RUN against refs the committed fix resolves. Restarting the engine and ' +
+      're-verifying the same candidate against the same proof returned QA PASS at 18:36 with nothing else ' +
+      'changed — the only difference was the code in the process. So an engine process silently adjudicates ' +
+      'with the revision it started on, and its verdict is indistinguishable from one made by current code. ' +
+      'Same family as ENG-FORGE-START-BASE-01 (a lane records the base it started from) and ' +
+      'ENG-FORGE-ASSERTION-RAN-01 (an assertion must have run): a ruling must name the thing it actually ' +
+      'rested on. It cost one full run and two door resumes to establish, and the fix is small: stamp the ' +
+      'adjudicator revision into the verdict. HONEST BOUNDARY: this does not force a reload mid-run and does ' +
+      'not change what a PASS means — it makes a stale ruling visible instead of authoritative.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/reader-revision.test.ts`',
   },
   {
     id: 'ENG-FORGE-FAILURE-STAGE-01',
