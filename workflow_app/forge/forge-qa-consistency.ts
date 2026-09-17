@@ -126,3 +126,117 @@ export function renderQaConsistencyLine(result: QaConsistencyResult): string {
       return `unknown (${result.reason})`
   }
 }
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-STALE-READER-01 — a ruling names the revision it was made by.
+//
+// A QA verdict is a claim about a CANDIDATE, made by a READER whose code was
+// loaded at some revision. Those are two different facts. When the reader's
+// code is OLDER than the candidate (an ancestor of it), the verdict was made by
+// code that predates the change it judges, so it is STALE — not authoritative,
+// and never reported as a PASS/FAIL on the candidate.
+//
+// Pure and DB-free like the rest of this module: the ancestor probe is INJECTED
+// (mirroring `gitIsAncestor` in forge-integration-attestation.ts), so this never
+// shells out to git and the loaded-before case is a unit test.
+// ---------------------------------------------------------------------------
+
+export type QaRulingRevision = {
+  /** The code revision the adjudicating reader was LOADED at — NOT the candidate it judged. */
+  readerRevision: string | null
+}
+
+export type StaleReaderAdjudication =
+  | { state: 'fresh'; readerRevision: string; candidateRevision: string }
+  | { state: 'stale'; readerRevision: string; candidateRevision: string; detail: string }
+  | { state: 'unknown'; reason: string }
+
+function normalizeRevision(value: string | null | undefined): string | null {
+  const token = (value ?? '').trim()
+  return token ? token : null
+}
+
+/**
+ * Fresh, stale or unknown — and never fresh by default. A reader at exactly the
+ * candidate revision is fresh. A reader whose revision is an ANCESTOR of the
+ * candidate is stale: it judged a change its own code predates. Anything else
+ * (blank revision, or a revision neither equal to nor an ancestor of the
+ * candidate) is unknown, so a divergent reader can never silently certify a
+ * candidate.
+ */
+export function adjudicateRulingRevision(input: {
+  readerRevision: string | null | undefined
+  candidateRevision: string | null | undefined
+  isAncestor: (ancestor: string, descendant: string) => boolean
+}): StaleReaderAdjudication {
+  const readerRevision = normalizeRevision(input.readerRevision)
+  const candidateRevision = normalizeRevision(input.candidateRevision)
+  if (!readerRevision || !candidateRevision) {
+    return { state: 'unknown', reason: 'reader and candidate revisions must both be readable' }
+  }
+  if (readerRevision === candidateRevision) {
+    return { state: 'fresh', readerRevision, candidateRevision }
+  }
+  if (input.isAncestor(readerRevision, candidateRevision)) {
+    return {
+      state: 'stale',
+      readerRevision,
+      candidateRevision,
+      detail:
+        `ruling was made by code at ${readerRevision}, which is older than candidate ` +
+        `${candidateRevision} — stale, not a verdict on the candidate`,
+    }
+  }
+  return {
+    state: 'unknown',
+    reason:
+      `reader revision ${readerRevision} is neither the candidate ${candidateRevision} nor an ` +
+      'ancestor of it — divergence is not a verdict',
+  }
+}
+
+/**
+ * A reader FREEZES the revision it was loaded at. A long-lived process that
+ * loaded this reader before the candidate commit existed keeps reporting that
+ * older revision — exactly the case the stale flag exists for.
+ */
+export function createRulingReader(input: {
+  revision: string | null | undefined
+  isAncestor: (ancestor: string, descendant: string) => boolean
+}): {
+  revision: string | null
+  adjudicate: (candidateRevision: string | null | undefined) => StaleReaderAdjudication
+} {
+  const revision = normalizeRevision(input.revision)
+  return {
+    revision,
+    adjudicate: (candidateRevision) =>
+      adjudicateRulingRevision({ readerRevision: revision, candidateRevision, isAncestor: input.isAncestor }),
+  }
+}
+
+export type QaRulingResult =
+  | { state: 'fresh'; consistency: QaConsistencyResult }
+  | { state: 'stale'; readerRevision: string; candidateRevision: string; detail: string }
+  | { state: 'unknown'; reason: string }
+
+/**
+ * The verdict, gated by the revision it was made at. A ruling that is not FRESH
+ * is never reported as a verdict on the candidate: stale and unknown both return
+ * without a `consistency` reading, so nothing downstream can read a PASS/FAIL
+ * that was not made against this candidate.
+ */
+export function checkQaRulingRevision(input: {
+  runStatus?: string | null
+  verdict?: string | boolean | null
+  readerRevision: string | null | undefined
+  candidateRevision: string | null | undefined
+  isAncestor: (ancestor: string, descendant: string) => boolean
+}): QaRulingResult {
+  const revision = adjudicateRulingRevision(input)
+  if (revision.state !== 'fresh') return revision
+  return {
+    state: 'fresh',
+    consistency: checkQaRunVerdictConsistency({ runStatus: input.runStatus, verdict: input.verdict }),
+  }
+}
