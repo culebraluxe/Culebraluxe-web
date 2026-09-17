@@ -79,3 +79,42 @@ these batches reflect. Two departures, stated:
 2. Bugs 1 and 2 are the only ones I would call **release-blocking for the captain**, because he has been
    bitten by exactly that pair ("dev burning a prod release if the database does not go too"). If anything
    in these three batches is pulled forward, pull those two.
+
+## Where I disagree with the review (to be read by the next reviewer, not to score points)
+
+An external review sees a snapshot and usually only git. Three of these are places I would push back, and
+one of them is a place I was wrong and Astra was right — recorded either way, because a review that is
+never argued with is not being read.
+
+**1. Bug 4 is real, and I doubted it wrongly.** `db/forge-engine-task-execution.ts:121` reads
+`stale: !terminal && (!Number.isFinite(touched) || touched < staleBefore)`. The `!Number.isFinite` clause
+means an unparseable timestamp AFFIRMATIVELY marks a non-terminal row stale — so the `Z`-append is not a
+comparison that quietly fails, it is a green light to treat a live claim as reapable. Astra's wording
+("marks nonterminal rows stale") was exact and my initial suspicion that NaN would read as *not* stale was
+wrong. The story is updated to say so, and it now records that it REVERSES a deliberate clause: a reaper
+must never reap what it cannot measure.
+
+**2. Bug 2 severity, and the real hole.** A repeat requires the record write to fail *after* the SQL
+succeeds, and schema migrations written as `begin; create table if not exists …; commit;` are harmless on
+a second run — both migrations this repo shipped on 2026-09-17 are. So the systemic risk is not "migrations
+repeat", it is **data migrations** (`insert`/`update`) replaying, where a second run changes data twice.
+The story keeps the checksum-aware guard and WIDENS to require idempotency for a data migration, because
+the guard alone cannot fix a migration that was never safe to re-run.
+
+**3. Bug 3 framing.** "A crash between those operations leaves an advanced workflow without its result" is
+literally true, but the state is LOUD rather than corrupt: the next role's gate reports the absent
+deliverable and HOLDs (`forge-engine-runtime.ts:214-232` says so in as many words). So the cost is a human
+plus a replay, not a wrong record — which is why the story exists (that cost is real and paid tonight) and
+why it is not the same severity as bug 1.
+
+**4. The review's test premise is wrong, and it matters.** Astra states that "the repository requires
+production control-plane cleanup before tests, which I did not initiate for this review". It does not: the
+engine suite runs as-is and was run repeatedly on 2026-09-17 — **761 tests, 758 pass, 0 fail, exit 0**, plus
+`pnpm build`, `pnpm typecheck` and `pnpm lint` all green. So the grade is source-only by choice, not by
+necessity, and the "substantial focused test coverage" he credits the repo with is in fact larger than he
+assumed and directly runnable.
+
+None of this weakens the four confirmed bugs. Astra found a release-ordering defect that has bitten the
+captain before, a ledger/receipt ordering defect, a crash window the engine had only stated, and a
+timestamp parse that disables the reaper's own safety — reading source alone. That is exactly what an
+external reviewer is for, and the batch-98 stories carry his file:line evidence next to mine.

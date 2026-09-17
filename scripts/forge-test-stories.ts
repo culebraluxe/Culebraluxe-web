@@ -1500,7 +1500,9 @@ const STORIES: TestStory[] = [
     acceptance:
       'Before executing a migration file its content checksum is compared with the ledger: a match SKIPS ' +
       'execution and reports already-applied (idempotent replay), while a checksum MISMATCH for the same ' +
-      'file refuses by name — a changed migration is never re-run over an applied one. A recording failure ' +
+      'file refuses by name — a changed migration is never re-run over an applied one. A DATA migration ' +
+      '(insert or update) must also be idempotent or refuse to re-run: the checksum guard cannot make a ' +
+      'migration safe that was never safe to repeat. A recording failure ' +
       'after execution leaves a state a retry can resolve without repeating data changes, and a test fails ' +
       'the record write and then retries to prove it.',
     notes:
@@ -1573,10 +1575,18 @@ const STORIES: TestStory[] = [
       '`Date.parse(updatedAt.replace(String " " -> "T") + "Z")`, and a timestamptz string arrives with its ' +
       'own offset (for example `2026-09-17 07:16:52.653+00`), so the built string is ' +
       '`2026-09-17T07:16:52.653+00Z` and Date.parse returns NaN — which is exactly how a fresh claim can ' +
-      'read as abandoned. This is the same surface ENG-FORGE-REAP-GUARD-01 (sprint 94) protects from the ' +
-      'other side: that story says the reaper cannot kill a live lane, and this is one way the reaper could ' +
-      'believe a lane is dead. HONEST BOUNDARY: this fixes the parse and the unparseable case; it does not ' +
-      'change the staleness threshold and does not add the heartbeat that REAP-GUARD-01 owns.',
+      'read as abandoned. THE UNPARSEABLE CASE IS DELIBERATE, AND THIS STORY REVERSES IT: ' +
+      'db/forge-engine-task-execution.ts:121 reads `stale: !terminal && (!Number.isFinite(touched) || ' +
+      'touched < staleBefore)`, so an unparseable timestamp AFFIRMATIVELY marks a non-terminal row stale — ' +
+      'the Z-append is not a comparison that quietly fails, it is a green light to reap a live lane. A ' +
+      'reaper must never reap what it cannot measure, so the unparseable case flips to NOT stale in this ' +
+      'story, with the reason recorded beside it. This is the same surface ENG-FORGE-REAP-GUARD-01 (sprint ' +
+      '94) protects from the other side: that story says the reaper cannot kill a live lane, and this is ' +
+      'one way the reaper could believe a lane is dead. Verified rather than assumed: my first read of this ' +
+      'bug was that NaN would read as NOT stale, and the code proved me wrong — Astra wording ("marks ' +
+      'nonterminal rows stale") was exact. HONEST BOUNDARY: this fixes the parse and reverses the ' +
+      'unparseable default; it does not change the staleness threshold and does not add the heartbeat that ' +
+      'REAP-GUARD-01 owns.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/claim-clock.test.ts`',
   },
   {
