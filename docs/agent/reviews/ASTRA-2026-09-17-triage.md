@@ -118,3 +118,32 @@ None of this weakens the four confirmed bugs. Astra found a release-ordering def
 captain before, a ledger/receipt ordering defect, a crash window the engine had only stated, and a
 timestamp parse that disables the reaper's own safety — reading source alone. That is exactly what an
 external reviewer is for, and the batch-98 stories carry his file:line evidence next to mine.
+
+## Measured corrections to the review's mechanisms (2026-09-17, after the first pass)
+
+Two confirmed bugs were right in effect and wrong in mechanism. The stories now carry the measured
+version, because a fix aimed at the described mechanism would not have fixed the bug.
+
+- **Bug 4 (timestamp).** Astra: a `Z` appended to a value that already carries a timezone offset.
+  **Measured:** the reader receives a **JavaScript `Date`** (`typeof object`, `instanceof Date` true), so
+  `String(date)` is the locale form `"Thu Sep 17 2026 04:24:10 GMT-0400 (Atlantic Standard Time)"` and it
+  is the `replace(' ','T') + 'Z'` transform that mangles it — `Date.parse(String(date))` alone parses fine
+  (1789633450000), and Postgres `::text` is `2026-09-17 08:24:10.166532+00`, which carries no `Z` at all.
+  The fix is to **stop stringifying a Date**, not to handle a suffix. Bonus: the file's own comment claims
+  timestamps are "normalized to text at this boundary" while line 109 does `String(row.updated_at)` on a
+  Date — the reader the comment vouches for is the one that violates it.
+- **Bug 2 (migration replay).** Astra: retries can repeat committed SQL. **Measured:** the repeat requires
+  the *record* write to fail after the SQL succeeds, and this repo's migrations are written idempotently
+  (`begin; create table if not exists …; commit;`). The systemic exposure is **data** migrations, so the
+  story now requires idempotency for those rather than leaning on the checksum guard alone.
+
+**Verified as not a live concern:** Astra's improvement 4 / candidate 7 (a helper closing a shared pool).
+`pool.end()` does appear at four sites in `release-operations.ts`, but `db-release-executor.ts` is the only
+production caller and it runs in the release path — no lane path closes a pool it shares with another
+writer. Left as a verify-item in `ENG-FORGE-LANE-FAILURE-01` rather than raised.
+
+**Verified as inert for this repo's lanes:** the missing `allowedScope` on
+`agent-runtime/gateway/cli-agent-adapter.ts:131`. The adapter IS registered (`CliAgentGatewayAdapter` is
+imported by `agent-runtime/factory.ts`), so it is not dead code — but every lane run on 2026-09-17 reported
+`harness=opencode`, so the gap does not touch our path. It becomes real the day a job is launched through
+the CLI gateway (for example Slack → job launch), and the surface guard must be wired then, not now.
