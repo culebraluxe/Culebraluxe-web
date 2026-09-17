@@ -40,6 +40,28 @@ export async function latestForgeInstanceForStory(
 export const ENGINE_CLAIM_STALE_MS = 15 * 60 * 1000
 
 /**
+ * A POSTGRES TIMESTAMP, READ AS THE INSTANT IT NAMES.
+ *
+ * The driver emits `updated_at::text` with an offset already attached - `2026-09-17 07:16:52.653+00`
+ * - and the previous read appended a literal `Z` to that, so `Date.parse` saw `...+00Z` and returned
+ * NaN. Every live claim then read as stale, because the stale test treated an unparseable value as
+ * abandoned. This normalizes each form the driver emits to one instant:
+ *   `... 07:16:52.653+00`     (bare offset)   -> `+00:00`
+ *   `... 07:16:52.653+00:00`  (colon offset)  -> as-is
+ *   `... 07:16:52.653Z`       (Z)             -> as-is
+ *   `... 07:16:52.653`        (no offset)     -> read as UTC
+ * Returns NaN only for text that names no instant at all; the caller must NOT read that as stale.
+ */
+export function parsePostgresInstant(value: string | null | undefined): number {
+  if (value == null) return NaN
+  const text = String(value).trim().replace(' ', 'T')
+  if (/[Zz]$/.test(text)) return Date.parse(text)
+  if (/[+-]\d{2}$/.test(text)) return Date.parse(`${text}:00`)
+  if (/[+-]\d{2}:?\d{2}$/.test(text)) return Date.parse(text)
+  return Date.parse(`${text}Z`)
+}
+
+/**
  * THE ENGINE'S OWN LANES: one card per STORY, from the engine ledger.
  *
  * The queues board's RUNNING and RESULTS lanes are the engine's lanes — "the batch the machine is
@@ -107,7 +129,7 @@ export async function listEngineRunCards(
   return rows.map((row) => {
     const status = String(row.status ?? '')
     const updatedAt = row.updated_at == null ? null : String(row.updated_at)
-    const touched = updatedAt ? Date.parse(updatedAt.replace(' ', 'T') + 'Z') : NaN
+    const touched = parsePostgresInstant(updatedAt)
     const terminal = status === 'completed' || status === 'failed' || status === 'interrupted'
     return {
       storyId: String(row.story_id),
@@ -117,8 +139,10 @@ export async function listEngineRunCards(
       status,
       attempts: Number(row.attempts ?? 0),
       at: row.at == null ? null : String(row.at),
-      // Only a NON-TERMINAL row can be stale: a completed row is simply finished.
-      stale: !terminal && (!Number.isFinite(touched) || touched < staleBefore),
+      // Only a NON-TERMINAL row can be stale: a completed row is simply finished. A timestamp that
+      // names no instant is NOT stale either - the screen must not call a claim abandoned on text it
+      // could not read; the cleaner, not this read, is the authority on abandonment.
+      stale: !terminal && Number.isFinite(touched) && touched < staleBefore,
       updatedAt,
     }
   })
