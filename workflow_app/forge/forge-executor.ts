@@ -15,6 +15,7 @@ import { fileOf, overlap, within } from './agents/shared/path'
 import { engineSql } from '../engine-client'
 import type { QueryExecutor } from '../../db/query-executor'
 import { recordForgeQaFailure, recordForgeQaPass } from '../../db/forge-repair-ledger'
+import { captureServerError } from '../../lib/server-error-capture'
 
 export type ForgeRoleOutcome = {
   transitionName?: string
@@ -194,6 +195,68 @@ function isAdvanceConflict(err: unknown): boolean {
   return /already completed|not active|state changed|STALE_TASK|TASK_ALREADY_COMPLETED|PROCESS_NOT_ACTIVE/i.test(
     m,
   )
+}
+
+/**
+ * The COMPLETED signal, and nothing else. `releaseTask` refuses a completed task with
+ * `TASK_NOT_RELEASABLE` and the message `Task cannot be released in status: completed`
+ * (workflow_engine/lib/workflow/engine.ts), which `isAdvanceConflict` does not match — so this is
+ * deliberately narrower than `isAdvanceConflict`: `not active`/`STALE_TASK`/`PROCESS_NOT_ACTIVE` are
+ * real release failures and must still surface, never be folded into this no-op.
+ */
+export function isCompletedReleaseConflict(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  if (code === 'TASK_ALREADY_COMPLETED') return true
+  const m = err instanceof Error ? err.message : String(err)
+  return /cannot be released in status:\s*completed/i.test(m)
+}
+
+/** What settling a lane failure did: the task was released, or it had already completed. */
+export type ForgeLaneFailureSettlement = 'released' | 'already-completed'
+
+/**
+ * Settle a claimed role task after its lane failed.
+ *
+ * COMPLETING IS STRICTLY STRONGER THAN RELEASING. A task that already completed cannot be released,
+ * and must not be: the engine transition already advanced the process, so a release refusal is a
+ * no-op, not a failure. It resolves `'already-completed'` after REPORTING the lane failure durably, so
+ * the caller keeps the advance and the wave is not rejected for a run that moved forward.
+ *
+ * Every other release failure is still a failure: it is aggregated with the lane error and thrown, so
+ * both causes are named rather than one being inferred from the other.
+ */
+export async function settleForgeLaneFailure(input: {
+  taskId: string
+  nodeId: string
+  actor: string
+  laneError: unknown
+  release?: (taskId: string, workerId: string) => Promise<void>
+  report?: (label: string, error: unknown) => void
+}): Promise<ForgeLaneFailureSettlement> {
+  const release = input.release ?? releaseForgeRoleTask
+  try {
+    await release(input.taskId, input.actor)
+    return 'released'
+  } catch (releaseError) {
+    if (isCompletedReleaseConflict(releaseError)) {
+      const report = input.report ?? ((label, error) => captureServerError(label, error))
+      try {
+        report('forge:lane-failure-after-completion', input.laneError)
+      } catch {
+        // Reporting must never turn a no-op back into a crash: the advance already stands.
+      }
+      return 'already-completed'
+    }
+    // An advance conflict that is NOT completion (stale/not active) was already non-fatal: the lane
+    // error is the story, so the caller rethrows it exactly as before.
+    if (isAdvanceConflict(releaseError)) return 'released'
+    const cause = (e: unknown) => (e instanceof Error ? e.message : String(e))
+    throw new AggregateError(
+      [input.laneError, releaseError],
+      `Forge role ${input.nodeId} failed and its task could not be released: ` +
+        `lane failed with "${cause(input.laneError)}"; release failed with "${cause(releaseError)}"`,
+    )
+  }
 }
 
 /**
@@ -424,23 +487,16 @@ export async function driveForgeStory(
         // the evidence merge, so a crash can no longer separate the two and undercount.
       } catch (err) {
         if (isAdvanceConflict(err)) return
-        try {
-          await releaseForgeRoleTask(task.taskId, actor)
-        } catch (releaseError) {
-          if (!isAdvanceConflict(releaseError)) {
-            // A FAILURE MUST NAME ITS CAUSES. This aggregate used to carry only that the task could not
-            // be released, so the lane's real error was invisible in the log: the operator saw a release
-            // problem and had no way to see the failure that caused the release attempt. Both causes are
-            // in the message now (measured 2026-09-17: ENG-FORGE-LANE-FAILURE-01 failed QA twice and
-            // the log showed neither error).
-            const cause = (e: unknown) => (e instanceof Error ? e.message : String(e))
-            throw new AggregateError(
-              [err, releaseError],
-              `Forge role ${task.nodeId} failed and its task could not be released: ` +
-                `lane failed with "${cause(err)}"; release failed with "${cause(releaseError)}"`,
-            )
-          }
-        }
+        // A task that already completed cannot be released, and must not be. `settleForgeLaneFailure`
+        // reports the lane failure and resolves `already-completed` so the advance stands; every other
+        // release failure is aggregated with the lane error and thrown, naming both causes.
+        const settlement = await settleForgeLaneFailure({
+          taskId: task.taskId,
+          nodeId: task.nodeId,
+          actor,
+          laneError: err,
+        })
+        if (settlement === 'already-completed') return
         throw err
       }
       steps.push(task.nodeId)
