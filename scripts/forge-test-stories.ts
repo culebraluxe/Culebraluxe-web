@@ -1127,6 +1127,43 @@ const STORIES: TestStory[] = [
     assayCommands:
       '- `node --import tsx --test workflow_app/tests/handoff-assignment-write.test.ts`',
   },
+  {
+    id: 'SEC-ROUTE-MANIFEST-02',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 92,
+    title: 'A route that requires a session is not public',
+    goal:
+      'The route-authority manifest gets a word for "requires an authenticated portal session, no portal ' +
+      'authority decision yet", and a `public` declaration whose handler checks a session becomes a ' +
+      'violation instead of a loophole.',
+    scope:
+      'scripts/route-authority-manifest.ts (the decision vocabulary and the guard detection), the ' +
+      'regenerated docs/agent/route-authority-manifest.md, workflow_app/tests/route-authority.test.ts.',
+    acceptance:
+      'A handler that admits only an authenticated session but makes no portal authority decision is ' +
+      'declared `session`, not `public`, and the two media routes read `session` in the generated manifest. ' +
+      'A `public` declaration whose handler contains a session check is a NAMED violation — a handler that ' +
+      'turns a caller away for lacking a session is not deliberately reachable without one. The generated ' +
+      'table still covers every handler under app/api/**/route.ts exactly once, and the fence asserts both ' +
+      'media rows plus the public-with-session refusal.',
+    notes:
+      'FOUND 2026-09-17 while verifying SEC-ROUTE-MANIFEST-01 the hour it landed. The generated table ' +
+      'declares app/api/media/[id]/route.ts#GET and app/api/media/documents/[id]/route.ts#GET as `public`, ' +
+      'which the generator defines as "deliberately reachable without a Portal authority" — while BOTH ' +
+      'reasons say otherwise: "authenticated portal escape hatch is JWT-only" and "Document access decided ' +
+      'by decideDocumentAccess against publication state and portal session". The documents route began ' +
+      'requiring a session earlier the same night (SEC-MEDIA-DOC-01: no session is a 401), so the record ' +
+      'now claims a control is absent where it exists — the exact reader-misleading failure ' +
+      'AUTH-CAPABILITIES-01 was written to remove, in the opposite direction. Cause: the guard detector ' +
+      'knows resolvePortalAccess | runAuthorized | guardPortalUpload | guardPortalRoute | requireAuthority, ' +
+      'and the session gate is none of those, so no word fit and `public` was the least-wrong choice. ' +
+      'HONEST BOUNDARY: this is the RECORD, not the control. It does not add a portal authority decision to ' +
+      'the sibling media route, which still checks only token.sub (the opening AUTH-CAPABILITIES-01 names), ' +
+      'and it does not bind a document to its owning record.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/route-authority.test.ts`',
+  },
 ]
 
 
