@@ -3,6 +3,7 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { getClientById } from "@/db/clients"
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -30,8 +31,11 @@ async function GETHandler(
   try {
     const client = await getClientById(personId)
     return NextResponse.json({ client })
-  } catch {
-    return NextResponse.json({ client: null })
+  } catch (err) {
+    // Fail loudly instead of returning an empty client, which reads as "no such client" and hides an
+    // outage. The gateway already logged the typed failure server-side.
+    captureServerError('/api/portal/clients/[personId]', err, { route: '/api/portal/clients/[personId]' })
+    return NextResponse.json({ error: 'database_unavailable' }, { status: 503 })
   }
 }
 

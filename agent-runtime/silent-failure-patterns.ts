@@ -18,6 +18,7 @@ export type SilentFailurePattern =
   | 'swallowed-catch'
   | 'console-error-without-capture'
   | 'bare-500-in-catch'
+  | 'empty-success-in-catch'
 
 export type SilentFailureHit = {
   path: string
@@ -42,12 +43,32 @@ const CAPTURE_MARKERS = [
 ]
 
 /** Directories where a swallowed failure is a product defect rather than a script's convenience. */
-function isServerSurface(path: string): boolean {
+export function isServerSurface(path: string): boolean {
   return /^(app|services)\//.test(path) || path.includes('/app/') || path.includes('/services/')
 }
 
+/**
+ * A `return` whose value is an empty success: `[]`, `null`, or an object whose first field is an empty
+ * collection or null (`{ rows: [], total: 0 }`, `{ channels: [] }`, `{ client: null }`).
+ */
+const EMPTY_SUCCESS_RETURN =
+  /\breturn\s+(?:[A-Za-z0-9_$.]+\.json\(\s*)?(?:\[\s*\]|null\b|undefined\b|\{\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*\[\s*\][^}]*\}|\{\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*null\b[^}]*\})/
+
 function lineOf(content: string, index: number): number {
   return content.slice(0, index).split('\n').length
+}
+
+/** The body of the block whose `{` sits at `open`, by brace matching, so a hit cannot bleed into the next block. */
+function blockAt(content: string, open: number): string {
+  let depth = 0
+  for (let i = open; i < content.length; i++) {
+    if (content[i] === '{') depth += 1
+    else if (content[i] === '}') {
+      depth -= 1
+      if (depth === 0) return content.slice(open, i + 1)
+    }
+  }
+  return content.slice(open)
 }
 
 /**
@@ -106,6 +127,22 @@ export function findSilentFailures(files: readonly SilentFailureFile[]): SilentF
           snippet: 'catch { ... status: 500 } with no capture',
         })
       }
+    }
+
+    // 5. A catch that answers with an empty success and records nothing. In a CRM an empty list reads as
+    //    "this client has nothing" - indistinguishable from the truth and never reported as an outage.
+    for (const match of file.content.matchAll(/catch\s*(?:\([^)]*\))?\s*\{/g)) {
+      const open = (match.index ?? 0) + match[0].length - 1
+      const body = blockAt(file.content, open)
+      if (CAPTURE_MARKERS.some((marker) => body.includes(marker))) continue
+      const emptySuccess = body.match(EMPTY_SUCCESS_RETURN)
+      if (!emptySuccess) continue
+      hits.push({
+        path: file.path,
+        line: lineOf(file.content, open + (emptySuccess.index ?? 0)),
+        pattern: 'empty-success-in-catch',
+        snippet: emptySuccess[0].replace(/\s+/g, ' '),
+      })
     }
   }
 

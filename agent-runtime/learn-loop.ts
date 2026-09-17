@@ -35,6 +35,7 @@ import {
   LEARN_PATTERN_SEVERITY,
   buildLearnItemInstructions,
   decideLearnItem,
+  isLearnPattern,
   learnPatternKey,
   learnStoryId,
   learnWindowStart,
@@ -148,6 +149,9 @@ export function changedFilesInWindow(root: string, sinceIso: string, limit = MAX
 export function learnCandidatesFromFiles(files: readonly LearnFile[]): LearnCandidate[] {
   const byKey = new Map<string, { candidate: LearnCandidate; lines: number[] }>()
   for (const hit of findSilentFailures(files.map((file) => ({ path: file.path, content: file.content })))) {
+    // The empty-success pattern BLOCKS at the gate; it is not a nightly note. Only the report-only
+    // patterns file, so a blocked shape is not also queued as a story beside the block.
+    if (!isLearnPattern(hit.pattern)) continue
     const file = files.find((candidate) => candidate.path === hit.path)
     const key = learnPatternKey(hit.pattern, hit.path)
     const existing = byKey.get(key)

@@ -4,6 +4,7 @@ import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import type { ClientRelationshipChannel } from "@/lib/portal/types"
 import { coreServices } from "@/lib/service-runtime"
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -66,8 +67,12 @@ async function GETHandler(
       lastContextDirection: source.lastContextDirection,
     }))
     return NextResponse.json({ channels })
-  } catch {
-    return NextResponse.json({ channels: [] })
+  } catch (err) {
+    // An empty channel list reads as "this client has no channels" and hides a failed read.
+    captureServerError('/api/portal/clients/[personId]/relationship-channels', err, {
+      route: '/api/portal/clients/[personId]/relationship-channels',
+    })
+    return NextResponse.json({ error: 'database_unavailable' }, { status: 503 })
   }
 }
 

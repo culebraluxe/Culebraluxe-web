@@ -3,6 +3,7 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { listAssignableAgents } from "@/db/person-admin"
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -25,8 +26,11 @@ async function GETHandler() {
   try {
     const agents = await listAssignableAgents()
     return NextResponse.json(agents)
-  } catch {
-    return NextResponse.json([])
+  } catch (err) {
+    // An empty list reads as "there are no assignable agents" and hides a failed read. The form's
+    // loader already falls back on a non-2xx response.
+    captureServerError('/api/portal/clients/agents', err, { route: '/api/portal/clients/agents' })
+    return NextResponse.json({ error: 'database_unavailable' }, { status: 503 })
   }
 }
 

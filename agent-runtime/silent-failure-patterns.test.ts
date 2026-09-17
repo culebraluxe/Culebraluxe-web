@@ -60,6 +60,49 @@ test('a captured 500 is acceptable (the obligation is capturable failure, not no
   assert.deepEqual(hits, [])
 })
 
+test('an empty success out of a catch is a hit, with the return line', () => {
+  const hits = findSilentFailures([
+    {
+      path: 'app/api/portal/issues/route.ts',
+      content: 'try {\n  risky()\n} catch {\n  return NextResponse.json({ rows: [], total: 0 })\n}\n',
+    },
+  ])
+  assert.deepEqual(hits.map((h) => h.pattern), ['empty-success-in-catch'])
+  assert.equal(hits[0].line, 4)
+})
+
+test('null, [], and a bare empty collection out of a catch are all hits', () => {
+  const shapes = ['return null', 'return NextResponse.json([])', 'return NextResponse.json({ channels: [] })']
+  for (const shape of shapes) {
+    const hits = findSilentFailures([
+      { path: 'app/api/x/route.ts', content: `try {\n  risky()\n} catch {\n  ${shape}\n}\n` },
+    ])
+    assert.deepEqual(hits.map((h) => h.pattern), ['empty-success-in-catch'], shape)
+  }
+})
+
+test('a catch that captures and returns an error response is not an empty-success hit', () => {
+  const hits = findSilentFailures([
+    {
+      path: 'app/api/x/route.ts',
+      content:
+        'try {\n  risky()\n} catch (err) {\n  captureServerError("x", err)\n  return NextResponse.json({ error: "database_unavailable", rows: [], total: 0 }, { status: 503 })\n}\n',
+    },
+  ])
+  assert.deepEqual(hits, [])
+})
+
+test('an empty success is not read out of a later block past the catch', () => {
+  const hits = findSilentFailures([
+    {
+      path: 'app/api/x/route.ts',
+      content:
+        'try {\n  risky()\n} catch (err) {\n  return report(err)\n}\nfunction next() {\n  return NextResponse.json([])\n}\n',
+    },
+  ])
+  assert.deepEqual(hits, [])
+})
+
 test('scripts and tests are not judged as server surfaces', () => {
   const hits = findSilentFailures([
     { path: 'scripts/probe.ts', content: 'console.error("a script may say this")\n' },

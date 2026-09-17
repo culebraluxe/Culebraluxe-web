@@ -3,6 +3,7 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 
 import { getClientContactHistory } from "@/db/contact-history"
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -34,8 +35,12 @@ async function GETHandler(
   try {
     const result = await getClientContactHistory(personId, { page, pageSize, recent })
     return NextResponse.json(result)
-  } catch {
-    return NextResponse.json({ rows: [], total: 0, page, pageSize, recent })
+  } catch (err) {
+    // An empty page reads as "this client has no history" and hides a failed read.
+    captureServerError('/api/portal/clients/[personId]/history', err, {
+      route: '/api/portal/clients/[personId]/history',
+    })
+    return NextResponse.json({ error: 'database_unavailable' }, { status: 503 })
   }
 }
 

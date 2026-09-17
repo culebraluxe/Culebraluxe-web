@@ -64,6 +64,7 @@
     "forge:batch:status": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-batch-status.ts",
     "forge:doctor": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-doctor.ts",
     "forge:packet-lint": "node --import tsx scripts/forge-packet-lint.ts",
+    "forge:silent-failure-gate": "node --import tsx scripts/forge-silent-failure-gate.ts",
     "forge:manifest": "node --import tsx scripts/forge-manifest.ts",
     "forge:manifest:check": "node --import tsx scripts/forge-manifest.ts --check-all",
     "forge:sync-agents": "node --import tsx scripts/forge-sync-agents.ts",

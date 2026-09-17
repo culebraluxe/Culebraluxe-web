@@ -7,6 +7,7 @@ import type {
   IssueResponsibility,
   IssueState,
 } from "@/lib/issue-types"
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -53,9 +54,10 @@ async function GETHandler(req: NextRequest) {
   try {
     const result = await getIssueQueue({ scope, state, page, pageSize })
     return NextResponse.json(result)
-  } catch {
-    // Queue seam unavailable -> empty page (safe).
-    return NextResponse.json({ rows: [], total: 0, page, pageSize, scope, state })
+  } catch (err) {
+    // An empty page reads as "there are no issues" and hides a failed queue read.
+    captureServerError('/api/portal/issues', err, { route: '/api/portal/issues' })
+    return NextResponse.json({ error: 'database_unavailable' }, { status: 503 })
   }
 }
 

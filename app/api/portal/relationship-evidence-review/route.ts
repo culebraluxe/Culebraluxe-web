@@ -3,6 +3,7 @@ import { createAuthJsSessionAdapter } from '@/lib/auth/authjs-session-adapter'
 import { resolvePortalAccess } from '@/lib/auth/require-portal-access'
 import { getRelationshipEvidenceReview } from "@/db/relationship-evidence"
 import type { ReviewState } from "@/lib/relationship-intel/contracts"
+import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
 // ---------------------------------------------------------------------------
@@ -48,9 +49,12 @@ async function GETHandler(req: NextRequest) {
   try {
     const result = await getRelationshipEvidenceReview({ reviewState, search, limit, offset })
     return NextResponse.json(result)
-  } catch {
-    // Evidence seam not yet migrated/populated -> empty review (safe).
-    return NextResponse.json({ rows: [], total: 0 })
+  } catch (err) {
+    // An empty review reads as "nothing to review" and hides a failed read.
+    captureServerError('/api/portal/relationship-evidence-review', err, {
+      route: '/api/portal/relationship-evidence-review',
+    })
+    return NextResponse.json({ error: 'database_unavailable' }, { status: 503 })
   }
 }
 
