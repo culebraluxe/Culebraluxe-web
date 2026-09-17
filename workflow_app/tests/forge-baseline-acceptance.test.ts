@@ -60,8 +60,14 @@ const RUNNER = readFileSync(
 
 test('baseline: the runner refuses to start a code lane on already-satisfied acceptance', () => {
   const doorAt = RUNNER.indexOf('DOOR 3 — BASELINE ACCEPTANCE')
-  const assessAt = RUNNER.indexOf('assessBaselineAcceptance(results)')
-  const runAt = RUNNER.indexOf('runAssayCommand({')
+  // INSIDE DOOR 3, not the first occurrence in the file (2026-09-17). The release attestation
+  // (forge-integration-attestation / deriveReleaseEvidence) also RUNS the frozen proofs to record their
+  // command, exit code and duration, so a plain indexOf now finds that call first and this fence read as
+  // "the proofs are assessed before they are run" while the door's own order was untouched. The property
+  // being fenced is the order INSIDE the door: the proofs run, then the verdict is computed.
+  const afterDoor = RUNNER.slice(doorAt)
+  const assessAt = afterDoor.indexOf('assessBaselineAcceptance(results)') + doorAt
+  const runAt = afterDoor.indexOf('runAssayCommand({') + doorAt
 
   assert.ok(doorAt > 0, 'DOOR 3 must exist')
   assert.ok(assessAt > doorAt, 'the verdict is computed inside DOOR 3')
