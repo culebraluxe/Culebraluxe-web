@@ -544,6 +544,9 @@ export function createAgentRuntimeForgeRoleRunner(
         ? {
             attemptInForce: recordedHandoff.attemptInForce,
             superseded: recordedHandoff.superseded,
+            // Which task a re-run retired, so the directive can name it. Dropping it here would leave
+            // the record the reader computed invisible to the operator.
+            retiredTasks: recordedHandoff.retiredTasks,
           }
         : null,
     })
