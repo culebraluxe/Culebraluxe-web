@@ -18,6 +18,9 @@ export function buildArchitectDirective(baseRef: string, frozenProofs: string[])
       '"acceptanceAssertions": {"<acceptance clause quoted verbatim>": ["<assertion ref in the frozen proof>"]}. ' +
       'Every acceptance clause MUST appear as a key with at least one assertion behind it. A clause you cannot ' +
       'map to an assertion is reported UNPROVEN BY NAME by QA and can never PASS — do not invent a ref to fill it.',
+    'ASSERTION REF FORMAT: write a ref as a bare `<name>` or file-qualified `path#name`; the reader ' +
+      'resolves the name tail after the last `#` and requires it on a pass/fail marker line the proof ' +
+      'prints. A name on a non-marker line stays UNPROVEN, so quote the name the proof actually prints.',
     'NEW FILE? Declare its PARENT DIRECTORY as a scope entry (e.g. "workflow_app/tests/"). A seam must EXIST on baseRef, and a directory does — while a file that is not there yet does not. Without the directory the Lead has no legal surface to assign and the story HOLDs even though your plan is sound. This is the law in `seamForNewFile` (workflow_app/forge/forge-shaping.ts): the function wins if this sentence and it ever drift.',
     `Frozen proofs (do not invent commands): ${proofs.join(' | ') || '(none declared on the story)'}`,
     'End with exactly ONE un-fenced JSON line beginning FORGE_ARCHITECT_HANDOFF:. Do not fence it.',

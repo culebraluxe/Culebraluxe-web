@@ -3,6 +3,8 @@ import test from 'node:test'
 
 import { adjudicateAssay, runAssayCommands } from '../forge/agents/qa/run'
 import type { AcceptanceCondition, CommandResult } from '../forge/agents/qa/types'
+import { buildArchitectDirective } from '../forge/forge-architect-directive'
+import { buildLeadRoutingDirective } from '../forge/forge-lead-routing-prompt'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-ASSERTION-RAN-01 — A REFERENCED ASSERTION MUST HAVE RUN.
@@ -97,4 +99,74 @@ test('a clause with no mapped assertion is still UNPROVEN', () => {
   const report = adjudicate([{ id: 'unmapped', text: 'the unmapped clause', assertions: [] }])
   assert.equal(report.verdict, 'UNPROVEN')
   assert.ok(report.blockers.includes('UNPROVEN unmapped'))
+})
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-PROOF-NAMES-01 — A FILE-QUALIFIED REF RESOLVES BY ITS NAME TAIL.
+//
+// The mapping may name a ref the Forge way — `path#name` — but a marker line carries the NAME, never
+// the path, so the reader resolves the tail after the LAST `#`. The marker rule is NOT weakened: a name
+// that appears only on a non-marker line (a suite header, echoed source) is still UNPROVEN, a bare ref
+// behaves exactly as before, and a failed marker naming the tail is FAIL. The accepted format is stated
+// where the mapping is declared, and these tests drive every case.
+// ---------------------------------------------------------------------------
+
+const FILE = 'workflow_app/tests/assertion-executed.test.ts'
+
+/** Adjudicate one clause with one ref against a specific recorded output. */
+const adjudicateRef = (ref: string, output: string): ReturnType<typeof adjudicateAssay> => {
+  const plan = { commands: [COMMAND], conditions: [mapped('clause', [ref])] }
+  const results = runAssayCommands(plan, () => command(output))
+  return adjudicateAssay({ plan, commands: results })
+}
+
+test('a file-qualified ref resolves by its name tail and passes', () => {
+  const tail = 'a file-qualified ref resolves by its name tail and passes'
+  const report = adjudicateRef(
+    `${FILE}#${tail}`,
+    `\u2714 ${tail} (0.4ms)\n\u2139 tests 1\n\u2139 pass 1`,
+  )
+  assert.equal(report.verdict, 'PASS', 'the name tail on a marker line satisfies the file-qualified ref')
+  assert.deepEqual(report.missingAssertions, [])
+  assert.deepEqual(report.blockers, [])
+})
+
+test('a file-qualified name on a non-marker line is still unproven', () => {
+  const ref = `${FILE}#a name only echoed in a header`
+  const report = adjudicateRef(ref, 'a name only echoed in a header\n\u2139 tests 1')
+  assert.equal(report.verdict, 'UNPROVEN', 'a non-marker line does not satisfy a ref')
+  assert.deepEqual(report.missingAssertions, [{ conditionId: 'clause', assertion: ref }])
+})
+
+test('a bare ref behaves exactly as before', () => {
+  const passed = adjudicateRef(PASSED, `\u2714 ${PASSED} (0.4ms)`)
+  assert.equal(passed.verdict, 'PASS', 'a bare ref still matches the whole name on a marker line')
+  const absent = adjudicateRef('a bare name the proof never prints', `\u2714 ${PASSED} (0.4ms)`)
+  assert.equal(absent.verdict, 'UNPROVEN', 'a bare name absent from the output is still UNPROVEN')
+})
+
+test('a failed marker naming the name tail is fail not unproven', () => {
+  const report = adjudicateRef(`${FILE}#a tail that failed`, '\u2716 a tail that failed (0.4ms)')
+  assert.equal(report.verdict, 'FAIL', 'a failed marker naming the tail is FAIL')
+  assert.ok(report.failedConditions.includes('clause'))
+  assert.ok(!report.unproven.includes('clause'), 'a ran-and-failed tail is not UNPROVEN')
+})
+
+test('the accepted ref format is stated where the mapping is declared', () => {
+  const architect = buildArchitectDirective('607f69a0', [COMMAND])
+  const lead = buildLeadRoutingDirective({
+    findings: [],
+    evidenceRefs: [],
+    splitEnabled: true,
+    maxSmiths: 2,
+    allowedProofs: [COMMAND],
+  })
+  const surfaces: Array<[string, string]> = [
+    ['architect directive', architect],
+    ['lead routing prompt', lead],
+  ]
+  for (const [surface, text] of surfaces) {
+    assert.match(text, /path#name/, `${surface} states the file-qualified ref format`)
+    assert.match(text, /marker line/, `${surface} states the marker-line rule`)
+  }
 })

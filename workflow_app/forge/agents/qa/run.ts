@@ -45,8 +45,15 @@ function markerLine(line: string): 'passed' | 'failed' | null {
  * assertion ran and failed is FAIL and never UNPROVEN.
  */
 export function assertionOutcome(output: string | null | undefined, ref: string): AssertionOutcome {
-  const needle = (ref ?? '').trim()
-  if (!output || !needle) return 'absent'
+  const trimmed = (ref ?? '').trim()
+  if (!output || !trimmed) return 'absent'
+  // A ref may be FILE-QUALIFIED (`path#name`, the Forge convention for a named thing inside a file).
+  // A marker line carries the NAME, never the path, so resolve by the tail after the LAST `#`; a ref
+  // with no `#` is the whole ref, exactly as before. The marker rule is untouched: only `markerLine`
+  // decides, so a name echoed on a non-marker line stays absent.
+  const hashAt = trimmed.lastIndexOf('#')
+  const needle = (hashAt >= 0 ? trimmed.slice(hashAt + 1) : trimmed).trim()
+  if (!needle) return 'absent'
   let sawPass = false
   for (const raw of output.split(/\r?\n/)) {
     if (!raw.includes(needle)) continue
