@@ -4,6 +4,12 @@ export type ForgeArchitectContract = {
   filesInScope: string[]
   filesOutOfScope: string[]
   acceptance: string[]
+  /**
+   * The acceptance-to-assertion mapping, written BEFORE the work: each acceptance clause names the
+   * assertions in the frozen proof that assert it. A clause absent here has NO assertion behind it, so the
+   * verdict for it is UNPROVEN — the clause is not allowed to pass on the cheapest reading.
+   */
+  acceptanceAssertions: Record<string, string[]>
   risk: string | null
   leadHint: ForgeLeadHint
 }
@@ -22,6 +28,21 @@ function cleanPaths(paths: unknown): string[] {
     .filter(Boolean)
 }
 
+/** Clause -> assertion refs. Anything that is not a string[] of refs is dropped, never coerced. */
+function cleanAssertions(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string[]> = {}
+  for (const [clause, refs] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(refs)) continue
+    const cleaned = refs
+      .filter((r): r is string => typeof r === 'string')
+      .map((r) => r.trim())
+      .filter(Boolean)
+    out[clause.trim()] = cleaned
+  }
+  return out
+}
+
 export function parseForgeArchitectContract(raw: unknown): ForgeArchitectContract | null {
   if (!raw || typeof raw !== 'object') return null
   const row = raw as Record<string, unknown>
@@ -35,6 +56,7 @@ export function parseForgeArchitectContract(raw: unknown): ForgeArchitectContrac
     acceptance: Array.isArray(row.acceptance)
       ? row.acceptance.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
       : [],
+    acceptanceAssertions: cleanAssertions(row.acceptanceAssertions),
     risk: typeof row.risk === 'string' && row.risk.trim() ? row.risk.trim() : null,
     leadHint: leadHint as ForgeLeadHint,
   }

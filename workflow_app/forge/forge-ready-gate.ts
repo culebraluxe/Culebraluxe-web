@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { parseAssayCommands } from '../../agent-runtime/assay-plan'
+import { acceptanceClauses } from './agents/qa/types'
 
 export const QA_APPLICABLE_WORK_TYPES: ReadonlySet<string> = new Set([
   'FEATURE',
@@ -19,11 +20,20 @@ export const QA_APPLICABLE_WORK_TYPES: ReadonlySet<string> = new Set([
 export type ReadyGateReason =
   | 'ready-gate:missing-acceptance'
   | 'ready-gate:missing-assay-plan'
+  | 'ready-gate:unmapped-acceptance'
 
 export type StoryReadyToRunFacts = {
   workType: string
   acceptanceCriteria: string | null | undefined
   assayCommands: string | null | undefined
+  /**
+   * The acceptance-to-assertion mapping declared before the work (clause -> assertion refs). When it IS
+   * supplied, every acceptance clause must map to at least one assertion: a clause with no assertion can
+   * only ever come back UNPROVEN, so the story is not ready to run until it is mapped.
+   *
+   * ABSENT is not gated here — that is the mapping's own absent case, which QA reports as UNPROVEN.
+   */
+  acceptanceAssertions?: Record<string, string[]> | null
 }
 
 /**
@@ -36,5 +46,11 @@ export function storyReadyToRunReasons(facts: StoryReadyToRunFacts): ReadyGateRe
   if (!facts.acceptanceCriteria?.trim()) reasons.push('ready-gate:missing-acceptance')
   if (parseAssayCommands(facts.assayCommands).length === 0)
     reasons.push('ready-gate:missing-assay-plan')
+  if (facts.acceptanceAssertions) {
+    const unmapped = acceptanceClauses(facts.acceptanceCriteria).filter(
+      (clause) => (facts.acceptanceAssertions?.[clause] ?? []).length === 0,
+    )
+    if (unmapped.length > 0) reasons.push('ready-gate:unmapped-acceptance')
+  }
   return reasons
 }

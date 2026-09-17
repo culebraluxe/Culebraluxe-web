@@ -2,6 +2,8 @@
  * ADD. Injected effects. Nothing in this package spawns a process, reads env,
  * or touches the DB. The runner supplies these.
  */
+import type { AcceptanceMap } from './qa/types'
+
 export type BenchIntent = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 
 export type RunnerDiff = {
@@ -40,6 +42,14 @@ export type RoleEffectPorts = {
   runStatic?: () => StaticSlice
   /** Frozen assay commands from the story / accepted assignment. */
   assayCommands?: string[]
+  /**
+   * The acceptance-to-assertion mapping, frozen BEFORE the work by the Architect or the Lead.
+   *
+   * QA CONSUMES this; it never authors it — the lane that did the work does not get to choose what is
+   * tested. ABSENT means the story's acceptance was never mapped, which QA reports as UNPROVEN (never a
+   * pass): there is no assertion behind any clause.
+   */
+  acceptanceMap?: AcceptanceMap
   /**
    * NOT part of the required contract. Bench membership does NOT imply a launch
    * cap — every non-null value here is a cap, so deriving one would ban SPLIT for

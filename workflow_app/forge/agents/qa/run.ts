@@ -1,4 +1,12 @@
-import type { AssayPlan, CommandResult, QaReport, QaVerdict, StaticSlice } from './types'
+import type {
+  AcceptanceMap,
+  AssayPlan,
+  CommandResult,
+  QaReport,
+  QaVerdict,
+  StaticSlice,
+} from './types'
+import { acceptanceMapChanged } from './types'
 
 export type RunCommand = (command: string) => CommandResult
 export type RunStatic = () => StaticSlice
@@ -24,14 +32,23 @@ export function runAssayCommands(plan: AssayPlan, run: RunCommand): CommandResul
 /**
  * Deterministic Assay. No model, no git, no promotion advice.
  *
- * PASS only when at least one frozen command ran and every command that ran exited 0. A command that could
- * not run is a failure of the run (and its own `unmeasurable` flag says why on the row). Nothing else is
- * consulted: QA answers one question — did the tests pass — and writes down what it measured.
+ * PASS only when at least one frozen command ran, every command that ran exited 0, AND every acceptance
+ * condition had an assertion behind it. A command that could not run is a failure of the run (and its own
+ * `unmeasurable` flag says why on the row). A condition with no assertion is UNPROVEN: the proof passed,
+ * but it did not assert that clause, so the verdict names the clause instead of passing it.
+ *
+ * Nothing else is consulted: QA answers one question — did the tests pass the story's own acceptance — and
+ * writes down what it measured.
  */
 export function adjudicateAssay(input: {
   plan: AssayPlan
   commands: CommandResult[]
   staticGate?: StaticSlice | null
+  /**
+   * The mapping QA was HANDED, frozen before the work. When the plan's conditions no longer hash to it, a
+   * lane changed what is tested and that is recorded (`ACCEPTANCE_MAP_CHANGED`) — never silently re-derived.
+   */
+  frozenMap?: AcceptanceMap | null
 }): QaReport {
   const blockers: string[] = []
   // AN EMPTY PLAN IS A FAILURE. QA is reached only after a Smith produced work, on a story
@@ -54,7 +71,33 @@ export function adjudicateAssay(input: {
     blockers.push(...arch.archErrors.slice(0, 8).map((e) => `ARCH ${e}`))
   }
 
-  const verdict: QaVerdict = blockers.length ? 'FAIL' : 'PASS'
+  // THE ACCEPTANCE, NOT THE CHEAPEST READING OF IT. A condition with no assertion behind it can never be a
+  // PASS, and the condition is NAMED so the report says WHICH clause went untested.
+  const conditions = input.plan.conditions ?? []
+  const unproven = conditions.filter((c) => c.assertions.length === 0).map((c) => c.id)
+  if (unproven.length) blockers.push(...unproven.map((id) => `UNPROVEN ${id}`))
+
+  // A lane that changes the mapping after it was frozen is RECORDED as having done so.
+  if (input.frozenMap && acceptanceMapChanged(input.frozenMap, conditions)) {
+    blockers.push('ACCEPTANCE_MAP_CHANGED')
+  }
+
+  // A real command/static failure outranks an unmapped clause (there is nothing to prove either way), but
+  // the UNPROVEN blockers above are still recorded so the gap is never hidden behind the failure.
+  const commandFailure = blockers.some(
+    (b) =>
+      b.startsWith('CMD_') ||
+      b.startsWith('ARCH ') ||
+      b === 'NO_ASSAY_COMMANDS' ||
+      b === 'ASSAY_COMMAND_DRIFT',
+  )
+  const verdict: QaVerdict = commandFailure
+    ? 'FAIL'
+    : unproven.length || blockers.includes('ACCEPTANCE_MAP_CHANGED')
+      ? 'UNPROVEN'
+      : blockers.length
+        ? 'FAIL'
+        : 'PASS'
 
   return {
     version: 1,
@@ -62,6 +105,7 @@ export function adjudicateAssay(input: {
     commands: input.commands,
     staticGate: arch ?? null,
     blockers,
+    unproven,
   }
 }
 
@@ -69,8 +113,14 @@ export function runAssay(input: {
   plan: AssayPlan
   runCommand: RunCommand
   runStatic?: RunStatic
+  frozenMap?: AcceptanceMap | null
 }): QaReport {
   const commands = runAssayCommands(input.plan, input.runCommand)
   const staticGate = input.runStatic ? input.runStatic() : null
-  return adjudicateAssay({ plan: input.plan, commands, staticGate })
+  return adjudicateAssay({
+    plan: input.plan,
+    commands,
+    staticGate,
+    ...(input.frozenMap !== undefined ? { frozenMap: input.frozenMap } : {}),
+  })
 }

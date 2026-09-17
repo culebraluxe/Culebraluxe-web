@@ -25,6 +25,8 @@ import { proposalValidShape } from './forge-lead-routing'
 import { DEFAULT_FORGE_TEAM } from '../../agent-runtime/team'
 import { parseLeadRouting, reviewLeadProposal, type LeadProposal, type RoutingContext } from './forge-lead-routing'
 import type { ForgeGateEvidence } from './forge-facts'
+import { architectContractFromNotes } from './forge-architect-contract'
+import { acceptanceClauses, buildAcceptanceMap, type AcceptanceMap } from './agents/qa/types'
 
 /** Story fields the Lead handoff actually receives. */
 export type LeadRoutingStoryFields = {
@@ -55,7 +57,13 @@ export type LeadRoutingContentExtras = {
 }
 
 /** The context injected into the LEAD PRE directive. */
-export type LeadRoutingContext = RoutingContext & LeadRoutingContentExtras
+export type LeadRoutingContext = RoutingContext & LeadRoutingContentExtras & {
+  /**
+   * The acceptance-to-assertion mapping, FROZEN BEFORE the work. QA consumes this; it never authors it, so
+   * the lane that did the work does not get to choose what is tested.
+   */
+  acceptanceMap: AcceptanceMap
+}
 
 /**
  * The named references the Lead is actually handed. These are the only strings a
@@ -96,6 +104,8 @@ export function buildLeadRoutingContext(input: {
     maxSmiths: input.capabilities.maxSmiths,
     // The frozen story acceptance is the ONLY legal proof vocabulary.
     allowedProofs: parseAssayCommands(input.story.assayCommands),
+    // The acceptance-to-assertion mapping, frozen before the work and handed to QA.
+    acceptanceMap: buildStoryAcceptanceMap(input.story),
     // A real lead reads the work, not a pointer to it. Contents are bounded so the
     // directive stays inside the model's context budget.
     ...(architectContract || scoutContext
@@ -110,6 +120,22 @@ export function buildLeadRoutingContext(input: {
     // model reasons about the real configured capability instead of a guess.
     workers: workerSummary(),
   }
+}
+
+/**
+ * THE ACCEPTANCE-TO-ASSERTION MAPPING, BUILT BEFORE THE WORK.
+ *
+ * Built here, at routing time, from the story's own acceptance clauses and the assertions the Architect
+ * declared in its contract. A clause with no declared assertion is carried with `assertions: []` and comes
+ * back UNPROVEN — the lane that does the work does not get to choose what is tested. The returned `hash`
+ * freezes the mapping; a later change is recorded, never silently re-derived.
+ */
+export function buildStoryAcceptanceMap(story: LeadRoutingStoryFields): AcceptanceMap {
+  const contract = architectContractFromNotes(story.architectBrief)
+  return buildAcceptanceMap({
+    acceptance: acceptanceClauses(story.acceptanceCriteria),
+    assertions: contract?.acceptanceAssertions ?? null,
+  })
 }
 
 /** Bounded content budget for handoff material injected into the directive. */
