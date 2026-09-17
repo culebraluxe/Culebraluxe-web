@@ -428,9 +428,16 @@ export async function driveForgeStory(
           await releaseForgeRoleTask(task.taskId, actor)
         } catch (releaseError) {
           if (!isAdvanceConflict(releaseError)) {
+            // A FAILURE MUST NAME ITS CAUSES. This aggregate used to carry only that the task could not
+            // be released, so the lane's real error was invisible in the log: the operator saw a release
+            // problem and had no way to see the failure that caused the release attempt. Both causes are
+            // in the message now (measured 2026-09-17: ENG-FORGE-LANE-FAILURE-01 failed QA twice and
+            // the log showed neither error).
+            const cause = (e: unknown) => (e instanceof Error ? e.message : String(e))
             throw new AggregateError(
               [err, releaseError],
-              `Forge role ${task.nodeId} failed and its task could not be released`,
+              `Forge role ${task.nodeId} failed and its task could not be released: ` +
+                `lane failed with "${cause(err)}"; release failed with "${cause(releaseError)}"`,
             )
           }
         }

@@ -1884,6 +1884,74 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/comment-contract.test.ts`',
   },
   {
+    id: 'ENG-FORGE-QA-VERDICT-VOCAB-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 98,
+    title:
+      'A QA verdict fits the column it is written to: one vocabulary for the writer, the constraint and the reader',
+    goal:
+      'Every QA disposition the code writes is one the database accepts and the repair router can classify, so ' +
+      'a verdict is never lost between the code that writes it and the column that guards it.',
+    scope:
+      'the disposition vocabulary and its writers (db/forge-repair-ledger.ts, workflow_app/forge/qa-repair-policy.ts) ' +
+      'with the matching constraint, workflow_app/tests/qa-disposition-vocab.test.ts (new).',
+    acceptance:
+      'Every disposition the code writes is accepted by storyboard_story_forge_qa_disposition_check, proven by a ' +
+      'test that drives each writer value against the constraint vocabulary rather than by inspection. A clean QA ' +
+      'PASS is recorded and read back as a pass, and a REPAIR/REPLAN/ESCALATE failure is recorded and read back as ' +
+      'that action. The reader never returns a value the repair router cannot classify: an unknown stored value is ' +
+      'reported as unknown rather than defaulted into a repair action. A test drives a pass write, a failure write ' +
+      'and an unknown stored value.',
+    notes:
+      'MEASURED 2026-09-17 20:30 (Cline), from a live failure then from the whole board. ' +
+      'ENG-FORGE-LANE-FAILURE-01 failed QA three times, twice in a freshly started process, with the causes finally ' +
+      'visible: lane failed with "new row for relation storyboard_story violates check constraint ' +
+      'storyboard_story_forge_qa_disposition_check"; release failed with "Task cannot be released in status: ' +
+      'completed". The constraint allows only REPAIR, REPLAN and ESCALATE (37bd3297). db/forge-repair-ledger.ts:129 ' +
+      'writes PASS (added by f8629348, whose message says "A CLEAN QA PASS IS A DISPOSITION TOO"). So the PASS ' +
+      'writer has NEVER been able to land: every story that passed QA tonight reads forge_last_qa_disposition = ' +
+      'null, and the column is null on ALL 407 rows of the board. Consequence, stated plainly: the fix that was ' +
+      'meant to STOP THE INFINITE QA LOOP by recording a clean pass never recorded anything in production, and the ' +
+      'chain could not read the signal it was given. It stayed invisible because the write failure was swallowed; ' +
+      'ENG-FORGE-QA-RACE-01 then made the disposition write awaited inside the completion unit, so the same ' +
+      'failure now propagates as a worker crash AFTER the task completed and the instance advanced — which is why ' +
+      'the run looks like a crash while the board shows progress. HONEST BOUNDARY: this is a vocabulary/writer ' +
+      'disagreement, and the fix must settle the vocabulary in ONE place (the code that writes it, the constraint ' +
+      'that guards it, and the reader that casts it) rather than widening the constraint alone — a PASS read back ' +
+      'as a repair disposition would misroute the next lane.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/qa-disposition-vocab.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-RELEASE-CLEANUP-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 98,
+    title: 'A release that cannot apply because the task completed is a no-op, not a crash',
+    goal:
+      'A lane that fails after its task already completed reports the failure without turning a run that advanced ' +
+      'into a reported crash, and the wave still settles its siblings.',
+    scope:
+      'the release cleanup path in workflow_app/forge/forge-executor.ts (runReady) and ' +
+      'workflow_app/tests/release-after-completion.test.ts (new).',
+    acceptance:
+      'Releasing a task that is already completed returns without error, because completing is strictly stronger ' +
+      'than releasing, and a test drives that exact case. A release that fails for any other reason still throws ' +
+      'and is reported. A lane that fails after its task completed does not turn a run that advanced into a ' +
+      'reported failure: the failure is reported, the wave settles its siblings, and the advance stands.',
+    notes:
+      'MEASURED 2026-09-17 20:30 (Cline) — THE CLEANUP IS LOUDER THAN THE FAILURE. When a lane fails AFTER its ' +
+      'task was already completed, forge-executor.ts attempts releaseForgeRoleTask as cleanup, which throws ' +
+      '"Task cannot be released in status: completed"; the two errors are then aggregated and the worker exits 1. ' +
+      'The story had already ADVANCED past the node, so the process reported failure for a run that made ' +
+      'progress. A release that cannot apply because the task completed is a no-op, not an error. ' +
+      'HONEST BOUNDARY: this does not swallow real release failures (a task claimed by someone else, or a release ' +
+      'that cannot be verified, still throws).',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/release-after-completion.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-SPRINT-BOARD-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
