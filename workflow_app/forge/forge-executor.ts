@@ -10,6 +10,7 @@ import {
   type ForgeStartFacts,
 } from './forge-engine-runtime'
 import type { ForgeGateEvidence } from './forge-facts'
+import { fileOf, overlap, within } from './agents/shared/path'
 import { engineSql } from '../engine-client'
 import {
   incrementForgeReplan,
@@ -97,7 +98,11 @@ export type DriveForgeStoryOptions = {
   runner?: ForgeRoleRunner
   maxSteps?: number
   workerId?: string
+  /** The ONE declared cap on how many ready tasks a wave may run concurrently. */
   splitConcurrency?: number
+  /** Declared write surface of a ready task. Absent or null means the lane declared
+   *  none, so it runs alone; a lane never runs concurrently on an unknown surface. */
+  surfaceOf?: (task: ActiveForgeRoleTask) => string[] | null
   /** Live CLI telemetry: called as each engine role node is claimed / completes,
    *  so an operator sees progress instead of digging in the DB. */
   onProgress?: (message: string) => void
@@ -147,6 +152,91 @@ function isAdvanceConflict(err: unknown): boolean {
   return /already completed|not active|state changed|STALE_TASK|TASK_ALREADY_COMPLETED|PROCESS_NOT_ACTIVE/i.test(
     m,
   )
+}
+
+/**
+ * One ready task offered to the wave scheduler. `lane` is the label that appears in
+ * progress logs and refusal messages; `surface` is the write surface the lane declared
+ * (null = none declared). `fanout` marks a lane whose disjointness the SPLIT contract
+ * already proved (`smith_split_work` siblings), so those may share a batch without a
+ * per-path check — every other lane needs a known, pairwise-disjoint surface.
+ */
+export type WaveLane<T> = {
+  lane: string
+  surface: string[] | null
+  fanout?: boolean
+  task: T
+}
+
+export type WavePlan<T> =
+  | { ok: true; batches: Array<Array<WaveLane<T>>> }
+  | { ok: false; refusal: string }
+
+/** The path two declared surfaces collide on, or null when they are disjoint. Reuses
+ *  the ONE path rule in agents/shared/path.ts rather than a second matcher. */
+function sharedPath(a: readonly string[], b: readonly string[]): string | null {
+  for (const left of a) {
+    const l = fileOf(left)
+    if (!l) continue
+    for (const right of b) {
+      const r = fileOf(right)
+      if (!r) continue
+      if (overlap(l, r)) return within(l, r) ? l : r
+    }
+  }
+  return null
+}
+
+function hasSurface<T>(lane: WaveLane<T>): boolean {
+  return Array.isArray(lane.surface) && lane.surface.length > 0
+}
+
+/**
+ * Pure wave scheduler: EVERY ready lane runs, at most `cap` at once. Two lanes share a
+ * batch only when their declared surfaces are disjoint, or when both are fan-out lanes
+ * whose disjointness the SPLIT contract already proved; a lane that declared no surface
+ * runs alone. When concurrency is possible, two overlapping known surfaces are refused
+ * by name (both lanes and the shared path) rather than co-scheduled. Pure and DB-free,
+ * so the frozen fence can exercise it without an engine.
+ */
+export function planWave<T>(lanes: readonly WaveLane<T>[], cap: number): WavePlan<T> {
+  const limit = Math.max(1, Number.isFinite(cap) ? Math.trunc(cap) : 1)
+  if (limit > 1) {
+    const known = lanes.filter((lane) => !lane.fanout && hasSurface(lane))
+    for (let i = 0; i < known.length; i++) {
+      for (let j = i + 1; j < known.length; j++) {
+        const path = sharedPath(known[i].surface ?? [], known[j].surface ?? [])
+        if (path) {
+          return {
+            ok: false,
+            refusal: `concurrent write conflict: ${known[i].lane} / ${known[j].lane} share ${path}`,
+          }
+        }
+      }
+    }
+  }
+  const batches: Array<Array<WaveLane<T>>> = []
+  for (const lane of lanes) {
+    if (!lane.fanout && !hasSurface(lane)) {
+      batches.push([lane])
+      continue
+    }
+    let placed = false
+    for (const batch of batches) {
+      if (batch.length >= limit) continue
+      const compatible = batch.every((member) => {
+        if (lane.fanout) return member.fanout === true
+        if (member.fanout || !hasSurface(member)) return false
+        return hasSurface(lane)
+      })
+      if (!compatible) continue
+      batch.push(lane)
+      placed = true
+      break
+    }
+    if (!placed) batches.push([lane])
+  }
+  return { ok: true, batches }
 }
 
 export async function driveForgeStory(
@@ -283,18 +373,32 @@ export async function driveForgeStory(
     }
 
     const ready = tasks.filter((t) => t.status === 'ready')
-    const splitSiblings = ready.filter((t) => t.nodeId === 'smith_split_work')
-    const others = ready.filter((t) => t.nodeId !== 'smith_split_work')
-    for (const t of others) await runReady(t)
-    const cap = Math.min(opts.splitConcurrency ?? 1, splitSiblings.length)
-    let nextSplit = 0
-    const pump = async (): Promise<void> => {
-      while (nextSplit < splitSiblings.length) {
-        const t = splitSiblings[nextSplit++]
-        await runReady(t)
-      }
+    // ONE declared cap governs the whole wave — not only smith_split_work siblings.
+    const cap = Math.max(1, Math.trunc(opts.splitConcurrency ?? 1) || 1)
+    const lanes: Array<WaveLane<ActiveForgeRoleTask>> = ready.map((task) => ({
+      lane: task.nodeId,
+      // smith_split_work siblings were proved disjoint by the SPLIT contract that
+      // created them, so they carry no per-task surface here; every other lane runs
+      // concurrently only on a surface its caller declared.
+      surface: task.nodeId === 'smith_split_work' ? null : (opts.surfaceOf?.(task) ?? null),
+      fanout: task.nodeId === 'smith_split_work',
+      task,
+    }))
+    const plan = planWave(lanes, cap)
+    if (!plan.ok) {
+      throw new Error(`Forge wave HOLD: ${plan.refusal}`)
     }
-    await Promise.all(Array.from({ length: Math.max(cap, 0) }, () => pump()))
+    onProgress?.(
+      `\u2192 wave: cap ${cap} — lanes ${ready.map((t) => t.nodeId).join(', ')}`,
+    )
+    for (const batch of plan.batches) {
+      if (batch.length > 1) {
+        onProgress?.(
+          `\u2192 wave: running ${batch.map((lane) => lane.lane).join(' + ')} concurrently (cap ${cap})`,
+        )
+      }
+      await Promise.all(batch.map((lane) => runReady(lane.task)))
+    }
     // Single-role park: a stopAfter role completed this wave — do NOT advance to
     // the next role. Leave the engine parked for a human to inspect/approve.
     if (stoppedAfter) break
