@@ -1,4 +1,14 @@
-# START → RULING → END
+# start-ruling-end
+
+- status: active
+- domain: forge
+- source: captain
+- owner: captain
+- evidence: d764825a
+- promoted: 2026-09-16
+- supersedes: 
+
+Every Forge lane records only START, RULING, and END; all other facts are metadata that may clarify but never overwrite the ruling.
 
 *The captain, 2026-09-16: "you get Start, RULING, END — anything more you have to justify very very
 very strongly on why it needs to be there."*
