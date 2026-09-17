@@ -17,7 +17,7 @@ the story is itself about planning docs.
 | id | Role / stage | Purpose |
 | --- | --- | --- |
 | `ripwire` | Scout · Architect · Lead · Smith · QA | repo intel, blast radius, test surface; estimator multiplier |
-| `serena` | Architect · Lead · Smith · Inspector | semantic navigation, references, safe rename |
+| `serena` | Architect · Lead PRE/SOLO/POST · Smith (not wired) | semantic navigation, references, safe rename |
 | `rtk` | Lead · Smith (long sessions) | token/turn compression of command output |
 | `semgrep` | Assay · QA | static/security/dataflow |
 | `knip` | Maintenance · hygiene | unused files/exports/deps |
@@ -38,14 +38,14 @@ grant.
 | tool | class | positions | may mutate | can run |
 | --- | --- | --- | --- | --- |
 | `ripwire` | model-facing | Scout · Architect · Lead PRE · Smith · Inspector | — | yes |
-| `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | yes (registered) |
+| `serena` | model-facing | Architect · Lead PRE/SOLO/POST · Smith | Lead SOLO/POST · Smith | no (unregistered 2026-09-13) |
 | `rtk` | transparent shim | Architect · Lead · Smith | — | yes |
 | `cruiser` | deterministic | Assay · Inspector | — | yes |
 | `semgrep` | deterministic | Assay · Inspector | — | yes (informational) |
 | `knip` | deterministic | Inspector | — | yes (informational) |
 
 `can run` is the honest column: it requires **both** the seam and the tool.
-Three seams exist now:
+Two seams are live now:
 
 - **deterministic trio** — `runStaticGate`
   (`workflow_app/forge/forge-static-gate.ts`), run from the Assay adapter against
@@ -55,12 +55,16 @@ Three seams exist now:
   generates `git`/`ls`/`tree`/`gh` shims for the worktree and prepends them to the
   harness child PATH, so the model keeps typing `git status` and transparently gets
   `rtk git status`. The shim `exec`s the proxy, so exit codes are preserved exactly.
-- **serena (V5-23)** — registered with OpenCode 2026-09-11
-  (`opencode mcp add serena -- serena start-mcp-server --project <repo>`) and
-  verified connected with `opencode mcp list`. The per-position tool list comes
-  from `serenaAllowedToolsForRole` in `workflow_app/forge/forge-tool-seams.ts`;
-  Architect holds read-only, Smith holds the bounded write subset, and Scout,
-  Inspector, Assay and DEV_OPS hold none.
+- **serena (V5-23)** — **not wired.** It was registered with OpenCode 2026-09-11
+  and verified with `opencode mcp list`, but OpenCode starts every registered MCP
+  server on every `opencode run`, and serena opened a browser to a "config not
+  done" page per lane. The registration was removed 2026-09-13 (a dated backup
+  sits beside `~/.config/opencode/opencode.json`), so no position is granted it
+  and it degrades to Ripwire + generic read/search. The per-position tool list
+  comes from `serenaAllowedToolsForRole` in
+  `workflow_app/forge/forge-tool-seams.ts` and takes effect once serena starts
+  headless and is re-registered; Scout, Inspector, Assay and DEV_OPS hold none
+  (exclusion, not a smaller grant).
 
 Interrogate or run them yourself:
 

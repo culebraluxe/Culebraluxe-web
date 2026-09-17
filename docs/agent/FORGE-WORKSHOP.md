@@ -188,7 +188,7 @@ Verify a tool by running it. A code path is not a running tool.
 
 ### Classes
 
-- **model-facing** — the model may choose it from its catalog (Ripwire, Serena).
+- **model-facing** — the model may choose it from its catalog (Ripwire). Serena is catalogued but not wired, so it is not offered to any position.
 - **transparent** — runtime applies it *under* the model. The model never picks it and never sees a schema for it (RTK).
 - **deterministic** — Assay / Inspector run it. Must never appear in a model catalog (cruiser, semgrep, knip).
 
@@ -207,14 +207,12 @@ Structural repository intelligence. Maps files/symbols, callers, blast radius an
 Symbol-level navigation, references, diagnostics, and (where granted) bounded semantic edits. **Not a browser. Not a repo walker. Not the helm.**
 
 - Class: model-facing
-- Positions: Architect · Lead PRE / SOLO / POST · Smith
-- Writes: Lead SOLO / POST · Smith only (`symbol.rename`, `symbol.replace-body`, `symbol.insert`)
-- Architect and Lead PRE: read operations only (`overview`, `lookup`, `references`, `implementations`, `diagnostics`)
-- Excluded entirely: Scout · Inspector · Assay · DEV_OPS (exclusion, not a smaller grant)
+- Wired: **no** — not wired into the Forge runtime. It was unregistered 2026-09-13 after the OpenCode MCP registration opened a browser per lane; `pnpm forge:tools` reports `serena` as not-wired.
+- Positions: none
 - Fallback: Ripwire + generic read/search
 - Skill: `docs/agent/skills/serena.md`
 
-If Serena preempts a human browser or starts an unbounded project walk, that is an authority leak. Stop the tool, do not negotiate with it.
+Would be granted to Architect · Lead PRE / SOLO / POST · Smith once `serena` starts headless and is re-registered; Lead SOLO / POST · Smith would hold the bounded writes (`symbol.rename`, `symbol.replace-body`, `symbol.insert`). Until then, telling a lane it has Serena is telling it to use a tool that is not in the corner. If Serena preempts a human browser or starts an unbounded project walk, that is an authority leak. Stop the tool, do not negotiate with it.
 
 ### RTK
 
@@ -379,7 +377,7 @@ This section is **orientation, not authority**. Git HEAD + Neon win.
 
 Landed and should be treated as the intended machine:
 
-- Analyzer catalog of six tools: Ripwire, Serena, RTK, cruiser, semgrep, knip — see `pnpm forge:tools`.
+- Analyzer catalog of six tools: Ripwire, RTK, cruiser, semgrep, knip are wired; Serena is catalogued but not wired — see `pnpm forge:tools`.
 - Decision-in-fields: migrations `170_forge_role_contract` and `171_forge_role_plan`; writer is `scripts/forge-handoff.mjs`.
 - Architect seam existence check on pinned `baseRef`; reasons recorded on rejection (not discarded).
 - Deterministic Assay adjudicator: PASS / FAIL / INCOMPLETE.
