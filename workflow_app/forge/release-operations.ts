@@ -96,6 +96,174 @@ export interface ForgeReleaseOperationsDeps {
   checkParity?: typeof checkSchemaParity
 }
 
+// ---------------------------------------------------------------------------
+// ENG-FORGE-MIGRATION-REPLAY-01 — a migration that already ran is not executed again.
+//
+// The apply path used to run `migration.sql` FIRST and record the execution after, so a
+// failure between the two repeated the SQL on retry. Execution is now gated by the ledger:
+// an equal checksum on a recorded success SKIPS, a differing checksum REFUSES by name, and
+// an attempt row is written BEFORE the SQL so a failed record write still leaves durable
+// state the next attempt reads and refuses to repeat.
+//
+// A data migration (insert/update/delete outside DDL) is the systemic risk: a checksum
+// guard cannot make a migration safe that was never safe to repeat. Such a migration is
+// replayed only when it carries a structural idempotency guard (`on conflict` /
+// `where not exists`); otherwise a retry refuses by name.
+// ---------------------------------------------------------------------------
+
+/** Detail written before a migration's SQL runs; its presence means the outcome was never recorded. */
+export const MIGRATION_ATTEMPT_DETAIL = 'attempting: SQL outcome not yet recorded'
+/** Prefix marking a recorded SQL failure (a known outcome, retryable for DDL). */
+export const MIGRATION_FAILURE_PREFIX = 'failed: '
+
+/** Strip SQL line and block comments so classification reads statements, not prose. */
+function withoutSqlComments(sql: string): string {
+  return sql.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+}
+
+/**
+ * True when any top-level statement mutates data (insert/update/delete) rather than only
+ * schema. Statement-leading keywords only, so `on conflict ... do update` inside an insert
+ * and `create trigger ... update` are not misread as data statements.
+ */
+export function isDataMigration(sql: string): boolean {
+  return withoutSqlComments(sql)
+    .split(';')
+    .map((statement) => statement.trim().replace(/\s+/g, ' ').toLowerCase())
+    .some(
+      (statement) =>
+        statement.startsWith('insert into') ||
+        statement.startsWith('update ') ||
+        statement === 'update' ||
+        statement.startsWith('delete from'),
+    )
+}
+
+/** True when a data migration carries a structural guard that makes a repeat a no-op. */
+export function isIdempotentDataMigration(sql: string): boolean {
+  const body = withoutSqlComments(sql).toLowerCase()
+  return body.includes('on conflict') || body.includes('where not exists')
+}
+
+interface RecordedMigration {
+  success: boolean
+  content_sha256: string
+  detail: string | null
+}
+
+/**
+ * The latest recorded execution for a (target, migration_file), ACROSS command ids: a retry
+ * carries a new commandId, so a read scoped to this command would miss the attempt that must
+ * stop the replay.
+ */
+async function readLatestMigrationExecution(
+  pool: ForgeReleasePool,
+  target: ForgeReleaseTarget,
+  file: string,
+): Promise<RecordedMigration | null> {
+  const result = await pool.query(
+    `select success, content_sha256, detail
+       from forge_migration_execution
+      where target = $1 and migration_file = $2
+      order by executed_at desc
+      limit 1`,
+    [target, file],
+  )
+  return (result.rows[0] as RecordedMigration | undefined) ?? null
+}
+
+/**
+ * The canonical schema_migration checksum for this file, whichever filename form it was
+ * recorded under. The canonical ledger is written by every migration writer, so a data
+ * migration recorded there is never replayed by this path.
+ */
+async function readCanonicalMigrationChecksum(
+  pool: ForgeReleasePool,
+  target: ForgeReleaseTarget,
+  inputFile: string,
+  file: string,
+): Promise<string | null> {
+  const result = await pool.query(
+    `select checksum from schema_migration
+      where target = $1 and (filename = $2 or filename = $3)
+      order by applied_at desc
+      limit 1`,
+    [target, inputFile, file],
+  )
+  const row = result.rows[0] as { checksum?: unknown } | undefined
+  return row?.checksum == null ? null : String(row.checksum)
+}
+
+type ReplayDecision =
+  | { kind: 'execute' }
+  | { kind: 'skip'; detail: string }
+  | { kind: 'refuse'; detail: string }
+
+/** The pre-execution decision: skip an applied file, refuse a changed or unrecorded one, else execute. */
+async function assessMigrationReplay(
+  pool: ForgeReleasePool,
+  input: {
+    target: ForgeReleaseTarget
+    file: string
+    inputFile: string
+    sha256: string
+    sql: string
+  },
+): Promise<ReplayDecision> {
+  const canonical = await readCanonicalMigrationChecksum(pool, input.target, input.inputFile, input.file)
+  if (canonical != null) {
+    if (canonical !== `sha256:${input.sha256}`) {
+      return {
+        kind: 'refuse',
+        detail:
+          `${input.file} is recorded in the schema_migration ledger for ${input.target} with a different ` +
+          `checksum (${canonical}); refusing to re-run a changed migration`,
+      }
+    }
+    return {
+      kind: 'skip',
+      detail: `${input.file} is already recorded in the schema_migration ledger for ${input.target}; skipping execution`,
+    }
+  }
+
+  const recorded = await readLatestMigrationExecution(pool, input.target, input.file)
+  if (recorded == null) return { kind: 'execute' }
+
+  if (recorded.content_sha256 !== input.sha256) {
+    return {
+      kind: 'refuse',
+      detail:
+        `${input.file} was already applied on ${input.target} with a different checksum ` +
+        `(recorded ${recorded.content_sha256}, now ${input.sha256}); refusing to re-run a changed migration`,
+    }
+  }
+  if (recorded.success) {
+    return {
+      kind: 'skip',
+      detail: `${input.file} is already applied on ${input.target} (checksum matched); skipping execution`,
+    }
+  }
+  if (recorded.detail === MIGRATION_ATTEMPT_DETAIL) {
+    return {
+      kind: 'refuse',
+      detail:
+        `${input.file} was attempted on ${input.target} but its outcome was never recorded ` +
+        `(recording failure); refusing to re-run it without operator confirmation`,
+    }
+  }
+  // A recorded SQL failure is a known outcome. DDL is idempotent by repo convention; a data
+  // migration must carry its own idempotency guard or the retry is refused.
+  if (isDataMigration(input.sql) && !isIdempotentDataMigration(input.sql)) {
+    return {
+      kind: 'refuse',
+      detail:
+        `${input.file} is a non-idempotent data migration that already failed on ${input.target}; ` +
+        `refusing to re-run it because a repeat could change data twice`,
+    }
+  }
+  return { kind: 'execute' }
+}
+
 export function createForgeReleaseOperations(deps: ForgeReleaseOperationsDeps = {}): ForgeReleaseOperations {
   const poolForTarget =
     deps.poolForTarget ??
@@ -112,10 +280,86 @@ export function createForgeReleaseOperations(deps: ForgeReleaseOperationsDeps = 
       const migrations = await migrationContents(input.repoRoot, input.migrationFiles)
       const pool = poolForTarget(input.target)
       const completed: string[] = []
+      const skipped: string[] = []
       try {
         for (const migration of migrations) {
+          let decision: ReplayDecision
+          try {
+            decision = await assessMigrationReplay(pool, {
+              target: input.target,
+              file: migration.file,
+              inputFile: migration.inputFile,
+              sha256: migration.sha256,
+              sql: migration.sql,
+            })
+          } catch (error) {
+            const detail = String((error as Error)?.message ?? error)
+            return {
+              success: false,
+              detail: `${migration.file} could not be checked against the migration ledger on ${input.target}: ${detail}`,
+            }
+          }
+          if (decision.kind === 'refuse') return { success: false, detail: decision.detail }
+          if (decision.kind === 'skip') {
+            skipped.push(migration.file)
+            continue
+          }
+
+          // Record the attempt BEFORE the SQL. A failure here aborts without executing; a
+          // failure of the success record AFTER execution leaves this row behind, so the next
+          // attempt reads it and refuses instead of repeating the SQL.
+          try {
+            await pool.query(
+              `insert into forge_migration_execution
+                 (command_id, story_id, target, migration_file, content_sha256, success, detail)
+               values ($1, $2, $3, $4, $5, false, $6)
+               on conflict (command_id, migration_file) do update
+                 set content_sha256 = excluded.content_sha256, success = false, detail = excluded.detail, executed_at = now()`,
+              [
+                input.commandId,
+                input.storyId,
+                input.target,
+                migration.file,
+                migration.sha256,
+                MIGRATION_ATTEMPT_DETAIL,
+              ],
+            )
+          } catch (error) {
+            const detail = String((error as Error)?.message ?? error)
+            return {
+              success: false,
+              detail: `${migration.file} could not be recorded as an attempt on ${input.target}; refusing to execute it: ${detail}`,
+            }
+          }
+
           try {
             await pool.query(migration.sql)
+          } catch (error) {
+            const detail = String((error as Error)?.message ?? error)
+            await pool
+              .query(
+                `insert into forge_migration_execution
+                   (command_id, story_id, target, migration_file, content_sha256, success, detail)
+                 values ($1, $2, $3, $4, $5, false, $6)
+                 on conflict (command_id, migration_file) do update
+                   set success = false, detail = excluded.detail, executed_at = now()`,
+                [
+                  input.commandId,
+                  input.storyId,
+                  input.target,
+                  migration.file,
+                  migration.sha256,
+                  `${MIGRATION_FAILURE_PREFIX}${detail}`,
+                ],
+              )
+              .catch(() => undefined)
+            return {
+              success: false,
+              detail: `${migration.file} failed after [${completed.join(', ')}]: ${detail}`,
+            }
+          }
+
+          try {
             await pool.query(
               `insert into forge_migration_execution
                  (command_id, story_id, target, migration_file, content_sha256, success, detail)
@@ -131,43 +375,41 @@ export function createForgeReleaseOperations(deps: ForgeReleaseOperationsDeps = 
                 'migration SQL executed without error',
               ],
             )
-            completed.push(migration.file)
-            // Durable ledger (migration 144): the canonical record of what was
-            // applied where, independent of this story's execution history.
-            try {
-              await pool.query(
-                `insert into schema_migration (filename, checksum, target, note)
-                 values ($1, $2, $3, $4)
-                 on conflict (filename, target)
-                 do update set checksum = excluded.checksum, applied_at = now(), note = excluded.note`,
-                [migration.inputFile, `sha256:${migration.sha256}`, input.target, `forge story ${input.storyId}`],
-              )
-            } catch (ledgerError) {
-              const detail = String((ledgerError as Error)?.message ?? ledgerError)
-              return {
-                success: false,
-                detail: `${migration.file} applied but could not be recorded in the schema_migration ledger (apply db/migrations/144_schema_migration_ledger.sql): ${detail}`,
-              }
-            }
           } catch (error) {
             const detail = String((error as Error)?.message ?? error)
-            await pool
-              .query(
-                `insert into forge_migration_execution
-                   (command_id, story_id, target, migration_file, content_sha256, success, detail)
-                 values ($1, $2, $3, $4, $5, false, $6)
-                 on conflict (command_id, migration_file) do update
-                   set success = false, detail = excluded.detail, executed_at = now()`,
-                [input.commandId, input.storyId, input.target, migration.file, migration.sha256, detail],
-              )
-              .catch(() => undefined)
             return {
               success: false,
-              detail: `${migration.file} failed after [${completed.join(', ')}]: ${detail}`,
+              detail:
+                `${migration.file} was executed on ${input.target} but its execution record could not be ` +
+                `updated (the attempt row remains; a retry will refuse rather than repeat): ${detail}`,
+            }
+          }
+          completed.push(migration.file)
+
+          // Durable ledger (migration 144): the canonical record of what was applied where,
+          // independent of this story's execution history.
+          try {
+            await pool.query(
+              `insert into schema_migration (filename, checksum, target, note)
+               values ($1, $2, $3, $4)
+               on conflict (filename, target)
+               do update set checksum = excluded.checksum, applied_at = now(), note = excluded.note`,
+              [migration.inputFile, `sha256:${migration.sha256}`, input.target, `forge story ${input.storyId}`],
+            )
+          } catch (ledgerError) {
+            const detail = String((ledgerError as Error)?.message ?? ledgerError)
+            return {
+              success: false,
+              detail: `${migration.file} applied but could not be recorded in the schema_migration ledger (apply db/migrations/144_schema_migration_ledger.sql): ${detail}`,
             }
           }
         }
-        return { success: true, detail: `applied ${completed.join(', ')} to ${input.target}` }
+        const appliedDetail = completed.length > 0 ? `applied ${completed.join(', ')} to ${input.target}` : ''
+        const skippedDetail = skipped.length > 0 ? `skipped ${skipped.join(', ')} on ${input.target} (already applied)` : ''
+        return {
+          success: true,
+          detail: [appliedDetail, skippedDetail].filter(Boolean).join('; ') || `no migrations to apply on ${input.target}`,
+        }
       } finally {
         await pool.end()
       }
