@@ -171,6 +171,32 @@ export async function listActiveForgeRoleTasks(
   }))
 }
 
+/**
+ * THE STOP POINT OF A RUN — the newest OPEN engine task on an instance, at ANY node.
+ *
+ * `listActiveForgeRoleTasks` answers per story; this answers per instance for the resume
+ * door. It is the seam that lets the door reach a run that errored at a lane and never
+ * reached the hold gate: a run stopped at `smith` has a task at `smith`, not at `hold`,
+ * so `resolveForgeHold`'s old hold-task-only lookup could not touch it.
+ */
+export async function findOpenForgeTask(
+  instanceId: string,
+): Promise<{ taskId: string; nodeId: string } | null> {
+  if (!engineConfigured()) return null
+  const rows = await engineSql()`
+    select t.id as task_id, tk.node_id as node_id
+    from tasks t
+    join tokens tk on tk.id = t.token_id
+    where t.process_instance_id = ${instanceId}
+      and t.status in ('ready', 'reserved', 'in_progress')
+    order by t.created_at desc, t.id desc
+    limit 1
+  `
+  return rows[0]
+    ? { taskId: String(rows[0].task_id), nodeId: String(rows[0].node_id) }
+    : null
+}
+
 export { FORGE_SDLC_KEY as FORGE_DEFINITION_KEY }
 
 /**
@@ -259,6 +285,31 @@ export async function releaseForgeRoleTask(taskId: string, workerId: string): Pr
     app: await createDurableForgeApplicationPort(),
   })
   await engine.releaseTask(taskId, workerId)
+}
+
+/**
+ * Terminate a stopped instance as `cancelled` WITHOUT needing a hold task.
+ *
+ * This is the door's cancel path for a run that errored at a lane: the engine locks the
+ * owning instance FIRST and serializes termination against every task mutation (ENG-11),
+ * so an open lane task does not block it. A non-active instance throws — the caller
+ * surfaces that as a named refusal rather than a silent success.
+ */
+export async function cancelForgeInstance(
+  instanceId: string,
+  opts: { actor: string; reason?: string },
+): Promise<void> {
+  if (!engineConfigured()) {
+    throw new Error('Workflow engine database is not configured.')
+  }
+  const engine = new WorkflowEngine(engineSql(), {
+    app: await createDurableForgeApplicationPort(),
+  })
+  await engine.cancelProcess({
+    processInstanceId: instanceId,
+    actor: opts.actor,
+    reason: opts.reason,
+  })
 }
 
 export type ForgeStoryboardProjection =
