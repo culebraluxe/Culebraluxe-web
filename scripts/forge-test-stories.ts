@@ -418,6 +418,167 @@ const STORIES: TestStory[] = [
       'token.sub and never the authority it names.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/middleware-capabilities.test.ts`',
   },
+  // --- WAVE 5 — correctness: fields nobody writes, lanes nothing can satisfy, records that disagree ---
+  {
+    id: 'ENG-FORGE-DEPLOY-NOMECH-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 5,
+    title: 'Forge records no deployment it did not perform',
+    goal:
+      'A story never enters a lane that cannot be satisfied: deployment is not something Forge does, so a ' +
+      'story whose deployment is deferred completes, and one that demands a deployment is held AT THE ' +
+      'DECISION with a named reason instead of walking into a lane with no producer.',
+    scope:
+      'workflow_app/forge/agent-runtime-role-runner.ts (the deploy entry), workflow_app/forge/forge-facts.ts ' +
+      '(the decision input), workflow_app/tests/forge-deploy-entry.test.ts (new).',
+    acceptance:
+      'A story whose deployment is deferred to its batch completes without any deployment receipt. A story ' +
+      'whose deployment is NOT deferred and has no configured producer is held at the decision, naming ' +
+      'what is missing, and never enters the deploy lane. No run row or artifact may record a deployment, ' +
+      'deployed sha, or deployment receipt unless a deployment actually happened.',
+    notes:
+      'FOUND 2026-09-16 by measurement: the deploy lane requires a devops-receipt ' +
+      '(deploymentReceipt | productionVerificationReceipt | deploymentDeferredToBatch) and NOTHING in the ' +
+      'repo can mint one — releaseReceiptFromDeploymentSignal has no callers, and release-operations.ts ' +
+      'has no deploy operation. So every release-bearing story held at deploy forever, and when that lane ' +
+      'failed the chain routed to repair_devops, which needs the same impossible receipt. Observed live: ' +
+      'instance 8fc792a6 held with "role did not deliver devops-receipt" twice; a false ' +
+      'deploymentReceipt=push:08b569f8 was also found on a row, minted from a PUBLISH receipt months ' +
+      'earlier. The deploy script itself is scripts/vercel-deploy-prod.sh, run by the captain at sprint ' +
+      'release — not by Forge.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-deploy-entry.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-START-BASE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 5,
+    title: 'A lane records the base it started from',
+    goal:
+      'START carries its own base: every code-writing run records the commit HEAD stood on when the lane ' +
+      'began, so the scope gate reads a fact instead of deriving one.',
+    scope:
+      'the lane start path (agent-runtime adapters / repositories), db/storyboard.ts (the run writer), ' +
+      'workflow_app/tests/run-base-commit.test.ts (new).',
+    acceptance:
+      'Every run of a code-writing lane carries base_commit_hash — the commit HEAD stood on when that lane ' +
+      'started — and the scope check prefers it over any derived base. A lane that cannot read its base ' +
+      'records none rather than a guess, and the reader falls back rather than inventing one.',
+    notes:
+      'WRITTEN 2026-09-16: base_commit_hash is NULL on every run row in PROD because nothing supplies it, ' +
+      'so the scope gate had to derive a base and derived the wrong one (origin/main, a whole sprint ' +
+      'behind — see docs/agent/decisions/start-ruling-end.md). The value is already read at lane start as ' +
+      'headAtStart; it simply never reaches the row. START, RULING, END: start writes its base, end writes ' +
+      'its commit.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/run-base-commit.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-ARTIFACT-RULING-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 5,
+    title: 'An artifact carries the ruling, never a second opinion',
+    goal:
+      'A lane artifact records the verdict that was ruled for its run, so an artifact cannot report Hold ' +
+      'for a run whose ruling was PASS.',
+    scope:
+      'the artifact writers (agent-runtime base adapter, db/forge-artifact.ts), ' +
+      'workflow_app/tests/artifact-verdict.test.ts (new).',
+    acceptance:
+      'For a given run, the artifact verdict and the durable ruling agree, or the artifact says it has no ' +
+      'verdict. A test proves an artifact cannot be written with a verdict that contradicts its run. The ' +
+      'artifact summary may carry detail; it may not carry a second answer.',
+    notes:
+      'FOUND 2026-09-16 by reading rows: run 5a1494f6 produced an artifact with verdict=Hold whose own ' +
+      'summary read "Assay PASS | candidate=(none) | verified=(none) | … -> exit 0", while the durable ' +
+      'verdict for that run was qa_passed=true — three records of one ruling, disagreeing. The root cause ' +
+      'is fixed (703d3d63), but the artifact layer still mirrors a status rather than the ruling.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/artifact-verdict.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-HOTFIX-LANE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 5,
+    title: 'A HOTFIX story reaches its first lane with the contract it needs',
+    goal:
+      'A HOTFIX story actually starts: the route and the lane policy agree about who authors the contract ' +
+      'a Lead reads, so the story does not die on its first lane.',
+    scope:
+      'the hotfix route in the FORGE_SDLC definition and/or agent-runtime/lane-policy.ts, ' +
+      'workflow_app/tests/forge-hotfix-route.test.ts (new).',
+    acceptance:
+      'A HOTFIX story reaches lead_pre with the contract the lane policy requires, and a test pins the ' +
+      'route so the two cannot diverge again. The decision — the hotfix branch runs the Architect — is ' +
+      'recorded in the notes, with the rejected alternative named.',
+    notes:
+      'FOUND 2026-09-16 by running one: hotfix_architecture_check routes to lead_pre when ' +
+      'architectureSuspect is false (the default), which skips the Architect, while ' +
+      'agent-runtime/lane-policy.ts:203 refuses a Lead without the frozen Architect contract — ' +
+      '"Lead requires the frozen Architect contract. Write the brief or run the Architect lane first." ' +
+      'So a HOTFIX story dies at its first lane, every time. DECISION TAKEN BY THIS STORY: the hotfix ' +
+      'branch runs the Architect (one contract source, one author). REJECTED: letting the lane policy ' +
+      'accept a lead-authored brief for hotfixes, because that is a second author of the same fact.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-hotfix-route.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-COLUMN-WRITER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 5,
+    title: 'A field nothing writes is a lie',
+    goal:
+      'Every column of the run and evidence tables is classified as written-by-something, drop-it, or ' +
+      'kept-with-a-reason — so a column can no longer describe a machine that does not exist.',
+    scope:
+      'docs/agent/manifest/ (the audit table), scripts/column-writer-audit.ts (new generator), ' +
+      'workflow_app/tests/column-writer-audit.test.ts (new).',
+    acceptance:
+      'A generated audit lists every column of storyboard_story, storyboard_story_run and ' +
+      'forge_workflow_evidence with a classification: WRITTEN (naming the writer), DEAD-DROP, or ' +
+      'DEAD-KEEP with the reason it stays. No column is unclassified. A test fails when a new column ' +
+      'appears that the audit does not classify. The audit is generated, never hand-kept.',
+    notes:
+      'WRITTEN 2026-09-16 after two columns lied in one night: architect_brief_updated_at was null on ' +
+      'every engine-written brief (fixed in 2936c5e8) and base_commit_hash is null on every run row in ' +
+      'PROD. qa_verified_sha is a third: dead by rule since QA stopped owning a sha, still in the schema ' +
+      'and still read by forge-consistency as though it meant something. A column only one of its ' +
+      'writers maintains is worse than a missing one, because it reads as a fact.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/column-writer-audit.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-BATCH-RECEIPT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 5,
+    title: 'A sprint release records what it carried',
+    goal:
+      'The batch release leaves a durable receipt naming the stories it published and deployed and the ' +
+      'commit it released, so a sprint can be audited afterwards instead of remembered.',
+    scope:
+      'scripts/forge-batch-release.mjs and its record path, db/forge-workflow-evidence.ts (the receipt ' +
+      'fields), workflow_app/tests/forge-batch-receipt.test.ts (new).',
+    acceptance:
+      'After a batch is released, a durable record names the batch, the stories it carried, the commit ' +
+      'released, and when — written from the ACTUAL release result, never asserted. A batch with no ' +
+      'release has no receipt. A test proves the receipt is built from the release outcome and cannot be ' +
+      'written without one.',
+    notes:
+      'WRITTEN 2026-09-16: the captain runs the sprint release by hand (scripts/vercel-release-prod.sh ' +
+      'builds and deploys from local main after a clean-tree check), and nothing records what a batch ' +
+      'carried. forge-batch-release.mjs lists the slice and says so: "refuses to pretend a deployment ' +
+      'happened". That is the right refusal; this story adds the other half — a receipt for what the ' +
+      'release actually did. Related: this is the missing end of the batch_deploy deferral that the chain ' +
+      'already records per story.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-batch-receipt.test.ts`',
+  },
 ]
 
 
