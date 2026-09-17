@@ -1044,6 +1044,46 @@ const STORIES: TestStory[] = [
       'way every story in sprints 91-97 will be judged, including this one.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/acceptance-proof.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-PARALLEL-WAVE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'Every ready node may run, and two lanes cannot collide',
+    goal:
+      'The wave loop runs EVERY ready task up to one declared cap instead of only smith_split_work siblings, ' +
+      'and a lane commits only the surfaces it declared — so concurrency cannot sweep another writer\'s work.',
+    scope:
+      'workflow_app/forge/forge-executor.ts (the wave loop and its cap), the lane commit boundary (staging and ' +
+      'the post-commit surface check), workflow_app/tests/forge-executor-contract.test.ts (a fence for a ' +
+      'non-split fan-out AND for the surface refusal), docs/agent/WORKFLOW-ARCHITECTURE.md if it states the ' +
+      'concurrency rule.',
+    acceptance:
+      'Two ready nodes that are not smith_split_work run in the same wave, bounded by one declared cap that is ' +
+      'stated in the log by lane label, and a wave with one ready task still runs it exactly once (no ' +
+      'behaviour change for a chain). A commit made while another writer has dirty files in the same checkout ' +
+      'contains ONLY the paths in the committing lane\'s declared surface: given a declared set and a commit ' +
+      'that also carries an undeclared path, the wave is refused by name and the extra paths are listed ' +
+      'rather than the commit being accepted. The disjoint-surface rule that SPLIT already relies on is ' +
+      'applied to any tasks that run concurrently, and a violation names the two lanes and the shared path.',
+    notes:
+      'FOUND 2026-09-17 while reading the wave loop: forge-executor.ts:286 filters ready tasks into ' +
+      'smith_split_work siblings and `others`, then runs others in a SERIAL for-loop — so no other node type ' +
+      'can overlap no matter what is ready. It has cost little so far because tonight\'s graphs were chains ' +
+      '(one ready task per wave: architect, lead_pre, lead_solo_implement, lead_post, qa_verify), which is ' +
+      'why removing the concurrency governor did not raise throughput. The real lever is running STORIES ' +
+      'concurrently, and that is what the shared checkout breaks. HONEST BOUNDARY: this story does NOT ' +
+      'restore the per-execution worktree — agent-runtime-role-runner.ts:929 records that ' +
+      'buildAgentInvokerWorkspaces no longer produces one, so lanes write in the PRIMARY checkout, and ' +
+      'lib/worker-workspace/provisioner.ts (default ../Culebraluxe-worktrees, with a guard that the root ' +
+      'must sit outside the checkout) is unused. Restoring that isolation is a bigger change and belongs to ' +
+      'ENG-FORGE-ARTIFACT-RESIDUE-01\'s family, not here. Until it lands, concurrency safety rests on ' +
+      'declared surfaces plus path-scoped staging, which is why this story refuses an over-wide commit ' +
+      'instead of trusting the lane not to stage the tree.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/forge-executor-contract.test.ts`',
+  },
 ]
 
 
