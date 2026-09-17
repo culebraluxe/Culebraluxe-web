@@ -1952,6 +1952,43 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/release-after-completion.test.ts`',
   },
   {
+    id: 'ENG-FORGE-FINDING-DEDUPE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 98,
+    title: 'Re-running a node retires what it superseded: a duplicate finding id cannot deadlock routing',
+    goal:
+      'An operator re-run of a node leaves exactly one set of findings in force for that story and node, so ' +
+      'routing can never be blocked by rows a re-run created.',
+    scope:
+      'the finding write and the routing reader (workflow_app/forge/forge-lead-routing.ts, the architect ' +
+      'findings writer in workflow_app/forge/agents/architect/persist.ts), workflow_app/tests/' +
+      'finding-dedupe.test.ts (new).',
+    acceptance:
+      'After an operator re-run of the architect, reviewLeadProposal sees ONE set of finding ids for that story ' +
+      'and node: either the superseded task rows are retired when the new one writes, or the reader dedupes by ' +
+      'newest task, and a test drives the two-task case with overlapping ids. A route is never refused because ' +
+      'of a row a re-run created. The supersede leaves an operator-legible record of which task was retired and ' +
+      'why, so a manual cleanup is never the only remedy.',
+    notes:
+      'LIVE EVIDENCE 2026-09-17 20:48-21:02 (Cline) — A RE-RUN DEADLOCKED THE LEAD, AND THE LEAD NAMED IT. The ' +
+      'operator door resumed ENG-FORGE-QA-VERDICT-VOCAB-01 at ARCHITECT (as the lead asked, to recut to <=2 units). ' +
+      'That created a second architect task (faafc660) which wrote 5 findings, while the first task (203c226a) had ' +
+      'already written 4 of the same ids. Both are attempt 1, so the attempt-based supersede rule from ' +
+      'ENG-FORGE-FINDING-SUPERSEDE-01 cannot reach them, and lead_pre returned HOLD twice with: "the lead routing ' +
+      'context carries nine finding rows for five ids ... reviewLeadProposal refuses duplicate finding ids ' +
+      '(forge-lead-routing.ts:164) so no non-HOLD route can validate. The engine or operator must retire the ' +
+      'superseded architect task\'s finding rows, or dedupe by newest task, before lead_pre can route." The only ' +
+      'remedy was manual: deleting 4 rows by task id. After that the lead routed SMITH immediately. So the cost of ' +
+      'this gap is (a) a stranded story and (b) an operator hand-editing prod rows to unblock the factory, for an ' +
+      'action the door itself encourages. Sibling of ENG-FORGE-FINDING-SUPERSEDE-01 and ENG-FORGE-FINDING-DROP-01, ' +
+      'and the same family as ENG-FORGE-START-BASE-01: a re-run must supersede, not accumulate. HONEST BOUNDARY: ' +
+      'this does not change how findings are shaped or which of two competing findings wins - it removes the ' +
+      'duplicate that leaves routing no legal route at all.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/finding-dedupe.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-SPRINT-BOARD-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
