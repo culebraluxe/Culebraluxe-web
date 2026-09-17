@@ -2,17 +2,17 @@
 //
 // Applies PORTAL_ROUTE_POLICY (lib/auth/route-policy.ts) for a cheap redirect
 // before any server component runs:
-//   - unauthenticated /portal*                      → /login
-//   - authenticated but missing the required        → /login/unauthorized
-//     authority (from the JWT capability snapshot)
+//   - unauthenticated /portal* → /login
 //
 // This gate is intentionally NOT authoritative: the Edge runtime cannot
-// reliably reach the Neon pool for the authority projection, so the snapshot is
-// read from the Auth.js JWT (stamped at sign-in by the jwt callback, never
-// re-resolved here). Sessions without a snapshot pass through — the Portal
-// layout (server component) performs the authoritative getActingUser +
-// requireAuthority check and redirects on AuthError. Enforcement is defense in
-// depth: middleware (cheap) + server-side layout/actions (authoritative).
+// reliably reach the Neon pool for the authority projection, so the only fact
+// it reads from the session is whether a subject is present. It performs NO
+// capability check — nothing stamps a capability claim into the JWT, so such a
+// branch would never run (AUTH-CAPABILITIES-02 owns the writer, and only then
+// may the check return). The Portal layout (server component) performs the
+// authoritative getActingUser + requireAuthority check and redirects on
+// AuthError. Enforcement is defense in depth: middleware (cheap) + server-side
+// layout/actions (authoritative).
 //
 // The JWT is decrypted with next-auth/jwt getToken (jose) — no @/auth import,
 // no database driver, no provider config in the Edge bundle.
@@ -31,7 +31,6 @@ const SESSION_COOKIE_NAMES = [
 
 type PortalToken = {
   sub?: string | null
-  capabilities?: string[] | null
 }
 
 async function readPortalToken(req: NextRequest): Promise<PortalToken | null> {
@@ -76,7 +75,6 @@ export default async function middleware(req: NextRequest) {
   const token = await readPortalToken(req)
   const decision = decidePortalMiddleware(pathname, {
     authenticated: Boolean(token?.sub),
-    capabilities: token?.capabilities ?? null,
   })
 
   if (decision.kind === 'redirect') {

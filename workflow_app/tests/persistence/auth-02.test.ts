@@ -212,44 +212,16 @@ test('AUTH-02: middleware redirects unauthenticated portal requests to /login', 
   assert.deepEqual(decision, { kind: 'redirect', to: '/login' })
 })
 
-test('AUTH-02: middleware redirects authenticated-but-missing portal.read to /login/unauthorized', () => {
-  const decision = decidePortalMiddleware('/portal/dashboard', {
-    authenticated: true,
-    capabilities: ['deal.read'],
-  })
-  assert.deepEqual(decision, { kind: 'redirect', to: '/login/unauthorized' })
-})
-
-test('AUTH-02: middleware passes authenticated portal requests with the required authority', () => {
-  const decision = decidePortalMiddleware('/portal/dashboard', {
-    authenticated: true,
-    capabilities: ['portal.read'],
-  })
-  assert.deepEqual(decision, { kind: 'next' })
-})
-
-test('AUTH-02: /portal/settings additionally requires settings.read at the middleware gate', () => {
-  const viewerCaps = ['portal.read', 'deal.read']
-  assert.deepEqual(decidePortalMiddleware('/portal/settings', { authenticated: true, capabilities: viewerCaps }), {
-    kind: 'redirect',
-    to: '/login/unauthorized',
-  })
-  const ownerCaps = [...OWNER_AUTHORITIES]
-  assert.deepEqual(decidePortalMiddleware('/portal/settings', { authenticated: true, capabilities: ownerCaps }), {
-    kind: 'next',
-  })
-})
-
-test('AUTH-02: middleware never denies on a missing capability snapshot (authoritative check is server-side)', () => {
-  // Sessions minted before the snapshot claim, or with an unmapped identity,
-  // carry no capabilities. The cheap gate must pass through — the server-side
-  // resolvePortalAccess/getActingUser guard is the authoritative decider.
+test('AUTH-02: middleware passes any authenticated portal request (authority is decided server-side)', () => {
+  // The Edge gate performs no capability check: nothing stamps a capability
+  // claim into the JWT, so the gate decides on authentication alone. The
+  // authoritative resolvePortalAccess/getActingUser guard decides authority.
   assert.deepEqual(
-    decidePortalMiddleware('/portal/dashboard', { authenticated: true, capabilities: null }),
+    decidePortalMiddleware('/portal/dashboard', { authenticated: true }),
     { kind: 'next' },
   )
   assert.deepEqual(
-    decidePortalMiddleware('/portal/dashboard', { authenticated: true }),
+    decidePortalMiddleware('/portal/settings', { authenticated: true }),
     { kind: 'next' },
   )
 })

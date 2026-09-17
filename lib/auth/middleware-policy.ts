@@ -5,22 +5,19 @@
 // check is server-side: the Portal layout calls getActingUser + requireAuthority
 // and redirects on AuthError.
 //
+// This function performs NO capability check: nothing stamps a capability claim
+// into the JWT, so the gate decides on authentication alone. A capability check
+// may only return once a writer exists (AUTH-CAPABILITIES-02).
+//
 // Decisions:
-//   - non-Portal path            → pass through
-//   - unauthenticated Portal     → /login
-//   - authenticated but missing  → /login/unauthorized
-//     the required authority
-//   - authenticated, capability  → pass through
-//     snapshot present and ok
-//   - authenticated, NO snapshot → pass through (session minted before the
-//     snapshot claim existed, or unmapped at sign-in). The authoritative
-//     server-side guard still decides — never redirect on a missing claim.
+//   - non-Portal path        → pass through
+//   - unauthenticated Portal → /login
+//   - authenticated Portal   → pass through (authority is decided server-side)
 
 import { authoritiesForPath } from './route-policy'
 
 export type MiddlewareSessionSnapshot = {
   authenticated: boolean
-  capabilities?: string[] | null
 }
 
 export type MiddlewareDecision =
@@ -36,18 +33,6 @@ export function decidePortalMiddleware(
 
   if (!session.authenticated) {
     return { kind: 'redirect', to: '/login' }
-  }
-
-  // Only enforce when the session carries a capability snapshot. Absence means
-  // "unknown to the cheap gate" — pass through and let the server-side guard
-  // decide authoritatively.
-  if (Array.isArray(session.capabilities)) {
-    const missing = authorities.some(
-      (authority) => !session.capabilities!.includes(authority),
-    )
-    if (missing) {
-      return { kind: 'redirect', to: '/login/unauthorized' }
-    }
   }
 
   return { kind: 'next' }
