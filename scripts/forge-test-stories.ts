@@ -1208,7 +1208,7 @@ const STORIES: TestStory[] = [
     operatingSurface: 'TECH',
     priority: 'High',
     batch: 92,
-    title: 'The lane's declared surface reaches the wave and the commit, and the commit never lies',
+    title: 'The lane\'s declared surface reaches the wave and the commit, and the commit never lies',
     goal:
       'The surface a lane declared is actually SUPPLIED to planWave and to the commit helper — one list, two ' +
       'call sites — so fan-out becomes a factory behaviour instead of a tested function, and a commit the ' +
@@ -1224,8 +1224,8 @@ const STORIES: TestStory[] = [
       'the commit helper as allowedScope so `git add -A` is no longer the shared-checkout default. When the ' +
       'post-commit backstop finds paths outside the surface it does NOT return commitHash null — it returns ' +
       'the sha WITH the refusal, or undoes the commit it just made — and a test proves no path returns null ' +
-      'while a commit exists on the branch. MEDIUM comes from the shaper's seam groups (required findings ' +
-      'spanning two or more groups) rather than the model's all-1 feature self-rating.',
+      'while a commit exists on the branch. MEDIUM comes from the shaper\'s seam groups (required findings ' +
+      'spanning two or more groups) rather than the model\'s all-1 feature self-rating.',
     notes:
       'FROM GROK 2026-09-17 review (B1, B2, B5, I1, I2, I4), each claim verified here first. B1: `surfaceOf` ' +
       'occurs exactly twice in the tree — the option at forge-executor.ts:105 and the call at :383 ' +
