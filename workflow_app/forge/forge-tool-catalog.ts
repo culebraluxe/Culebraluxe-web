@@ -126,18 +126,20 @@ export const FORGE_TOOL_CATALOG: Readonly<Record<ForgeToolId, ForgeToolDeclarati
     toolClass: 'model-facing',
     purpose: 'symbol-level navigation, references, and bounded semantic edits',
     skillDoc: 'docs/agent/skills/serena.md',
-    // UNREGISTERED 2026-09-13. It was registered with OpenCode on 2026-09-11 and
-    // verified via `opencode mcp list`, but OpenCode starts EVERY registered MCP
-    // server on every `opencode run` — and serena opened a browser to a "config not
-    // done" page each time, once per lane, taking over the operator's browser while
-    // other work was in progress. The registration is removed from
-    // ~/.config/opencode/opencode.json (a dated backup sits beside it).
+    // RE-REGISTERED 2026-09-16, HEADLESS. The 2026-09-13 removal stays in the record: it was registered
+    // with OpenCode, OpenCode starts EVERY registered MCP server on every `opencode run`, and with no
+    // `--context` it ran in Serena's default `desktop-app` context — which opened a "config not done"
+    // browser page once per lane and took over the operator's browser mid-work. The registration was
+    // removed from ~/.config/opencode/opencode.json (a dated backup sits beside it).
     //
-    // Restore it with `serena init` in the workspace followed by
-    // `opencode mcp add`, once it starts headless. Per-role authority was never
-    // delegated to the registration anyway — it is enforced at the lane boundary by
+    // What made it safe to restore: `--context oaicompat-agent` (not desktop-app) plus
+    // `--open-web-dashboard false`. Verified by starting the server: 52 tools, the project loaded, and no
+    // browser line in the startup output — the dashboard is now a tool the model CHOOSES (open_dashboard)
+    // rather than something that ambushes the operator. `pnpm forge:tools` reports serena wired.
+    //
+    // Per-role authority was never delegated to the registration: it is enforced at the lane boundary by
     // serenaAllowedToolsForRole.
-    wired: false,
+    wired: true,
     // Scout stays on Ripwire; Inspector/Assay/DEV_OPS are excluded in the initial cut.
     roles: ['architect', 'lead_pre', 'lead_solo', 'lead_post', 'smith'],
     // Lead PRE is read-only. Lead SOLO/POST and Smith may mutate.

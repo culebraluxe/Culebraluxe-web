@@ -44,24 +44,36 @@ test('V5-23..27: every declared tool carries an honest wiring status', () => {
   assert.equal(FORGE_TOOL_CATALOG.cruiser.wired, true, 'dependency-cruiser installed 2026-09-11')
   assert.equal(FORGE_TOOL_CATALOG.knip.wired, true, 'knip installed 2026-09-11')
   assert.equal(FORGE_TOOL_CATALOG.rtk.wired, true, 'rtk shim seam wired 2026-09-11')
-  // UNREGISTERED 2026-09-13. It was registered and confirmed connected on 2026-09-11
-  // (verified with `opencode mcp list`, not by assuming the add worked), but OpenCode
-  // starts every registered MCP server on every run, and serena opened a browser to a
-  // "config not done" page each time — once per lane, on the operator's machine, while
-  // other work was in progress. `wired` stays honest, so it is false until serena runs
-  // headless again; the catalog entry records the restore path.
-  assert.equal(FORGE_TOOL_CATALOG.serena.wired, false, 'serena MCP unregistered 2026-09-13')
+  // UNREGISTERED 2026-09-13, RE-REGISTERED 2026-09-16. It was registered and confirmed
+  // connected on 2026-09-11 (verified with `opencode mcp list`, not by assuming the add
+  // worked), then removed because OpenCode starts every registered MCP server on every run
+  // and the registration carried no `--context` — so Serena ran in its default `desktop-app`
+  // context and opened a "config not done" browser page once per lane, on the operator's
+  // machine, while other work was in progress. `wired` stays honest, so it became true only
+  // when it ran headless for real: `--context oaicompat-agent` plus `--open-web-dashboard
+  // false`, confirmed by starting the server (52 tools, project loaded, no browser line).
+  assert.equal(FORGE_TOOL_CATALOG.serena.wired, true, 'serena MCP re-registered headless 2026-09-16')
 })
 
 test('V5-23..27: an unavailable tool never becomes a grant, and its degradation is explicit', () => {
-  // Unavailability is expressed by the environment (the `available` list), while a
-  // tool we have deliberately unregistered reports THAT instead. Either way the rule
+  // Unavailability is expressed by the environment (the `available` list). A tool that is wired but absent
+  // reports 'unavailable'; 'not-wired' is reserved for a tool the catalog itself says is unregistered, and
+  // no catalogued tool is in that state today (serena was the last, until 2026-09-16). Either way the rule
   // holds: no grant without availability, and a stated fallback.
   const resolution = resolveForgeToolPermissions('smith', { available: ['ripwire'] })
   assert.equal(grantFor('smith', 'serena', ['ripwire']), undefined)
   const degradation = resolution.degradations.find((d) => d.tool === 'serena')
-  assert.equal(degradation?.reason, 'not-wired', 'serena is unwired, not merely absent')
+  assert.equal(degradation?.reason, 'unavailable', 'serena is wired now; absent from THIS environment')
   assert.match(degradation!.fallback, /ripwire/)
+})
+
+test('V5-23..27: every catalogued tool is wired today, and the unwired vocabulary survives', () => {
+  // A fence on the state of the bench rather than a rule: if a tool is ever unregistered again, this fails
+  // and whoever did it must say so here, in the same change. 'not-wired' remains the vocabulary for that.
+  for (const id of FORGE_TOOL_IDS) {
+    assert.equal(FORGE_TOOL_CATALOG[id].wired, true, `${id} is unwired — record it here with the date`)
+  }
+  assert.equal(resolveForgeToolPermissions('smith').degradations.length, 0, 'nothing to degrade')
 })
 
 test('V5-23..27: a wired tool is granted, and declares its fallback', () => {
