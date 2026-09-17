@@ -103,6 +103,24 @@ test('path traversal and unknown scope are rejected', () => {
     const f = fixture(); f.p.assignments[0].plan.chunks[0].surface = [scope]; rejects(f, /invalid path/)
   }
 })
+
+// A DYNAMIC ROUTE IS A LEGAL SCOPE (2026-09-17). The Lead's own copy of the seam-path rule refused any
+// path containing a bracket, so a story whose seam IS a dynamic route failed the chunk-surface check and
+// HOLDed. SEC-MEDIA-DOC-01 died here on app/api/media/documents/[id]/route.ts — after the architect had
+// correctly declared it. The rule now has one definition (agents/shared/path.ts) and this is its fence.
+test('a Next.js dynamic route is a routable seam and surface', () => {
+  const route = 'app/api/media/documents/[id]/route.ts'
+  const f = fixture()
+  f.context.findings[0].seams = [route]
+  f.p.assignments[0].plan.chunks[0].surface = [route]
+  const r = reviewLeadProposal(f.p, f.context)
+  assert.equal(r.ok, true, r.ok ? '' : r.errors.join('\n'))
+})
+test('a glob character class is still not a scope', () => {
+  const f = fixture()
+  f.p.assignments[0].plan.chunks[0].surface = ['app/api/media/[a-z]/route.ts']
+  rejects(f, /invalid path/)
+})
 test('one-Smith route resets split payload', () => {
   const {p, context} = fixture(); const r = reviewLeadProposal(p, context)
   assert.equal(r.ok, true); if (r.ok) assert.deepEqual(leadRoutingFacts(r).splitPlan, [])

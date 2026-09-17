@@ -20,7 +20,7 @@ export function fileOf(scope: string): string | null {
   // twice on `illegal scope path`. Brackets are now legal when the segment is a dynamic route, so a glob
   // class (`[a-z]`) is still refused while `[id]` is a path. Matching below stays literal: `[id]` means the
   // `[id]` directory, never "any id".
-  if (/[\s*?{}:]/.test(p)) return null
+  if (/[\s*?{}:\\]/.test(p)) return null
   if (p.split('/').some((s) => !s || s === '.' || s === '..')) return null
   for (const segment of p.split('/')) {
     if (!segment.includes('[') && !segment.includes(']')) continue

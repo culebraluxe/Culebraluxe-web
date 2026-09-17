@@ -4,6 +4,7 @@ import {
   authoritativeLeadDecision,
   findingsFromArchitectEvidence,
   findingsMarker,
+  isRepoRelativeSeam,
   leadShapePlan,
   shapeArchitectFindings,
   smithScopeForUnit,
@@ -202,3 +203,12 @@ test('SHAPE gate: single cohesive unit launches one bounded smith/repair smith',
   assert.equal(smithUnitForNode(single, 'repair_smith').unit?.findingIds[0], 'core')
 })
 
+
+test("isRepoRelativeSeam accepts a dynamic route and refuses patterns", () => {
+  assert.equal(isRepoRelativeSeam("app/api/media/documents/[id]/route.ts"), true)
+  assert.equal(isRepoRelativeSeam("app/[...nextauth]/route.ts"), true)
+  assert.equal(isRepoRelativeSeam("app/api/media/[a-z]/route.ts"), false)
+  assert.equal(isRepoRelativeSeam("app/api/media/*/route.ts"), false)
+  assert.equal(isRepoRelativeSeam("ui/a b.ts"), false)
+  assert.equal(isRepoRelativeSeam("../secrets"), false)
+})

@@ -1,4 +1,5 @@
 import { lastJsonObjectMatching } from './agents/shared/json-slice'
+import { fileOf, overlap, within } from './agents/shared/path'
 import { assessSmithDispatch } from './forge-dispatch-gate'
 import { dispatchabilityFor } from './forge-dispatchability'
 import type { DispatchabilityFeatures } from './forge-dispatchability'
@@ -97,13 +98,14 @@ function normalizeProposal(p: LeadProposal): LeadProposal {
 }
 
 function pathOf(scope: string): string | null {
-  const p = scope.trim().split('#')[0].replace(/^\.\//, '').replace(/\/+$/, '')
-  if (!p || p.startsWith('/') || /[\\*?[\]{}:]/.test(p) ||
-      p.split('/').some(s => !s || s === '.' || s === '..')) return null
-  return p
+  // ONE DEFINITION (2026-09-17). This file carried its own copy of the seam-path rule, and the copy is
+  // why a second lane HOLDed on the same story: `fileOf` had been fixed to accept a dynamic route, but
+  // this copy still refused `[`/`]`, so `app/api/media/documents/[id]/route.ts` arrived as "no legal
+  // scope" at the Lead and the whole route failed its scope check. The rule lives in
+  // `agents/shared/path.ts` now — including the backslash refusal this copy used to add — so the lane
+  // boundaries cannot disagree with each other again.
+  return fileOf(scope)
 }
-const within = (path: string, area: string) => path === area || path.startsWith(area + '/')
-const overlap = (a: string, b: string) => within(a, b) || within(b, a)
 
 export const SPLIT_UNAVAILABLE =
   'SPLIT is not available this run; HOLD and recut into one resident Smith (1..3 serial chunks) or a new story'

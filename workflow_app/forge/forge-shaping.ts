@@ -21,6 +21,8 @@
 // Pure + DB-free. Deterministic.
 // ---------------------------------------------------------------------------
 
+import { fileOf } from './agents/shared/path'
+
 export type FindingDisposition = 'SAME_UNIT' | 'SPLIT_CHILD' | 'FOLLOW_UP_STORY' | 'NOTE' | 'HOLD'
 
 export type ArchitectFinding = {
@@ -450,17 +452,14 @@ export const ARCHITECT_FINDINGS_MISSING =
   '"hint":"SAME_UNIT|SPLIT_CHILD|FOLLOW_UP_STORY|NOTE|HOLD"}.'
 
 /**
- * A seam is usable only when it is a repository-relative path. Mirrors the LEAD
- * pathOf() rules — and additionally rejects embedded whitespace, because a seam is
- * ONE path: if a sentence can live inside the value ("ui/a b.ts"), prose has leaked
- * into a machine field and the value should be rejected at the Architect's own
- * boundary rather than die later as a silent scope mismatch at LEAD.
+ * A seam is usable only when it is a repository-relative path. ONE DEFINITION (2026-09-17): this used to
+ * carry its own copy of the rule, and the copies drifted — `fileOf` accepted a Next.js dynamic route while
+ * this one still refused `[`/`]`, which is how two lanes HOLDed on one story over the same path. The rule
+ * — including the embedded-whitespace refusal this comment used to justify, because a seam is ONE path —
+ * lives in `agents/shared/path.ts`.
  */
 export function isRepoRelativeSeam(scope: string): boolean {
-  const p = String(scope).trim().split('#')[0].replace(/^\.\//, '').replace(/\/+$/, '')
-  if (!p || p.startsWith('/')) return false
-  if (/[\s*?[\]{}:]/.test(p)) return false
-  return !p.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  return fileOf(scope) !== null
 }
 
 export function assessArchitectBrief(
