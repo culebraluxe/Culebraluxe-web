@@ -4,7 +4,14 @@ import assert from 'node:assert/strict'
 import type { QueryExecutor } from '../../db/query-executor'
 import { PortalWriteError } from '../../lib/portal-write-error'
 import {
+  accountingCaveats,
   closeSprint,
+  formatCoverage,
+  formatDuration,
+  formatSprintCost,
+  formatSprintLaneTime,
+  formatUsd,
+  formatWidgets,
   listSprintRollups,
   openSprint,
   sprintCloseRefusal,
@@ -254,5 +261,116 @@ test('closeSprint: a sprint that does not exist is not-found, not a silent no-op
   const error = await refusalFrom(() => closeSprint(999, 'nothing to close', exec))
   assert.equal(error.code, 'not-found')
   assert.equal(wroteSprint(captured, 'update'), false)
+})
+
+// --- 5. ACCOUNTING (188): the numbers, and what they rest on ----------------
+
+test('formatDuration: null is unmeasured, never 0m — a measurement nobody made', () => {
+  assert.equal(formatDuration(null), 'unmeasured')
+  assert.equal(formatDuration(undefined), 'unmeasured')
+  assert.equal(formatDuration(Number.NaN), 'unmeasured')
+})
+
+test('formatDuration: reads as a human writes it', () => {
+  assert.equal(formatDuration(0), '0m')
+  assert.equal(formatDuration(45), '45s')
+  assert.equal(formatDuration(60), '1m')
+  assert.equal(formatDuration(3600), '1h')
+  assert.equal(formatDuration(3900), '1h 5m')
+  assert.equal(formatDuration(90061), '1d 1h')
+})
+
+test('formatCoverage: the denominator is always shown, because the number rests on it', () => {
+  assert.equal(formatCoverage(59, 83), '59 of 83 runs (71%)')
+  assert.equal(formatCoverage(435, 1075), '435 of 1075 runs (40%)')
+  assert.equal(formatCoverage(0, 0), 'no runs')
+})
+
+test('formatUsd and formatWidgets: two units, two labels, and absence is stated', () => {
+  assert.equal(formatUsd(11.14073), '$11.14')
+  assert.equal(formatUsd(null), 'unmeasured')
+  assert.equal(formatWidgets(459.04), '459.04 widgets')
+  assert.equal(formatWidgets(null), 'unmeasured')
+})
+
+test('accountingCaveats: a partial dollar figure is called a floor, with its coverage', () => {
+  const caveats = accountingCaveats({
+    runs: 83,
+    runsWithCost: 59,
+    runsWithUsd: 59,
+    runsWithWidgets: 59,
+    storiesWithCycle: 8,
+    stories: 10,
+  })
+  const usd = caveats.find((c) => c.startsWith('USD rests on'))
+  assert.match(String(usd), /59 of 83 runs/)
+  assert.match(String(usd), /floor/)
+})
+
+test('accountingCaveats: no USD at all is unknown, not zero, and says so', () => {
+  const caveats = accountingCaveats({
+    runs: 12,
+    runsWithCost: 0,
+    runsWithUsd: 0,
+    runsWithWidgets: 0,
+    storiesWithCycle: 0,
+    stories: 3,
+  })
+  assert.ok(caveats.some((c) => c.includes('unknown, not zero')))
+  assert.ok(caveats.some((c) => c.includes('mean cycle time rests on 0 of 3 stories')))
+})
+
+test('accountingCaveats: a sprint with no runs says it has nothing to report, once', () => {
+  const caveats = accountingCaveats({
+    runs: 0,
+    runsWithCost: 0,
+    runsWithUsd: 0,
+    runsWithWidgets: 0,
+    storiesWithCycle: 0,
+    stories: 4,
+  })
+  assert.equal(caveats.length, 1)
+  assert.match(caveats[0] ?? '', /no runs recorded/)
+})
+
+test('accountingCaveats: cycle time names how many stories it actually measured', () => {
+  const caveats = accountingCaveats({
+    runs: 5,
+    runsWithCost: 5,
+    runsWithUsd: 5,
+    runsWithWidgets: 5,
+    storiesWithCycle: 11,
+    stories: 62,
+  })
+  assert.ok(caveats.some((c) => c.includes('11 of 62 stories')))
+})
+
+test('accountingCaveats: widgets and USD are never merged into one figure', () => {
+  const caveats = accountingCaveats({
+    runs: 5,
+    runsWithCost: 5,
+    runsWithUsd: 5,
+    runsWithWidgets: 0,
+    storiesWithCycle: 5,
+    stories: 5,
+  })
+  assert.deepEqual(caveats, [
+    'no widget-weighted consumption recorded; widgets and USD are separate units',
+  ])
+})
+
+test('formatSprintCost: a sprint with no runs is n/a, not $0.00 — free is not the same as unrecorded', () => {
+  // Measured on prod 2026-09-17: S0 showed "$0.00" while it had no runs at all, which reads as "this
+  // cost nothing". It cost nothing BECAUSE nothing was recorded, and the two are different claims.
+  assert.equal(formatSprintCost({ runs: 0, costUsd: 0 }), 'n/a')
+  assert.equal(formatSprintCost({ runs: 0, costUsd: null }), 'n/a')
+  assert.equal(formatSprintCost({ runs: 3, costUsd: 1.79 }), '$1.79')
+  assert.equal(formatSprintCost({ runs: 3, costUsd: null }), 'unmeasured')
+})
+
+test('formatSprintLaneTime: no runs means no measurement, not zero minutes', () => {
+  assert.equal(formatSprintLaneTime({ runs: 0, runSeconds: 0 }), 'n/a')
+  assert.equal(formatSprintLaneTime({ runs: 4, runSeconds: 0 }), '0m')
+  assert.equal(formatSprintLaneTime({ runs: 4, runSeconds: 3600 }), '1h')
 })
 

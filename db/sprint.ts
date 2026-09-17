@@ -279,3 +279,203 @@ export async function closeSprint(
   if (!closed) throw new PortalWriteError('not-found', `sprint ${id} could not be read back`)
   return closed
 }
+
+// ---------------------------------------------------------------------------
+// ACCOUNTING (migration 188) — what a sprint cost and how long its lanes ran.
+//
+// Every fact here already exists on `storyboard_story_run` (started_at/ended_at, tokens, cost_usd,
+// cost_widgets, cost_source); the views sum them and these functions READ them. Two rules from the
+// database are restated here so a human meets them at the point of reading, not only in a comment:
+//
+//   * USD AND WIDGETS ARE SEPARATE UNITS. Never added, never averaged, never shown as one number.
+//     `cost_usd` is what the vendor invoiced; `cost_widgets` is model_weight x elapsed minutes.
+//   * EVERY NUMBER NAMES WHAT IT RESTS ON. Measured 2026-09-17: 435 of 1075 runs carried vendor USD
+//     and 278 carried widgets, so "$11.14" is the cost of the two thirds we have, not of the sprint.
+//     `accountingCaveats` is how that reaches the reader.
+// ---------------------------------------------------------------------------
+
+export type SprintAccounting = {
+  runs: number
+  runsWithCost: number
+  runsWithUsd: number
+  runsWithWidgets: number
+  costUsd: number | null
+  costWidgets: number | null
+  tokensInput: number | null
+  tokensOutput: number | null
+  runSeconds: number | null
+  wallSeconds: number | null
+  storiesWithCycle: number
+  meanCycleSeconds: number | null
+  firstRunAt: string | null
+  lastRunEndAt: string | null
+}
+
+export type SprintBoard = SprintRollup & SprintAccounting
+
+function mapAccounting(row: QueryRow): SprintAccounting {
+  return {
+    runs: Number(row.runs ?? 0),
+    runsWithCost: Number(row.runs_with_cost ?? 0),
+    runsWithUsd: Number(row.runs_with_usd ?? 0),
+    runsWithWidgets: Number(row.runs_with_widgets ?? 0),
+    costUsd: numberOrNull(row.cost_usd),
+    costWidgets: numberOrNull(row.cost_widgets),
+    tokensInput: numberOrNull(row.tokens_input),
+    tokensOutput: numberOrNull(row.tokens_output),
+    runSeconds: numberOrNull(row.run_seconds),
+    wallSeconds: numberOrNull(row.wall_seconds),
+    storiesWithCycle: Number(row.stories_with_cycle ?? 0),
+    meanCycleSeconds: numberOrNull(row.mean_cycle_seconds),
+    firstRunAt: dateOrNull(row.first_run_at),
+    lastRunEndAt: dateOrNull(row.last_run_end_at),
+  }
+}
+
+/** The sprint parent as the board reads it: story counts plus cost and time, newest first. */
+export async function listSprintBoard(execute?: QueryExecutor): Promise<SprintBoard[] | null> {
+  const q = execute ?? (await executor())
+  if (!(await isSprintTableReady(q))) return null
+  const rows = await q`select * from storyboard_sprint_board order by number desc`
+  return rows.map((row) => ({ ...mapRollup(row), ...mapAccounting(row) }))
+}
+
+export async function getSprintBoardByNumber(
+  number: number,
+  execute?: QueryExecutor,
+): Promise<SprintBoard | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`select * from storyboard_sprint_board where number = ${number}`
+  return rows[0] ? { ...mapRollup(rows[0]), ...mapAccounting(rows[0]) } : null
+}
+
+/**
+ * The spending that belongs to NO sprint: stories with no batch, and the runs they consumed. A sprint
+ * total that leaves this out is not wrong, it is INCOMPLETE — and this exists so the omission can be
+ * stated instead of swallowed (measured 2026-09-17 on prod: 493 of 1075 runs, $3.85, 525 lane hours).
+ */
+export async function unassignedAccounting(
+  execute?: QueryExecutor,
+): Promise<SprintAccounting & { stories: number }> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    select
+      count(*) as stories,
+      coalesce(sum(runs), 0) as runs,
+      coalesce(sum(runs_with_cost), 0) as runs_with_cost,
+      coalesce(sum(runs_with_usd), 0) as runs_with_usd,
+      coalesce(sum(runs_with_widgets), 0) as runs_with_widgets,
+      sum(cost_usd) as cost_usd,
+      sum(cost_widgets) as cost_widgets,
+      sum(tokens_input) as tokens_input,
+      sum(tokens_output) as tokens_output,
+      sum(run_seconds) as run_seconds,
+      null::numeric as wall_seconds,
+      0 as stories_with_cycle,
+      null::numeric as mean_cycle_seconds,
+      min(first_run_at) as first_run_at,
+      max(last_run_end_at) as last_run_end_at
+    from storyboard_story_accounting
+    where sprint_id is null
+  `
+  const row = rows[0] ?? {}
+  return { ...mapAccounting(row), stories: Number(row.stories ?? 0) }
+}
+
+/** Freeze the live accounting onto the sprint row (the close trigger does this; this is the deliberate re-take). */
+export async function snapshotSprint(
+  number: number,
+  execute?: QueryExecutor,
+): Promise<SprintBoard | null> {
+  const q = execute ?? (await executor())
+  const id = sprintIdForBatch(number)
+  const existing = await q`select id from storyboard_sprint where number = ${number}`
+  if (existing.length === 0) throw new PortalWriteError('not-found', `sprint ${id} does not exist`)
+  await q`select storyboard_sprint_snapshot(${id ?? ''})`
+  return getSprintBoardByNumber(number, q)
+}
+
+// --- Reading the numbers without lying about them ---------------------------
+
+/** Seconds as a duration a human reads. Null means UNMEASURED, which is not the same as zero. */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return 'unmeasured'
+  const total = Math.max(0, Math.round(seconds))
+  if (total === 0) return '0m'
+  const days = Math.floor(total / 86400)
+  const hours = Math.floor((total % 86400) / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 && days === 0) parts.push(`${minutes}m`)
+  if (parts.length === 0) return `${total}s`
+  return parts.join(' ')
+}
+
+/** "59 of 83 runs (71%)" — the denominator is the point, so it is never omitted. */
+export function formatCoverage(measured: number, total: number): string {
+  if (total <= 0) return 'no runs'
+  const percent = Math.round((100 * measured) / total)
+  return `${measured} of ${total} runs (${percent}%)`
+}
+
+/** Money, or the honest absence of it. Never merged with widgets. */
+export function formatUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'unmeasured'
+  return `$${value.toFixed(2)}`
+}
+
+export function formatWidgets(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'unmeasured'
+  return `${value.toFixed(2)} widgets`
+}
+
+/**
+ * A SPRINT WITH NO RUNS HAS NO COST — NOT $0.00. Zero says "this was free"; 'n/a' says "nothing was
+ * recorded". The difference matters when the reader is deciding whether a number is a measurement or
+ * an absence, which is the whole reason this module formats instead of the pages.
+ */
+export function formatSprintCost(input: { runs: number; costUsd: number | null }): string {
+  return input.runs === 0 ? 'n/a' : formatUsd(input.costUsd)
+}
+
+/** The same rule for lane time: no runs means no measurement, not zero minutes. */
+export function formatSprintLaneTime(input: { runs: number; runSeconds: number | null }): string {
+  return input.runs === 0 ? 'n/a' : formatDuration(input.runSeconds)
+}
+
+/**
+ * WHAT EACH NUMBER RESTS ON. A cost total whose coverage is unstated reads as THE cost; these are the
+ * sentences that stop that, and they come back empty only when everything really was measured.
+ */
+export function accountingCaveats(input: {
+  runs: number
+  runsWithCost: number
+  runsWithUsd: number
+  runsWithWidgets: number
+  storiesWithCycle: number
+  stories: number
+}): string[] {
+  const caveats: string[] = []
+  if (input.runs === 0) {
+    caveats.push('no runs recorded for this sprint, so it has no cost or lane time to report')
+    return caveats
+  }
+  if (input.runsWithUsd === 0) {
+    caveats.push(`no vendor USD on any of the ${input.runs} runs: the dollar figure is unknown, not zero`)
+  } else if (input.runsWithUsd < input.runs) {
+    caveats.push(
+      `USD rests on ${formatCoverage(input.runsWithUsd, input.runs)}; the vendor invoices late, so this is a floor`,
+    )
+  }
+  if (input.runsWithWidgets === 0) {
+    caveats.push('no widget-weighted consumption recorded; widgets and USD are separate units')
+  }
+  if (input.storiesWithCycle < input.stories) {
+    caveats.push(
+      `mean cycle time rests on ${input.storiesWithCycle} of ${input.stories} stories: the rest never recorded both a start and a completion`,
+    )
+  }
+  return caveats
+}

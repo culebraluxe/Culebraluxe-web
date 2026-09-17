@@ -1,11 +1,20 @@
 #!/usr/bin/env node
 import {
+  accountingCaveats,
   closeSprint,
-  getSprintByNumber,
-  listSprintRollups,
+  formatCoverage,
+  formatDuration,
+  formatSprintCost,
+  formatSprintLaneTime,
+  formatUsd,
+  formatWidgets,
+  getSprintBoardByNumber,
+  listSprintBoard,
   openSprint,
   setSprintGoal,
-  type SprintRollup,
+  snapshotSprint,
+  unassignedAccounting,
+  type SprintBoard,
 } from '../db/sprint'
 import { PortalWriteError } from '../lib/portal-write-error'
 
@@ -43,6 +52,7 @@ function usage(): never {
       '  open <number> "<title>" [--goal "…"] [--theme "…"] [--owner "…"]',
       '  goal <number> "<goal>"',
       '  close <number> --outcome "<what actually happened>"',
+      '  snapshot <number>',
     ].join('\n'),
   )
   process.exit(2)
@@ -51,12 +61,16 @@ function usage(): never {
 const bar = (percent: number | null): string =>
   percent === null ? '  n/a' : `${percent.toFixed(1).padStart(5)}%`
 
-function line(sprint: SprintRollup): string {
+function line(sprint: SprintBoard): string {
   const counts = `${sprint.storiesComplete}/${sprint.stories} done, ${sprint.storiesOpen} open${
     sprint.storiesHeld > 0 ? `, ${sprint.storiesHeld} HELD` : ''
   }`
   const goal = sprint.goal ? `  — ${sprint.goal}` : '  — (no goal recorded)'
-  return `${sprint.id.padEnd(5)} ${sprint.status.padEnd(8)} ${bar(sprint.percentComplete)}  ${counts}${goal}`
+  const cost = formatSprintCost(sprint).padStart(8)
+  const lane = formatSprintLaneTime(sprint)
+  return `${sprint.id.padEnd(5)} ${sprint.status.padEnd(8)} ${bar(sprint.percentComplete)}  ${counts.padEnd(
+    26,
+  )} ${cost}  ${lane.padEnd(9)}${goal}`
 }
 
 async function fail(message: string): Promise<never> {
@@ -68,20 +82,31 @@ async function main(): Promise<void> {
   if (!command) usage()
 
   if (command === 'list') {
-    const rows = await listSprintRollups()
+    const rows = await listSprintBoard()
     if (rows === null) {
       await fail('sprints: table not present (apply migration 187)')
       return
     }
     if (rows.length === 0) console.log('no sprints yet')
     for (const sprint of rows) console.log(line(sprint))
+    // THE OMISSION IS STATED, NOT SWALLOWED. Runs belong to a sprint only through their story, so a
+    // story with no batch is spending nobody's sprint total contains. Measured on prod 2026-09-17:
+    // 493 of 1075 runs, $3.85, 525 lane hours.
+    const loose = await unassignedAccounting()
+    if (loose.runs > 0) {
+      console.log(
+        `\nnot in any sprint: ${loose.stories} stories, ${loose.runs} runs, ` +
+          `${formatUsd(loose.costUsd)} (${formatCoverage(loose.runsWithUsd, loose.runs)}), ` +
+          `${formatWidgets(loose.costWidgets)}, ${formatDuration(loose.runSeconds)} of lane time`,
+      )
+    }
     return
   }
 
   if (command === 'show') {
     const number = Number(rest[0])
     if (!Number.isFinite(number)) usage()
-    const sprint = await getSprintByNumber(number)
+    const sprint = await getSprintBoardByNumber(number)
     if (!sprint) {
       await fail(`sprint S${number} does not exist`)
       return
@@ -94,7 +119,34 @@ async function main(): Promise<void> {
     console.log(`  target end ${sprint.targetEndAt ?? '(not set)'}`)
     if (sprint.closedAt) console.log(`  closed     ${sprint.closedAt}`)
     if (sprint.outcome) console.log(`  outcome    ${sprint.outcome}`)
+    console.log('  ---- accounting (from the runs the engine recorded)')
+    console.log(`  vendor USD   ${formatUsd(sprint.costUsd)} across ${formatCoverage(sprint.runsWithUsd, sprint.runs)}`)
+    console.log(`  widgets      ${formatWidgets(sprint.costWidgets)} across ${formatCoverage(sprint.runsWithWidgets, sprint.runs)}`)
+    console.log(
+      `  tokens       ${sprint.tokensInput ?? 0} in / ${sprint.tokensOutput ?? 0} out`,
+    )
+    console.log(`  lane time    ${formatDuration(sprint.runSeconds)} (summed run time)`)
+    console.log(`  wall time    ${formatDuration(sprint.wallSeconds)} (first run start to last run end)`)
+    console.log(
+      `  cycle time   ${formatDuration(sprint.meanCycleSeconds)} mean over ${sprint.storiesWithCycle} of ${sprint.stories} stories`,
+    )
+    for (const caveat of accountingCaveats(sprint)) console.log(`  ! ${caveat}`)
     if (sprint.notes) console.log(`  notes      ${sprint.notes}`)
+    return
+  }
+
+  if (command === 'snapshot') {
+    const number = Number(rest[0])
+    if (!Number.isFinite(number)) usage()
+    const snapped = await snapshotSprint(number)
+    if (!snapped) {
+      await fail(`sprint S${number} does not exist`)
+      return
+    }
+    console.log(
+      `snapshot taken for S${number}: ${formatUsd(snapped.costUsd)} USD, ${formatWidgets(snapped.costWidgets)}, ${formatDuration(snapped.runSeconds)} of lane time`,
+    )
+    console.log('  the live figures will keep moving as invoices arrive; this records what we knew now.')
     return
   }
 
