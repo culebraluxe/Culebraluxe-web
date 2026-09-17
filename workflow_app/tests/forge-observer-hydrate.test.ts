@@ -45,7 +45,6 @@ const base: TraceIdentity = {
   taskId: TASK,
   nodeId: NODE,
   attempt: 2,
-  worktreePath: '/tmp/wt',
   baseCommit: 'a'.repeat(40),
 }
 

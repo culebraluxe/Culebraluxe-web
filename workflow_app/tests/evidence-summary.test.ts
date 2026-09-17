@@ -176,18 +176,18 @@ test('ENG-08: buildTaskText keeps the SCOPED policy authoritative above the evid
 // ENG-21 — isolated worker workspace evidence.
 // ---------------------------------------------------------------------------
 
-test('ENG-21: workspaceEvidenceLine identifies branch, worktree and base commit', () => {
+test('ENG-21: workspaceEvidenceLine identifies branch and base commit, never a worktree path', () => {
   const line = workspaceEvidenceLine({
     branchName: 'agent/eng-21/9f3c2b1a',
-    worktreePath: '/worktrees/eng-21-9f3c2b1a',
     baseRef: 'main',
     baseCommit: 'eeb68e2'.padEnd(40, '0'),
   })
   assert.equal(
     line,
-    'Execution workspace: branch=agent/eng-21/9f3c2b1a worktree=/worktrees/eng-21-9f3c2b1a base=main@' +
+    'Execution workspace: branch=agent/eng-21/9f3c2b1a base=main@' +
       'eeb68e2'.padEnd(40, '0'),
   )
+  assert.doesNotMatch(line, /worktree=/)
 })
 
 test('ENG-21: buildTaskText tells the model its isolated branch/base only when a workspace was provisioned', () => {

@@ -58,7 +58,6 @@ const base = {
   taskId: 'probe-task',
   nodeId: 'smith',
   attempt: 1,
-  worktreePath: process.cwd(),
   baseCommit: 'a'.repeat(40),
 }
 

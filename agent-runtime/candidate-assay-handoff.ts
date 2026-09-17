@@ -124,20 +124,30 @@ export function finishedRunCandidateSha(
   return newest ? commitSha(newest.commitHash) : null
 }
 
-/** One machine-scannable workspace evidence line (ENG-21 evidence format). */
-export function workspaceEvidenceLine(w: {
+/**
+ * The recorded facts of an execution workspace. The per-lane worktree path is
+ * deliberately NOT among them (NO TREES): a legacy caller may still pass one,
+ * and it is never recorded.
+ */
+export type WorkspaceEvidence = {
   branchName: string
-  worktreePath: string
   baseRef: string
   baseCommit: string
-}): string {
-  return `Execution workspace: branch=${w.branchName} worktree=${w.worktreePath} base=${w.baseRef}@${w.baseCommit}`
+}
+
+/** One machine-scannable workspace evidence line (ENG-21 evidence format).
+ *  NO TREES: the line names the branch and the base commit only — the machine
+ *  that exists, not a per-lane worktree that no longer does. The generic keeps
+ *  legacy callers (which still carry a worktree path) compiling; that value is
+ *  deliberately never recorded. */
+export function workspaceEvidenceLine<T extends WorkspaceEvidence>(w: T): string {
+  return `Execution workspace: branch=${w.branchName} base=${w.baseRef}@${w.baseCommit}`
 }
 
 /** Append the workspace evidence line when a workspace exists and no line is
  *  already present (dedupes the adapter-written evidence). */
 export function withWorkspaceEvidence(
-  workspace: { branchName: string; worktreePath: string; baseRef: string; baseCommit: string } | null | undefined,
+  workspace: WorkspaceEvidence | null | undefined,
   notes: string,
 ): string {
   if (!workspace) return notes

@@ -29,7 +29,6 @@ export type TraceIdentity = {
   nodeId: string
   /** 1-based, matching SmithExecutionContract.identity.attempt */
   attempt: number
-  worktreePath: string
   baseCommit: string
 }
 

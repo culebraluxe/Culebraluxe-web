@@ -128,10 +128,9 @@ export function traceEventsFromRows(rows: PersistedTraceRow[], storyId: string):
       taskId: text(row.taskId) ?? '',
       nodeId: text(row.workflowNodeId) ?? '',
       attempt: fromId.attempt ?? (Number.isInteger(attempt) && attempt >= 1 ? attempt : 1),
-      // Provenance hints the write path did not persist. They are not identity:
-      // nothing keys on them, and a rehydrated event says so honestly instead of
-      // inventing a worktree it cannot know.
-      worktreePath: '',
+      // Provenance the write path did not persist. It is not identity: nothing
+      // keys on it, and a rehydrated event says so honestly instead of
+      // inventing a worktree it cannot know (NO TREES: there is no such field).
       baseCommit: '',
       ...(text(metadata.sha) ? { sha: text(metadata.sha)! } : {}),
       ...(paths ? { paths: paths.split(',').map((p) => p.trim()).filter(Boolean) } : {}),

@@ -157,7 +157,6 @@ export async function recordStaticGateArtifact(
     /** Hygiene instrument (V5-27). Optional so existing callers keep working. */
     knipRan?: boolean
     knipFindingCount?: number
-    workspace?: string | null
   },
   execute?: QueryExecutor,
 ): Promise<ForgeToolArtifact> {
@@ -182,7 +181,6 @@ export async function recordStaticGateArtifact(
         archErrorCount: input.archErrorCount,
         semgrepRan: input.semgrepRan,
         semgrepFindingCount: input.semgrepFindingCount,
-        workspace: input.workspace ?? null,
       },
       sha: input.sha ?? null,
     },

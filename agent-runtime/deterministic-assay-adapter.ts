@@ -380,7 +380,6 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
           semgrepFindingCount: gate.semgrepFindings.length,
           knipRan: gate.knipRan,
           knipFindingCount: gate.knipFindings.length,
-          workspace,
         }).catch(() => {
           /* artifact write is best-effort; QA verdict stands on the tree */
         })

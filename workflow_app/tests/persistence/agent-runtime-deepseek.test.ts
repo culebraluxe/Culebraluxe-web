@@ -469,9 +469,10 @@ test('ENG-21: adapter executes inside an isolated worktree and evidence identifi
     assert.equal(evidence.resultStatus, 'Complete')
     // Local commit evidence = the worker's own HEAD in the isolated worktree.
     assert.equal(evidence.commitHash, head)
-    // The durable narrative identifies branch / worktree / approved base commit.
+    // The durable narrative identifies the branch and the approved base commit;
+    // NO TREES means it must never name a per-lane worktree.
     assert.match(evidence.notes, /Execution workspace: branch=agent\/eng21ds\/run-ds/)
-    assert.match(evidence.notes, new RegExp(`worktree=${tmp.workspace.worktreePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+    assert.doesNotMatch(evidence.notes, /worktree=/)
     assert.match(evidence.notes, new RegExp(`base=main@${tmp.workspace.baseCommit}`))
     assert.equal(
       evidence.testsSummary,

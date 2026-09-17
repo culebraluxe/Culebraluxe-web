@@ -1289,7 +1289,6 @@ export function createAgentRuntimeForgeRoleRunner(
       taskId: durableClaim.id,
       nodeId,
       attempt: attempt + 1,
-      worktreePath: roleCwd,
       baseCommit: scopeBase,
     }
     const candidateSha =
@@ -1396,7 +1395,6 @@ export function createAgentRuntimeForgeRoleRunner(
           taskId: durableClaim.id,
           nodeId,
           attempt: splitAssignmentContract.identity.attempt,
-          worktreePath: cwd,
           baseCommit: scopeBase,
         }
         const observed = observeCandidateCommit(forgeObserverSink, observerIdentity, {
@@ -1442,7 +1440,6 @@ export function createAgentRuntimeForgeRoleRunner(
         taskId: durableClaim.id,
         nodeId,
         attempt: attempt + 1,
-        worktreePath: cwd,
         baseCommit: scopeBase,
       }
       try {
