@@ -1673,6 +1673,281 @@ const STORIES: TestStory[] = [
       'only which object and attempt it is allowed to certify.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/verify-identity.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-ASSERTION-RAN-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title: 'A referenced assertion is verified to have RUN, not merely listed',
+    goal:
+      'An acceptance clause is satisfied only by an assertion that actually executed and passed in the ' +
+      'frozen proof: a named-but-unrun assertion is UNPROVEN, the same as a clause with no assertion.',
+    scope:
+      'the acceptance-to-assertion mapping reader and the QA adjudicator (workflow_app/forge/agents/qa/run.ts ' +
+      'and the mapping reader added by ENG-FORGE-ACCEPTANCE-PROOF-01), workflow_app/tests/' +
+      'assertion-executed.test.ts (new).',
+    acceptance:
+      'A clause whose mapped assertion name does not appear in the executed proof output is reported ' +
+      'UNPROVEN, naming the clause and the missing assertion. A mapped assertion that ran and passed ' +
+      'satisfies the clause. A clause mapped to an assertion that ran and FAILED is FAIL, not UNPROVEN. A ' +
+      'test drives all three cases against a recorded proof output, including a mapping that references an ' +
+      'assertion the proof never mentions.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, improvement 6 of 10 ("verify that referenced assertions actually ' +
+      'ran, rather than merely being listed"). This is the next step past ENG-FORGE-ACCEPTANCE-PROOF-01, ' +
+      'which binds each acceptance clause to at least one assertion and reports an unmapped clause as ' +
+      'UNPROVEN: binding by NAME is still a claim, and a lane could satisfy the mapping while the proof never ' +
+      'executes the named assertion. Astra improvement 3 (QA evidence bound to the exact code and criteria) ' +
+      'is covered by ACCEPTANCE-PROOF-01 plus ENG-FORGE-RECEIPT-COLUMNS-01 and is NOT re-filed. HONEST ' +
+      'BOUNDARY: this does not re-run proofs, does not change how the mapping is written, and depends on the ' +
+      'proof output being captured verbatim.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/assertion-executed.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-FAILURE-STAGE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title: 'A durable failure record carries its stage, cause and recovery action',
+    goal:
+      'Every durable failure record names the STAGE that failed, the cause it recorded, and the smallest ' +
+      'recovery action an operator can take — so a reader does not have to reconstruct any of the three.',
+    scope:
+      'the failure writers (forge_hold_record, the failure disposition, the run result) and the reader that ' +
+      'renders them, workflow_app/tests/failure-stage-record.test.ts (new).',
+    acceptance:
+      'For a failure of each stage (gate refusal, lane failure, release failure, migration failure) the ' +
+      'record carries a stage, a cause string, and a recovery action, and a test asserts one of each. A ' +
+      'record missing any of the three is refused at the writer with a named reason rather than stored ' +
+      'half-formed. The stage vocabulary is closed, so an unknown stage is refused by name.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, improvement 7 of 10 ("preserve stage, cause, and recovery action ' +
+      'in durable records"). Measured tonight, three times: the deploy HOLD said only "role did not deliver ' +
+      'devops-receipt" until the lane itself explained the cause in prose, and the two Lead HOLDs on the ' +
+      'WhatsApp story each needed a run-note read to find the stage. ENG-FORGE-FAILURE-LABEL-01 (complete) ' +
+      'keeps the failure CLASS with its own stage — this story adds cause and recovery action beside it, one ' +
+      'record, no second home. HONEST BOUNDARY: it does not reclassify existing failures and does not ' +
+      'replace the operator notes on a hold.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/failure-stage-record.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-CRASH-TESTS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title: 'Crashes between steps and real driver value formats are tested, not assumed',
+    goal:
+      'The interrupted-sequence class is exercised by tests: a crash between any two durable writes of a ' +
+      'story run is simulated and the recovery asserted, and value formats are taken from the real driver ' +
+      'rather than from a hand-written fixture.',
+    scope:
+      'a shared test harness for interrupted sequences (workflow_app/tests/helpers/), the value-format ' +
+      'fixtures used by the run and claim readers, workflow_app/tests/interrupted-sequences.test.ts (new).',
+    acceptance:
+      'At least the completion/evidence pair and the publish/receipt pair are exercised as interrupted ' +
+      'sequences with a durable-state assertion after each crash point, and each test names the write it ' +
+      'interrupts. Timestamp and numeric values in the fixtures are captured from the driver in the exact ' +
+      'form it emits (offset-bearing timestamptz, string numerics), and a test fails if a fixture is ' +
+      'hand-normalised into a shape the driver never produces — the class of fixture that hid the ' +
+      'Z-append defect in ENG-FORGE-CLAIM-CLOCK-01.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, improvement 8 of 10 ("test crashes between steps and real ' +
+      'database value formats alongside pure policy tests"). Directly motivated: ENG-FORGE-CLAIM-CLOCK-01 ' +
+      'was invisible to the pure tests because they used clean ISO strings, and ENG-FORGE-CRASH-WINDOW-01 ' +
+      'cannot be proven without interrupted sequences. HONEST BOUNDARY: this adds tests and a harness; it ' +
+      'does not change production behaviour and does not attempt full chaos engineering.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/interrupted-sequences.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-COMMENT-DIET-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 99,
+    title: 'Long historical commentary is separated from the contract it describes',
+    goal:
+      'A reader can tell the CURRENT contract from the history of how it got there: commentary that ' +
+      'narrates a superseded behaviour is moved behind a dated marker or into the story record, and what ' +
+      'remains beside the code states the rule in force.',
+    scope:
+      'a measurable rule applied to the forge modules (an agreed maximum lines of commentary before a ' +
+      'declaration, with history allowed only under a dated heading), the files it is applied to, and ' +
+      'workflow_app/tests/comment-contract.test.ts (new).',
+    acceptance:
+      'A rule is stated and enforced: commentary above a declaration is at most N lines and states a rule ' +
+      'in force, and dated history appears only under a marker that names the date and, where one exists, ' +
+      'the story or commit that made the change. The test asserts the rule on the files the story touches ' +
+      'and FAILS on a file that regrows history outside a marker. The rule is recorded with the reason it ' +
+      'was chosen, so a later reader can change it deliberately instead of drifting past it.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, improvement 9 of 10 ("shorten historical commentary and keep ' +
+      'current contracts easy to distinguish from superseded behavior"). Honest framing from the inside: ' +
+      'much of tonight long comments were written by me and by lanes as a deliberate honesty device (the ' +
+      'residuals in forge-engine-runtime.ts:214-221 are load-bearing), so the rule must separate history ' +
+      'from contract rather than delete either. This is a LOW-priority maintainability story and it must ' +
+      'not be used to erase a stated residual. HONEST BOUNDARY: no production behaviour changes.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/comment-contract.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-RESUME-PREVIEW-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 100,
+    title: 'A held story previews what will run and what will be skipped before it resumes',
+    goal:
+      'Before a held story is resumed, the operator sees the exact node that will run, the prerequisites ' +
+      'already satisfied, and what will be skipped — without spending a model turn.',
+    scope:
+      'a read-only preview over the engine instance (the resume path in agent-runtime-role-runner.ts and the ' +
+      'engine task reader), workflow_app/tests/resume-preview.test.ts (new).',
+    acceptance:
+      'Given a held instance, the preview names the node that would run next, the evidence already in force ' +
+      'for it, and any step that would be skipped (with the reason it is skipped), using only durable ' +
+      'records and no model call. A preview for an instance whose hold was resolved states what changed ' +
+      'since the hold was recorded.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, feature 1 of 10 (proposed capability, not verified absent). ' +
+      'Motivated by tonight: resolving three holds required reading run notes to learn what would happen ' +
+      'next, and one resume re-ran an Architect against frozen snapshots before failing again. Feature 4 ' +
+      '(failure replay) is NOT filed here — it is ENG-FORGE-REPLAY-01 in sprint 95. HONEST BOUNDARY: ' +
+      'read-only; it does not change resume semantics.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/resume-preview.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-RELEASE-RECONCILE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 100,
+    title: 'A successful external action whose receipt was lost is reconciled',
+    goal:
+      'When an external action (a publish or a migration) succeeded but its local receipt is missing, the ' +
+      'engine can DETECT that from the external system and recover the receipt instead of assuming failure.',
+    scope:
+      'a reconciliation path over the publish and migration ledgers (git remote state, the migration ' +
+      'ledger) plus the release lane, workflow_app/tests/release-reconciliation.test.ts (new).',
+    acceptance:
+      'Given a publish whose sha is present on the remote and a local receipt that is missing, ' +
+      'reconciliation records the receipt from the observed remote state and names the evidence it used; ' +
+      'the story then proceeds instead of HOLDing. Given a genuinely absent publish, reconciliation reports ' +
+      'absence and nothing is recorded. A test drives both, and neither fabricates a receipt the external ' +
+      'system does not support.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, feature 2 of 10. Directly motivated: the dev_ops lane proved a ' +
+      'published sha with `git ls-remote` while the release gate held for a missing devops-receipt, and ' +
+      'Astra bug 1/bug 2 are both about a release state diverging from its receipt. Astra priority: this and ' +
+      'resume preview after bugs 1-4. HONEST BOUNDARY: it recovers receipts for actions that CAN be ' +
+      'observed; it never invents evidence for an action that cannot.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/release-reconciliation.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-STUCK-EXPLAIN-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 100,
+    title: 'A stuck story explains its blocking condition, its owner and the smallest next action',
+    goal:
+      'One view answers why a story is not moving: the blocking condition in machine terms, who owns it ' +
+      '(a lane, an operator, an external system), and the smallest action that clears it.',
+    scope:
+      'a read-only explanation over the durable records (hold record, engine task, run receipts, ledger), ' +
+      'workflow_app/tests/stuck-story-explanation.test.ts (new).',
+    acceptance:
+      'For each blocking cause the explanation names the condition, the owner and one smallest action, from ' +
+      'durable records only: an unresolved hold names the originating node and the resume target that would ' +
+      'clear it; a stale claim names the claiming worker and when it was last touched; an unapplied ' +
+      'migration names the file and the ledger; a missing receipt names the external check that can ' +
+      'confirm it. A story that is not blocked says so rather than guessing.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, feature 9 of 10. Motivated by tonight: every one of the four ' +
+      'stops needed a hand investigation (a deploy HOLD, two Lead HOLDs, a zombie still reading In ' +
+      'Progress). Related and NOT re-filed: ENG-FORGE-HOLD-VISIBLE-01 (complete, hold reason visible), ' +
+      'ENG-FORGE-RESUME-DOOR-01 (a door out of a hold), ENG-FORGE-MIGRATION-APPLIED-01 (the migration ' +
+      'case). HONEST BOUNDARY: read-only, and it never claims a cause the records do not show.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/stuck-story-explanation.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-ACCEPTANCE-EXPLORER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 100,
+    title: 'Each acceptance requirement shows its assertions, results and uncovered cases',
+    goal:
+      'For a story, every acceptance clause is clickable to the assertions that cover it, whether they ran ' +
+      'and passed, and which clauses remain uncovered — so coverage is read, not inferred.',
+    scope:
+      'a read-only projection of the acceptance-to-assertion mapping plus proof results (the QA records and ' +
+      'the mapping reader), workflow_app/tests/acceptance-explorer.test.ts (new).',
+    acceptance:
+      'Each clause lists its mapped assertions with their observed result (passed, failed, not run) and ' +
+      'clauses with no assertion are listed as uncovered, with the count of each stated. The projection ' +
+      'reads durable records only and a test asserts the three states for one clause of each kind.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, feature 3 of 10. It is the read side of ' +
+      'ENG-FORGE-ACCEPTANCE-PROOF-01 (which binds clauses to assertions) and ENG-FORGE-ASSERTION-RAN-01 ' +
+      '(which verifies they ran). Astra improvement 6 is the enforcement half and IS filed; this is the ' +
+      'visibility half. HONEST BOUNDARY: read-only projection; no scoring and no new verdict.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/acceptance-explorer.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-PREFLIGHT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 100,
+    title: 'A story is preflighted for route, prerequisites and likely holds before it spends tokens',
+    goal:
+      'Before a run starts, the engine can state the route the story would take, which prerequisites are ' +
+      'already satisfied, and the named conditions that would HOLD it — from durable records, with no model ' +
+      'call.',
+    scope:
+      'a read-only preflight over the ready gate, the shaper and the held conditions, workflow_app/tests/' +
+      'preflight.test.ts (new).',
+    acceptance:
+      'For a story, preflight reports the route it would take, each prerequisite with satisfied or not, and ' +
+      'every condition that would HOLD it by name (missing acceptance mapping, unapplied migration, ' +
+      'undeclared seam, unresolved dependency). A story that would pass all gates is reported as runnable, ' +
+      'and a test drives one runnable and one held case.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, feature 5 of 10. Motivated by tonight: three stories were held ' +
+      'for conditions that were knowable before the first model turn (an undeclared seam, a stale findings ' +
+      'set, an unapplied migration), and one whole run was spent discovering one of them. HONEST BOUNDARY: ' +
+      'predictive and read-only; it never blocks a run and it does not guess at conditions the records ' +
+      'cannot show.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/preflight.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-IMPACT-EXPLORER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 100,
+    title: 'A proposed change shows what it touches before it is run',
+    goal:
+      'Given a story or a declared surface, the engine lists the services, routes, schemas, tables, proofs ' +
+      'and records the change would touch, so blast radius is read from the repo rather than guessed.',
+    scope:
+      'a read-only impact projection over the declared surfaces, the route manifest, the migration ledger ' +
+      'and the proof set, workflow_app/tests/impact-explorer.test.ts (new).',
+    acceptance:
+      'For a story with declared surfaces, the projection names the routes that serve them, the tables and ' +
+      'columns written, the migrations involved, and the frozen proofs that cover them, each with the ' +
+      'record it was read from. A surface matching nothing is reported as such rather than silently empty, ' +
+      'and a test drives a surface that maps to a route and one that does not.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, feature 8 of 10. It reuses instruments that now exist: ' +
+      'SEC-ROUTE-MANIFEST-01 (every handler and its authority), ' +
+      'ENG-FORGE-COLUMN-WRITER-01 (every column and its writer, DEAD-DROP included), ' +
+      'ENG-FORGE-MIGRATION-APPLIED-01 (the ledger), and the declared-surface reader. HONEST BOUNDARY: ' +
+      'read-only; it does not decide whether a change is safe, and it reports what the records can show.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/impact-explorer.test.ts`',
+  },
 ]
 
 
