@@ -1415,6 +1415,44 @@ const STORIES: TestStory[] = [
       'rows already written.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-role-finding-supersede.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-MIGRATION-APPLIED-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'A story that ships a migration is not complete while the ledger lacks it',
+    goal:
+      'A story whose change set adds a file under db/migrations/ cannot reach Complete — and cannot be ' +
+      'reported shipped — while the control plane migration ledger lacks that file, so code never lands ' +
+      'ahead of the column it writes.',
+    scope:
+      'the completion/release path that decides a story is done (agent-runtime-role-runner.ts deploy branch ' +
+      'and the story completion seam), the migration ledger reader used by scripts/migration-status.mjs, ' +
+      'workflow_app/tests/migration-applied-guard.test.ts (new).',
+    acceptance:
+      'When a story change set adds a file under db/migrations/, completion requires the LEDGER ' +
+      '(schema_migration, PROD) to carry that filename; otherwise the story is held or refused with a ' +
+      'reason that names every unapplied file. A story with no migration in its change set is unaffected, ' +
+      'and a story whose migration is ledgered is unaffected — no false positives in either direction. The ' +
+      'check reads the LEDGER TABLE, never the filesystem, and a test proves both directions: a fixture ' +
+      'change set adding a migration with an empty ledger is refused BY NAME, and the same change set with ' +
+      'the ledger row is allowed.',
+    notes:
+      'FOUND 2026-09-17, twice in one night, by the operator parking every story at QA with --until ' +
+      'node:qa_verify to avoid production deploys — which SKIPS DEV_OPS, and DEV_OPS owns migrations. ' +
+      'APP-WHATSAPP-ATTRIBUTION-01 shipped code writing l_whatsapp.context_id (migration 184) while the ' +
+      'column did not exist; ENG-FORGE-FINDING-SUPERSEDE-01 shipped the supersede writer while its table ' +
+      '(migration 185) did not exist. Both were applied by hand afterwards (ledger 07:16:52 and 07:49:10) ' +
+      'and both would have failed at RUNTIME on the next deploy — the WhatsApp case by failing to land a ' +
+      'message, which is the captain only working feature. Nothing in the engine noticed: the story read ' +
+      'Complete, QA passed, and the migration file existed, so every receipt was green while the schema was ' +
+      'absent. This is the same disease as the rest of the night (a fact that exists while the runtime does ' +
+      'not have it), one layer lower, and it is the cost of the QA-park shortcut rather than a defect in ' +
+      'DEV_OPS. HONEST BOUNDARY: this does not apply migrations automatically, does not change DEV_OPS ' +
+      'ownership of them, and does not retro-check stories already completed.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/migration-applied-guard.test.ts`',
+  },
 ]
 
 
