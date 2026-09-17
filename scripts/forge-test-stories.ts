@@ -1715,6 +1715,42 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/assertion-executed.test.ts`',
   },
   {
+    id: 'ENG-FORGE-PROOF-NAMES-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title:
+      'A re-verified story earns a fresh named proof: QA re-executes the named assertions rather than reading a proof that cannot carry names',
+    goal:
+      'When a story is re-verified, the proof the ruling reads is one that NAMES the assertions that ran, ' +
+      'so a correct mapping is never ruled UNPROVEN for want of a name in an old proof.',
+    scope:
+      'the QA node proof acquisition path (workflow_app/forge/agents/qa/run.ts) so that a re-verify ' +
+      're-executes the named assertions and captures their names, plus workflow_app/tests/' +
+      'proof-names.test.ts (new).',
+    acceptance:
+      'A re-verified story whose mapped assertions pass is ruled PASS on the strength of a proof that names ' +
+      'each assertion, even when the story original run proof reported counts only. A re-executed assertion ' +
+      'that fails is FAIL, not UNPROVEN. A mapping whose assertion cannot be resolved to a runnable name is ' +
+      'UNPROVEN and says which ref could not be resolved. A test drives all three against a count-only proof ' +
+      'and a named proof.',
+    notes:
+      'LIVE FINDING 2026-09-17 18:06, recorded the moment it was measured: ENG-FORGE-MIGRATION-START-01 was ' +
+      're-verified through the operator door with a mapping that is already correct and file-qualified ' +
+      '("Given one or more db/migrations/*.sql file" -> workflow_app/tests/migration-preflight.test.ts#' +
+      'refuses when the repo list carries migrations the ledger lacks), and QA ruled UNPROVEN with ' +
+      'ASSERTION_NOT_RUN naming that exact ref, while the same file passes 10/10 when run directly. The ref ' +
+      'was right and the proof had no names to find: it was captured before ENG-FORGE-ASSERTION-RAN-01 landed, ' +
+      'by an invocation that reports counts. Until this story lands, every story whose proof predates the ' +
+      'naming rule is UNPROVEN on re-verify regardless of how correct its mapping is. Sibling of ' +
+      'ENG-FORGE-ASSERTION-RAN-01 (which asks that an assertion ran) and of ENG-FORGE-START-BASE-01 (which ' +
+      'asks which base a lane started from): all three are about a ruling resting on a fact the run did not ' +
+      'record. HONEST BOUNDARY: this does not change what a PASS means and does not let a bare count buy a ' +
+      'PASS - it makes the re-verify produce the named evidence the gate already demands.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/proof-names.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-FAILURE-STAGE-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
