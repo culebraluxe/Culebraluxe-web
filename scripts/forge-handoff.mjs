@@ -26,6 +26,7 @@
 // ---------------------------------------------------------------------------
 import { forgeDbPool } from '../db/forge-db.ts'
 import { decideAssignmentWrite, decideContractWrite } from '../db/forge-role-assignment-write.ts'
+import { decideFindingWrite } from '../db/forge-role-finding.ts'
 
 const args = process.argv.slice(2)
 const arg = (name) => {
@@ -375,6 +376,61 @@ if (arg('finding-id')) {
     process.exit(2)
   }
 
+  // A LATER ATTEMPT MAY NOT SILENTLY DROP A SEAM THE EARLIER ONE DECLARED.
+  //
+  // Until this guard the write upserted one row per finding and never looked at attempt N-1, and
+  // the reader's newest-attempt scope then hid the loss from the Lead. The rule lives once, in
+  // `db/forge-role-finding.ts` (decideFindingWrite), so this script and its test read the same
+  // decision instead of two copies. A drop is REFUSED by name, or recorded as an explicit
+  // supersede row — never a silent loss.
+  const priorRow = await pool.query(
+    `select max(attempt) as attempt from forge_role_finding
+      where story_id = $1 and process_instance_id = $2 and node_id = $3 and attempt < $4`,
+    [storyId, processInstanceId, nodeId, attempt],
+  )
+  const priorAttempt = priorRow.rows[0]?.attempt == null ? null : Number(priorRow.rows[0].attempt)
+  const priorFindings =
+    priorAttempt == null
+      ? []
+      : (
+          await pool.query(
+            `select finding_id, seams from forge_role_finding
+              where story_id = $1 and process_instance_id = $2 and node_id = $3 and attempt = $4`,
+            [storyId, processInstanceId, nodeId, priorAttempt],
+          )
+        ).rows
+  const currentFindings = (
+    await pool.query(
+      `select finding_id, seams from forge_role_finding
+        where task_id = $1 and node_id = $2 and attempt = $3 and finding_id <> $4`,
+      [taskId, nodeId, attempt, findingId],
+    )
+  ).rows
+  const seamSet = (row) => ({
+    findingId: String(row.finding_id),
+    seams: Array.isArray(row.seams) ? row.seams : [],
+  })
+  const findingWrite = decideFindingWrite({
+    attempt,
+    prior:
+      priorAttempt == null ? null : { attempt: priorAttempt, findings: priorFindings.map(seamSet) },
+    current: currentFindings.map(seamSet),
+    incoming: { findingId, seams },
+    acknowledged: list('supersede'),
+  })
+  if (findingWrite.kind === 'refuse') {
+    const named = findingWrite.dropped
+      .map((d) => `${d.seam} (declared by attempt ${d.declaredByAttempt} in ${d.declaredByFindingId})`)
+      .join(', ')
+    console.error(
+      `forge-handoff: REFUSED — attempt ${attempt} would drop seam(s) declared by an earlier ` +
+        `attempt: ${named}. Nothing was written. Re-declare the seam, or acknowledge the loss ` +
+        'with --supersede <seam> for each dropped seam.',
+    )
+    await pool.end()
+    process.exit(2)
+  }
+
   try {
     const written = await pool.query(
       `insert into forge_role_finding
@@ -409,7 +465,39 @@ if (arg('finding-id')) {
         list('risks'),
       ],
     )
+    // ONE TYPED ROW PER ACKNOWLEDGED DROP. A refusal wrote nothing, so the presence of these
+    // rows is what makes an explicit supersede distinguishable from a refusal — for the Lead and
+    // for any later reader.
+    for (const entry of findingWrite.superseded) {
+      await pool.query(
+        `insert into forge_role_finding_supersede
+           (story_id, process_instance_id, task_id, node_id, attempt, finding_id, seam,
+            declared_by_attempt, declared_by_finding_id)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         on conflict (task_id, node_id, attempt, seam) do update set
+           finding_id = excluded.finding_id,
+           declared_by_attempt = excluded.declared_by_attempt,
+           declared_by_finding_id = excluded.declared_by_finding_id`,
+        [
+          storyId,
+          processInstanceId,
+          taskId,
+          nodeId,
+          attempt,
+          findingId,
+          entry.seam,
+          entry.declaredByAttempt,
+          entry.declaredByFindingId,
+        ],
+      )
+    }
     console.log('finding recorded:', JSON.stringify(written.rows[0]))
+    if (findingWrite.superseded.length > 0) {
+      console.log(
+        'superseded seam(s) recorded:',
+        findingWrite.superseded.map((entry) => entry.seam).join(', '),
+      )
+    }
     console.log(
       'Do not also emit FORGE_ARCHITECT_HANDOFF or FORGE_FINDINGS_JSON — these rows ARE the findings.',
     )

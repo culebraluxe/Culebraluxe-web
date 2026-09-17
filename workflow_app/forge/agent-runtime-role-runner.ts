@@ -81,7 +81,7 @@ import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import { getForgeRoleContract, type ForgeRoleContract } from '../../db/forge-role-contract'
 import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
-import { listStoryForgeFindings } from '../../db/forge-role-finding'
+import { listStoryForgeFindingHandoff } from '../../db/forge-role-finding'
 import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
@@ -522,15 +522,23 @@ export function createAgentRuntimeForgeRoleRunner(
     // story-wide read resurrects every earlier run's rows and every retried attempt's
     // repeats, which the Lead's gate correctly refuses as "Duplicate finding IDs in
     // Architect handoff" — the refusal that kept this chain from ever routing.
-    const recordedFindings = await listStoryForgeFindings({
+    const recordedHandoff = await listStoryForgeFindingHandoff({
       storyId: resolvedStory.id,
       processInstanceId: String(task.processInstanceId),
     })
-    const findingsForRouting = recordedFindings ?? current.findings
+    const findingsForRouting = recordedHandoff?.findings ?? current.findings
     const leadRoutingContext = buildLeadRoutingContext({
       story: resolvedStory,
       findings: findingsForRouting,
       capabilities: LEAD_ROUTING_CAPABILITIES,
+      // Which attempt is in force and what a later attempt explicitly superseded. Null is the
+      // legacy reply-parser fallback, where no attempt is recorded.
+      findingHandoff: recordedHandoff
+        ? {
+            attemptInForce: recordedHandoff.attemptInForce,
+            superseded: recordedHandoff.superseded,
+          }
+        : null,
     })
     const branchInstruction =
       nodeId === 'smith_split_work'

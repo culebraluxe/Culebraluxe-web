@@ -1,4 +1,15 @@
 import type { RoutingContext } from './forge-lead-routing'
+import type { FindingHandoffSummary } from './lead-routing-context'
+
+/**
+ * The routing context the runner hands in carries the findings handoff, which lives beside the
+ * Lead context rather than in the frozen `RoutingContext` shape. Widening the parameter here
+ * keeps the frozen routing type untouched while the directive can still state the attempt in
+ * force and name a dropped seam.
+ */
+type LeadRoutingDirectiveContext = RoutingContext & {
+  findingHandoff?: FindingHandoffSummary | null
+}
 
 function capabilityRules(context: RoutingContext): string {
   if (!context.splitEnabled || context.maxSmiths < 2) {
@@ -25,7 +36,34 @@ function benchRule(context: RoutingContext): string {
   return 'BENCH CAP: SPLIT allowed if the runtime cap allows it. You may still HOLD.'
 }
 
-export function buildLeadRoutingDirective(context: RoutingContext): string {
+/**
+ * THE ATTEMPT IN FORCE AND WHAT IT LOST, STATED OUT LOUD.
+ *
+ * The findings rows are scoped to the newest attempt, so a later attempt that dropped a seam the
+ * earlier one declared used to be invisible here. This names the attempt in force and every
+ * explicitly superseded seam with the attempt that declared it, so a HOLD blames the right
+ * attempt. No supersede renders nothing — never an empty string that reads like "no problem".
+ */
+function findingHandoffRule(context: LeadRoutingDirectiveContext): string {
+  const handoff = context.findingHandoff
+  if (!handoff) {
+    return 'ARCHITECT FINDINGS: read from the legacy reply parser; no attempt is recorded, so do not treat any attempt number as in force.'
+  }
+  const lines = [
+    handoff.attemptInForce == null
+      ? 'ARCHITECT FINDINGS: no attempt number was recorded, so no attempt is in force.'
+      : `ARCHITECT FINDINGS: attempt ${handoff.attemptInForce} is in force.`,
+  ]
+  for (const lost of handoff.superseded) {
+    lines.push(
+      `DROPPED SEAM: ${lost.seam} was declared by attempt ${lost.declaredByAttempt} ` +
+        `(finding ${lost.declaredByFindingId}) and is not in the attempt in force; the later attempt explicitly superseded it.`,
+    )
+  }
+  return lines.join('\n')
+}
+
+export function buildLeadRoutingDirective(context: LeadRoutingDirectiveContext): string {
   const bench = benchRule(context)
   return [
     'LEAD PRE: decide how to execute the frozen story. Do not implement in PRE.',
@@ -33,6 +71,7 @@ export function buildLeadRoutingDirective(context: RoutingContext): string {
     'First assess work size by coherent outcomes, uncertainty, coupling, context burden and proof burden. File count alone is not size; several files can implement one small behavior.',
     capabilityRules(context),
     bench,
+    findingHandoffRule(context),
     'A Smith assignment contains 1..3 serial chunks in the same worker context. Three chunks do not imply three workers. Apply the chunk ceiling PER ASSIGNMENT, not per whole story.',
     'The current XML SPLIT is a sibling fork. Every assignment must be executable from the same starting candidate with existing stable contracts. A dependency on a sibling output is not runnable here; report HOLD with the missing prerequisite/staging need. Do not erase dependencies to make validation pass.',
     'The runtime controls split availability, worker cap, concurrency and model configuration. Do not infer any of these from old prompt text. Do not claim you changed a model by mentioning Flash or Pro.',

@@ -45,6 +45,19 @@ export type LeadRoutingCapabilities = {
   maxSmiths: number
 }
 
+/**
+ * WHICH FINDINGS ATTEMPT IS IN FORCE, AND WHAT IT LOST.
+ *
+ * `attemptInForce` is the newest attempt the findings rows recorded, or null when there is no
+ * recorded attempt (the legacy reply-parser fallback) — never a fabricated 1. `superseded` is
+ * one entry per seam a later attempt explicitly dropped, naming the attempt and finding that
+ * declared it, so a HOLD blames the right attempt instead of the seam.
+ */
+export type FindingHandoffSummary = {
+  attemptInForce: number | null
+  superseded: Array<{ seam: string; declaredByAttempt: number; declaredByFindingId: string }>
+}
+
 /** Bounded content extras injected alongside the trusted refs. */
 export type LeadRoutingContentExtras = {
   /**
@@ -63,6 +76,11 @@ export type LeadRoutingContext = RoutingContext & LeadRoutingContentExtras & {
    * the lane that did the work does not get to choose what is tested.
    */
   acceptanceMap: AcceptanceMap
+  /**
+   * The findings attempt in force and the seams a later attempt superseded. `null` means the
+   * findings came from the legacy reply parser, so no attempt is in force.
+   */
+  findingHandoff: FindingHandoffSummary | null
 }
 
 /**
@@ -84,6 +102,7 @@ export function buildLeadRoutingContext(input: {
   story: LeadRoutingStoryFields
   findings?: ForgeGateEvidence['findings']
   capabilities: LeadRoutingCapabilities
+  findingHandoff?: FindingHandoffSummary | null
 }): LeadRoutingContext {
   const content = (value: string | null | undefined, cap: number): string | undefined => {
     const text = (value ?? '').trim()
@@ -106,6 +125,9 @@ export function buildLeadRoutingContext(input: {
     allowedProofs: parseAssayCommands(input.story.assayCommands),
     // The acceptance-to-assertion mapping, frozen before the work and handed to QA.
     acceptanceMap: buildStoryAcceptanceMap(input.story),
+    // Which findings attempt is in force and what a later attempt explicitly superseded. Null is
+    // the legacy reply-parser fallback, where no attempt is recorded — never a fabricated one.
+    findingHandoff: input.findingHandoff ?? null,
     // A real lead reads the work, not a pointer to it. Contents are bounded so the
     // directive stays inside the model's context budget.
     ...(architectContract || scoutContext

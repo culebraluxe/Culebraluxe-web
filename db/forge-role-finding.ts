@@ -101,3 +101,121 @@ export async function listStoryForgeFindings(
   if (rows.length === 0) return null
   return rows.map((row) => toFinding(row as Record<string, unknown>))
 }
+
+/** One finding's declared seams, as the write guard reads them. */
+export type FindingSeamSet = { findingId: string; seams: string[] }
+
+/** A seam a later attempt dropped, with the finding that declared it in the prior attempt. */
+export type FindingSupersede = {
+  seam: string
+  declaredByAttempt: number
+  declaredByFindingId: string
+}
+
+export type FindingWriteDecision =
+  | { kind: 'allow'; superseded: FindingSupersede[] }
+  | { kind: 'refuse'; dropped: FindingSupersede[] }
+
+/**
+ * THE ONE DECISION A FINDINGS WRITE MAKES ABOUT SEAMS IT WOULD DROP.
+ *
+ * A re-issued findings set that loses a seam the previous attempt declared used to be a
+ * silent drop: the write upserted one row per finding, never looked at attempt N-1, and the
+ * reader's newest-attempt scope then hid the loss from the Lead. This rule makes the drop
+ * either REFUSED (named) or SUPERSEDED (a typed row), never silent.
+ *
+ * The unit is the SEAM, not the finding id: an attempt may re-key its findings freely, and a
+ * finding that only repeats or adds seams is allowed. `dropped` is every seam attempt N-1
+ * declared that the attempt in progress (its rows so far plus this one) no longer declares.
+ *
+ * `acknowledged` is the explicit `--supersede` set. A non-empty `dropped` with no exact
+ * acknowledgement is refused; an acknowledgement that is a subset or a superset is refused
+ * too, because either one would launder an unacknowledged drop.
+ */
+export function decideFindingWrite(input: {
+  attempt: number
+  prior: { attempt: number; findings: FindingSeamSet[] } | null
+  current: FindingSeamSet[]
+  incoming: FindingSeamSet
+  acknowledged: string[]
+}): FindingWriteDecision {
+  const declaredBy = new Map<string, string>()
+  for (const finding of input.prior?.findings ?? []) {
+    for (const seam of finding.seams) {
+      if (!declaredBy.has(seam)) declaredBy.set(seam, finding.findingId)
+    }
+  }
+  const kept = new Set<string>()
+  for (const finding of [...input.current, input.incoming]) {
+    for (const seam of finding.seams) kept.add(seam)
+  }
+  const declaredByAttempt = input.prior?.attempt ?? input.attempt - 1
+  const dropped: FindingSupersede[] = [...declaredBy.entries()]
+    .filter(([seam]) => !kept.has(seam))
+    .map(([seam, declaredByFindingId]) => ({ seam, declaredByAttempt, declaredByFindingId }))
+  if (dropped.length === 0) return { kind: 'allow', superseded: [] }
+  const acknowledged = new Set(input.acknowledged)
+  const exact =
+    acknowledged.size === dropped.length && dropped.every((entry) => acknowledged.has(entry.seam))
+  return exact ? { kind: 'allow', superseded: dropped } : { kind: 'refuse', dropped }
+}
+
+/** The newest attempt in force for a story run, its findings, and the seams a later attempt superseded. */
+export type ForgeFindingHandoff = {
+  attemptInForce: number | null
+  findings: ArchitectFinding[]
+  superseded: FindingSupersede[]
+}
+
+/**
+ * THE LEAD'S FINDINGS INPUT, WITH THE ATTEMPT THAT IS IN FORCE AND WHAT IT LOST.
+ *
+ * Same scope as `listStoryForgeFindings` — this process instance, the newest attempt per node
+ * — plus two facts the Lead could not previously see: which attempt is in force, and every
+ * seam a later attempt explicitly superseded (recorded in `forge_role_finding_supersede`).
+ *
+ * `null` means no finding rows were written, so the caller falls back to the reply parser and
+ * must state no attempt rather than a fabricated one. A row whose attempt is missing is read
+ * as no attempt, never as 0 or 1.
+ */
+export async function listStoryForgeFindingHandoff(
+  key: { storyId: string; processInstanceId: string },
+  execute?: QueryExecutor,
+): Promise<ForgeFindingHandoff | null> {
+  const q = execute ?? (await executor())
+  const rows = await q`
+    with latest as (
+      select node_id, max(attempt) as attempt
+      from forge_role_finding
+      where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+      group by node_id
+    )
+    select f.finding_id, f.summary, f.required, f.seams, f.hint, f.attempt
+    from forge_role_finding f
+    join latest l on l.node_id = f.node_id and l.attempt = f.attempt
+    where f.story_id = ${key.storyId} and f.process_instance_id = ${key.processInstanceId}
+    order by f.finding_id
+  `
+  if (rows.length === 0) return null
+  const findings = rows.map((row) => toFinding(row as Record<string, unknown>))
+  let attemptInForce = 0
+  for (const row of rows) {
+    const value = Number((row as Record<string, unknown>).attempt)
+    if (Number.isFinite(value) && value > attemptInForce) attemptInForce = value
+  }
+  const supersededRows = await q`
+    select seam, declared_by_attempt, declared_by_finding_id
+    from forge_role_finding_supersede
+    where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+    order by seam
+  `
+  const superseded: FindingSupersede[] = supersededRows.map((row) => {
+    const record = row as Record<string, unknown>
+    return {
+      seam: String(record.seam),
+      declaredByAttempt: Number(record.declared_by_attempt),
+      declaredByFindingId: String(record.declared_by_finding_id),
+    }
+  })
+  return { attemptInForce: attemptInForce > 0 ? attemptInForce : null, findings, superseded }
+}
