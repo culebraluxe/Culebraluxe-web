@@ -1337,7 +1337,10 @@ const STORIES: TestStory[] = [
       'record instead of from a phone.',
     scope:
       'app/api/integrations/whatsapp/webhook/route.ts (the landing mapping), db/landing.ts (the writer and its ' +
-      'input), a migration only if a column is required, workflow_app/tests/whatsapp-attribution.test.ts (new).',
+      'input), lib/whatsapp-cloud/ (a NEW pure mapping module — attribution.ts — is its home: a route.ts may ' +
+      'NOT export a non-HTTP helper, because Next builds checkFields<Diff<{GET?: Function, ...}, TEntry>> and ' +
+      'any extra export fails next build/next typegen), a migration only if a column is required (184 is ' +
+      'free), workflow_app/tests/whatsapp-attribution.test.ts (new).',
     acceptance:
       'For an inbound message, to_address holds the RECEIVING business line read from the envelope ' +
       '(metadata.display_phone_number, with phone_number_id still on source_account) — never inferred from a ' +
