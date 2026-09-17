@@ -80,11 +80,37 @@ async function migrationContents(repoRoot: string, files: string[]) {
   )
 }
 
-export function createForgeReleaseOperations(): ForgeReleaseOperations {
+/** The narrow pool surface these operations use. Production is ForgeDB's handle. */
+export interface ForgeReleasePool {
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>
+  end(): Promise<void>
+}
+
+/**
+ * Optional seams. Both default to the production implementations, so a caller that
+ * passes nothing keeps today's behavior exactly. They exist so the apply-then-verify
+ * ordering is drivable in a test without a live Neon connection.
+ */
+export interface ForgeReleaseOperationsDeps {
+  poolForTarget?: (target: ForgeReleaseTarget) => ForgeReleasePool
+  checkParity?: typeof checkSchemaParity
+}
+
+export function createForgeReleaseOperations(deps: ForgeReleaseOperationsDeps = {}): ForgeReleaseOperations {
+  const poolForTarget =
+    deps.poolForTarget ??
+    ((target: ForgeReleaseTarget): ForgeReleasePool => {
+      const handle = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(target)))
+      return {
+        query: (text, params) => handle.query(text, params),
+        end: () => handle.end(),
+      }
+    })
+  const checkParity = deps.checkParity ?? checkSchemaParity
   return {
     async applyMigrations(input) {
       const migrations = await migrationContents(input.repoRoot, input.migrationFiles)
-      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
+      const pool = poolForTarget(input.target)
       const completed: string[] = []
       try {
         for (const migration of migrations) {
@@ -149,7 +175,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
 
     async verifyMigrations(input) {
       const migrations = await migrationContents(input.repoRoot, input.migrationFiles)
-      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
+      const pool = poolForTarget(input.target)
       try {
         for (const migration of migrations) {
           const result = await pool.query(
@@ -187,31 +213,44 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
         // DEV_OPS gate: no schema story reaches complete while DEV and PROD
         // structurally differ. A branch reset hides drift, so it is checked here
         // independently, on tables, columns, indexes and FKs.
-        const devUrl = process.env.DATABASE_URL_DEV
-        const prodUrl = process.env.DATABASE_URL_PROD
-        if (!devUrl || !prodUrl) {
-          return {
-            success: false,
-            detail: 'DEV_OPS gate requires DATABASE_URL_DEV and DATABASE_URL_PROD to verify schema parity',
+        //
+        // IT RUNS ONLY ON THE PROD VERIFICATION. The engine plans FORGE_VERIFY_DEV_MIGRATION
+        // before FORGE_MIGRATE_PROD, so a DEV verify runs while DEV legitimately holds the
+        // change PROD has not received yet — the drift the migration is about to remove. A
+        // gate there fails the story on the difference it creates and blocks its own
+        // promotion. The PROD verification runs after the apply, so this check reads clean
+        // for the change just applied and still fails any drift the migration did not explain.
+        if (input.target === 'prod') {
+          const devUrl = process.env.DATABASE_URL_DEV
+          const prodUrl = process.env.DATABASE_URL_PROD
+          if (!devUrl || !prodUrl) {
+            return {
+              success: false,
+              detail: 'DEV_OPS gate requires DATABASE_URL_DEV and DATABASE_URL_PROD to verify schema parity',
+            }
           }
-        }
-        const parity = await checkSchemaParity(devUrl, prodUrl)
-        if (!parity.clean) {
-          const lines = [
-            ...parity.tablesOnlyDev.map((t) => `table only in DEV: ${t}`),
-            ...parity.tablesOnlyProd.map((t) => `table only in PROD: ${t}`),
-            ...parity.columnDrift,
-            ...parity.indexDrift.map((d) => `index ${d}`),
-            ...parity.fkDrift.map((d) => `fk ${d}`),
-          ]
+          const parity = await checkParity(devUrl, prodUrl)
+          if (!parity.clean) {
+            const lines = [
+              ...parity.tablesOnlyDev.map((t) => `table only in DEV: ${t}`),
+              ...parity.tablesOnlyProd.map((t) => `table only in PROD: ${t}`),
+              ...parity.columnDrift,
+              ...parity.indexDrift.map((d) => `index ${d}`),
+              ...parity.fkDrift.map((d) => `fk ${d}`),
+            ]
+            return {
+              success: false,
+              detail: `schema parity FAILED between DEV and PROD (${lines.length} difference(s)): ${lines.slice(0, 8).join('; ')}${lines.length > 8 ? `; +${lines.length - 8} more` : ''}`,
+            }
+          }
           return {
-            success: false,
-            detail: `schema parity FAILED between DEV and PROD (${lines.length} difference(s)): ${lines.slice(0, 8).join('; ')}${lines.length > 8 ? `; +${lines.length - 8} more` : ''}`,
+            success: true,
+            detail: `verified ${migrations.length} checksum-matched migration execution(s) on prod; ledger recorded; DEV/PROD schema parity OK`,
           }
         }
         return {
           success: true,
-          detail: `verified ${migrations.length} checksum-matched migration execution(s) on ${input.target}; ledger recorded; DEV/PROD schema parity OK`,
+          detail: `verified ${migrations.length} checksum-matched migration execution(s) on dev; ledger recorded; DEV/PROD parity deferred until the PROD migration is applied`,
         }
       } finally {
         await pool.end()
@@ -220,7 +259,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
 
     async refreshDerived(input) {
       if (input.models.length === 0) throw new Error('derivedRefreshRequired=true but derivedModels is empty')
-      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
+      const pool = poolForTarget(input.target)
       try {
         for (const model of input.models) {
           try {
@@ -255,7 +294,7 @@ export function createForgeReleaseOperations(): ForgeReleaseOperations {
     },
 
     async verifyDerived(input) {
-      const pool = forgeDb.forTarget(forgeDbTargetForUrl(databaseUrl(input.target)))
+      const pool = poolForTarget(input.target)
       try {
         for (const model of input.models) {
           const name = model.includes('.') ? model.split('.')[1] : model
