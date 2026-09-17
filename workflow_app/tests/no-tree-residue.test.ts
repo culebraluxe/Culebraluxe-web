@@ -45,14 +45,24 @@ const NOTE_TOKENS = ['worktree='] as const
 
 /**
  * A writer is scanned only for the tokens that would be residue IN THAT WRITER.
- * The harness adapters resolve the runtime workspace (executionWorkspace) and are
- * a separate, recorded follow-up; only their recorded note line is scanned here.
+ * The harness adapters resolve the runtime workspace (executionWorkspace); only
+ * their recorded note line is scanned here.
+ *
+ * The OPENCODE ADAPTER WAS MISSING FROM THIS LIST (2026-09-17) while it was the one
+ * writer still emitting `worktree=`: the sweep's post-cutoff count caught it — 120 rows
+ * written AFTER this story landed still carried the token — because the fence's claim
+ * ("no record writer names a per-lane worktree") held only for the writers it scanned.
+ * A fence is worth what its list covers.
  */
 const RECORD_WRITERS: ReadonlyArray<{ file: string; tokens: readonly string[] }> = [
   { file: 'agent-runtime/candidate-assay-handoff.ts', tokens: [...PATH_TOKENS, ...NOTE_TOKENS] },
   { file: 'agent-runtime/agent-runtime-adapter.ts', tokens: [...PATH_TOKENS, ...NOTE_TOKENS] },
   {
     file: 'agent-runtime/deepseek/deepseek-harness-adapter.ts',
+    tokens: ['Culebraluxe-worktrees', '/worktrees/', ...NOTE_TOKENS],
+  },
+  {
+    file: 'agent-runtime/opencode/opencode-harness-adapter.ts',
     tokens: ['Culebraluxe-worktrees', '/worktrees/', ...NOTE_TOKENS],
   },
   {

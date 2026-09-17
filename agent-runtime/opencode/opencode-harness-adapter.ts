@@ -579,7 +579,11 @@ export class OpenCodeHarnessAdapter extends AgentRuntimeAdapter {
 
     const notes = [
       'OpenCode run completed.',
-      `Run metadata: harness=opencode model=${model} worktree=${workspace} exit=${result.exitCode ?? 'n/a'}${
+      // The directory the lane ran in, named for WHAT IT IS. This line named a `worktree` until 2026-09-17:
+      // with NO TREES there is no per-lane worktree, so the field described a thing that no longer exists —
+      // and every run wrote it, which is why 120 rows landed AFTER ENG-FORGE-ARTIFACT-RESIDUE-01 still
+      // carried a tree-era token. The fence now scans this adapter (workflow_app/tests/no-tree-residue.test.ts).
+      `Run metadata: harness=opencode model=${model} workspace=${workspace} exit=${result.exitCode ?? 'n/a'}${
         elapsedMs !== null ? ` elapsed_ms=${elapsedMs}` : ''
       }`,
       // The workspace evidence line is emitted only when a Forge-provisioned
