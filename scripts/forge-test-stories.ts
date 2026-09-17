@@ -1281,6 +1281,49 @@ const STORIES: TestStory[] = [
       'not backfill rows already written.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/run-receipt-facts.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-RELEASE-RECEIPT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'The release gate can pass on a receipt the repo actually produces',
+    goal:
+      'releaseEvidence has a PRODUCER: a story that requires no deployment finishes on an explicit ' +
+      'no-deployment attestation, and a story that requires one still needs a real deployment receipt — so ' +
+      'no story wedges on "role did not deliver devops-receipt".',
+    scope:
+      'workflow_app/forge/forge-release-receipt.ts (the producer), the dev_ops evidence wiring in ' +
+      'workflow_app/forge/agent-runtime-role-runner.ts and forge-role-mapping.ts, docs/agent/MEMORY.md:202 ' +
+      '(the entry this closes), workflow_app/tests/forge-release-receipt.test.ts.',
+    acceptance:
+      'A story with no deployment requirement completes its release stage on an attestation built from ' +
+      'machine evidence (the published sha comparable to origin, the build that actually ran, the frozen ' +
+      'proofs) with the receipt kind recorded as such — never a fabricated deployment id, never a ' +
+      'placeholder. A story that DOES require a deployment still fails closed without a real deployment ' +
+      'receipt. The deploy gate no longer depends on a receipt that only a prior writer could have set: a ' +
+      'test drives the gate with a publish-only evidence set and asserts it passes for a no-deployment ' +
+      'story and fails for a deployment story. MEMORY.md:202 is updated because its claim is no longer ' +
+      'true.',
+    notes:
+      'FOUND 2026-09-17 by the dev_ops lane on ENG-FORGE-CONTRACT-ONE-WRITER-01, which had already shipped ' +
+      '519eb2b3 and passed QA, then HOLDed twice on the release stage with "role did not deliver ' +
+      'devops-receipt". The lane refused to fabricate and reported machine evidence instead: ' +
+      '`git ls-remote origin refs/heads/main` = 519eb2b3 = published_sha; no migration and no derived ' +
+      'refresh were needed; nothing imports `releaseReceiptFromDeploymentSignal`; the runner builds ' +
+      '`rolePorts.releaseEvidence` from the durable `current.deploymentReceipt`, which no writer sets, so ' +
+      'the gate can only pass on a receipt that already exists; `deployed_sha`, `deployment_receipt` and ' +
+      '`production_verified` are all null. It tried `vercel --prod --yes` and the upload aborted (no ' +
+      'deployment created), and `vercel.json` sets `git.deploymentEnabled=false`, so the publish push does ' +
+      'not deploy either. It then cited docs/agent/MEMORY.md:202 as the documented blocker and named ' +
+      'forge-release-receipt.ts + the dev_ops evidence wiring as the fix, which is out of its declared ' +
+      'surfaces. This is the highest-leverage open defect in the factory: EVERY release-bearing story ' +
+      'wedges here, which is why stories finish their work, ship it, and still sit on the board as HOLD. ' +
+      'HONEST BOUNDARY: this story does not deploy anything and does not make Vercel observable; it makes ' +
+      'the gate honest about what was and was not performed, and it does not retro-fix stories already ' +
+      'held at the release stage.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-release-receipt.test.ts`',
+  },
 ]
 
 
