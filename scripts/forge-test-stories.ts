@@ -1997,6 +1997,42 @@ const STORIES: TestStory[] = [
       'on stories already ruled UNPROVEN — those become replayable once this lands.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/acceptance-supplier.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-READ-TOOLS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 92,
+    title: 'The reads an operator keeps hand-writing are sanctioned tools',
+    goal:
+      'The five or six read shapes used every day — board counts, a story full picture, run receipts, hold ' +
+      'reasons, ledger state — are served by a sanctioned read path instead of ad-hoc SQL written per ' +
+      'investigation, so a reader cannot invent a second interpretation of a fact.',
+    scope:
+      'read-only SQL VIEWS for the recurring shapes (board by batch, story run receipt, open holds, story ' +
+      'findings/contract, migration ledger state) plus one CLI over them (for example forge:story:show <id> ' +
+      'and forge:board), and workflow_app/tests/read-tools.test.ts (new).',
+    acceptance:
+      'Each named shape is served by a VIEW (read-only by construction, so it can never become a second ' +
+      'writer) and by one CLI command that prints it, with the row ids and timestamps in the driver form ' +
+      'the readers already normalise. The CLI resolves a story by id and prints board state, the latest run ' +
+      'receipt with its verdict and commit, open holds with their reasons, and the migration state for its ' +
+      'change set. A test asserts the views exist with the expected columns and that the CLI output for a ' +
+      'fixture story matches the rows the individual readers return.',
+    notes:
+      'FROM THE CAPTAIN 2026-09-17: "i saw you doing some inline sql in your work yesterday and thought we ' +
+      'should make you some helper stored procedures for things around loading stories etc." Measured: I ' +
+      'wrote roughly twenty ad-hoc query scripts across 2026-09-16/17 (board counts by batch, per-story run ' +
+      'receipts, hold reasons, findings rows, spend by story, migration ledger, residue counts), and the ' +
+      'same joins were rewritten several times — which is exactly how two readers drift. SHAPING, stated as ' +
+      'a departure from the suggestion: VIEWS plus one CLI rather than stored procedures, because a ' +
+      'procedure is a place logic can live a second time and is invisible to the test tier, while a view ' +
+      'is read-only by construction and the CLI can be asserted against the existing readers. A procedure ' +
+      'is still the right tool if a write ever needs several statements in one transaction — that is a ' +
+      'different story. HONEST BOUNDARY: read-only; no new writes, no caching, and it does not replace the ' +
+      'sanctioned writers that already exist (story:status, forge:story:run, db:migrate).',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/read-tools.test.ts`',
+  },
 ]
 
 
