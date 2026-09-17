@@ -102,6 +102,36 @@ test('a new file is legal when the finding declares its existing parent DIRECTOR
   assert.equal(evidence.deliverableRejection, undefined)
   assert.deepEqual(evidence.findings?.[0].seams, [REAL_DIR])
 })
+
+// A NEXT.JS DYNAMIC ROUTE IS A FILE, NOT A GLOB (2026-09-17). `fileOf` refused any path containing a
+// bracket, so the one path a story about a dynamic route must name was the one path the architect was
+// forbidden to name. SEC-MEDIA-DOC-01 declared app/api/media/documents/[id]/route.ts in its own scope and
+// HOLDed twice on `illegal scope path` — the lane was right and the guard was wrong.
+const REAL_DYNAMIC_ROUTE = 'app/api/media/documents/[id]/route.ts'
+
+test('a dynamic route segment is a concrete seam, not a glob', () => {
+  const agent = new ArchitectAgent('architect')
+  const raw = architectReply([finding({ scope: [REAL_DYNAMIC_ROUTE] })])
+
+  const evidence = agent.collect({} as ForgeGateEvidence, raw, ports)
+
+  assert.equal(evidence.deliverableRejection, undefined, 'a bracketed route must not be refused')
+  assert.deepEqual(evidence.findings?.[0].seams, [REAL_DYNAMIC_ROUTE])
+  assert.ok(
+    assessArchitectHandoff(
+      { version: 1, baseRef: BASE_REF, findings: [finding({ scope: [REAL_DYNAMIC_ROUTE] })] },
+      { existsOnBaseRef },
+    ).ok,
+  )
+})
+
+test('the bracket fix does not legalise glob syntax', () => {
+  const agent = new ArchitectAgent('architect')
+  for (const glob of ['app/api/media/*/route.ts', 'app/api/media/[a-z]/route.ts', 'app/{api,portal}/route.ts', 'app/api/media/route.ts:12']) {
+    const evidence = agent.collect({} as ForgeGateEvidence, architectReply([finding({ scope: [glob] })]), ports)
+    assert.match(String(evidence.deliverableRejection), /illegal scope path/, `${glob} is a pattern, not a file`)
+  }
+})
 test('a reply with no handoff line is a HOLD that names the exact marker to emit', () => {
   const agent = new ArchitectAgent('architect')
   const raw = 'I read the code. It looks fine and needs no changes.'
