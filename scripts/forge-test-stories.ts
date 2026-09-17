@@ -1884,6 +1884,37 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/comment-contract.test.ts`',
   },
   {
+    id: 'ENG-FORGE-SPRINT-BOARD-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 100,
+    title: 'The board shows its sprint: goal, status and outcome beside the stories',
+    goal:
+      'The storyboard renders the sprint parent — goal, status, percent complete, and the outcome it was ' +
+      'closed with — so a sprint can be read and judged instead of reconstructed from story counts.',
+    scope:
+      'the storyboard read path (db/storyboard.ts, lib/storyboard-data.ts) and the portal page ' +
+      '(app/portal/storyboard), workflow_app/tests/sprint-board.test.ts (new).',
+    acceptance:
+      'The storyboard renders each sprint from storyboard_sprint_rollup rather than recomputing counts ' +
+      'in the page: its goal, status, percent complete, open and held counts, and its outcome once ' +
+      'closed. A sprint with no goal says so instead of rendering blank, and a sprint with no stories ' +
+      'shows no percentage rather than 0%. A closed sprint shows the outcome it was closed with. The ' +
+      'batch axis keeps working unchanged for every existing reader. A test drives the projection.',
+    notes:
+      'FILED 2026-09-17 (Cline, at the captain direction that sprints are how this work will be run). ' +
+      'Migration 187 gives the board its parent: storyboard_sprint (goal, theme, status, owner, started, ' +
+      'target end, closed at, outcome) with storyboard_story.sprint_id derived from batch by trigger, ' +
+      'plus two views — storyboard_sprint_rollup and storyboard_sprint_story — and an operator CLI ' +
+      '(pnpm sprint list|show|open|goal|close). What does NOT yet exist is a surface: /portal/storyboard ' +
+      'still renders the batch integer, so a sprint goal or a closure outcome is invisible where the ' +
+      'work is read. This story is that surface. HONEST BOUNDARY: the tables and the CLI are complete ' +
+      'and verified; this is the rendering, and it deliberately does not change how batch is written or ' +
+      'read anywhere else.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/sprint-board.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-RESUME-PREVIEW-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
