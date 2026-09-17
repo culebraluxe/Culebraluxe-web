@@ -2033,6 +2033,42 @@ const STORIES: TestStory[] = [
       'sanctioned writers that already exist (story:status, forge:story:run, db:migrate).',
     assayCommands: '- `node --import tsx --test workflow_app/tests/read-tools.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-MIGRATION-START-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'No run starts while a migration in the repo is unapplied on PROD',
+    goal:
+      'A run refuses to START — before any model turn — when a migration file in the repo is absent from ' +
+      'the PROD ledger, naming the unapplied files, so a story parked before DEV_OPS cannot ship code ahead ' +
+      'of the schema it writes.',
+    scope:
+      'the engine start path (scripts/forge-engine-worker.ts before the first wave, reusing ' +
+      'migration-applied-guard), the ledger reader already used by the completion guard, ' +
+      'workflow_app/tests/migration-preflight.test.ts (new).',
+    acceptance:
+      'Given one or more db/migrations/*.sql files present in the repo and absent from the PROD ' +
+      'schema_migration ledger, the run refuses to start, names EVERY unapplied file, and dispatches no ' +
+      'lane — nothing is spent on a turn. Given all repo migrations ledgered, the run proceeds unaffected. ' +
+      'The check reads the LEDGER TABLE and the repo file LIST only, never a story diff (the work has not ' +
+      'happened yet), and an unreadable ledger fails CLOSED to the named refusal rather than to a silent ' +
+      'start. A test drives both directions with a fixture repo list and a fixture ledger, including the ' +
+      'three-file case measured tonight.',
+    notes:
+      'FOUND 2026-09-17 by the operator, three times in one night, from his own shortcut: parking every ' +
+      'story at qa_verify with --until skips DEV_OPS, and DEV_OPS owns migrations. Migration 184 shipped ' +
+      'code writing l_whatsapp.context_id before the column existed; 185 shipped the supersede writer before ' +
+      'its table existed; 186 shipped the acceptance-mapping writer before the column existed — and the ' +
+      'third one failed LOUDLY at the next run start (DbFailureError SCHEMA_MISMATCH on storyboard_story), ' +
+      'which is how it was found. ENG-FORGE-MIGRATION-APPLIED-01 (complete) guards the COMPLETION path; a ' +
+      'story parked at QA never reaches completion, so that guard cannot see these. This story puts the same ' +
+      'fact in front of the run instead of behind it: a preflight at the start seam, which is where an ' +
+      'operator shortcut is actually taken. HONEST BOUNDARY: it does not apply migrations, does not change ' +
+      'DEV_OPS ownership, and does not backfill the ledger for migrations already applied by hand.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/migration-preflight.test.ts`',
+  },
 ]
 
 
