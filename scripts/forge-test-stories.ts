@@ -1453,6 +1453,226 @@ const STORIES: TestStory[] = [
       'ownership of them, and does not retro-check stories already completed.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/migration-applied-guard.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-RELEASE-ORDER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 98,
+    title: 'A schema release cannot block itself on the difference it creates',
+    goal:
+      'Cross-environment schema parity is verified AFTER the PROD migration runs, so a new table or column ' +
+      'does not create the very drift that prevents its own promotion.',
+    scope:
+      'workflow_app/forge/release-operations.ts (the DEV_OPS verification gate and checkSchemaParity call ' +
+      'site), workflow_app/tests/release-order.test.ts (new).',
+    acceptance:
+      'A story adding a table or column migrates PROD and THEN verifies parity: the parity check runs after ' +
+      'the PROD migration and reports clean for the change it just applied. Parity drift NOT explained by ' +
+      'the migration still fails the gate, naming the drift. A failed PROD migration stops before parity, ' +
+      'and no path exists where a successfully applied migration is reported as a parity failure. A test ' +
+      'drives the ordering for both a clean apply and a failing apply.',
+    notes:
+      'FROM ASTRA (ChatGPT) CODE REVIEW 2026-09-17 at main 2920742a, bug 1 of 4 CONFIRMED IN SOURCE, and the ' +
+      'captain confirms it has bitten him before: "he is right about dev burning a prod release if the ' +
+      'database does not go too". Verified here: release-operations.ts:198 calls ' +
+      'checkSchemaParity(devUrl, prodUrl) inside DEV verification, and the workflow only migrates PROD ' +
+      'after DEV verification passes — so the new table IS the reported drift (lines 201-208 build the list ' +
+      'from tablesOnlyDev/tablesOnlyProd/columnDrift/indexDrift/fkDrift) and the release blocks on its own ' +
+      'change. Astra order: fix this before anything else in the review. HONEST BOUNDARY: this reorders a ' +
+      'release gate; it does not make DEV and PROD converge by itself and it does not touch the two-ledger ' +
+      'split that ENG-FORGE-MIGRATION-REPLAY-01 records.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/release-order.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-MIGRATION-REPLAY-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 98,
+    title: 'A migration that already ran is not executed again',
+    goal:
+      'Migration execution is checksum-aware and replay-safe: an already-applied migration is SKIPPED by ' +
+      'name, and a recording failure cannot cause the SQL to run twice.',
+    scope:
+      'workflow_app/forge/release-operations.ts (applyMigrations), the forge_migration_execution ledger ' +
+      'reader, workflow_app/tests/migration-replay.test.ts (new).',
+    acceptance:
+      'Before executing a migration file its content checksum is compared with the ledger: a match SKIPS ' +
+      'execution and reports already-applied (idempotent replay), while a checksum MISMATCH for the same ' +
+      'file refuses by name — a changed migration is never re-run over an applied one. A recording failure ' +
+      'after execution leaves a state a retry can resolve without repeating data changes, and a test fails ' +
+      'the record write and then retries to prove it.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, bug 2 of 4 CONFIRMED IN SOURCE. Verified here: ' +
+      'release-operations.ts:92 runs `await pool.query(migration.sql)` FIRST and records into ' +
+      'forge_migration_execution afterwards as a separate statement, with no already-applied check before ' +
+      'execution — so a failure between the two repeats the SQL on retry (data changed twice, or an ' +
+      'existing-object error). Related, found while verifying: the repo holds TWO migration ledgers — ' +
+      'schema_migration (written by scripts/apply-migration.mjs, read by ENG-FORGE-MIGRATION-APPLIED-01) and ' +
+      'forge_migration_execution (written by this lane) — so one fact has two homes and the guards read ' +
+      'different ones. HONEST BOUNDARY: this makes execution replay-safe; it does not merge the ledgers in ' +
+      'this change and does not retro-repair a migration already applied twice.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/migration-replay.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-CRASH-WINDOW-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 98,
+    title: 'Workflow completion, evidence and repair counts survive a crash between them',
+    goal:
+      'Advancing the engine, persisting evidence and counting a repair attempt are recoverable or ' +
+      'idempotent, so a crash between them leaves a state a later run can FINISH rather than an advanced ' +
+      'workflow with no result and an undercounted repair.',
+    scope:
+      'workflow_app/forge/forge-engine-runtime.ts (completeForgeRoleTask and the evidence write after it), ' +
+      'workflow_app/forge/forge-executor.ts (the repair counter near :356), workflow_app/tests/' +
+      'completion-crash-window.test.ts (new).',
+    acceptance:
+      'Given a crash injected after the transition and before the evidence write, a later run detects the ' +
+      'advanced-without-evidence state from durable records and COMPLETES it instead of re-running the ' +
+      'role, with the evidence written exactly once. A crash between the evidence and the repair counter ' +
+      'leaves the counter recoverable, so attempts are never undercounted. Both sequences are simulated and ' +
+      'then resumed by a test.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, bug 3 of 4 CONFIRMED IN SOURCE, and the engine already states the ' +
+      'residual itself: forge-engine-runtime.ts:221 calls engine.completeTask BEFORE the evidence write, and ' +
+      'the comment there says "If this write fails, the run advances with evidence missing — fail-closed, ' +
+      'because the next role gate reports the absent deliverable and HOLDs — which is strictly better than ' +
+      'the previous" behaviour. Repair counters are incremented afterwards in forge-executor.ts:356, which a ' +
+      'crash can undercount. So this story closes a STATED residual rather than discovering one. HONEST ' +
+      'BOUNDARY: it does not merge the two ledger writers into one transaction where the engine cannot (the ' +
+      'same comment explains why), and it does not change the QA disposition ordering owned by ' +
+      'ENG-FORGE-QA-RACE-01.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/completion-crash-window.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-CLAIM-CLOCK-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 98,
+    title: 'A live claim is not read as abandoned because of a timestamp suffix',
+    goal:
+      'A Postgres timestamp is parsed to the instant it names, in every format the driver emits, so a claim ' +
+      'touched seconds ago can never be treated as stale.',
+    scope:
+      'db/forge-engine-task-execution.ts (the stale-claim read around :110), workflow_app/tests/' +
+      'claim-clock.test.ts (new).',
+    acceptance:
+      'The same instant is parsed correctly from all the forms the driver emits — with a bare offset ' +
+      '(`2026-09-17 07:16:52.653+00`), with a colon offset (`+00:00`), with `Z`, and with no offset at all — ' +
+      'and an unparseable value is treated as NOT stale rather than as stale. A claim updated seconds ago ' +
+      'is never reported stale at any of those formats, and the test asserts each form against a fixed ' +
+      'instant.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, bug 4 of 4 CONFIRMED IN SOURCE. Verified here: ' +
+      'db/forge-engine-task-execution.ts:110 does ' +
+      '`Date.parse(updatedAt.replace(String " " -> "T") + "Z")`, and a timestamptz string arrives with its ' +
+      'own offset (for example `2026-09-17 07:16:52.653+00`), so the built string is ' +
+      '`2026-09-17T07:16:52.653+00Z` and Date.parse returns NaN — which is exactly how a fresh claim can ' +
+      'read as abandoned. This is the same surface ENG-FORGE-REAP-GUARD-01 (sprint 94) protects from the ' +
+      'other side: that story says the reaper cannot kill a live lane, and this is one way the reaper could ' +
+      'believe a lane is dead. HONEST BOUNDARY: this fixes the parse and the unparseable case; it does not ' +
+      'change the staleness threshold and does not add the heartbeat that REAP-GUARD-01 owns.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/claim-clock.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-QA-RACE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 98,
+    title: 'A losing QA worker cannot contaminate the verdict, and a verdict names its commands',
+    goal:
+      'Verify and close two QA adjudication risks: a worker that loses the task-completion race must not ' +
+      'write a failure disposition, and a verdict must compare command IDENTITIES, not merely their count.',
+    scope:
+      'workflow_app/forge/agents/qa/run.ts and the QA disposition writer in forge-executor.ts, ' +
+      'workflow_app/tests/qa-race-and-identity.test.ts (new).',
+    acceptance:
+      'The competing-worker case is reproduced first and the finding recorded as confirmed or refuted: if a ' +
+      'loser can write its disposition before losing the race, the write is made conditional on winning (or ' +
+      'the disposition is scoped so a loser cannot overwrite the winner), and a test drives two competing ' +
+      'completions and asserts only the winner result survives. The adjudicator compares the SET of ' +
+      'commands behind a verdict, so two runs with the same COUNT but different commands cannot be accepted ' +
+      'as the same evidence, and a test proves the substituted case is refused by name.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, bug candidates 5 and 10 (UNCONFIRMED — this story verifies before ' +
+      'it fixes, and its record states which way the verification went). Candidate 5 is the residual the ' +
+      'engine already admits in forge-engine-runtime.ts:214-221: "a losing QA worker can still record a ' +
+      'disposition. Closing that needs one shared transaction across the engine and the ledger writers" — ' +
+      'the QA-failure ledger write deliberately stays before the transition because qa_failure_route reads ' +
+      'the durable disposition while the transition runs. Candidate 10: the adjudicator compares command ' +
+      'counts without identities, so same-length substitution would be invisible. HONEST BOUNDARY: this ' +
+      'does not force the shared transaction the engine comment calls a larger change; it makes the loser ' +
+      'write conditional and the identity comparison explicit, or records why each is not reachable.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/qa-race-and-identity.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-LANE-FAILURE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 98,
+    title: 'A failing sibling lane is awaited, and a shared pool outlives one operation',
+    goal:
+      'Verify and close two runner risks: one lane rejecting must not report driver failure while sibling ' +
+      'lanes keep writing, and no individual operation may close a database pool another caller is using.',
+    scope:
+      'the concurrent lane pump in workflow_app/forge/forge-executor.ts, the release and parity helpers in ' +
+      'workflow_app/forge/release-operations.ts, workflow_app/tests/lane-failure-and-pool.test.ts (new).',
+    acceptance:
+      'The two cases are reproduced first and each recorded as confirmed or refuted. When one lane in a ' +
+      'concurrent batch rejects, the failure is reported only after every sibling has settled, and the ' +
+      'records of the siblings that did run are preserved — never a driver failure returned while lanes are ' +
+      'still writing. No single operation closes a shared pool: the pool lifecycle is owned by process ' +
+      'shutdown, and a test proves a caller can still run a query after another caller finished.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, bug candidates 6 and 7 (UNCONFIRMED — verify, then fix or record ' +
+      'why not reachable). Candidate 6: the wave pump uses Promise.all, so a first rejection can return ' +
+      'before siblings finish while they keep writing. Candidate 7: release and parity helpers close a ' +
+      'shared database pool, which can disrupt a concurrent caller. Related, measured tonight: two ' +
+      'migrations were applied by hand and the repo holds two migration ledgers, so pool/ledger ownership is ' +
+      'live territory rather than theoretical. HONEST BOUNDARY: this does not add lane cancellation or ' +
+      'timeouts (that is ENG-FORGE-REAP-GUARD-01/HEARTBEAT-01 territory) and does not change when the ' +
+      'concurrency cap applies.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/lane-failure-and-pool.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-VERIFY-IDENTITY-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 98,
+    title: 'A verification names the exact object and the exact attempt it verified',
+    goal:
+      'Verify and close two verification-identity risks: derived-model verification must not match a view ' +
+      'by name in the wrong schema, and a successful receipt from an earlier attempt must not satisfy a ' +
+      'later verification.',
+    scope:
+      'the derived-model verification path and the receipt lookup used by verification (forge/release and ' +
+      'forge-evidence readers), workflow_app/tests/verify-identity.test.ts (new).',
+    acceptance:
+      'The two cases are reproduced first and each recorded as confirmed or refuted. A materialized view is ' +
+      'matched by SCHEMA and name, so a same-named view in another schema cannot be accepted as the ' +
+      'verified object, and a test drives the duplicate-name case and asserts the wrong one is refused. ' +
+      'Verification is bound to the CURRENT release attempt (its receipt must be minted for that attempt or ' +
+      'its sha), so an old successful receipt cannot satisfy a later verification, proven by a test with a ' +
+      'stale receipt and a fresh expectation.',
+    notes:
+      'FROM ASTRA CODE REVIEW 2026-09-17, bug candidates 8 and 9 (UNCONFIRMED — verify, then fix or record ' +
+      'why not reachable). Candidate 8: derived-model verification matches materialized views by name ' +
+      'without schema. Candidate 9: a successful old refresh receipt can satisfy a later verification ' +
+      'because verification is story-scoped rather than tied to the current release attempt. This is the ' +
+      'same family as ENG-FORGE-ARTIFACT-RULING-01 and RECEIPT-COLUMNS-01 (a receipt must name the exact ' +
+      'artifact and attempt it belongs to) and the same family as tonight measured sha-in-prose loss. ' +
+      'HONEST BOUNDARY: this does not re-verify past releases and does not change what a receipt contains, ' +
+      'only which object and attempt it is allowed to certify.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/verify-identity.test.ts`',
+  },
 ]
 
 
