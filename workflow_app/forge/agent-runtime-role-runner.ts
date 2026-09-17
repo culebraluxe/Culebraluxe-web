@@ -85,6 +85,8 @@ import { listStoryForgeFindingHandoff } from '../../db/forge-role-finding'
 import type { LeadAssignment } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
+import { architectContractFromNotes, resolveAcceptanceAssertions } from './forge-architect-contract'
+import { acceptanceClauses, buildAcceptanceMap } from './agents/qa/types'
 import { assessBaselineAcceptance } from './baseline-acceptance'
 import { classifyFirstViolation, renderFirstViolation } from './first-violation'
 import { runAssayCommand } from '../../agent-runtime/deterministic-assay-adapter'
@@ -1275,6 +1277,40 @@ export function createAgentRuntimeForgeRoleRunner(
       }
     }
 
+    // THE ACCEPTANCE MAPPING GETS A PRODUCER (ENG-FORGE-ACCEPTANCE-SUPPLIER-01).
+    //
+    // Until this, `collectAssayEvidence` always saw `ports.acceptanceMap === undefined`, synthesised the
+    // `acceptance-map-missing` condition, and returned UNPROVEN for EVERY story in the factory. The
+    // builder and the reader already existed; the missing piece was this supply.
+    //
+    // ONE READER resolves the two declaration places in a STATED order: the HANDOFF declaration (the
+    // Lead's contract row, else the Architect's contract in the brief) WINS; the STORY-AUTHOR row is the
+    // fallback; neither yields no map at all, so the absent case is unchanged (undefined, not `{}`).
+    const acceptanceResolution = resolveAcceptanceAssertions({
+      handoff:
+        recordedContract?.acceptanceAssertions ??
+        architectContractFromNotes(resolvedStory.architectBrief)?.acceptanceAssertions ??
+        null,
+      story: resolvedStory.acceptanceAssertions ?? null,
+    })
+    const acceptanceMap = acceptanceResolution.assertions
+      ? buildAcceptanceMap({
+          acceptance: acceptanceClauses(resolvedStory.acceptanceCriteria),
+          assertions: acceptanceResolution.assertions,
+        })
+      : undefined
+    // WHICH SOURCE WAS USED IS ITSELF A RECORD. Only the QA turn needs it (it is the consumer), and the
+    // append is observer-only: a failure here must not fail a lane that otherwise completed.
+    if (nodeId === 'qa' && acceptanceResolution.source && finishedItem?.storyRunId) {
+      await appendForgeRunDetail(
+        finishedItem.storyRunId,
+        `acceptance mapping: source=${acceptanceResolution.source} ` +
+          `clauses=${acceptanceMap?.conditions.length ?? 0}`,
+      ).catch(() => {
+        /* run detail is durable evidence; a failure here must not also fail the run */
+      })
+    }
+
     const rolePorts: RoleEffectPorts = {
       splitEnabled: leadRoutingContext.splitEnabled,
       maxSmiths: leadRoutingContext.maxSmiths,
@@ -1292,6 +1328,10 @@ export function createAgentRuntimeForgeRoleRunner(
       // worktree, plus the live static gate (architecture is the hard gate and a
       // SKIPPED arch gate is not a fail).
       assayCommands: leadRoutingContext.allowedProofs,
+      // THE ACCEPTANCE-TO-ASSERTION MAPPING, RESOLVED AND SUPPLIED (ENG-FORGE-ACCEPTANCE-SUPPLIER-01).
+      // Absent stays absent: `undefined` (never `{}`) keeps `collectAssayEvidence` returning UNPROVEN
+      // with `acceptance-map-missing` when neither declaration place said anything.
+      ...(acceptanceMap ? { acceptanceMap } : {}),
       // NO TREE, SO NOTHING TO PIN: every assay command simply runs. QA's job is to run
       // the proofs and write the record — the row is the evidence, not a checkout.
       runCommand: (command: string) => commandRunner(roleCwd)(command),

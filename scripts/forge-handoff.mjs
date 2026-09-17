@@ -60,6 +60,47 @@ const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 // Postgres and surfacing as a database error that sends the reader hunting the wrong fault. Nothing is
 // inferred and nothing is defaulted: a decision with a default is a decision nobody made.
 import { ARCHITECT_HINT, ARCHITECT_REQUIRED, LEAD_DECISION, LEAD_SIZE, describeRefusal, mediateField } from '../lib/field-mediator'
+import { acceptanceClauses } from '../workflow_app/forge/agents/qa/types'
+
+/**
+ * THE ACCEPTANCE-TO-ASSERTION MAPPING, CARRIED BY THE CONTRACT (ENG-FORGE-ACCEPTANCE-SUPPLIER-01).
+ *
+ * Repeated flag: `--acceptance-assertion "<clause>=<assertion-ref>"`. A malformed entry (no `=`, or an
+ * empty side) is REFUSED here, naming the flag — never dropped, because a silently dropped entry is a
+ * clause that comes back UNPROVEN with no record of why. The clause must name one of the STORY's own
+ * acceptance clauses; an unmatched clause is refused too, so a mapping that maps nothing cannot be
+ * written as if it mapped something.
+ *
+ * Returns `null` when the flag was not given: absence stays absence, which is a different fact from a
+ * mapping that was given and refused.
+ */
+const parseAcceptanceAssertions = (storyClauses) => {
+  const entries = values('acceptance-assertion')
+  if (entries.length === 0) return { ok: true, mapping: null }
+  const mapping = {}
+  for (const raw of entries) {
+    const text = raw.trim()
+    const at = text.indexOf('=')
+    const clause = at >= 0 ? text.slice(0, at).trim() : ''
+    const ref = at >= 0 ? text.slice(at + 1).trim() : ''
+    if (!clause || !ref) {
+      console.error(
+        `forge-handoff: --acceptance-assertion needs "<clause>=<assertion-ref>" with both sides ` +
+          `non-empty — got ${JSON.stringify(raw)}. Nothing was written.`,
+      )
+      return { ok: false, mapping: null }
+    }
+    if (storyClauses.length > 0 && !storyClauses.includes(clause)) {
+      console.error(
+        `forge-handoff: --acceptance-assertion names a clause that is not one of the story's ` +
+          `acceptance clauses: ${JSON.stringify(clause)}. Quote the clause verbatim. Nothing was written.`,
+      )
+      return { ok: false, mapping: null }
+    }
+    mapping[clause] = [...(mapping[clause] ?? []), ref]
+  }
+  return { ok: true, mapping }
+}
 
 /** Mediate a REQUIRED closed value. Returns null after printing the refusal; the caller exits 2. */
 const closed = (declaration, raw, flag) => {
@@ -540,6 +581,22 @@ if (decisionValue === null || (sizeValue.given && sizeValue.value === null)) {
   process.exit(2)
 }
 
+// THE ACCEPTANCE MAPPING THE CONTRACT CARRIES (ENG-FORGE-ACCEPTANCE-SUPPLIER-01). The clause check
+// reads the story's OWN acceptance criteria, so an unmatched clause is refused by name here rather
+// than written as a mapping that maps nothing.
+const storyAcceptanceRows = await pool.query(
+  'select acceptance_criteria from storyboard_story where id = $1',
+  [storyId],
+)
+const acceptance = parseAcceptanceAssertions(
+  acceptanceClauses(storyAcceptanceRows.rows[0]?.acceptance_criteria ?? null),
+)
+if (!acceptance.ok) {
+  await pool.end()
+  process.exit(2)
+}
+const acceptanceJson = acceptance.mapping ? JSON.stringify(acceptance.mapping) : null
+
 // THE CONTRACT ROW HAS ONE WRITER TOO (2026-09-17). The three array columns used to be replaced by any
 // non-empty write (`case when cardinality(excluded.x) > 0 ...`), a second rule beside the assignment
 // row's decider. The same `decideAssignmentWrite` now decides each column against its OWN existing
@@ -579,8 +636,8 @@ try {
     `insert into forge_role_contract
        (story_id, process_instance_id, task_id, node_id, attempt,
         decision, size, size_reason, reason, assignment_count,
-        finding_ids, merge_checks, surface_scope)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        finding_ids, merge_checks, surface_scope, acceptance_assertions)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
      on conflict (task_id, node_id, attempt) do update set
        decision = excluded.decision,
        size = coalesce(excluded.size, forge_role_contract.size),
@@ -590,6 +647,9 @@ try {
        finding_ids = excluded.finding_ids,
        merge_checks = excluded.merge_checks,
        surface_scope = excluded.surface_scope,
+       -- AN ABSENT MAPPING DOES NOT CLEAR A DECLARED ONE: a re-write that omits the flag leaves the
+       -- mapping untouched, the same contract the other scalar fields already follow.
+       acceptance_assertions = coalesce(excluded.acceptance_assertions, forge_role_contract.acceptance_assertions),
        updated_at = now()
      returning decision, size, assignment_count`,
     [
@@ -606,6 +666,7 @@ try {
       contractWrite.findingIds,
       contractWrite.mergeChecks,
       contractWrite.surfaceScope,
+      acceptanceJson,
     ],
   )
   console.log('contract recorded:', JSON.stringify(written.rows[0]))

@@ -6,6 +6,7 @@
  * column — deterministic, not "we could not parse the text".
  */
 import type { QueryExecutor } from './query-executor'
+import { normalizeAcceptanceAssertions } from '../workflow_app/forge/forge-architect-contract'
 
 export type ForgeRoleContract = {
   decision: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
@@ -16,6 +17,11 @@ export type ForgeRoleContract = {
   findingIds: string[]
   mergeChecks: string[]
   surfaceScope: string[]
+  /**
+   * ENG-FORGE-ACCEPTANCE-SUPPLIER-01: the HANDOFF declaration of the clause -> assertion mapping,
+   * written through `scripts/forge-handoff.mjs --acceptance-assertion`. Null = not declared.
+   */
+  acceptanceAssertions: Record<string, string[]> | null
   attempt: number
 }
 
@@ -37,7 +43,7 @@ export async function getForgeRoleContract(
   const q = execute ?? (await executor())
   const rows = await q`
     select decision, size, size_reason, reason, assignment_count,
-           finding_ids, merge_checks, surface_scope, attempt
+           finding_ids, merge_checks, surface_scope, acceptance_assertions, attempt
     from forge_role_contract
     where task_id = ${key.taskId}
       and node_id = ${key.nodeId}
@@ -55,6 +61,7 @@ export async function getForgeRoleContract(
     findingIds: Array.isArray(row.finding_ids) ? (row.finding_ids as string[]) : [],
     mergeChecks: Array.isArray(row.merge_checks) ? (row.merge_checks as string[]) : [],
     surfaceScope: Array.isArray(row.surface_scope) ? (row.surface_scope as string[]) : [],
+    acceptanceAssertions: normalizeAcceptanceAssertions(row.acceptance_assertions),
     attempt: Number(row.attempt ?? key.attempt),
   }
 }

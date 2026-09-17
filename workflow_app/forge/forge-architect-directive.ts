@@ -14,6 +14,10 @@ export function buildArchitectDirective(baseRef: string, frozenProofs: string[])
     'hint is topology only: SAME_UNIT | SPLIT_CHILD | FOLLOW_UP_STORY | NOTE | HOLD. A required HOLD must name a concrete risk.',
     'Adjacent work is required:false. Do not stuff it into this story. An active decision in your lane context is an input to the contract, in force for this story: contradicting one is a HOLD or a learn item, never a prose overwrite.',
     'Do not invent a blob seam that does not exist on baseRef. A new file is not its own seam — declare the parent directory (`seamForNewFile`).',
+    'DECLARE THE ACCEPTANCE-TO-ASSERTION MAPPING before the work: in your contract add ' +
+      '"acceptanceAssertions": {"<acceptance clause quoted verbatim>": ["<assertion ref in the frozen proof>"]}. ' +
+      'Every acceptance clause MUST appear as a key with at least one assertion behind it. A clause you cannot ' +
+      'map to an assertion is reported UNPROVEN BY NAME by QA and can never PASS — do not invent a ref to fill it.',
     'NEW FILE? Declare its PARENT DIRECTORY as a scope entry (e.g. "workflow_app/tests/"). A seam must EXIST on baseRef, and a directory does — while a file that is not there yet does not. Without the directory the Lead has no legal surface to assign and the story HOLDs even though your plan is sound. This is the law in `seamForNewFile` (workflow_app/forge/forge-shaping.ts): the function wins if this sentence and it ever drift.',
     `Frozen proofs (do not invent commands): ${proofs.join(' | ') || '(none declared on the story)'}`,
     'End with exactly ONE un-fenced JSON line beginning FORGE_ARCHITECT_HANDOFF:. Do not fence it.',

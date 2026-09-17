@@ -13,6 +13,10 @@ import { getStoryboardStory } from '../db/storyboard'
 import { getQueuedAgentWorkDispatch } from '../db/agent-work'
 import { markForgeStoryHumanHold } from '../db/forge-story-state'
 import { storyReadyToRunReasons } from '../workflow_app/forge/forge-ready-gate'
+import {
+  architectContractFromNotes,
+  resolveAcceptanceAssertions,
+} from '../workflow_app/forge/forge-architect-contract'
 
 const args = process.argv.slice(2)
 const value = (flag: string): string | undefined => {
@@ -73,10 +77,19 @@ async function main(): Promise<void> {
   // be assayed. Resume of an already-active instance is never blocked.
   if (!engineActive && workType !== 'RESEARCH' && workType !== 'MIGRATION') {
     const story = await getStoryboardStory(storyId)
+    // THE SAME ONE READER THE QA PORT USES (ENG-FORGE-ACCEPTANCE-SUPPLIER-01): handoff-declared beats
+    // story-declared, and neither present means the mapping is absent (not gated here — QA reports it).
+    // A partially declared mapping therefore refuses the run with `ready-gate:unmapped-acceptance`
+    // BEFORE Scout/Architect/Lead/Smith are paid for.
+    const resolvedAcceptance = resolveAcceptanceAssertions({
+      handoff: architectContractFromNotes(story?.architectBrief)?.acceptanceAssertions ?? null,
+      story: story?.acceptanceAssertions ?? null,
+    })
     const reasons = storyReadyToRunReasons({
       workType,
       acceptanceCriteria: story?.acceptanceCriteria ?? null,
       assayCommands: story?.assayCommands ?? null,
+      acceptanceAssertions: resolvedAcceptance.assertions,
     })
     if (reasons.length > 0) {
       await markForgeStoryHumanHold(

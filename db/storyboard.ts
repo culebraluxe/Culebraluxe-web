@@ -1,6 +1,7 @@
 import { PortalWriteError } from '../lib/portal-write-error'
 import { costWidgets } from '../workflow_app/forge/forge-estimator'
 import { completionIsLegal } from '../workflow_app/forge/forge-board-sync'
+import { normalizeAcceptanceAssertions } from '../workflow_app/forge/forge-architect-contract'
 import type {
   StoryPriority,
   StoryStatus,
@@ -43,6 +44,13 @@ export type StoryboardStory = {
   architectBrief: string | null
   contextRefs: string | null
   acceptanceCriteria: string | null
+  /**
+   * ENG-FORGE-ACCEPTANCE-SUPPLIER-01: the story-author clause -> assertion mapping. Null means the
+   * author declared nothing (never an empty object), which QA reports as UNPROVEN, unchanged.
+   * Optional so a hand-built fixture that predates the column still type-checks; the repository
+   * always populates it.
+   */
+  acceptanceAssertions?: Record<string, string[]> | null
   postconditions: string | null
   architectBriefUpdatedAt: string | null
   completion: number
@@ -104,6 +112,7 @@ export type StoryRow = QueryRow & {
   architect_brief: string | null
   context_refs: string | null
   acceptance_criteria: string | null
+  acceptance_assertions?: unknown
   postconditions: string | null
   test_mode?: string | null
   assay_commands?: string | null
@@ -157,6 +166,9 @@ export function mapStory(row: StoryRow): StoryboardStory {
     architectBrief: row.architect_brief,
     contextRefs: row.context_refs,
     acceptanceCriteria: row.acceptance_criteria,
+    // NORMALIZED AT THE BOUNDARY: the driver may hand back a parsed object or a JSON string, and the
+    // rest of the app must never see a driver value. An absent or malformed mapping is null.
+    acceptanceAssertions: normalizeAcceptanceAssertions(row.acceptance_assertions),
     postconditions: row.postconditions,
     architectBriefUpdatedAt: dateOrNull(row.architect_brief_updated_at),
     testMode: (row.test_mode as string | null) ?? null,
@@ -193,7 +205,7 @@ export async function listStoryboardStories(
     select id, workstream, operating_surface, title, priority, status, notes,
       batch, batch_deploy, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
@@ -272,7 +284,7 @@ export async function getStoryboardStory(
     select id, workstream, operating_surface, title, priority, status, notes,
       batch, batch_deploy, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
@@ -314,7 +326,7 @@ export async function createStoryboardStory(
     returning id, workstream, operating_surface, title, priority, status, notes,
       batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
@@ -366,7 +378,7 @@ export async function updateStoryboardStory(
     returning id, workstream, operating_surface, title, priority, status, notes,
       batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
@@ -424,6 +436,30 @@ export async function setStoryArchitectBrief(
         architect_brief_updated_at = case
           when architect_brief is distinct from ${brief}::text
           then now() else architect_brief_updated_at end,
+        updated_at = now()
+    where id = ${storyId}
+    returning id
+  `
+  return rows.length > 0
+}
+
+/**
+ * ENG-FORGE-ACCEPTANCE-SUPPLIER-01: the STORY-AUTHOR declaration of the clause -> assertion mapping.
+ *
+ * Null CLEARS the declaration (an explicit author act); an empty or malformed value is normalized to
+ * null so "nothing declared" has exactly ONE representation in the row and can never shadow the
+ * handoff declaration. The repository owns the normalization, so no caller has to know the column type.
+ */
+export async function setStoryAcceptanceAssertions(
+  storyId: string,
+  assertions: Record<string, string[]> | null,
+  execute?: QueryExecutor,
+): Promise<boolean> {
+  const q = execute ?? (await executor())
+  const normalized = normalizeAcceptanceAssertions(assertions)
+  const rows = await q`
+    update storyboard_story
+    set acceptance_assertions = ${normalized ? JSON.stringify(normalized) : null}::jsonb,
         updated_at = now()
     where id = ${storyId}
     returning id
@@ -497,7 +533,7 @@ export async function setStoryboardStatus(
     returning id, workstream, operating_surface, title, priority, status, notes,
       batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
@@ -959,7 +995,7 @@ export async function startStoryRun(
     where id = ${storyId}
     returning id, workstream, title, priority, status, notes, batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       test_mode, assay_commands, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
@@ -1197,7 +1233,7 @@ export async function finishStoryRun(
     where id = ${run.storyId}
     returning id, workstream, title, priority, status, notes, batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
-      acceptance_criteria, postconditions, architect_brief_updated_at,
+      acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `

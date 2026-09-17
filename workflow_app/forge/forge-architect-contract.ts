@@ -43,6 +43,58 @@ function cleanAssertions(raw: unknown): Record<string, string[]> {
   return out
 }
 
+/**
+ * A declaration as it arrives from a repository, a JSON column or a flag.
+ *
+ * ABSENT IS NOT EMPTY. `null`, a malformed value and an empty object all become `null` — the honest
+ * absence of a declaration, which keeps the UNPROVEN `acceptance-map-missing` blocker unchanged. A
+ * mapping that NAMES clauses but carries no assertion refs (`{ "clause": [] }`) is a real
+ * declaration and is PRESERVED, because the ready gate must refuse it as unmapped rather than read
+ * it as "nothing was declared".
+ */
+export function normalizeAcceptanceAssertions(raw: unknown): Record<string, string[]> | null {
+  let value: unknown = raw
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    if (!text) return null
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return null
+    }
+  }
+  const cleaned = cleanAssertions(value)
+  return Object.keys(cleaned).length > 0 ? cleaned : null
+}
+
+/** Which declaration the resolver used, or null when neither declared a mapping. */
+export type AcceptanceAssertionSource = 'handoff' | 'story' | null
+
+export type ResolvedAcceptanceAssertions = {
+  assertions: Record<string, string[]> | null
+  source: AcceptanceAssertionSource
+}
+
+/**
+ * THE ONE READER for the two declaration places.
+ *
+ * Precedence is STATED, not inferred: the handoff declaration (Architect/Lead, through the contract)
+ * WINS; the story-author declaration is the fallback; neither yields `{ assertions: null, source: null }`
+ * so a caller can tell "nothing was declared" from "a declaration was made". An empty or malformed
+ * value on one side is treated as ABSENT, so it can never shadow a real mapping on the other — the
+ * precedence order answers "which wins", never "which is present".
+ */
+export function resolveAcceptanceAssertions(input: {
+  handoff?: unknown
+  story?: unknown
+}): ResolvedAcceptanceAssertions {
+  const handoff = normalizeAcceptanceAssertions(input.handoff)
+  if (handoff) return { assertions: handoff, source: 'handoff' }
+  const story = normalizeAcceptanceAssertions(input.story)
+  if (story) return { assertions: story, source: 'story' }
+  return { assertions: null, source: null }
+}
+
 export function parseForgeArchitectContract(raw: unknown): ForgeArchitectContract | null {
   if (!raw || typeof raw !== 'object') return null
   const row = raw as Record<string, unknown>
