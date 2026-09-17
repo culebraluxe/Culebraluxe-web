@@ -25,6 +25,7 @@
 // (one row per task/node/attempt; a retry writes a NEW attempt).
 // ---------------------------------------------------------------------------
 import { forgeDbPool } from '../db/forge-db.ts'
+import { decideAssignmentWrite } from '../db/forge-role-assignment-write.ts'
 
 const args = process.argv.slice(2)
 const arg = (name) => {
@@ -206,6 +207,32 @@ if (arg('chunk')) {
     process.exit(2)
   }
 
+  // THE DECISION OWNS THE WRITE (2026-09-17). The upsert below used to replace `finding_ids`
+  // whenever the write declared any, so three chunk writes on one assignment kept only the last
+  // chunk's findings. The union/refuse rule lives in `db/forge-role-assignment-write.ts`; this call
+  // is its only writer, and a refused write returns before any SQL, leaving the row untouched.
+  const existingAssignment = await pool.query(
+    `select finding_ids from forge_role_assignment
+      where task_id = $1 and node_id = $2 and attempt = $3 and assignment_id = $4`,
+    [taskId, nodeId, attempt, assignmentId],
+  )
+  const assignmentWrite = decideAssignmentWrite(
+    existingAssignment.rows[0]
+      ? { assignmentId, attempt, findingIds: existingAssignment.rows[0].finding_ids ?? [] }
+      : null,
+    { assignmentId, attempt, findingIds: list('finding') },
+  )
+  if (assignmentWrite.kind === 'refuse') {
+    console.error(
+      `forge-handoff: REFUSED — assignment ${assignmentWrite.assignmentId} attempt ` +
+        `${assignmentWrite.attempt} would drop finding(s) ${assignmentWrite.dropped.join(', ')}. ` +
+        'Nothing was written: the assignment row is untouched. Add the dropped findings to the ' +
+        'write, or use a different --assignment id.',
+    )
+    await pool.end()
+    process.exit(2)
+  }
+
   try {
     await pool.query(
       `insert into forge_role_assignment
@@ -215,8 +242,7 @@ if (arg('chunk')) {
           proof_burden, coupling, change_novelty, worker_fit)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        on conflict (task_id, node_id, attempt, assignment_id) do update set
-         finding_ids = case when cardinality(excluded.finding_ids) > 0
-                            then excluded.finding_ids else forge_role_assignment.finding_ids end,
+         finding_ids = excluded.finding_ids,
          evidence_refs = case when cardinality(excluded.evidence_refs) > 0
                               then excluded.evidence_refs else forge_role_assignment.evidence_refs end,
          reasoning = coalesce(excluded.reasoning, forge_role_assignment.reasoning),
@@ -236,7 +262,7 @@ if (arg('chunk')) {
         nodeId,
         attempt,
         assignmentId,
-        list('finding'),
+        assignmentWrite.findingIds,
         list('evidence'),
         arg('reasoning'),
         vector('semantic-surface'),
