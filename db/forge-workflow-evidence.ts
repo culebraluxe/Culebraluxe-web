@@ -1,5 +1,6 @@
 import type { ForgeGateEvidence } from '../workflow_app/forge/forge-facts'
 import type { ArchitectFinding } from '../workflow_app/forge/forge-shaping'
+import { classifyStoredQaDisposition } from '../workflow_app/forge/qa-repair-policy'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
 let defaultExecutor: QueryExecutor | null = null
@@ -257,8 +258,12 @@ export async function readForgeWorkflowEvidence(
   if (ledger) {
     evidence.repairAttempts = Number(ledger.forge_repair_attempts ?? 0)
     evidence.replanAttempts = Number(ledger.forge_replan_attempts ?? 0)
-    if (ledger.forge_last_qa_disposition) {
-      evidence.disposition = ledger.forge_last_qa_disposition as ForgeGateEvidence['disposition']
+    // ONLY a failure disposition is a routing fact. A stored PASS — now legal in the
+    // column — must never be published as one, so classify against the one vocabulary
+    // instead of casting the raw value into the routing enum.
+    const stored = classifyStoredQaDisposition(ledger.forge_last_qa_disposition)
+    if (stored === 'REPAIR' || stored === 'REPLAN' || stored === 'ESCALATE') {
+      evidence.disposition = stored
     }
   }
   return evidence

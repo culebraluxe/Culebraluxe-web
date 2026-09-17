@@ -28,6 +28,66 @@ export type QaVerdict = 'PASS' | 'FAIL'
 
 export type QaDisposition = 'REPAIR' | 'REPLAN' | 'ESCALATE'
 
+// ---------------------------------------------------------------------------
+// THE ONE STORED QA-DISPOSITION VOCABULARY.
+//
+// `storyboard_story.forge_last_qa_disposition` holds the LAST QA outcome: a clean
+// PASS, or one of the three failure dispositions. The writers, the CHECK constraint
+// (`db/migrations/189_forge_qa_disposition_vocab.sql`) and the readers all draw on
+// this ONE list, so a value the code writes is always a value the column accepts and
+// a value the reader can classify.
+//
+// `QaDisposition` above is the FAILURE routing vocabulary only — it deliberately
+// excludes PASS, because the repair router never routes a pass.
+// ---------------------------------------------------------------------------
+
+/** The clean-pass outcome a successful QA records. */
+export const QA_PASS_DISPOSITION = 'PASS' as const
+
+/** Every value `forge_last_qa_disposition` may legally hold. ONE definition. */
+export const QA_STORED_DISPOSITIONS = [QA_PASS_DISPOSITION, 'REPAIR', 'REPLAN', 'ESCALATE'] as const
+
+export type QaStoredDisposition = (typeof QA_STORED_DISPOSITIONS)[number]
+
+/** A stored value the vocabulary does not recognise. NEVER coerced to a repair action. */
+export const QA_UNKNOWN_DISPOSITION = 'UNKNOWN' as const
+
+/** What a reader may report for a stored disposition: a legal value, unknown, or null. */
+export type QaDispositionReading = QaStoredDisposition | typeof QA_UNKNOWN_DISPOSITION
+
+/**
+ * THE ONE CLASSIFIER for a stored `forge_last_qa_disposition` value. Absent stays
+ * absent; a value outside the vocabulary is reported as UNKNOWN — never cast into a
+ * failure disposition, which is what would misroute the next lane.
+ */
+export function classifyStoredQaDisposition(
+  raw: string | null | undefined,
+): QaDispositionReading | null {
+  if (raw === null || raw === undefined) return null
+  const text = String(raw).trim()
+  if (!text) return null
+  return (QA_STORED_DISPOSITIONS as readonly string[]).includes(text)
+    ? (text as QaStoredDisposition)
+    : QA_UNKNOWN_DISPOSITION
+}
+
+/**
+ * Turn a stored reading into the router's own input, so EVERY value a reader can
+ * return is one `routeQaResult` can classify: PASS is a pass; a failure disposition is
+ * a FAIL carrying it; UNKNOWN (and null) is a FAIL with NO legal disposition, which
+ * the router already fails closed into a hold — never a repair action.
+ */
+export function storedReadingToQaResultInput(reading: QaDispositionReading | null): {
+  verdict: QaVerdict
+  disposition: QaDisposition | null
+} {
+  if (reading === QA_PASS_DISPOSITION) return { verdict: 'PASS', disposition: null }
+  if (reading === 'REPAIR' || reading === 'REPLAN' || reading === 'ESCALATE') {
+    return { verdict: 'FAIL', disposition: reading }
+  }
+  return { verdict: 'FAIL', disposition: null }
+}
+
 /** Human-readable + machine-visible failure evidence QA attaches to a FAIL. */
 export type QaFailureEvidence = {
   reason: string
