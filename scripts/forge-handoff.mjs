@@ -25,7 +25,7 @@
 // (one row per task/node/attempt; a retry writes a NEW attempt).
 // ---------------------------------------------------------------------------
 import { forgeDbPool } from '../db/forge-db.ts'
-import { decideAssignmentWrite } from '../db/forge-role-assignment-write.ts'
+import { decideAssignmentWrite, decideContractWrite } from '../db/forge-role-assignment-write.ts'
 
 const args = process.argv.slice(2)
 const arg = (name) => {
@@ -451,6 +451,41 @@ if (decisionValue === null || (sizeValue.given && sizeValue.value === null)) {
   await pool.end()
   process.exit(2)
 }
+
+// THE CONTRACT ROW HAS ONE WRITER TOO (2026-09-17). The three array columns used to be replaced by any
+// non-empty write (`case when cardinality(excluded.x) > 0 ...`), a second rule beside the assignment
+// row's decider. The same `decideAssignmentWrite` now decides each column against its OWN existing
+// value: an add unions, an empty write is a no-op, and a write that would shrink a column is refused by
+// name before any SQL runs. A shrunken surface_scope is the dangerous one — it can make two genuinely
+// overlapping lanes read as disjoint.
+const existingContract = await pool.query(
+  `select finding_ids, merge_checks, surface_scope from forge_role_contract
+    where task_id = $1 and node_id = $2 and attempt = $3`,
+  [taskId, nodeId, attempt],
+)
+const contractWrite = decideContractWrite(
+  existingContract.rows[0]
+    ? {
+        findingIds: existingContract.rows[0].finding_ids ?? [],
+        mergeChecks: existingContract.rows[0].merge_checks ?? [],
+        surfaceScope: existingContract.rows[0].surface_scope ?? [],
+      }
+    : null,
+  {
+    findingIds: list('findings'),
+    mergeChecks: commands('merge-checks'),
+    surfaceScope: list('scope'),
+  },
+)
+if (contractWrite.kind === 'refuse') {
+  console.error(
+    `forge-handoff: REFUSED — contract ${contractWrite.column} would drop ` +
+      `${contractWrite.dropped.join(', ')}. Nothing was written: the contract row is untouched. ` +
+      'Add the dropped entries to the write, or use a different attempt.',
+  )
+  await pool.end()
+  process.exit(2)
+}
 try {
   const written = await pool.query(
     `insert into forge_role_contract
@@ -464,12 +499,9 @@ try {
        size_reason = coalesce(excluded.size_reason, forge_role_contract.size_reason),
        reason = coalesce(excluded.reason, forge_role_contract.reason),
        assignment_count = coalesce(excluded.assignment_count, forge_role_contract.assignment_count),
-       finding_ids = case when cardinality(excluded.finding_ids) > 0
-                          then excluded.finding_ids else forge_role_contract.finding_ids end,
-       merge_checks = case when cardinality(excluded.merge_checks) > 0
-                           then excluded.merge_checks else forge_role_contract.merge_checks end,
-       surface_scope = case when cardinality(excluded.surface_scope) > 0
-                            then excluded.surface_scope else forge_role_contract.surface_scope end,
+       finding_ids = excluded.finding_ids,
+       merge_checks = excluded.merge_checks,
+       surface_scope = excluded.surface_scope,
        updated_at = now()
      returning decision, size, assignment_count`,
     [
@@ -483,9 +515,9 @@ try {
       arg('size-reason'),
       arg('reason'),
       assignments == null ? null : Number.parseInt(assignments, 10),
-      list('findings'),
-      commands('merge-checks'),
-      list('scope'),
+      contractWrite.findingIds,
+      contractWrite.mergeChecks,
+      contractWrite.surfaceScope,
     ],
   )
   console.log('contract recorded:', JSON.stringify(written.rows[0]))

@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
-import { decideAssignmentWrite } from '../../db/forge-role-assignment-write'
+import { decideAssignmentWrite, decideContractWrite } from '../../db/forge-role-assignment-write'
 
 // ---------------------------------------------------------------------------
 // THE PLAN WRITE'S ONE DECISION (2026-09-17).
@@ -75,13 +74,93 @@ test('the 2026-09-17 failure: three disjoint chunk writes on ONE assignment bind
   }
 })
 
-test('the write path calls the decider before the assignment upsert and no longer replaces', () => {
-  const source = readFileSync(new URL('../../scripts/forge-handoff.mjs', import.meta.url), 'utf8')
-  const callAt = source.indexOf('decideAssignmentWrite(')
-  const upsertAt = source.indexOf('insert into forge_role_assignment')
-  assert.ok(callAt >= 0, 'the write path must call decideAssignmentWrite')
-  assert.ok(upsertAt >= 0, 'the assignment upsert must still exist')
-  assert.ok(callAt < upsertAt, 'the decider must run before the assignment row is written')
-  assert.match(source, /\.kind === 'refuse'/)
-  assert.match(source, /finding_ids = excluded\.finding_ids/)
+// CONTRACT ROW (2026-09-17). `forge_role_contract` carried the same last-non-empty-wins rule for
+// finding_ids, merge_checks and surface_scope. These tests pin the contract decider: one rule,
+// reused, with each column decided against its own value. The source-grep assertion is gone —
+// a fold over the writes is the only verdict.
+
+test('contract: a first write against no existing row is allowed whole', () => {
+  assert.deepEqual(
+    decideContractWrite(null, { findingIds: ['F1'], mergeChecks: ['node --test a'], surfaceScope: [] }),
+    { kind: 'allow', findingIds: ['F1'], mergeChecks: ['node --test a'], surfaceScope: [] },
+  )
+})
+
+test('contract: an additive write unions each column', () => {
+  const decision = decideContractWrite(
+    { findingIds: ['F1'], mergeChecks: ['m1'], surfaceScope: ['workflow_app/a.ts'] },
+    { findingIds: ['F2'], mergeChecks: ['m2'], surfaceScope: ['workflow_app/b.ts'] },
+  )
+  assert.deepEqual(decision, {
+    kind: 'allow',
+    findingIds: ['F1', 'F2'],
+    mergeChecks: ['m1', 'm2'],
+    surfaceScope: ['workflow_app/a.ts', 'workflow_app/b.ts'],
+  })
+})
+
+test('contract: a write that declares nothing is a no-op, not an erase', () => {
+  const decision = decideContractWrite(
+    { findingIds: ['F1'], mergeChecks: ['m1'], surfaceScope: ['workflow_app/a.ts'] },
+    { findingIds: [], mergeChecks: [], surfaceScope: [] },
+  )
+  assert.deepEqual(decision, {
+    kind: 'allow',
+    findingIds: ['F1'],
+    mergeChecks: ['m1'],
+    surfaceScope: ['workflow_app/a.ts'],
+  })
+})
+
+test('contract: a shrinking column is refused by name with its dropped entries', () => {
+  const decision = decideContractWrite(
+    { findingIds: ['F1', 'F2'], mergeChecks: ['m1', 'm2'], surfaceScope: ['s1', 's2'] },
+    { findingIds: ['F1'], mergeChecks: ['m1', 'm2'], surfaceScope: ['s1', 's2'] },
+  )
+  assert.deepEqual(decision, { kind: 'refuse', column: 'finding_ids', dropped: ['F2'] })
+})
+
+test('contract: an add in one column cannot mask a shrink in another', () => {
+  const decision = decideContractWrite(
+    { findingIds: ['F1'], mergeChecks: ['m1', 'm2'], surfaceScope: ['s1'] },
+    { findingIds: ['F2'], mergeChecks: ['m1'], surfaceScope: ['s1'] },
+  )
+  assert.deepEqual(decision, { kind: 'refuse', column: 'merge_checks', dropped: ['m2'] })
+})
+
+test('contract: a shrink of surface_scope is refused, so a surface cannot silently disappear', () => {
+  const decision = decideContractWrite(
+    { findingIds: [], mergeChecks: [], surfaceScope: ['workflow_app/a.ts', 'workflow_app/b.ts'] },
+    { findingIds: [], mergeChecks: [], surfaceScope: ['workflow_app/a.ts'] },
+  )
+  assert.deepEqual(decision, {
+    kind: 'refuse',
+    column: 'surface_scope',
+    dropped: ['workflow_app/b.ts'],
+  })
+})
+
+test('contract: the 2026-09-17 fold — three disjoint writes bind every column of one row', () => {
+  const writes = [
+    { findingIds: ['F1'], mergeChecks: ['m1'], surfaceScope: ['s1'] },
+    { findingIds: ['F2'], mergeChecks: ['m2'], surfaceScope: ['s2'] },
+    { findingIds: ['F3'], mergeChecks: ['m3'], surfaceScope: ['s3'] },
+  ]
+  let existing: { findingIds: string[]; mergeChecks: string[]; surfaceScope: string[] } | null = null
+  for (const write of writes) {
+    const decision = decideContractWrite(existing, write)
+    assert.equal(decision.kind, 'allow')
+    if (decision.kind === 'allow') {
+      existing = {
+        findingIds: decision.findingIds,
+        mergeChecks: decision.mergeChecks,
+        surfaceScope: decision.surfaceScope,
+      }
+    }
+  }
+  assert.deepEqual(existing, {
+    findingIds: ['F1', 'F2', 'F3'],
+    mergeChecks: ['m1', 'm2', 'm3'],
+    surfaceScope: ['s1', 's2', 's3'],
+  })
 })

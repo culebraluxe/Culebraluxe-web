@@ -42,16 +42,43 @@ test('ENG-FORGE-PARALLEL-WAVE-01: a one-task wave runs exactly once', () => {
   assert.equal(plan.batches[0][0].lane, 'smith')
 })
 
-test('ENG-FORGE-PARALLEL-WAVE-01: overlapping concurrent lanes are refused by name', () => {
+test('ENG-FORGE-CONTRACT-ONE-WRITER-01: an overlapping pair is deferred and a disjoint lane still runs', () => {
+  const plan = planWave(
+    [
+      lane('smith', ['workflow_app/a.ts']),
+      lane('qa_verify', ['workflow_app/a.ts']),
+      lane('inspector', ['workflow_app/c.ts']),
+    ],
+    2,
+  )
+  assert.equal(plan.ok, true)
+  const placement = new Map<string, number>()
+  plan.batches.forEach((batch, index) => {
+    batch.forEach((entry) => placement.set(entry.lane, index))
+  })
+  assert.ok(placement.has('inspector'), 'the disjoint lane must still be scheduled')
+  assert.ok(placement.has('smith') && placement.has('qa_verify'), 'no lane may be dropped')
+  assert.notEqual(
+    placement.get('smith'),
+    placement.get('qa_verify'),
+    'the overlapping pair must not share a batch',
+  )
+  assert.equal(plan.refusals.length, 1)
+  assert.deepEqual(plan.refusals[0].lanes, ['smith', 'qa_verify'])
+  assert.equal(plan.refusals[0].path, 'workflow_app/a.ts')
+})
+
+test('ENG-FORGE-CONTRACT-ONE-WRITER-01: a lone overlapping pair still progresses in separate batches', () => {
   const plan = planWave(
     [lane('smith', ['workflow_app/a.ts']), lane('qa_verify', ['workflow_app/a.ts'])],
     2,
   )
-  assert.equal(plan.ok, false)
-  if (plan.ok) return
-  assert.match(plan.refusal, /smith/)
-  assert.match(plan.refusal, /qa_verify/)
-  assert.match(plan.refusal, /workflow_app\/a\.ts/)
+  assert.equal(plan.ok, true)
+  assert.deepEqual(
+    plan.batches.map((batch) => batch.map((entry) => entry.lane)),
+    [['smith'], ['qa_verify']],
+  )
+  assert.deepEqual(plan.refusals, [{ lanes: ['smith', 'qa_verify'], path: 'workflow_app/a.ts' }])
 })
 
 test('ENG-FORGE-PARALLEL-WAVE-01: an undeclared surface never runs concurrently', () => {

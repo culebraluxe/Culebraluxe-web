@@ -55,3 +55,57 @@ export function decideAssignmentWrite(
     dropped,
   }
 }
+
+/**
+ * The one decision the CONTRACT write makes about its three array columns.
+ *
+ * `forge_role_contract` carried the same `case when cardinality(excluded.x) > 0 then excluded.x else
+ * <existing> end` rule for finding_ids, merge_checks and surface_scope — the last non-empty write won,
+ * silently. That was a SECOND writer beside the assignment decider, and a shrunken surface_scope makes two
+ * genuinely overlapping lanes read as disjoint. Each column is now decided by the SAME rule above, against
+ * its OWN existing value: an add unions, an empty write is a no-op, and a proper subset is refused naming
+ * the column and the entries it would drop. One rule, reused — not a second SQL case.
+ */
+
+export type ContractWriteSet = {
+  findingIds: string[]
+  mergeChecks: string[]
+  surfaceScope: string[]
+}
+
+export type ContractWriteDecision =
+  | { kind: 'allow'; findingIds: string[]; mergeChecks: string[]; surfaceScope: string[] }
+  | { kind: 'refuse'; column: 'finding_ids' | 'merge_checks' | 'surface_scope'; dropped: string[] }
+
+export function decideContractWrite(
+  existing: ContractWriteSet | null,
+  incoming: ContractWriteSet,
+): ContractWriteDecision {
+  const findingIds = decideAssignmentWrite(
+    { assignmentId: 'finding_ids', attempt: 0, findingIds: existing?.findingIds ?? [] },
+    { assignmentId: 'finding_ids', attempt: 0, findingIds: incoming.findingIds },
+  )
+  if (findingIds.kind === 'refuse') {
+    return { kind: 'refuse', column: 'finding_ids', dropped: findingIds.dropped }
+  }
+  const mergeChecks = decideAssignmentWrite(
+    { assignmentId: 'merge_checks', attempt: 0, findingIds: existing?.mergeChecks ?? [] },
+    { assignmentId: 'merge_checks', attempt: 0, findingIds: incoming.mergeChecks },
+  )
+  if (mergeChecks.kind === 'refuse') {
+    return { kind: 'refuse', column: 'merge_checks', dropped: mergeChecks.dropped }
+  }
+  const surfaceScope = decideAssignmentWrite(
+    { assignmentId: 'surface_scope', attempt: 0, findingIds: existing?.surfaceScope ?? [] },
+    { assignmentId: 'surface_scope', attempt: 0, findingIds: incoming.surfaceScope },
+  )
+  if (surfaceScope.kind === 'refuse') {
+    return { kind: 'refuse', column: 'surface_scope', dropped: surfaceScope.dropped }
+  }
+  return {
+    kind: 'allow',
+    findingIds: findingIds.findingIds,
+    mergeChecks: mergeChecks.findingIds,
+    surfaceScope: surfaceScope.findingIds,
+  }
+}

@@ -168,9 +168,15 @@ export type WaveLane<T> = {
   task: T
 }
 
-export type WavePlan<T> =
-  | { ok: true; batches: Array<Array<WaveLane<T>>> }
-  | { ok: false; refusal: string }
+/** One pair of ready lanes whose declared surfaces collide. They must never share a batch, and the
+ *  plan names the pair and the shared path so the deferral is STATED rather than silently reordered. */
+export type WaveRefusal = { lanes: [string, string]; path: string }
+
+export type WavePlan<T> = {
+  ok: true
+  batches: Array<Array<WaveLane<T>>>
+  refusals: WaveRefusal[]
+}
 
 /** The path two declared surfaces collide on, or null when they are disjoint. Reuses
  *  the ONE path rule in agents/shared/path.ts rather than a second matcher. */
@@ -195,23 +201,24 @@ function hasSurface<T>(lane: WaveLane<T>): boolean {
  * Pure wave scheduler: EVERY ready lane runs, at most `cap` at once. Two lanes share a
  * batch only when their declared surfaces are disjoint, or when both are fan-out lanes
  * whose disjointness the SPLIT contract already proved; a lane that declared no surface
- * runs alone. When concurrency is possible, two overlapping known surfaces are refused
- * by name (both lanes and the shared path) rather than co-scheduled. Pure and DB-free,
- * so the frozen fence can exercise it without an engine.
+ * runs alone. An overlapping pair is NEVER co-scheduled — it is deferred to separate
+ * batches and named in `refusals`, so a disjoint third lane still runs instead of the
+ * whole wave being refused. Pure and DB-free, so the frozen fence can exercise it
+ * without an engine.
  */
 export function planWave<T>(lanes: readonly WaveLane<T>[], cap: number): WavePlan<T> {
   const limit = Math.max(1, Number.isFinite(cap) ? Math.trunc(cap) : 1)
+  const refusals: WaveRefusal[] = []
+  // Record every colliding pair once, for the progress log. The placement below never puts a
+  // colliding pair in one batch, so naming the pair is what turns a whole-wave HOLD into a
+  // deferral — a disjoint lane still runs. Nothing is co-scheduled at cap 1, so nothing is
+  // reported as refused.
   if (limit > 1) {
     const known = lanes.filter((lane) => !lane.fanout && hasSurface(lane))
     for (let i = 0; i < known.length; i++) {
       for (let j = i + 1; j < known.length; j++) {
         const path = sharedPath(known[i].surface ?? [], known[j].surface ?? [])
-        if (path) {
-          return {
-            ok: false,
-            refusal: `concurrent write conflict: ${known[i].lane} / ${known[j].lane} share ${path}`,
-          }
-        }
+        if (path) refusals.push({ lanes: [known[i].lane, known[j].lane], path })
       }
     }
   }
@@ -227,7 +234,7 @@ export function planWave<T>(lanes: readonly WaveLane<T>[], cap: number): WavePla
       const compatible = batch.every((member) => {
         if (lane.fanout) return member.fanout === true
         if (member.fanout || !hasSurface(member)) return false
-        return hasSurface(lane)
+        return sharedPath(lane.surface ?? [], member.surface ?? []) === null
       })
       if (!compatible) continue
       batch.push(lane)
@@ -236,7 +243,7 @@ export function planWave<T>(lanes: readonly WaveLane<T>[], cap: number): WavePla
     }
     if (!placed) batches.push([lane])
   }
-  return { ok: true, batches }
+  return { ok: true, batches, refusals }
 }
 
 export async function driveForgeStory(
@@ -385,8 +392,15 @@ export async function driveForgeStory(
       task,
     }))
     const plan = planWave(lanes, cap)
-    if (!plan.ok) {
-      throw new Error(`Forge wave HOLD: ${plan.refusal}`)
+    // A colliding pair is DEFERRED, not a wave HOLD: the plan separates the pair into later
+    // batches and names it here, so an operator sees why two lanes did not overlap.
+    if (plan.refusals.length > 0) {
+      onProgress?.(
+        `\u2192 wave: deferring co-scheduling — ` +
+          plan.refusals
+            .map((refusal) => `${refusal.lanes[0]} / ${refusal.lanes[1]} share ${refusal.path}`)
+            .join('; '),
+      )
     }
     onProgress?.(
       `\u2192 wave: cap ${cap} — lanes ${ready.map((t) => t.nodeId).join(', ')}`,
