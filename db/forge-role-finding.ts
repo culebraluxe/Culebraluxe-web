@@ -71,11 +71,17 @@ export async function getForgeRoleFindings(
  *     a story that has ever been re-run reads as one handoff with each finding repeated.
  *   - Without the attempt scope, an Architect that retried (writing the same finding ids
  *     under attempt 2, which the unique index permits by design) reads as duplicates.
+ *   - Without the TASK scope, an operator re-run that creates a SECOND task for the same node
+ *     (both at attempt 1, which the attempt rule cannot separate) contributes both tasks' rows,
+ *     so the same finding id arrives twice and the gate refuses every route. Observed live on
+ *     2026-09-17: two architect tasks wrote 4 and 5 rows for 5 ids, and the only remedy was an
+ *     operator deleting PROD rows by task id.
  *
  * Either way the Lead's gate rejects the context with "Duplicate finding IDs in Architect
  * handoff" and the story can never route — observed live on 2026-09-13, and the reason the
  * chain could not complete a single story. A vague read is not a smaller read; it is a
- * wrong one.
+ * wrong one. The newest task per node is chosen by max `created_at` with `task_id` as a
+ * deterministic tie-break, so a same-millisecond re-run cannot pick at random.
  *
  * Pass `null` findings when nothing was written: the caller distinguishes that from an
  * empty handoff.
@@ -86,14 +92,31 @@ export async function listStoryForgeFindings(
 ): Promise<ArchitectFinding[] | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    with latest as (
+    with per_task as (
+      select node_id, task_id, max(created_at) as last_written
+      from forge_role_finding
+      where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+      group by node_id, task_id
+    ),
+    newest_task as (
+      select node_id, task_id
+      from (
+        select node_id, task_id,
+               row_number() over (partition by node_id order by last_written desc, task_id desc) as rn
+        from per_task
+      ) ranked
+      where rn = 1
+    ),
+    latest as (
       select node_id, max(attempt) as attempt
       from forge_role_finding
       where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+        and task_id in (select task_id from newest_task)
       group by node_id
     )
     select f.finding_id, f.summary, f.required, f.seams, f.hint
     from forge_role_finding f
+    join newest_task t on t.node_id = f.node_id and t.task_id = f.task_id
     join latest l on l.node_id = f.node_id and l.attempt = f.attempt
     where f.story_id = ${key.storyId} and f.process_instance_id = ${key.processInstanceId}
     order by f.finding_id
@@ -160,11 +183,24 @@ export function decideFindingWrite(input: {
   return exact ? { kind: 'allow', superseded: dropped } : { kind: 'refuse', dropped }
 }
 
+/** A task whose findings a later task for the SAME node superseded, and the task that replaced it. */
+export type FindingRetiredTask = {
+  nodeId: string
+  taskId: string
+  supersededByTaskId: string
+}
+
 /** The newest attempt in force for a story run, its findings, and the seams a later attempt superseded. */
 export type ForgeFindingHandoff = {
   attemptInForce: number | null
   findings: ArchitectFinding[]
   superseded: FindingSupersede[]
+  /**
+   * Tasks a re-run retired for a node. The reader scopes findings to the newest TASK per node, so an
+   * operator re-run leaves one set in force; this names the task that set replaced, and why. Empty when
+   * a node has only ever had one task.
+   */
+  retiredTasks: FindingRetiredTask[]
 }
 
 /**
@@ -184,14 +220,31 @@ export async function listStoryForgeFindingHandoff(
 ): Promise<ForgeFindingHandoff | null> {
   const q = execute ?? (await executor())
   const rows = await q`
-    with latest as (
+    with per_task as (
+      select node_id, task_id, max(created_at) as last_written
+      from forge_role_finding
+      where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+      group by node_id, task_id
+    ),
+    newest_task as (
+      select node_id, task_id
+      from (
+        select node_id, task_id,
+               row_number() over (partition by node_id order by last_written desc, task_id desc) as rn
+        from per_task
+      ) ranked
+      where rn = 1
+    ),
+    latest as (
       select node_id, max(attempt) as attempt
       from forge_role_finding
       where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+        and task_id in (select task_id from newest_task)
       group by node_id
     )
     select f.finding_id, f.summary, f.required, f.seams, f.hint, f.attempt
     from forge_role_finding f
+    join newest_task t on t.node_id = f.node_id and t.task_id = f.task_id
     join latest l on l.node_id = f.node_id and l.attempt = f.attempt
     where f.story_id = ${key.storyId} and f.process_instance_id = ${key.processInstanceId}
     order by f.finding_id
@@ -217,5 +270,42 @@ export async function listStoryForgeFindingHandoff(
       declaredByFindingId: String(record.declared_by_finding_id),
     }
   })
-  return { attemptInForce: attemptInForce > 0 ? attemptInForce : null, findings, superseded }
+  // WHICH TASK THE RE-RUN RETIRED, AND WHY. The findings read above keeps only the newest task per
+  // node; every OTHER task that wrote findings for that node is a task a re-run superseded. This is
+  // the operator-legible record of the supersede — the same scope rule, read back, so a manual row
+  // deletion is never the only remedy. A row missing any of the three facts is skipped rather than
+  // rendered as "undefined".
+  const retiredRows = await q`
+    with per_task as (
+      select node_id, task_id, max(created_at) as last_written
+      from forge_role_finding
+      where story_id = ${key.storyId} and process_instance_id = ${key.processInstanceId}
+      group by node_id, task_id
+    ),
+    ranked as (
+      select node_id, task_id,
+             row_number() over (partition by node_id order by last_written desc, task_id desc) as rn
+      from per_task
+    )
+    select r.node_id, r.task_id, w.task_id as superseded_by_task_id
+    from ranked r
+    join ranked w on w.node_id = r.node_id and w.rn = 1
+    where r.rn > 1
+    order by r.node_id, r.task_id
+  `
+  const retiredTasks: FindingRetiredTask[] = []
+  for (const row of retiredRows) {
+    const record = row as Record<string, unknown>
+    const nodeId = String(record.node_id ?? '')
+    const taskId = String(record.task_id ?? '')
+    const supersededByTaskId = String(record.superseded_by_task_id ?? '')
+    if (!nodeId || !taskId || !supersededByTaskId || taskId === supersededByTaskId) continue
+    retiredTasks.push({ nodeId, taskId, supersededByTaskId })
+  }
+  return {
+    attemptInForce: attemptInForce > 0 ? attemptInForce : null,
+    findings,
+    superseded,
+    retiredTasks,
+  }
 }

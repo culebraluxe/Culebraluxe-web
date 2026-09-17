@@ -56,6 +56,13 @@ export type LeadRoutingCapabilities = {
 export type FindingHandoffSummary = {
   attemptInForce: number | null
   superseded: Array<{ seam: string; declaredByAttempt: number; declaredByFindingId: string }>
+  /**
+   * Tasks a re-run retired for a node, with the task that replaced them. The reader now scopes
+   * findings to the newest TASK per node, so a re-run leaves one set in force and the retired task
+   * is named here. Absent (a caller that predates the field) or empty renders nothing — never a
+   * line that reads like "no problem".
+   */
+  retiredTasks?: Array<{ nodeId: string; taskId: string; supersededByTaskId: string }>
 }
 
 /** Bounded content extras injected alongside the trusted refs. */

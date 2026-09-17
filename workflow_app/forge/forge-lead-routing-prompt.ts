@@ -60,6 +60,15 @@ function findingHandoffRule(context: LeadRoutingDirectiveContext): string {
         `(finding ${lost.declaredByFindingId}) and is not in the attempt in force; the later attempt explicitly superseded it.`,
     )
   }
+  // WHICH TASK A RE-RUN RETIRED. The findings read keeps only the newest task per node, so the
+  // operator learns here which task set it replaced — an operator-legible record, never a manual
+  // PROD cleanup as the only remedy. An empty list renders nothing.
+  for (const retired of handoff.retiredTasks ?? []) {
+    lines.push(
+      `RETIRED FINDINGS TASK: task ${retired.taskId} for node ${retired.nodeId} was superseded by ` +
+        `task ${retired.supersededByTaskId} (a re-run of the same node); its findings are not in force.`,
+    )
+  }
   return lines.join('\n')
 }
 
