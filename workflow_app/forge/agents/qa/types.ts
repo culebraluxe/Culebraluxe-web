@@ -10,6 +10,14 @@ export type CommandResult = {
   passed: boolean
   excerpt: string
   /**
+   * THE EXECUTED OUTPUT, beyond the 240-char excerpt.
+   *
+   * The adjudicator reads it to check that a mapped assertion actually RAN: a name listed in the mapping
+   * but absent from this output is UNPROVEN, so the excerpt cap must never decide a verdict. This is NOT
+   * the stored evidence — `excerpt` remains the bounded field that gets written to the row.
+   */
+  output?: string
+  /**
    * TRUE when the command could not be RUN at all — a spawn error (bad cwd, missing binary) or a timeout
    * kill — as opposed to running and reporting failure.
    *
@@ -53,6 +61,16 @@ export type QaReport = {
   blockers: string[]
   /** Ids of the acceptance conditions that had no assertion behind them. Empty is the normal case. */
   unproven: string[]
+  /**
+   * Ids of the acceptance conditions whose mapped assertion RAN AND FAILED. A failed assertion is a FAIL,
+   * never UNPROVEN: the proof spoke about the clause and said no. Empty is the normal case.
+   */
+  failedConditions: string[]
+  /**
+   * The mapped assertions that did NOT appear in the executed proof output — a named-but-unrun assertion
+   * proves nothing. Each entry names the clause and the assertion the proof never ran.
+   */
+  missingAssertions: Array<{ conditionId: string; assertion: string }>
 }
 
 /**

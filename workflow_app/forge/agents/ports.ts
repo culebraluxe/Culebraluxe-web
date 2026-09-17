@@ -17,6 +17,11 @@ export type CommandResult = {
   exitCode: number
   passed: boolean
   excerpt: string
+  /**
+   * THE EXECUTED OUTPUT beyond the 240-char excerpt, so the adjudicator can check that a mapped assertion
+   * actually ran. The excerpt stays the bounded field that gets stored as evidence.
+   */
+  output?: string
 }
 
 export type StaticSlice = {

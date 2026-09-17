@@ -29,11 +29,15 @@ import { buildStoryAcceptanceMap } from '../forge/lead-routing-context'
 
 const COMMAND = 'node --import tsx --test workflow_app/tests/acceptance-proof.test.ts'
 
+// The proof's EXECUTED OUTPUT. A mapped assertion is satisfied only when it actually RAN, so the fixture
+// carries the pass line for the ref the mapped clauses declare — a bare `excerpt: 'ok'` names no assertion
+// and would read as UNPROVEN.
 const ok = (command: string): CommandResult => ({
   command,
   exitCode: 0,
   passed: true,
   excerpt: 'ok',
+  output: '\u2714 asserts-wired-flag (0.3ms)\n\u2139 tests 1\n\u2139 pass 1\n',
 })
 
 const unmapped = (id: string, text: string): AcceptanceCondition => ({ id, text, assertions: [] })

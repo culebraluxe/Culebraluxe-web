@@ -22,11 +22,19 @@ import {
 
 const COMMAND = 'node --import tsx --test workflow_app/tests/acceptance-supplier.test.ts'
 
+// The proof's EXECUTED OUTPUT. A mapped assertion is satisfied only when it actually RAN, so the fixture
+// carries a pass line for every ref these cases declare — a bare `excerpt: 'ok'` names no assertion and
+// would read as UNPROVEN.
 const ok = (command: string): CommandResult => ({
   command,
   exitCode: 0,
   passed: true,
   excerpt: 'ok',
+  output:
+    '\u2714 asserts-handoff (0.3ms)\n' +
+    '\u2714 asserts-absent (0.3ms)\n' +
+    '\u2714 asserts-covered (0.3ms)\n' +
+    '\u2139 tests 3\n\u2139 pass 3\n',
 })
 
 const collectorPorts = (over: Partial<RoleEffectPorts>): RoleEffectPorts =>

@@ -13,6 +13,50 @@ export type RunStatic = () => StaticSlice
 
 const excerpt = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 240)
 
+/**
+ * WHAT THE EXECUTED PROOF SAID ABOUT ONE NAMED ASSERTION.
+ *
+ * `passed` — the assertion ran and its line reports success.
+ * `failed` — the assertion ran and its line reports failure.
+ * `absent` — the assertion does not appear in the executed output at all. A named-but-unrun assertion
+ *            proves nothing, so its clause is UNPROVEN exactly like a clause with no assertion.
+ */
+export type AssertionOutcome = 'passed' | 'failed' | 'absent'
+
+const PASS_MARKERS = ['\u2714', '\u2713'] // ✔ ✓
+const FAIL_MARKERS = ['\u2716', '\u2717', '\u2718'] // ✖ ✗ ✘
+
+/** The verdict a single output line reports, or null when the line is not a pass/fail line. */
+function markerLine(line: string): 'passed' | 'failed' | null {
+  const text = line.trimStart()
+  // `not ok` must be tested BEFORE `ok`: the TAP failure line contains the pass word.
+  if (text.startsWith('not ok')) return 'failed'
+  for (const marker of FAIL_MARKERS) if (text.startsWith(marker)) return 'failed'
+  for (const marker of PASS_MARKERS) if (text.startsWith(marker)) return 'passed'
+  if (/^ok\b/.test(text)) return 'passed' // TAP: `ok 1 - name`
+  return null
+}
+
+/**
+ * Read one named assertion out of the EXECUTED proof output.
+ *
+ * Only a pass/fail MARKER line counts: a name that appears on a suite header, a summary line or echoed
+ * source was not a run assertion, so it stays absent. A failure outranks a pass, so a clause whose mapped
+ * assertion ran and failed is FAIL and never UNPROVEN.
+ */
+export function assertionOutcome(output: string | null | undefined, ref: string): AssertionOutcome {
+  const needle = (ref ?? '').trim()
+  if (!output || !needle) return 'absent'
+  let sawPass = false
+  for (const raw of output.split(/\r?\n/)) {
+    if (!raw.includes(needle)) continue
+    const verdict = markerLine(raw)
+    if (verdict === 'failed') return 'failed'
+    if (verdict === 'passed') sawPass = true
+  }
+  return sawPass ? 'passed' : 'absent'
+}
+
 export function runAssayCommands(plan: AssayPlan, run: RunCommand): CommandResult[] {
   return plan.commands.map((command) => {
     const result = run(command)
@@ -25,6 +69,9 @@ export function runAssayCommands(plan: AssayPlan, run: RunCommand): CommandResul
       passed: unmeasurable ? false : result.exitCode === 0 && result.passed,
       ...(unmeasurable ? { unmeasurable: true } : {}),
       excerpt: excerpt(result.excerpt),
+      // THE EXECUTED OUTPUT TRAVELS TOO. The adjudicator reads it to check that a mapped assertion ran;
+      // dropping it here would make every mapped clause read as UNPROVEN.
+      ...(typeof result.output === 'string' ? { output: result.output } : {}),
     }
   })
 }
@@ -71,11 +118,45 @@ export function adjudicateAssay(input: {
     blockers.push(...arch.archErrors.slice(0, 8).map((e) => `ARCH ${e}`))
   }
 
-  // THE ACCEPTANCE, NOT THE CHEAPEST READING OF IT. A condition with no assertion behind it can never be a
-  // PASS, and the condition is NAMED so the report says WHICH clause went untested.
+  // THE ACCEPTANCE, NOT THE CHEAPEST READING OF IT. A condition is satisfied only when one of its mapped
+  // assertions actually RAN in the executed proof output. A name that is merely LISTED proves nothing: if it
+  // never appears in the output the clause is UNPROVEN and NAMED, and if it ran and failed the clause is
+  // FAIL — never UNPROVEN, because the proof did speak about it. A command that could not run contributed no
+  // output, so it can never make an assertion look like it ran.
+  const proofOutput = input.commands
+    .filter((c) => c.unmeasurable !== true)
+    .map((c) => c.output ?? '')
+    .filter((text) => text.length > 0)
+    .join('\n')
+
   const conditions = input.plan.conditions ?? []
-  const unproven = conditions.filter((c) => c.assertions.length === 0).map((c) => c.id)
-  if (unproven.length) blockers.push(...unproven.map((id) => `UNPROVEN ${id}`))
+  const unproven: string[] = []
+  const failedConditions: string[] = []
+  const missingAssertions: Array<{ conditionId: string; assertion: string }> = []
+  for (const condition of conditions) {
+    const refs = condition.assertions ?? []
+    if (refs.length === 0) {
+      unproven.push(condition.id)
+      blockers.push(`UNPROVEN ${condition.id}`)
+      continue
+    }
+    const outcomes = refs.map((ref) => ({ ref, outcome: assertionOutcome(proofOutput, ref) }))
+    const failed = outcomes.filter((entry) => entry.outcome === 'failed')
+    if (failed.length > 0) {
+      failedConditions.push(condition.id)
+      for (const entry of failed) blockers.push(`ASSERTION_FAILED ${condition.id} ${entry.ref}`)
+      continue
+    }
+    if (outcomes.some((entry) => entry.outcome === 'passed')) continue
+    // No mapped assertion appears in the executed output: a named-but-unrun assertion proves nothing, so
+    // the clause is UNPROVEN and BOTH the clause and the missing assertion are named.
+    unproven.push(condition.id)
+    blockers.push(`UNPROVEN ${condition.id}`)
+    for (const entry of outcomes) {
+      missingAssertions.push({ conditionId: condition.id, assertion: entry.ref })
+      blockers.push(`ASSERTION_NOT_RUN ${condition.id} ${entry.ref}`)
+    }
+  }
 
   // A lane that changes the mapping after it was frozen is RECORDED as having done so.
   if (input.frozenMap && acceptanceMapChanged(input.frozenMap, conditions)) {
@@ -91,13 +172,15 @@ export function adjudicateAssay(input: {
       b === 'NO_ASSAY_COMMANDS' ||
       b === 'ASSAY_COMMAND_DRIFT',
   )
-  const verdict: QaVerdict = commandFailure
-    ? 'FAIL'
-    : unproven.length || blockers.includes('ACCEPTANCE_MAP_CHANGED')
-      ? 'UNPROVEN'
-      : blockers.length
-        ? 'FAIL'
-        : 'PASS'
+  // A mapped assertion that ran and FAILED is a FAIL in its own right: the proof ran, and it said no.
+  const verdict: QaVerdict =
+    commandFailure || failedConditions.length > 0
+      ? 'FAIL'
+      : unproven.length || blockers.includes('ACCEPTANCE_MAP_CHANGED')
+        ? 'UNPROVEN'
+        : blockers.length
+          ? 'FAIL'
+          : 'PASS'
 
   return {
     version: 1,
@@ -106,6 +189,8 @@ export function adjudicateAssay(input: {
     staticGate: arch ?? null,
     blockers,
     unproven,
+    failedConditions,
+    missingAssertions,
   }
 }
 

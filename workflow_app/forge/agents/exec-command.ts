@@ -46,6 +46,10 @@ export function commandRunner(
       exitCode: result.status ?? (couldNotRun ? -1 : 1),
       passed: !couldNotRun && result.status === 0,
       unmeasurable: couldNotRun,
+      // THE EXECUTED OUTPUT IS CARRIED, NOT ONLY THE EXCERPT. The 240-char excerpt is the stored evidence;
+      // it is far too short to say which assertions ran, so the adjudicator would read a proven clause as
+      // UNPROVEN. This is the full combined stdout+stderr the excerpt was cut from.
+      output,
       excerpt: couldNotRun
         ? `COULD NOT RUN (cwd=${cwd}): ${
             result.error ? String(result.error.message) : `killed by ${String(result.signal)}`

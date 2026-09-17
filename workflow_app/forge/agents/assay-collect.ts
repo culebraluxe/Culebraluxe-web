@@ -74,19 +74,30 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
       .map((r) => `${r.command} -> could not run: ${r.excerpt}`)
       .join(' | ')
     const unproven = report.unproven ?? []
+    const failedConditions = report.failedConditions ?? []
+    const missingAssertions = report.missingAssertions ?? []
     return {
       ...evidence,
       qaPassed: false,
       ...(failed.length ? { failedCommands: failed } : {}),
       // WHAT IT SAID, NOT JUST THAT IT FAILED — a refusal that does not quote the failing command's own
       // output cannot be diagnosed from the log, only re-derived by hand. An UNPROVEN verdict names the
-      // acceptance condition that had no assertion behind it, so the untested clause is on the row.
+      // acceptance condition that had no assertion behind it AND the mapped assertion the proof never ran,
+      // so the untested clause and its missing assertion are both on the row.
       deliverableRejection:
         `QA ${report.verdict}: blockers=[${report.blockers.join(', ') || 'none'}] ` +
         `failed=[${failed.join(' | ') || 'none'}]` +
         (failedDetail ? ` || output=[${failedDetail}]` : '') +
         (couldNotRun ? ` || couldNotRun=[${couldNotRun}]` : '') +
-        (unproven.length ? ` || unproven=[${unproven.join(' | ')}]` : ''),
+        (unproven.length ? ` || unproven=[${unproven.join(' | ')}]` : '') +
+        (failedConditions.length
+          ? ` || failedConditions=[${failedConditions.join(' | ')}]`
+          : '') +
+        (missingAssertions.length
+          ? ` || missingAssertions=[${missingAssertions
+              .map((entry) => `${entry.conditionId}:${entry.assertion}`)
+              .join(' | ')}]`
+          : ''),
     }
   }
 
