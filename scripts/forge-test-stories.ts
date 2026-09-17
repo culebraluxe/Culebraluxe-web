@@ -315,7 +315,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'NEXUS',
     priority: 'High',
-    batch: 4,
+    batch: 91,
     title: 'An executed contract is not served to whoever holds its id',
     goal:
       'Downloading a document requires an authenticated portal session, and the decision is ONE named ' +
@@ -344,7 +344,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'High',
-    batch: 4,
+    batch: 91,
     title: 'A swallowed catch cannot pass as an empty success',
     goal:
       'Silent-failure detection blocks instead of filing a nightly note, and the routes that return an ' +
@@ -373,7 +373,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'High',
-    batch: 4,
+    batch: 91,
     title: 'Every route declares its authority, and drift fails',
     goal:
       'Generate a manifest of every route handler with the authority it requires, and fail on a handler ' +
@@ -397,7 +397,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'NEXUS',
     priority: 'Medium-High',
-    batch: 4,
+    batch: 91,
     title: 'The middleware stops describing a capability check that never runs',
     goal:
       'Delete the edge branch that reads a claim nothing stamps, and make the file describe what it ' +
@@ -424,7 +424,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'High',
-    batch: 5,
+    batch: 92,
     title: 'Forge records no deployment it did not perform',
     goal:
       'A story never enters a lane that cannot be satisfied: deployment is not something Forge does, so a ' +
@@ -455,7 +455,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'Medium-High',
-    batch: 5,
+    batch: 92,
     title: 'A lane records the base it started from',
     goal:
       'START carries its own base: every code-writing run records the commit HEAD stood on when the lane ' +
@@ -480,7 +480,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'Medium-High',
-    batch: 5,
+    batch: 92,
     title: 'An artifact carries the ruling, never a second opinion',
     goal:
       'A lane artifact records the verdict that was ruled for its run, so an artifact cannot report Hold ' +
@@ -504,7 +504,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'Medium-High',
-    batch: 5,
+    batch: 92,
     title: 'A HOTFIX story reaches its first lane with the contract it needs',
     goal:
       'A HOTFIX story actually starts: the route and the lane policy agree about who authors the contract ' +
@@ -531,7 +531,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'Medium',
-    batch: 5,
+    batch: 92,
     title: 'A field nothing writes is a lie',
     goal:
       'Every column of the run and evidence tables is classified as written-by-something, drop-it, or ' +
@@ -557,7 +557,7 @@ const STORIES: TestStory[] = [
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'Medium-High',
-    batch: 5,
+    batch: 92,
     title: 'A sprint release records what it carried',
     goal:
       'The batch release leaves a durable receipt naming the stories it published and deployed and the ' +
@@ -579,7 +579,447 @@ const STORIES: TestStory[] = [
       'already records per story.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-batch-receipt.test.ts`',
   },
+  // --- WAVE 6 — RECORDS AND WRITER DISCIPLINE: one writer per fact, no tree-era residue -----------
+  {
+    id: 'ENG-FORGE-WRITER-MAP-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 93,
+    title: 'One writer per fact, and a map that proves it',
+    goal:
+      'Every durable fact in the run, story and evidence tables names exactly one writer in a GENERATED ' +
+      'map, so a second writer is caught by a check rather than by a night of holding finished work.',
+    scope:
+      'scripts/fact-writer-map.ts (new, generator + check), docs/agent/manifest/FACT-WRITERS.md (generated), ' +
+      'workflow_app/tests/fact-writer-map.test.ts (new).',
+    acceptance:
+      'The map names each durable fact with its writer (file + symbol) or marks it READ-ONLY with the ' +
+      'writer named elsewhere. A fact with two writers FAILS unless the map records it as multi-writer ' +
+      'with the reason it must be. A new fact appears automatically or the check fails. Generated, never ' +
+      'hand-kept.',
+    notes:
+      'A QA verdict was recorded FOUR ways on 2026-09-16 and disagreed two ways: run row Hold, artifact ' +
+      'Hold, its own summary "Assay PASS", durable evidence qa_passed=true. One writer per fact is already ' +
+      'the rule in AGENTS.md; this makes it checkable, as the dead-citation lint made evidence auditable.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/fact-writer-map.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-ARTIFACT-RESIDUE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 93,
+    title: 'No record carries a worktree path or a tree-era field',
+    goal:
+      'Records describe the machine that exists: no artifact, evidence row or run detail names a per-lane ' +
+      'worktree, a pinned worktree base, or any field that only made sense when lanes had trees.',
+    scope:
+      'the record writers (base adapter, db/forge-artifact.ts, forge run detail), a one-off sweep of ' +
+      'existing rows, workflow_app/tests/no-tree-residue.test.ts (new).',
+    acceptance:
+      'A generated scan finds no worktree path (Culebraluxe-worktrees, /worktrees/, worktreePath) and no ' +
+      'tree-era field in records written after this story. Older rows are swept once or marked LEGACY with ' +
+      'the date written. A test fails when a writer reintroduces one.',
+    notes:
+      'An artifact from an older generation still names ' +
+      '`/Users/…/Culebraluxe-worktrees/eng-qa-single-verdict-01-…`, months after NO TREES removed the ' +
+      'worktrees — the record outlived the thing it described. `worktreePath` is still passed as a label ' +
+      'in the runner run identities today. Trees are gone; the vocabulary is not.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/no-tree-residue.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-STATUS-WRITERS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 93,
+    title: 'A story status has sanctioned writers and no others',
+    goal:
+      'Story status and completion are written only by the run lifecycle, the board editor and the one ' +
+      'sanctioned hold marker — and a fence fails when a third path starts writing them.',
+    scope:
+      'db/storyboard.ts (finishStoryRun, updateStoryboardStory, setStoryboardStatus), ' +
+      'db/forge-story-state.ts, workflow_app/tests/story-status-writers.test.ts (new).',
+    acceptance:
+      'Every write of storyboard_story.status or .completion names a sanctioned writer; a scan fails on a ' +
+      'new one. The pair rule holds: 100 only with Complete, and a non-Complete run never writes 100. The ' +
+      'hold marker is either sanctioned in the map or moved behind the lifecycle.',
+    notes:
+      'An invented completion (99) and a migration-182 constraint crash both came from a writer deciding ' +
+      'the pair itself on 2026-09-16. The pair rule is fixed; who may write it was never pinned, and ' +
+      'db/forge-story-state.ts marks a story HOLD straight from the runner.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/story-status-writers.test.ts`',
+  },
+  // --- WAVE 7 — ROBUSTNESS AND OPERATIONS: liveness, reaping, and a door out of a hold ------------
+  {
+    id: 'ENG-FORGE-HEARTBEAT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 94,
+    title: 'Liveness is a timer, not the model reporting',
+    goal:
+      'A running lane is provably alive because the RUNNER heartbeats on a timer, not because the model ' +
+      'remembered to report progress.',
+    scope:
+      'the lane execution path (agent-runtime/repositories.ts, the runner), db/agent-work.ts ' +
+      '(updateAgentWorkProgress), workflow_app/tests/lane-heartbeat.test.ts (new).',
+    acceptance:
+      'While a lane runs, its work item heartbeat advances on a fixed interval regardless of what the ' +
+      'model says or does not say. A lane quiet for longer than the reap window still holds a fresh ' +
+      'heartbeat. A test proves the heartbeat advances with no caller reporting anything.',
+    notes:
+      'updateAgentWorkProgress has exactly two call sites, both inside lane activity, while ' +
+      'scripts/forge-story-reset.ts reaps at --stale-minutes 15 — so a quiet live lane and a dead worker ' +
+      'look identical. Two rows from one night sat in `claimed` until closed by hand; the ledger holds 41 ' +
+      '`interrupted`.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/lane-heartbeat.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-REAP-GUARD-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 94,
+    title: 'The reaper cannot kill a lane that is alive',
+    goal:
+      'Reaping is a decision about a fact (is the worker gone) rather than a guess from elapsed time, and ' +
+      'a lane that is alive can never be reaped.',
+    scope:
+      'scripts/forge-story-reset.ts (the clean/recover paths) and whatever reports worker liveness, ' +
+      'workflow_app/tests/reap-guard.test.ts (new).',
+    acceptance:
+      'A claim is released only when the worker that holds it is provably gone. A live worker survives any ' +
+      'amount of elapsed time; a dead worker is released without waiting for a timeout. A test proves both ' +
+      'directions with the elapsed time held constant.',
+    notes:
+      'The current guard is time-based and says so: only claims older than --stale-minutes (15) are ' +
+      'touched, "so a live peer survives" — which is true only if the peer is reporting. With WAVE 7 ' +
+      'heartbeat in place this becomes checkable rather than hopeful.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/reap-guard.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-RESUME-DOOR-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 94,
+    title: 'A held or failed run has a door out',
+    goal:
+      'Any instance sitting on a hold or a failed lane can be resumed at a named node or cancelled, from ' +
+      'one operator door, and the decision is recorded as the reason it moved.',
+    scope:
+      'workflow_app/forge/forge-hold-resolve.ts (extend to a run with no open hold task), a script or board ' +
+      'action, workflow_app/tests/resume-door.test.ts (new).',
+    acceptance:
+      'Given a run stopped at a hold OR at a failed lane task, the door can resume it at a named node or ' +
+      'cancel it, and records who, when and why. A run that cannot be resumed says what is missing instead ' +
+      'of failing silently. Resuming never fabricates a ruling: it moves the token, it does not write a ' +
+      'verdict.',
+    notes:
+      'Measured 2026-09-16: story 4 sat with a ready task at a lane that had errored and the hold door ' +
+      'could not touch it (resolveForgeHold requires an open hold TASK); the workaround was to complete ' +
+      'the dead lane by hand and then cancel. Five stories are on Hold today, three of them from testing, ' +
+      'with no door to clear them.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/resume-door.test.ts`',
+  },
+  // --- WAVE 8 — TESTS THAT WOULD HAVE CAUGHT TONIGHT: black box, not glass box ---------------------
+  {
+    id: 'ENG-FORGE-REPLAY-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 95,
+    title: 'Replay a recorded generation and assert what it decided',
+    goal:
+      'Take the durable rows of a finished generation and replay the routing decisions offline, with no ' +
+      'model — so a change to the middle cannot silently re-route work that already ran.',
+    scope:
+      'a new replay harness (workflow_app/forge/replay.ts + a runner), fixtures built from real rows, ' +
+      'workflow_app/tests/forge-replay.test.ts (new).',
+    acceptance:
+      'Given a recorded generation (runs, evidence, engine tasks), the replay reproduces the decisions ' +
+      'that were taken — pass, fail, deferred, held — and fails loudly when the code would now decide ' +
+      'differently. The fixtures are built from REAL rows, never hand-written ideals. No model is called.',
+    notes:
+      'Tonight three separate defects changed what the machine decided about work that had already run: ' +
+      'the sha conjunct, the scope base, the candidate equality. Each was found by running a story and ' +
+      'reading rows afterwards; a replay fixture turns one of those nights into a regression test that ' +
+      'costs nothing to run. This is the cheap half of black-box testing.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-replay.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-BLACKBOX-STORY-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 95,
+    title: 'One story, end to end, asserted only on its records',
+    goal:
+      'A black-box test drives a real story through its whole chain without reaching inside it, and ' +
+      'asserts only what the records say: started, ruled, ended.',
+    scope:
+      'a scratch-database harness plus one story driven end to end, ' +
+      'workflow_app/tests/forge-blackbox-story.test.ts (new).',
+    acceptance:
+      'The test drives one story from start to completion against a scratch database and asserts: one run ' +
+      'per lane with a start and an end, one ruling per measuring lane, a story status that matches the ' +
+      'ruling, and a QA run whose recorded status equals its verdict. It touches no internals, stubs no ' +
+      'gate, and fails if any of those records disagree.',
+    notes:
+      'Tonight proved the gap: 736 engine tests, 93 forge test files, and every one of the night’s bugs ' +
+      'lived where no test looked — in what a RUN records. Glass-box tests check that a function returns ' +
+      'what it says; this checks that the machine told the truth about what it did.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-blackbox-story.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-MIDDLE-AUDIT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 95,
+    title: 'Every middle step is justified or deleted',
+    goal:
+      'Inventory every step between START and END that can decide, refuse or override, and either ' +
+      'justify it in writing or delete it — the captain rule made checkable.',
+    scope:
+      'docs/agent/decisions/middle-steps.md (new inventory), the removals it implies, ' +
+      'workflow_app/tests/middle-step-inventory.test.ts (new).',
+    acceptance:
+      'Each middle step is listed with what it can override, what it costs when it is wrong, and a ' +
+      'JUSTIFIED or DELETE verdict. Anything marked DELETE is gone in the same change. A test fails when ' +
+      'a step that can refuse a ruling exists without an entry in the inventory.',
+    notes:
+      'The captain: "you get Start, RULING, END — anything more you have to justify very very very ' +
+      'strongly." Tonight deleted three middle deciders (the sha conjunct, the scope base’s remote ' +
+      'fallback, the candidate equality) and each one had held finished work. Known candidates for the ' +
+      'inventory: the deliverable re-ask loop, the classifier label, the QA review lane, the repair ' +
+      'budgets, the observer’s scope check.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/middle-step-inventory.test.ts`',
+  },
+  // --- WAVE 9 — SIMPLICITY: the steps that decide something nobody asked them to decide -----------
+  {
+    id: 'ENG-FORGE-QA-REVIEW-LANE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 96,
+    title: 'The QA review lane either joins the ruling or goes',
+    goal:
+      'There is one answer to "did the tests pass". The independent review step either becomes part of ' +
+      'that ruling or is deleted — it may not be a third opinion sitting beside it.',
+    scope:
+      'the qa_policy / qa_review route in the FORGE_SDLC definition, workflow_app/forge/forge-facts.ts ' +
+      '(qaReviewRequired / qaReviewPassed), workflow_app/tests/qa-review-lane.test.ts (new).',
+    acceptance:
+      'Either the review becomes a required input to the single QA ruling (and a review failure is a QA ' +
+      'failure with the same vocabulary), or the lane and its two facts are deleted. The decision is ' +
+      'recorded in the notes with what it costs and what it protects. No third verdict token exists.',
+    notes:
+      'qa_policy routes on qaReviewRequired and qaReviewResult produces qaReviewPassed, so a story can be ' +
+      'failed by a step that never runs a test — a second answer to the same question, which is the shape ' +
+      'tonight cost us four holds over. The captain’s rule: the verdict is the tests. Written up rather ' +
+      'than deleted on my own judgement because it may carry a real protection I cannot see.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/qa-review-lane.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-REASK-BUDGET-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 96,
+    title: 'The deliverable re-ask is bounded, explained and visible',
+    goal:
+      'The loop that re-runs a lane for a missing deliverable is bounded, spends money knowingly, and ' +
+      'says in the record that it re-asked — so a retry is never mistaken for a second attempt at the work.',
+    scope:
+      'the attempt loop in workflow_app/forge/agent-runtime-role-runner.ts, the budget env ' +
+      '(FORGE_DELIVERABLE_RETRIES), workflow_app/tests/deliverable-reask.test.ts (new).',
+    acceptance:
+      'The budget is a number in one place, the record shows each attempt and what was missing, and ' +
+      'exhaustion holds with the named miss. An untrusted or missing budget falls back to one attempt, ' +
+      'never to unlimited. The record distinguishes a re-ask from a repair.',
+    notes:
+      'Tonight two lanes spent a second attempt each (smith on story 4) and the only trace was "after 2 ' +
+      'attempt(s)" in an error string. It is the clearest middle step that spends money: 1 + retries per ' +
+      'lane per story, invisible in the tokens view.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/deliverable-reask.test.ts`',
+  },
+  {
+    id: 'APP-SPRINT-DOOR-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'High',
+    batch: 96,
+    title: 'A story can be assigned to a sprint from the board',
+    goal:
+      'Assigning a story to a sprint — and so deferring its deployment to the release — is an operator ' +
+      'action in the board, not a SQL statement typed by a helper.',
+    scope:
+      'the board write path (db/storyboard.ts, the portal action), the batch fields (batch, batch_deploy), ' +
+      'workflow_app/tests/sprint-door.test.ts (new).',
+    acceptance:
+      'An operator can put a story in a sprint and mark its deployment deferred, singly or as a group, and ' +
+      'undo it. The door validates the sprint number, records who did it, and refuses to defer a story ' +
+      'that is already released. No helper script is required to run a sprint.',
+    notes:
+      'WRITTEN 2026-09-16: I set batch and batch_deploy for three waves with a throwaway script in /tmp, ' +
+      'which is not a door — it is me being the API. The engine half already works (a flagged story ' +
+      'records an honest deferral and completes at the release boundary); this is the missing operator half ' +
+      'of the captain’s still-unsolved sprint management. Pairs with ENG-FORGE-BATCH-RECEIPT-01.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/sprint-door.test.ts`',
+  },
+  // --- WAVE 10 — THE APP, THE RELEASE, AND THE TOOLS WE ALREADY OWN ------------------------------
+  {
+    id: 'APP-MEDIA-LENGTH-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'Medium',
+    batch: 97,
+    title: 'A download declares the length of the bytes it sends',
+    goal:
+      'Content-Length is the length of the buffer being sent, never a number from a column that can ' +
+      'disagree with it.',
+    scope:
+      'app/api/media/documents/[id]/route.ts and any sibling that sets Content-Length, ' +
+      'workflow_app/tests/media-content-length.test.ts (new).',
+    acceptance:
+      'The header is derived from the bytes in the response. A row whose file_size disagrees with its ' +
+      'bytes still streams completely. A test proves the mismatch case, which is the case that breaks.',
+    notes:
+      'FOUND 2026-09-16 by reading `app/api/media/documents/[id]/route.ts:72` — ' +
+      '`headers.set(Content-Length, String(row.file_size))` while the body comes from `file_data`. When ' +
+      'they disagree the client truncates or hangs, and the row is the only thing that knew.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/media-content-length.test.ts`',
+  },
+  {
+    id: 'APP-INPUT-VALIDATION-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'Medium-High',
+    batch: 97,
+    title: 'Input validation is declared, not hand-rolled per handler',
+    goal:
+      'One declared way to validate a request body, query and params, so a route cannot quietly accept ' +
+      'whatever it is handed.',
+    scope:
+      'a chosen validation mechanism (a library or a small in-repo module), the guard seam the routes ' +
+      'already use, workflow_app/tests/input-validation.test.ts (new).',
+    acceptance:
+      'A route declares its accepted shape and an invalid request is refused with a named reason, not ' +
+      'coerced. The mechanism is ONE — a second hand-rolled validator in a route fails the check. The ' +
+      'decision (library or in-repo) is recorded in the notes with what it costs.',
+    notes:
+      'WRITTEN 2026-09-16: there is no validation library in the project (0 hits for zod), so 27 routes ' +
+      'validate by hand — `intParam`, a UUID regex, `clip()` helpers. That is how the documents route came ' +
+      'to validate a UUID and nothing else.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/input-validation.test.ts`',
+  },
+  {
+    id: 'APP-DIAGNOSTIC-THROTTLE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'Low-Medium',
+    batch: 97,
+    title: 'The anonymous diagnostics cannot be flooded',
+    goal:
+      'The two anonymous write endpoints stay deliberately anonymous AND stop being able to fill the ' +
+      'error table.',
+    scope:
+      'app/api/portal/move-trace/route.ts, app/api/portal/client-error/route.ts, ' +
+      'workflow_app/tests/diagnostic-throttle.test.ts (new).',
+    acceptance:
+      'Each endpoint bounds its writes per source per window and per body size, refuses over the bound ' +
+      'with a plain response, and records the refusal as a count rather than a row per attempt. ' +
+      'Anonymity is preserved — no session is required, by design.',
+    notes:
+      'READ 2026-09-16: both are documented as anonymous and deliberately tiny (no comment, no user, no ' +
+      'free text), which is a defensible design — but nothing bounds the rate, so anyone can write rows ' +
+      'into app_error at will and drown the signal that got the board debugged in the first place.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/diagnostic-throttle.test.ts`',
+  },
+  {
+    id: 'APP-CI-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 97,
+    title: 'The tests run without anyone remembering to run them',
+    goal:
+      'A push runs the test tiers automatically, so "green" stops meaning "someone typed pnpm tonight".',
+    scope:
+      'a CI workflow (test tiers only — the release build stays local), a pre-push hook, ' +
+      'workflow_app/tests/ci-contract.test.ts (new).',
+    acceptance:
+      'A push runs the engine, agent-runtime and harness tiers and reports pass or fail without a human. ' +
+      'The release build is NOT rebuilt in CI: this repo builds locally and deploys prebuilt, and a ' +
+      'second build path is a second truth. A test asserts the workflow exists and names those tiers.',
+    notes:
+      'FOUND 2026-09-16: no .github, and every gate that ran all night ran because I typed it. The ' +
+      'captain’s own MEMORY entry is the evidence — three stories skipped `next build` with an honest ' +
+      'reason that later stopped being true, and a release blocker sat behind green tests, green tsc and ' +
+      'a green harness. His release path already verifies the live sha and runs a smoke; the gap is ' +
+      'before the release, not during it.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/ci-contract.test.ts`',
+  },
+  {
+    id: 'APP-OBJECT-STORAGE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'Medium',
+    batch: 97,
+    title: 'Documents leave the database for object storage',
+    goal:
+      'Document bytes stop living in Postgres and stop streaming through a serverless function: storage ' +
+      'plus short-lived signed links, with an access record per read.',
+    scope:
+      'the media read/write path (app/api/media/**, db/media), a storage adapter, ' +
+      'workflow_app/tests/media-storage.test.ts (new).',
+    acceptance:
+      'Uploads and downloads go through storage; the media row keeps metadata and a storage key. Reads ' +
+      'are short-lived and recorded. A migration path exists for existing rows, or the story records why ' +
+      'some are left behind. Downloads no longer consume Neon egress.',
+    notes:
+      'READ 2026-09-16: media is bytea in Postgres, downloaded through a serverless function, with ' +
+      'Content-Length taken from a column (see APP-MEDIA-LENGTH-01). For executed contracts this is also ' +
+      'where an access log belongs — a signed URL with an expiry gives you one for free, and gives the ' +
+      'media routes a real authorization story instead of a publication flag. Biggest item in this wave; ' +
+      'parked deliberately, not forgotten.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/media-storage.test.ts`',
+  },
+  {
+    id: 'WORKSHOP-TOOLS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 97,
+    title: 'The workshop tools the lanes are told about actually work',
+    goal:
+      'Every tool named in the workshop docs is wired and reachable from a lane — or it is removed from ' +
+      'the docs, so no lane is told to use a backhoe that is not in the corner.',
+    scope:
+      'docs/agent/FORGE-WORKSHOP.md, the MCP/serena configuration, a check that each named tool resolves, ' +
+      'workflow_app/tests/workshop-tools.test.ts (new).',
+    acceptance:
+      'Each tool named in the workshop doc resolves to a callable configuration; a tool that is named but ' +
+      'unwired FAILS the check. Serena (semantic code navigation) is wired or struck from the doc. A ' +
+      'fence keeps the doc and the configuration from drifting apart.',
+    notes:
+      'The captain, 2026-09-16: "i brought in those tools and they keep dogging my score… they were ' +
+      'supposed to be in Workshop MD — use them if you want. Digging a hole with a garden spade when ' +
+      'there is a backhoe in the corner is your prerogative." Correct. A lane that cannot see the tool ' +
+      'list will re-derive it badly, and the doc claiming tools that are not wired is the same defect ' +
+      'class as the middleware claiming a capability nobody stamps.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/workshop-tools.test.ts`',
+  },
 ]
+
+
+
+
+
+
 
 
 
