@@ -94,19 +94,22 @@ function main(): void {
   const baseFlag = process.argv.indexOf('--base')
   const base = baseFlag >= 0 ? process.argv[baseFlag + 1] : process.env.GATE_BASE ?? 'origin/main'
 
-  let mergeBase = base
-  try {
-    mergeBase = git(['merge-base', base, 'HEAD'], cwd).trim() || base
-  } catch {
-    mergeBase = base
-  }
+  // Assigned once, so no branch can hand out a value it never used (lint: no-useless-assignment).
+  const mergeBase = ((): string => {
+    try {
+      return git(['merge-base', base, 'HEAD'], cwd).trim() || base
+    } catch {
+      return base
+    }
+  })()
 
-  let names = ''
-  try {
-    names = git(['diff', '--name-only', '--diff-filter=ACMR', mergeBase], cwd)
-  } catch {
-    names = ''
-  }
+  const names = ((): string => {
+    try {
+      return git(['diff', '--name-only', '--diff-filter=ACMR', mergeBase], cwd)
+    } catch {
+      return ''
+    }
+  })()
   const paths = names
     .split('\n')
     .map((path) => path.trim())

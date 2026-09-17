@@ -193,12 +193,8 @@ type QaConsistencyRow = { storyId: string; runId: string; result: QaConsistencyR
  * a false `agree`.
  */
 async function gatherQaConsistency(): Promise<string> {
-  let runs: StoryRun[] | null = null
-  try {
-    runs = await listStoryboardRuns()
-  } catch {
-    runs = null
-  }
+  // One assignment, and the fallback is the value itself (lint: no-useless-assignment).
+  const runs: StoryRun[] | null = await listStoryboardRuns().catch(() => null)
   if (!runs || runs.length === 0) {
     return 'QA CONSISTENCY\n  (no storyboard runs available)'
   }
@@ -211,13 +207,10 @@ async function gatherQaConsistency(): Promise<string> {
 
   const rows: QaConsistencyRow[] = []
   for (const [storyId, run] of latestQaRunByStory) {
-    let verdict: boolean | null = null
-    try {
-      const evidence = await readForgeWorkflowEvidence(storyId)
-      verdict = evidence.qaPassed ?? null
-    } catch {
-      verdict = null
-    }
+    // One assignment: a failed read is `null` (unknown), never a fabricated verdict.
+    const verdict: boolean | null = await readForgeWorkflowEvidence(storyId)
+      .then((evidence) => evidence.qaPassed ?? null)
+      .catch(() => null)
     rows.push({
       storyId,
       runId: run.id,
