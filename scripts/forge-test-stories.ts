@@ -1164,6 +1164,123 @@ const STORIES: TestStory[] = [
       'and it does not bind a document to its owning record.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/route-authority.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-CONTRACT-ONE-WRITER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'The contract row has one writer, and a pair conflict does not stall the wave',
+    goal:
+      'No column of forge_role_contract is written by two rules, and planWave refuses to CO-SCHEDULE two ' +
+      'overlapping lanes instead of refusing the whole wave — so a disjoint third lane still runs.',
+    scope:
+      'scripts/forge-handoff.mjs (the forge_role_contract upsert: finding_ids, merge_checks and ' +
+      'surface_scope), workflow_app/forge/forge-executor.ts (planWave overlap handling and its log line), ' +
+      'workflow_app/tests/forge-executor-contract.test.ts, and the removal of the source-grep assertion in ' +
+      'workflow_app/tests/handoff-assignment-write.test.ts.',
+    acceptance:
+      'A write that would SHRINK finding_ids, merge_checks or surface_scope on forge_role_contract is ' +
+      'refused by name with the dropped entries, exactly like the assignment row — one decision, reused, not ' +
+      'a second SQL case. planWave with ready {A, B sharing a path} plus C disjoint schedules C and defers ' +
+      'the pair, and the plan states the refusal (both lanes and the shared path) rather than silently ' +
+      'reordering. A wave with one ready lane behaves exactly as it does today. The source-grep assertion is ' +
+      'gone and the folded three-write test is the only verdict on the writer.',
+    notes:
+      'FROM GROK 2026-09-17 review (B3, I3, I6, I8), verified here before filing. B3: ' +
+      'scripts/forge-handoff.mjs:467-472 still carries `case when cardinality(excluded.x) > 0 then ' +
+      'excluded.x else forge_role_contract.x end` for finding_ids, merge_checks AND surface_scope — the ' +
+      'assignment row was fixed on 2026-09-17 (88761a95) and the contract row kept the old writer, so one ' +
+      'fact has two writers. surface_scope is the load-bearing one: it is what ENG-FORGE-SURFACE-SUPPLIER-01 ' +
+      'would feed planWave from, and a silently shrunken surface can make two genuinely overlapping lanes ' +
+      'read as disjoint — the same batch, the same path. B4/I3: forge-executor.ts:206-217 returns ' +
+      '`{ ok: false }` for the ENTIRE wave on any pairwise overlap among known surfaces. It cannot fire ' +
+      'today because no lane declares a surface, which is exactly why it must be fixed before the supplier ' +
+      'is wired, not after. I8: a fold over three writes is the test; indexOf on the script is a second ' +
+      'verdict, and the handbook forbids two. HONEST BOUNDARY: this story does not wire a supplier (that is ' +
+      'ENG-FORGE-SURFACE-SUPPLIER-01) and it does not raise the concurrency cap.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/forge-executor-contract.test.ts workflow_app/tests/handoff-assignment-write.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-SURFACE-SUPPLIER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'The lane's declared surface reaches the wave and the commit, and the commit never lies',
+    goal:
+      'The surface a lane declared is actually SUPPLIED to planWave and to the commit helper — one list, two ' +
+      'call sites — so fan-out becomes a factory behaviour instead of a tested function, and a commit the ' +
+      'helper made is never reported as nothing.',
+    scope:
+      'scripts/forge-engine-worker.ts and workflow_app/forge/agent-runtime-role-runner.ts (supply surfaceOf ' +
+      'from the lane assignment/chunk surface), lib/worker-workspace/commit.ts (pass it as allowedScope and ' +
+      'stop returning commitHash null for a commit that exists), workflow_app/forge/forge-shaping.ts (the ' +
+      'MEDIUM floor from the shaper), workflow_app/tests/forge-executor-contract.test.ts.',
+    acceptance:
+      'surfaceOf has a production supplier: two non-fanout ready lanes whose declared surfaces are disjoint ' +
+      'are co-scheduled in one wave, witnessed by the wave log naming both lanes, and the same list reaches ' +
+      'the commit helper as allowedScope so `git add -A` is no longer the shared-checkout default. When the ' +
+      'post-commit backstop finds paths outside the surface it does NOT return commitHash null — it returns ' +
+      'the sha WITH the refusal, or undoes the commit it just made — and a test proves no path returns null ' +
+      'while a commit exists on the branch. MEDIUM comes from the shaper's seam groups (required findings ' +
+      'spanning two or more groups) rather than the model's all-1 feature self-rating.',
+    notes:
+      'FROM GROK 2026-09-17 review (B1, B2, B5, I1, I2, I4), each claim verified here first. B1: `surfaceOf` ' +
+      'occurs exactly twice in the tree — the option at forge-executor.ts:105 and the call at :383 ' +
+      '(`opts.surfaceOf?.(task) ?? null`) — with NO supplier in app, workflow_app, scripts, db, lib or ' +
+      'agent-runtime, so every non-fanout lane is surface:null, runs alone, and the wave is live only for ' +
+      'smith_split_work, which the old code already batched. PARALLEL-WAVE-01 (a7560803) is therefore ' +
+      'mechanism whose runtime effect is currently zero: the honest deduction on that story, recorded here ' +
+      'rather than quietly. B2: commitWorkerWorkspaceChanges IS called in production (agent-runtime/' +
+      'factory.ts:155, opencode-harness-adapter.ts, gateway/cli-agent-adapter.ts) but never with a scope, so ' +
+      'allowedScope is undefined and the helper takes its legacy branch — `git add -A` at commit.ts:102. ' +
+      'B5: commit.ts:88-99 commits at :89, then checks `git show --name-only HEAD` at :91 and returns ' +
+      '`{ commitHash: null, changed: false, refused: extras }` at :97 — a commit that exists on the branch ' +
+      'reported as nothing. DEPENDS ON ENG-FORGE-CONTRACT-ONE-WRITER-01: that story makes surface_scope ' +
+      'honest, and wiring a supplier onto a last-write-wins surface would let two overlapping lanes read as ' +
+      'disjoint. HONEST BOUNDARY: this story does not restore per-execution worktrees, does not raise ' +
+      'FORGE_SPLIT_CONCURRENCY above 2, and does not claim fan-out is observed — the observation is the ' +
+      'two-unit postcard, not this change.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/forge-executor-contract.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-RECEIPT-COLUMNS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium-High',
+    batch: 92,
+    title: 'A run receipt carries its own facts: a named cost source and its sha',
+    goal:
+      'A run receipt can be joined to its artifact and its spend without reading prose: the sha is in the ' +
+      'column, the cost source is a closed set, and a total spend states the coverage it was computed from.',
+    scope:
+      'db/forge-run.ts and the writer that fills cost_source / commit_hash / candidate sha for a run, the ' +
+      'QA-and-Assay receipt writer, workflow_app/tests/run-receipt-facts.test.ts (new).',
+    acceptance:
+      'Every completed run row carries the candidate sha it produced in commit_hash, so the release receipt ' +
+      'can be resolved to a commit without parsing notes. cost_source holds a value from a closed set ' +
+      '(vendor:<id> | tokens*weight | unrecorded) and unrecorded is WRITTEN rather than NULL, so a spend ' +
+      'total can state how many runs it covers. A receipt whose sha exists only inside its notes text is a ' +
+      'named defect in the test, and a run that produced no commit says so explicitly rather than leaving ' +
+      'the column empty.',
+    notes:
+      'FROM GROK 2026-09-17 review (B6/I7) — WITH A CORRECTION TO HIS EVIDENCE AND TO MINE. His B6 read ' +
+      '`cost_source = ?,vendor`. There is no stored `?`: my spend query was ' +
+      '`string_agg(distinct coalesce(cost_source,\'?\'), \',\')`, the `?` was MY placeholder for NULL, and he ' +
+      'read it as a value. What the column actually holds across storyboard_story_run: vendor 340 runs / ' +
+      '$8.3132 (all carry a cost), widgets 278 runs (no cost), NULL 317 runs (no cost) — so 595 of 935 runs ' +
+      'record no cost at all and the $2.26 quoted for the 2026-09-16 night is a FLOOR, not the spend. That is ' +
+      'a bigger defect than the bad word: a total that cannot state its coverage. The sha half is the same ' +
+      'family, measured live: tonight\'s runs report `commit (none recorded)` and ' +
+      '`candidate=(none) | verified=(none)`, the sha exists only in prose, and a rebase orphaned it — the QA ' +
+      'receipt names cbd05839 while the shipped commit is f8535364 with a byte-identical tree. HONEST ' +
+      'BOUNDARY: this makes receipts joinable and honest; it does not re-price historical runs and it does ' +
+      'not backfill rows already written.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/run-receipt-facts.test.ts`',
+  },
 ]
 
 
