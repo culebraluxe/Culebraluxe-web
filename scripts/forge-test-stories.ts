@@ -1084,6 +1084,49 @@ const STORIES: TestStory[] = [
     assayCommands:
       '- `node --import tsx --test workflow_app/tests/forge-executor-contract.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-FINDING-DROP-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'A chunk write cannot silently drop a finding from its assignment',
+    goal:
+      'One pure decision owns what a plan write does to an assignment: additive writes union, a replay is ' +
+      'idempotent, and a write that would DROP a finding is refused by name — so a multi-chunk plan can bind ' +
+      'every finding it declares.',
+    scope:
+      'a new pure decision module next to the plan reader (decideAssignmentWrite: existing row + incoming ' +
+      'write in, allow|refuse with the dropped ids out), scripts/forge-handoff.mjs (call it on the ' +
+      'forge_role_assignment upsert instead of the `cardinality > 0` replace), workflow_app/tests/ ' +
+      'handoff-assignment-write.test.ts (new).',
+    acceptance:
+      'A write that ADDS findings is allowed and the stored set is the UNION of what the assignment and the ' +
+      'write declare. Replaying the identical write changes nothing and is allowed. A write that DROPS a ' +
+      'finding the assignment already holds is REFUSED, and the refusal names the assignment id, the attempt ' +
+      'and every dropped finding id; the row is left untouched. The exact failure of 2026-09-17 is a test: ' +
+      'three chunk writes with disjoint finding sets against ONE assignment leave all of them assigned, and ' +
+      'no finding reads as unassigned. The refusal is a decider, not an advisory: the write path calls it ' +
+      'and a write it refuses cannot reach the database.',
+    notes:
+      'FOUND 2026-09-17 on SEC-SILENT-CATCH-01, first hand-off the Lead ever won. Attempt 1 wrote the plan ' +
+      'the doctrine wants — 3 bounded chunks (detector+test+learn-loop | scripts/package.json/tests | the six ' +
+      'portal routes) — and it was REFUSED with "each chunk write overwrote the assignment row, leaving ' +
+      'F1/F2/F5/F6 unassigned and the gate-unit surfaces outside the route-only scope". The cause is ' +
+      'mechanical: scripts/forge-handoff.mjs:217-221 upserts forge_role_assignment on every --chunk call ' +
+      'with `finding_ids = case when cardinality(excluded.finding_ids) > 0 then excluded.finding_ids else ' +
+      '<existing> end` — last non-empty write wins, and nothing refuses a write that shrinks a fact set. ' +
+      'Attempt 2 then collapsed everything into ONE chunk carrying all twelve surfaces, which is the only ' +
+      'shape that survives: so the surviving plan shapes are a single chunk on a single assignment, which ' +
+      'is why a Lead that reasons correctly still ends up doing the work itself, and why SPLIT (two or more ' +
+      'assignments, each with its own findings and chunks) has never been reachable. HONEST BOUNDARY: this ' +
+      'story does not make the Lead choose differently and does not add SPLIT; it removes one structural ' +
+      'reason a correct multi-chunk plan fails, and it does not retrofit rows already written. It is also ' +
+      'not the same defect as ENG-FORGE-PARALLEL-WAVE-01: that one is about running nodes concurrently, ' +
+      'this one is about a plan surviving its own writing.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/handoff-assignment-write.test.ts`',
+  },
 ]
 
 
