@@ -119,6 +119,7 @@ import {
 import { serialLaunchDoor, serialScopeMissReasons } from './forge-serial-doors'
 import { recordTraceEvent, listTraceEvents } from '../../db/workflow-trace'
 import { changedFilesForCandidate } from '../../lib/worker-workspace/candidate-diff'
+import { guardMigrationApplied, migrationAppliedRefusal } from './migration-applied-guard'
 import {
   acceptedLeadRouting,
   buildLeadRoutingContext,
@@ -1721,6 +1722,61 @@ export function createAgentRuntimeForgeRoleRunner(
     // HOLDed (thrown -> forge-executor releases the task) after the bounded
     // self-heal budget, instead of silently advancing.
     const miss: string[] = []
+
+    // ENG-FORGE-MIGRATION-APPLIED-01 — A STORY THAT SHIPS A MIGRATION IS NOT COMPLETE
+    // WHILE THE CONTROL PLANE MIGRATION LEDGER LACKS IT.
+    //
+    // The release lane is the last gate before Complete, so the story's own change set is
+    // measured here (the same git answer every scope check uses: changedFilesForCandidate
+    // from the story base) and every db/migrations/*.sql it adds must already be carried by
+    // the PROD schema_migration ledger. A story with no migration in its change set is
+    // unaffected, and so is one whose migration is ledgered — no false positives either way.
+    // An unmeasurable change set or ledger read fails CLOSED to a named HOLD: the column the
+    // code writes must exist before the code lands.
+    if (successful && (nodeId === 'deploy' || nodeId === 'production_smoke')) {
+      let migrationHoldReason: string | null = null
+      try {
+        if (!candidateSha) throw new Error('no candidate SHA is recorded at the release lane')
+        const changedPaths = await changedFilesForCandidate({
+          cwd: process.cwd(),
+          baseRef: scopeBase,
+          candidateSha,
+        })
+        const assessment = await guardMigrationApplied({ changedPaths })
+        if (!assessment.ok) migrationHoldReason = migrationAppliedRefusal(assessment.unapplied)
+      } catch (error) {
+        migrationHoldReason =
+          'could not verify the PROD migration ledger for the story change set: ' +
+          String((error as Error)?.message ?? error)
+      }
+      if (migrationHoldReason) {
+        const reason = `Forge ${nodeId} HOLD: ${migrationHoldReason}`
+        observeHold(forgeObserverSink, observerAttempt, { reasons: [reason], sha: candidateSha })
+        await openForgeHoldRecord({
+          processInstanceId: String(task.processInstanceId),
+          taskId: task.taskId ?? null,
+          storyId: resolvedStory.id,
+          reason,
+          originatingNode: nodeId,
+          failureClass: 'DELIVERABLE_REJECTED',
+          resumeTarget: null,
+        }).catch((error) => {
+          captureServerLog(
+            'warn',
+            'forge.hold-record',
+            `could not record the MIGRATION_LEDGER HOLD for ${resolvedStory.id}: ${(error as Error).message}`,
+          )
+        })
+        await markForgeStoryHumanHold(resolvedStory.id, reason).catch((error) => {
+          captureServerLog(
+            'warn',
+            'forge.hold-storyboard',
+            `could not mark ${resolvedStory.id} as HOLD: ${(error as Error).message}`,
+          )
+        })
+        throw new Error(reason)
+      }
+    }
 
     // LEAD routing validation is a PREREQUISITE for handing off execution, not an
     // optional formatting check — so it applies even when deliverable enforcement

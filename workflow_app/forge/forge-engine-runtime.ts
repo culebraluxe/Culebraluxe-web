@@ -311,9 +311,27 @@ export async function syncForgeStoryboardState(
     humanHold: options.humanHold,
   })
   switch (projection.state) {
-    case 'complete':
+    case 'complete': {
+      // ENG-FORGE-MIGRATION-APPLIED-01 — engine-terminal `complete` is reconciled onto the
+      // Storyboard HERE, so this is the seam that must refuse Complete while the PROD
+      // migration ledger lacks a migration the story's change set adds. A story with no
+      // migration in its change set, and one whose migration is ledgered, are unaffected.
+      // An unverifiable ledger FAILS CLOSED to a HOLD — never to Complete.
+      let holdReason: string | null
+      try {
+        holdReason = await migrationLedgerHoldReason(storyId)
+      } catch (error) {
+        holdReason =
+          'Forge completion held: could not verify the PROD migration ledger for this story — ' +
+          String((error as Error)?.message ?? error)
+      }
+      if (holdReason) {
+        await storyState.markForgeStoryHumanHold(storyId, holdReason)
+        break
+      }
       await storyState.markForgeStoryPublishedComplete(storyId)
       break
+    }
     case 'hold':
       await storyState.markForgeStoryHumanHold(storyId, projection.reason)
       break
@@ -324,4 +342,30 @@ export async function syncForgeStoryboardState(
       await storyState.markForgeStoryInProgress(storyId)
       break
   }
+}
+
+/**
+ * The PROD migration-ledger hold reason for a story — or null when its change set adds no
+ * migration, or adds only migrations the ledger already carries.
+ *
+ * The change set is the same git answer the scope checks use: the story's own commits
+ * (newest first, from `storyboard_story_run`), diffed from the parent of its earliest
+ * commit. The ledger is read from the LEDGER TABLE (PROD `schema_migration`), never the
+ * filesystem — a file on disk is not proof it was applied.
+ */
+async function migrationLedgerHoldReason(storyId: string): Promise<string | null> {
+  const [{ listStoryCommitHashes }, { changedFilesForCandidate }, guard] = await Promise.all([
+    import('../../db/storyboard'),
+    import('../../lib/worker-workspace/candidate-diff'),
+    import('./migration-applied-guard'),
+  ])
+  const commits = await listStoryCommitHashes(storyId)
+  if (commits.length === 0) return null
+  const changedPaths = await changedFilesForCandidate({
+    cwd: process.cwd(),
+    baseRef: `${commits[commits.length - 1]}^`,
+    candidateSha: commits[0],
+  })
+  const assessment = await guard.guardMigrationApplied({ changedPaths })
+  return assessment.ok ? null : guard.migrationAppliedRefusal(assessment.unapplied)
 }
