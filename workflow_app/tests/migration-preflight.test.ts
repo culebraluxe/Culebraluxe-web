@@ -52,6 +52,7 @@ test('takes only repo paths and ledger filenames, no story diff input', () => {
 test('a throwing ledger reader returns ok:false with a named refusal', async () => {
   const result = await preflightMigrationStart({
     repoPaths: repo,
+    baselineAt: null,
     readLedger: async () => {
       throw new Error('DATABASE_URL_PROD is not configured')
     },
@@ -61,13 +62,57 @@ test('a throwing ledger reader returns ok:false with a named refusal', async () 
 })
 
 test('both directions over fixture repo list and fixture ledger', async () => {
+  // baselineAt: null is the STRICT case: a ledger claiming coverage from the start judges every file.
   const unapplied = await preflightMigrationStart({
     repoPaths: repo,
+    baselineAt: null,
     ledgerFilenames: ['db/migrations/184_whatsapp_context_id.sql'],
   })
   assert.equal(unapplied.ok, false)
-  const applied = await preflightMigrationStart({ repoPaths: repo, ledgerFilenames: repo })
+  const applied = await preflightMigrationStart({ repoPaths: repo, baselineAt: null, ledgerFilenames: repo })
   assert.equal(applied.ok, true)
+})
+
+// THE BASELINE RULE (2026-09-17). The ledger is authoritative only from its `<baseline>` row forward; the
+// repo says so in scripts/migration-status.mjs ("unrecorded (pre-baseline or never applied here)"). The
+// first cut judged the whole repo, saw ~150 pre-baseline migrations, and refused to START ANY RUN — the
+// factory stop this guard was meant to prevent. Only migrations ADDED SINCE THE BASELINE can be judged.
+test('with a baseline, a pre-baseline migration is NOT reported as unapplied', async () => {
+  const result = await preflightMigrationStart({
+    repoPaths: ['db/migrations/001_initial_schema.sql', 'db/migrations/187_new.sql'],
+    ledgerFilenames: ['<baseline>', 'db/migrations/186_acceptance_assertions.sql'],
+    baselineAt: '2026-09-10T00:00:00.000Z',
+    candidatePaths: ['db/migrations/187_new.sql'],
+  })
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.unapplied, ['db/migrations/187_new.sql'])
+  assert.doesNotMatch(String(result.refusal), /001_initial_schema/)
+})
+
+test('with a baseline, the three-file case still refuses and names only those files', async () => {
+  const result = await preflightMigrationStart({
+    repoPaths: ['db/migrations/001_initial_schema.sql', ...repo],
+    ledgerFilenames: ['<baseline>'],
+    baselineAt: '2026-09-10T00:00:00.000Z',
+    candidatePaths: repo,
+  })
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.unapplied, repo)
+  assert.doesNotMatch(String(result.refusal), /001_initial_schema/)
+})
+
+test('a history that cannot be read since the baseline refuses by name', async () => {
+  const result = await preflightMigrationStart({
+    repoPaths: repo,
+    ledgerFilenames: ['<baseline>'],
+    baselineAt: '2026-09-10T00:00:00.000Z',
+    readCandidatePaths: () => {
+      throw new Error('git history unavailable')
+    },
+  })
+  assert.equal(result.ok, false)
+  assert.match(String(result.refusal), /baseline/i)
+  assert.match(String(result.refusal), /pre-baseline/)
 })
 
 test('three-file case', () => {

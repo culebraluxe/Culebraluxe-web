@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { readdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 import { forgeDb, forgeDbTargetForUrl } from '../../db/forge-db'
@@ -127,17 +128,29 @@ export function migrationPreflightRefusal(unapplied: readonly string[]): string 
 }
 
 /**
- * The pure start decision: every db/migrations/*.sql file in the repo LIST must be carried
- * by the ledger. The repo list is a filesystem answer, not a change set — nothing has
- * happened yet. Reuses the change-set assessment for the comparison only; the refusal it
- * returns is the repo-shaped one above.
+ * The pure start decision: every db/migrations/*.sql file that CAN BE JUDGED must be carried by the
+ * ledger. The repo list is a filesystem answer, not a change set — nothing has happened yet.
+ *
+ * THE BASELINE RULE (2026-09-17, same night, second pass): the ledger is authoritative only from its
+ * `<baseline>` row forward, and the repo says so in its own words — `scripts/migration-status.mjs` calls
+ * files absent from the ledger "unrecorded (pre-baseline or never applied here)" and refuses to claim
+ * which. The first cut of this guard called every unledgered file "unapplied", so on this repo it saw
+ * ~150 pre-baseline migrations and refused to START ANY RUN — a factory stop built by the guard meant to
+ * protect it. `candidatePaths` is therefore the caller's answer to "which migrations can be judged",
+ * which is the set ADDED SINCE THE BASELINE (git), and it defaults to the full repo list so the strict
+ * behaviour still holds when the ledger carries no baseline row and claims full coverage.
  */
 export function assessMigrationPreflight(input: {
   repoPaths: Iterable<string>
   ledgerFilenames: Iterable<string>
+  /** Paths that postdate the ledger baseline. Absent = judge the whole repo list (no baseline row). */
+  candidatePaths?: Iterable<string> | null
 }): MigrationPreflightAssessment {
+  const repoPaths = Array.from(input.repoPaths)
+  const judgeable =
+    input.candidatePaths == null ? repoPaths : repoPaths.filter((path) => new Set(input.candidatePaths).has(path))
   const assessment = assessMigrationApplied({
-    changedPaths: Array.from(input.repoPaths),
+    changedPaths: judgeable,
     ledgerFilenames: input.ledgerFilenames,
   })
   return {
@@ -157,6 +170,35 @@ export function listRepoMigrationFiles(repoRoot: string = process.cwd()): string
 }
 
 /**
+ * The migration files ADDED since `sinceIso` — the only ones that can be judged against the ledger when
+ * a `<baseline>` row exists. One git call, read-only, and it answers a question the filesystem cannot:
+ * which files are new enough to be this factory's responsibility.
+ */
+export function migrationsAddedSince(sinceIso: string, repoRoot: string = process.cwd()): string[] {
+  const out = execFileSync(
+    'git',
+    ['log', '--diff-filter=A', '--name-only', '--format=', `--since=${sinceIso}`, '--', 'db/migrations'],
+    { cwd: repoRoot, encoding: 'utf8' },
+  )
+  return Array.from(new Set(out.split('\n').map((line) => line.trim()).filter(Boolean))).sort()
+}
+
+/** The ledger's `<baseline>` timestamp for PROD, or null when the ledger claims coverage from the start. */
+export async function readProdMigrationBaselineAt(): Promise<string | null> {
+  const url = process.env.DATABASE_URL_PROD
+  if (!url) {
+    throw new Error('DATABASE_URL_PROD is not configured; the PROD migration baseline cannot be read')
+  }
+  const handle = forgeDb.forTarget(forgeDbTargetForUrl(url))
+  const result = await handle.query<{ applied_at: Date | string }>(
+    `select applied_at from schema_migration where target = 'prod' and filename = '<baseline>' order by applied_at desc limit 1`,
+  )
+  const first = result.rows[0]
+  if (!first) return null
+  return first.applied_at instanceof Date ? first.applied_at.toISOString() : String(first.applied_at)
+}
+
+/**
  * The start-seam preflight. Reads the repo file LIST and the PROD ledger, and NEVER throws:
  * an unreadable ledger fails CLOSED to the named refusal so the run refuses to start rather
  * than starting silently. The ledger reader is injectable for the both-directions proof.
@@ -166,6 +208,12 @@ export async function preflightMigrationStart(
     repoPaths?: Iterable<string>
     ledgerFilenames?: Iterable<string>
     readLedger?: () => Promise<string[]>
+    /** The ledger baseline timestamp, injected for tests; null means the ledger claims full coverage. */
+    baselineAt?: string | null
+    readBaselineAt?: () => Promise<string | null>
+    /** The post-baseline file set, injected for tests; only used when a baseline exists. */
+    candidatePaths?: Iterable<string> | null
+    readCandidatePaths?: (sinceIso: string) => string[]
   } = {},
 ): Promise<MigrationPreflightAssessment> {
   let repoPaths: string[]
@@ -180,9 +228,14 @@ export async function preflightMigrationStart(
       )}; refusing to start`,
     }
   }
+  let ledger: Iterable<string>
+  let baselineAt: string | null
   try {
-    const ledger = input.ledgerFilenames ?? (await (input.readLedger ?? readProdMigrationLedger)())
-    return assessMigrationPreflight({ repoPaths, ledgerFilenames: ledger })
+    ledger = input.ledgerFilenames ?? (await (input.readLedger ?? readProdMigrationLedger)())
+    baselineAt =
+      input.baselineAt !== undefined
+        ? input.baselineAt
+        : await (input.readBaselineAt ?? readProdMigrationBaselineAt)()
   } catch (error) {
     return {
       ok: false,
@@ -192,4 +245,28 @@ export async function preflightMigrationStart(
       )}; refusing to start`,
     }
   }
+  // No baseline row: the ledger claims coverage from the start, so every repo file can be judged.
+  if (baselineAt == null) {
+    return assessMigrationPreflight({ repoPaths, ledgerFilenames: ledger })
+  }
+  // A baseline row means only migrations ADDED AFTER IT are this factory's to judge; everything older is
+  // honestly "pre-baseline / unrecorded" and must not be reported as unapplied. A history that cannot be
+  // read refuses by name rather than judging the whole repo and stopping the factory on pre-baseline files.
+  let candidatePaths: Iterable<string>
+  try {
+    candidatePaths =
+      input.candidatePaths !== undefined && input.candidatePaths !== null
+        ? input.candidatePaths
+        : (input.readCandidatePaths ?? ((since: string) => migrationsAddedSince(since)))(baselineAt)
+  } catch (error) {
+    return {
+      ok: false,
+      unapplied: [],
+      refusal:
+        `could not read the migration history since the ledger baseline (${baselineAt}): ${String(
+          (error as Error)?.message ?? error,
+        )}; refusing to start rather than judging pre-baseline migrations as unapplied`,
+    }
+  }
+  return assessMigrationPreflight({ repoPaths, ledgerFilenames: ledger, candidatePaths })
 }
