@@ -1958,6 +1958,45 @@ const STORIES: TestStory[] = [
       'read-only; it does not decide whether a change is safe, and it reports what the records can show.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/impact-explorer.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-ACCEPTANCE-SUPPLIER-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'The acceptance mapping has a producer, so a covered story can PASS',
+    goal:
+      'A clause-to-assertion mapping is DECLARED before the work — by the Architect or Lead through the ' +
+      'handoff, or by the story author on the story row — so QA returns PASS for a story whose clauses are ' +
+      'all covered instead of UNPROVEN for every story in the factory.',
+    scope:
+      'scripts/forge-handoff.mjs (a contract flag carrying the mapping), the architect/lead directive that ' +
+      'asks for it, workflow_app/forge/forge-architect-contract.ts and the ready-gate facts supplier (one ' +
+      'reader that prefers the handoff and falls back to a story-declared mapping, naming which it used), a ' +
+      'migration if the story row needs the column, workflow_app/tests/acceptance-supplier.test.ts (new).',
+    acceptance:
+      'A story whose every clause maps to an assertion that ran and passed returns PASS — not UNPROVEN. The ' +
+      'mapping is declarable in BOTH places named above, one reader resolves them in a stated order, and ' +
+      'the record says which source was used. A story with no mapping at all still returns UNPROVEN with ' +
+      'the blocker acceptance-map-missing, unchanged. A partially mapped story returns UNPROVEN naming the ' +
+      'uncovered clause. A test drives all four cases: fully mapped PASS, partial UNPROVEN by name, absent ' +
+      'UNPROVEN, and handoff-declared beating story-declared.',
+    notes:
+      'FOUND 2026-09-17 at 09:38, by the instrument it concerns — the first production run after ' +
+      'ENG-FORGE-ACCEPTANCE-PROOF-01 landed: `forge.qa-verdict: qa_verify: QA UNPROVEN: blockers=' +
+      '[UNPROVEN acceptance-map-missing] failed=[none]` on ENG-FORGE-MIGRATION-REPLAY-01, whose work had ' +
+      'shipped and whose fence passed 8/8. Verified: the mapping has THREE readers ' +
+      '(forge-ready-gate.ts:36, lead-routing-context.ts:159, forge-architect-contract.ts:12/59) and NO ' +
+      'writer — no CLI flag carries it and no directive text asks the Architect or the Lead for it (a grep ' +
+      'for acceptance plus assert|map across the architect agent, its directive and the contract returns ' +
+      'nothing). So every story filed on 2026-09-17 reports UNPROVEN until this lands. This is the SAME ' +
+      'failure mode the night was spent fixing in other code — a mechanism with no supplier — committed by ' +
+      'the story meant to close that class, and it is recorded plainly because that is the point of the ' +
+      'doctrine. HONEST BOUNDARY: this supplies the fact; it does not change what UNPROVEN means, does not ' +
+      'weaken the gate that refuses a DECLARED mapping leaving a clause unmapped, and does not retro-act ' +
+      'on stories already ruled UNPROVEN — those become replayable once this lands.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/acceptance-supplier.test.ts`',
+  },
 ]
 
 
