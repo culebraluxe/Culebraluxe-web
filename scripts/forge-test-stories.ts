@@ -1002,9 +1002,11 @@ const STORIES: TestStory[] = [
       'docs/agent/FORGE-WORKSHOP.md, the MCP/serena configuration, a check that each named tool resolves, ' +
       'workflow_app/tests/workshop-tools.test.ts (new).',
     acceptance:
-      'Each tool named in the workshop doc resolves to a callable configuration; a tool that is named but ' +
-      'unwired FAILS the check. Serena (semantic code navigation) is wired or struck from the doc. A ' +
-      'fence keeps the doc and the configuration from drifting apart.',
+      'The check reads the SAME source `pnpm forge:tools` reads. A tool whose wired flag is false and ' +
+      'which is still listed for positions must either become wired, or be removed from those positions ' +
+      '— the doc follows the table, never the other way round. `serena` is false today while five ' +
+      'positions are told they have it; that is the defect this story closes. A tool named as available ' +
+      'but unwired FAILS the check, and the fence fails if the doc and the table drift apart again.',
     notes:
       'The captain, 2026-09-16: "i brought in those tools and they keep dogging my score… they were ' +
       'supposed to be in Workshop MD — use them if you want. Digging a hole with a garden spade when ' +
@@ -1013,7 +1015,37 @@ const STORIES: TestStory[] = [
       'class as the middleware claiming a capability nobody stamps.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/workshop-tools.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-ACCEPTANCE-PROOF-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 95,
+    title: 'The proof asserts the acceptance, not the cheapest reading of it',
+    goal:
+      'A story is judged against its OWN acceptance: a clause with no assertion behind it is reported ' +
+      'UNPROVEN rather than passed, and the lane that did the work does not get to choose what is tested.',
+    scope:
+      'the acceptance→assertion mapping (written before the work, by the Architect or the Lead), the QA ' +
+      'collector and adjudicator, workflow_app/tests/acceptance-proof.test.ts (new).',
+    acceptance:
+      'For a story, each acceptance condition maps to at least one assertion in the frozen proof. A ' +
+      'condition with no assertion makes the verdict UNPROVEN, and the report names the condition. The ' +
+      'mapping is written BEFORE the work and a lane that changes it is recorded as having done so. A test ' +
+      'proves the case that bit: a proof that passes while an acceptance condition is unmet comes back ' +
+      'UNPROVEN, not PASS.',
+    notes:
+      'MEASURED 2026-09-16 on WORKSHOP-TOOLS-01: qaPassed=true, story Complete 100, and the acceptance — ' +
+      '"a tool whose wired flag is false and which is still listed for positions must become wired, or be ' +
+      'removed from those positions" — was NOT met. `serena` still reads wired=false with five positions. ' +
+      'The lane authored the proof, so the proof tested the cheaper reading (the docs), and QA honestly ' +
+      'ruled that the tests passed. QA measures what it is given; nothing checked that the given thing was ' +
+      'the acceptance. This is the sharpest form of "verdicts are self-reported", and it is a hole in the ' +
+      'way every story in sprints 91-97 will be judged, including this one.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/acceptance-proof.test.ts`',
+  },
 ]
+
 
 
 

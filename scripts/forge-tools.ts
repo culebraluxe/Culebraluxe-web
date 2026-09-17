@@ -36,8 +36,14 @@ function printCatalog() {
   console.log('tool       class           wired  positions')
   for (const id of FORGE_TOOL_IDS) {
     const d = FORGE_TOOL_CATALOG[id]
+    // AN UNWIRED TOOL HAS NO POSITIONS. The grants already say so — resolveForgeToolPermissions filters to
+    // `wired` tools and reports 'not-wired' — but this table printed `roles` for every tool, so an unwired
+    // tool read as though five positions held it. That misreading happened twice on 2026-09-16 (a code review
+    // and a lane both concluded Serena was available), and the fix is to print what the engine actually
+    // grants while keeping the intended list visible for whoever restores the tool.
+    const positions = d.wired ? d.roles.join(' ') : `— none granted (intended: ${d.roles.join(' ')})`
     console.log(
-      `${id.padEnd(10)} ${d.toolClass.padEnd(15)} ${(d.wired ? 'yes' : 'NO ').padEnd(6)} ${d.roles.join(' ')}`,
+      `${id.padEnd(10)} ${d.toolClass.padEnd(15)} ${(d.wired ? 'yes' : 'NO ').padEnd(6)} ${positions}`,
     )
   }
   console.log(`\nmodel-forbidden (never in a model catalog): ${modelForbiddenTools().join(', ')}`)
