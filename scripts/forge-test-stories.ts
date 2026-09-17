@@ -1369,6 +1369,52 @@ const STORIES: TestStory[] = [
       'arrived, not a reconstruction).',
     assayCommands: '- `node --import tsx --test workflow_app/tests/whatsapp-attribution.test.ts`',
   },
+  {
+    id: 'ENG-FORGE-FINDING-SUPERSEDE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'A later architect attempt cannot silently drop a seam the earlier one declared',
+    goal:
+      'A re-issued findings set that loses a seam the previous attempt declared is refused by name or ' +
+      'recorded as an explicit supersede — never a silent drop — and the Lead can see which attempt is in ' +
+      'force and what it lost.',
+    scope:
+      'scripts/forge-handoff.mjs (the --findings writer), db/forge-role-finding.ts (listStoryForgeFindings: ' +
+      'what "the newest attempt" means and how a supersede is recorded), the routing context built in ' +
+      'workflow_app/forge/agent-runtime-role-runner.ts:519-533, workflow_app/tests/' +
+      'forge-role-finding-supersede.test.ts (new).',
+    acceptance:
+      'Writing findings for attempt N that omits a seam declared by attempt N-1 for the same node and ' +
+      'process instance either REFUSES the write naming the dropped seam, or records a supersede that names ' +
+      'it — the two are distinguishable in the row and in the routing context, and a silent drop is not a ' +
+      'reachable outcome. The Lead routing context states which attempt is in force and, where a seam was ' +
+      'dropped, names the dropped seam and the attempt that declared it, so a HOLD blames the right thing. ' +
+      'A test drives two attempts where the second drops a seam and asserts the refusal/supersede and the ' +
+      'visible seam loss; a second test keeps the behaviour the newest-attempt rule exists for (a story-wide ' +
+      'read resurrecting earlier attempts must still not produce duplicate finding ids).',
+    notes:
+      'FOUND 2026-09-17 on APP-WHATSAPP-ATTRIBUTION-01, by the captain asking why an amended Architect ' +
+      'artifact did not reach the Lead. Measured in forge_role_finding: attempt 1 wrote four findings, TWO ' +
+      'of which carried the seam lib/whatsapp-cloud/ (c6206dcb, e867e9f8); attempt 2 wrote SIX findings and ' +
+      'NONE carried it (they name app/api/integrations/whatsapp/webhook/route.ts, db/landing.ts, ' +
+      'db/migrations/ and workflow_app/tests/). The reader takes the NEWEST attempt per node ' +
+      '(agent-runtime-role-runner.ts:519-529, deliberately, so a story-wide read does not resurrect earlier ' +
+      'attempts duplicates), so the Lead routed against the worse set and HOLDed twice: first because a pure ' +
+      'mapper cannot be exported from route.ts under Next route-export typing, then because "the routing ' +
+      'validator allowed seams are the pre-correction set and exclude lib/whatsapp-cloud/". A ' +
+      'forge-story-reset produced a fresh instance whose architect DID declare the seam, and the story then ' +
+      'routed SMITH and shipped. CONTRIBUTING CAUSE, not this story defect: a resumed instance replans ' +
+      'against its frozen snapshots, so amending the story row mid-flight changes nothing until the instance ' +
+      'is reset — that is now the documented operational path, and the same applies to any future edit. ' +
+      'RELATION: this is the SAME law as decideAssignmentWrite and decideContractWrite (add unions, empty ' +
+      'is a no-op, a shrink is refused by name), applied to the table routing actually reads. It is also why ' +
+      'a correct Architect can look wrong from the Lead seat. HONEST BOUNDARY: this does not make an ' +
+      'instance re-read an amended story, does not change how the Architect plans, and does not retrofit ' +
+      'rows already written.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/forge-role-finding-supersede.test.ts`',
+  },
 ]
 
 
