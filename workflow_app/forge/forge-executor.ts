@@ -3,6 +3,7 @@ import {
   completeForgeRoleTask,
   findActiveForgeInstance,
   listActiveForgeRoleTasks,
+  reconcileForgeCompletions,
   releaseForgeRoleTask,
   syncForgeStoryboardState,
   startForgeWorkflow,
@@ -12,11 +13,7 @@ import {
 import type { ForgeGateEvidence } from './forge-facts'
 import { fileOf, overlap, within } from './agents/shared/path'
 import { engineSql } from '../engine-client'
-import {
-  incrementForgeReplan,
-  incrementForgeRepair,
-  recordForgeQaFailure,
-} from '../../db/forge-repair-ledger'
+import { recordForgeQaFailure } from '../../db/forge-repair-ledger'
 
 export type ForgeRoleOutcome = {
   transitionName?: string
@@ -269,6 +266,13 @@ export async function driveForgeStory(
     instanceId = started.instanceId
   }
 
+  // RESUME FIRST — finish any completed role task whose completion unit did not commit
+  // before this run's transition. A crash between the engine transition and the evidence
+  // write (or between the evidence and the repair counter) leaves the task completed with
+  // no receipt; reconciling here COMPLETES it from the durable engine record instead of
+  // re-running the role, and the receipt keeps the effects exactly-once.
+  await reconcileForgeCompletions(storyId)
+
   for (let i = 0; i < maxSteps; i++) {
     const tasks = await listActiveForgeRoleTasks(storyId)
     if (tasks.length === 0) break
@@ -350,13 +354,9 @@ export async function driveForgeStory(
           evidence: outcome.evidence,
           userId: actor,
         })
-        // V11-S1 observers: a repair/replan actually happened — record it so the
-        // durable counts the engine reads for the NEXT QA decision stay truthful.
-        if (task.nodeId === 'repair_smith') {
-          await incrementForgeRepair(storyId, engineSql())
-        } else if (task.nodeId === 'repair_architect') {
-          await incrementForgeReplan(storyId, engineSql())
-        }
+        // V11-S1 observers: the repair/replan counter is incremented INSIDE the
+        // completion unit (see applyForgeCompletionUnit), in the same transaction as
+        // the evidence merge, so a crash can no longer separate the two and undercount.
       } catch (err) {
         if (isAdvanceConflict(err)) return
         try {

@@ -4,6 +4,7 @@ import { engineConfigured, engineSql } from '../engine-client'
 import { startWorkflowCore } from '../start-core'
 import { createForgeApplicationPort } from './application-port'
 import { captureServerError } from '../../lib/server-error-capture'
+import type { QueryExecutor } from '../../db/query-executor'
 import type { ForgeGateEvidence } from './forge-facts'
 
 async function createDurableForgeApplicationPort(pendingEvidence?: ForgeGateEvidence) {
@@ -209,23 +210,29 @@ export { FORGE_SDLC_KEY as FORGE_DEFINITION_KEY }
  */
 export async function completeForgeRoleTask(
   taskId: string,
-  opts: { transitionName?: string; evidence?: ForgeGateEvidence; userId?: string } = {},
+  opts: {
+    transitionName?: string
+    evidence?: ForgeGateEvidence
+    userId?: string
+    /** Test seam for the completion unit (crash injection). Never set in production. */
+    unit?: ForgeCompletionUnitDeps
+  } = {},
 ): Promise<void> {
   if (!engineConfigured()) {
     throw new Error('Workflow engine database is not configured.')
   }
   const evidence = opts.evidence ?? {}
   const taskRows = await engineSql()`
-    select t.process_instance_id, pi.subject_id as story_id
+    select t.process_instance_id, pi.subject_id as story_id, tk.node_id as node_id
     from tasks t
     join process_instances pi on pi.id = t.process_instance_id
+    left join tokens tk on tk.id = t.token_id
     where t.id = ${taskId}
   `
   const task = taskRows[0]
   if (!task?.process_instance_id || !task?.story_id) {
     throw new Error(`Forge task ${taskId} is missing its workflow/story relationship`)
   }
-  const { mergeForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
   const engine = new WorkflowEngine(engineSql(), {
     app: await createDurableForgeApplicationPort(evidence),
   })
@@ -253,16 +260,151 @@ export async function completeForgeRoleTask(
     formData: evidence,
   })
 
-  // Only a worker that WON the transition reaches here. If this write fails, the run
-  // advances with evidence missing — fail-closed, because the next role's gate reports
-  // the absent deliverable and HOLDs — which is strictly better than the previous
-  // order, where a loser's evidence was durable. The failure itself is captured by the
-  // database gateway rather than swallowed.
-  await mergeForgeWorkflowEvidence(
-    task.process_instance_id as string,
-    task.story_id as string,
-    evidence,
+  // Only a worker that WON the transition reaches here. The evidence merge and any
+  // repair/replan increment now commit as ONE exactly-once unit behind a claim-first
+  // receipt (see applyForgeCompletionUnit): if either write fails the transaction rolls
+  // back and the receipt is not committed, so a later run FINISHES the unit from the
+  // engine's own durable record instead of re-running the role. A crash between the
+  // transition and the unit is the same story — reconcileForgeCompletions picks it up.
+  await applyForgeCompletionUnit(
+    {
+      taskId,
+      processInstanceId: task.process_instance_id as string,
+      storyId: task.story_id as string,
+      nodeId: task.node_id == null ? null : String(task.node_id),
+      evidence,
+    },
+    opts.unit,
   )
+}
+
+// ---------------------------------------------------------------------------
+// THE COMPLETION UNIT — advancing the engine, persisting evidence and counting a
+// repair are one recoverable, idempotent step.
+//
+// The engine's transition is the CAS that decides the winner and is already
+// exactly-once (ENG-13). What was NOT recoverable was everything AFTER it: the
+// evidence merge and the repair/replan increment were separate writes, so a crash
+// between them left an advanced workflow with no result and an undercounted repair.
+//
+// One claim-first receipt keyed by task id serializes the unit: the claim, the
+// evidence merge, the counter increment and the finalize all run in ONE transaction,
+// so a crash rolls back the whole unit and the receipt is absent — which is exactly
+// the durable signal a later run reconciles on. The 'pending' sentinel therefore never
+// persists (matching the receipt table's contract); the absence of a receipt IS the
+// crash-window record.
+// ---------------------------------------------------------------------------
+
+export type ForgeCompletionUnitDeps = {
+  mergeEvidence?: (
+    processInstanceId: string,
+    storyId: string,
+    evidence: ForgeGateEvidence,
+    execute?: QueryExecutor,
+  ) => Promise<void>
+  incrementRepair?: (storyId: string, execute: QueryExecutor) => Promise<unknown>
+  incrementReplan?: (storyId: string, execute: QueryExecutor) => Promise<unknown>
+  claim?: (tx: QueryExecutor, commandId: string) => Promise<boolean>
+  finalize?: (tx: QueryExecutor, commandId: string) => Promise<void>
+  /** Test seam: runs after the engine transition and before the unit — the first crash window. */
+  afterTransition?: () => Promise<void> | void
+  /** Test seam: runs after the evidence merge and before the counter — the second crash window. */
+  afterEvidence?: () => Promise<void> | void
+}
+
+/** The receipt id that marks one engine task's completion as accounted. */
+export function forgeCompletionReceiptId(taskId: string): string {
+  return `forge.completion:${taskId}`
+}
+
+type ForgeInteractiveExecutor = QueryExecutor & {
+  begin: (cb: (tx: QueryExecutor) => Promise<unknown>) => Promise<unknown>
+}
+
+/**
+ * Apply one completed role task's effects exactly once: merge its evidence and, for a
+ * repair node, count the attempt — all inside one claim-first receipt transaction.
+ * A loser (or a re-run after a committed unit) claims nothing and returns.
+ */
+export async function applyForgeCompletionUnit(
+  input: {
+    taskId: string
+    processInstanceId: string
+    storyId: string
+    nodeId: string | null
+    evidence: ForgeGateEvidence
+  },
+  deps: ForgeCompletionUnitDeps = {},
+): Promise<void> {
+  await deps.afterTransition?.()
+  const { mergeForgeWorkflowEvidence } = await import('../../db/forge-workflow-evidence')
+  const { claimReceipt, finalizeReceipt } = await import('../../db/workflow-command-receipt')
+  const { incrementForgeRepair, incrementForgeReplan } = await import('../../db/forge-repair-ledger')
+  const mergeEvidence = deps.mergeEvidence ?? mergeForgeWorkflowEvidence
+  const claim = deps.claim ?? ((tx: QueryExecutor, id: string) => claimReceipt(tx, id))
+  const finalize =
+    deps.finalize ??
+    ((tx: QueryExecutor, id: string) => finalizeReceipt(tx, id, 'success', input.taskId, null))
+  const incRepair =
+    deps.incrementRepair ??
+    ((storyId: string, tx: QueryExecutor) => incrementForgeRepair(storyId, tx))
+  const incReplan =
+    deps.incrementReplan ??
+    ((storyId: string, tx: QueryExecutor) => incrementForgeReplan(storyId, tx))
+  const receiptId = forgeCompletionReceiptId(input.taskId)
+  const tx = engineSql() as ForgeInteractiveExecutor
+  await tx.begin(async (client) => {
+    const won = await claim(client, receiptId)
+    if (!won) return
+    await mergeEvidence(input.processInstanceId, input.storyId, input.evidence, client)
+    await deps.afterEvidence?.()
+    if (input.nodeId === 'repair_smith') await incRepair(input.storyId, client)
+    else if (input.nodeId === 'repair_architect') await incReplan(input.storyId, client)
+    await finalize(client, receiptId)
+  })
+}
+
+/**
+ * RESUME DOOR — finish any completed role task whose completion unit did not commit.
+ *
+ * Reads the evidence from the engine's own durable record (the `task.completed`
+ * event the winning transition wrote) and applies the unit. A task whose receipt
+ * already exists is skipped, so a later run never re-runs the role and never
+ * double-counts a repair attempt. The watermark bounds the replay to completions
+ * newer than the newest receipt, so history is not re-counted when the unit ships.
+ */
+export async function reconcileForgeCompletions(storyId: string): Promise<number> {
+  if (!engineConfigured()) return 0
+  const instanceId = await findActiveForgeInstance(storyId)
+  if (!instanceId) return 0
+  const { readFinalReceipt, readReceiptWatermark } = await import('../../db/workflow-command-receipt')
+  const watermark = await readReceiptWatermark(engineSql(), 'forge.completion:')
+  const rows = await engineSql()`
+    select e.task_id, tk.node_id, e.data->'formData' as form_data
+    from process_events e
+    join tasks t on t.id = e.task_id
+    left join tokens tk on tk.id = t.token_id
+    where e.process_instance_id = ${instanceId}
+      and e.event_type = 'task.completed'
+      and t.status = 'completed'
+      and (${watermark}::timestamptz is null or e.created_at > ${watermark}::timestamptz)
+    order by e.created_at, e.id
+  `
+  let applied = 0
+  for (const row of rows) {
+    const taskId = String(row.task_id)
+    const existing = await readFinalReceipt(engineSql(), forgeCompletionReceiptId(taskId))
+    if (existing) continue
+    await applyForgeCompletionUnit({
+      taskId,
+      processInstanceId: instanceId,
+      storyId,
+      nodeId: row.node_id == null ? null : String(row.node_id),
+      evidence: (row.form_data ?? {}) as ForgeGateEvidence,
+    })
+    applied += 1
+  }
+  return applied
 }
 
 /** Claim a Forge engine task before any external runner is launched. */

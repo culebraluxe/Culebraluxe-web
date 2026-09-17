@@ -120,3 +120,27 @@ export async function readFinalReceipt(
     actorAppUserId: (r.actor_app_user_id as string | null) ?? null,
   }
 }
+
+/**
+ * The newest receipt time for a command-id prefix — the reconciliation
+ * watermark a resume uses to tell a crash-window completion from history.
+ *
+ * A completed task older than the newest receipt for the same family was
+ * already accounted by an earlier run, so a resume must not replay it into the
+ * counters. Returns an ISO string (the repository normalizes the driver value)
+ * or null when the family has no receipts yet.
+ */
+export async function readReceiptWatermark(
+  tx: QueryExecutor,
+  prefix: string,
+): Promise<string | null> {
+  const rows = await tx`
+    select max(created_at) as watermark
+    from workflow_command_receipt
+    where command_id like ${`${prefix}%`}
+  `
+  const raw = rows[0]?.watermark
+  if (raw === null || raw === undefined) return null
+  const date = raw instanceof Date ? raw : new Date(String(raw))
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
