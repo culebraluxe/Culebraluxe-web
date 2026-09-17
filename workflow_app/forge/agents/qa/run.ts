@@ -109,7 +109,20 @@ export function adjudicateAssay(input: {
   // that carries its own frozen proofs, so no commands means upstream is broken — and a broken upstream is
   // named, not passed.
   if (input.plan.commands.length === 0) blockers.push('NO_ASSAY_COMMANDS')
-  if (input.commands.length !== input.plan.commands.length) blockers.push('ASSAY_COMMAND_DRIFT')
+  if (input.commands.length !== input.plan.commands.length) {
+    blockers.push('ASSAY_COMMAND_DRIFT')
+  } else {
+    // THE SET, NOT THE COUNT. Two runs with the same NUMBER of commands but different
+    // identities are not the same evidence. The plan is ordered and `runAssayCommands` pairs
+    // results to it positionally, so a result whose `command` does not match its planned
+    // command is a SUBSTITUTION — named here, never accepted as the same proof.
+    for (let i = 0; i < input.plan.commands.length; i++) {
+      const actual = input.commands[i]?.command
+      if (actual !== input.plan.commands[i]) {
+        blockers.push(`ASSAY_COMMAND_SUBSTITUTED ${actual ?? input.plan.commands[i]}`)
+      }
+    }
+  }
 
   const failed = input.commands.filter((c) => !c.passed)
   if (failed.length) {
@@ -175,6 +188,7 @@ export function adjudicateAssay(input: {
   const commandFailure = blockers.some(
     (b) =>
       b.startsWith('CMD_') ||
+      b.startsWith('ASSAY_COMMAND_SUBSTITUTED') ||
       b.startsWith('ARCH ') ||
       b === 'NO_ASSAY_COMMANDS' ||
       b === 'ASSAY_COMMAND_DRIFT',

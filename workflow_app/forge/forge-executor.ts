@@ -13,7 +13,8 @@ import {
 import type { ForgeGateEvidence } from './forge-facts'
 import { fileOf, overlap, within } from './agents/shared/path'
 import { engineSql } from '../engine-client'
-import { recordForgeQaFailure } from '../../db/forge-repair-ledger'
+import type { QueryExecutor } from '../../db/query-executor'
+import { recordForgeQaFailure, recordForgeQaPass } from '../../db/forge-repair-ledger'
 
 export type ForgeRoleOutcome = {
   transitionName?: string
@@ -59,6 +60,50 @@ export const defaultForgeRoleRunner: ForgeRoleRunner = async (nodeId) => ({
   transitionName: 'complete',
   evidence: defaultEvidenceFor(nodeId),
 })
+
+/**
+ * Complete a role task and, ONLY when this worker WON the transition, record the QA disposition.
+ *
+ * `complete` is the engine's completion CAS (`completeForgeRoleTask`): it resolves for the winner and
+ * throws for a worker that lost the race. The disposition write runs AFTER it, so a losing QA worker
+ * writes nothing and can never overwrite the winner's verdict on
+ * `storyboard_story.forge_last_qa_disposition`. Routing is unaffected: the completing task's own
+ * evidence rides into the transition as `pendingEvidence`, which `createForgeApplicationPort` merges
+ * OVER the durable read (application-port.ts:127), so `qa_failure_route` still sees the winner's
+ * disposition. A winning PASS also clears `forge_last_failure_reason`, so a stale loser FAIL cannot
+ * linger.
+ */
+export async function completeRoleTaskThenRecordQaDisposition(input: {
+  nodeId: string
+  storyId: string
+  outcome: ForgeRoleOutcome
+  /** The engine completion CAS. It throws for a worker that lost the race. */
+  complete: () => Promise<void>
+  execute?: QueryExecutor
+  recordFailure?: typeof recordForgeQaFailure
+  recordPass?: typeof recordForgeQaPass
+}): Promise<void> {
+  await input.complete()
+  if (input.nodeId !== 'qa_verify') return
+  const recordFailure = input.recordFailure ?? recordForgeQaFailure
+  const recordPass = input.recordPass ?? recordForgeQaPass
+  const execute = input.execute ?? engineSql()
+  if (input.outcome.evidence.qaPassed === false && input.outcome.evidence.disposition) {
+    const reason =
+      input.outcome.evidence.failedCommands?.join('; ') ||
+      input.outcome.evidence.failedCriteria?.join('; ') ||
+      'QA verification failed'
+    await recordFailure(
+      input.storyId,
+      { disposition: input.outcome.evidence.disposition, reason },
+      execute,
+    )
+    return
+  }
+  if (input.outcome.evidence.qaPassed === true) {
+    await recordPass(input.storyId, execute)
+  }
+}
 
 async function instanceStatus(instanceId: string): Promise<string | null> {
   const rows = await engineSql()`
@@ -331,28 +376,22 @@ export async function driveForgeStory(
       onProgress?.(`\u2192 ${task.nodeId}: running (claimed by ${actor})`)
       try {
         outcome = await runner(task.nodeId, task)
-        // V11-S1: record the QA disposition durably BEFORE the engine advances
-        // past QA, so qa_result -> qa_failure_route can route on it via the
-        // durable reader. The ledger is an OBSERVER; the engine is the stop.
-        if (
-          task.nodeId === 'qa_verify' &&
-          outcome.evidence.qaPassed === false &&
-          outcome.evidence.disposition
-        ) {
-          const reason =
-            outcome.evidence.failedCommands?.join('; ') ||
-            outcome.evidence.failedCriteria?.join('; ') ||
-            'QA verification failed'
-          await recordForgeQaFailure(
-            storyId,
-            { disposition: outcome.evidence.disposition, reason },
-            engineSql(),
-          )
-        }
-        await completeForgeRoleTask(task.taskId, {
-          transitionName: outcome.transitionName ?? 'complete',
-          evidence: outcome.evidence,
-          userId: actor,
+        // V11-S1: record the QA disposition durably, but ONLY on the winner-only path.
+        // `completeRoleTaskThenRecordQaDisposition` runs the engine's completion CAS first and
+        // writes the ledger AFTER it resolves, so a QA worker that loses the completion race
+        // writes nothing and cannot overwrite the winner's verdict. Routing is unaffected: the
+        // winner's own evidence rides into the transition as `pendingEvidence`. The ledger is an
+        // OBSERVER; the engine is the stop.
+        await completeRoleTaskThenRecordQaDisposition({
+          nodeId: task.nodeId,
+          storyId,
+          outcome,
+          complete: () =>
+            completeForgeRoleTask(task.taskId, {
+              transitionName: outcome.transitionName ?? 'complete',
+              evidence: outcome.evidence,
+              userId: actor,
+            }),
         })
         // V11-S1 observers: the repair/replan counter is incremented INSIDE the
         // completion unit (see applyForgeCompletionUnit), in the same transaction as
