@@ -1324,6 +1324,48 @@ const STORIES: TestStory[] = [
       'held at the release stage.',
     assayCommands: '- `node --import tsx --test workflow_app/tests/forge-release-receipt.test.ts`',
   },
+  {
+    id: 'APP-WHATSAPP-ATTRIBUTION-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'NEXUS',
+    priority: 'High',
+    batch: 97,
+    title: 'A WhatsApp message says which line received it and what thread it belongs to',
+    goal:
+      'An inbound WhatsApp message lands with the RECEIVING line, a stable thread key and the envelope facts ' +
+      'it was read from — so the CRM can answer "who last spoke, on which line, in which thread" from the ' +
+      'record instead of from a phone.',
+    scope:
+      'app/api/integrations/whatsapp/webhook/route.ts (the landing mapping), db/landing.ts (the writer and its ' +
+      'input), a migration only if a column is required, workflow_app/tests/whatsapp-attribution.test.ts (new).',
+    acceptance:
+      'For an inbound message, to_address holds the RECEIVING business line read from the envelope ' +
+      '(metadata.display_phone_number, with phone_number_id still on source_account) — never inferred from a ' +
+      'field Meta does not send on inbound. conversation_id is a STABLE thread key derived from the receiving ' +
+      'line and the contact, so two messages between the same pair share one thread, while a quoted reply ' +
+      'context id is still recorded where present. The contact name from contacts[].profile.name is captured. ' +
+      'The landed raw carries the envelope facts actually read (metadata and the matching contact), so the ' +
+      'row stops claiming the raw Meta payload while holding one message object. A test drives the mapping ' +
+      'from a realistic payload — envelope metadata, a contacts entry and an inbound text — and asserts every ' +
+      'clause above, plus that two messages with the same pair share a conversation_id and that the newest ' +
+      'sent_at per conversation_id is the answer to "when did we last hear from this thread".',
+    notes:
+      'FOUND 2026-09-17 by verifying the captain\'s first real inbound message, the night the WABA ' +
+      'subscription fix landed (a genuine Meta wamid, "Handshake test 11:14 pm", on Coexistence WABA ' +
+      '1330394873483351). The row was REAL and the attribution was not: source_account held the ' +
+      'phone_number_id (so the line was half-answered), but to_address was null, conversation_id was null ' +
+      'and media_id was null, and raw held only the normalized message object ' +
+      '(id/from/text/type/timestamp/from_user_id) — no metadata, no contact, no profile name. Cause, read ' +
+      'in the route: conversationId comes from message.context?.id, which only a QUOTED REPLY carries; ' +
+      'toAddress comes from message.to, which Meta does not send on inbound (it sends from); and raw is the ' +
+      'message, not the envelope, while the comment above the write claims the raw payload lands before any ' +
+      'normalization. The captain\'s need is small and specific: the METADATA is the point ("just to know ' +
+      'what is last time a message happened"), which the thread key plus max(sent_at) answers. HONEST ' +
+      'BOUNDARY: this does not add delivery/status receipts, does not download media, does not touch the ' +
+      'Meta-side subscription, and does not backfill the one historical real row (it is a record of what ' +
+      'arrived, not a reconstruction).',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/whatsapp-attribution.test.ts`',
+  },
 ]
 
 
