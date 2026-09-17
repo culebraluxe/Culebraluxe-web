@@ -4,6 +4,10 @@ import test from 'node:test'
 import type { AgentRunEvidence } from '../../agent-runtime/types'
 import { forgeEvidenceFromAgentResult } from '../forge/forge-role-mapping'
 import {
+  attestIntegration,
+  releaseEvidenceFromIntegration,
+} from '../forge/forge-integration-attestation'
+import {
   assessReleaseReceipt,
   deploymentReceiptFailureReason,
   isPlaceholderReceiptId,
@@ -145,4 +149,66 @@ test('TECH-DEBT-07: only a RECORDED batch deferral counts as a deferral', () => 
   assert.equal(isRecordedDeploymentDeferral(null), false)
   assert.equal(isRecordedDeploymentDeferral(undefined), false)
   assert.equal(isRecordedDeploymentDeferral(Number.NaN), false)
+})
+
+// --- the deploy gate passes on a receipt the repo actually produces -----------
+//
+// The producer is `forge-integration-attestation.ts`: a publish-only story (no deployment
+// required) is released on the integration attestation built from the published sha's
+// containment in origin/main and the frozen proofs that actually ran. The gate no longer
+// depends on a receipt that only a prior writer could have set.
+
+function publishOnlyReceipt() {
+  return releaseEvidenceFromIntegration(
+    attestIntegration({
+      candidateSha: SHA,
+      integratedRef: 'origin/main',
+      isAncestor: () => true,
+      proofs: [
+        {
+          command: 'node --import tsx --test workflow_app/tests/forge-release-receipt.test.ts',
+          exitCode: 0,
+          durationMs: 65,
+        },
+      ],
+    }),
+  )
+}
+
+test('TECH-DEBT-07: a no-deployment story passes the deploy gate on the derived integration attestation', () => {
+  const receipt = publishOnlyReceipt()
+  assert.ok(receipt, 'the producer produced a receipt')
+  assert.equal(receipt!.kind, 'integration')
+  assert.equal(receipt!.receiptId.startsWith('integration:'), true)
+  const evidence = forgeEvidenceFromAgentResult({
+    nodeId: 'deploy',
+    result: result({ releaseEvidence: receipt }),
+    current: { publishedSha: SHA, deploymentRequired: false },
+  })
+  assert.equal(evidence.deploymentSucceeded, true)
+  assert.equal(evidence.deployedSha, SHA)
+  assert.equal(evidence.failureClass, undefined)
+})
+
+test('TECH-DEBT-07: the same publish-only attestation fails closed when the story requires a deployment', () => {
+  const receipt = publishOnlyReceipt()
+  const evidence = forgeEvidenceFromAgentResult({
+    nodeId: 'deploy',
+    result: result({ releaseEvidence: receipt }),
+    current: { publishedSha: SHA, deploymentRequired: true },
+  })
+  assert.notEqual(evidence.deploymentSucceeded, true)
+  assert.equal(evidence.deploymentReceipt, undefined)
+  assert.equal(evidence.failureClass, 'DEPLOYMENT')
+  assert.equal(evidence.failedReleaseStage, 'DEPLOY')
+})
+
+test('TECH-DEBT-07: with no receipt at all a no-deployment story still fails closed', () => {
+  const evidence = forgeEvidenceFromAgentResult({
+    nodeId: 'deploy',
+    result: result({ releaseEvidence: undefined }),
+    current: { publishedSha: SHA, deploymentRequired: false },
+  })
+  assert.notEqual(evidence.deploymentSucceeded, true)
+  assert.equal(evidence.failureClass, 'DEPLOYMENT')
 })

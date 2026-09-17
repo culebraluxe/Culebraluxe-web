@@ -20,6 +20,9 @@ import { assessReleaseReceipt, isPlaceholderReceiptId } from '../forge/forge-rel
 const SHA = 'a'.repeat(40)
 const REF = 'origin/main'
 const BUILD_OK = { command: 'pnpm exec next build --webpack', exitCode: 0, durationMs: 74_000 }
+const PROOFS_OK = [
+  { command: 'node --import tsx --test workflow_app/tests/forge-release-receipt.test.ts', exitCode: 0, durationMs: 65 },
+]
 
 const contained = () => true
 
@@ -116,4 +119,42 @@ test('attestation: the produced receipt passes the existing release assessor', (
   )
   const assessment = assessReleaseReceipt(evidence)
   assert.equal(assessment.ok, true, JSON.stringify(assessment))
+})
+
+// --- the frozen proofs are machine evidence too ------------------------------
+
+test('attestation: the frozen proofs that ran are recorded on the attestation', () => {
+  const a = attestIntegration({
+    candidateSha: SHA,
+    integratedRef: REF,
+    isAncestor: contained,
+    build: BUILD_OK,
+    proofs: PROOFS_OK,
+  })
+  assert.equal(a.reason, null)
+  assert.deepEqual(a.proofs, PROOFS_OK)
+  assert.equal(releaseEvidenceFromIntegration(a)?.kind, 'integration')
+})
+
+test('attestation: a frozen proof that FAILED is not a clean run', () => {
+  const a = attestIntegration({
+    candidateSha: SHA,
+    integratedRef: REF,
+    isAncestor: contained,
+    build: BUILD_OK,
+    proofs: [{ ...PROOFS_OK[0], exitCode: 1 }],
+  })
+  assert.match(String(a.reason), /frozen proof exited 1/)
+  assert.equal(releaseEvidenceFromIntegration(a), null)
+})
+
+test('attestation: proofs alone (no build observation) still attest a real run', () => {
+  const a = attestIntegration({
+    candidateSha: SHA,
+    integratedRef: REF,
+    isAncestor: contained,
+    proofs: PROOFS_OK,
+  })
+  assert.equal(a.reason, null)
+  assert.equal(releaseEvidenceFromIntegration(a)?.success, true)
 })

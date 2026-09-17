@@ -19,10 +19,13 @@
 //                        integration ref (verified, not asserted);
 //   * clean build      — a build command ACTUALLY RUN and exited 0, with its
 //                        command, exit code and duration recorded;
+//   * frozen proofs    — the story's frozen proofs ACTUALLY RAN and exited 0,
+//                        recorded the same way, one observation per command;
 //   * git number       — the sha itself, which is the receipt's identity.
 //
-// No deployment. No provider. No pretending. If any of those three is missing the
-// attestation is not produced and the deploy gate stays shut, exactly as before.
+// No deployment. No provider. No pretending. If the integration, a clean build or
+// the frozen proofs are missing the attestation is not produced and the deploy gate
+// stays shut, exactly as before.
 //
 // Pure except for the injected `isAncestor` probe, so it unit-tests without git.
 // ---------------------------------------------------------------------------
@@ -44,6 +47,12 @@ export type IntegrationAttestation = {
   integratedRef: string
   integrated: boolean
   build: BuildObservation | null
+  /**
+   * The story's frozen proofs as they ACTUALLY RAN — one observation per command,
+   * carrying its command, exit code and duration. Empty means nothing ran, so no
+   * proof claim is made and the receipt is refused.
+   */
+  proofs: BuildObservation[] | null
   /** Why the attestation could not be made, when it could not. */
   reason: string | null
 }
@@ -56,12 +65,18 @@ export type AttestIntegrationInput = {
   isAncestor: (sha: string, ref: string) => boolean
   /** A build that actually ran. Null/absent means no clean-build claim. */
   build?: BuildObservation | null
+  /** The frozen proofs that actually ran. Null/empty means no proof claim. */
+  proofs?: BuildObservation[] | null
 }
 
 const SHA = /^[0-9a-f]{7,40}$/i
 
 export function attestIntegration(input: AttestIntegrationInput): IntegrationAttestation {
-  const base = { integratedRef: input.integratedRef, build: input.build ?? null }
+  const base = {
+    integratedRef: input.integratedRef,
+    build: input.build ?? null,
+    proofs: input.proofs ?? null,
+  }
 
   const sha = (input.candidateSha ?? '').trim()
   if (!SHA.test(sha)) {
@@ -96,7 +111,10 @@ export function attestIntegration(input: AttestIntegrationInput): IntegrationAtt
   }
 
   const build = input.build ?? null
-  if (!build) {
+  const proofs = input.proofs ?? null
+  // A COMMAND THAT NEVER RAN IS NOT A CLAIM. With neither a build nor a proof
+  // observation there is nothing to attest, and the receipt is refused.
+  if (!build && (!proofs || proofs.length === 0)) {
     return {
       ...base,
       artifactSha: sha,
@@ -104,12 +122,21 @@ export function attestIntegration(input: AttestIntegrationInput): IntegrationAtt
       reason: 'no build was observed, so no clean-build claim is made',
     }
   }
-  if (build.exitCode !== 0) {
+  if (build && build.exitCode !== 0) {
     return {
       ...base,
       artifactSha: sha,
       integrated: true,
       reason: `build exited ${build.exitCode} (${build.command})`,
+    }
+  }
+  const failedProof = (proofs ?? []).find((proof) => proof.exitCode !== 0)
+  if (failedProof) {
+    return {
+      ...base,
+      artifactSha: sha,
+      integrated: true,
+      reason: `frozen proof exited ${failedProof.exitCode} (${failedProof.command})`,
     }
   }
 
@@ -127,7 +154,12 @@ export function releaseEvidenceFromIntegration(
   attestation: IntegrationAttestation,
 ): ReleaseEvidence | null {
   if (!attestation.integrated || !attestation.artifactSha) return null
-  if (!attestation.build || attestation.build.exitCode !== 0) return null
+  const observed = [
+    ...(attestation.build ? [attestation.build] : []),
+    ...(attestation.proofs ?? []),
+  ]
+  if (observed.length === 0) return null
+  if (observed.some((command) => command.exitCode !== 0)) return null
   return {
     kind: 'integration',
     artifactSha: attestation.artifactSha,

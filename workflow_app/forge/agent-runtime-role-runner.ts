@@ -188,6 +188,12 @@ import {
   readLegacyMarkerGateEvidence,
   readTypedGateEvidence,
 } from './forge-typed-evidence'
+import {
+  attestIntegration,
+  gitIsAncestor,
+  releaseEvidenceFromIntegration,
+} from './forge-integration-attestation'
+import type { ReleaseEvidence } from './forge-release-receipt'
 import type { ForgeGateEvidence } from './forge-facts'
 
 export type AgentRuntimeForgeRunnerOptions = {
@@ -209,6 +215,80 @@ const ASSAY_NODES = new Set(['qa_verify', 'fast_qa_verify', 'repair_qa'])
 // gate, the pin and the mapping cannot disagree about what a sha is.
 
 const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspector'])
+
+/**
+ * TECH-DEBT-07 — THE RELEASE RECEIPT HAS A PRODUCER.
+ *
+ * `forge-role-mapping.ts` (the deploy and production_smoke branches) reads `result.releaseEvidence`,
+ * and NOTHING ever set it: the runner only mirrored a stored `deploymentReceipt` into the role ports,
+ * so a story that does not require a deployment could never pass its release stage and every
+ * release-bearing story HOLDed on "role did not deliver devops-receipt".
+ *
+ * Here the receipt is DERIVED from machine facts the runner actually holds — never asserted:
+ *   * the DURABLE deployment / production_verification receipt a release engineer recorded;
+ *   * or, for a story that does NOT require a deployment, an integration attestation built from the
+ *     published sha's containment in origin/main and the story's frozen proofs that really ran.
+ *
+ * A story that DOES require a deployment still needs a real deployment receipt; with none, this
+ * returns null and the deploy gate stays shut, exactly as before.
+ */
+async function deriveReleaseEvidence(input: {
+  nodeId: string
+  deploymentRequired: boolean
+  publishedSha: string | null
+  deploymentReceipt: string | null
+  deployedSha: string | null
+  productionVerificationReceipt: string | null
+  productionVerifiedSha: string | null
+  proofs: readonly string[]
+  cwd: string
+}): Promise<ReleaseEvidence | null> {
+  // A durable receipt a real release stage recorded always wins — it is the only thing that can
+  // release a story which requires a deployment.
+  if (input.productionVerificationReceipt) {
+    return {
+      kind: 'production_verification',
+      success: true,
+      receiptId: input.productionVerificationReceipt,
+      artifactSha: input.productionVerifiedSha ?? '',
+    }
+  }
+  if (input.deploymentReceipt) {
+    return {
+      kind: 'deployment',
+      success: true,
+      receiptId: input.deploymentReceipt,
+      artifactSha: input.deployedSha ?? '',
+    }
+  }
+  // Only the DEPLOY stage releases a no-deployment story, and only when the story explicitly does
+  // not require a deployment. Anything else stays fail-closed.
+  if (input.nodeId !== 'deploy' || input.deploymentRequired) return null
+  const observations = []
+  for (const command of input.proofs) {
+    if (!command.trim()) continue
+    const outcome = await runAssayCommand({
+      command,
+      cwd: input.cwd,
+      env: { ...process.env },
+      timeoutMs: 120_000,
+    }).catch(() => null)
+    if (!outcome) continue
+    observations.push({
+      command,
+      exitCode: outcome.exitCode ?? 1,
+      durationMs: outcome.durationMs,
+    })
+  }
+  return releaseEvidenceFromIntegration(
+    attestIntegration({
+      candidateSha: input.publishedSha,
+      integratedRef: 'origin/main',
+      isAncestor: (sha, ref) => gitIsAncestor(input.cwd, sha, ref),
+      proofs: observations,
+    }),
+  )
+}
 
 /**
  * Read the active decisions for a story's domain and render the block a lane receives.
@@ -1074,6 +1154,24 @@ export function createAgentRuntimeForgeRoleRunner(
     // One extra single-row read makes every node see what its predecessors actually persisted.
     // `current` still fills any field the fresh row leaves null.
     const evidenceNow = await readForgeWorkflowEvidence(resolvedStory.id)
+    // TECH-DEBT-07: give the release gate a receipt the repo actually produced. The durable
+    // receipt wins; a no-deployment story is released on the integration attestation derived
+    // from machine evidence (see deriveReleaseEvidence). A receipt the role itself delivered is
+    // never overwritten.
+    if (!result.evidence.releaseEvidence) {
+      const releaseFacts = { ...current, ...evidenceNow }
+      result.evidence.releaseEvidence = await deriveReleaseEvidence({
+        nodeId,
+        deploymentRequired: releaseFacts.deploymentRequired === true,
+        publishedSha: releaseFacts.publishedSha ?? null,
+        deploymentReceipt: releaseFacts.deploymentReceipt ?? null,
+        deployedSha: releaseFacts.deployedSha ?? null,
+        productionVerificationReceipt: releaseFacts.productionVerificationReceipt ?? null,
+        productionVerifiedSha: releaseFacts.productionVerifiedSha ?? null,
+        proofs: leadRoutingContext.allowedProofs,
+        cwd: process.cwd(),
+      })
+    }
     const mapped = forgeEvidenceFromAgentResult({
       nodeId,
       result: result.evidence,
