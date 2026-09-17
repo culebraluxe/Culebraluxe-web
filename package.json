@@ -115,7 +115,8 @@
     "verify:mapper": "node --env-file=.env.local --import tsx scripts/verify-contract-mapper.ts",
     "db:pull:dev": "node --import tsx --env-file=.env.local scripts/pull-prod-to-dev.mjs",
     "db:export:projects": "node --import tsx --env-file=.env.local scripts/export-dev-projects-workspace.mjs",
-    "db:seed:projects": "node --import tsx --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev"
+    "db:seed:projects": "node --import tsx --env-file=.env.local scripts/apply-migration.mjs db/seeds/dev-projects-workspace.sql dev",
+    "whatsapp:coexistence:test": "node --import tsx --test scripts/whatsapp-coexistence-completion.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
