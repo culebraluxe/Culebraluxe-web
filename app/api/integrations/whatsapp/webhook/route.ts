@@ -4,6 +4,7 @@ import { captureServerError } from '@/lib/server-error-capture'
 import { landWhatsapp } from '@/db/landing'
 import { sql } from '@/db/client'
 import { refreshClientReadModels } from '@/db/client-read-models'
+import { mapWhatsAppMessageToLanding } from '@/lib/whatsapp-cloud/attribution'
 import {
   loadMetaWhatsAppConfiguration,
   loadWhatsAppVerifyToken,
@@ -115,29 +116,8 @@ async function POSTHandler(request: NextRequest) {
           for (const [direction, list] of batches) {
             for (const message of list ?? []) {
               if (!message.id) continue
-              const mediaId =
-                message.image?.id ??
-                message.video?.id ??
-                message.audio?.id ??
-                message.document?.id ??
-                message.sticker?.id ??
-                null
               await landWhatsapp(
-                {
-                  sourceAccount,
-                  sourceMessageId: message.id,
-                  conversationId: message.context?.id ?? null,
-                  fromAddress: message.from ?? null,
-                  toAddress: message.to ?? null,
-                  direction,
-                  messageType: message.type ?? null,
-                  text: message.text?.body ?? null,
-                  mediaId,
-                  sentAt: message.timestamp
-                    ? new Date(Number(message.timestamp) * 1000).toISOString()
-                    : null,
-                  raw: message,
-                },
+                mapWhatsAppMessageToLanding({ value, message, direction, sourceAccount }),
                 sql,
               )
             }

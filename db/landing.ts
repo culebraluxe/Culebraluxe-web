@@ -247,7 +247,10 @@ export async function landCall(input: LandedCall, execute?: QueryExecutor): Prom
 export type LandedWhatsapp = {
   sourceAccount: string | null
   sourceMessageId: string
+  /** Stable thread key: the receiving line plus the contact. */
   conversationId?: string | null
+  /** Meta `message.context.id` — the quoted reply this message answers. */
+  contextId?: string | null
   fromAddress?: string | null
   toAddress?: string | null
   direction?: string | null
@@ -265,13 +268,14 @@ export async function landWhatsapp(
   const q = execute ?? (await executor())
   const rows = (await q`
     insert into l_whatsapp (
-      source_account, source_message_id, conversation_id, from_address, to_address,
+      source_account, source_message_id, conversation_id, context_id, from_address, to_address,
       direction, message_type, text_content, media_id, sent_at, raw
     ) values (
       ${input.sourceAccount}, ${input.sourceMessageId}, ${input.conversationId ?? null},
-      ${input.fromAddress ?? null}, ${input.toAddress ?? null}, ${input.direction ?? null},
-      ${input.messageType ?? null}, ${input.text ?? null}, ${input.mediaId ?? null},
-      ${input.sentAt ?? null}::timestamptz, ${JSON.stringify(input.raw)}::jsonb
+      ${input.contextId ?? null}, ${input.fromAddress ?? null}, ${input.toAddress ?? null},
+      ${input.direction ?? null}, ${input.messageType ?? null}, ${input.text ?? null},
+      ${input.mediaId ?? null}, ${input.sentAt ?? null}::timestamptz,
+      ${JSON.stringify(input.raw)}::jsonb
     )
     on conflict (coalesce(source_account, ''), source_message_id) do nothing
     returning id
