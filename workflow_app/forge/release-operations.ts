@@ -281,283 +281,267 @@ export function createForgeReleaseOperations(deps: ForgeReleaseOperationsDeps = 
       const pool = poolForTarget(input.target)
       const completed: string[] = []
       const skipped: string[] = []
-      try {
-        for (const migration of migrations) {
-          let decision: ReplayDecision
-          try {
-            decision = await assessMigrationReplay(pool, {
-              target: input.target,
-              file: migration.file,
-              inputFile: migration.inputFile,
-              sha256: migration.sha256,
-              sql: migration.sql,
-            })
-          } catch (error) {
-            const detail = String((error as Error)?.message ?? error)
-            return {
-              success: false,
-              detail: `${migration.file} could not be checked against the migration ledger on ${input.target}: ${detail}`,
-            }
+      for (const migration of migrations) {
+        let decision: ReplayDecision
+        try {
+          decision = await assessMigrationReplay(pool, {
+            target: input.target,
+            file: migration.file,
+            inputFile: migration.inputFile,
+            sha256: migration.sha256,
+            sql: migration.sql,
+          })
+        } catch (error) {
+          const detail = String((error as Error)?.message ?? error)
+          return {
+            success: false,
+            detail: `${migration.file} could not be checked against the migration ledger on ${input.target}: ${detail}`,
           }
-          if (decision.kind === 'refuse') return { success: false, detail: decision.detail }
-          if (decision.kind === 'skip') {
-            skipped.push(migration.file)
-            continue
-          }
+        }
+        if (decision.kind === 'refuse') return { success: false, detail: decision.detail }
+        if (decision.kind === 'skip') {
+          skipped.push(migration.file)
+          continue
+        }
 
-          // Record the attempt BEFORE the SQL. A failure here aborts without executing; a
-          // failure of the success record AFTER execution leaves this row behind, so the next
-          // attempt reads it and refuses instead of repeating the SQL.
-          try {
-            await pool.query(
+        // Record the attempt BEFORE the SQL. A failure here aborts without executing; a
+        // failure of the success record AFTER execution leaves this row behind, so the next
+        // attempt reads it and refuses instead of repeating the SQL.
+        try {
+          await pool.query(
+            `insert into forge_migration_execution
+               (command_id, story_id, target, migration_file, content_sha256, success, detail)
+             values ($1, $2, $3, $4, $5, false, $6)
+             on conflict (command_id, migration_file) do update
+               set content_sha256 = excluded.content_sha256, success = false, detail = excluded.detail, executed_at = now()`,
+            [
+              input.commandId,
+              input.storyId,
+              input.target,
+              migration.file,
+              migration.sha256,
+              MIGRATION_ATTEMPT_DETAIL,
+            ],
+          )
+        } catch (error) {
+          const detail = String((error as Error)?.message ?? error)
+          return {
+            success: false,
+            detail: `${migration.file} could not be recorded as an attempt on ${input.target}; refusing to execute it: ${detail}`,
+          }
+        }
+
+        try {
+          await pool.query(migration.sql)
+        } catch (error) {
+          const detail = String((error as Error)?.message ?? error)
+          await pool
+            .query(
               `insert into forge_migration_execution
                  (command_id, story_id, target, migration_file, content_sha256, success, detail)
                values ($1, $2, $3, $4, $5, false, $6)
                on conflict (command_id, migration_file) do update
-                 set content_sha256 = excluded.content_sha256, success = false, detail = excluded.detail, executed_at = now()`,
+                 set success = false, detail = excluded.detail, executed_at = now()`,
               [
                 input.commandId,
                 input.storyId,
                 input.target,
                 migration.file,
                 migration.sha256,
-                MIGRATION_ATTEMPT_DETAIL,
+                `${MIGRATION_FAILURE_PREFIX}${detail}`,
               ],
             )
-          } catch (error) {
-            const detail = String((error as Error)?.message ?? error)
-            return {
-              success: false,
-              detail: `${migration.file} could not be recorded as an attempt on ${input.target}; refusing to execute it: ${detail}`,
-            }
-          }
-
-          try {
-            await pool.query(migration.sql)
-          } catch (error) {
-            const detail = String((error as Error)?.message ?? error)
-            await pool
-              .query(
-                `insert into forge_migration_execution
-                   (command_id, story_id, target, migration_file, content_sha256, success, detail)
-                 values ($1, $2, $3, $4, $5, false, $6)
-                 on conflict (command_id, migration_file) do update
-                   set success = false, detail = excluded.detail, executed_at = now()`,
-                [
-                  input.commandId,
-                  input.storyId,
-                  input.target,
-                  migration.file,
-                  migration.sha256,
-                  `${MIGRATION_FAILURE_PREFIX}${detail}`,
-                ],
-              )
-              .catch(() => undefined)
-            return {
-              success: false,
-              detail: `${migration.file} failed after [${completed.join(', ')}]: ${detail}`,
-            }
-          }
-
-          try {
-            await pool.query(
-              `insert into forge_migration_execution
-                 (command_id, story_id, target, migration_file, content_sha256, success, detail)
-               values ($1, $2, $3, $4, $5, true, $6)
-               on conflict (command_id, migration_file) do update
-                 set success = true, detail = excluded.detail, executed_at = now()`,
-              [
-                input.commandId,
-                input.storyId,
-                input.target,
-                migration.file,
-                migration.sha256,
-                'migration SQL executed without error',
-              ],
-            )
-          } catch (error) {
-            const detail = String((error as Error)?.message ?? error)
-            return {
-              success: false,
-              detail:
-                `${migration.file} was executed on ${input.target} but its execution record could not be ` +
-                `updated (the attempt row remains; a retry will refuse rather than repeat): ${detail}`,
-            }
-          }
-          completed.push(migration.file)
-
-          // Durable ledger (migration 144): the canonical record of what was applied where,
-          // independent of this story's execution history.
-          try {
-            await pool.query(
-              `insert into schema_migration (filename, checksum, target, note)
-               values ($1, $2, $3, $4)
-               on conflict (filename, target)
-               do update set checksum = excluded.checksum, applied_at = now(), note = excluded.note`,
-              [migration.inputFile, `sha256:${migration.sha256}`, input.target, `forge story ${input.storyId}`],
-            )
-          } catch (ledgerError) {
-            const detail = String((ledgerError as Error)?.message ?? ledgerError)
-            return {
-              success: false,
-              detail: `${migration.file} applied but could not be recorded in the schema_migration ledger (apply db/migrations/144_schema_migration_ledger.sql): ${detail}`,
-            }
+            .catch(() => undefined)
+          return {
+            success: false,
+            detail: `${migration.file} failed after [${completed.join(', ')}]: ${detail}`,
           }
         }
-        const appliedDetail = completed.length > 0 ? `applied ${completed.join(', ')} to ${input.target}` : ''
-        const skippedDetail = skipped.length > 0 ? `skipped ${skipped.join(', ')} on ${input.target} (already applied)` : ''
-        return {
-          success: true,
-          detail: [appliedDetail, skippedDetail].filter(Boolean).join('; ') || `no migrations to apply on ${input.target}`,
+
+        try {
+          await pool.query(
+            `insert into forge_migration_execution
+               (command_id, story_id, target, migration_file, content_sha256, success, detail)
+             values ($1, $2, $3, $4, $5, true, $6)
+             on conflict (command_id, migration_file) do update
+               set success = true, detail = excluded.detail, executed_at = now()`,
+            [
+              input.commandId,
+              input.storyId,
+              input.target,
+              migration.file,
+              migration.sha256,
+              'migration SQL executed without error',
+            ],
+          )
+        } catch (error) {
+          const detail = String((error as Error)?.message ?? error)
+          return {
+            success: false,
+            detail:
+              `${migration.file} was executed on ${input.target} but its execution record could not be ` +
+              `updated (the attempt row remains; a retry will refuse rather than repeat): ${detail}`,
+          }
         }
-      } finally {
-        await pool.end()
+        completed.push(migration.file)
+
+        // Durable ledger (migration 144): the canonical record of what was applied where,
+        // independent of this story's execution history.
+        try {
+          await pool.query(
+            `insert into schema_migration (filename, checksum, target, note)
+             values ($1, $2, $3, $4)
+             on conflict (filename, target)
+             do update set checksum = excluded.checksum, applied_at = now(), note = excluded.note`,
+            [migration.inputFile, `sha256:${migration.sha256}`, input.target, `forge story ${input.storyId}`],
+          )
+        } catch (ledgerError) {
+          const detail = String((ledgerError as Error)?.message ?? ledgerError)
+          return {
+            success: false,
+            detail: `${migration.file} applied but could not be recorded in the schema_migration ledger (apply db/migrations/144_schema_migration_ledger.sql): ${detail}`,
+          }
+        }
+      }
+      const appliedDetail = completed.length > 0 ? `applied ${completed.join(', ')} to ${input.target}` : ''
+      const skippedDetail = skipped.length > 0 ? `skipped ${skipped.join(', ')} on ${input.target} (already applied)` : ''
+      return {
+        success: true,
+        detail: [appliedDetail, skippedDetail].filter(Boolean).join('; ') || `no migrations to apply on ${input.target}`,
       }
     },
 
     async verifyMigrations(input) {
       const migrations = await migrationContents(input.repoRoot, input.migrationFiles)
       const pool = poolForTarget(input.target)
-      try {
-        for (const migration of migrations) {
-          const result = await pool.query(
-            `select 1
-             from forge_migration_execution
-             where story_id = $1 and target = $2 and migration_file = $3
-               and content_sha256 = $4 and success = true
-             order by executed_at desc
-             limit 1`,
-            [input.storyId, input.target, migration.file, migration.sha256],
-          )
-          if (result.rowCount !== 1) {
-            return {
-              success: false,
-              detail: `${migration.file} has no successful checksum-matched execution on ${input.target}`,
-            }
-          }
-
-          // Durable ledger: a story-scoped execution row is not enough — the
-          // canonical record must exist too, or "what is applied where" is
-          // unanswerable again (the 2026-09-10 drift).
-          const ledger = await pool.query(
-            `select 1 from schema_migration where filename = $1 and target = $2 and checksum = $3`,
-            [migration.inputFile, input.target, `sha256:${migration.sha256}`],
-          )
-          if (ledger.rowCount !== 1) {
-            return {
-              success: false,
-              detail: `${migration.file} is not recorded in the schema_migration ledger for ${input.target} (apply db/migrations/144_schema_migration_ledger.sql, or re-run the migration command so it is recorded)`,
-            }
+      for (const migration of migrations) {
+        const result = await pool.query(
+          `select 1
+           from forge_migration_execution
+           where story_id = $1 and target = $2 and migration_file = $3
+             and content_sha256 = $4 and success = true
+           order by executed_at desc
+           limit 1`,
+          [input.storyId, input.target, migration.file, migration.sha256],
+        )
+        if (result.rowCount !== 1) {
+          return {
+            success: false,
+            detail: `${migration.file} has no successful checksum-matched execution on ${input.target}`,
           }
         }
-        await pool.query('select 1')
 
-        // DEV_OPS gate: no schema story reaches complete while DEV and PROD
-        // structurally differ. A branch reset hides drift, so it is checked here
-        // independently, on tables, columns, indexes and FKs.
-        //
-        // IT RUNS ONLY ON THE PROD VERIFICATION. The engine plans FORGE_VERIFY_DEV_MIGRATION
-        // before FORGE_MIGRATE_PROD, so a DEV verify runs while DEV legitimately holds the
-        // change PROD has not received yet — the drift the migration is about to remove. A
-        // gate there fails the story on the difference it creates and blocks its own
-        // promotion. The PROD verification runs after the apply, so this check reads clean
-        // for the change just applied and still fails any drift the migration did not explain.
-        if (input.target === 'prod') {
-          const devUrl = process.env.DATABASE_URL_DEV
-          const prodUrl = process.env.DATABASE_URL_PROD
-          if (!devUrl || !prodUrl) {
-            return {
-              success: false,
-              detail: 'DEV_OPS gate requires DATABASE_URL_DEV and DATABASE_URL_PROD to verify schema parity',
-            }
-          }
-          const parity = await checkParity(devUrl, prodUrl)
-          if (!parity.clean) {
-            const lines = [
-              ...parity.tablesOnlyDev.map((t) => `table only in DEV: ${t}`),
-              ...parity.tablesOnlyProd.map((t) => `table only in PROD: ${t}`),
-              ...parity.columnDrift,
-              ...parity.indexDrift.map((d) => `index ${d}`),
-              ...parity.fkDrift.map((d) => `fk ${d}`),
-            ]
-            return {
-              success: false,
-              detail: `schema parity FAILED between DEV and PROD (${lines.length} difference(s)): ${lines.slice(0, 8).join('; ')}${lines.length > 8 ? `; +${lines.length - 8} more` : ''}`,
-            }
-          }
+        // Durable ledger: a story-scoped execution row is not enough — the
+        // canonical record must exist too, or "what is applied where" is
+        // unanswerable again (the 2026-09-10 drift).
+        const ledger = await pool.query(
+          `select 1 from schema_migration where filename = $1 and target = $2 and checksum = $3`,
+          [migration.inputFile, input.target, `sha256:${migration.sha256}`],
+        )
+        if (ledger.rowCount !== 1) {
           return {
-            success: true,
-            detail: `verified ${migrations.length} checksum-matched migration execution(s) on prod; ledger recorded; DEV/PROD schema parity OK`,
+            success: false,
+            detail: `${migration.file} is not recorded in the schema_migration ledger for ${input.target} (apply db/migrations/144_schema_migration_ledger.sql, or re-run the migration command so it is recorded)`,
+          }
+        }
+      }
+      await pool.query('select 1')
+
+      // DEV_OPS gate: no schema story reaches complete while DEV and PROD
+      // structurally differ. A branch reset hides drift, so it is checked here
+      // independently, on tables, columns, indexes and FKs.
+      //
+      // IT RUNS ONLY ON THE PROD VERIFICATION. The engine plans FORGE_VERIFY_DEV_MIGRATION
+      // before FORGE_MIGRATE_PROD, so a DEV verify runs while DEV legitimately holds the
+      // change PROD has not received yet — the drift the migration is about to remove. A
+      // gate there fails the story on the difference it creates and blocks its own
+      // promotion. The PROD verification runs after the apply, so this check reads clean
+      // for the change just applied and still fails any drift the migration did not explain.
+      if (input.target === 'prod') {
+        const devUrl = process.env.DATABASE_URL_DEV
+        const prodUrl = process.env.DATABASE_URL_PROD
+        if (!devUrl || !prodUrl) {
+          return {
+            success: false,
+            detail: 'DEV_OPS gate requires DATABASE_URL_DEV and DATABASE_URL_PROD to verify schema parity',
+          }
+        }
+        const parity = await checkParity(devUrl, prodUrl)
+        if (!parity.clean) {
+          const lines = [
+            ...parity.tablesOnlyDev.map((t) => `table only in DEV: ${t}`),
+            ...parity.tablesOnlyProd.map((t) => `table only in PROD: ${t}`),
+            ...parity.columnDrift,
+            ...parity.indexDrift.map((d) => `index ${d}`),
+            ...parity.fkDrift.map((d) => `fk ${d}`),
+          ]
+          return {
+            success: false,
+            detail: `schema parity FAILED between DEV and PROD (${lines.length} difference(s)): ${lines.slice(0, 8).join('; ')}${lines.length > 8 ? `; +${lines.length - 8} more` : ''}`,
           }
         }
         return {
           success: true,
-          detail: `verified ${migrations.length} checksum-matched migration execution(s) on dev; ledger recorded; DEV/PROD parity deferred until the PROD migration is applied`,
+          detail: `verified ${migrations.length} checksum-matched migration execution(s) on prod; ledger recorded; DEV/PROD schema parity OK`,
         }
-      } finally {
-        await pool.end()
+      }
+      return {
+        success: true,
+        detail: `verified ${migrations.length} checksum-matched migration execution(s) on dev; ledger recorded; DEV/PROD parity deferred until the PROD migration is applied`,
       }
     },
 
     async refreshDerived(input) {
       if (input.models.length === 0) throw new Error('derivedRefreshRequired=true but derivedModels is empty')
       const pool = poolForTarget(input.target)
-      try {
-        for (const model of input.models) {
-          try {
-            await pool.query(`refresh materialized view concurrently ${quotedModel(model)}`)
-            await pool.query(
+      for (const model of input.models) {
+        try {
+          await pool.query(`refresh materialized view concurrently ${quotedModel(model)}`)
+          await pool.query(
+            `insert into forge_derived_refresh_execution
+               (command_id, story_id, target, model_name, success, detail)
+             values ($1, $2, $3, $4, true, $5)
+             on conflict (command_id, model_name) do update
+               set success = true, detail = excluded.detail, executed_at = now()`,
+            [input.commandId, input.storyId, input.target, model, 'concurrent refresh completed'],
+          )
+        } catch (error) {
+          const detail = String((error as Error)?.message ?? error)
+          await pool
+            .query(
               `insert into forge_derived_refresh_execution
                  (command_id, story_id, target, model_name, success, detail)
-               values ($1, $2, $3, $4, true, $5)
+               values ($1, $2, $3, $4, false, $5)
                on conflict (command_id, model_name) do update
-                 set success = true, detail = excluded.detail, executed_at = now()`,
-              [input.commandId, input.storyId, input.target, model, 'concurrent refresh completed'],
+                 set success = false, detail = excluded.detail, executed_at = now()`,
+              [input.commandId, input.storyId, input.target, model, detail],
             )
-          } catch (error) {
-            const detail = String((error as Error)?.message ?? error)
-            await pool
-              .query(
-                `insert into forge_derived_refresh_execution
-                   (command_id, story_id, target, model_name, success, detail)
-                 values ($1, $2, $3, $4, false, $5)
-                 on conflict (command_id, model_name) do update
-                   set success = false, detail = excluded.detail, executed_at = now()`,
-                [input.commandId, input.storyId, input.target, model, detail],
-              )
-              .catch(() => undefined)
-            return { success: false, detail: `${model} refresh failed: ${detail}` }
-          }
+            .catch(() => undefined)
+          return { success: false, detail: `${model} refresh failed: ${detail}` }
         }
-        return { success: true, detail: `refreshed ${input.models.join(', ')}` }
-      } finally {
-        await pool.end()
       }
+      return { success: true, detail: `refreshed ${input.models.join(', ')}` }
     },
 
     async verifyDerived(input) {
       const pool = poolForTarget(input.target)
-      try {
-        for (const model of input.models) {
-          const name = model.includes('.') ? model.split('.')[1] : model
-          const result = await pool.query(
-            `select 1
-             from forge_derived_refresh_execution r
-             join pg_matviews mv on mv.matviewname = $4 and mv.ispopulated = true
-             where r.story_id = $1 and r.target = $2 and r.model_name = $3
-               and r.success = true
-             order by r.executed_at desc
-             limit 1`,
-            [input.storyId, input.target, model, name],
-          )
-          if (result.rowCount !== 1) {
-            return { success: false, detail: `${model} has no verified populated refresh` }
-          }
+      for (const model of input.models) {
+        const name = model.includes('.') ? model.split('.')[1] : model
+        const result = await pool.query(
+          `select 1
+           from forge_derived_refresh_execution r
+           join pg_matviews mv on mv.matviewname = $4 and mv.ispopulated = true
+           where r.story_id = $1 and r.target = $2 and r.model_name = $3
+             and r.success = true
+           order by r.executed_at desc
+           limit 1`,
+          [input.storyId, input.target, model, name],
+        )
+        if (result.rowCount !== 1) {
+          return { success: false, detail: `${model} has no verified populated refresh` }
         }
-        return { success: true, detail: `verified ${input.models.join(', ')}` }
-      } finally {
-        await pool.end()
       }
+      return { success: true, detail: `verified ${input.models.join(', ')}` }
     },
   }
 }

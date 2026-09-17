@@ -288,6 +288,32 @@ export function planWave<T>(lanes: readonly WaveLane<T>[], cap: number): WavePla
   return { ok: true, batches, refusals }
 }
 
+/**
+ * Run ONE batch of ready lanes and settle ALL of them before surfacing any failure.
+ *
+ * `Promise.all` rejects on the first lane and returns control while its siblings are
+ * still claiming, running and writing their records — so the driver reports a failure
+ * mid-write and the wave's surviving work is raced. Here every lane settles first, and
+ * only then is the failure thrown: one rejection keeps its own error identity, several
+ * arrive as one AggregateError naming the batch. Pure and engine-free, so the frozen
+ * fence can exercise it the same way it exercises `planWave`.
+ */
+export async function runWaveBatch<T>(
+  batch: readonly WaveLane<T>[],
+  run: (lane: WaveLane<T>) => Promise<void>,
+): Promise<void> {
+  const settled = await Promise.allSettled(batch.map((lane) => run(lane)))
+  const failures = settled
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason)
+  if (failures.length === 0) return
+  if (failures.length === 1) throw failures[0]
+  throw new AggregateError(
+    failures,
+    `Forge wave failed: ${failures.length} of ${batch.length} lanes rejected after every lane settled`,
+  )
+}
+
 export async function driveForgeStory(
   storyId: string,
   opts: DriveForgeStoryOptions = {},
@@ -450,7 +476,7 @@ export async function driveForgeStory(
           `\u2192 wave: running ${batch.map((lane) => lane.lane).join(' + ')} concurrently (cap ${cap})`,
         )
       }
-      await Promise.all(batch.map((lane) => runReady(lane.task)))
+      await runWaveBatch(batch, (lane) => runReady(lane.task))
     }
     // Single-role park: a stopAfter role completed this wave — do NOT advance to
     // the next role. Leave the engine parked for a human to inspect/approve.
