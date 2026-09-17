@@ -28,7 +28,8 @@ const PUBLIC_MODULES = [
   'app/contact/page.tsx',
   'app/properties/[slug]/page.tsx',
   'app/api/media/[id]/route.ts',
-  'app/api/media/documents/[id]/route.ts',
+  // app/api/media/documents/[id]/route.ts is NOT public: a document download
+  // requires an authenticated portal session (SEC-MEDIA-DOC-01).
 ]
 
 async function read(rel: string): Promise<string> {
