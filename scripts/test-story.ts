@@ -56,10 +56,10 @@ function commandsOf(text: string | null): string[] {
 }
 
 async function main(): Promise<void> {
-  const { sql } = await import('../db/client.ts')
-  const rows: Row[] = storyId
-    ? await sql`select id, assay_commands from storyboard_story where id = ${storyId}`
-    : await sql`select id, assay_commands from storyboard_story where batch = ${Number(sprint ?? batch)} order by id`
+  const { sql } = await import('../db/client')
+  const rows = (await (storyId
+    ? sql`select id, assay_commands from storyboard_story where id = ${storyId}`
+    : sql`select id, assay_commands from storyboard_story where batch = ${Number(sprint ?? batch)} order by id`)) as Row[]
 
   if (rows.length === 0) {
     console.error(`no story matched (${storyId ?? `batch ${batch ?? sprint}`})`)

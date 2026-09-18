@@ -373,7 +373,13 @@ export async function loadLiveColumns(): Promise<TableColumns> {
   return columns
 }
 
-const MANIFEST_PATH = 'docs/agent/manifest/COLUMN-WRITER-AUDIT.md'
+// AN AUDIT IS NOT A MANIFEST, AND ITS FILE MUST NOT LIVE WHERE MANIFESTS DO. It was written to
+// `docs/agent/manifest/COLUMN-WRITER-AUDIT.md` and the harness treats EVERY *.md in that directory as
+// a manifest, rendering a fresh one for each and refusing any that differs — so this file could never
+// satisfy it, and the release build failed for it (measured 2026-09-18: the release refused with
+// "COLUMN-WRITER-AUDIT.md has drifted from a fresh render", 34 index rows to add). No release had run
+// between this story shipping and that build, which is why the collision survived a whole batch.
+const AUDIT_PATH = 'docs/agent/COLUMN-WRITER-AUDIT.md'
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const checkOnly = argv.includes('--check')
@@ -383,8 +389,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   if (!checkOnly) {
     const { writeFileSync } = await import('node:fs')
-    writeFileSync(resolve(repoRoot(), MANIFEST_PATH), manifest, 'utf8')
-    console.log(`column-writer-audit: wrote ${MANIFEST_PATH} (${result.rows.length} columns)`)
+    writeFileSync(resolve(repoRoot(), AUDIT_PATH), manifest, "utf8")
+    console.log(`column-writer-audit: wrote ${AUDIT_PATH} (${result.rows.length} columns)`)
   } else {
     console.log(`column-writer-audit: checked ${result.rows.length} columns (no write)`)
   }
