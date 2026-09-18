@@ -1,4 +1,4 @@
-import { normalizeSpendSource, resolveSpendSource, type StoryboardStory } from './storyboard'
+import { isCommitSha, normalizeSpendSource, resolveSpendSource, type StoryboardStory } from './storyboard'
 import type { RunMachineEvidence } from '../lib/forge-run-evidence'
 import type { QueryExecutor, QueryRow } from './query-executor'
 

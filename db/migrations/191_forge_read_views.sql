@@ -17,6 +17,15 @@
 
 begin;
 
+-- SET BEFORE THE DDL, and the reason is not ceremony: a migration that waits on a lock queues every
+-- query behind it, so it can take production down without ever failing. Squawk refused this file on
+-- both rules the moment the CI gate went live (2026-09-18, run 35339022470) — the engine's own static
+-- gate does not run squawk yet, which is exactly what ENG-FORGE-MIGRATION-LINT-01 exists to fix.
+-- Nothing has applied this migration (schema_migration has no 191), so this is a fix, not a rewrite.
+set lock_timeout = '5s';
+set statement_timeout = '30s';
+
+
 -- 1. BOARD BY BATCH — one row per (batch, story) with the batch's own counts.
 --    Serves `forge:board` (grouped by batch) and the board state of `forge:story:show <id>`.
 create or replace view forge_board_by_batch as

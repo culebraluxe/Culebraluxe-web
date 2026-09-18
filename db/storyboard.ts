@@ -783,6 +783,78 @@ export function normalizeSpendSource(value: unknown): SpendSource {
     : 'none'
 }
 
+/**
+ * ENG-FORGE-RECEIPT-COLUMNS-01 — A COMPLETED RUN STATES ITS COMMIT, EVEN WHEN IT MADE NONE.
+ *
+ * `commit_hash` is the join key from a run receipt to its artifact. A run that produced no
+ * commit must say so explicitly — `NO_COMMIT_SHA` — so the column is never left empty and a
+ * reader can tell "no commit" from "not recorded". The marker is NOT a sha: every reader of
+ * `commit_hash` filters it through `isCommitSha`.
+ */
+export const NO_COMMIT_SHA = 'none'
+
+/** A real commit sha — never the explicit no-commit marker and never blank. */
+export function isCommitSha(value: unknown): value is string {
+  const sha = String(value ?? '').trim()
+  return sha.length > 0 && sha !== NO_COMMIT_SHA
+}
+
+/** The value written to `commit_hash`: the produced sha, or the explicit no-commit marker. */
+export function normalizeCommitHash(value: string | null | undefined): string {
+  const sha = (value ?? '').trim()
+  return sha.length > 0 ? sha : NO_COMMIT_SHA
+}
+
+/**
+ * The closed source for a run's recorded spend, from the quantities on the row. A recorded
+ * non-'none' source wins; otherwise the quantities decide; absence is the recorded fact
+ * 'none' — never NULL — so a total can state the coverage it was computed from.
+ */
+export function resolveRunSpendSource(input: {
+  costSource?: unknown
+  costUsd?: number | null
+  costWidgets?: number | null
+}): SpendSource {
+  const recorded = normalizeSpendSource(input.costSource)
+  if (recorded !== 'none') return recorded
+  if (input.costUsd !== null && input.costUsd !== undefined) return 'vendor'
+  if (input.costWidgets !== null && input.costWidgets !== undefined) return 'widgets'
+  return 'none'
+}
+
+export type RunSpendSummary = {
+  runs: number
+  coveredRuns: number
+  unrecordedRuns: number
+  totalUsd: number
+  totalWidgets: number
+}
+
+/**
+ * A spend total AND the coverage it was computed from. A run labelled 'none' is an
+ * unmeasured run: it counts in `runs` and `unrecordedRuns` but contributes to no total, so
+ * the total can never silently claim coverage it does not have.
+ */
+export function summarizeRunSpend(
+  rows: ReadonlyArray<{ costUsd?: number | null; costWidgets?: number | null; costSource?: unknown }>,
+): RunSpendSummary {
+  let coveredRuns = 0
+  let unrecordedRuns = 0
+  let totalUsd = 0
+  let totalWidgets = 0
+  for (const row of rows) {
+    const source = normalizeSpendSource(row.costSource)
+    if (source === 'none') {
+      unrecordedRuns += 1
+      continue
+    }
+    coveredRuns += 1
+    if (source === 'vendor') totalUsd += Number(row.costUsd ?? 0)
+    if (source === 'widgets') totalWidgets += Number(row.costWidgets ?? 0)
+  }
+  return { runs: rows.length, coveredRuns, unrecordedRuns, totalUsd, totalWidgets }
+}
+
 function mapRun(row: RunRow): StoryRun {
   return {
     id: row.id,
@@ -1143,7 +1215,7 @@ export async function listStoryCommitHashes(
   `
   return (rows as Array<{ commit_hash: string | null }>)
     .map((row) => String(row.commit_hash ?? '').trim())
-    .filter((sha) => sha.length > 0)
+    .filter((sha) => isCommitSha(sha))
 }
 
 /**
@@ -1232,7 +1304,7 @@ export async function finishStoryRun(
           when notes is null or notes = '' then ${input.notes}
           else notes || E'\\n' || ${input.notes}
         end,
-        commit_hash = ${input.commitHash ?? null},
+        commit_hash = ${normalizeCommitHash(input.commitHash)},
         tests_summary = ${input.testsSummary ?? null},
         execution_environment = coalesce(${input.executionEnvironment ?? null}, execution_environment),
         updated_at = now()
@@ -1261,7 +1333,7 @@ export async function finishStoryRun(
           when notes is null or notes = '' then ${input.notes}
           else notes || E'\\n' || ${input.notes}
         end,
-        commit_hash = ${input.commitHash ?? null},
+        commit_hash = ${normalizeCommitHash(input.commitHash)},
         tests_summary = ${input.testsSummary ?? null},
         execution_environment = coalesce(${input.executionEnvironment ?? null}, execution_environment),
         updated_at = now()
@@ -1292,16 +1364,23 @@ export async function finishStoryRun(
     run.costUsd == null && run.costWidgets == null
       ? costWidgets(run.modelUsed, elapsedMinutes)
       : null
-  if (widgets !== null) {
-    await q`
-      update storyboard_story_run
-      set cost_widgets = ${widgets},
-          cost_source = 'widgets',
-          updated_at = now()
-      where id = ${runId}`
-    run.costWidgets = widgets
-    run.costSource = 'widgets'
-  }
+  // ENG-FORGE-RECEIPT-COLUMNS-01 — a completed run ALWAYS carries a closed spend source.
+  // The estimator writes widgets when the run carried no real cost; every other path records
+  // the source implied by the quantities on the row, and absence is the recorded fact 'none',
+  // never NULL. A spend total can then state how many runs it covers.
+  const spendSource = resolveRunSpendSource({
+    costSource: run.costSource,
+    costUsd: run.costUsd,
+    costWidgets: widgets ?? run.costWidgets,
+  })
+  await q`
+    update storyboard_story_run
+    set cost_widgets = coalesce(${widgets}, cost_widgets),
+        cost_source = ${spendSource},
+        updated_at = now()
+    where id = ${runId}`
+  if (widgets !== null) run.costWidgets = widgets
+  run.costSource = spendSource
 
   const { status: storyStatus, completion } = storyCompletionForRun(
     input.resultStatus,
