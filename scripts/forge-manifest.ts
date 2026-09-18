@@ -13,6 +13,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { isConflictCopyName } from '../lib/git/sync-conflict'
 import { join, relative } from 'node:path'
 
 import { writeIfChanged as writeArtifactIfChanged } from '../lib/artifact-file'
@@ -80,6 +81,12 @@ function walkMarkdown(root: string, dir: string): Array<{ path: string; content:
   const full = join(root, dir)
   if (!existsSync(full)) return out
   for (const name of readdirSync(full)) {
+    // A CONFLICT COPY IS NOT A DOCUMENT. On 2026-09-18 this walk indexed `RUNLOG 2.md` — a OneDrive
+    // known-folder-move artifact (see lib/git/sync-conflict.ts) — into six manifest pages, and then
+    // `pnpm health --fix` deleted the copy, leaving those pages citing a path that no longer exists and
+    // failing the harness lint. A generated artifact must never be built out of sync debris: the file
+    // was never written by a person, and every page that cites it becomes wrong the moment it is cleaned.
+    if (isConflictCopyName(name)) continue
     const child = join(full, name)
     if (statSync(child).isDirectory()) {
       if (name === 'manifest' || name === 'scratch') continue
