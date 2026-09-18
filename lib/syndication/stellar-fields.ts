@@ -36,6 +36,12 @@ export function stellarMapping(source: ListingSource) {
     PropertyStyle: source.propertyType,
     BathroomsFull: source.bathroomsFull,
     BathroomsHalf: source.bathroomsHalf,
+    // HEATED AREA IS THE INTERIOR AREA HERE, and this is a DECISION rather than an assumption —
+    // confirmed by the captain 2026-09-18. In a northern market "heated" excludes unconditioned
+    // space such as a covered porch, which makes property.square_feet an ambiguous source for an MLS
+    // `HeatedArea` field. On Culebra the interior square footage IS the heated area, so the property's
+    // own measurement is the right value and it is NOT flagged for review. The semantics are also
+    // recorded on the column itself (migration 195) so a schema reader meets them without asking.
     HeatedAreaSqFt: source.squareFeet,
     // A lot size WITHOUT units is not a usable Stellar value, and the packet lists "lot units" as an
     // explicit review item — so a unitless number counts as missing rather than as a filled field.

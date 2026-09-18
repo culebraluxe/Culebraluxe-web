@@ -108,6 +108,18 @@ test('stellar-draft: an empty property reports every one of the fifteen editable
 test('stellar-draft: a filled property has nothing missing, and empties are marked for REVIEW', () => {
   assert.deepEqual(stellarMapping(fullSource).missing, [])
 
+  // THE SQUARE-FOOTAGE DECISION, asserted so a future edit cannot silently reverse it: on Culebra the
+  // interior square footage IS the heated area, so it is SOURCED from the property rather than flagged
+  // for review. (In a northern market the flag would be required — "heated" there excludes
+  // unconditioned space.) The reason is recorded on the column itself: migration 195.
+  const mapping = stellarMapping(fullSource)
+  assert.equal(mapping.converted.HeatedAreaSqFt, fullSource.squareFeet)
+  assert.equal(
+    mapping.missing.includes('HeatedAreaSqFt (review)'),
+    false,
+    'interior footage is the heated area in this market, so it must not be flagged for review',
+  )
+
   // A source missing only the values that need a unit check or a human decision: those come back
   // suffixed, because "empty" and "needs review" are different instructions to the operator.
   const partial = stellarMapping({ ...fullSource, bathroomsHalf: null, lotSizeUnits: null })
