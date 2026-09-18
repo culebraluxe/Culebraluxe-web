@@ -216,11 +216,10 @@
   </decision>
 
   <decision id="hotfix_architecture_check" label="Hotfix Architecture Check"
-    description="Obvious bounded fixes may go directly to Lead; architecture uncertainty goes through Architect." refresh-facts="true">
+    description="Every hotfix runs the Architect so the Lead reads a frozen Architect contract; architectureSuspect no longer routes around it." refresh-facts="true">
     <on condition="architectureSuspect == true" transition="architect"/>
-    <on condition="architectureSuspect == false" transition="lead"/>
+    <on condition="architectureSuspect == false" transition="architect"/>
     <transition name="architect" to="architect"/>
-    <transition name="lead" to="lead_pre"/>
   </decision>
 
   <task-node id="architect" label="Architect" responsibility="architect" form-key="forge.architect"

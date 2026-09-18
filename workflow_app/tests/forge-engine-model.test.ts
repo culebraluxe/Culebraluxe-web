@@ -160,7 +160,11 @@ test('ENG-FORGE-V10: BUG/HOTFIX/RESEARCH entry routing remains XML-owned', async
     initial: { workType: 'HOTFIX', architectureSuspect: false },
     command: defaultCommand,
   })
-  assert.ok(!hotfix.steps.includes('architect'))
+  assert.ok(hotfix.steps.includes('architect'), 'clean hotfix must run the Architect')
+  assert.ok(
+    hotfix.steps.indexOf('architect') < hotfix.steps.indexOf('lead_pre'),
+    'the Architect contract must precede the Lead lane',
+  )
   assert.ok(hotfix.steps.includes('lead_pre'))
 
   const research = await runScenario({

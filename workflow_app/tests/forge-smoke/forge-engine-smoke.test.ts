@@ -188,7 +188,7 @@ test('ENG-FORGE-V9 smoke: RESEARCH classifies -> archive_research (no software c
   }
 })
 
-test('ENG-FORGE-V9 smoke: HOTFIX classifies -> straight to Lead (skips Architect) -> smith/QA', async () => {
+test('ENG-FORGE-V9 smoke: HOTFIX classifies -> Architect contract -> Lead -> smith/QA', async () => {
   process.env.APP_ENV = DEV
   const story = 'SMOKE-HOTFIX-' + Date.now()
   await createStory(story)
@@ -200,7 +200,11 @@ test('ENG-FORGE-V9 smoke: HOTFIX classifies -> straight to Lead (skips Architect
     })
     instanceId = res.instanceId
     assert.equal(res.status, 'completed')
-    assert.ok(!res.steps.includes('architect'), 'clean hotfix must skip Architect')
+    assert.ok(res.steps.includes('architect'), 'clean hotfix must run the Architect')
+    assert.ok(
+      res.steps.indexOf('architect') < res.steps.indexOf('lead_pre'),
+      'the Architect contract must precede the Lead lane',
+    )
     assert.ok(!res.steps.includes('diagnose_scout'), 'hotfix must not diagnose')
     assert.ok(res.steps.includes('lead_pre'))
     assert.ok(res.steps.includes('smith'))
