@@ -46,11 +46,21 @@ export const GUARD_FUNCTIONS = new Set([
   'requireAuthority',
 ])
 
+// The ONLY call expressions that count as a session check: the lightweight
+// next-auth JWT decoder. A handler that consults the portal session is not
+// deliberately reachable without one, so it can never be declared `public`.
+export const SESSION_FUNCTIONS = new Set(['getToken'])
+
 export const MANIFEST_REL_PATH = 'docs/agent/route-authority-manifest.md'
 const AUTHORITY_TYPES_REL_PATH = 'lib/auth/types.ts'
 const ROUTES_REL_ROOT = 'app/api'
 
-export type AuthorityDecision = 'authority' | 'public' | 'machine' | 'unguarded'
+export type AuthorityDecision =
+  | 'authority'
+  | 'session'
+  | 'public'
+  | 'machine'
+  | 'unguarded'
 
 export type RouteAuthorityEntry = {
   path: string
@@ -81,6 +91,7 @@ export type DetectedHandler = {
   method: string
   authority: string | null
   evidence: string | null
+  sessionEvidence: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -104,16 +115,6 @@ export const ROUTE_AUTHORITY_EXCEPTIONS: Record<string, ExceptionDeclaration> = 
     decision: 'public',
     reason:
       'Deploy-verification endpoint; exposes version, commit and build time only, no secret.',
-  },
-  'app/api/media/[id]/route.ts#GET': {
-    decision: 'public',
-    reason:
-      'Public media gated by Property publication state; authenticated portal escape hatch is JWT-only.',
-  },
-  'app/api/media/documents/[id]/route.ts#GET': {
-    decision: 'public',
-    reason:
-      'Document access decided by decideDocumentAccess against publication state and portal session.',
   },
   'app/api/portal/client-error/route.ts#POST': {
     decision: 'public',
@@ -232,6 +233,23 @@ function findGuard(
   return found
 }
 
+function findSessionCheck(node: ts.Node): string | null {
+  let found: string | null = null
+  const visit = (current: ts.Node): void => {
+    if (found) return
+    if (ts.isCallExpression(current)) {
+      const name = guardCalleeName(current.expression)
+      if (name && SESSION_FUNCTIONS.has(name)) {
+        found = name
+        return
+      }
+    }
+    ts.forEachChild(current, visit)
+  }
+  visit(node)
+  return found
+}
+
 type HandlerRef = { method: string; nodes: ts.Node[] }
 
 function collectHandlers(sourceFile: ts.SourceFile): HandlerRef[] {
@@ -323,15 +341,18 @@ export function scanRouteFile(
   )
   return collectHandlers(sourceFile).map((handler) => {
     let guard: { authority: string; evidence: string } | null = null
+    let sessionEvidence: string | null = null
     for (const node of handler.nodes) {
-      guard = findGuard(node, authorityCodes)
-      if (guard) break
+      if (!guard) guard = findGuard(node, authorityCodes)
+      if (!sessionEvidence) sessionEvidence = findSessionCheck(node)
+      if (guard && sessionEvidence) break
     }
     return {
       path: filePath,
       method: handler.method,
       authority: guard?.authority ?? null,
       evidence: guard?.evidence ?? null,
+      sessionEvidence,
     }
   })
 }
@@ -382,6 +403,34 @@ export function evaluateDetected(
         authority: handler.authority,
         evidence: handler.evidence ?? 'guard',
         reason: null,
+        fixStory: null,
+      })
+      continue
+    }
+
+    if (handler.sessionEvidence) {
+      if (declaration?.decision === 'public') {
+        violations.push({
+          path: handler.path,
+          method: handler.method,
+          rule: 'public-with-session',
+          detail: `declared public but the handler checks a session via ${handler.sessionEvidence}`,
+        })
+      } else if (declaration?.decision === 'authority') {
+        violations.push({
+          path: handler.path,
+          method: handler.method,
+          rule: 'declaration-code-drift',
+          detail: `declared authority ${declaration.authority ?? '?'} but no guard was detected in the handler`,
+        })
+      }
+      entries.push({
+        path: handler.path,
+        method: handler.method,
+        decision: 'session',
+        authority: null,
+        evidence: handler.sessionEvidence,
+        reason: declaration?.reason ?? null,
         fixStory: null,
       })
       continue
@@ -481,7 +530,7 @@ export function renderManifest(entries: RouteAuthorityEntry[]): string {
   )
   lines.push('')
   lines.push(
-    'Every exported HTTP handler under `app/api/**/route.ts` appears exactly once. `decision` is `authority` (a canonical guard was detected in the handler), `public` (deliberately reachable without a Portal authority), `machine` (verified by signature or shared secret), or `unguarded` (no authority decision yet — reason and fixing story required).',
+    'Every exported HTTP handler under `app/api/**/route.ts` appears exactly once. `decision` is `authority` (a canonical guard was detected in the handler), `session` (the handler consults the portal session but makes no Portal authority decision), `public` (deliberately reachable without a Portal authority or session), `machine` (verified by signature or shared secret), or `unguarded` (no authority decision yet — reason and fixing story required).',
   )
   lines.push('')
   lines.push('| Path | Method | Decision | Authority | Evidence | Reason |')

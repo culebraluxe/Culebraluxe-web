@@ -2,7 +2,7 @@
 
 GENERATED FILE — do not hand-edit. Regenerate with `node --import tsx scripts/route-authority-manifest.ts --write`.
 
-Every exported HTTP handler under `app/api/**/route.ts` appears exactly once. `decision` is `authority` (a canonical guard was detected in the handler), `public` (deliberately reachable without a Portal authority), `machine` (verified by signature or shared secret), or `unguarded` (no authority decision yet — reason and fixing story required).
+Every exported HTTP handler under `app/api/**/route.ts` appears exactly once. `decision` is `authority` (a canonical guard was detected in the handler), `session` (the handler consults the portal session but makes no Portal authority decision), `public` (deliberately reachable without a Portal authority or session), `machine` (verified by signature or shared secret), or `unguarded` (no authority decision yet — reason and fixing story required).
 
 | Path | Method | Decision | Authority | Evidence | Reason |
 | --- | --- | --- | --- | --- | --- |
@@ -13,8 +13,8 @@ Every exported HTTP handler under `app/api/**/route.ts` appears exactly once. `d
 | `app/api/integrations/whatsapp/coexistence/complete/route.ts` | POST | authority | portal.read | resolvePortalAccess |  |
 | `app/api/integrations/whatsapp/webhook/route.ts` | GET | machine |  | exception-registry | Machine caller: Meta webhook handshake token verification (GET) and HMAC signature (POST). |
 | `app/api/integrations/whatsapp/webhook/route.ts` | POST | machine |  | exception-registry | Machine caller: Meta webhook handshake token verification (GET) and HMAC signature (POST). |
-| `app/api/media/[id]/route.ts` | GET | public |  | exception-registry | Public media gated by Property publication state; authenticated portal escape hatch is JWT-only. |
-| `app/api/media/documents/[id]/route.ts` | GET | public |  | exception-registry | Document access decided by decideDocumentAccess against publication state and portal session. |
+| `app/api/media/[id]/route.ts` | GET | session |  | getToken |  |
+| `app/api/media/documents/[id]/route.ts` | GET | session |  | getToken |  |
 | `app/api/media/upload/route.ts` | POST | authority | listing.write | guardPortalUpload |  |
 | `app/api/portal/client-error/route.ts` | POST | public |  | exception-registry | Anonymous by design: the portal error boundary reports failures even when auth or the database are down. |
 | `app/api/portal/clients/[personId]/history/route.ts` | GET | authority | portal.read | resolvePortalAccess |  |

@@ -137,3 +137,51 @@ export const GET = withApiHandler({ label: 'x', route: '/x' }, GETHandler)`,
   assert.equal(detected[0].authority, 'tech.access')
   assert.equal(detected[0].evidence, 'runAuthorized')
 })
+
+test('the media routes are declared session, not public', () => {
+  const { entries, violations } = buildRouteAuthorityManifest(REPO_ROOT)
+  const media = entries.filter(
+    (entry) =>
+      entry.path === 'app/api/media/[id]/route.ts' ||
+      entry.path === 'app/api/media/documents/[id]/route.ts',
+  )
+  assert.equal(media.length, 2, 'expected both media handlers in the manifest')
+  for (const entry of media) {
+    assert.equal(
+      entry.decision,
+      'session',
+      `${entry.path}#${entry.method} should be session`,
+    )
+  }
+  assert.equal(
+    violations.filter((violation) => violation.rule === 'public-with-session').length,
+    0,
+  )
+})
+
+test('a public declaration whose handler checks a session is a named violation', () => {
+  const detected = scanRouteFile(
+    `import { getToken } from 'next-auth/jwt'
+export async function GET(request: Request) {
+  const token = await getToken({ req: request, secret: 'x' })
+  return new Response(token?.sub ? 'ok' : 'no')
+}`,
+    'app/api/fixture/route.ts',
+    CODES,
+  )
+  assert.equal(detected[0].sessionEvidence, 'getToken')
+
+  const { entries, violations } = evaluateDetected(detected, {
+    'app/api/fixture/route.ts#GET': { decision: 'public', reason: 'supposedly open' },
+  })
+  assert.equal(violations.length, 1)
+  assert.equal(violations[0].rule, 'public-with-session')
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].decision, 'session')
+})
+
+test('each handler appears exactly once in the manifest', () => {
+  const { entries } = buildRouteAuthorityManifest(REPO_ROOT)
+  const keys = entries.map((entry) => `${entry.path}#${entry.method}`)
+  assert.equal(new Set(keys).size, keys.length)
+})
