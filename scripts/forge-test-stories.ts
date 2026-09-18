@@ -2296,7 +2296,7 @@ const STORIES: TestStory[] = [
       'and those files are already applied. HONEST BOUNDARY: squawk reasons about a statement in ' +
       'isolation — it cannot know a table is empty in production and therefore safe, so a legitimate ' +
       'exception needs a recorded reason, not a silenced rule.',
-    assayCommands: '- `pnpm scan:migrations` after touching a migration file',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/migration-lint.test.ts` (new fence: an unsafe migration is refused by the static gate with the squawk rule id named, a safe one passes) + `node --import tsx scripts/forge-static-gate.ts` + `pnpm scan:migrations`',
   },
   {
     id: 'ENG-FORGE-LANE-SECRET-GATE-01',
@@ -2329,7 +2329,7 @@ const STORIES: TestStory[] = [
       'and refuses forever. HONEST BOUNDARY: entropy detection gives false positives and false ' +
       'negatives — this narrows the window, it does not replace rotation, and a refusal must be ' +
       'reviewable and overridable with a recorded reason rather than a silent pass.',
-    assayCommands: '- fence asserting a planted credential in a candidate diff is refused',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/lane-secret-gate.test.ts` (new fence: a planted credential in a candidate diff is refused by name, a clean diff passes) + `pnpm typecheck`',
   },
   {
     id: 'ENG-FORGE-BOUNDARY-SCHEMAS-01',
@@ -2364,7 +2364,7 @@ const STORIES: TestStory[] = [
       'trip knip, which the engine treats as a gate. HONEST BOUNDARY: schema validation checks ' +
       'shape, not authenticity — signature verification is a separate and prior control, and a ' +
       'well-formed payload from an unverified sender is still untrusted.',
-    assayCommands: '- fence posting a malformed webhook body and asserting a 400',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/webhook-schema.test.ts` (new fence: a malformed body returns 400 and the domain is never touched) + `pnpm typecheck`',
   },
   {
     id: 'ENG-FORGE-FENCE-CAN-FAIL-01',
@@ -2402,7 +2402,7 @@ const STORIES: TestStory[] = [
       'HONEST BOUNDARY: reverting the whole candidate and accepting any red test does NOT prove ' +
       'the assertion has power — a compile error or a missing file goes red too — so the control ' +
       'must target the specific claimed behaviour and name the assertion that died.',
-    assayCommands: '- fence for the negative-control mode; `pnpm test:forge:engine`',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/fence-can-fail.test.ts` (new fence: a fence kept green by a negative control is UNPROVEN, one that dies is PASS) + `pnpm test:forge:engine`',
   },
   {
     id: 'ENG-FORGE-PROPERTY-INVARIANTS-01',
@@ -2441,7 +2441,7 @@ const STORIES: TestStory[] = [
       'BOUNDARY: a property test proves what the property states, and a wrong property is a green ' +
       'test that documents a bug — each property needs its own sentence saying what must be true ' +
       'and why.',
-    assayCommands: '- `pnpm test:changed` after touching one of the three families',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/property-invariants.test.ts` (new fence: the three invariant families, each proved to fail against the pre-fix behaviour) + `pnpm typecheck`',
   },
   {
     id: 'ENG-FORGE-DEPENDENCY-AUDIT-01',
@@ -2477,7 +2477,7 @@ const STORIES: TestStory[] = [
       'High because nothing here is known-exploited, and because these are mostly build- and ' +
       'toolchain-level transitive dependencies; if triage shows a reachable critical path in a ' +
       'runtime dependency, raise it.',
-    assayCommands: '- `pnpm scan:deps` (exits 1 while advisories remain known and untriaged)',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/dependency-triage.test.ts` (new fence: a triaged advisory is recorded with a reachability verdict, an untriaged one is reported) + `pnpm scan:deps`',
   },
   {
     id: 'ENG-FORGE-SPLIT-SIBLING-01',
