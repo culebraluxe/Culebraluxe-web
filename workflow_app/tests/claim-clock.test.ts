@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   ENGINE_CLAIM_STALE_MS,
@@ -7,6 +8,15 @@ import {
   parsePostgresInstant,
 } from '../../db/forge-engine-task-execution'
 import type { QueryExecutor, QueryRow } from '../../db/query-executor'
+import { assertDriverValueShape } from './helpers/interrupted-sequence'
+
+// The fixture is the driver's own `timestamptz::text`, captured once by
+// scripts/capture-driver-value-formats.ts. It replaces the hand-written
+// timestamp literal whose `Z`-append hid the ENG-FORGE-CLAIM-CLOCK-01 defect:
+// the guard fails any value in a shape the driver never emits.
+const DRIVER_CAPTURE = JSON.parse(
+  readFileSync(new URL('./fixtures/driver-value-formats.json', import.meta.url), 'utf8'),
+) as { values: Record<string, string> }
 
 // ---------------------------------------------------------------------------
 // The engine's stale-claim clock. A Postgres timestamp text carries an offset
@@ -35,6 +45,15 @@ test('parses a Z timestamp to its instant', () => {
 
 test('parses a no-offset timestamp to its instant', () => {
   assert.equal(parsePostgresInstant(NO_OFFSET), FIXED)
+})
+
+// The fixture is the driver's real text, not a hand-normalised literal. A
+// timestamp in a shape the driver never emits fails here, so the `Z`-append
+// defect class cannot be reintroduced by editing the fixture.
+test('the captured driver timestamp is the form the reader must parse', () => {
+  const captured = DRIVER_CAPTURE.values.timestamptzText
+  assertDriverValueShape(captured, 'timestamptz')
+  assert.ok(Number.isFinite(parsePostgresInstant(captured)))
 })
 
 // A claim touched seconds ago, written in each driver form. The board must read

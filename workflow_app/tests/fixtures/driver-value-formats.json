@@ -1,0 +1,12 @@
+{
+  "source": "postgres/neon tagged executor via db/client sql",
+  "capturedBy": "scripts/capture-driver-value-formats.ts",
+  "note": "Exact ::text forms the driver emits. Do not hand-edit into a shape the driver never produces.",
+  "values": {
+    "timestamptzText": "2026-09-18 00:07:10.803394+00",
+    "epochMillisText": "1789690030803",
+    "countText": "313",
+    "bigintText": "1234567890123",
+    "dateText": "2026-09-18"
+  }
+}
