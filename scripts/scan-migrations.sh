@@ -9,20 +9,37 @@
 # not for a gate — a gate that is red on day one is a gate everyone learns to ignore.
 #
 # Exits 1 when squawk reports findings, so it can be a gate without a wrapper.
+#
+# JSON MODE (`--json`): stdout is exactly one JSON object
+#   {"files":[...],"findings":[{"file","rule","line","message",...}]}
+# and all human commentary goes to stderr. Exit 0 clean/no-change, 1 findings, 2 when migration
+# files were selected but squawk is not installed (fail closed — an unavailable linter is not a
+# clean lint). Explicit file arguments after `--json` lint exactly those files, bypassing git, so
+# the engine fence can drive a fixture without becoming a second changed-file writer.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v squawk >/dev/null 2>&1; then
-  echo 'scan:migrations: squawk not installed — npm install -g squawk-cli' >&2
-  exit 2
-fi
+json=0
+all=0
+explicit=()
+for a in "$@"; do
+  case "$a" in
+    --json) json=1 ;;
+    --all) all=1 ;;
+    *) explicit+=("$a") ;;
+  esac
+done
 
 files=()
 
-if [[ "${1:-}" == "--all" ]]; then
+if [[ ${#explicit[@]} -gt 0 ]]; then
+  for f in "${explicit[@]}"; do
+    [[ -n "$f" && -e "$f" ]] && files+=("$f")
+  done
+elif [[ $all -eq 1 ]]; then
   for f in db/migrations/*.sql; do
     [[ -e "$f" ]] && files+=("$f")
   done
@@ -51,9 +68,36 @@ for f in "${files[@]:-}"; do
   [[ $seen -eq 0 ]] && unique+=("$f")
 done
 
+# NO FILES IS NOT A FAILURE. This is checked BEFORE the tool so a checkout with no changed
+# migrations never needs squawk installed, and unrelated work is never blocked by history.
 if [[ ${#unique[@]} -eq 0 ]]; then
-  echo 'scan:migrations: no changed migrations — nothing to lint'
+  if [[ $json -eq 1 ]]; then
+    printf '{"files":[],"findings":[]}\n'
+  else
+    echo 'scan:migrations: no changed migrations — nothing to lint'
+  fi
   exit 0
+fi
+
+if ! command -v squawk >/dev/null 2>&1; then
+  echo 'scan:migrations: squawk not installed — npm install -g squawk-cli' >&2
+  exit 2
+fi
+
+if [[ $json -eq 1 ]]; then
+  echo "scan:migrations: ${#unique[@]} migration file(s) selected" >&2
+  files_json=""
+  for f in "${unique[@]}"; do
+    files_json+="\"$f\","
+  done
+  files_json="[${files_json%,}]"
+  squawk_out="$(squawk "${unique[@]}" --reporter json 2>/dev/null)"
+  status=$?
+  [[ -z "$squawk_out" ]] && squawk_out='[]'
+  # Normalize squawk's native `rule_name` to the contract's `rule` so a caller reads one name.
+  squawk_out="$(printf '%s' "$squawk_out" | sed 's/"rule_name":/"rule":/g')"
+  printf '{"files":%s,"findings":%s}\n' "$files_json" "$squawk_out"
+  exit $status
 fi
 
 echo "scan:migrations: ${#unique[@]} changed migration file(s)"

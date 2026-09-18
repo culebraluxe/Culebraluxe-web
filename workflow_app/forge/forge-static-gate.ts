@@ -27,7 +27,19 @@ export type StaticGateResult = {
   /** Per-category counts (unused-file, unused-export, unused-dependency, ...). */
   knipCounts: Record<string, number>
   knipGroupCount: number
-  /** True when architecture (the hard gate) is clean. */
+  /**
+   * Migration safety (squawk over changed migration files). The linter is a HARD gate: an
+   * unsafe statement about to hit a live database must refuse the candidate. `migrationRan`
+   * is reported separately from `migrationOk` so a skipped/unavailable linter is never read
+   * as a clean one.
+   */
+  migrationRan: boolean
+  migrationOk: boolean
+  /** One line per finding, each carrying the squawk rule id (e.g. require-concurrent-index-creation). */
+  migrationFindings: string[]
+  /** The squawk rule ids that fired, de-duplicated. */
+  migrationRules: string[]
+  /** True when the hard gates (architecture AND migration safety) are clean. */
   ok: boolean
 }
 
@@ -199,6 +211,67 @@ function runKnip(input: { workspace: string; knipBin?: string; timeoutMs: number
 }
 
 /**
+ * Run the migration linter (squawk) through `scripts/scan-migrations.sh`, the ONE writer of the
+ * changed-migration set. The script owns which files are linted; this function only reads its
+ * machine-readable report and folds the squawk rule ids into the gate verdict.
+ *
+ * A missing script (a bare unit harness) skips rather than fails, the same rule dependency-cruiser
+ * follows. But a selected migration file with no linter available FAILS CLOSED: an unavailable
+ * safety check is not a clean one.
+ */
+function runMigrationLint(input: {
+  workspace: string
+  scriptPath?: string
+  files?: string[]
+  timeoutMs: number
+}): { ran: boolean; ok: boolean; findings: string[]; rules: string[] } {
+  const script = input.scriptPath ?? join(input.workspace, 'scripts/scan-migrations.sh')
+  if (!existsSync(script)) return { ran: false, ok: true, findings: [], rules: [] }
+
+  const r = spawn('bash', [script, '--json', ...(input.files ?? [])], input.workspace, input.timeoutMs)
+  if (r.status === 2) {
+    return {
+      ran: false,
+      ok: false,
+      findings: ['migration lint unavailable: squawk is not installed (npm install -g squawk-cli)'],
+      rules: [],
+    }
+  }
+  if (r.status === null) {
+    return {
+      ran: false,
+      ok: false,
+      findings: [`migration lint could not run: ${r.out.replace(/\s+/g, ' ').trim().slice(0, 200) || 'no output'}`],
+      rules: [],
+    }
+  }
+
+  let parsed: { findings?: Array<{ file?: string; rule?: string; rule_name?: string; line?: number; message?: string }> }
+  try {
+    parsed = JSON.parse(r.stdout) as typeof parsed
+  } catch {
+    return {
+      ran: true,
+      ok: false,
+      findings: [`migration lint output unparsable: ${r.stdout.replace(/\s+/g, ' ').trim().slice(0, 200) || 'empty'}`],
+      rules: [],
+    }
+  }
+
+  const findings: string[] = []
+  const rules: string[] = []
+  for (const hit of Array.isArray(parsed.findings) ? parsed.findings.slice(0, 100) : []) {
+    const rule = String(hit.rule ?? hit.rule_name ?? 'squawk')
+    const file = String(hit.file ?? '?')
+    const line = Number.isFinite(hit.line) ? Number(hit.line) : 0
+    const message = String(hit.message ?? '').replace(/\s+/g, ' ').trim()
+    if (!rules.includes(rule)) rules.push(rule)
+    findings.push(`${rule} ${file}:${line}${message ? ` — ${message.slice(0, 200)}` : ''}`)
+  }
+  return { ran: true, ok: findings.length === 0, findings, rules }
+}
+
+/**
  * Run the deterministic static gate against a workspace. Architecture is the
  * hard gate (ok=false on error-severity findings); semgrep and knip report
  * informationally — hygiene must never recall Smith.
@@ -214,6 +287,11 @@ export function runStaticGate(input: {
   semgrepBin?: string
   /** Explicit knip binary (e.g. primary checkout node_modules/.bin/knip). */
   knipBin?: string
+  /**
+   * Explicit migration files to lint. When omitted, `scripts/scan-migrations.sh` selects the
+   * changed migrations itself (the one writer). The fence passes fixture paths here.
+   */
+  migrationFiles?: string[]
   timeoutMs?: number
 }): StaticGateResult {
   const workspace = input.workspace
@@ -248,6 +326,7 @@ export function runStaticGate(input: {
       : { ok: true, errors: [] }
   const sec = runSemgrep({ workspace, roots, configDir: '.semgrep', semgrepBin: input.semgrepBin, timeoutMs })
   const hygiene = runKnip({ workspace, knipBin: input.knipBin, timeoutMs })
+  const migration = runMigrationLint({ workspace, files: input.migrationFiles, timeoutMs })
 
   return {
     workspace,
@@ -264,6 +343,11 @@ export function runStaticGate(input: {
     knipFindings: hygiene.findings,
     knipCounts: hygiene.counts,
     knipGroupCount: hygiene.groupCount,
-    ok: arch.ok,
+    migrationRan: migration.ran,
+    migrationOk: migration.ok,
+    migrationFindings: migration.findings,
+    migrationRules: migration.rules,
+    // Architecture AND migration safety are the hard gates; semgrep and knip are hygiene.
+    ok: arch.ok && migration.ok,
   }
 }

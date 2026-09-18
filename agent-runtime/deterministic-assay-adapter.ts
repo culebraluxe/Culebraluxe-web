@@ -368,6 +368,13 @@ export class DeterministicAssayAdapter extends AgentRuntimeAdapter {
             policyViolations.push(`Static gate (dependency-cruiser): ${error}`)
           }
         }
+        // Migration safety is a hard gate: an unsafe statement about to hit a live database
+        // refuses the candidate, and the violation names the squawk rule that found it.
+        if (!gate.migrationOk) {
+          for (const finding of gate.migrationFindings.slice(0, 8)) {
+            policyViolations.push(`Static gate (migration lint): ${finding}`)
+          }
+        }
         // Durable evidence BEFORE QA evidence finalizes (observer; a failed write
         // must never break QA — DB failures are already captured at the gateway).
         await recordStaticGateArtifact({
