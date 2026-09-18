@@ -283,7 +283,7 @@ export async function readForgeGenerationFacts(
   for (const raw of rows) {
     const row = raw as Record<string, unknown>
     const sha = String(row.commit_hash ?? '').trim()
-    if (sha) candidateShas.push(sha)
+    if (isCommitSha(sha)) candidateShas.push(sha)
     const code = String(row.failure_code ?? '').trim()
     if (code) failureCodes.push(code)
     const detail = String(row.evidence_detail ?? '')
