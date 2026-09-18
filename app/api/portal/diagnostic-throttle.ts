@@ -27,6 +27,17 @@ export type DiagnosticPolicy = {
   maxBodyBytes: number
 }
 
+/**
+ * The house bound for an anonymous diagnostic endpoint: 30 writes per source per
+ * minute, 16 KiB bodies. ONE definition, shared by both routes — the two
+ * endpoints must not drift into different bounds.
+ */
+export const DIAGNOSTIC_POLICY: DiagnosticPolicy = {
+  windowMs: 60_000,
+  maxWrites: 30,
+  maxBodyBytes: 16_384,
+}
+
 export type DiagnosticRefusalReason = 'rate' | 'size'
 
 export type DiagnosticVerdict =

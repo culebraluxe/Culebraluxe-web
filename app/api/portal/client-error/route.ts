@@ -4,7 +4,11 @@ import { sql } from '@/db/client'
 import { recordError } from '@/db/app-error'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
-import { createDiagnosticThrottle, refuseDiagnosticWrite } from '../diagnostic-throttle'
+import {
+  DIAGNOSTIC_POLICY,
+  createDiagnosticThrottle,
+  refuseDiagnosticWrite,
+} from '../diagnostic-throttle'
 
 // ---------------------------------------------------------------------------
 // CLIENT FAILURES IN /portal/* — the one seam that used to be silent.
@@ -27,15 +31,11 @@ import { createDiagnosticThrottle, refuseDiagnosticWrite } from '../diagnostic-t
 export const dynamic = 'force-dynamic'
 
 const MAX_MESSAGE = 500
-const MAX_BODY_BYTES = 16_384
 
 // One throttle PER ENDPOINT. State is per serverless instance; the bound is a
-// bound, not a fleet-wide quota (global limiting is an explicit non-goal).
-const throttle = createDiagnosticThrottle({
-  windowMs: 60_000,
-  maxWrites: 30,
-  maxBodyBytes: MAX_BODY_BYTES,
-})
+// bound, not a fleet-wide quota (global limiting is an explicit non-goal). The
+// bound itself lives in DIAGNOSTIC_POLICY, shared with the sibling route.
+const throttle = createDiagnosticThrottle(DIAGNOSTIC_POLICY)
 
 // Best-effort source token for the in-memory bound only — NEVER persisted. The
 // recorded refusal carries the count and the reason, no caller identity.
@@ -68,7 +68,7 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
     })
 
   // Refuse an oversized body BEFORE reading it into memory.
-  if (declaredBytes > MAX_BODY_BYTES) {
+  if (declaredBytes > DIAGNOSTIC_POLICY.maxBodyBytes) {
     throttle.checkDiagnosticWrite({ source, bodyBytes: declaredBytes, now })
     return refuse(413)
   }

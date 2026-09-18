@@ -4,7 +4,11 @@ import { recordError } from '@/db/app-error'
 import { sql as errorSql } from '@/db/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
-import { createDiagnosticThrottle, refuseDiagnosticWrite } from '../diagnostic-throttle'
+import {
+  DIAGNOSTIC_POLICY,
+  createDiagnosticThrottle,
+  refuseDiagnosticWrite,
+} from '../diagnostic-throttle'
 
 // ---------------------------------------------------------------------------
 // MOVE TRACE — what the BOARD sees, reported from the browser.
@@ -24,15 +28,10 @@ import { createDiagnosticThrottle, refuseDiagnosticWrite } from '../diagnostic-t
 export const dynamic = 'force-dynamic'
 
 const MAX_FIELD = 64
-const MAX_BODY_BYTES = 16_384
 
 // One throttle PER ENDPOINT: a flood of move-traces must not spend the budget
-// the client-error endpoint needs.
-const throttle = createDiagnosticThrottle({
-  windowMs: 60_000,
-  maxWrites: 30,
-  maxBodyBytes: MAX_BODY_BYTES,
-})
+// the client-error endpoint needs. The bound itself lives in DIAGNOSTIC_POLICY.
+const throttle = createDiagnosticThrottle(DIAGNOSTIC_POLICY)
 
 function clip(value: unknown): string {
   return String(value ?? '').slice(0, MAX_FIELD)
@@ -70,7 +69,7 @@ async function POSTHandler(req: NextRequest): Promise<Response> {
     })
 
   // Refuse an oversized body BEFORE reading it into memory.
-  if (declaredBytes > MAX_BODY_BYTES) {
+  if (declaredBytes > DIAGNOSTIC_POLICY.maxBodyBytes) {
     throttle.checkDiagnosticWrite({ source, bodyBytes: declaredBytes, now })
     return refuse(413)
   }
