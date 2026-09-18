@@ -40,6 +40,17 @@ cheap-to-regenerate crown jewels but is not an emergency. Tracked by
 `ENG-FORGE-SECRET-HISTORY-01`; the `.gitleaksignore` baseline is a receipt of what is known, not
 permission to keep it.
 
+**PURGED, 2026-09-18 (operator's call, at the operator's instruction).** The nine checkpoint refs were
+deleted (`git update-ref -d`, 1179 → 1170 refs under `refs/cline`), then `git gc --prune=now` dropped
+the object: `git cat-file -e 297c48e2` goes from reachable to **gone**, `git fsck` is clean, `main` and
+the tree are untouched. The baseline shrank from **147 entries to 3** — purging is the remediation the
+baseline was waiting for, and a baseline that does not shrink when the exposure is removed is a
+baseline that has become an allowance. The three remaining entries are `generic-api-key` findings in
+deleted internal API routes that still sit in checkpoint refs (kept deliberately: they are not
+environment files, and each one costs more restore points). Cost paid, stated plainly: the Cline
+restore points tied to those nine refs are gone. What this does NOT do: un-expose anything already
+copied off this machine, which is why rotation remains the only remedy that ends the risk.
+
 ## CORRECTION, 2026-09-18 — my own wrong alarm, kept because it is instructive
 
 The first version of the section above said the credentials were **in git history** and told the

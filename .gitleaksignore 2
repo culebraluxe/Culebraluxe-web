@@ -1,0 +1,166 @@
+# ---------------------------------------------------------------------------
+# Gitleaks baseline — KNOWN historical exposure, not an allowance.
+#
+# Established 2026-09-18 by the first gitleaks run in this repository. Every fingerprint below is a
+# finding that already exists in git history and CANNOT be removed by editing today's tree:
+#   * 90 findings in `.env.local.before-icloud-username-fix`, committed across 9 commits on
+#     2026-09-03/04 — a backup of the environment file, carrying 48 variable names including
+#     DATABASE_URL_PROD, AUTH_SECRET, WHATSAPP_ACCESS_TOKEN, BOLDSIGN_API_KEY and
+#     ICLOUD_MAIL_APP_PASSWORD. The file is gone from HEAD; the history is not.
+#   * 3 findings in internal API routes (jessica-listing-v4, signature-provision,
+#     signature-provision-reset), all since deleted from the tree.
+#
+# A baseline is honest only while it is a RECEIPT. Rotation of the affected credentials is the
+# actual remedy and is tracked by ENG-FORGE-SECRET-HISTORY-01; when the credentials are rotated
+# this file stays as the record, and the exposure stops being live.
+#
+# New findings are NOT added here to make a scan pass. Every addition needs a line saying why.
+# ---------------------------------------------------------------------------
+
+05798924a3cf0e8ee452235779470671f08e908f:app/api/internal/signature-provision-reset/route.ts:generic-api-key:7
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:gcp-api-key:3
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:generic-api-key:118
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:generic-api-key:128
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:generic-api-key:147
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:generic-api-key:24
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:generic-api-key:56
+0eccc38ad6f1510605bc067b57971f648528a6be:.env.local.before-icloud-username-fix:generic-api-key:89
+14298904e4b7718747b42da3276c15689e7c5ab7:app/api/internal/signature-provision/route.ts:generic-api-key:8
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:gcp-api-key:3
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:generic-api-key:118
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:generic-api-key:128
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:generic-api-key:147
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:generic-api-key:24
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:generic-api-key:56
+340b7293a40e3814fbc8767ac1b7531c53c2e5ed:.env.local.before-icloud-username-fix:generic-api-key:89
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:gcp-api-key:3
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:generic-api-key:118
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:generic-api-key:128
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:generic-api-key:147
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:generic-api-key:24
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:generic-api-key:56
+4cdd7887385a19732771782f204f100c29de4f6d:.env.local.before-icloud-username-fix:generic-api-key:89
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:gcp-api-key:3
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:generic-api-key:118
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:generic-api-key:128
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:generic-api-key:147
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:generic-api-key:24
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:generic-api-key:56
+4ce030405ccfde514d6f257c68f19113230e61a6:.env.local.before-icloud-username-fix:generic-api-key:89
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:gcp-api-key:3
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:generic-api-key:118
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:generic-api-key:128
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:generic-api-key:147
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:generic-api-key:24
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:generic-api-key:56
+7c8ae7be28bd348956f77159be4b2374959c0eb4:.env.local.before-icloud-username-fix:generic-api-key:89
+847b7a27d87a5ba2b3e42ed24449a3f4bc0796d7:app/api/internal/jessica-listing-v4/route.ts:generic-api-key:5
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:gcp-api-key:3
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:generic-api-key:118
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:generic-api-key:128
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:generic-api-key:147
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:generic-api-key:24
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:generic-api-key:56
+998dc5bafedcb6a46ab7586b259ff8587b947469:.env.local.before-icloud-username-fix:generic-api-key:89
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:gcp-api-key:3
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:generic-api-key:118
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:generic-api-key:128
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:generic-api-key:147
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:generic-api-key:24
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:generic-api-key:56
+ab73f43da893f3fa48163d8f00d14ca798f815ee:.env.local.before-icloud-username-fix:generic-api-key:89
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:gcp-api-key:3
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:generic-api-key:118
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:generic-api-key:128
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:generic-api-key:147
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:generic-api-key:24
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:generic-api-key:56
+b30acfdcf0f0f30a3c701f8fb2b11d2e105c5022:.env.local.before-icloud-username-fix:generic-api-key:89
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:133
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-boldsign-key:135
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-database-url:105
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-database-url:111
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-database-url:113
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-database-url:48
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-database-url:81
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-whatsapp-access-token:30
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:culebraluxe-xai-key:140
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:gcp-api-key:3
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:generic-api-key:118
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:generic-api-key:128
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:generic-api-key:147
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:generic-api-key:24
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:generic-api-key:56
+d1e5e5ddf5acd7d447364537e2ee2b4b597e6c23:.env.local.before-icloud-username-fix:generic-api-key:89

@@ -258,6 +258,31 @@ Unused files, exports, dependencies. Hygiene. Informational. Must never recall S
 
 Use whatever the repo actually has: targeted tests, `tsc --noEmit`, `pnpm forge:tools --run`. Prefer targeted proof unless the story requires broader regression. A skipped arch gate is INCOMPLETE, not clean.
 
+### Perimeter instruments (installed, not engine tools yet)
+
+Three instruments run at the repository boundary. They are **deliberately NOT in the engine tool
+catalog**: `wired` in `workflow_app/forge/forge-tool-catalog.ts` means "the engine can actually run
+it", a fence refuses to catalogue anything less (`wired` was corrected on 2026-09-11 for exactly this
+reason — cruiser and knip read as wired while the gate silently skipped), and the engine's static gate
+does not invoke these yet. Cataloguing them now would be a claim rather than a fact. Each one enters
+the catalog with the story that builds its seam.
+
+| Instrument | Runs via | Found on first run, 2026-09-18 | Enters the catalog with |
+| --- | --- | --- | --- |
+| squawk 2.65.0 | `pnpm scan:migrations` (changed files) and the gates workflow | 745 findings across 192 migrations — 145 indexes without `CONCURRENTLY`, 50 constraints without `NOT VALID` | `ENG-FORGE-MIGRATION-LINT-01` |
+| gitleaks 8.30.1 | `pnpm scan:secrets` and the gates workflow | a plaintext env backup captured in 9 `refs/cline/checkpoints` refs — never pushed, purged 2026-09-18 | `ENG-FORGE-LANE-SECRET-GATE-01` |
+| osv-scanner 2.6.0 | `pnpm scan:deps` and the gates workflow | 17 packages affected by 45 advisories (2 critical, 22 high) | `ENG-FORGE-DEPENDENCY-AUDIT-01` |
+
+- Class: deterministic. **Never model-facing** — a model that chooses whether to be scanned is not
+  being scanned.
+- Positions: none yet. No position may claim these until its seam exists.
+- Record: `docs/agent/PERIMETER.md` — the numbers, the root causes, and the invocations that silently
+  do not cover (`osv-scanner` without `--all-packages` reports 17 of 899 packages; `gitleaks dir`
+  scans your own `.env.local` and build output, so history is the perimeter).
+
+CI (`.github/workflows/gates.yml`) runs all three on every push, which is why they are worth having
+before they are engine tools.
+
 ### Resident OpenCode construction session
 
 See **The desk and the cabinet**. Session id belongs on the story-run. Hats change; the cabinet is the personnel file.
