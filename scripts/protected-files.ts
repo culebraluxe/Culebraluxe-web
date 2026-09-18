@@ -73,6 +73,11 @@ export const PROTECTED_FILES: ProtectedFile[] = [
     marker: '# The perimeter: instruments, what they found, and the traps in running them',
     why: 'the record of the 2026-09-03/04 credential exposure, the measured findings each instrument produced, and the invocations that silently do not cover. Re-deriving this costs a day and the traps do not announce themselves',
   },
+  {
+    path: 'docs/agent/SECRET-ROTATION-CHECKLIST.md',
+    marker: '# Credential rotation checklist',
+    why: 'names, per provider, exactly which credentials the 2026-09-03/04 checkpoint capture exposed and which of the 48 variables are NOT secrets. Losing it means re-deriving the exposure list from a gitleaks report and guessing which values still need invalidating',
+  },
 ]
 
 export type ProtectedDirectory = {

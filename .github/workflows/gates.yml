@@ -235,7 +235,7 @@ jobs:
             echo '### Deployed after the gates passed'
             echo ''
             echo "Source commit: \`$(git rev-parse HEAD)\`"
-            echo 'The probe and the release record stay with the operator (`pnpm release --probe`),'
+            echo 'The probe and the release record stay with the operator (pnpm release --probe),'
             echo 'because recording writes to the release ledger and that is not a read-only act.'
           } >> "$GITHUB_STEP_SUMMARY"
 
