@@ -86,7 +86,7 @@ import {
 } from '../../db/forge-role-contract'
 import { getForgeRolePlan, type ForgeRolePlan } from '../../db/forge-role-plan'
 import { listStoryForgeFindingHandoff } from '../../db/forge-role-finding'
-import type { LeadAssignment } from './forge-lead-routing'
+import type { LeadAssignment, RoutingReview } from './forge-lead-routing'
 import { resolveLeadProposal } from './lead-proposal-resolve'
 import { buildArchitectDirective } from './forge-architect-directive'
 import { architectContractFromNotes, resolveAcceptanceAssertions } from './forge-architect-contract'
@@ -344,6 +344,37 @@ const CANDIDATE_PRODUCING_NODES: ReadonlySet<string> = new Set([
   'repair_smith',
   'lead_solo_implement',
 ])
+
+/**
+ * THE DIRECT-ASSAY ARRANGEMENT (ENG-FORGE-VERIFY-EXISTING-01).
+ *
+ * A story whose required findings already exist on the base is JUDGED, not re-authored. The
+ * Lead's accepted ASSAY route names the candidate sha, and this is the arrangement the runner
+ * dispatches for it: the assay lane, the deterministic qa_verify node, and that named sha as
+ * the candidate to verify. NOTHING else produces it — SOLO, SMITH, SPLIT and HOLD return null,
+ * so the ordinary authoring path is untouched. The named sha is the ONLY base: the arrangement
+ * never falls back to the live checkout, because verifying a tree other than the one the route
+ * named would be a false pass.
+ */
+export type VerifyExistingArrangement = {
+  lane: 'assay'
+  node: 'qa_verify'
+  candidateSha: string
+  proofs: string[]
+}
+
+export function verifyExistingArrangement(
+  review: RoutingReview,
+  proofs: readonly string[],
+): VerifyExistingArrangement | null {
+  if (!review.ok || review.proposal.decision !== 'ASSAY') return null
+  const sha =
+    typeof review.proposal.verifyCandidate === 'string'
+      ? review.proposal.verifyCandidate.trim().toLowerCase()
+      : ''
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null
+  return { lane: 'assay', node: 'qa_verify', candidateSha: sha, proofs: [...proofs] }
+}
 
 /**
  * Is `ancestor` in `descendant`'s history? Exit code, not stdout: `git merge-base --is-ancestor` prints

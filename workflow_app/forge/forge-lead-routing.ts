@@ -6,7 +6,7 @@ import type { DispatchabilityFeatures } from './forge-dispatchability'
 import type { SmithExecutionPlan } from './forge-execution-shaping'
 import { shapeArchitectFindings, shapeSizeFloor, type FindingDisposition } from './forge-shaping'
 
-export type Route = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
+export type Route = 'SOLO' | 'SMITH' | 'SPLIT' | 'ASSAY' | 'HOLD'
 export type Size = 'SMALL' | 'MEDIUM' | 'LARGE'
 export type BenchIntent = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 
@@ -25,6 +25,8 @@ export type LeadProposal = {
   size: Size
   sizeReason: string
   reason: string
+  /** ASSAY only: the 40-hex candidate sha this route verifies. */
+  verifyCandidate?: string
   assignments: LeadAssignment[]
   mergeChecks: string[]
 }
@@ -34,6 +36,12 @@ export type RoutingContext = {
   splitEnabled: boolean
   maxSmiths: number
   allowedProofs: string[]
+  /**
+   * The candidate the runner observed on the pinned base (ASSAY only). Absent/null means
+   * no existing candidate was observed, which is "nothing to verify" — an ASSAY route is
+   * then refused, never passed.
+   */
+  existingCandidate?: { sha: string; onBaseRef: boolean } | null
   /** Captain launch intent from the Bench. Absent/null = no cap (live default). */
   benchIntent?: BenchIntent
 }
@@ -71,8 +79,9 @@ function planValidShape(v: unknown): v is SmithExecutionPlan {
 }
 
 export function proposalValidShape(v: unknown): v is LeadProposal {
-  return object(v) && v.version === 1 && ['SOLO', 'SMITH', 'SPLIT', 'HOLD'].includes(String(v.decision)) &&
+  return object(v) && v.version === 1 && ['SOLO', 'SMITH', 'SPLIT', 'ASSAY', 'HOLD'].includes(String(v.decision)) &&
     ['SMALL', 'MEDIUM', 'LARGE'].includes(String(v.size)) && nonempty(v.sizeReason) && nonempty(v.reason) &&
+    (v.verifyCandidate === undefined || typeof v.verifyCandidate === 'string') &&
     strings(v.mergeChecks) && Array.isArray(v.assignments) && v.assignments.length <= 8 &&
     v.assignments.every(a => object(a) && nonempty(a.id) && strings(a.findingIds) &&
       strings(a.dependsOn) && strings(a.evidenceRefs) && nonempty(a.reasoning) &&
@@ -163,6 +172,31 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
   if (!required.length) errors.push('No required findings supplied; obtain the bounded Architect handoff')
   if (!unique(context.findings.map(f => f.id))) errors.push('Duplicate finding IDs in Architect handoff')
   if (required.some(f => f.hint === 'HOLD')) errors.push('Required Architect HOLD remains unresolved')
+  // DIRECT ASSAY (ENG-FORGE-VERIFY-EXISTING-01). A story whose required findings already
+  // exist on the base is JUDGED, not re-authored: the route names the candidate sha it
+  // verifies and dispatches no Smith. It is accepted ONLY when that sha is the candidate
+  // the runner actually observed on the pinned base — otherwise there is nothing to
+  // verify and the route is refused, never passed. SOLO/SMITH/SPLIT/HOLD fall through to
+  // the unchanged validation below.
+  if (p.decision === 'ASSAY') {
+    if (p.assignments.length) errors.push('ASSAY dispatches no Smith assignments')
+    const verify = typeof p.verifyCandidate === 'string' ? p.verifyCandidate.trim().toLowerCase() : ''
+    if (!/^[0-9a-f]{40}$/.test(verify)) {
+      errors.push('ASSAY requires a 40-hex verifyCandidate sha')
+    }
+    const observed = context.existingCandidate
+    const observedSha =
+      observed && typeof observed.sha === 'string' ? observed.sha.trim().toLowerCase() : ''
+    if (!observedSha || observedSha !== verify) {
+      errors.push('ASSAY verifyCandidate must be the candidate observed on the base')
+    } else if (!observed?.onBaseRef) {
+      errors.push('ASSAY candidate is not on the pinned baseRef')
+    }
+    if (!p.mergeChecks.length || p.mergeChecks.some(c => !context.allowedProofs.includes(c))) {
+      errors.push('ASSAY must verify with the frozen story proof commands')
+    }
+    return errors.length ? { ok: false, errors, advisories } : { ok: true, proposal: p, advisories }
+  }
   const n = p.assignments.length
   if ((p.decision === 'SOLO' || p.decision === 'SMITH') && n !== 1) errors.push(p.decision + ' requires one assignment')
   if (p.decision === 'SPLIT') {
