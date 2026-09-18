@@ -110,6 +110,13 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    unavailable until an applier can run a statement outside a transaction. Where that matters now, the
    exception is recorded in the migration file itself with its reason; the durable fix belongs to
    `ENG-FORGE-MIGRATION-LINT-01`.
+7. **A push that reports `exit=0` is not evidence a commit exists.** On 2026-09-18 a multi-line commit
+   message was written as a shell heredoc; the terminal ate it, so no commit was ever created — and the
+   very next `git push` returned **0** because there was nothing to send ("Everything up-to-date"). Two
+   green signals, neither of them about the work. The guard is to verify the object before believing the
+   transport: `git log --oneline -1` (is the message the one I wrote?) and
+   `git rev-list --left-right --count origin/main...HEAD` (is it ahead?). This is the same family as
+   `typecheck | tail` reading a pipe's exit code, and it is why a claim of "pushed" gets the SHA attached.
 
 ## The deploy boundary (not yet a fence)
 
