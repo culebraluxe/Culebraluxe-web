@@ -76,6 +76,9 @@
     "test:story": "APP_ENV=production node --env-file=.env.local --import tsx scripts/test-story.ts",
     "test:sprint-fences": "APP_ENV=production node --env-file=.env.local --import tsx scripts/test-story.ts --sprint",
     "test:deploy-gate": "pnpm db:parity && pnpm test:app && pnpm test:forge:engine",
+    "test:section": "node --import tsx scripts/test-section.ts",
+    "test:changed": "node --import tsx scripts/test-section.ts --changed",
+    "test:sections": "node --import tsx scripts/test-section.ts --list",
     "health": "node --import tsx scripts/sprint-cleanup.ts",
     "protected-files": "node --import tsx scripts/protected-files.ts",
 

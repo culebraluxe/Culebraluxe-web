@@ -9,13 +9,42 @@ to come down; this is the rule, and `pnpm test:story` is the tool.
 
 | when | what to run | cost |
 |---|---|---|
+| **per change** | `pnpm test:changed` — only the sections your working tree can affect | the sections you touched |
 | **per story** | its own fence: `pnpm test:story <STORY-ID>` | one file |
+| **per section** | `pnpm test:section <name>` (or `APP` / `FORGE` / `HARNESS`) | that section |
 | **per suite complete** | that suite: `test:forge:engine`, `test:app`, `test:harness`, … | one suite |
 | **per batch deploy** | `pnpm test:deploy-gate` (parity + app + engine) — **once**, as the gate | ~10 min, once |
 
-A batch or a sprint is not a fourth tier: `pnpm test:story --batch 98` runs that batch's fences
+A batch or a sprint is not a tier: `pnpm test:story --batch 98` runs that batch's fences
 **de-duplicated**, so eleven stories that prove themselves with eleven files cost eleven files — not
 eleven suites. `pnpm test:story --sprint 99` does the same for a whole sprint.
+
+## The sections — 385 test files, split APP / FORGE / HARNESS
+
+```
+pnpm test:sections                      # what exists and how big each part is
+pnpm test:section app-money             # one section
+pnpm test:section FORGE                 # every FORGE section
+pnpm test:changed                       # only what your working tree can affect
+```
+
+| area | sections |
+|---|---|
+| **FORGE** | `forge-engine` (113) · `forge-runtime` (50) · `forge-verify` (18) |
+| **APP** | `app-core` (110) · `app-crm` (33) · `app-intake` (18) · `app-portal` (17) · `app-identity` (15) · `app-money` (5) |
+| **HARNESS** | `harness` (6) |
+
+**This is a mapping, not a move — on purpose.** Every story's frozen fence names an exact path
+(`… --test workflow_app/tests/claim-clock.test.ts`) and the acceptance mapping binds clauses to those
+names, so physically relocating the tree would break 65 stories' proofs at once. The classification
+gives the split now, and a future physical move becomes the mechanical follow-through of this map.
+
+**Every test file must be classified.** A new file that matches no rule is reported by
+`pnpm test:sections` and *fails* `pnpm test:harness` until it is placed — an unclassified file is a file
+no section runs, i.e. a test nobody will ever run again.
+
+`test:changed` is **area-level in V1**: it maps a path to sections by where it lives, not by an import
+graph. A graph is the repo-inventory job; guessing it would be worse than saying plainly what this does.
 
 ## The story-scoped runner
 
