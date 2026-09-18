@@ -7,3 +7,4 @@ passed **for the sha in this row** — that, and only that, is a receipt. Everyt
 | started (UTC) | ended (UTC) | sha | branch | tree | build | deploy | probe | eligible | outcome |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-09-18T02:35:26Z | 2026-09-18T02:35:31Z | `7697faa6d53c` | main | dirty | 1 | blocked-by-build | 1 | no | PROBE_FAILED |
+| 2026-09-18T02:44:17Z | 2026-09-18T02:48:21Z | `d555058e5f7d` | main | clean | 0 | 0 | 0 | yes | ok |
