@@ -2140,6 +2140,45 @@ const STORIES: TestStory[] = [
       '- `node --import tsx --test workflow_app/tests/diagnostic-throttle.test.ts`',
   },
   {
+    id: 'ENG-FORGE-SCOPE-OWN-CHANGES-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'A lane is judged by its own changes, not by everything that landed while it ran',
+    goal:
+      'A lane that edits only its assignment is never refused because an unrelated commit landed on main during its ' +
+      'run, so a SPLIT child cannot be held for the work of another lane or the operator.',
+    scope:
+      'the scope check that reads the candidate diff (workflow_app/forge/story-scope-base.ts and its callers in ' +
+      'workflow_app/forge/agent-runtime-role-runner.ts), plus workflow_app/tests/scope-attribution.test.ts (new).',
+    acceptance:
+      'The changes judged against a lane assignment are the candidate own changes - its diff against its parent ' +
+      'plus any commits the lane authored in the range - so a foreign commit that landed during the run is not ' +
+      'attributed to the lane; a lane that genuinely edits a file outside its assignment is still refused by name; ' +
+      'a candidate that is not a descendant of its recorded base is still refused; a test drives a range containing ' +
+      'a foreign commit, a genuine out-of-scope edit, and the clean case.',
+    notes:
+      'MEASURED 2026-09-18 09:34 by Cline, while proving SPLIT-SHAPE-01 end to end. The shape fix worked - a ' +
+      'parallel child row now exists with group, slot 2 of 2, lane smith and its own assignment, and it reached ' +
+      'state Done, where previously EVERY insert was refused and no row existed at all. Then the lane was HOLDed: ' +
+      '"candidate 5c373dc02 touched files outside its assignment (unit-b-diagnostic-throttle)" and the list was ' +
+      'agent-runtime/repositories.ts, db/agent-work.ts, db/forge-artifact.ts, docs/agent/postcards/..., ' +
+      'scripts/forge-test-stories.ts, workflow_app/forge/agent-runtime-role-runner.ts, ' +
+      'workflow_app/forge/forge-executor.ts, workflow_app/tests/artifact-verdict.test.ts and ' +
+      'workflow_app/tests/split-child-shape.test.ts - EVERY ONE OF THEM MINE, committed to main while the lane was ' +
+      'held. So the refusal is correct about the range and wrong about the attribution: a lane is not responsible ' +
+      'for commits that are not its own. This is the third layer of one family - START-BASE-01 recorded where a ' +
+      'lane started, PROOF-SEAM-01 gave a unit its own proof, and this judges the lane own diff rather than the ' +
+      'interval - and it is why a SPLIT child in a busy repository could not survive even after the shape fix. ' +
+      'OPERATOR LESSON, recorded honestly: I committed six times to main while a lane was in flight tonight, which ' +
+      'is what created the interval. The engine should be robust to that rather than depending on my timing, but ' +
+      'until this lands the operator should not commit while a lane is mid-run. HONEST BOUNDARY: this does not ' +
+      'loosen the refusal for a lane own edits, and a foreign commit that EDITS the assignment surfaces is still ' +
+      'a foreign commit - the surfaces themselves must still be touched only by the lane.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/scope-attribution.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-LINT-GATE-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
