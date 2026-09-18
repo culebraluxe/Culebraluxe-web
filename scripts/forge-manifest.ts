@@ -328,6 +328,32 @@ export function writeIfChanged(path: string, content: string): boolean {
   return writeArtifactIfChanged(path, content)
 }
 
+/** Every rendered manifest starts with this line; anything else in the directory is not one. */
+export const MANIFEST_HEADER = '# Scope manifest'
+
+/**
+ * REFUSE TO OVERWRITE SOMETHING THAT IS NOT A MANIFEST.
+ *
+ * The harness treats EVERY `*.md` in `docs/agent/manifest/` as a manifest and renders a fresh one to
+ * compare, so the directory is only for manifests — and this tool, given a name, will happily write
+ * `docs/agent/manifest/<name>.md` over whatever is already there. On 2026-09-18 that destroyed a
+ * 128-column audit table: `pnpm forge:manifest COLUMN-WRITER-AUDIT` replaced it with a 34-row index
+ * skeleton, and only git brought it back. A tool that overwrites a file it cannot recognise is a tool
+ * that will do it again, so the write is now guarded by the file's own first line.
+ *
+ * Returns the refusal to print, or null when the write may proceed (a missing file is fine: a new
+ * manifest has to be creatable).
+ */
+export function nonManifestRefusal(existing: string | null | undefined, target: string): string | null {
+  if (existing === null || existing === undefined) return null
+  if (existing.startsWith(MANIFEST_HEADER)) return null
+  return (
+    `refusing to overwrite ${target}: it is not a manifest (it does not start with "${MANIFEST_HEADER}").\n` +
+    `  If it is an audit, a report or a plan, it does not belong in ${MANIFEST_DIR}/ — move it out and point ` +
+    'its tool at the new path.'
+  )
+}
+
 function listManifestFiles(root: string): string[] {
   const dir = join(root, MANIFEST_DIR)
   if (!existsSync(dir)) return []
@@ -436,7 +462,14 @@ function main(): number {
     return built.entries.some((entry) => entry.missing) ? 1 : 0
   }
 
-  const changed = writeIfChanged(join(root, built.file), built.markdown)
+  const target = join(root, built.file)
+  const existing = existsSync(target) ? readFileSync(target, 'utf8') : null
+  const refusal = nonManifestRefusal(existing, built.file)
+  if (refusal) {
+    console.error(refusal)
+    return 1
+  }
+  const changed = writeIfChanged(target, built.markdown)
   const byLane = built.entries.reduce<Record<string, number>>((acc, entry) => {
     acc[entry.lane] = (acc[entry.lane] ?? 0) + 1
     return acc

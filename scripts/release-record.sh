@@ -180,11 +180,16 @@ set -e
 ENDED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SHA_NOTE=""; [ "$BUILD_SHA" != "$DEPLOY_SHA" ] && SHA_NOTE="FAILED_SHA_MOVED_BETWEEN_BUILD_AND_DEPLOY"
 ELIGIBLE="no"; OUTCOME="ok"
-if [ "$BUILD_RC" != "skipped" ] && [ "$BUILD_RC" != "0" ]; then OUTCOME="BUILD_FAILED"; fi
-if [ "$DEPLOY_RC" != "skipped" ] && [ "$DEPLOY_RC" != "0" ] && [ "$DEPLOY_RC" != "blocked-by-build" ]; then
+# THE FIRST FAILURE IS THE CAUSE; EVERY LATER ONE IS ITS CONSEQUENCE, AND THE CAUSE IS WHAT GETS NAMED.
+# These were plain assignments, so the last step to fail won: a build failure left deploy blocked and the
+# probe comparing the live host against a sha that never served, and the row read `PROBE_FAILED` for a
+# release that never built (measured 2026-09-18, row 7697faa6d53c). Each branch now fires only while the
+# outcome is still `ok`, so the row names the step that actually broke.
+if [ "$OUTCOME" = "ok" ] && [ "$BUILD_RC" != "skipped" ] && [ "$BUILD_RC" != "0" ]; then OUTCOME="BUILD_FAILED"; fi
+if [ "$OUTCOME" = "ok" ] && [ "$DEPLOY_RC" != "skipped" ] && [ "$DEPLOY_RC" != "0" ] && [ "$DEPLOY_RC" != "blocked-by-build" ]; then
   OUTCOME="DEPLOY_FAILED"
 fi
-if [ "$PROBE_RC" != "0" ] && [ "$PROBE_RC" != "skipped" ]; then OUTCOME="PROBE_FAILED"; fi
+if [ "$OUTCOME" = "ok" ] && [ "$PROBE_RC" != "0" ] && [ "$PROBE_RC" != "skipped" ]; then OUTCOME="PROBE_FAILED"; fi
 if [ "$BUILD_RC" = "0" ] && [ "$DEPLOY_RC" = "0" ] && [ "$PROBE_RC" = "0" ] && [ -z "$SHA_NOTE" ]; then
   ELIGIBLE="yes"
 else

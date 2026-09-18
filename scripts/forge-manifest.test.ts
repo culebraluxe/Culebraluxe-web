@@ -12,7 +12,7 @@ import {
   renderManifest,
   tokenize,
 } from '../lib/scope-manifest'
-import { buildManifest, lexicalDriftCount, manifestDrift, parseArgs } from './forge-manifest'
+import { buildManifest, lexicalDriftCount, MANIFEST_HEADER, manifestDrift, nonManifestRefusal, parseArgs } from './forge-manifest'
 
 // ---------------------------------------------------------------------------
 // The manifest's own tests. Two kinds, both needed:
@@ -201,4 +201,35 @@ test('the real repo: identifiers survive tokenizing', () => {
   for (const token of ['forge_batch_item', 'v5-23', 'storyboard_story']) {
     assert.ok(tokens.includes(token), `${token} should survive tokenizing, got: ${tokens.join(', ')}`)
   }
+})
+
+// --- the guard: a tool must not overwrite what it cannot recognise -----------
+
+test('nonManifestRefusal: a rendered manifest may be rewritten', () => {
+  const existing = `${MANIFEST_HEADER} — all\n\n<!-- GENERATED FILE. Do not hand-edit. -->\n`
+  assert.equal(nonManifestRefusal(existing, 'docs/agent/manifest/all.md'), null)
+})
+
+test('nonManifestRefusal: a file that is not a manifest is refused, by name and with a way out', () => {
+  // The exact damage this guard exists for: a 128-column audit table was replaced by an index skeleton
+  // because the file lay in the manifest directory and the tool was given its name (2026-09-18).
+  const audit = '# COLUMN-WRITER-AUDIT\n\n| table | column | writer |\n|---|---|---|\n'
+  const refusal = nonManifestRefusal(audit, 'docs/agent/manifest/COLUMN-WRITER-AUDIT.md')
+  assert.ok(refusal, 'an audit table must not be overwritten')
+  assert.match(refusal, /COLUMN-WRITER-AUDIT\.md/, 'the refusal names the file it refused')
+  assert.match(refusal, /move it out/, 'and it says what to do about it')
+})
+
+test('nonManifestRefusal: a plan, a report or an empty file are all refused', () => {
+  for (const content of ['# Why we do this\n', 'report\n', '', '   \n# Scope manifest\n']) {
+    assert.ok(
+      nonManifestRefusal(content, 'docs/agent/manifest/X.md'),
+      `${JSON.stringify(content.slice(0, 20))} is not a manifest and must be refused`,
+    )
+  }
+})
+
+test('nonManifestRefusal: a missing file may be created, because a new manifest has to be writable', () => {
+  assert.equal(nonManifestRefusal(null, 'docs/agent/manifest/NEW-01.md'), null)
+  assert.equal(nonManifestRefusal(undefined, 'docs/agent/manifest/NEW-01.md'), null)
 })
