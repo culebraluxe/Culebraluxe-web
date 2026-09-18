@@ -58,6 +58,35 @@ export function parseAllowedScopeMarker(text: string | null | undefined): string
 }
 
 /**
+ * ENG-FORGE-LOCKFILE-COUPLING-01 — A DEPENDENCY CHANGE IS ONE CHANGE, AND THE LOCKFILE IS PART OF IT.
+ *
+ * MEASURED 2026-09-18, twice in one evening, both times caught by CI and never by the engine:
+ * PROPERTY-INVARIANTS-01 added `fast-check` to package.json and ran the install, and its published
+ * candidate left pnpm-lock.yaml behind; DEPENDENCY-AUDIT-01 did it again. Both left main red at
+ * `pnpm install --frozen-lockfile` with ERR_PNPM_OUTDATED_LOCKFILE in 15 seconds — on work the lanes
+ * had every right to do. The mechanism is the declared surface: a lane declares the files it means to
+ * change, `pnpm add` dirties the lockfile as a CONSEQUENCE of that choice, and a surface written
+ * before the run cannot be expected to name an artifact the run's own decision implied.
+ *
+ * So the lockfile is never treated as an out-of-scope file. If it is dirty it travels with the
+ * candidate, whether or not the lane declared it, because it cannot be dirty for any reason except
+ * dependency resolution.
+ *
+ * HONEST BOUNDARY: this guarantees that a dirty lockfile is not left behind. It does NOT detect a
+ * manifest edited without ever running install — that is a different check, and a frozen install in
+ * CI still catches that class in 15 seconds rather than 15 minutes.
+ */
+export const DEPENDENCY_MANIFEST = 'package.json'
+export const DEPENDENCY_LOCKFILE = 'pnpm-lock.yaml'
+
+/** The paths a candidate must carry because they are consequences of its own change. */
+export function dependencyCompanions(changedPaths: readonly string[]): string[] {
+  return changedPaths.some((path) => fileOf(path) === DEPENDENCY_LOCKFILE)
+    ? [DEPENDENCY_LOCKFILE]
+    : []
+}
+
+/**
  * THE IDENTITY IS SET HERE, NOT INHERITED FROM THE MACHINE.
  *
  * Every commit in this house is authored by someone accountable. Until 2026-09-18 the worker commit
@@ -165,11 +194,19 @@ export async function commitWorkerWorkspaceChanges(
     ),
   ]
   if (declared.length > 0) {
-    const overWide = porcelainPaths(status).filter((path) => !isDeclared(path, declared))
+    // A DEPENDENCY CHANGE CARRIES ITS LOCKFILE EVEN WHEN THE LANE DID NOT DECLARE IT (see
+    // dependencyCompanions above): `pnpm add` dirties the lockfile as a consequence of a choice the
+    // lane made during the run, so leaving it behind publishes a package.json the frozen install
+    // cannot resolve. The companion is added to the surface BEFORE the scope check, so the lockfile
+    // is neither refused as out-of-scope nor silently dropped.
+    const dirtyPaths = porcelainPaths(status)
+    const companions = dependencyCompanions([...declared, ...dirtyPaths])
+    const surface = [...new Set([...declared, ...companions])]
+    const overWide = dirtyPaths.filter((path) => !isDeclared(path, surface))
     if (overWide.length > 0) {
       return { commitHash: null, changed: false, refused: overWide }
     }
-    await git(worktreePath, ['add', '--', ...declared])
+    await git(worktreePath, ['add', '--', ...surface])
     const staged = await git(worktreePath, ['diff', '--cached', '--name-only'])
     if (!staged) return { commitHash: null, changed: false }
     await git(worktreePath, ['commit', '-m', message])
@@ -181,7 +218,7 @@ export async function commitWorkerWorkspaceChanges(
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .filter((path) => !isDeclared(path, declared))
+      .filter((path) => !isDeclared(path, surface))
     const commitHash = await git(worktreePath, ['rev-parse', 'HEAD'])
     if (extras.length > 0) {
       return { commitHash: commitHash || null, changed: true, refused: extras }

@@ -2621,9 +2621,14 @@ const STORIES: TestStory[] = [
       'A published candidate that declares a dependency change carries its lockfile, so main is never ' +
       'left with a package.json the frozen install cannot resolve.',
     scope:
-      'the publish path that commits a candidate declared surface ' +
-      '(workflow_app/forge/agent-runtime-role-runner.ts) and its fence ' +
-      'workflow_app/tests/lockfile-coupling.test.ts (new).',
+      'the commit seam that publishes a candidate declared surface ' +
+      '(lib/worker-workspace/commit.ts, the one path both agent-runtime/factory.ts and ' +
+      'agent-runtime/gateway/cli-agent-adapter.ts call) and its fence ' +
+      'workflow_app/tests/lockfile-coupling.test.ts (new). SCOPE CORRECTED ON IMPLEMENTATION: it was ' +
+      'filed against workflow_app/forge/agent-runtime-role-runner.ts, which does not commit anything — ' +
+      'that file RESOLVES the declared surface and stamps it on the task form, and the seam that acts ' +
+      'on it is one level below. A scope naming the wrong file is how a guard gets built in the wrong ' +
+      'place, so it is recorded here rather than quietly fixed.',
     acceptance:
       'A candidate whose diff includes package.json is refused or completed with pnpm-lock.yaml ' +
       'included, so a frozen install succeeds on the published tree; a candidate that changes only the ' +

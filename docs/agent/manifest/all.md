@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-18 19:51:17Z
-- commit: `617ccd4c` (working tree dirty) on `main`
+- generated: 2026-09-18 21:01:11Z
+- commit: `d733f8d9` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest all`
 - rows: 40 — packet, cited paths and story commits first, lexical matches after
 
