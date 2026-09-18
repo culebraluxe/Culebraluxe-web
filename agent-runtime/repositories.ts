@@ -29,11 +29,14 @@ import type { HarnessUsage } from './harness-usage'
 import {
   getStoryboardStory,
   listStoryRuns,
+  setStoryRunBaseCommit,
   startStoryRun,
   updateStoryRunProgress,
   type StoryboardStory,
   type StoryRun,
 } from '../db/storyboard'
+import { readWorkerCommitHash } from '../lib/worker-workspace'
+import { resolve } from 'node:path'
 import type { QueryExecutor } from '../db/query-executor'
 import type { AgentProgressUpdate } from './types'
 import type { AssayEvidence } from './assay-evidence'
@@ -198,6 +201,8 @@ export interface AgentRunRepository {
   start(storyId: string): Promise<{ run: StoryRun; story: StoryboardStory }>
   progress(runId: string, input: AgentProgressUpdate): Promise<StoryRun>
   listForStory(storyId: string): Promise<StoryRun[]>
+  /** ENG-FORGE-START-BASE-01 — record the commit HEAD stood on when the lane began. */
+  recordBaseCommit(runId: string, baseCommitHash: string | null): Promise<void>
 }
 
 export interface StoryContextRepository {
@@ -246,6 +251,14 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     if (!runId) {
       throw new Error(`work item ${workItemId} began without a Story Run id`)
     }
+
+    // ENG-FORGE-START-BASE-01 — START CARRIES ITS OWN BASE.
+    //
+    // Read the lane checkout HEAD BEFORE the model spawns and record it on the run, so the
+    // scope gate reads a fact instead of deriving one. A failed read records null, never a
+    // guess (readWorkerCommitHash is honest-by-contract).
+    const laneBaseCommit = await readWorkerCommitHash(resolve(process.cwd()))
+    await setStoryRunBaseCommit(runId, laneBaseCommit, q)
 
     const runPhase =
       begun.workItem.role === 'lead'
@@ -474,6 +487,11 @@ export class SqlAgentRunRepository implements AgentRunRepository {
       },
       q,
     )
+  }
+
+  async recordBaseCommit(runId: string, baseCommitHash: string | null) {
+    const q = await this.executor()
+    await setStoryRunBaseCommit(runId, baseCommitHash, q)
   }
 
   async listForStory(storyId: string): Promise<StoryRun[]> {

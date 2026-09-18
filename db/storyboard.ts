@@ -1117,6 +1117,60 @@ export async function listStoryCommitHashes(
 }
 
 /**
+ * RECORD THE BASE A LANE STARTED FROM (ENG-FORGE-START-BASE-01).
+ *
+ * The lane's HEAD at start is a fact the run row must carry so the scope gate reads it
+ * instead of deriving one. `null` is the honest value when the lane could not read its
+ * base — never a guess. A pre-106 database has no `base_commit_hash` column, so the write
+ * is a no-op there and the legacy path is unaffected.
+ */
+export async function setStoryRunBaseCommit(
+  runId: string,
+  baseCommitHash: string | null,
+  execute?: QueryExecutor,
+): Promise<void> {
+  const q = execute ?? (await executor())
+  const probedV6 = await hasRunV6Columns(q)
+  await runWithV6Fallback(
+    probedV6,
+    async () => {
+      await q`
+        update storyboard_story_run
+        set base_commit_hash = ${baseCommitHash}
+        where id = ${runId}
+      `
+    },
+    async () => {},
+  )
+}
+
+/**
+ * THE BASE EACH RUN RECORDED AT ITS START, newest first — the recorded fact the scope gate
+ * prefers over a derived base. A run that recorded none (its `base_commit_hash` is null)
+ * contributes nothing, so a caller can tell "recorded" from "derived".
+ */
+export async function listStoryRunBaseCommits(
+  storyId: string,
+  execute?: QueryExecutor,
+): Promise<string[]> {
+  const q = execute ?? (await executor())
+  const probedV6 = await hasRunV6Columns(q)
+  const rows = await runWithV6Fallback(
+    probedV6,
+    () => q`
+      select base_commit_hash, started_at
+      from storyboard_story_run
+      where story_id = ${storyId} and base_commit_hash is not null
+      order by started_at desc nulls last, created_at desc
+    `,
+    () => Promise.resolve([] as QueryRow[]),
+  )
+  return (rows as Array<{ base_commit_hash: string | null }>)
+    .map((row) => String(row.base_commit_hash ?? '').trim())
+    .filter((sha) => sha.length > 0)
+}
+
+/**
  * Finish an execution run:
  *   - sets the run's ended_at, result_status, completion, notes, and optional
  *     commit_hash / tests_summary; run notes are APPENDED to any live progress

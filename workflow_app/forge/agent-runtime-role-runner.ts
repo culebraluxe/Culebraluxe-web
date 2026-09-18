@@ -62,14 +62,14 @@ import {
   recordSplitChildCandidate,
 } from '../../db/forge-split-children'
 import { splitJoinHoldReasons } from './split-join'
-import { getStoryboardStory, listStoryCommitHashes, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
+import { getStoryboardStory, listStoryCommitHashes, listStoryRunBaseCommits, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { assertForgeExecutionTarget, assertForgeLaneMayStart } from './forge-execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
 import { assessArchitectBrief } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
-import { storyScopeBase } from './story-scope-base'
+import { recordedScopeBase, storyScopeBase } from './story-scope-base'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
 import { CANDIDATE_SHA, describeRefusal, mediateField } from '../../lib/field-mediator'
@@ -569,7 +569,13 @@ export function createAgentRuntimeForgeRoleRunner(
     // 2026-09-16: ENG-FORGE-QA-CONSISTENCY-01, 17 commits behind origin, 31 paths outside a one-file
     // assignment). The story's base is the parent of the first commit THE STORY made — already recorded, so
     // nothing new has to be written to know it.
-    const storyBaseCommit = storyScopeBase(await listStoryCommitHashes(resolvedStory.id).catch(() => []), (commit) =>
+    //
+    // ENG-FORGE-START-BASE-01: a base the lane RECORDED at its start is a fact and wins over the derived
+    // parent-of-first-commit; the derivation is the fallback for a run that recorded none.
+    const recordedBase = recordedScopeBase(
+      await listStoryRunBaseCommits(resolvedStory.id).catch(() => []),
+    )
+    const storyBaseCommit = recordedBase ?? storyScopeBase(await listStoryCommitHashes(resolvedStory.id).catch(() => []), (commit) =>
       commitSha(readGit(process.cwd(), ['rev-parse', `${commit}^`])),
     )
     // Batch-sliced rollout (migration 148): record the deferral as soon as the story

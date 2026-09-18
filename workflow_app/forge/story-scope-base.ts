@@ -33,6 +33,23 @@ export function storyScopeBase(
   return normalize(readParent(earliest))
 }
 
+/**
+ * THE RECORDED BASE WINS OVER A DERIVED ONE (ENG-FORGE-START-BASE-01).
+ *
+ * Each run records the HEAD it started from (`base_commit_hash`). The story's base is the
+ * EARLIEST recorded value — the first lane's start — never a later lane's post-commit HEAD.
+ * Values arrive newest-first; a null/blank entry (a lane that could not read its base)
+ * contributes nothing, and no recorded value at all returns null so the caller derives.
+ */
+export function recordedScopeBase(recorded: ReadonlyArray<StoryCommitHash>): string | null {
+  let earliest: string | null = null
+  for (const candidate of recorded) {
+    const sha = normalize(candidate)
+    if (sha) earliest = sha // the last valid seen is the earliest, given newest-first
+  }
+  return earliest
+}
+
 function normalize(value: StoryCommitHash): string | null {
   const sha = (value ?? '').trim().toLowerCase()
   return /^[0-9a-f]{40}$/.test(sha) ? sha : null
