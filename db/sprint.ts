@@ -395,6 +395,71 @@ export async function snapshotSprint(
   return getSprintBoardByNumber(number, q)
 }
 
+// --- Carry-over: a story that a sprint did not finish -----------------------
+
+export type CarryOverResult = {
+  storyId: string
+  fromSprintId: string
+  toSprintId: string
+}
+
+/**
+ * MOVE A STORY TO ANOTHER SPRINT AND RECORD WHERE IT CAME FROM.
+ *
+ * `batch` is the engine-facing axis and the trigger derives `sprint_id` from it, so this writes BOTH:
+ * changing only the batch would carry the story silently, and changing only the sprint would be
+ * refused by the trigger ("change both, or neither"). The origin is recorded in
+ * `carried_over_from_sprint_id`, so a story that a sprint did not finish leaves a fact behind instead
+ * of a re-batching somebody has to reconstruct later.
+ *
+ * A story that belongs to no sprint cannot be carried, because there is nothing to carry it from: it
+ * is ASSIGNED to its first sprint by an ordinary batch change instead.
+ */
+export async function carryOverStory(
+  storyId: string,
+  toSprintNumber: number,
+  execute?: QueryExecutor,
+): Promise<CarryOverResult> {
+  const q = execute ?? (await executor())
+  const toSprintId = sprintIdForBatch(toSprintNumber)
+  if (!toSprintId) {
+    throw new PortalWriteError('validation', `a target sprint number is required (got ${String(toSprintNumber)})`)
+  }
+  const rows = await q`
+    select id, batch, sprint_id, carried_over_from_sprint_id
+    from storyboard_story where id = ${storyId}
+  `
+  const story = rows[0]
+  if (!story) throw new PortalWriteError('not-found', `story ${storyId} does not exist`)
+  const fromSprintId = textOrNull(story.sprint_id)
+  if (!fromSprintId) {
+    throw new PortalWriteError(
+      'validation',
+      `story ${storyId} belongs to no sprint, so there is nothing to carry it from; give it a batch instead`,
+    )
+  }
+  if (fromSprintId === toSprintId) {
+    throw new PortalWriteError('conflict', `story ${storyId} is already in sprint ${toSprintId}`)
+  }
+  const target = await q`select id from storyboard_sprint where number = ${toSprintNumber}`
+  if (target.length === 0) {
+    throw new PortalWriteError(
+      'not-found',
+      `sprint ${toSprintId} does not exist; create it before carrying work into it`,
+    )
+  }
+  // Both sides of the same integer move together, and the origin is recorded in the same write.
+  await q`
+    update storyboard_story
+    set batch = ${toSprintNumber},
+        sprint_id = ${toSprintId},
+        carried_over_from_sprint_id = ${fromSprintId},
+        updated_at = now()
+    where id = ${storyId}
+  `
+  return { storyId, fromSprintId, toSprintId }
+}
+
 // --- Reading the numbers without lying about them ---------------------------
 
 /** Seconds as a duration a human reads. Null means UNMEASURED, which is not the same as zero. */

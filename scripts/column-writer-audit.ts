@@ -63,6 +63,9 @@ export type AuditResult = {
 }
 
 const STORYBOARD = 'db/storyboard.ts'
+const SPRINT = 'db/sprint.ts'
+/** 187: the sprint trigger derives storyboard_story.sprint_id from its batch. */
+const SPRINT_TRIGGER = 'db/migrations/187_sprint_parent.sql'
 const FORGE_RUN = 'db/forge-run.ts'
 const REPAIR_LEDGER = 'db/forge-repair-ledger.ts'
 const EVIDENCE = 'db/forge-workflow-evidence.ts'
@@ -88,6 +91,11 @@ export const DECLARED_COLUMNS: DeclaredColumns = {
     goal: { kind: 'WRITTEN', writers: [STORYBOARD] },
     scope: { kind: 'WRITTEN', writers: [STORYBOARD] },
     acceptance_criteria: { kind: 'WRITTEN', writers: [STORYBOARD] },
+    // 186: declared by the story author (or through the handoff) and normalized on write.
+    acceptance_assertions: { kind: 'WRITTEN', writers: [STORYBOARD] },
+    // 187: DERIVED from batch by the sprint trigger; db/sprint.ts writes both sides together on carry-over.
+    sprint_id: { kind: 'WRITTEN', writers: [SPRINT_TRIGGER, SPRINT] },
+    carried_over_from_sprint_id: { kind: 'WRITTEN', writers: [SPRINT] },
     dependencies: { kind: 'WRITTEN', writers: [STORYBOARD] },
     created_at: { kind: 'WRITTEN', writers: [STORYBOARD] },
     updated_at: { kind: 'WRITTEN', writers: [STORYBOARD] },

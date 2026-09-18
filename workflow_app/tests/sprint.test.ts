@@ -5,6 +5,7 @@ import type { QueryExecutor } from '../../db/query-executor'
 import { PortalWriteError } from '../../lib/portal-write-error'
 import {
   accountingCaveats,
+  carryOverStory,
   closeSprint,
   formatCoverage,
   formatDuration,
@@ -372,5 +373,60 @@ test('formatSprintLaneTime: no runs means no measurement, not zero minutes', () 
   assert.equal(formatSprintLaneTime({ runs: 0, runSeconds: 0 }), 'n/a')
   assert.equal(formatSprintLaneTime({ runs: 4, runSeconds: 0 }), '0m')
   assert.equal(formatSprintLaneTime({ runs: 4, runSeconds: 3600 }), '1h')
+})
+
+// --- 6. Carry-over: a story a sprint did not finish --------------------------
+
+const storyRow = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  id: 'ENG-X-01',
+  batch: 92,
+  sprint_id: 'S92',
+  carried_over_from_sprint_id: null,
+  ...over,
+})
+
+test('carryOverStory: moves both sides of the axis and records where it came from, in one write', async () => {
+  const captured: Captured[] = []
+  const exec = makeExecutor([[storyRow()], [{ id: 'S93' }], []], captured)
+  const moved = await carryOverStory('ENG-X-01', 93, exec)
+  assert.deepEqual(moved, { storyId: 'ENG-X-01', fromSprintId: 'S92', toSprintId: 'S93' })
+  const update = captured.find((c) => normalize(c.sql).startsWith('update storyboard_story'))?.sql ?? ''
+  // Changing the batch alone would carry the story SILENTLY; the trigger refuses a disagreement, so
+  // both the batch and the sprint move together and the origin is written in the same statement.
+  assert.match(normalize(update), /set batch = /)
+  assert.match(normalize(update), /sprint_id = /)
+  assert.match(normalize(update), /carried_over_from_sprint_id = /)
+  assert.equal(captured.filter((c) => normalize(c.sql).startsWith('update')).length, 1)
+})
+
+test('carryOverStory: a story in no sprint has nothing to carry it from', async () => {
+  const captured: Captured[] = []
+  const exec = makeExecutor([[storyRow({ batch: null, sprint_id: null })]], captured)
+  const error = await refusalFrom(() => carryOverStory('ENG-X-01', 93, exec))
+  assert.equal(error.code, 'validation')
+  assert.match(error.message, /belongs to no sprint/)
+  assert.equal(captured.filter((c) => normalize(c.sql).startsWith('update')).length, 0)
+})
+
+test('carryOverStory: carrying into the sprint it is already in is refused', async () => {
+  const exec = makeExecutor([[storyRow()]], [])
+  const error = await refusalFrom(() => carryOverStory('ENG-X-01', 92, exec))
+  assert.equal(error.code, 'conflict')
+  assert.match(error.message, /already in sprint S92/)
+})
+
+test('carryOverStory: a target sprint that does not exist is named, and nothing is written', async () => {
+  const captured: Captured[] = []
+  const exec = makeExecutor([[storyRow()], []], captured)
+  const error = await refusalFrom(() => carryOverStory('ENG-X-01', 199, exec))
+  assert.equal(error.code, 'not-found')
+  assert.match(error.message, /sprint S199 does not exist/)
+  assert.equal(captured.filter((c) => normalize(c.sql).startsWith('update')).length, 0)
+})
+
+test('carryOverStory: a story that does not exist is not-found', async () => {
+  const exec = makeExecutor([[]], [])
+  const error = await refusalFrom(() => carryOverStory('ENG-NOPE-01', 93, exec))
+  assert.equal(error.code, 'not-found')
 })
 

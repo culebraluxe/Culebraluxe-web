@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   accountingCaveats,
+  carryOverStory,
   closeSprint,
   formatCoverage,
   formatDuration,
@@ -53,6 +54,7 @@ function usage(): never {
       '  goal <number> "<goal>"',
       '  close <number> --outcome "<what actually happened>"',
       '  snapshot <number>',
+      '  carry <story-id> <sprint-number>',
     ].join('\n'),
   )
   process.exit(2)
@@ -132,6 +134,17 @@ async function main(): Promise<void> {
     )
     for (const caveat of accountingCaveats(sprint)) console.log(`  ! ${caveat}`)
     if (sprint.notes) console.log(`  notes      ${sprint.notes}`)
+    return
+  }
+
+  if (command === 'carry') {
+    const storyId = rest[0]
+    const toNumber = Number(rest[1])
+    if (!storyId || !Number.isFinite(toNumber)) usage()
+    const moved = await carryOverStory(storyId, toNumber)
+    console.log(
+      `carried ${moved.storyId}: ${moved.fromSprintId} -> ${moved.toSprintId} (recorded as carried over from ${moved.fromSprintId})`,
+    )
     return
   }
 

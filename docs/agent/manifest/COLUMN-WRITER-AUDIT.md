@@ -11,12 +11,13 @@ node --env-file=.env.local --import tsx scripts/column-writer-audit.ts
 node --import tsx --test workflow_app/tests/column-writer-audit.test.ts
 ```
 
-Totals: 125 columns — 122 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
+Totals: 128 columns — 125 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 
-## storyboard_story (33)
+## storyboard_story (36)
 
 | column | classification | writer / reason |
 | --- | --- | --- |
+| `acceptance_assertions` | WRITTEN | db/storyboard.ts |
 | `acceptance_criteria` | WRITTEN | db/storyboard.ts |
 | `actual_start_at` | WRITTEN | db/storyboard.ts |
 | `architect_brief` | WRITTEN | db/storyboard.ts |
@@ -24,6 +25,7 @@ Totals: 125 columns — 122 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `assay_commands` | WRITTEN | db/storyboard.ts |
 | `batch` | WRITTEN | db/storyboard.ts |
 | `batch_deploy` | DEAD-KEEP | No durable writer exists — only a throwaway /tmp script and tests have ever set it. Still READ by workflow_app/forge/forge-facts.ts and scripts/forge-batch-release.mjs as the batch-release deferral flag, so it is kept and the missing write path is the defect. |
+| `carried_over_from_sprint_id` | WRITTEN | db/sprint.ts |
 | `completed_at` | WRITTEN | db/storyboard.ts |
 | `completion` | WRITTEN | db/storyboard.ts |
 | `context_refs` | WRITTEN | db/storyboard.ts |
@@ -45,6 +47,7 @@ Totals: 125 columns — 122 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `priority` | WRITTEN | db/storyboard.ts |
 | `rollup` | WRITTEN | db/storyboard.ts |
 | `scope` | WRITTEN | db/storyboard.ts |
+| `sprint_id` | WRITTEN | db/migrations/187_sprint_parent.sql, db/sprint.ts |
 | `status` | WRITTEN | db/storyboard.ts |
 | `test_mode` | WRITTEN | db/storyboard.ts |
 | `title` | WRITTEN | db/storyboard.ts |
