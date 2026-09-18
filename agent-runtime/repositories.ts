@@ -239,6 +239,9 @@ export class SqlAgentWorkRepository implements AgentWorkRepository {
     /** SPLIT child: its parallel group + slot (see enqueueAgentWorkCommand). */
     parallelGroupId?: string | null
     parallelSlot?: number | null
+    /** ENG-FORGE-SPLIT-SHAPE-01: the child's own assignment and the group's size. */
+    splitAssignment?: string | null
+    parallelSize?: number | null
   }) {
     const q = await this.executor()
     return enqueueAgentWorkCommand(input, q)

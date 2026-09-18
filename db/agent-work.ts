@@ -677,6 +677,18 @@ export async function enqueueAgentWorkCommand(
      */
     parallelGroupId?: string | null
     parallelSlot?: number | null
+    /**
+     * ENG-FORGE-SPLIT-SHAPE-01 — the rest of the parallel tuple a SPLIT child needs.
+     *
+     * `agent_work_item_parallel_shape_check` admits a grouped row only when it carries
+     * lane='smith', a parallel_size (2..3) and a non-empty split_assignment. split_assignment
+     * is the ONE clause that is not inert: lane/parallel_size were never written, so they
+     * evaluated NULL (which passes), but a null split_assignment evaluates FALSE and the
+     * grouped insert is refused 23514. The post-claim `recordSplitChildAssignment` UPDATE runs
+     * after the immediate CHECK has already judged the row, so the INSERT must carry the tuple.
+     */
+    splitAssignment?: string | null
+    parallelSize?: number | null
   },
   execute?: QueryExecutor,
 ): Promise<AgentWorkItem> {
@@ -710,6 +722,24 @@ export async function enqueueAgentWorkCommand(
       'enqueueAgentWorkCommand: parallelGroupId without parallelSlot — every row in a parallel group ' +
         'must declare its slot',
     )
+  }
+  // ENG-FORGE-SPLIT-SHAPE-01 — a grouped row owes lane, size and its own assignment. The NUMERIC
+  // bounds (size 2..3) stay the database's business; what the writer must not do is omit a column
+  // the CHECK reads as FALSE. Refuse by name before any SQL, like the slot guards above.
+  if (input.parallelGroupId != null) {
+    const assignment = input.splitAssignment?.trim()
+    if (!assignment) {
+      throw new Error(
+        'enqueueAgentWorkCommand: splitAssignment is required for a parallel group — ' +
+          'agent_work_item_parallel_shape_check refuses a grouped row with a null or blank split_assignment',
+      )
+    }
+    if (!Number.isInteger(input.parallelSize) || (input.parallelSize ?? 0) < 1) {
+      throw new Error(
+        `enqueueAgentWorkCommand: parallelSize must be a positive integer for a parallel group ` +
+          `(got ${String(input.parallelSize)})`,
+      )
+    }
   }
 
   // item created by the DB dispatch trigger (migration 025); the console
@@ -776,13 +806,17 @@ export async function enqueueAgentWorkCommand(
         insert into agent_work_item (
           story_id, state, priority, role, model_profile, special_instructions,
           max_attempts, execution_policy, execution_environment,
-          parallel_group_id, parallel_slot, kind, model_policy
+          parallel_group_id, parallel_slot, parallel_size, lane, split_assignment,
+          kind, model_policy
         ) values (
           ${input.storyId}, 'Ready', ${input.priority ?? 0},
           ${input.role ?? null}, ${input.modelProfile ?? null},
           ${input.specialInstructions ?? null}, ${input.maxAttempts ?? 3},
           ${input.executionPolicy ?? 'Unattended OK'}, ${input.executionEnvironment ?? null},
           ${input.parallelGroupId ?? null}, ${input.parallelSlot ?? null},
+          ${input.parallelGroupId ? (input.parallelSize ?? null) : null},
+          ${input.parallelGroupId ? 'smith' : null},
+          ${input.parallelGroupId ? (input.splitAssignment?.trim() ?? null) : null},
           ${input.kind ?? null}, ${input.modelPolicy ?? null}
         )
         returning id, story_id, state, priority, queued_at, claimed_at,

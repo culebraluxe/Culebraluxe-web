@@ -1033,8 +1033,19 @@ export function createAgentRuntimeForgeRoleRunner(
       // SPLIT children are a parallel group, not serial work: without this they are
       // governed by the one-serial-active-per-story index and siblings collapse
       // onto a single work item (the second child then cannot be claimed).
-      ...(splitChildContract?.index !== null && splitChildContract?.index !== undefined
-        ? { parallelGroupId: task.processInstanceId, parallelSlot: splitChildContract.index + 1 }
+      // ENG-FORGE-SPLIT-SHAPE-01: the row is born with the WHOLE parallel tuple, because the
+      // immediate `agent_work_item_parallel_shape_check` judges the INSERT before the post-claim
+      // `recordSplitChildAssignment` can run. lane is fixed to 'smith' by the enqueue; the size is
+      // the accepted SPLIT assignment count (the engine's splitCount), never a hardcoded 2.
+      ...(splitChildContract?.assignment &&
+      splitChildContract.index !== null &&
+      splitChildContract.index !== undefined
+        ? {
+            parallelGroupId: task.processInstanceId,
+            parallelSlot: splitChildContract.index + 1,
+            splitAssignment: splitChildContract.assignment.id,
+            parallelSize: acceptedRouting?.assignments.length ?? 0,
+          }
         : {}),
     })
     if (attempt === 0) {
