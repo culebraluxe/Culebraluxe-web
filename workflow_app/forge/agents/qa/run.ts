@@ -29,15 +29,45 @@ export type AssertionOutcome = 'passed' | 'failed' | 'absent'
 const PASS_MARKERS = ['\u2714', '\u2713'] // ✔ ✓
 const FAIL_MARKERS = ['\u2716', '\u2717', '\u2718'] // ✖ ✗ ✘
 
+/**
+ * A LINE CARRYING A SKIP/TODO DIRECTIVE RAN NOTHING, so it is neither a pass nor a failure.
+ *
+ * MEASURED (Astra review, 2026-09-18) and reproduced: `ok 1 - required assertion # SKIP missing tool`
+ * was read as `passed`, so a required assertion could be satisfied by a test that never executed. That
+ * is the worst kind of false PASS — the acceptance evidence is the thing being forged — and the TAP
+ * directive is the honest signal that it did not run. Such a line is now `null`, which makes the clause
+ * UNPROVEN exactly as if the assertion were missing, and that is the correct verdict for evidence that
+ * does not exist.
+ */
+const SKIP_DIRECTIVE = /(^|\s)#\s*(skip|todo)\b/i
+
 /** The verdict a single output line reports, or null when the line is not a pass/fail line. */
 function markerLine(line: string): 'passed' | 'failed' | null {
   const text = line.trimStart()
+  if (SKIP_DIRECTIVE.test(text)) return null
   // `not ok` must be tested BEFORE `ok`: the TAP failure line contains the pass word.
   if (text.startsWith('not ok')) return 'failed'
   for (const marker of FAIL_MARKERS) if (text.startsWith(marker)) return 'failed'
   for (const marker of PASS_MARKERS) if (text.startsWith(marker)) return 'passed'
   if (/^ok\b/.test(text)) return 'passed' // TAP: `ok 1 - name`
   return null
+}
+
+/** A marker line's assertion name, with the TAP counter, a timing suffix and any directive stripped. */
+function markerName(line: string): string | null {
+  if (markerLine(line) === null) return null
+  const text = line.trimStart()
+  const tap = /^(?:not ok|ok)\s+\d+\s*-\s*(.*)$/i.exec(text)
+  const raw = tap
+    ? tap[1]
+    : [...PASS_MARKERS, ...FAIL_MARKERS].some((m) => text.startsWith(m))
+      ? text.slice(1)
+      : null
+  if (raw === null) return null
+  return raw
+    .replace(/\s*#\s*(skip|todo)\b.*$/i, '')
+    .replace(/\s*\(\s*\d+(\.\d+)?\s*m?s\s*\)\s*$/, '')
+    .trim()
 }
 
 /**
@@ -59,7 +89,13 @@ export function assertionOutcome(output: string | null | undefined, ref: string)
   if (!needle) return 'absent'
   let sawPass = false
   for (const raw of output.split(/\r?\n/)) {
-    if (!raw.includes(needle)) continue
+    // EXACT IDENTITY, NOT SUBSTRING (Astra review, 2026-09-18). The old test was
+    // `if (!raw.includes(needle)) continue`, so a DIFFERENT test whose longer name merely contained the
+    // required name satisfied the clause — reproduced: a proof whose required assertion never ran passed
+    // because `…required assertion…` appeared inside some other test's name. A clause is proven by the
+    // assertion it names, and by nothing else.
+    const name = markerName(raw)
+    if (name !== needle) continue
     const verdict = markerLine(raw)
     if (verdict === 'failed') return 'failed'
     if (verdict === 'passed') sawPass = true
