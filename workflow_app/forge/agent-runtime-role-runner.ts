@@ -69,7 +69,7 @@ import { assessArchitectBrief, shapeArchitectFindings } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
-import { recordedScopeBase, storyScopeBase } from './story-scope-base'
+import { candidateOwnChangedFiles, recordedScopeBase, storyScopeBase } from './story-scope-base'
 import type { RoleEffectPorts } from './agents/ports'
 import { existsOnGitBaseRef } from './agents/architect/exists-git'
 import { CANDIDATE_SHA, describeRefusal, mediateField } from '../../lib/field-mediator'
@@ -374,6 +374,31 @@ function readGit(cwd: string, args: string[]): string | null {
     )
     return null
   }
+}
+
+/**
+ * THE LANE'S OWN CHANGES, MEASURED WHERE THE CODE LIVES (ENG-FORGE-SCOPE-OWN-CHANGES-01).
+ *
+ * The scope gate used to diff the candidate against the story base, so a foreign commit
+ * that landed during the run was attributed to the lane. This measures only the lane's
+ * own commit(s): each against its PARENT, with the descendant check first. The rule and
+ * its injected reads live in `story-scope-base.ts`; this supplies the git answer.
+ */
+function ownChangedFiles(input: {
+  cwd: string
+  recordedBase: string
+  candidateSha: string
+}): ReturnType<typeof candidateOwnChangedFiles> {
+  return candidateOwnChangedFiles({
+    candidateSha: input.candidateSha,
+    recordedBase: input.recordedBase,
+    laneCommits: [input.candidateSha],
+    readChangedFiles: (commit) => {
+      const out = readGit(input.cwd, ['diff', '--name-only', `${commit}^`, commit])
+      return out ? out.split('\n') : []
+    },
+    isAncestor: (ancestor, descendant) => isAncestor(input.cwd, ancestor, descendant),
+  })
 }
 
 function runtimeInterrupted(resultStatus: string, completion: number): boolean {
@@ -1318,20 +1343,25 @@ export function createAgentRuntimeForgeRoleRunner(
         ? evidence.candidateSha.trim()
         : null
     const collectMergeBase = scopeBase
-    const collectDiff = collectCandidateSha
-      ? await changedFilesForCandidate({
-          cwd: roleCwd,
-          baseRef: collectMergeBase,
-          candidateSha: collectCandidateSha,
-        }).then(
-          (changedPaths) => ({
-            candidateSha: collectCandidateSha,
-            mergeBase: collectMergeBase,
-            changedPaths,
-          }),
-          () => undefined,
-        )
-      : undefined
+    // THE CANDIDATE'S OWN CHANGES, NOT THE INTERVAL (ENG-FORGE-SCOPE-OWN-CHANGES-01): the
+    // diff is each lane-authored commit against its parent, so a foreign commit that landed
+    // during the run is not attributed to the lane. A non-descendant candidate is refused
+    // (ownChangedFiles returns !ok), which leaves this port absent — the same fail-closed
+    // shape a missing candidate already has.
+    const collectDiff = (() => {
+      if (!collectCandidateSha) return undefined
+      const own = ownChangedFiles({
+        cwd: roleCwd,
+        recordedBase: collectMergeBase,
+        candidateSha: collectCandidateSha,
+      })
+      if (!own.ok) return undefined
+      return {
+        candidateSha: collectCandidateSha,
+        mergeBase: collectMergeBase,
+        changedPaths: own.changedFiles,
+      }
+    })()
     // The Lead's recorded DECISION rows (migrations 170/171), read before the review
     // below — which is the ONE seat for this decision. `LeadAgent.collect` is a no-op
     // for PRE, so there is no second evaluator that could accept what this refused.
@@ -1656,9 +1686,9 @@ export function createAgentRuntimeForgeRoleRunner(
       if (splitAssignmentContract) {
         // NO TREE FOR ANY LANE: the lane works where it was told to work.
         const cwd = process.cwd()
-        const changedFiles = await changedFilesForCandidate({
+        const own = ownChangedFiles({
           cwd,
-          baseRef: scopeBase,
+          recordedBase: scopeBase,
           candidateSha: evidence.candidateSha,
         })
         // OBSERVER (phase 1): record the candidate's commit and scope verdict
@@ -1674,6 +1704,17 @@ export function createAgentRuntimeForgeRoleRunner(
           attempt: splitAssignmentContract.identity.attempt,
           baseCommit: scopeBase,
         }
+        // A CANDIDATE THAT IS NOT A DESCENDANT OF ITS RECORDED BASE IS REFUSED BY NAME
+        // (ENG-FORGE-SCOPE-OWN-CHANGES-01) before any diff: merge-base would otherwise pick
+        // an unrelated base and the diff would describe someone else's history.
+        if (!own.ok) {
+          observeHold(forgeObserverSink, observerIdentity, {
+            reasons: [own.reason],
+            sha: evidence.candidateSha,
+          })
+          throw new Error(`Forge ${nodeId} HOLD: ${own.reason}`)
+        }
+        const changedFiles = own.changedFiles
         const observed = observeCandidateCommit(forgeObserverSink, observerIdentity, {
           candidateSha: evidence.candidateSha,
           changedFiles,
@@ -1720,11 +1761,17 @@ export function createAgentRuntimeForgeRoleRunner(
         baseCommit: scopeBase,
       }
       try {
-        const changedFiles = await changedFilesForCandidate({
+        const own = ownChangedFiles({
           cwd,
-          baseRef: scopeBase,
+          recordedBase: scopeBase,
           candidateSha,
         })
+        // A CANDIDATE THAT IS NOT A DESCENDANT OF ITS RECORDED BASE IS REFUSED BY NAME
+        // (ENG-FORGE-SCOPE-OWN-CHANGES-01) before any diff: merge-base would otherwise pick
+        // an unrelated base. The miss rides the bounded self-heal below, so exhaustion is the
+        // HOLD and a reprompt names the real reason rather than the run.
+        if (!own.ok) serialScopeMiss = [own.reason]
+        const changedFiles = own.ok ? own.changedFiles : []
         const observed = observeCandidateCommit(forgeObserverSink, serialIdentity, {
           candidateSha,
           changedFiles,
@@ -1738,7 +1785,7 @@ export function createAgentRuntimeForgeRoleRunner(
         // did not have: a parsed SMITH_CANDIDATE line, a NAMED miss when it is
         // absent, the claimed SHA vs worktree HEAD, the assignment id, and an empty
         // diff. `runnerDiff` is git's answer and always wins over the model's claim.
-        if (serialAssignment && serialAssignmentContract) {
+        if (own.ok && serialAssignment && serialAssignmentContract) {
           const smithExit = assessSmithExit({
             nodeId,
             assignmentId: serialAssignment.id,
