@@ -2480,6 +2480,48 @@ const STORIES: TestStory[] = [
     assayCommands: '- `pnpm scan:deps` (exits 1 while advisories remain known and untriaged)',
   },
   {
+    id: 'ENG-FORGE-SPLIT-SIBLING-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 101,
+    title: 'Every declared split unit gets a work item, so the join can be satisfied',
+    goal:
+      'A SPLIT decision with two units enqueues two sibling work items with distinct slots and distinct ' +
+      'assignments, so the join sees two terminal children instead of waiting forever on a unit that ' +
+      'was never created.',
+    scope:
+      'the split materializer that turns a SPLIT decision into child work items (workflow_app/forge/' +
+      'agent-runtime-role-runner.ts around the SPLIT branch, plus whatever writes agent_work_item ' +
+      'parallel rows), and a fence in workflow_app/tests/.',
+    acceptance:
+      'A SPLIT decision over two units writes one work item per unit, numbered 1..N with N distinct ' +
+      'assignments; the join reaches satisfaction when both children terminate; a unit with no work ' +
+      'item is still refused by name; and a fence drives the two-unit case, the three-unit case and ' +
+      'the missing-sibling refusal.',
+    notes:
+      'MEASURED 2026-09-18 12:52 by Cline while re-running the I5 two-lane verification on ' +
+      'ENG-FORGE-TWO-UNIT-DOGFOOD-02, and this is the real reason every SPLIT story has held today. ' +
+      'The wave fanned out and the lane RAN - smith_split_work claimed, worked 3.5 minutes and ' +
+      'published candidate 6692a2c8 - so the shape fix from ENG-FORGE-SPLIT-SHAPE-01 holds. Then ' +
+      'lead_post refused: "SPLIT join not satisfied - split children never reached a terminal state: ' +
+      'unit-a-media-length". The database says why: `select parallel_slot, parallel_size, ' +
+      'split_assignment from agent_work_item where story_id=... and parallel_size is not null` returns ' +
+      'ONLY slot 2 of size 2, three rows, all unit-b-diagnostic-throttle, all Done. There is no slot 1 ' +
+      'and no unit-a-media-length row at any point - the declared first unit was never enqueued. So ' +
+      'the materializer writes one child per split (and numbers it 2), the join waits for a sibling ' +
+      'that does not exist, and the story cannot complete no matter how well the lane works. ' +
+      'CONNECTION TO THE SHAPE STORY, stated so the two are not confused: SPLIT-SHAPE-01 fixed the ' +
+      'SHAPE of a row (the full parallel tuple, and a refusal for a grouped row with a blank ' +
+      'assignment) and its fence proves that; this is the COUNT - how many rows a split creates - and ' +
+      'that is why the fence was green while the feature could not finish. HONEST BOUNDARY: I cannot ' +
+      'yet say whether the second unit is dropped at planning time or at enqueue time; the log shows ' +
+      'the join naming unit-a, so the plan knew about it. HOLD REASON WANTED: without this, every ' +
+      'SPLIT fan-out is a lane that works and a join that refuses - which reads as a lane failure and ' +
+      'is not one.',
+    assayCommands: '- fence for the two-unit and three-unit SPLIT materialisation; `pnpm test:forge:engine`',
+  },
+  {
     id: 'ENG-FORGE-LINT-GATE-01',
 
     workstream: 'ENGINEERING',
