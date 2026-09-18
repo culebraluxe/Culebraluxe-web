@@ -1,0 +1,135 @@
+name: gates
+
+# ---------------------------------------------------------------------------
+# WHY THIS WORKFLOW EXISTS
+#
+# Every gate in this repository was invoked by hand or by the engine, and on 2026-09-18 the gap was
+# measured rather than theorised: three lint errors shipped through two clean QA passes, because the
+# engine's static gate runs semgrep, knip and tsc but not eslint. A rule that nobody enforces is a
+# rule that is not in force.
+#
+# This is an INDEPENDENT runner. It does not take the engine's word for what it ran — that is the
+# whole point of a second execution path.
+#
+# SCOPE, STATED HONESTLY: this workflow does not yet protect production. Vercel deploys `main`
+# directly, so a commit that fails here has already been deployed by the time the check reports.
+# Making the deploy the protected boundary (deploy only after these pass, or require PR checks) is
+# ENG-FORGE-CI-PRODUCTION-FENCE-01. Until that lands, read a red run as an alert, not a fence.
+#
+# NO SECRETS REQUIRED for the `static` job, so it runs from the first push. The `database` job needs
+# dev credentials and stays parked until the repository variable FORGE_DB_CI is set to 'true'.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      # Full history on purpose: the secret scan reads commits, and the migration lint needs a base
+      # range to diff against. A shallow checkout would silently scan nothing.
+      - name: checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - name: node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: lint
+        run: pnpm lint
+
+      # The engine's own gate, called directly — same instrument, same roots, same exit code. Using
+      # the script rather than re-typing the commands is what keeps CI and the engine from drifting.
+      - name: architecture, security patterns, dead code
+        run: node --import tsx scripts/forge-static-gate.ts
+
+      - name: harness tests (no database)
+        run: pnpm test:harness
+
+      # squawk-cli via npm, the same install the operator used locally (2.65.0 verified 2026-09-18).
+      - name: migrations — squawk over changed files
+        env:
+          BASE_REF: origin/${{ github.base_ref || 'main' }}
+        run: |
+          npm install -g squawk-cli@2.65.0
+          pnpm scan:migrations
+
+      # Reads .gitleaks.toml and .gitleaksignore from the repo automatically. The ignore file is a
+      # receipt of the known 2026-09-03/04 exposure, not a permission — see ENG-FORGE-SECRET-HISTORY-01.
+      - name: secrets — gitleaks over history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # FIRST RUN: confirm the scan-args shape against the action's current README. The pnpm lockfile
+      # needs --all-packages to resolve its full graph (without it osv-scanner reported 17 packages
+      # against a lockfile holding 899 — measured 2026-09-18, which is why the flag is explicit here).
+      - name: dependencies — osv-scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            --all-packages
+            --lockfile=pnpm-lock.yaml
+
+  database:
+    name: database-backed gates
+    # Parked until dev credentials exist as secrets. A skipped gate is visibly skipped; a gate that
+    # silently passes because it had no credentials is the failure mode this repository already
+    # recorded ("a script that cannot run is not a gate").
+    if: ${{ vars.FORGE_DB_CI == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      APP_ENV: dev
+      DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+      DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+      DATABASE_URL_PROD: ${{ secrets.DATABASE_URL_PROD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: schema parity (dev vs prod)
+        run: pnpm db:parity
+
+      - name: application and forge-engine suites
+        run: pnpm test:app

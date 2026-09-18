@@ -68,6 +68,11 @@ export const PROTECTED_FILES: ProtectedFile[] = [
     marker: '# TypeSafe failure-triage pilot',
     why: 'an outside judgment source is only safe while its BOUNDARIES are written down: advisory only, a sensor never an oracle, the graduation bar, and where it must never go. Losing this file would leave the tool without its leash',
   },
+  {
+    path: 'docs/agent/PERIMETER.md',
+    marker: '# The perimeter: instruments, what they found, and the traps in running them',
+    why: 'the record of the 2026-09-03/04 credential exposure, the measured findings each instrument produced, and the invocations that silently do not cover. Re-deriving this costs a day and the traps do not announce themselves',
+  },
 ]
 
 export type ProtectedDirectory = {

@@ -7,7 +7,14 @@ __v0_jsx-dev-runtime.ts
 .vercel/
 
 # Environment variables
-.env*.local
+#
+# `.env*.local` was too narrow, and that is not a style opinion — it is the exact reason a real
+# credentials file reached git history on 2026-09-03/04: the backup was named
+# `.env.local.before-icloud-username-fix`, and the old pattern requires the name to END in `.local`,
+# so the file was never ignored (found by gitleaks 2026-09-18, 90 findings across 9 commits).
+# Every spelling of an environment file is ignored now; the committed example is the one exception.
+.env*
+!.env.example
 
 # Local pnpm store (workspace-local store used by the sandboxed toolchain)
 .pnpm-store/

@@ -2179,7 +2179,301 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/scope-attribution.test.ts`',
   },
   {
+    id: 'ENG-FORGE-SECRET-HISTORY-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 101,
+    title: 'The credentials that reached git history are rotated and the exposure is recorded',
+    goal:
+      'Every credential that a committed environment-file backup exposed on 2026-09-03/04 is triaged ' +
+      'live-or-dead, every live one is rotated, and the repository records the exposure and the ' +
+      'rotation rather than a baseline entry that quietly hides it.',
+    scope:
+      'operator rotation at the providers (Neon, Meta/WhatsApp, BoldSign, iCloud, Mux, Google, xAI, ' +
+      'Auth), docs/agent/SECRET-EXPOSURE-2026-09.md (new), and a review of the .gitleaksignore ' +
+      'baseline that this story is allowed to shrink.',
+    acceptance:
+      'Each of the 48 variable names is either rotated (with provider, date and who) or marked dead ' +
+      'with the reason it is dead; a full history scan stays green; the baseline lists only exposure ' +
+      'confirmed non-live; and no credential value appears in the new document, the story text or ' +
+      'any artifact.',
+    notes:
+      'MEASURED 2026-09-18 by Cline, the first time gitleaks ran in this repository (gitleaks 8.30.1, ' +
+      'installed by the operator). It found a committed backup of the environment file: ' +
+      '`.env.local.before-icloud-username-fix`, present in 9 commits dated 2026-09-03 to 2026-09-04, ' +
+      '144 findings under the tightened rules (90 under the default set). The file is gone from HEAD ' +
+      'and from disk, and only `.env.example` is tracked today, but removal from the tree does not ' +
+      'remove it from history. 48 variable names were in it, including DATABASE_URL_PROD and ' +
+      'DATABASE_URL_UNPOOLED, AUTH_SECRET, WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, ' +
+      'BOLDSIGN_API_KEY, BOLDSIGN_WEBHOOK_SECRET, ICLOUD_MAIL_APP_PASSWORD, MUX_TOKEN_SECRET_PROD, ' +
+      'XAI_API_KEY and PORTAL_REVIEW_TOKEN. ROOT CAUSE, fixed in the same commit: .gitignore carried ' +
+      '`.env*.local`, which requires the name to END in `.local`, so a backup named ' +
+      '`.env.local.before-icloud-username-fix` was never ignored; the rule is now `.env*` with ' +
+      '`!.env.example`. THREE further findings are in internal API routes (jessica-listing-v4, ' +
+      'signature-provision, signature-provision-reset) that no longer exist in the tree. HONEST ' +
+      'BOUNDARY: this story cannot rotate anything itself — the operator holds every one of those ' +
+      'accounts, and the only correct remedy for an exposed secret is rotation, not deletion. ' +
+      'Rewriting published history was rejected as the default: it breaks every existing clone, does ' +
+      'not un-expose a key that was already read, and rotation is what actually ends the risk.',
+    assayCommands: '- `pnpm scan:secrets` (must stay green; the baseline must not grow)',
+  },
+  {
+    id: 'ENG-FORGE-CI-PRODUCTION-FENCE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 101,
+    title: 'A failing gate cannot reach production: the deploy waits for the workflow',
+    goal:
+      'A commit that fails the static gates is never serving traffic, so the workflow protects the ' +
+      'deployment boundary rather than merely reporting on it afterwards.',
+    scope:
+      '.github/workflows/gates.yml (landed gates-only), the Vercel project settings for the ' +
+      'production branch, and docs/agent/PERIMETER.md (deploy-boundary section).',
+    acceptance:
+      'The workflow reports green or red on every push to main and every pull request; production ' +
+      'deployment either waits for that result or is unreachable without it; a deliberately failing ' +
+      'gate is shown to keep the previous production deployment serving; and the first real CI run ' +
+      'is recorded with its outcome, including whether the gitleaks and osv-scanner action ' +
+      'invocations were correct.',
+    notes:
+      'THE HOLE, STATED PLAINLY: the workflow as landed does not protect production. Vercel deploys ' +
+      '`main` directly, so a push that fails the gates has already been deployed by the time the ' +
+      'check reports — the check is observational. Two legitimate designs, and the operator picks: ' +
+      '(a) disable the automatic production deployment for main and deploy from the workflow after ' +
+      'the gates pass; or (b) require pull-request checks so nothing reaches main without a green ' +
+      'run. The operator works main-only, which is why (a) is the smaller change. WHY THE WORKFLOW ' +
+      'EXISTS AT ALL, measured: on 2026-09-18 three lint errors shipped through two clean QA passes ' +
+      'because the engine static gate runs semgrep, knip and tsc but not eslint — the gate was ' +
+      'independent evidence of a gap, not a theory. UNVERIFIED ON FIRST RUN, declared rather than ' +
+      'assumed: the workflow was validated with actionlint 1.7.12 (exit 0) but has never executed; ' +
+      'the two third-party action invocations (gitleaks/gitleaks-action@v2 and ' +
+      'google/osv-scanner-action@v2) must be confirmed against their current README on the first ' +
+      'push, and the osv step deliberately carries `--all-packages` because without it osv-scanner ' +
+      'reported 17 packages against a lockfile holding 899. The database job is parked behind the ' +
+      'repository variable FORGE_DB_CI until dev credentials exist as secrets.',
+    assayCommands: '- `actionlint .github/workflows/gates.yml` (must exit 0)',
+  },
+  {
+    id: 'ENG-FORGE-MIGRATION-LINT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 101,
+    title: 'A migration that can lock a live table is refused before it is applied',
+    goal:
+      'An unsafe migration statement is refused by the engine with the rule that found it, so no lane ' +
+      'can apply a blocking index, an unvalidated constraint or a NOT NULL column to a live database ' +
+      'without a recorded reason.',
+    scope:
+      'the engine static gate (workflow_app/forge/forge-static-gate.ts) and the Assay path that calls ' +
+      'it, scripts/scan-migrations.sh (landed), plus a fence in workflow_app/tests/.',
+    acceptance:
+      'A migration adding an index without CONCURRENTLY, or a constraint without NOT VALID, is ' +
+      'refused by the engine with the squawk rule id in the refusal; a migration that is safe passes; ' +
+      'the check runs against changed migration files only, so the historical findings never block ' +
+      'unrelated work; and the fence drives both cases.',
+    notes:
+      'LANDED PARTIALLY 2026-09-18 by Cline: the operator installed squawk-cli 2.65.0 and ' +
+      '`pnpm scan:migrations` now lints changed migrations (committed range plus uncommitted, ' +
+      'BASE_REF defaults to origin/main), with a CI step that does the same. What remains is the ' +
+      'engine wiring: today a lane can still write an unsafe migration because the static gate does ' +
+      'not consult squawk. MEASURED on the full historical set, worth keeping in view: 745 findings ' +
+      'across 192 files — 145 indexes created without CONCURRENTLY, 161 missing lock_timeout and 161 ' +
+      'missing statement_timeout, 50 constraints added without NOT VALID, 15 foreign-key additions, ' +
+      '5 column-type changes and 3 dropped columns. The newest 25 migrations still carry 108 of ' +
+      'them (10 concurrent-index, 13 not-valid), which is why this is worth a gate rather than a ' +
+      'note. WHY CHANGED-ONLY: a gate that is red on day one is a gate everyone learns to ignore, ' +
+      'and those files are already applied. HONEST BOUNDARY: squawk reasons about a statement in ' +
+      'isolation — it cannot know a table is empty in production and therefore safe, so a legitimate ' +
+      'exception needs a recorded reason, not a silenced rule.',
+    assayCommands: '- `pnpm scan:migrations` after touching a migration file',
+  },
+  {
+    id: 'ENG-FORGE-LANE-SECRET-GATE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 101,
+    title: 'A lane cannot publish a candidate that carries a credential',
+    goal:
+      'A candidate whose own changes contain a secret is refused before it is published, so an agent ' +
+      'that pastes a token into source, a test or an artifact cannot move it into history.',
+    scope:
+      'the publish path in workflow_app/forge/agent-runtime-role-runner.ts (or the gate it consults), ' +
+      'a secrets scan over the candidate own diff rather than the whole repository, and a fence that ' +
+      'drives a planted key.',
+    acceptance:
+      'A candidate whose diff adds a credential-shaped string is refused with the rule that matched ' +
+      'and the file named; a candidate with no credential passes; the scan reads the candidate own ' +
+      'changes only, so an unrelated exposure in history never blocks a lane; and the fence proves ' +
+      'both directions.',
+    notes:
+      'WHY THIS IS THE SHARP ONE, measured 2026-09-18: the repository already lost a credential file ' +
+      'to history, and the factory is now the most likely source of the next one — a lane writes ' +
+      'source, tests, artifacts and postcards, and the existing redactor (TRIAGE_REDACTOR_VERSION) ' +
+      'guards only failure-triage payloads, not what an agent writes to disk. The instruments exist: ' +
+      'gitleaks 8.30.1 with `.gitleaks.toml` (custom shapes for Neon URLs, WhatsApp EAA tokens, ' +
+      'BoldSign keys, Apple app-specific passwords, xAI keys) and `pnpm scan:secrets`. The shape of ' +
+      'the check mirrors SCOPE-OWN-CHANGES-01 on purpose: scan the candidate own diff, never the ' +
+      'whole history, or every lane inherits the 147 findings this repository already knows about ' +
+      'and refuses forever. HONEST BOUNDARY: entropy detection gives false positives and false ' +
+      'negatives — this narrows the window, it does not replace rotation, and a refusal must be ' +
+      'reviewable and overridable with a recorded reason rather than a silent pass.',
+    assayCommands: '- fence asserting a planted credential in a candidate diff is refused',
+  },
+  {
+    id: 'ENG-FORGE-BOUNDARY-SCHEMAS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 101,
+    title: 'Anything crossing the process boundary is unknown until a schema validates it',
+    goal:
+      'Untrusted input is validated at runtime before it is used, so a public webhook, route body or ' +
+      'provider response cannot reach the domain as an unchecked cast.',
+    scope:
+      'schema validation for the WhatsApp webhook payload (app/api/integrations/whatsapp/webhook/' +
+      'route.ts), then the other route bodies and provider responses, with the library declared in ' +
+      'package.json.',
+    acceptance:
+      'The webhook validates the parsed body against a schema and returns a 400 without touching the ' +
+      'domain when validation fails; signature verification still runs before any payload handling; ' +
+      'an inferred type replaces the hand-written payload type so the two cannot drift; a fence ' +
+      'drives a malformed payload; and the repository records the rule that external input is ' +
+      'unknown until validated.',
+    notes:
+      'MEASURED 2026-09-18 by Cline: the webhook parses untrusted input with a type assertion — ' +
+      '`payload = JSON.parse(rawBody) as MetaWhatsAppWebhookPayload` at line 93 — a promise to the ' +
+      'compiler rather than a check on the sender, on a PUBLIC endpoint. There is no schema ' +
+      'validator anywhere in the repository (no zod, valibot or arktype). INSTALL NOTE, which cost ' +
+      'the operator real time: `npm install zod` in this repository fails with `TypeError: Cannot ' +
+      'read properties of null (reading matches)` from Link.matches in npm arborist, because npm ' +
+      'cannot build its ideal tree over pnpm symlinks. This repository uses pnpm (pnpm-lock.yaml, ' +
+      'a `pnpm` field in package.json, no package-lock.json), so the install is `pnpm add zod`. ' +
+      'That also means the dependency must arrive WITH its first use: installing it unused would ' +
+      'trip knip, which the engine treats as a gate. HONEST BOUNDARY: schema validation checks ' +
+      'shape, not authenticity — signature verification is a separate and prior control, and a ' +
+      'well-formed payload from an unverified sender is still untrusted.',
+    assayCommands: '- fence posting a malformed webhook body and asserting a 400',
+  },
+  {
+    id: 'ENG-FORGE-FENCE-CAN-FAIL-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 101,
+    title: 'A fence proves it can fail before its green counts as proof',
+    goal:
+      'A story cannot claim proof from a fence that has never been shown to discriminate, so every ' +
+      'declared assertion carries a negative control that fails without the claimed behaviour.',
+    scope:
+      'a negative-control mode in the QA/assay path (workflow_app/forge/agents/qa/), the evidence ' +
+      'record it writes, and a fence for the mode itself.',
+    acceptance:
+      'For a story, the declared fence runs green; a negative control that withholds or inverts the ' +
+      'claimed behaviour runs the SAME fence and requires at least one intended assertion to fail; ' +
+      'the killing assertion is named in the evidence; the scratch state is destroyed in the same ' +
+      'command; and a fence whose assertions all pass under the negative control is reported as ' +
+      'UNPROVEN rather than PASS.',
+    notes:
+      'THE GAP, measured by its shape rather than by a failure: the whole QA model rests on a fence ' +
+      'report of 6/6, and nothing anywhere checks that the six could fail. A test that asserts ' +
+      'nothing, or that asserts whatever the code happens to do, passes trivially and reports ' +
+      'identically to a real one. The gate already measures the PRESENCE of an assertion mapping — ' +
+      'on 2026-09-18 it ruled `UNPROVEN acceptance-map-missing` on ENG-FORGE-SPLIT-SHAPE-01 for ' +
+      'exactly that reason — but presence is not power, and today those two look the same in the ' +
+      'evidence. The instinct already exists in this repository in one place: ' +
+      'scripts/forge-sync-agents.test.ts SABOTAGES AGENTS.md text to prove the guardrail check can ' +
+      'fail. This story generalises that instinct into the normal path. BUILD THIS, NOT STRIKER ' +
+      'FIRST: StrykerJS mutates implementation details and reports test survival, which is a ' +
+      'different and much broader question than "would this story declared proof fail if the ' +
+      'claimed behaviour were absent". Stryker becomes useful later, scoped to pure policy modules ' +
+      '(routing, eligibility, evidence projection), never across the whole Next.js application. ' +
+      'HONEST BOUNDARY: reverting the whole candidate and accepting any red test does NOT prove ' +
+      'the assertion has power — a compile error or a missing file goes red too — so the control ' +
+      'must target the specific claimed behaviour and name the assertion that died.',
+    assayCommands: '- fence for the negative-control mode; `pnpm test:forge:engine`',
+  },
+  {
+    id: 'ENG-FORGE-PROPERTY-INVARIANTS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 101,
+    title: 'The invariant families that keep breaking are tested with generated input',
+    goal:
+      'The value families that have repeatedly produced real bugs are covered by property tests that ' +
+      'generate adversarial input, so a NULL, an empty string or a boundary value is found by a test ' +
+      'rather than by production.',
+    scope:
+      'three families chosen from measured history — SQL null/three-valued semantics in the ' +
+      'work-item and sprint writers, identifier and phone normalization, and story-state ' +
+      'transitions — with the generator declared in package.json.',
+    acceptance:
+      'Each of the three families has property tests with generated input; every test shrinks a ' +
+      'failure to a minimal counterexample; each test is proved to fail against the pre-fix ' +
+      'behaviour of at least one real bug recorded in the story notes; and the suite runs in CI ' +
+      'without a database, so it stays fast and reproducible.',
+    notes:
+      'WHY THIS IS NOT A BACKLOG WISH, measured twice in one night (2026-09-18): the same bug class ' +
+      'bit twice — SQL three-valued logic, where a NULL in a CHECK constraint evaluates to NULL and ' +
+      'a CHECK passes on NULL unless it says otherwise. First in the sprint-close rule (split_lane ' +
+      'and parallel_size evaluated NULL, which passes) and then in ENG-FORGE-SPLIT-SHAPE-01, where ' +
+      'only the missing split_assignment was effective because it was the one comparison that ' +
+      'resolved to FALSE. Every instrument in this repository is static or search-shaped — tsc, ' +
+      'eslint, knip, dependency-cruiser, semgrep, squawk, gitleaks — and example-based tests ' +
+      'structurally cannot cover the input space that produced both bugs. A generator can, and ' +
+      'fast-check shrinks a failing case to a minimal reproducible example, which is exactly what ' +
+      'an artifact or a repair lane needs. INSTALL: `pnpm add -D fast-check` — never npm, which ' +
+      'crashes in this repository (see ENG-FORGE-BOUNDARY-SCHEMAS-01). ORDER: pure functions first ' +
+      '(normalization, routing, state transitions); database-backed generative testing is valuable ' +
+      'later but hundreds of cases against remote Neon are slow and hard to reproduce. HONEST ' +
+      'BOUNDARY: a property test proves what the property states, and a wrong property is a green ' +
+      'test that documents a bug — each property needs its own sentence saying what must be true ' +
+      'and why.',
+    assayCommands: '- `pnpm test:changed` after touching one of the three families',
+  },
+  {
+    id: 'ENG-FORGE-DEPENDENCY-AUDIT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 101,
+    title: 'A vulnerable dependency is reported with its advisory and reachable or triaged',
+    goal:
+      'Known vulnerabilities in the dependency graph are surfaced on a schedule, each one is triaged ' +
+      'as reachable or not, and the unreachable ones are recorded so the next run does not re-open ' +
+      'the same question.',
+    scope:
+      'osv-scanner (installed, scripted as `pnpm scan:deps`, wired into the gates workflow), ' +
+      'GitHub Dependabot alerts, and docs/agent/DEPENDENCY-TRIAGE.md (new).',
+    acceptance:
+      'A scheduled scan reports the affected packages with their advisory ids; each finding is ' +
+      'triaged as reachable in production, dev-only, or not reachable, with the reason recorded; ' +
+      'the scan is invoked with `--all-packages` so the full pnpm graph is read; and a new critical ' +
+      'finding is visible without anyone remembering to run a command.',
+    notes:
+      'MEASURED 2026-09-18, the first run in this repository (osv-scanner 2.6.0): 17 packages ' +
+      'affected by 45 known vulnerabilities — 2 critical, 22 high, 19 medium, 2 low — including ' +
+      'sharp 0.35.3 (GHSA-rgj7-g3m4-5g8c, severity 8.9), qs 6.15.2 (two advisories at 6.3), ' +
+      'next 16.3.0, postcss 8.5.6 and 8.5.19, brace-expansion 5.0.6 and nanoid 3.3.16. THE TRAP, ' +
+      'and the reason the invoke is pinned in package.json: `osv-scanner scan source -L ' +
+      'pnpm-lock.yaml` without `--all-packages` reported 17 packages against a lockfile holding ' +
+      '899 — it resolved an unusable subset and would have been quietly believed. That is the same ' +
+      'lesson as the eslint gate (a tool that runs is not a tool that covers) and it is why the ' +
+      'counts above are quoted from the corrected invocation. HONEST BOUNDARY: an advisory means ' +
+      'the INSTALLED version is in an affected range, not that this application is exploitable — ' +
+      'the triage is the work, and a blanket upgrade is not a fix. Priority is Medium rather than ' +
+      'High because nothing here is known-exploited, and because these are mostly build- and ' +
+      'toolchain-level transitive dependencies; if triage shows a reachable critical path in a ' +
+      'runtime dependency, raise it.',
+    assayCommands: '- `pnpm scan:deps` (exits 1 while advisories remain known and untriaged)',
+  },
+  {
     id: 'ENG-FORGE-LINT-GATE-01',
+
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
     priority: 'Medium',

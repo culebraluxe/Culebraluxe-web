@@ -1,0 +1,97 @@
+# ---------------------------------------------------------------------------
+# Gitleaks configuration — CulebraLuxe perimeter.
+#
+# WHY THIS FILE EXISTS: gitleaks was installed and run for the first time on 2026-09-18 and found
+# a real exposure that had been sitting in history since 2026-09-03/04 — a committed backup of the
+# environment file (90 findings across 9 commits, 48 variable names including DATABASE_URL_PROD,
+# WHATSAPP_ACCESS_TOKEN, BOLDSIGN_API_KEY, ICLOUD_MAIL_APP_PASSWORD and AUTH_SECRET). The default
+# ruleset found it; these rules keep finding OUR shapes, and `.gitleaksignore` records the known
+# historical exposure so a scan is green on the present state rather than permanently red.
+#
+# SCAN MODE MATTERS: use `gitleaks git` (history / commit ranges), not `gitleaks dir`. `dir` walks
+# the filesystem including `.gitignore`d paths, so it reports your own local `.env.local` and the
+# `.next/` build output — 209 findings of mostly your own machine. History is the perimeter.
+# ---------------------------------------------------------------------------
+
+title = "Culebraluxe"
+
+[extend]
+useDefault = true
+
+# --- our credential shapes ---------------------------------------------------
+# The default ruleset catches these with lower confidence ("generic-api-key"); these say the shape
+# out loud so a finding needs no interpretation at the moment it matters.
+
+[[rules]]
+id = "culebraluxe-database-url"
+description = "Postgres/Neon connection string with an inline password"
+regex = '''postgres(?:ql)?://[^:\s'"`]+:[^@\s'"`]+@[^\s'"`]+'''
+tags = ["database", "credentials"]
+
+  # A URL that points at the developer's own machine, or that spells its password `postgres`
+  # / `password` / `changeme`, is a fixture and not a perimeter event. This is scoped to THIS rule
+  # rather than added to the global allowlist, so it cannot blind the other rules.
+  [[rules.allowlists]]
+  description = "local and obvious-placeholder connection strings"
+  regexTarget = "match"
+  regexes = [
+    '''(?:localhost|127\.0\.0\.1|0\.0\.0\.0)''',
+    '''://[^:]+:(?:postgres|password|pass|changeme|example|dummy|fake|secret|test|hunter2)@''',
+    '''\.(?:invalid|example|test)\b''',
+  ]
+
+  # Test files carry example connection strings by design. This allowlist is scoped to THIS rule
+  # (per-rule, not global) so no other rule is blinded by it: a real database URL pasted into a
+  # test is still caught if it appears as any other rule's shape, and the credential rules keep
+  # scanning tests.
+  [[rules.allowlists]]
+  description = "example connection strings in test fixtures"
+  regexTarget = "match"
+  paths = [
+    '''\.test\.ts$''',
+    '''^testv2/''',
+  ]
+
+[[rules]]
+id = "culebraluxe-whatsapp-access-token"
+description = "Meta/WhatsApp access token (EAA prefix)"
+regex = '''EAA[A-Za-z0-9]{30,}'''
+tags = ["meta", "whatsapp", "credentials"]
+
+[[rules]]
+id = "culebraluxe-icloud-app-password"
+description = "Apple app-specific password (four groups of four lowercase letters)"
+regex = '''\b[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}\b'''
+tags = ["apple", "icloud", "credentials"]
+
+[[rules]]
+id = "culebraluxe-xai-key"
+description = "xAI API key"
+regex = '''\bxai-[A-Za-z0-9]{20,}'''
+tags = ["xai", "credentials"]
+
+[[rules]]
+id = "culebraluxe-boldsign-key"
+description = "BoldSign API key or webhook secret"
+regex = '''(?i)boldsign[_-]?(?:api[_-]?key|webhook[_-]?secret)["'\s:=]{1,8}[A-Za-z0-9_-]{32,}'''
+entropy = 3.4
+tags = ["boldsign", "credentials"]
+
+[[rules]]
+id = "culebraluxe-vercel-token"
+description = "Vercel token"
+regex = '''\bvercel_[A-Za-z0-9]{20,}'''
+tags = ["vercel", "credentials"]
+
+# --- allowlist ---------------------------------------------------------------
+# Generated, vendored, and example files are not our secrets. Anything else that is a false
+# positive belongs in `.gitleaksignore` with a comment, not silently widened here.
+[allowlist]
+description = "Example env, documentation and build output are not live credentials"
+paths = [
+  '''\.env\.example$''',
+  '''^\.next/''',
+  '''^node_modules/''',
+  '''pnpm-lock\.yaml$''',
+  '''^docs/agent/postcards/''',
+]
