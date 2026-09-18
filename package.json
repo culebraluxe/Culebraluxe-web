@@ -85,6 +85,7 @@
     "test:changed": "node --import tsx scripts/test-section.ts --changed",
     "test:sections": "node --import tsx scripts/test-section.ts --list",
     "health": "node --import tsx scripts/sprint-cleanup.ts",
+    "story:preflight": "APP_ENV=production node --env-file=.env.local --import tsx scripts/story-preflight.ts",
     "protected-files": "node --import tsx scripts/protected-files.ts",
 
     "probe:kind:dev": "APP_ENV=dev node --env-file=.env.local --import tsx scripts/probe-kind-routing.ts",
