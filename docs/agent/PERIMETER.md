@@ -148,11 +148,26 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    learn loop's commit), and fenced the other way round: the new test builds a repo whose config IS the
    bug and asserts the commit comes out as Forge Smith.
 
-## The deploy boundary (not yet a fence)
+## The deploy boundary: CI CHECKS, THE OPERATOR SHIPS (corrected 2026-09-18)
 
-`gates.yml` runs on push and pull request, but **Vercel deploys `main` directly**, so a failing
-commit is already serving by the time the check reports. Making the deployment the protected
-boundary is `ENG-FORGE-CI-PRODUCTION-FENCE-01`. Until then, a red run is an alert.
+**There is no deploy job in `gates.yml`, and there must never be one.** The captain, on finding the
+fence I had added: *"we do not want CI for vercel i purposely broke that it was doubling my bill."*
+Every build this workflow triggers is billed, and deploying from CI turned one or two releases a day
+into roughly thirty builds. The deploy is **local by design**: `pnpm release` builds, deploys, probes
+and records a receipt in about five minutes, once or twice a day during a sprint.
+
+The correction matters more than the deletion. `ENG-FORGE-CI-PRODUCTION-FENCE-01` added a
+token-gated deploy job so that a failing gate could not reach production. It was inert (no token
+secret existed), but its skip message told the next reader how to activate it — so the repository
+carried written instructions to restart the cost, which is worse than having no fence at all. It was
+deleted rather than parked, and the workflow now says so in two places, because the next agent to
+read `gates.yml` is exactly the reader that message would have convinced.
+
+WHAT IS ACTUALLY PROTECTED, STATED HONESTLY: CI reports a red `main` in about a minute without a
+single Vercel build, and the operator decides whether to release. That is weaker than an automatic
+fence and it is the truth. If the "a red main cannot reach production" guarantee is wanted back, it
+belongs in `pnpm release` as a **refusal** — read the CI status for HEAD and stop when it is red —
+which costs a read and never a build.
 
 The workflow was validated with `actionlint` 1.7.12 (exit 0) and **has never executed**. The two
 third-party action invocations (gitleaks and osv-scanner) are the untested part; the story says so

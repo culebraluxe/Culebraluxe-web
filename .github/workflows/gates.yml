@@ -11,16 +11,22 @@ name: gates
 # This is an INDEPENDENT runner. It does not take the engine's word for what it ran — that is the
 # whole point of a second execution path.
 #
-# SCOPE, STATED HONESTLY: the gates are real and the DEPLOY NOW WAITS FOR THEM — the `deploy` job
-# below runs on main only, after `static` passes, and it is the only thing here that builds and
-# deploys production (ENG-FORGE-CI-PRODUCTION-FENCE-01). One console step is still outstanding and
-# cannot be a commit: Vercel's own automatic production deployment for `main` must be turned OFF, or
-# Vercel deploys in parallel and the fence protects nothing. When the token secret is absent the
-# deploy job says so in the run summary rather than failing quietly.
+# SCOPE, STATED HONESTLY: this workflow CHECKS and never SHIPS. It runs the gates an independent
+# runner can run, and it deliberately contains NO deploy job — every Vercel build costs money and CI
+# deploys were doubling the bill, so production is deployed from the captain's machine with
+# `pnpm release` (1-2x per day), which builds, deploys, probes and records a receipt. A red main is
+# reported here in about a minute without touching Vercel.
 #
-# NO SECRETS REQUIRED for the `static` job, so it runs from the first push. The `deploy` job needs
-# VERCEL_TOKEN and skips loudly without it; the `database` job needs dev credentials and stays parked
-# until the repository variable FORGE_DB_CI is set to 'true'.
+# IT REVERSED AN EARLIER DESIGN: ENG-FORGE-CI-PRODUCTION-FENCE-01 added a token-gated deploy job so a
+# failing gate could not reach production. That job never ran (no token), but its skip message told the
+# next reader how to switch it on — the repository literally carried instructions to restart the cost.
+# Deleted 2026-09-18 on the captain's word. What remains of that story's intent is honest and weaker:
+# CI reports a red main, and the operator decides to release. Do not re-add a deploy job here; if the
+# "a red main cannot reach production" guarantee is wanted back, it belongs in `pnpm release` as a
+# REFUSAL (read the CI status for HEAD and stop if it is red) — a read, not a build.
+#
+# NO SECRETS REQUIRED for the `static` job, so it runs from the first push. The `database` job needs
+# dev credentials and stays parked until the repository variable FORGE_DB_CI is set to 'true'.
 # ---------------------------------------------------------------------------
 
 on:
@@ -167,78 +173,23 @@ jobs:
   # When the token secret is absent the job says so in the run summary, so the gap stays VISIBLE
   # instead of being assumed closed — a fence that quietly does nothing is worse than no fence.
   # ---------------------------------------------------------------------------
-  deploy:
-    name: deploy (only after the gates pass)
-    needs: static
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: team_xk8vFaeSyY6CuSkS3OK55tTc
-      VERCEL_PROJECT_ID: prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV
-    steps:
-      - name: does this repository hold a Vercel token yet?
-        id: token
-        run: |
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "has=false" >> "$GITHUB_OUTPUT"
-            {
-              echo '### Deploy SKIPPED: no VERCEL_TOKEN secret'
-              echo ''
-              echo 'The gates ran and passed. Production was NOT deployed by this workflow, which means'
-              echo 'the deploy is still whatever Vercel decided on push. To make it the protected'
-              echo 'boundary:'
-              echo ''
-              echo '1. add a repository secret `VERCEL_TOKEN` (Vercel → Account Settings → Tokens)'
-              echo '2. turn OFF the automatic production deployment for `main` in the Vercel project'
-              echo '3. optional: require this workflow before merging to main'
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "has=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/checkout@v4
-        if: steps.token.outputs.has == 'true'
-        with:
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-        if: steps.token.outputs.has == 'true'
-        with:
-          version: 10.34.5
-
-      - uses: actions/setup-node@v4
-        if: steps.token.outputs.has == 'true'
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: install (frozen lockfile)
-        if: steps.token.outputs.has == 'true'
-        run: pnpm install --frozen-lockfile
-
-      # The same scripts the captain runs by hand, so CI and the operator release follow one path
-      # rather than two that can drift. `vercel whoami` passes on VERCEL_TOKEN alone.
-      - name: build for production
-        if: steps.token.outputs.has == 'true'
-        run: bash scripts/vercel-build-prod.sh
-
-      - name: deploy the prebuilt artifact
-        if: steps.token.outputs.has == 'true'
-        run: bash scripts/vercel-deploy-prod.sh
-
-      - name: say what happened
-        if: steps.token.outputs.has == 'true'
-        run: |
-          {
-            echo '### Deployed after the gates passed'
-            echo ''
-            echo "Source commit: \`$(git rev-parse HEAD)\`"
-            echo 'The probe and the release record stay with the operator (pnpm release --probe),'
-            echo 'because recording writes to the release ledger and that is not a read-only act.'
-          } >> "$GITHUB_STEP_SUMMARY"
-
+  # ---------------------------------------------------------------------------
+  # THERE IS NO DEPLOY JOB HERE, AND THAT IS DELIBERATE — DO NOT ADD ONE.
+  #
+  # The captain, 2026-09-18: "we do not want CI for vercel i purposely broke that it was
+  # doubling my bill." Every build this workflow triggers on Vercel is billed, and a job that
+  # built on every push to main turned one or two releases a day into ~30 builds. The deploy is
+  # LOCAL BY DESIGN (`pnpm release`, 5 minutes, 1-2x per day during a sprint).
+  #
+  # A deploy job used to sit here (ENG-FORGE-CI-PRODUCTION-FENCE-01). It was token-gated and
+  # therefore inert, but its skip message told the NEXT reader to add a VERCEL_TOKEN secret to
+  # activate it — i.e. the repository contained written instructions to restart the cost, and
+  # that is worse than no fence at all. It is deleted, not parked.
+  #
+  # SO: this workflow CHECKS, and never ships. A red main is reported here in about a minute
+  # without a single Vercel build. The release path is `pnpm release`, which builds, deploys,
+  # probes and records a receipt; the FORGE CHAIN NEVER BUILDS AND NEVER DEPLOYS.
+  # ---------------------------------------------------------------------------
 
   database:
     name: database-backed gates
