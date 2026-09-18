@@ -2561,6 +2561,43 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/verify-existing.test.ts`',
   },
   {
+    id: 'ENG-FORGE-LOCKFILE-COUPLING-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 101,
+    title: 'A candidate that changes package.json cannot publish without pnpm-lock.yaml',
+    goal:
+      'A published candidate that declares a dependency change carries its lockfile, so main is never ' +
+      'left with a package.json the frozen install cannot resolve.',
+    scope:
+      'the publish path that commits a candidate declared surface ' +
+      '(workflow_app/forge/agent-runtime-role-runner.ts) and its fence ' +
+      'workflow_app/tests/lockfile-coupling.test.ts (new).',
+    acceptance:
+      'A candidate whose diff includes package.json is refused or completed with pnpm-lock.yaml ' +
+      'included, so a frozen install succeeds on the published tree; a candidate that changes only the ' +
+      'lockfile is allowed; a candidate with no dependency change is untouched; and a fence drives the ' +
+      'coupled, the lockfile-only and the unchanged cases.',
+    notes:
+      'MEASURED 2026-09-18, TWICE IN ONE EVENING, both times caught by CI and not by the engine. ' +
+      'PROPERTY-INVARIANTS-01 added fast-check to package.json and installed it, and its published ' +
+      'candidate did not include pnpm-lock.yaml; then DEPENDENCY-AUDIT-01 committed package.json ' +
+      'without it again. Both left main red at `pnpm install --frozen-lockfile` with ' +
+      'ERR_PNPM_OUTDATED_LOCKFILE, in 15-16 seconds, on work the lanes had every right to do. THE ' +
+      'MECHANISM: the publish path commits the story DECLARED SURFACE, so a file outside that surface ' +
+      'is left behind - and the lockfile is not outside a dependency change, it is part of it. Authoring ' +
+      'discipline is not a sufficient fix either, which is why this is an engine-side guard: a lane can ' +
+      'add a dependency DURING a run (that is what happened - the story anticipated the generator, the ' +
+      'lane chose the package), and no scope written in advance can be expected to name every artifact ' +
+      'that choice implies. story:preflight gained a third hard key for the authoring side (a story ' +
+      'declaring a dependency change must name pnpm-lock.yaml), and this story is the publish-side ' +
+      'guard, because the two together are what make the class impossible rather than merely ' +
+      'discouraged. HONEST BOUNDARY: the guard must not force unrelated lockfile churn into every ' +
+      'candidate - it fires only when the candidate own diff touches package.json.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/lockfile-coupling.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-LINT-GATE-01',
 
     workstream: 'ENGINEERING',
