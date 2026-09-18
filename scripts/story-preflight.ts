@@ -26,7 +26,7 @@ const val = (flag: string): string | null => {
 const batch = val('--batch')
 const story = val('--story')
 
-type Key = 'proof' | 'seams' | 'assertions'
+type Key = 'proof' | 'seams'
 type Row = {
   id: string
   batch: number | null
@@ -63,7 +63,7 @@ function proofKey(proof: string | null): { ok: boolean; why: string } {
     }
     // Prose and operators OUTSIDE the backticks are what made the Assay refuse: "(new fence: …) +".
     const outside = line.replace(/`[^`]*`/g, '')
-    if (/[()\[\\]]|\+/.test(outside)) {
+    if (/[()[\]]|\+/.test(outside)) {
       bad.push(`prose outside the command: ${line.slice(0, 40)}`)
     }
   }
@@ -112,7 +112,6 @@ function assertionsKey(a: Record<string, unknown> | null): { ok: boolean; why: s
 }
 
 /** A HARD key: without it a door refuses before any work can be judged. */
-type Key = 'proof' | 'seams'
 
   let missing = 0
   let warned = 0
