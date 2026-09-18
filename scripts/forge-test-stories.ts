@@ -2524,6 +2524,43 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/resume-door.test.ts`',
   },
   {
+    id: 'ENG-FORGE-VERIFY-EXISTING-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 101,
+    title: 'A story whose work already exists can be verified without re-authoring it',
+    goal:
+      'A story whose candidate is already on the base can be routed to a direct Assay verification of ' +
+      'that candidate, so finished work can be judged and closed without a Smith inventing edits it ' +
+      'does not need.',
+    scope:
+      'the Lead routing decision in workflow_app/forge/forge-lead-routing.ts, the arrangement the ' +
+      'runner can dispatch (workflow_app/forge/agent-runtime-role-runner.ts), and the fence ' +
+      'workflow_app/tests/verify-existing.test.ts (new).',
+    acceptance:
+      'A story whose required findings already exist on the base can be routed to Assay verification ' +
+      'of the existing candidate; the route names the candidate sha it verifies; a story with nothing ' +
+      'to verify is still refused rather than passed; and a fence drives the existing-work case, the ' +
+      'nothing-to-verify case, and the ordinary authoring case.',
+    notes:
+      'MEASURED 2026-09-18 by the engine itself, in the Lead own words on ENG-FORGE-MIGRATION-LINT-01: ' +
+      '"all four required findings already exist on base commit b89519f7 (commit 74f3adc2) and this ' +
+      'process forge_workflow_evidence row holds candidate_sha=null, so a Smith dispatch has no ' +
+      'authoring to do and cannot produce a candidate - the runner only re-affirms a candidate the row ' +
+      'already holds. The story needs direct Assay verification of 74f3adc2, an arrangement ' +
+      'SOLO/SMITH/SPLIT cannot express." That is an honest refusal and a real gap in the vocabulary: ' +
+      'the engine can author, split, hold and defer, but it cannot say "judge what is already there". ' +
+      'The situation is not exotic either - it is created by the SANCTIONED recovery path: ' +
+      'forge:story:reset aborts the instance and the fresh evidence row starts with candidate_sha ' +
+      'null while the work sits finished on main, because the candidate was already published by the ' +
+      'run that was reset. So the only way to finish such a story today is an operator close, which is ' +
+      'what happened here. HONEST BOUNDARY: this is NOT a licence to skip QA - the route must verify ' +
+      'the named sha with the story own proof and refuse when there is nothing to verify, or it ' +
+      'becomes a way to close stories without evidence, which is worse than the gap.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/verify-existing.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-LINT-GATE-01',
 
     workstream: 'ENGINEERING',
