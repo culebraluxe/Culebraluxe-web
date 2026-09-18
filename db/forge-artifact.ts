@@ -88,8 +88,10 @@ export async function recordToolArtifact(
   let verdict = input.verdict ?? null
   if (verdict !== null && input.kind === 'run-verdict' && input.storyRunId) {
     // The ruling is read from the run, not taken from the caller. A failed or empty
-    // read fails closed to no verdict rather than inventing one.
-    let ruling: string | null = null
+    // read fails closed to no verdict rather than inventing one. Both paths assign before the
+    // read below, so the initialiser was dead (and it reached a full QA pass: the static gate
+    // runs semgrep, knip and tsc, not eslint).
+    let ruling: string | null
     try {
       const runRows = await q`
         select result_status from storyboard_story_run where id = ${input.storyRunId}

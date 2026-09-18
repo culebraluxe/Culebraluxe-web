@@ -10,8 +10,6 @@ import type { QueryExecutor } from '../../db/query-executor'
 // no DB/Neon required.
 // ---------------------------------------------------------------------------
 
-type Row = Record<string, unknown>
-
 class FakeArtifactDb {
   /** The durable ruling the run already carries, or null when the run is unruled. */
   runRuling: string | null = 'Complete'

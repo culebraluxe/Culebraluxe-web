@@ -2140,6 +2140,35 @@ const STORIES: TestStory[] = [
       '- `node --import tsx --test workflow_app/tests/diagnostic-throttle.test.ts`',
   },
   {
+    id: 'ENG-FORGE-LINT-GATE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title: 'The static gate runs the linter: a lane cannot ship a lint error through a clean QA pass',
+    goal:
+      'A lint error in a lane change blocks QA with the rule, the file and the line named, so a story cannot be ' +
+      'ruled clean while the repository lint is red.',
+    scope:
+      'the QA/architecture static gate (workflow_app/forge/forge-static-gate.ts and its callers) plus ' +
+      'workflow_app/tests/lint-gate.test.ts (new).',
+    acceptance:
+      'A change carrying a lint ERROR fails the static gate and names the file, line and rule; a change carrying ' +
+      'only lint WARNINGS passes; the gate covers the files the story changed rather than the whole repository, so ' +
+      'it stays cheap enough to run per story; a test drives an erroring file, a warning-only file and a clean ' +
+      'file. Existing warnings are not retroactively fatal.',
+    notes:
+      'MEASURED 2026-09-18 by Cline, twice in one night: ENG-FORGE-DEPLOY-NOMECH-01 and ENG-FORGE-ARTIFACT-RULING-01 ' +
+      'each landed a no-useless-assignment error (and one unused import) through a FULL QA PASS, discovered only ' +
+      'because the operator ran the linter by hand while verifying something else. The engine static gate runs ' +
+      'semgrep, knip and tsc - not eslint - so lint is a check nobody enforces inside the factory, which makes it ' +
+      'exactly the kind of gate this suite has been adding all night: the failure mode is real, the instrument ' +
+      'exists, and it simply is not wired into the path that decides. HONEST BOUNDARY: this does not reformat code ' +
+      'or fix existing warnings; it makes a NEW error stop the line, and the three instances found tonight are ' +
+      'fixed by the commit that filed this.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/lint-gate.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-TYPESAFE-TRIAGE-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
