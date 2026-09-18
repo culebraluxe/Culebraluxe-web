@@ -2476,7 +2476,7 @@ const STORIES: TestStory[] = [
       'High because nothing here is known-exploited, and because these are mostly build- and ' +
       'toolchain-level transitive dependencies; if triage shows a reachable critical path in a ' +
       'runtime dependency, raise it.',
-    assayCommands: '- `node --import tsx --test workflow_app/tests/dependency-triage.test.ts`\n- `pnpm scan:deps`',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/dependency-triage.test.ts`\n- `pnpm typecheck`',
   },
   {
     id: 'ENG-FORGE-SPLIT-SIBLING-01',
