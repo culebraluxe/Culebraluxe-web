@@ -26,7 +26,7 @@ const val = (flag: string): string | null => {
 const batch = val('--batch')
 const story = val('--story')
 
-type Key = 'proof' | 'seams'
+type Key = 'proof' | 'seams' | 'lockfile'
 type Row = {
   id: string
   batch: number | null
@@ -134,7 +134,6 @@ function lockfileKey(input: {
 }
 
 /** A HARD key: without it a door refuses before any work can be judged. */
-type Key = 'proof' | 'seams' | 'lockfile'
 
   let missing = 0
   let warned = 0
