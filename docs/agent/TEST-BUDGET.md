@@ -46,6 +46,11 @@ no section runs, i.e. a test nobody will ever run again.
 `test:changed` is **area-level in V1**: it maps a path to sections by where it lives, not by an import
 graph. A graph is the repo-inventory job; guessing it would be worse than saying plainly what this does.
 
+**`app-core` is the known-oversized section (110 files)** and the first candidate to split — it holds
+whatever no domain rule claimed, which is exactly the shape that grows silently. Split it when a
+sub-domain inside it reaches ~20 files of its own (book the same way: measured, named, and with the
+discipline above), not before.
+
 ## The story-scoped runner
 
 ```
