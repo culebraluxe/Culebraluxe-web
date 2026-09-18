@@ -24,6 +24,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A scheduled run is what makes a NEW critical advisory visible without anyone
+  # remembering to invoke the scan. GitHub fires schedules on the default branch only.
+  schedule:
+    - cron: '23 6 * * 1'
   workflow_dispatch:
 
 concurrency:
@@ -102,14 +106,11 @@ jobs:
           gitleaks version
           pnpm scan:secrets
 
-      - name: dependencies — osv-scanner (advisory until triage lands)
-        # WHY THIS DOES NOT FAIL THE BUILD YET, stated rather than hidden: osv-scanner exits 1 while
-        # known advisories exist, and 45 of them exist (2 critical, 22 high, measured 2026-09-18). A
-        # workflow that is red from its first run is a workflow everyone learns to ignore — the same
-        # reasoning that made the migration lint changed-files-only. The finding stays VISIBLE (the
-        # step reports failure, the table prints), it just does not block. Removing this line is the
-        # last step of ENG-FORGE-DEPENDENCY-AUDIT-01, once each advisory is triaged reachable or not.
-        continue-on-error: true
+      - name: dependencies — osv-scanner
+        # A real gate, not an advisory. Every advisory osv-scanner reports is triaged in
+        # docs/agent/DEPENDENCY-TRIAGE.md, keyed on package@version plus advisory id, so a finding
+        # that appears here has either a recorded triage or no triage — and an untriaged one is the
+        # signal this story exists to raise. ENG-FORGE-DEPENDENCY-AUDIT-01 promoted this step.
         run: |
           base=https://github.com/google/osv-scanner/releases/download/v2.6.0
           curl -sSfL "$base/osv-scanner_linux_amd64" -o /tmp/osv-scanner_linux_amd64
