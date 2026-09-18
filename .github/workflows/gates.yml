@@ -11,13 +11,16 @@ name: gates
 # This is an INDEPENDENT runner. It does not take the engine's word for what it ran — that is the
 # whole point of a second execution path.
 #
-# SCOPE, STATED HONESTLY: this workflow does not yet protect production. Vercel deploys `main`
-# directly, so a commit that fails here has already been deployed by the time the check reports.
-# Making the deploy the protected boundary (deploy only after these pass, or require PR checks) is
-# ENG-FORGE-CI-PRODUCTION-FENCE-01. Until that lands, read a red run as an alert, not a fence.
+# SCOPE, STATED HONESTLY: the gates are real and the DEPLOY NOW WAITS FOR THEM — the `deploy` job
+# below runs on main only, after `static` passes, and it is the only thing here that builds and
+# deploys production (ENG-FORGE-CI-PRODUCTION-FENCE-01). One console step is still outstanding and
+# cannot be a commit: Vercel's own automatic production deployment for `main` must be turned OFF, or
+# Vercel deploys in parallel and the fence protects nothing. When the token secret is absent the
+# deploy job says so in the run summary rather than failing quietly.
 #
-# NO SECRETS REQUIRED for the `static` job, so it runs from the first push. The `database` job needs
-# dev credentials and stays parked until the repository variable FORGE_DB_CI is set to 'true'.
+# NO SECRETS REQUIRED for the `static` job, so it runs from the first push. The `deploy` job needs
+# VERCEL_TOKEN and skips loudly without it; the `database` job needs dev credentials and stays parked
+# until the repository variable FORGE_DB_CI is set to 'true'.
 # ---------------------------------------------------------------------------
 
 on:
@@ -150,6 +153,92 @@ jobs:
           }
           NODE
           node /tmp/triage-gate.mjs
+
+  # ---------------------------------------------------------------------------
+  # THE DEPLOY IS THE PROTECTED BOUNDARY (ENG-FORGE-CI-PRODUCTION-FENCE-01).
+  #
+  # Until this job, the workflow was an ALERT: Vercel deploys main on push, so a commit that failed
+  # these gates was already serving by the time the check reported. This job makes the deploy WAIT for
+  # the gates — main only, only after `static` passes, and it is the only thing here that builds and
+  # deploys production.
+  #
+  # ONE CONSOLE STEP REMAINS AND CANNOT BE A COMMIT: Vercel's own automatic production deployment for
+  # main must be turned OFF, or Vercel keeps deploying in parallel and this fence protects nothing.
+  # When the token secret is absent the job says so in the run summary, so the gap stays VISIBLE
+  # instead of being assumed closed — a fence that quietly does nothing is worse than no fence.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: deploy (only after the gates pass)
+    needs: static
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_xk8vFaeSyY6CuSkS3OK55tTc
+      VERCEL_PROJECT_ID: prj_RHzXYauXOgIh2abiEsMiQJ1V3jlV
+    steps:
+      - name: does this repository hold a Vercel token yet?
+        id: token
+        run: |
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            {
+              echo '### Deploy SKIPPED: no VERCEL_TOKEN secret'
+              echo ''
+              echo 'The gates ran and passed. Production was NOT deployed by this workflow, which means'
+              echo 'the deploy is still whatever Vercel decided on push. To make it the protected'
+              echo 'boundary:'
+              echo ''
+              echo '1. add a repository secret `VERCEL_TOKEN` (Vercel → Account Settings → Tokens)'
+              echo '2. turn OFF the automatic production deployment for `main` in the Vercel project'
+              echo '3. optional: require this workflow before merging to main'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.has == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        if: steps.token.outputs.has == 'true'
+        with:
+          version: 10.34.5
+
+      - uses: actions/setup-node@v4
+        if: steps.token.outputs.has == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: install (frozen lockfile)
+        if: steps.token.outputs.has == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The same scripts the captain runs by hand, so CI and the operator release follow one path
+      # rather than two that can drift. `vercel whoami` passes on VERCEL_TOKEN alone.
+      - name: build for production
+        if: steps.token.outputs.has == 'true'
+        run: bash scripts/vercel-build-prod.sh
+
+      - name: deploy the prebuilt artifact
+        if: steps.token.outputs.has == 'true'
+        run: bash scripts/vercel-deploy-prod.sh
+
+      - name: say what happened
+        if: steps.token.outputs.has == 'true'
+        run: |
+          {
+            echo '### Deployed after the gates passed'
+            echo ''
+            echo "Source commit: \`$(git rev-parse HEAD)\`"
+            echo 'The probe and the release record stay with the operator (`pnpm release --probe`),'
+            echo 'because recording writes to the release ledger and that is not a read-only act.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
 
   database:
     name: database-backed gates
