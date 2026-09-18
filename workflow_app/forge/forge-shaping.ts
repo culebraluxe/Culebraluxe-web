@@ -32,6 +32,13 @@ export type ArchitectFinding = {
   required: boolean
   /** File/domain seams this finding owns (prefix semantics, './' tolerated). */
   seams: string[]
+  /**
+   * NEW files this finding owes as its proof (repo-relative). A proof must sit inside the finding's
+   * own seams — equal to a seam, or nested under a seam directory — or shaping HOLDs naming the
+   * finding. The seam for a new file is its parent directory (`seamForNewFile`); the proof path is
+   * the fence the unit will add.
+   */
+  proofs?: string[]
   /** Architect advisory only. Lead reassesses from seams + topology. */
   hint?: FindingDisposition
 }
@@ -100,6 +107,28 @@ function unionMembers(seams: string[]): string[] {
   return out
 }
 
+/** A proof is inside a finding's seams when it IS a seam or nests under a seam directory. */
+function proofInsideSeams(proof: string, seams: string[]): boolean {
+  const p = normalizeSeam(proof)
+  if (!p) return false
+  return seams.map(normalizeSeam).some((s) => Boolean(s) && (p === s || p.startsWith(`${s}/`)))
+}
+
+/**
+ * The surfaces a finding actually contests for OVERLAP.
+ *
+ * A directory seam that is exactly the parent of one of the finding's OWN declared proofs is narrowed
+ * to that proof path — the finding adds that file, not the whole directory — so two findings adding
+ * distinct files under one shared directory do not read as overlapping surfaces. A directory seam
+ * that is not a declared proof's parent (a genuine broad edit surface) is kept as-is.
+ */
+function effectiveSurfaces(f: ArchitectFinding): string[] {
+  const seams = f.seams.map(normalizeSeam).filter(Boolean)
+  const proofs = (f.proofs ?? []).map(normalizeSeam).filter(Boolean)
+  const narrowed = seams.filter((s) => !proofs.some((p) => seamForNewFile(p) === s))
+  return unionMembers([...narrowed, ...proofs])
+}
+
 function summaryFor(ids: string[], byId: Map<string, ArchitectFinding>): string {
   return ids.map((id) => byId.get(id)?.summary ?? id).join('; ')
 }
@@ -122,6 +151,7 @@ export function parseForgeFindings(raw: unknown): ArchitectFinding[] {
       summary,
       required,
       seams: normalizeSeams(f.seams),
+      proofs: normalizeSeams(f.proofs),
       hint: (['SAME_UNIT', 'SPLIT_CHILD', 'FOLLOW_UP_STORY', 'NOTE', 'HOLD'] as const).includes(
         hint as FindingDisposition,
       )
@@ -222,7 +252,7 @@ function groupUnits(executable: ArchitectFinding[], byId: Map<string, ArchitectF
   coalescible.forEach((_, i) => parent.set(i, i))
   for (let i = 0; i < coalescible.length; i++) {
     for (let j = i + 1; j < coalescible.length; j++) {
-      if (seamsOverlap(coalescible[i].seams, coalescible[j].seams)) union(i, j)
+      if (seamsOverlap(effectiveSurfaces(coalescible[i]), effectiveSurfaces(coalescible[j]))) union(i, j)
     }
   }
 
@@ -240,7 +270,7 @@ function groupUnits(executable: ArchitectFinding[], byId: Map<string, ArchitectF
     return {
       id: `unit_${ids.join('+')}`,
       findingIds: ids,
-      seams: unionMembers(all.flatMap((f) => f.seams)),
+      seams: unionMembers(all.flatMap((f) => effectiveSurfaces(f))),
       objective: summaryFor(ids, byId),
     } satisfies ShapeUnit
   })
@@ -250,7 +280,7 @@ function groupUnits(executable: ArchitectFinding[], byId: Map<string, ArchitectF
     units.push({
       id: `unit_${f.id}`,
       findingIds: [f.id],
-      seams: [...f.seams],
+      seams: effectiveSurfaces(f),
       objective: f.summary,
     })
   }
@@ -272,6 +302,9 @@ export function shapeArchitectFindings(input: { findings: ArchitectFinding[] }):
   const adjacent = findings.filter((f) => !f.required)
 
   const holds = required.filter((f) => f.hint === 'HOLD').map((f) => f.id)
+  // A REQUIRED finding OWNS its proof: a declared proof that is not inside the finding's own seams is
+  // refused at shaping, by finding id, BEFORE the wave — never a silent coalesce that fails later.
+  const proofHolds = required.filter((f) => (f.proofs ?? []).some((p) => !proofInsideSeams(p, f.seams)))
   const notes = adjacent
     .filter((f) => f.hint === 'NOTE')
     .map((f) => ({ findingIds: [f.id], summary: f.summary } satisfies ShapingNote))
@@ -279,12 +312,22 @@ export function shapeArchitectFindings(input: { findings: ArchitectFinding[] }):
     .filter((f) => f.hint !== 'NOTE')
     .map((f) => ({ findingIds: [f.id], summary: f.summary } satisfies FollowUpStory))
 
-  const executable = required.filter((f) => f.hint !== 'HOLD')
+  const executable = required.filter((f) => f.hint !== 'HOLD' && !proofHolds.includes(f))
   const units = groupUnits(executable, byId)
 
   let mode: WorkShapeMode = 'HOLD'
   let reason: string
-  if (holds.length > 0) {
+  if (proofHolds.length > 0) {
+    const detail = proofHolds
+      .map(
+        (f) =>
+          `${f.id} (${(f.proofs ?? [])
+            .filter((p) => !proofInsideSeams(p, f.seams))
+            .join(', ')})`,
+      )
+      .join('; ')
+    reason = `HOLD: required finding(s) declare proof(s) outside their seams: ${detail}.`
+  } else if (holds.length > 0) {
     reason = `HOLD: required finding(s) ${holds.join(', ')} are not safe to execute.`
   } else if (units.length === 0) {
     reason = 'HOLD: no required executable work remains in this unit (adjacent findings routed to follow-ups/notes).'

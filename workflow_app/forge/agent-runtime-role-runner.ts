@@ -65,7 +65,7 @@ import { splitJoinHoldReasons } from './split-join'
 import { getStoryboardStory, listStoryCommitHashes, listStoryRunBaseCommits, setStoryArchitectBrief, setStoryScoutPacket } from '../../db/storyboard'
 import { assertForgeExecutionTarget, assertForgeLaneMayStart } from './forge-execution-target'
 import { assessSmithWork, smithDispatchRunDetail } from './forge-dispatch-seam'
-import { assessArchitectBrief } from './forge-shaping'
+import { assessArchitectBrief, shapeArchitectFindings } from './forge-shaping'
 import { renderSmithWorkOrders } from './forge-lead-plan'
 import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
@@ -602,7 +602,18 @@ export function createAgentRuntimeForgeRoleRunner(
       storyId: resolvedStory.id,
       processInstanceId: String(task.processInstanceId),
     })
-    const findingsForRouting = recordedHandoff?.findings ?? current.findings
+    // ROWS FIRST, PROOFS MERGED. The finding row has no proofs column, so a finding's declared proof
+    // lives only in the handoff JSON. The reader must not drop it: merge each row's proofs from the
+    // parsed handoff so the shaping gate can enforce proof containment before the wave. A finding
+    // without proofs (or a row the handoff does not mention) is returned unchanged.
+    const parsedHandoffForProofs = parseArchitectHandoff(resolvedStory.architectBrief ?? '')
+    const proofsByFinding = new Map(
+      (parsedHandoffForProofs?.findings ?? []).map((f) => [f.id, f.proofs] as const),
+    )
+    const findingsForRouting = (recordedHandoff?.findings ?? current.findings ?? []).map((f) => {
+      const proofs = proofsByFinding.get(f.id)
+      return proofs && proofs.length > 0 ? { ...f, proofs } : f
+    })
     const leadRoutingContext = buildLeadRoutingContext({
       story: resolvedStory,
       findings: findingsForRouting,
@@ -1937,6 +1948,15 @@ export function createAgentRuntimeForgeRoleRunner(
       // lead -> lead_decision). A null/invalid decision is a HOLD, not a pass.
       const routeMiss = agent.routingDecisionMissing(evidence)
       if (routeMiss) missing.push(`routing:${routeMiss}`)
+      // A REQUIRED finding that declares a proof outside its own seams is refused BEFORE the wave
+      // (ENG-FORGE-PROOF-SEAM-01). The shaper names the finding, and the refusal rides the same
+      // bounded self-heal path as routing. A finding with no proofs is unchanged.
+      if (nodeId === 'lead_pre') {
+        const proofShape = shapeArchitectFindings({ findings: findingsForRouting })
+        if (proofShape.mode === 'HOLD' && proofShape.reason.includes('outside their seams')) {
+          missing.push(`architect-proof:${proofShape.reason}`)
+        }
+      }
       // Anti-token-fire (Smith decomposition): a successful Smith that self-sizes
       // OVERSIZED or >3 chunks is a scope violation -> HOLD. A 4th chunk is not
       // "keep working". Adjudicated by the dispatch seam (the running enforcement

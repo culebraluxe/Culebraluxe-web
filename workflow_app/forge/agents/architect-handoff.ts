@@ -12,6 +12,8 @@ export type ArchitectHandoffFinding = {
   summary: string
   preconditions: string[]
   scope: string[]
+  /** NEW proof files this finding owes (repo-relative); must sit inside `scope`. */
+  proofs: string[]
   postconditions: string[]
   classes: string[]
   risks: string[]
@@ -78,6 +80,7 @@ export function parseArchitectHandoff(text: string | null | undefined): Architec
           summary,
           preconditions: strings(f.preconditions),
           scope: strings(f.scope ?? f.seams),
+          proofs: strings(f.proofs),
           postconditions: strings(f.postconditions),
           classes: strings(f.classes),
           risks: strings(f.risks),
@@ -99,6 +102,7 @@ export function handoffToFindings(handoff: ArchitectHandoff): ArchitectFinding[]
     summary: f.summary,
     required: f.required,
     seams: f.scope,
+    ...(f.proofs.length > 0 ? { proofs: f.proofs } : {}),
     hint: f.hint,
   }))
 }

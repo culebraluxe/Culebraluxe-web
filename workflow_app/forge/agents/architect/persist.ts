@@ -34,6 +34,7 @@ export function smithWorkOrdersFromFindings(
     lines.push(`Finding ${f.id}: ${f.summary}`)
     lines.push(`  Preconditions: ${f.preconditions.join('; ') || '—'}`)
     lines.push(`  Scope: ${f.scope.join(', ')}`)
+    if (f.proofs.length > 0) lines.push(`  Proofs: ${f.proofs.join(', ')}`)
     lines.push(`  Postconditions: ${f.postconditions.join('; ') || '—'}`)
     lines.push(`  Classes: ${f.classes.join(', ') || '—'}`)
     lines.push(`  Risks: ${f.risks.join('; ') || '—'}`)
