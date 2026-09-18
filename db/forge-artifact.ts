@@ -35,17 +35,76 @@ export type RecordToolArtifactInput = {
   sha?: string | null
 }
 
+/**
+ * Verdicts that mean "the run came out clean". Agreement is POLARITY, not spelling:
+ * `PASS` and `Complete` are the same answer in two vocabularies, while `Hold` is the
+ * opposite of either.
+ */
+const CLEAN_ARTIFACT_VERDICTS = new Set([
+  'complete',
+  'pass',
+  'passed',
+  'success',
+  'succeeded',
+  'delivered',
+  'done',
+])
+
+function isCleanArtifactVerdict(verdict: string): boolean {
+  return CLEAN_ARTIFACT_VERDICTS.has(verdict.trim().toLowerCase())
+}
+
+/**
+ * AN ARTIFACT CARRIES THE RULING, NEVER A SECOND OPINION.
+ *
+ * A `run-verdict` artifact is keyed to a story run whose durable ruling already exists
+ * (`storyboard_story_run.result_status`, written by `finishStoryRun`). A caller-supplied
+ * verdict is stored only when it agrees in polarity with that ruling; a contradicting
+ * verdict becomes `null` — the artifact says it has no verdict — while summary/detail are
+ * preserved. Other artifact kinds (assay evidence, static gate) ARE the ruling and keep
+ * their own vocabulary, and an artifact with no run to rule it is left untouched.
+ */
+export function artifactVerdictForRun(input: {
+  kind: string
+  ruling: string | null | undefined
+  verdict: string | null | undefined
+}): string | null {
+  const verdict = input.verdict?.trim() ?? ''
+  if (!verdict) return null
+  if (input.kind !== 'run-verdict') return input.verdict ?? null
+  const ruling = input.ruling?.trim() ?? ''
+  if (!ruling) return null
+  return isCleanArtifactVerdict(ruling) === isCleanArtifactVerdict(verdict)
+    ? input.verdict ?? null
+    : null
+}
+
 /** One flat child row keyed to a story run (the execution unit). */
 export async function recordToolArtifact(
   input: RecordToolArtifactInput,
   execute?: QueryExecutor,
 ): Promise<ForgeToolArtifact> {
   const q = execute ?? (await executor())
+  let verdict = input.verdict ?? null
+  if (verdict !== null && input.kind === 'run-verdict' && input.storyRunId) {
+    // The ruling is read from the run, not taken from the caller. A failed or empty
+    // read fails closed to no verdict rather than inventing one.
+    let ruling: string | null = null
+    try {
+      const runRows = await q`
+        select result_status from storyboard_story_run where id = ${input.storyRunId}
+      `
+      ruling = (runRows[0]?.result_status as string | null | undefined) ?? null
+    } catch {
+      ruling = null
+    }
+    verdict = artifactVerdictForRun({ kind: input.kind, ruling, verdict })
+  }
   const rows = await q`
     insert into forge_tool_artifact (story_id, story_run_id, tool, kind, verdict, summary, detail, sha)
     values (
       ${input.storyId}, ${input.storyRunId ?? null}, ${input.tool}, ${input.kind},
-      ${input.verdict ?? null}, ${input.summary ?? null},
+      ${verdict}, ${input.summary ?? null},
       ${input.detail ? JSON.stringify(input.detail) : null}::jsonb, ${input.sha ?? null}
     )
     returning id, story_id, story_run_id, tool, kind, verdict, summary, sha, created_at
