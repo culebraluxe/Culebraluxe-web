@@ -17,6 +17,12 @@ const instrumentSans = Instrument_Sans({
 })
 
 export const metadata: Metadata = {
+  // metadataBase IS NOT OPTIONAL FOR A SHARED CARD. Every file-convention image (opengraph-image.png
+  // lives in app/) is emitted as a URL, and without a base Next.js resolves it against localhost —
+  // so the link preview would show NO image at all in production. The canonical host is measured,
+  // not assumed: https://culebraluxe.com 308-redirects to https://www.culebraluxe.com, which serves
+  // 200, so the apex would make every card point at a redirect.
+  metadataBase: new URL('https://www.culebraluxe.com'),
   title: 'CulebraLuxe — Culebra Caribbean Estates',
   description:
     'CulebraLuxe presents an editorial collection of architectural estates and beachfront residences on the island of Culebra, Puerto Rico.',
