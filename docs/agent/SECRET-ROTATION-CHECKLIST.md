@@ -44,6 +44,38 @@ ever does go wrong, which is a cheaper hedge than an evening of console work.
 The table below is kept as REFERENCE, not as a to-do list. If you ever want to work through it, it is
 30 minutes of console clicks with no urgency attached.
 
+## The captain's operating model (recorded 2026-09-18, so no agent re-litigates it)
+
+**1. Checkpoint refs stay ON, because they ARE the backup.** VS Code / Cline snapshots the workspace
+into `refs/cline/checkpoints/`, and on this machine that is a *deliberate* safety net for large
+refactors — turning it off to reduce git noise would cut off the restore points exactly when they are
+most wanted. The credential class is closed another way, at the source: `.gitignore` says `.env*` with
+`!.env.example`, and every spelling of an env file is ignored (verified with `git check-ignore -v` on
+`.env`, `.env.local`, `.env.local.before-icloud-username-fix`, `.env.production.local`,
+`.env.local.bak` — all matched by rule `.env*`), so a checkpoint can no longer capture one. Purging old
+sessions is the captain's periodic choice, NOT a cleanup an agent performs on its own initiative.
+
+**2. iCloud backs this machine up — which is why rotation is low-value here, not high.** The live
+`.env.local` sits on the same disk that iCloud copies, so anyone who could reach a backup could reach
+today's values too. Rotation therefore only invalidates copies taken *before* the purge; it does not
+defend against backup exposure, because the same path exposes the current secrets. Said plainly: if the
+disk is the threat, the disk is already the threat and rotating is not the fix. It becomes worth doing
+only if the captain judges a *historic* copy got loose somewhere the current one did not.
+
+**3. BoldSign is expensive, necessary, and not an open gateway.** The signature flow was three weeks of
+work: a callback to a signature provider, gated by **four secret/webhook variables**. None of those is
+in the public findings. What is in public history is the internal *provisioning* routes — two of them
+gated by `TOKEN_SHA256` (a one-way **digest**, compared against `sha256(query param)`, so the token is
+not in the repo) and one by a `ONE_TIME_TOKEN` that was a mistake. All three routes answer **404 in
+production** and none exists in the tree. There is nothing to rotate here, and nothing about BoldSign
+is exposed.
+
+**4. CI checks; the captain ships. Batch rhythm: ~30 stories → build → deploy.** Now that the CI deploy
+job is deleted, GitHub Actions only runs the gates — free on a public repository, no Vercel builds — and
+`pnpm release` from the captain's machine is the whole deploy path: 30 stories, then one build and one
+deploy. Flipping CI deploys back on is a decision he may take later; it is not an automation gap for an
+agent to close.
+
 ## What the tool did and did not earn
 
 gitleaks found something genuinely worth knowing: that a plaintext env backup had been captured at all,

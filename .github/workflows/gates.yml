@@ -179,7 +179,8 @@ jobs:
   # The captain, 2026-09-18: "we do not want CI for vercel i purposely broke that it was
   # doubling my bill." Every build this workflow triggers on Vercel is billed, and a job that
   # built on every push to main turned one or two releases a day into ~30 builds. The deploy is
-  # LOCAL BY DESIGN (`pnpm release`, 5 minutes, 1-2x per day during a sprint).
+  # LOCAL BY DESIGN and the rhythm is the point of it: ~30 stories, then ONE build and ONE deploy
+  # (`pnpm release`, about five minutes) — simple on purpose.
   #
   # A deploy job used to sit here (ENG-FORGE-CI-PRODUCTION-FENCE-01). It was token-gated and
   # therefore inert, but its skip message told the NEXT reader to add a VERCEL_TOKEN secret to

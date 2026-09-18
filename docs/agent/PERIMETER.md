@@ -138,6 +138,13 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    `.git/forge-branch-prune.log`) and 10 to stories that were In Progress, on Hold, or not on the board
    — those were HELD, because an attempt at unfinished work is not the tooling's to discard. Local
    branches went 112 → 15; the only `agent/*` left are those 10.
+   **CHECKPOINT REFS ARE THE CAPTAIN'S REFACTOR BACKUP — do not purge them on an agent's initiative.**
+   On 2026-09-18 the 1,170 stale refs were removed with his say-so, and he then named the trade-off
+   plainly: he locks the workspace down for a huge refactor by *keeping* those restore points, so a
+   cleanup that removes them "to reduce noise" cuts off backup exactly when it is wanted. The credential
+   class they once leaked is closed at the source instead (`.gitignore` `.env*` with `!.env.example`;
+   every env spelling verified ignored), and purging old sessions is his periodic choice, not an
+   unattended chore. See `docs/agent/SECRET-ROTATION-CHECKLIST.md`.
 9. **A fence can prove a setup the engine does not have.** The worker commit path passed no git
    identity, so it used the machine's — and on a machine with no git config that is git's placeholder:
    **228 commits on this repository are authored by `Your Name <you@example.com>`** (all
