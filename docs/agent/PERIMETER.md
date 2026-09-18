@@ -130,6 +130,14 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    worktree is never touched (`cmd-01` is a live second checkout), and a branch a PERSON named
    (`feat/*`, `v0/*`, `demo-lockdown/*`) is reported, never deleted — 29 remote branches were provably
    landed and most of them were someone's.
+   **And the authority on supersession is the BOARD, not git.** "Is this branch's work in main?" is
+   answered by `storyboard_story.status`: a **Complete** story's accepted candidate landed by
+   definition (the release gate refuses otherwise), so its attempt branches are superseded — their
+   content is in main under other SHAs, which is exactly why ancestry could not see it. Measured
+   2026-09-18: of 39 leftover `agent/*` branches, 29 belonged to Complete stories (deleted, tips in
+   `.git/forge-branch-prune.log`) and 10 to stories that were In Progress, on Hold, or not on the board
+   — those were HELD, because an attempt at unfinished work is not the tooling's to discard. Local
+   branches went 112 → 15; the only `agent/*` left are those 10.
 9. **A fence can prove a setup the engine does not have.** The worker commit path passed no git
    identity, so it used the machine's — and on a machine with no git config that is git's placeholder:
    **228 commits on this repository are authored by `Your Name <you@example.com>`** (all
