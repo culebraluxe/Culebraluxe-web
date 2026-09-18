@@ -107,10 +107,11 @@ jobs:
           pnpm scan:secrets
 
       - name: dependencies — osv-scanner
-        # A real gate, not an advisory. Every advisory osv-scanner reports is triaged in
-        # docs/agent/DEPENDENCY-TRIAGE.md, keyed on package@version plus advisory id, so a finding
-        # that appears here has either a recorded triage or no triage — and an untriaged one is the
-        # signal this story exists to raise. ENG-FORGE-DEPENDENCY-AUDIT-01 promoted this step.
+        # A real gate, not an advisory. Every advisory osv-scanner reports must have a triage row in
+        # docs/agent/DEPENDENCY-TRIAGE.md, keyed on package@version plus advisory id. The step is
+        # green while every reported advisory is triaged and red the moment one is not, so a new
+        # advisory is visible without anyone remembering to run the scan. The ledger is the single
+        # writer of the triage fact; this step only reads it. ENG-FORGE-DEPENDENCY-AUDIT-01.
         run: |
           base=https://github.com/google/osv-scanner/releases/download/v2.6.0
           curl -sSfL "$base/osv-scanner_linux_amd64" -o /tmp/osv-scanner_linux_amd64
@@ -118,7 +119,37 @@ jobs:
           (cd /tmp && grep 'osv-scanner_linux_amd64' osv-scanner.sums | sha256sum -c -)
           install -m 0755 /tmp/osv-scanner_linux_amd64 /usr/local/bin/osv-scanner
           osv-scanner --version
-          pnpm scan:deps
+          # The human-readable report. Its non-zero exit while advisories exist is expected; the
+          # triage check below, not this exit code, decides whether the step passes.
+          pnpm scan:deps || true
+          osv-scanner scan source -L pnpm-lock.yaml --all-packages --format json > /tmp/osv.json || true
+          cat > /tmp/triage-gate.mjs <<'NODE'
+          import { readFileSync } from 'node:fs'
+          const scan = JSON.parse(readFileSync('/tmp/osv.json', 'utf8'))
+          const reported = new Set()
+          for (const result of scan.results ?? []) {
+            for (const pkg of result.packages ?? []) {
+              const name = pkg.package?.name
+              const version = pkg.package?.version
+              for (const vuln of pkg.vulnerabilities ?? []) reported.add(`${name}@${version}|${vuln.id}`)
+            }
+          }
+          const ledger = new Set()
+          for (const line of readFileSync('docs/agent/DEPENDENCY-TRIAGE.md', 'utf8').split('\n')) {
+            if (!line.trim().startsWith('|')) continue
+            const cells = line.split('|').map((cell) => cell.trim())
+            if (!/^GHSA-[a-z0-9-]+$/i.test(cells[3] ?? '')) continue
+            ledger.add(`${cells[1]}@${cells[2]}|${cells[3]}`)
+          }
+          const untriaged = [...reported].filter((key) => !ledger.has(key))
+          console.log(`osv-scanner reported ${reported.size} advisories; ${reported.size - untriaged.length} triaged`)
+          if (untriaged.length > 0) {
+            console.error('UNTRIAGED ADVISORIES:')
+            for (const key of untriaged) console.error(`  ${key}`)
+            process.exit(1)
+          }
+          NODE
+          node /tmp/triage-gate.mjs
 
   database:
     name: database-backed gates
