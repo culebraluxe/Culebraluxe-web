@@ -21,7 +21,13 @@ begin;
 -- query behind it, so it can take production down without ever failing. Squawk refused this file on
 -- both rules the moment the CI gate went live (2026-09-18, run 35339022470) — the engine's own static
 -- gate does not run squawk yet, which is exactly what ENG-FORGE-MIGRATION-LINT-01 exists to fix.
--- Nothing has applied this migration (schema_migration has no 191), so this is a fix, not a rewrite.
+--
+-- CORRECTION, same day: this file HAD already been applied to dev and prod by the lane that wrote it,
+-- so these two lines are a POST-APPLY edit. The applier's checksum guard says so out loud ("the file
+-- changed after it was applied — review, then re-run with --force"), which is the guard working: no
+-- --force was used, because SET is session-scoped and the views this file creates had already taken
+-- effect. Recorded here rather than silently, because a file whose checksum disagrees with the ledger
+-- is a fact the next reader should meet in the file, not in a diff.
 set lock_timeout = '5s';
 set statement_timeout = '30s';
 
