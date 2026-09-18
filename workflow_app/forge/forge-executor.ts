@@ -371,9 +371,18 @@ export async function runWaveBatch<T>(
     .map((result) => result.reason)
   if (failures.length === 0) return
   if (failures.length === 1) throw failures[0]
+  // A FAILURE MUST NAME ITS CAUSES (the same rule as the role/release aggregate below). Measured twice
+  // on 2026-09-18: a two-lane SPLIT wave reported only "2 of 2 lanes rejected" while the log carried no
+  // reason and no task row was persisted, so the operator had nothing to read. With the causes in the
+  // message, an I5-shaped fan-out failure explains itself.
+  const causeOf = (reason: unknown): string => {
+    const text = reason instanceof Error ? reason.message : String(reason)
+    return text.replace(/\s+/g, ' ').trim().slice(0, 300)
+  }
   throw new AggregateError(
     failures,
-    `Forge wave failed: ${failures.length} of ${batch.length} lanes rejected after every lane settled`,
+    `Forge wave failed: ${failures.length} of ${batch.length} lanes rejected after every lane settled — ` +
+      failures.map((reason, i) => `lane ${i + 1}: ${causeOf(reason)}`).join(' | '),
   )
 }
 

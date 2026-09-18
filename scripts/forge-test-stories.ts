@@ -2066,6 +2066,80 @@ const STORIES: TestStory[] = [
       '- `node --import tsx --test workflow_app/tests/run-spend-source.test.ts`',
   },
   {
+    id: 'ENG-FORGE-SPLIT-SHAPE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'A SPLIT child is written in the shape the engine can claim: lane, size and its own assignment',
+    goal:
+      'A two-unit story can fan out end to end: its sibling work items are written with every column the parallel ' +
+      'shape check requires, so both lanes are claimable and the per-slot index still keeps them from colliding.',
+    scope:
+      'the work-item writer (db/agent-work.ts, the agent_work_item insert and its enqueue preconditions) and the ' +
+      'SPLIT materialization that calls it, plus workflow_app/tests/split-child-shape.test.ts (new).',
+    acceptance:
+      'Enqueuing a SPLIT child writes lane, parallel_group_id, parallel_slot, parallel_size and a non-empty ' +
+      'split_assignment, so the row satisfies agent_work_item_parallel_shape_check and is claimable; two siblings ' +
+      'share a group with distinct slots and the one-parallel-slot index still refuses a duplicate slot; a ' +
+      'non-parallel row keeps writing NULL for all three columns and is unaffected. A test drives the child shape, ' +
+      'the duplicate-slot refusal and the plain row, and the story is verified by a real two-unit wave whose two ' +
+      'lanes both start.',
+    notes:
+      'MEASURED 2026-09-18 06:00 by Cline, and it is the reason the SPLIT lane has never actually fanned out. ' +
+      'With intake fixed (PROOF-SEAM-01) a two-unit story finally routed SPLIT:2 and the wave log shows what Grok ' +
+      'asked for - "wave: cap 2 - lanes smith_split_work, smith_split_work" and "running smith_split_work + ' +
+      'smith_split_work concurrently (cap 2)" - and then BOTH lanes rejected with the same named cause: ' +
+      '"new row for relation agent_work_item violates check constraint agent_work_item_parallel_shape_check". ' +
+      'No task rows were persisted, so no smith ever ran. The constraint (migration 166) allows a parallel row ' +
+      'only when parallel_group_id is set AND lane = smith AND slot is 1..3 AND size is 2..3 AND slot <= size AND ' +
+      'split_assignment is non-empty; the writer at db/agent-work.ts:776-787 inserts parallel_group_id and ' +
+      'parallel_slot and NOTHING ELSE - no lane, no parallel_size, no split_assignment, and none of the three ' +
+      'has a column default. So the check can never pass for a child row, and the fan-out dies before it starts. ' +
+      'Two blockers were hiding behind one another: intake could not produce two units, and the write path could ' +
+      'not enqueue them. HONEST BOUNDARY: this does not raise the split cap, does not change which units are ' +
+      'independent, and does not weaken the shape check - the check is right and the writer is wrong.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/split-child-shape.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-TWO-UNIT-DOGFOOD-02',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 97,
+    title: 'Two independent units of real work, filed as one story: a media download declares its length, and anonymous diagnostics cannot be flooded',
+    goal:
+      'Deliver the two app-hardening items in one story with two declared, disjoint units, and use the wave log as ' +
+      'the evidence for whether the scheduler can fan a two-unit story out.',
+    scope:
+      'Unit A (media length): app/api/media/documents/[id]/route.ts and any sibling that sets Content-Length, plus ' +
+      'workflow_app/tests/media-content-length.test.ts (new). Unit B (diagnostic throttle): ' +
+      'app/api/portal/move-trace/route.ts and app/api/portal/client-error/route.ts, plus ' +
+      'workflow_app/tests/diagnostic-throttle.test.ts (new). The two units share no file and each owns its own new ' +
+      'proof path, which is the shape ENG-FORGE-PROOF-SEAM-01 made lawful.',
+    acceptance:
+      'Unit A: the Content-Length header is derived from the bytes actually sent; a row whose file_size disagrees ' +
+      'with its bytes still streams completely; a test proves the mismatch case, because that is the case that ' +
+      'breaks. Unit B: each endpoint bounds its writes per source per window and per body size, refuses over the ' +
+      'bound with a plain response, and records the refusal as a count rather than a row per attempt, with ' +
+      'anonymity preserved by design. The wave log for this run is retained as the I5 evidence: two ' +
+      'smith_split_work lanes in one wave, or the record of what collapsed it to one unit.',
+    notes:
+      'CUT 2026-09-18 by Cline, deliberately, as the third attempt at Groks I5: "cut one story whose required ' +
+      'findings are two independent seam groups. Cap 2. Postcard with two smith_split_work lines in one wave, or ' +
+      'no postcard." Attempt 1 (ENG-FORGE-SPLIT-DOGFOOD-01) could not be the vehicle: its units are already ' +
+      'implemented and green, so its lead correctly HOLDed rather than edit passing code. Attempt 2 ' +
+      '(ENG-FORGE-REVIEW-RESIDUALS-01) had two units and the architect DID declare two findings, but the lead ' +
+      'refused SPLIT because a required proof was not inside its own seams - which is what PROOF-SEAM-01 fixed. ' +
+      'This story therefore pairs two REAL backlog items (APP-MEDIA-LENGTH-01 and APP-DIAGNOSTIC-THROTTLE-01) with ' +
+      'disjoint surfaces and distinct new fences. When it lands, those two items are delivered here and are closed ' +
+      'as such rather than worked twice. HONEST BOUNDARY: the cap stays 2, PARALLEL-WAVE-02 stays unopened, and if ' +
+      'the wave shows one lane that is the fact recorded - the story still delivers its two units either way.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/media-content-length.test.ts`\n' +
+      '- `node --import tsx --test workflow_app/tests/diagnostic-throttle.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-TYPESAFE-TRIAGE-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
