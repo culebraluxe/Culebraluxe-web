@@ -201,6 +201,7 @@ import {
   releaseEvidenceFromIntegration,
 } from './forge-integration-attestation'
 import type { ReleaseEvidence } from './forge-release-receipt'
+import { forgeDeployHoldReason } from './forge-facts'
 import type { ForgeGateEvidence } from './forge-facts'
 
 export type AgentRuntimeForgeRunnerOptions = {
@@ -239,7 +240,7 @@ const SCOUT_RESEARCH_CONSUMERS = new Set(['architect', 'lead', 'smith', 'inspect
  * A story that DOES require a deployment still needs a real deployment receipt; with none, this
  * returns null and the deploy gate stays shut, exactly as before.
  */
-async function deriveReleaseEvidence(input: {
+export async function deriveReleaseEvidence(input: {
   nodeId: string
   deploymentRequired: boolean
   publishedSha: string | null
@@ -471,6 +472,68 @@ export function createAgentRuntimeForgeRoleRunner(
         `[${nodeId}] batch-sliced rollout: DEV_OPS held off the chain — deployment DEFERRED to batch ${deferredTo}. Nothing published or deployed.`,
       )
       return { transitionName: 'complete', evidence: { deploymentDeferredToBatch: deferredTo } }
+    }
+
+    // ---------------------------------------------------------------------
+    // ENG-FORGE-DEPLOY-NOMECH-01 — THE DEPLOY ENTRY DECIDES BEFORE THE LANE.
+    //
+    // Deployment is not something Forge does: nothing in this repository mints a deployment
+    // receipt, and the deploy script is run by the captain at sprint release. A story that
+    // DEMANDS a deployment and is NOT deferred to its batch therefore has no producer, and
+    // entering the DEV_OPS lane could only end in a fabricated receipt or an unsatisfiable
+    // gate. So the decision is made HERE — after the recorded batch deferral above, and before
+    // any lane work — and the missing producer is named on the durable hold.
+    //
+    // A read that throws must NOT fall through into the lane: "we could not decide" is a HOLD
+    // with a named reason, never a silent pass (active decision silent-refusal-is-a-defect).
+    // ---------------------------------------------------------------------
+    if (nodeId === 'deploy') {
+      let deployHoldReason: string | null = null
+      try {
+        deployHoldReason = forgeDeployHoldReason(await readForgeWorkflowEvidence(resolvedStory.id))
+      } catch (error) {
+        deployHoldReason =
+          'could not read the deployment evidence to decide the deploy entry: ' +
+          String((error as Error)?.message ?? error)
+      }
+      if (deployHoldReason) {
+        const reason = `Forge deploy HOLD: ${deployHoldReason}`
+        observeHold(
+          forgeObserverSink,
+          {
+            storyId: resolvedStory.id,
+            processInstanceId: task.processInstanceId,
+            taskId: String(task.taskId ?? task.processInstanceId),
+            nodeId,
+            attempt: 1,
+            baseCommit: 'origin/main',
+          },
+          { reasons: [reason] },
+        )
+        await openForgeHoldRecord({
+          processInstanceId: String(task.processInstanceId),
+          taskId: task.taskId ?? null,
+          storyId: resolvedStory.id,
+          reason,
+          originatingNode: nodeId,
+          failureClass: 'DELIVERABLE_REJECTED',
+          resumeTarget: 'DEPLOY',
+        }).catch((error) => {
+          captureServerLog(
+            'warn',
+            'forge.hold-record',
+            `could not record the DEPLOY-NOMECH hold for ${resolvedStory.id}: ${(error as Error).message}`,
+          )
+        })
+        await markForgeStoryHumanHold(resolvedStory.id, reason).catch((error) => {
+          captureServerLog(
+            'warn',
+            'forge.hold-storyboard',
+            `could not mark ${resolvedStory.id} as HOLD: ${(error as Error).message}`,
+          )
+        })
+        throw new Error(reason)
+      }
     }
 
     // Bounded self-heal. When the enforced gate (default ON; disable with
@@ -1377,6 +1440,13 @@ export function createAgentRuntimeForgeRoleRunner(
       ...(collectDiff ? { runnerDiff: collectDiff } : {}),
       // The DURABLE release receipt, straight from workflow evidence. DEV_OPS
       // records a receipt it actually holds — never a fabricated one.
+      //
+      // ENG-FORGE-DEPLOY-NOMECH-01: the deployment mirror is GATED on the story actually
+      // requiring a deployment. It used to re-declare ANY stored `deploymentReceipt` as
+      // `kind: 'deployment'`, so a stale integration or publish receipt re-armed itself on every
+      // pass and a story that never deployed carried a deployed sha. A story that does not require
+      // a deployment is released on the derived integration attestation instead; the
+      // production_verification mirror is untouched because the smoke lane still needs it.
       ...(current.productionVerificationReceipt
         ? {
             releaseEvidence: {
@@ -1386,7 +1456,7 @@ export function createAgentRuntimeForgeRoleRunner(
               artifactSha: current.productionVerifiedSha ?? null,
             },
           }
-        : current.deploymentReceipt
+        : current.deploymentReceipt && evidence.deploymentRequired === true
           ? {
               releaseEvidence: {
                 kind: 'deployment' as const,

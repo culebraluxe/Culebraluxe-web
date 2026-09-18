@@ -251,6 +251,42 @@ export function forgeLineageError(
   return null
 }
 
+/**
+ * ENG-FORGE-DEPLOY-NOMECH-01 — FORGE IS NOT A DEPLOYMENT PRODUCER.
+ *
+ * Nothing in this repository mints a deployment receipt: `scripts/vercel-deploy-prod.sh` is run by the
+ * captain at sprint release, not by Forge. So a "configured producer" is a DURABLE receipt something
+ * outside the engine already recorded — derived here from the evidence, never a new free-standing flag,
+ * because a second source for one fact is how a fabricated deployment starts. The receipt alone is not
+ * enough: it must carry a valid sha, or it attests nothing.
+ */
+export function forgeDeploymentProducerConfigured(evidence: ForgeGateEvidence): boolean {
+  return Boolean(
+    (normalizedSha(evidence.deployedSha) && evidence.deploymentReceipt?.trim()) ||
+      (normalizedSha(evidence.productionVerifiedSha) &&
+        evidence.productionVerificationReceipt?.trim()),
+  )
+}
+
+/** The named reason a required deployment with no producer is held AT THE DECISION. */
+export const FORGE_DEPLOY_NO_PRODUCER_REASON =
+  'no deployment producer is configured: Forge performs no deployment, so a story that requires one is held at the decision until a durable deployment receipt is recorded or the deployment is deferred to its batch'
+
+/**
+ * The deploy decision, made at the DECISION — never at the lane.
+ *
+ * Non-null only when the story DEMANDS a deployment, is NOT deferred to its batch, and has no durable
+ * producer. A deferred story is an accepted outcome; a no-deployment story never needs a producer; a
+ * story with a durable receipt already has one. This is the fact the engine and the deploy entry both
+ * read, so one decision answers both.
+ */
+export function forgeDeployHoldReason(evidence: ForgeGateEvidence): string | null {
+  if (evidence.deploymentRequired !== true) return null
+  if (evidence.deploymentDeferredToBatch != null) return null
+  if (forgeDeploymentProducerConfigured(evidence)) return null
+  return FORGE_DEPLOY_NO_PRODUCER_REASON
+}
+
 /** Booleans default to false; omitted when absent. */
 /**
  * FAST eligibility (Scope C) — a FAST story is executable only when it carries
@@ -342,6 +378,11 @@ export function projectForgeGateFacts(evidence: ForgeGateEvidence): ApplicationF
       evidence.deploymentSucceeded === true && forgeLineageError(evidence, 'deploy') === null,
     productionVerified:
       evidence.productionVerified === true && forgeLineageError(evidence, 'production') === null,
+    // ENG-FORGE-DEPLOY-NOMECH-01: a required deployment with no producer is BLOCKED at the
+    // decision. Both facts are derived from the durable receipts + the batch deferral, so the
+    // engine and the deploy entry read one source and no lane is entered on a guess.
+    deploymentProducerConfigured: forgeDeploymentProducerConfigured(evidence),
+    deploymentBlocked: forgeDeployHoldReason(evidence) !== null,
   }
   for (const [key, value] of Object.entries(boolFacts)) {
     facts[key] = value ?? false
