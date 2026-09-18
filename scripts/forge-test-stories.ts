@@ -2485,41 +2485,44 @@ const STORIES: TestStory[] = [
     operatingSurface: 'TECH',
     priority: 'High',
     batch: 101,
-    title: 'Every declared split unit gets a work item, so the join can be satisfied',
+    title: 'A resume can no longer mark an unrun fork branch as done',
     goal:
-      'A SPLIT decision with two units enqueues two sibling work items with distinct slots and distinct ' +
-      'assignments, so the join sees two terminal children instead of waiting forever on a unit that ' +
-      'was never created.',
+      'The operator door refuses to resolve a hold over a split WORK branch that was never claimed, so ' +
+      'a resume can never record work that did not happen and can never make a fork join unsatisfiable ' +
+      'for good.',
     scope:
-      'the split materializer that turns a SPLIT decision into child work items (workflow_app/forge/' +
-      'agent-runtime-role-runner.ts around the SPLIT branch, plus whatever writes agent_work_item ' +
-      'parallel rows), and a fence in workflow_app/tests/.',
+      'the door decision and the stop point it reads (workflow_app/forge/forge-hold-resolve.ts and ' +
+      'findOpenForgeTask in workflow_app/forge/forge-engine-runtime.ts) plus workflow_app/tests/' +
+      'resume-door.test.ts.',
     acceptance:
-      'A SPLIT decision over two units writes one work item per unit, numbered 1..N with N distinct ' +
-      'assignments; the join reaches satisfaction when both children terminate; a unit with no work ' +
-      'item is still refused by name; and a fence drives the two-unit case, the three-unit case and ' +
-      'the missing-sibling refusal.',
+      'Resolving a hold whose open task is an unclaimed fork work branch is refused by name with ' +
+      'nothing written and no task advanced; a claimed branch still moves; an unclaimed serial lane ' +
+      'still moves; an unclaimed coordination task riding a branch token still moves; cancel still ' +
+      'works on an unstarted branch; and the stop point reports whether it is a fork branch, whether it ' +
+      'was ever claimed, and how many siblings are open.',
     notes:
-      'MEASURED 2026-09-18 12:52 by Cline while re-running the I5 two-lane verification on ' +
-      'ENG-FORGE-TWO-UNIT-DOGFOOD-02, and this is the real reason every SPLIT story has held today. ' +
-      'The wave fanned out and the lane RAN - smith_split_work claimed, worked 3.5 minutes and ' +
-      'published candidate 6692a2c8 - so the shape fix from ENG-FORGE-SPLIT-SHAPE-01 holds. Then ' +
-      'lead_post refused: "SPLIT join not satisfied - split children never reached a terminal state: ' +
-      'unit-a-media-length". The database says why: `select parallel_slot, parallel_size, ' +
-      'split_assignment from agent_work_item where story_id=... and parallel_size is not null` returns ' +
-      'ONLY slot 2 of size 2, three rows, all unit-b-diagnostic-throttle, all Done. There is no slot 1 ' +
-      'and no unit-a-media-length row at any point - the declared first unit was never enqueued. So ' +
-      'the materializer writes one child per split (and numbers it 2), the join waits for a sibling ' +
-      'that does not exist, and the story cannot complete no matter how well the lane works. ' +
-      'CONNECTION TO THE SHAPE STORY, stated so the two are not confused: SPLIT-SHAPE-01 fixed the ' +
-      'SHAPE of a row (the full parallel tuple, and a refusal for a grouped row with a blank ' +
-      'assignment) and its fence proves that; this is the COUNT - how many rows a split creates - and ' +
-      'that is why the fence was green while the feature could not finish. HONEST BOUNDARY: I cannot ' +
-      'yet say whether the second unit is dropped at planning time or at enqueue time; the log shows ' +
-      'the join naming unit-a, so the plan knew about it. HOLD REASON WANTED: without this, every ' +
-      'SPLIT fan-out is a lane that works and a join that refuses - which reads as a lane failure and ' +
-      'is not one.',
-    assayCommands: '- fence for the two-unit and three-unit SPLIT materialisation; `pnpm test:forge:engine`',
+      'ROOT CAUSE, CORRECTED after a solo deep dive — the original title of this story blamed the split ' +
+      'materializer, and that was WRONG. Everything on the engine side is correct: the XML ' +
+      'dynamic-fork (count-variable splitCount, plan-variable splitPlan, minimum 2), the process ' +
+      'variables (splitCount 2, splitPlan length 2, leadDecision SPLIT), the fork kernel itself (it ' +
+      'created BOTH children with branchIndex 0 and 1), the pure branch-assignment handoff, the ' +
+      'enqueue shape, and the join. What killed the run was an OPERATOR action: the resume door at ' +
+      '09:34 completed branch 0 of 2 of a fork whose lane had never run — task dc9c4757, claimed_at ' +
+      'null, completed_by operator. From that moment the sibling was unrecoverable: the engine ' +
+      'believed the branch was done so it never re-issued it, no work item ever existed for it, and ' +
+      'lead_post refused the join with "split children never reached a terminal state: ' +
+      'unit-a-media-length" — three times, reading as a lane failure that was not one. GARBAGE IN, ' +
+      'GARBAGE OUT: the door fabricated the state and everything downstream inherited it faithfully. ' +
+      'FIX (70420b46): findOpenForgeTask reports forkChild / claimedAt / openSiblings, and ' +
+      'unstartedForkBranchRefusal is a pure decision that refuses an unclaimed fork WORK branch and ' +
+      'points at --cancel as the honest alternative. NARROWED AFTER OVER-BLOCKING, and the live probe ' +
+      'is how that was caught: forkChild is inherited by downstream tasks riding a branch token, so an ' +
+      'unclaimed lead_post (exactly what the polluted instance returns) would have been refused too — ' +
+      'only the fork work branch node (smith_split_work, per the XML branch-node attribute) can ' +
+      'fabricate a unit completion. Five fences. REMAINING, and it belongs to the other story: the ' +
+      'end-to-end two-lane observation is ENG-FORGE-TWO-UNIT-DOGFOOD-02, whose instance is still ' +
+      'polluted by two operator-completed branches and needs a clean re-dispatch.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/resume-door.test.ts`',
   },
   {
     id: 'ENG-FORGE-LINT-GATE-01',
