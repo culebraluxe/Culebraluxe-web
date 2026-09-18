@@ -23,6 +23,12 @@
 -- Non-destructive: three added nullable columns. No existing row, column or constraint is
 -- touched.
 
+-- SET BEFORE THE DDL. A migration that waits on a lock queues every query behind it, so it can take
+-- production down without failing. Squawk refused this file on both rules the hour CI went live
+-- (2026-09-18, run 35343996263); nothing has applied 192, so this is a fix and not a rewrite.
+set lock_timeout = '5s';
+set statement_timeout = '30s';
+
 alter table forge_workflow_evidence
     add column if not exists batch_released_sha text,
     add column if not exists batch_released_at timestamptz,
@@ -35,6 +41,14 @@ comment on column forge_workflow_evidence.batch_released_at is
 comment on column forge_workflow_evidence.batch_release_receipt is
     'The release receipt identity, batch-release:<batch>:<sha>. One writer: recordForgeBatchReleaseReceipt (ENG-FORGE-BATCH-RECEIPT-01).';
 
+-- CONCURRENTLY IS NOT AVAILABLE TO THIS REPOSITORY, stated rather than papered over:
+-- scripts/apply-migration.mjs runs an entire migration file as one `pool.query(sql)`, and PostgreSQL
+-- executes a multi-statement simple query as a SINGLE implicit transaction, inside which
+-- CREATE INDEX CONCURRENTLY is refused outright. No migration in this repository uses CONCURRENTLY
+-- for exactly that reason. The table is the engine's own evidence table and is small, so this lock is
+-- short; the durable fix is an applier that can run a statement outside a transaction, which belongs
+-- to ENG-FORGE-MIGRATION-LINT-01 rather than to this file.
+-- squawk-ignore require-concurrent-index-creation
 create index if not exists forge_workflow_evidence_batch_release_idx
     on forge_workflow_evidence (deployment_deferred_to_batch, batch_released_at)
     where batch_release_receipt is not null;

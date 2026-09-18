@@ -95,6 +95,18 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    test fixtures and would have baselined 50 findings in live source files as "known exposure". The
    rules now carry entropy floors and per-rule path allowlists, and the baseline fell from 183
    entries to 147 — all of them the real incident.
+5. **A squawk exception must sit IMMEDIATELY above the statement it excuses.** `-- squawk-ignore <rule>`
+   is honoured only as the last comment line before the statement; put prose in between and the finding
+   stands (measured on `192_forge_batch_release_receipt.sql`, where the first attempt failed and the
+   adjacent version passed with `Found 0 issues`).
+6. **`CREATE INDEX CONCURRENTLY` cannot run in this repository at all** — and that is a real limitation,
+   not a preference. `scripts/apply-migration.mjs` executes an entire migration file as one
+   `pool.query(sql)`, and PostgreSQL runs a multi-statement simple query in a **single implicit
+   transaction**, inside which `CONCURRENTLY` is refused outright. No migration here uses it, for that
+   reason. So the index on a busy table WILL take a write lock, and squawk's safest available pattern is
+   unavailable until an applier can run a statement outside a transaction. Where that matters now, the
+   exception is recorded in the migration file itself with its reason; the durable fix belongs to
+   `ENG-FORGE-MIGRATION-LINT-01`.
 
 ## The deploy boundary (not yet a fence)
 
