@@ -4,6 +4,8 @@ import { recordError } from '@/db/app-error'
 import { sql as errorSql } from '@/db/client'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
+import { createDiagnosticThrottle, refuseDiagnosticWrite } from '../diagnostic-throttle'
+
 // ---------------------------------------------------------------------------
 // MOVE TRACE — what the BOARD sees, reported from the browser.
 //
@@ -22,15 +24,65 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 export const dynamic = 'force-dynamic'
 
 const MAX_FIELD = 64
+const MAX_BODY_BYTES = 16_384
+
+// One throttle PER ENDPOINT: a flood of move-traces must not spend the budget
+// the client-error endpoint needs.
+const throttle = createDiagnosticThrottle({
+  windowMs: 60_000,
+  maxWrites: 30,
+  maxBodyBytes: MAX_BODY_BYTES,
+})
 
 function clip(value: unknown): string {
   return String(value ?? '').slice(0, MAX_FIELD)
 }
 
-async function POSTHandler(req: NextRequest): Promise<NextResponse> {
+// Best-effort source token for the in-memory bound only. It is NEVER persisted:
+// the recorded refusal carries the count and the reason, nothing that identifies
+// the caller. A spoofable header is acceptable because this is a bound, not auth.
+function sourceToken(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim()
+    if (first) return first
+  }
+  return req.headers.get('x-real-ip')?.trim() || 'anonymous'
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
+async function POSTHandler(req: NextRequest): Promise<Response> {
+  const now = Date.now()
+  const source = sourceToken(req)
+  const declared = Number(req.headers.get('content-length'))
+  const declaredBytes = Number.isFinite(declared) && declared > 0 ? declared : 0
+
+  const refuse = (status: 429 | 413) =>
+    refuseDiagnosticWrite({
+      throttle,
+      endpoint: 'api/portal/move-trace',
+      now,
+      status,
+      record: (record) => recordError(record, errorSql),
+    })
+
+  // Refuse an oversized body BEFORE reading it into memory.
+  if (declaredBytes > MAX_BODY_BYTES) {
+    throttle.checkDiagnosticWrite({ source, bodyBytes: declaredBytes, now })
+    return refuse(413)
+  }
+
+  const raw = await req.text().catch(() => '')
+  const bodyBytes = Math.max(declaredBytes, byteLength(raw))
+  const verdict = throttle.checkDiagnosticWrite({ source, bodyBytes, now })
+  if (!verdict.allowed) return refuse(verdict.status)
+
   let body: Record<string, unknown> = {}
   try {
-    body = (await req.json()) as Record<string, unknown>
+    body = JSON.parse(raw) as Record<string, unknown>
   } catch {
     /* a malformed trace is not worth an error row; this route is diagnostics */
   }

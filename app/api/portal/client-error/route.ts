@@ -4,6 +4,8 @@ import { sql } from '@/db/client'
 import { recordError } from '@/db/app-error'
 import { withApiHandler } from '@/lib/error-capture-seam'
 
+import { createDiagnosticThrottle, refuseDiagnosticWrite } from '../diagnostic-throttle'
+
 // ---------------------------------------------------------------------------
 // CLIENT FAILURES IN /portal/* — the one seam that used to be silent.
 //
@@ -25,13 +27,65 @@ import { withApiHandler } from '@/lib/error-capture-seam'
 export const dynamic = 'force-dynamic'
 
 const MAX_MESSAGE = 500
+const MAX_BODY_BYTES = 16_384
 
-async function POSTHandler(req: NextRequest): Promise<NextResponse> {
+// One throttle PER ENDPOINT. State is per serverless instance; the bound is a
+// bound, not a fleet-wide quota (global limiting is an explicit non-goal).
+const throttle = createDiagnosticThrottle({
+  windowMs: 60_000,
+  maxWrites: 30,
+  maxBodyBytes: MAX_BODY_BYTES,
+})
+
+// Best-effort source token for the in-memory bound only — NEVER persisted. The
+// recorded refusal carries the count and the reason, no caller identity.
+function sourceToken(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim()
+    if (first) return first
+  }
+  return req.headers.get('x-real-ip')?.trim() || 'anonymous'
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
+async function POSTHandler(req: NextRequest): Promise<Response> {
+  const now = Date.now()
+  const source = sourceToken(req)
+  const declared = Number(req.headers.get('content-length'))
+  const declaredBytes = Number.isFinite(declared) && declared > 0 ? declared : 0
+
+  const refuse = (status: 429 | 413) =>
+    refuseDiagnosticWrite({
+      throttle,
+      endpoint: 'api/portal/client-error',
+      now,
+      status,
+      record: (record) => recordError(record, sql),
+    })
+
+  // Refuse an oversized body BEFORE reading it into memory.
+  if (declaredBytes > MAX_BODY_BYTES) {
+    throttle.checkDiagnosticWrite({ source, bodyBytes: declaredBytes, now })
+    return refuse(413)
+  }
+
+  const raw = await req.text().catch(() => '')
+  const bodyBytes = Math.max(declaredBytes, byteLength(raw))
+  const verdict = throttle.checkDiagnosticWrite({ source, bodyBytes, now })
+  if (!verdict.allowed) return refuse(verdict.status)
+
   // Parse defensively: this route exists to receive reports about failures, so a malformed body
   // must be recorded as a report with no message rather than becoming a failure of its own.
-  const body = (await req
-    .json()
-    .catch(() => ({}))) as Record<string, unknown>
+  let body: Record<string, unknown> = {}
+  try {
+    body = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    /* a malformed report is recorded with no message below, not refused */
+  }
 
   const message = typeof body.message === 'string' ? body.message.slice(0, MAX_MESSAGE) : null
   const digest = typeof body.digest === 'string' ? body.digest.slice(0, 120) : null
