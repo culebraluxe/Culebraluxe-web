@@ -111,7 +111,30 @@ function assertionsKey(a: Record<string, unknown> | null): { ok: boolean; why: s
     : { ok: false, why: `${uncovered.length}/${entries.length} clause(s) have no assertion` }
 }
 
+/** A dependency-adding story must carry the lockfile in its declared scope.
+ *
+ *  MEASURED 2026-09-18: PROPERTY-INVARIANTS-01 added `fast-check` to package.json and installed it,
+ *  but its published candidate did NOT include pnpm-lock.yaml — so `pnpm install --frozen-lockfile`
+ *  failed in CI with ERR_PNPM_OUTDATED_LOCKFILE and main went red over a dependency the lane had
+ *  every right to add. The engine's publish path commits the story's DECLARED surface, so a file
+ *  outside that surface is left behind — and the lockfile is part of what a dependency change IS. */
+function lockfileKey(input: {
+  scope: string | null
+  proof: string | null
+}): { ok: boolean; why: string } {
+  const text = `${input.scope ?? ''}\n${input.proof ?? ''}`
+  const touchesDeps = /package\.json|fast-check|zod|valibot|arktype/.test(text)
+  if (!touchesDeps) return { ok: true, why: 'no dependency change declared' }
+  return /pnpm-lock\.yaml/.test(text)
+    ? { ok: true, why: 'lockfile declared alongside the dependency' }
+    : {
+        ok: false,
+        why: 'declares a dependency change but not pnpm-lock.yaml — the frozen install will fail',
+      }
+}
+
 /** A HARD key: without it a door refuses before any work can be judged. */
+type Key = 'proof' | 'seams' | 'lockfile'
 
   let missing = 0
   let warned = 0
@@ -120,6 +143,7 @@ function assertionsKey(a: Record<string, unknown> | null): { ok: boolean; why: s
     const hard: Record<Key, { ok: boolean; why: string }> = {
       proof: proofKey(r.proof),
       seams: seamsKey(r.scope),
+      lockfile: lockfileKey({ scope: r.scope, proof: r.proof }),
     }
     const soft = assertionsKey(r.assertions)
     const gaps = (Object.keys(hard) as Key[]).filter((k) => !hard[k].ok)
