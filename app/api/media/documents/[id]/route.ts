@@ -5,18 +5,10 @@ import { captureServerError } from '@/lib/server-error-capture'
 import { withApiHandler } from '@/lib/error-capture-seam'
 import { decideDocumentAccess } from '@/lib/auth/document-access'
 
+import { buildDocumentResponse } from './document-response'
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-function contentDisposition(filename: string, download: boolean) {
-  const disposition = download ? 'attachment' : 'inline'
-  const safeFilename = filename
-    .replace(/[\r\n]/g, '')
-    .replace(/[^\x20-\x7E]/g, '_')
-    .replace(/["\\]/g, '_')
-
-  return `${disposition}; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
-}
 
 async function GETHandler(
   request: Request,
@@ -92,22 +84,16 @@ async function GETHandler(
     file_size: string | number | null
   }
   const download = new URL(request.url).searchParams.get('download') === '1'
-  const headers = new Headers({
-    'Content-Type': String(document.mime_type ?? 'application/octet-stream'),
-    'Content-Disposition': contentDisposition(
-      String(document.filename ?? 'document'),
-      download,
-    ),
-    'Cache-Control': 'private, max-age=0, must-revalidate',
-    'X-Content-Type-Options': 'nosniff',
-  })
 
-  if (document.file_size != null) {
-    headers.set('Content-Length', String(document.file_size))
-  }
-
-  return new Response(document.file_data, {
-    headers,
+  // The length comes from the bytes sent, never from `file_size` — see
+  // document-response.ts. `file_size` is passed only so a reader can see the
+  // value the header deliberately does NOT use.
+  return buildDocumentResponse({
+    fileData: document.file_data,
+    filename: document.filename,
+    mimeType: document.mime_type,
+    download,
+    declaredFileSize: document.file_size,
   })
 }
 
