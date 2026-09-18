@@ -1,4 +1,5 @@
 import type { ListingSource, TransportAttempt } from './types'
+import { stellarMapping } from './stellar-fields'
 
 const CULEBRA_LAT = 18.303
 const CULEBRA_LNG = -65.304
@@ -16,7 +17,7 @@ export function buildResoPropertyPayload(source: ListingSource) {
     ListingKey: source.id,
     ListingId: source.slug ?? source.id,
     StandardStatus: source.isPublished ? 'Active' : 'ComingSoon',
-    ListingContractDate: null,
+    ListingContractDate: source.stellar?.listingContractDate ?? null,
     ListPrice: source.listPrice,
     ListPriceCurrency: 'USD',
     PropertyType: mapResoPropertyType(source.propertyType),
@@ -25,10 +26,12 @@ export function buildResoPropertyPayload(source: ListingSource) {
     LivingAreaUnits: 'SquareFeet',
     BedroomsTotal: source.bedrooms,
     BathroomsTotalInteger: source.bathrooms,
+    BathroomsFull: source.bathroomsFull ?? null,
+    BathroomsHalf: source.bathroomsHalf ?? null,
     UnparsedAddress: source.streetAddress ?? source.location ?? source.name,
     City: source.city ?? 'Culebra',
     Township: source.neighborhood,
-    StateOrProvince: 'PR',
+    StateOrProvince: source.stateOrProvince ?? 'PR',
     Country: 'PR',
     PostalCode: source.postalCode ?? null,
     Latitude: resolveLat(source),
@@ -46,6 +49,29 @@ export function buildResoPropertyPayload(source: ListingSource) {
     ListingURL: source.publicUrl,
   }
   if (source.yearBuilt && source.yearBuilt > 0) payload.YearBuilt = source.yearBuilt
+  Object.assign(payload, {
+    StreetNumber: source.streetNumber ?? null,
+    StreetName: source.streetName ?? null,
+    UnitNumber: source.unitNumber ?? null,
+    LotSize: source.lotSize ?? null,
+    LotSizeUnits: source.lotSizeUnits ?? null,
+    ...(source.stellar ? {
+      ExpirationDate: source.stellar.expirationDate,
+      ListingType: source.stellar.listingType,
+      ListAgentMlsId: source.stellar.agentMlsId,
+      ParcelNumber: source.stellar.taxId,
+      TaxYear: source.stellar.taxYear,
+      TaxAnnualAmount: source.stellar.annualTax,
+      LegalDescription: source.stellar.legalDescription,
+      Zoning: source.stellar.zoning,
+      BuildingAreaTotal: source.stellar.totalAreaSqft,
+      LivingAreaSource: source.stellar.heatedAreaSource,
+      Ownership: source.stellar.ownershipType,
+      AssociationDetails: source.stellar.hoaDetails,
+      ShowingInstructions: source.stellar.showingInstructions,
+      OccupantType: source.stellar.occupantType,
+    } : {}),
+  })
   return payload
 }
 
@@ -58,6 +84,7 @@ function mapResoPropertyType(value: string | null): string {
 }
 
 export function stellarTransportPlan(source: ListingSource): TransportAttempt {
+  const mapping = stellarMapping(source)
   return {
     kind: 'stellar.matrix_checklist',
     dryRun: true,
@@ -66,11 +93,12 @@ export function stellarTransportPlan(source: ListingSource): TransportAttempt {
     endpoint: 'https://www.stellarmls.com/prar-en',
     payload: {
       resoProperty: buildResoPropertyPayload(source),
+      mapping,
       matrixInput: {
         system: 'Stellar Matrix',
         office: 'CulebraLuxe',
         municipality: source.city ?? 'Culebra',
-        listingType: 'For Sale',
+        listingType: source.stellar?.listingType ?? null,
         photos: source.photos.length
           ? `${source.photos.length} images ready to upload (Property Media). Do not hotlink culebraluxe.com.`
           : 'No photos attached yet — add media before entering Matrix.',
@@ -84,14 +112,14 @@ export function stellarTransportPlan(source: ListingSource): TransportAttempt {
         note: 'Broker opt-in in the Stellar Portal overrides listing-level Matrix checkboxes.',
       },
       cannotDo: [
-        'POST a new listing into Matrix from this app.',
-        'Write RESO Web API — that feed is pull/IDX only.',
+        'Submitting a listing to SkySlope Forms or Matrix until an approved intake is verified.',
+        'Treating this preparation payload as an accepted MLS listing.',
       ],
     },
     missingEnv: [],
     response: {
       status: 'dry_run',
-      reason: 'Stellar does not expose a listing-write API to brokerages.',
+      reason: 'SkySlope Forms may create a Matrix draft; external write access and field vocabulary need confirmation with Stellar.',
     },
   }
 }

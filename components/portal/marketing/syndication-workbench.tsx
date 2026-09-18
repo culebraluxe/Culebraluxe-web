@@ -9,6 +9,7 @@ import { EVENT_LABEL, STATUS_TONE } from '@/components/portal/marketing/status'
 import {
   addSightingAction, confirmPlacementAction, logInquiryAction, publishListingsAction,
   renewPlacementAction, searchInquiryPeopleAction, withdrawPlacementAction,
+  saveStellarDetailsAction,
   type MarketingWriteState,
 } from '@/app/portal/marketing/actions'
 import {
@@ -19,6 +20,7 @@ import {
   type SyndicationChannel,
 } from '@/lib/syndication/channels'
 import { isSourceStale } from '@/lib/syndication/hash'
+import { STELLAR_DETAIL_FIELDS, stellarMapping } from '@/lib/syndication/stellar-fields'
 import { diffSnapshot, isOffMarket, launchScore, matchesNeedsFilter, placementNeedsMe, type NeedsFilter } from '@/lib/syndication/lifecycle'
 import { buildPresenceReport, presenceReportText, type PresenceReport, type ReportLang } from '@/lib/syndication/presence-report'
 import { smsBlurb, waMeUrl, whatsappBlurb } from '@/lib/syndication/share'
@@ -88,6 +90,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
   const [withdrawState, withdrawAction] = useActionState(withdrawPlacementAction, null)
   const [renewState, renewAction] = useActionState(renewPlacementAction, null)
   const [sightingState, sightingAction] = useActionState(addSightingAction, null)
+  const [stellarState, stellarAction] = useActionState(saveStellarDetailsAction, null)
   const [showMore, setShowMore] = useState(false)
   const [needsFilter, setNeedsFilter] = useState<NeedsFilter>('all')
   const needsCount = sourcePlacements.filter((row) => placementNeedsMe(source, row)).length
@@ -133,6 +136,7 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
       <Banner state={confirmState} />
       <Banner state={withdrawState} />
       <Banner state={renewState} />
+      <Banner state={stellarState} />
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.2fr]">
         <Panel eyebrow="Source" heading="Root listing" subtitle="Canonical property. Off-site ads point back here." flush>
           <div className="max-h-[34rem] overflow-y-auto">
@@ -214,6 +218,36 @@ export function SyndicationWorkbench({ sources, placements, sightings, activity,
                 <LaunchRow done={launch.portalSeen} label="Zillow / Realtor sighting pasted" hint="stays empty until you paste a public URL" />
               </ul>
               <InquiryLog propertyId={source.id} />
+            </Panel>
+          ) : null}
+          {source ? (
+            <Panel eyebrow="Stellar" heading="SkySlope Forms draft" subtitle="Map property facts, review conversions, and fill listing-specific details. Saving here does not send anything to Stellar.">
+              {(() => {
+                const mapping = stellarMapping(source)
+                return (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[var(--portal-navy)]">10 direct · 7 to review or convert · 15 listing details</p>
+                    <p className="text-xs font-light text-black/60">{mapping.missing.length} fields currently empty. MLS vocabulary and required fields must be checked against your current Stellar form.</p>
+                    <details className="text-xs font-light text-black/70">
+                      <summary className="cursor-pointer">View mapping and gaps</summary>
+                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                        {([['Direct from property', mapping.direct], ['Review or convert', mapping.converted], ['Stellar details', mapping.additional]] as const).map(([title, rows]) => (
+                          <div key={title}><p className="font-medium">{title}</p><ul className="mt-1 space-y-1">{Object.entries(rows).map(([key, value]) => <li key={key}>{key}: {value == null || value === '' ? 'Missing' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</li>)}</ul></div>
+                        ))}
+                      </div>
+                    </details>
+                    <form key={source.id} action={stellarAction} className="grid gap-3 sm:grid-cols-2">
+                      <input type="hidden" name="propertyId" value={source.id} />
+                      {STELLAR_DETAIL_FIELDS.map(([key, label, kind]) => (
+                        <label key={key} className="text-xs font-light text-black/65">{label}
+                          <input name={key} type={kind} step={kind === 'number' ? (key === 'taxYear' ? '1' : 'any') : undefined} defaultValue={source.stellar?.[key] ?? ''} className="mt-1 block min-h-10 w-full rounded-md border border-black/15 bg-white px-2 text-sm text-[var(--portal-navy)]" />
+                        </label>
+                      ))}
+                      <button type="submit" className="min-h-10 rounded-md bg-[var(--portal-navy)] px-3 text-xs uppercase tracking-wider text-white sm:col-span-2">Save Stellar draft details</button>
+                    </form>
+                  </div>
+                )
+              })()}
             </Panel>
           ) : null}
           <Panel eyebrow="Targets" heading="Channels" subtitle="Prepare only channels CulebraLuxe can reach. Zillow and Realtor.com are never upload targets here.">

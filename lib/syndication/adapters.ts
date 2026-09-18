@@ -3,6 +3,7 @@ import { facebookTransportPlan, maybePostFacebook } from './facebook'
 import { hubspotTransportPlan, maybePostHubSpot } from './hubspot'
 import { buildListingPack } from './pack'
 import { stellarTransportPlan } from './stellar'
+import { stellarMapping } from './stellar-fields'
 import type { AdapterResult, ListingPack, ListingSource, TransportAttempt } from './types'
 
 const PASTE_TARGETS: Partial<Record<SyndicationChannel, string>> = {
@@ -118,17 +119,18 @@ export async function runAdapter(
     }
     case 'stellar_mls': {
       const transport = stellarTransportPlan(source)
+      const missingCount = stellarMapping(source).missing.length
       return packResult(
         source,
         channel,
-        'RESO Property payload + Matrix distribution checklist ready. Stellar has no broker write API — enter once in Matrix, then confirm the MLS number.',
+        `Stellar draft mapping prepared with ${missingCount} empty fields. Review conversions and required fields in SkySlope Forms; external submission is not connected.`,
         'pending_manual',
         [
-          'Open Stellar Matrix under the CulebraLuxe office.',
-          'Enter the RESO fields from the stored payload (price, beds, baths, Culebra, remarks).',
+          'Open SkySlope Forms via the Stellar member portal and choose Write a Listing; verify the latest Stellar field requirements.',
+          'Review the stored direct, converted and additional field mapping before entering the listing.',
           'Upload photos from Property Media.',
-          'On the Realtor tab set Listing Distribution: Realtor.com, Homes.com, Homesnap, ListHub.',
-          'Confirm the Matrix listing ID / public portal URL back here.',
+          'Create the Matrix draft from SkySlope Forms if your account offers it; review in Matrix before activating.',
+          'Confirm the actual Matrix listing ID here after submission.',
         ].join(' '),
         transport,
       )

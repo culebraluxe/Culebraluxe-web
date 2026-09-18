@@ -17,6 +17,8 @@ import {
 import { searchPeople } from '@/lib/person-reads'
 import type { SightingNetwork } from '@/lib/syndication/types'
 import { isPrepareChannel } from '@/lib/syndication/channels'
+import { saveStellarListing } from '@/db/stellar-listing'
+import { STELLAR_DETAIL_FIELDS, validateStellarDetails } from '@/lib/syndication/stellar-fields'
 
 export type MarketingWriteState = {
   ok: boolean
@@ -173,3 +175,24 @@ export const addSightingAction = withServerErrorCapture('portal/marketing/action
 export const logInquiryAction = withServerErrorCapture('portal/marketing/actions.logInquiryAction', logInquiryActionHandler)
 
 export const searchInquiryPeopleAction = withServerErrorCapture('portal/marketing/actions.searchInquiryPeopleAction', searchInquiryPeopleActionHandler)
+
+async function saveStellarDetailsActionHandler(
+  _prev: MarketingWriteState,
+  formData: FormData,
+): Promise<MarketingWriteState> {
+  await requireRead()
+  const propertyId = String(formData.get('propertyId') ?? '').trim()
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(propertyId)) return { ok: false, error: 'Select a property.' }
+  // The rules live in lib/syndication/stellar-fields.ts as a pure function, so the packet's "refused"
+  // acceptance can be exercised by a fence instead of only by driving a request against a live
+  // database. Same rules, same messages, one implementation.
+  const raw: Record<string, string> = {}
+  for (const [key] of STELLAR_DETAIL_FIELDS) raw[key] = String(formData.get(key) ?? '')
+  const checked = validateStellarDetails(raw)
+  if (!checked.ok) return { ok: false, error: checked.error }
+  await saveStellarListing(propertyId, checked.values)
+  revalidateMarketing()
+  return { ok: true, message: 'Stellar draft details saved. Prepare the Stellar pack to refresh its snapshot.' }
+}
+
+export const saveStellarDetailsAction = withServerErrorCapture('portal/marketing/actions.saveStellarDetailsAction', saveStellarDetailsActionHandler)

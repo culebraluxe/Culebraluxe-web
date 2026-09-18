@@ -42,6 +42,15 @@ type SourceRaw = {
   year_built: string | number | null
   postal_code: string | null
   street_address: string | null
+  street_number: string | null
+  street_name: string | null
+  unit_number: string | null
+  state_or_province: string | null
+  bathrooms_full: number | null
+  bathrooms_half: number | null
+  lot_size: string | number | null
+  lot_size_units: string | null
+  stellar: import('@/lib/syndication/types').StellarDetails | null
 }
 
 function toNumber(value: string | null): number | null {
@@ -84,6 +93,20 @@ function mapSource(row: SourceRaw, photos: PhotoManifestItem[] = []): ListingSou
     yearBuilt: toNumberOrNull(row.year_built),
     postalCode: row.postal_code,
     streetAddress: row.street_address || null,
+    streetNumber: row.street_number,
+    streetName: row.street_name,
+    unitNumber: row.unit_number,
+    stateOrProvince: row.state_or_province,
+    bathroomsFull: toNumberOrNull(row.bathrooms_full),
+    bathroomsHalf: toNumberOrNull(row.bathrooms_half),
+    lotSize: toNumberOrNull(row.lot_size),
+    lotSizeUnits: row.lot_size_units,
+    stellar: row.stellar ? {
+      ...row.stellar,
+      taxYear: toNumberOrNull(row.stellar.taxYear),
+      annualTax: toNumberOrNull(row.stellar.annualTax),
+      totalAreaSqft: toNumberOrNull(row.stellar.totalAreaSqft),
+    } : undefined,
     photos,
   }
 }
@@ -106,6 +129,18 @@ export async function listListingSources(): Promise<ListingSource[]> {
       p.property_type, p.short_description, p.public_remarks,
       p.listing_agent_name, p.listing_agent_phone, p.listing_agent_email,
       p.latitude, p.longitude, p.year_built, p.postal_code,
+      p.street_number, p.street_name, p.unit_number, p.state_or_province,
+      p.bathrooms_full, p.bathrooms_half, p.lot_size, p.lot_size_units,
+      (select json_build_object(
+        'listingContractDate', to_char(x.listing_contract_date, 'YYYY-MM-DD'),
+        'expirationDate', to_char(x.expiration_date, 'YYYY-MM-DD'),
+        'listingType', x.listing_type, 'agentMlsId', x.agent_mls_id,
+        'taxId', x.tax_id, 'taxYear', x.tax_year, 'annualTax', x.annual_tax,
+        'legalDescription', x.legal_description, 'zoning', x.zoning,
+        'totalAreaSqft', x.total_area_sqft, 'heatedAreaSource', x.heated_area_source,
+        'ownershipType', x.ownership_type, 'hoaDetails', x.hoa_details,
+        'showingInstructions', x.showing_instructions, 'occupantType', x.occupant_type
+      ) from property_stellar_listing x where x.property_id = p.id) as stellar,
       trim(concat_ws(' ', p.street_number, p.street_name, p.unit_number)) as street_address,
       (select pm.media_id from property_media pm
         where pm.property_id = p.id and pm.role = 'hero'
@@ -127,6 +162,18 @@ export async function getListingSource(id: string): Promise<ListingSource | null
       p.property_type, p.short_description, p.public_remarks,
       p.listing_agent_name, p.listing_agent_phone, p.listing_agent_email,
       p.latitude, p.longitude, p.year_built, p.postal_code,
+      p.street_number, p.street_name, p.unit_number, p.state_or_province,
+      p.bathrooms_full, p.bathrooms_half, p.lot_size, p.lot_size_units,
+      (select json_build_object(
+        'listingContractDate', to_char(x.listing_contract_date, 'YYYY-MM-DD'),
+        'expirationDate', to_char(x.expiration_date, 'YYYY-MM-DD'),
+        'listingType', x.listing_type, 'agentMlsId', x.agent_mls_id,
+        'taxId', x.tax_id, 'taxYear', x.tax_year, 'annualTax', x.annual_tax,
+        'legalDescription', x.legal_description, 'zoning', x.zoning,
+        'totalAreaSqft', x.total_area_sqft, 'heatedAreaSource', x.heated_area_source,
+        'ownershipType', x.ownership_type, 'hoaDetails', x.hoa_details,
+        'showingInstructions', x.showing_instructions, 'occupantType', x.occupant_type
+      ) from property_stellar_listing x where x.property_id = p.id) as stellar,
       trim(concat_ws(' ', p.street_number, p.street_name, p.unit_number)) as street_address,
       (select pm.media_id from property_media pm
         where pm.property_id = p.id and pm.role = 'hero'

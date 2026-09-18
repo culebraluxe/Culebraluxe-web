@@ -12,6 +12,7 @@ export type PhotoManifestItem = {
 }
 
 export type ListingSource = {
+  stellar?: StellarDetails
   id: string
   name: string
   slug: string | null
@@ -38,7 +39,33 @@ export type ListingSource = {
   yearBuilt?: number | null
   postalCode?: string | null
   streetAddress?: string | null
+  streetNumber?: string | null
+  streetName?: string | null
+  unitNumber?: string | null
+  stateOrProvince?: string | null
+  bathroomsFull?: number | null
+  bathroomsHalf?: number | null
+  lotSize?: number | null
+  lotSizeUnits?: string | null
   photos: PhotoManifestItem[]
+}
+
+export type StellarDetails = {
+  listingContractDate: string | null
+  expirationDate: string | null
+  listingType: string | null
+  agentMlsId: string | null
+  taxId: string | null
+  taxYear: number | null
+  annualTax: number | null
+  legalDescription: string | null
+  zoning: string | null
+  totalAreaSqft: number | null
+  heatedAreaSource: string | null
+  ownershipType: string | null
+  hoaDetails: string | null
+  showingInstructions: string | null
+  occupantType: string | null
 }
 
 export type TransportAttempt = {

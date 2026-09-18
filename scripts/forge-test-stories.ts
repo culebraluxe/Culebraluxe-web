@@ -2479,6 +2479,56 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/dependency-triage.test.ts`\n- `pnpm typecheck`',
   },
   {
+    id: 'MKT-STELLAR-DRAFT-01',
+    workstream: 'MARKETING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 102,
+    title: 'A property is prepared for a Stellar listing draft, and the pack stays manual',
+    goal:
+      'In Marketing, prepare a property for a Stellar/SkySlope listing: ten values copied from the ' +
+      'canonical property, seven flagged for unit check or human review, fifteen listing-specific ' +
+      'values editable on one extension record, invalid input refused by name, and the generated pack ' +
+      'a manual draft that never claims an accepted listing.',
+    scope:
+      'lib/syndication/stellar-fields.ts, lib/syndication/stellar.ts, lib/syndication/types.ts, ' +
+      'lib/syndication/adapters.ts, db/stellar-listing.ts, db/syndication.ts, ' +
+      'db/migrations/194_stellar_listing_details.sql, app/portal/marketing/actions.ts, ' +
+      'components/portal/marketing/syndication-workbench.tsx, workflow_app/tests/stellar-listing-draft.test.ts.',
+    acceptance:
+      '1. An empty property reports all fifteen editable Stellar fields as missing.\n' +
+      '2. A filled property reports none missing, and the unit/vocabulary/identity values are marked for review.\n' +
+      '3. Direct values come from the canonical property rather than a second copy of the facts.\n' +
+      '4. Invalid dates, negative tax, an out-of-range or fractional tax year, a zero area and an expiration before the contract date are each refused with a message.\n' +
+      '5. The RESO pack carries the listing values, so the next pack includes them.\n' +
+      '6. The adapter stays MANUAL and never claims an MLS number or an accepted listing.',
+    notes:
+      'INTAKE 2026-09-18 by the operator, on a draft patch the captain was handed by another agent. FOUR ' +
+      'THINGS THE INTAKE FOUND AND FIXED. (1) THE MIGRATION NUMBER COLLIDED: the draft wrote ' +
+      '191_stellar_listing_details.sql while 191 is property_stellar_listing and 191-193 were taken by ' +
+      'the Forge perimeter work shipped the same night; the ledger is append-only, so it is renumbered ' +
+      '194 and applied to DEV and PROD (table and all four CHECK constraints verified present). (2) THE ' +
+      'MIGRATION HAD NO lock_timeout OR statement_timeout, which the squawk gate refuses on every ' +
+      'changed migration - added, and squawk is clean. (3) THE ACCEPTANCE WAS UNPROVABLE: the refusals ' +
+      'lived inside the server action and the assay was tsc + next build + a human eye, none of which ' +
+      'can FAIL when the rules are wrong; the rules are extracted into the pure ' +
+      'validateStellarDetails() and the fence workflow_app/tests/stellar-listing-draft.test.ts drives ' +
+      'all six claims green (6/6). (4) THE FENCE FOUND A REAL GAP: the packet lists lot UNITS as a ' +
+      'review item, but the code only flagged a lot size that was absent, so a size with no units came ' +
+      'back as filled - a unitless lot size now counts as missing. ALSO: the mapping counts were ' +
+      'HARDCODED (10/7/15) while the packet acceptance is entirely about those counts; they are now ' +
+      'derived from the maps with the fence asserting them against the map lengths as a drift guard. ' +
+      'THE FORGE CLEAN QUESTION, answered in the packet: pnpm forge:clean is control-plane WIDE (it ' +
+      'cancels stale work items, aborts stale instances and obsoletes open tasks across the board, and ' +
+      'demands --force on PROD), so an approval gate is right to refuse it as part of an assay; the ' +
+      'story-scoped equivalent is pnpm forge:story:reset <story-id> reset, and a first run needs ' +
+      'neither. HONEST RESIDUAL: the code, the schema and the refusal rules are verified by the fence ' +
+      'and by the applied migration, but the FORM has not been seen in a browser - that needs a build ' +
+      'and a connected environment, which belongs to the sprint release.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/stellar-listing-draft.test.ts`\n- `pnpm typecheck`',
+  },
+  {
     id: 'ENG-FORGE-SPLIT-SIBLING-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
