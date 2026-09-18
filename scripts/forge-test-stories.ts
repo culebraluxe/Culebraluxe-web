@@ -2377,7 +2377,7 @@ const STORIES: TestStory[] = [
       'A story cannot claim proof from a fence that has never been shown to discriminate, so every ' +
       'declared assertion carries a negative control that fails without the claimed behaviour.',
     scope:
-      'a negative-control mode in the QA/assay path (workflow_app/forge/agents/qa/), the evidence record it writes (db/forge-workflow-evidence.ts), and its own fence: workflow_app/tests/fence-can-fail.test.ts (new).',
+      'a negative-control mode in the QA/assay path (workflow_app/forge/agents/qa/), the schema it records into (db/migrations/193_forge_negative_control.sql, db/forge-workflow-evidence.ts), and its own fence: workflow_app/tests/fence-can-fail.test.ts (new).',
     acceptance:
       'For a story, the declared fence runs green; a negative control that withholds or inverts the ' +
       'claimed behaviour runs the SAME fence and requires at least one intended assertion to fail; ' +
