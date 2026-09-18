@@ -73,6 +73,9 @@
     "smoke:prod": "node --import tsx scripts/prod-smoke.ts",
     "story:status": "APP_ENV=production node --env-file=.env.local --import tsx scripts/set-story-status.ts",
     "sprint": "APP_ENV=production node --env-file=.env.local --import tsx scripts/sprint.ts",
+    "test:story": "APP_ENV=production node --env-file=.env.local --import tsx scripts/test-story.ts",
+    "test:sprint-fences": "APP_ENV=production node --env-file=.env.local --import tsx scripts/test-story.ts --sprint",
+    "test:deploy-gate": "pnpm db:parity && pnpm test:app && pnpm test:forge:engine",
 
     "probe:kind:dev": "APP_ENV=dev node --env-file=.env.local --import tsx scripts/probe-kind-routing.ts",
     "forge:decision": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-decision.ts",
