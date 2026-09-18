@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-18 21:34:16Z
-- commit: `118d4e1d` (working tree dirty) on `main`
+- generated: 2026-09-18 23:21:44Z
+- commit: `821fa872` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest all`
-- rows: 40 — packet, cited paths and story commits first, lexical matches after
+- rows: 39 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -35,7 +35,6 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/PERIMETER.md` — index · top-level harness page · last touched 2026-09-18
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — index · top-level harness page · last touched untracked
 - `docs/agent/REVIEWER.md` — index · top-level harness page · last touched untracked
-- `docs/agent/RUNLOG 2.md` — index · top-level harness page · last touched untracked
 - `docs/agent/RUNLOG.md` — index · top-level harness page · last touched untracked
 - `docs/agent/SECRET-ROTATION-CHECKLIST.md` — index · top-level harness page · last touched 2026-09-18
 - `docs/agent/SOP-DEV-REFRESH.md` — index · top-level harness page · last touched untracked

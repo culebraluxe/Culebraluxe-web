@@ -26,7 +26,7 @@
 //   pnpm health --hard       also drop .next, then the next build recreates it
 // ---------------------------------------------------------------------------
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, lstatSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -43,13 +43,10 @@ if (!root) {
 const sh = (command: string, cwd = root): string =>
   spawnSync(command, { shell: true, cwd, encoding: 'utf8' }).stdout?.trim() ?? ''
 
-/**
- * A Finder copy-on-conflict sibling: `routes.d 2.ts`, `package 3.json`. A space and a number before
- * the extension, and never something a person means to keep.
- */
-export function isCopyOnConflictJunk(name: string): boolean {
-  return / [0-9]+\.[A-Za-z0-9]+$/.test(name)
-}
+// Conflict copies are the debris of a cloud-sync client (see lib/git/sync-conflict.ts — it is OneDrive
+// known-folder-move on this machine, not iCloud) and the predicate lives there so it can be FENCED
+// without executing this script.
+import { conflictCopies, isConflictCopyName } from '../lib/git/sync-conflict'
 
 // Branch judgement lives in lib/git/branch-hygiene.ts so it can be FENCED without executing this
 // script (importing a script runs it). The rule is: land is judged by PATCH, not by ancestry, and
@@ -67,12 +64,27 @@ function unappliedPatchCount(branch: string, base: string): number {
     .filter((line) => line.startsWith('+')).length
 }
 
-function walk(dir: string, out: string[] = []): string[] {
+// Every file under `dir`, so conflict copies can be judged against the ORIGINAL beside them (a name
+// pattern alone would also catch `CHANGELOG 2026.md`).
+//
+// lstat, NEVER stat, and NEVER descend a symlink. This crashed on its first real run: `.pnpm-store`
+// holds symlinks whose targets are gone (pnpm's own bookkeeping), `statSync` follows the link and throws
+// ENOENT, and the whole counter-wipe died on a path it had no business walking. A walker that only
+// classifies debris has no reason to follow a link anywhere.
+function walkFiles(dir: string, out: string[] = [], skip: Set<string> = new Set()): string[] {
   if (!existsSync(dir)) return out
   for (const name of readdirSync(dir)) {
+    if (skip.has(name)) continue
     const full = join(dir, name)
-    if (statSync(full).isDirectory()) walk(full, out)
-    else if (isCopyOnConflictJunk(name)) out.push(full)
+    const stats = lstatSync(full)
+    if (stats.isSymbolicLink()) {
+      if (isConflictCopyName(name)) out.push(full)
+      continue
+    }
+    if (stats.isDirectory()) {
+      if (isConflictCopyName(name)) out.push(full)
+      else walkFiles(full, out, skip)
+    } else out.push(full)
   }
   return out
 }
@@ -91,7 +103,7 @@ const note = (area: string, detail: string, fixed = false) => findings.push({ ar
 // `node_modules`; this app measured 726 MB against 1.4 GB, i.e. healthy.
 const nextDir = join(root, '.next')
 if (existsSync(nextDir)) {
-  const junk = walk(nextDir)
+  const junk = conflictCopies(walkFiles(nextDir))
   const kb = (path: string) => Number(sh(`du -sk "${path}" 2>/dev/null | cut -f1`) || '0')
   const sizeMb = Math.round(kb(nextDir) / 1024)
   const cacheMb = Math.round(kb(join(nextDir, 'cache')) / 1024)
@@ -239,6 +251,27 @@ if (deletedTips.length > 0) {
   note('git', `${deletedTips.length} deleted branch tips recorded in .git/forge-branch-prune.log`)
 }
 
+// --- conflict copies ANYWHERE in the tree ------------------------------------
+// `.next` above is where they cluster, but the one that hides best is the one in source: this repo
+// carried `contact-export/contacts-export 2.json`, which looks exactly like a real file. The scan
+// skips `.git` (not ours to touch) and `node_modules` (regenerated, enormous).
+const SYNC_SKIP = new Set(['.git', 'node_modules', '.next'])
+const treeConflicts = conflictCopies(walkFiles(root, [], SYNC_SKIP))
+if (treeConflicts.length > 0) {
+  if (fix) for (const path of treeConflicts) rmSync(path, { force: true, recursive: true })
+  const sample = treeConflicts
+    .slice(0, 3)
+    .map((p) => p.replace(root + '/', ''))
+    .join(', ')
+  note(
+    'sync',
+    `${treeConflicts.length} conflict copy(ies) OUTSIDE .next (${sample}) — cloud-sync debris; the durable fix is moving node_modules/.next out of the synced folder${fix ? ' — removed' : ''}`,
+    fix,
+  )
+} else {
+  note('sync', 'no conflict copies in the source tree')
+}
+
 // --- tmp: the probe scripts and logs this work leaves behind ----------------
 const tmpJunk = readdirSync('/tmp').filter((n) => /\.(mts|mjs)$/.test(n) || /^(ar|lf|vi|vv|cc|qr|ct|fd|rc|ms|pn|sr|dn|sprint)/.test(n))
 if (tmpJunk.length > 0) {
@@ -256,7 +289,7 @@ for (const finding of findings) {
 const remaining = findings.filter(
   (f) =>
     !f.fixed &&
-    /stray|DIRTY|uncommitted|not pushed|landed and clean|fixture and clean|probe\/log|unlanded|left for you/.test(
+    /stray|DIRTY|uncommitted|not pushed|landed and clean|fixture and clean|probe\/log|unlanded|left for you|conflict copy/.test(
       f.detail,
     ),
 )
