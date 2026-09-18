@@ -2182,41 +2182,49 @@ const STORIES: TestStory[] = [
     id: 'ENG-FORGE-SECRET-HISTORY-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
-    priority: 'High',
+    priority: 'Medium',
     batch: 101,
-    title: 'The credentials that reached git history are rotated and the exposure is recorded',
+    title: 'The credentials captured by agent checkpoints are purged or rotated, and the capture path is closed',
     goal:
-      'Every credential that a committed environment-file backup exposed on 2026-09-03/04 is triaged ' +
-      'live-or-dead, every live one is rotated, and the repository records the exposure and the ' +
-      'rotation rather than a baseline entry that quietly hides it.',
+      'The environment-file backup that agent checkpoint refs captured is purged, or its credentials are ' +
+      'rotated, and no future secret reaches a checkpoint ref un-noticed.',
     scope:
-      'operator rotation at the providers (Neon, Meta/WhatsApp, BoldSign, iCloud, Mux, Google, xAI, ' +
-      'Auth), docs/agent/SECRET-EXPOSURE-2026-09.md (new), and a review of the .gitleaksignore ' +
-      'baseline that this story is allowed to shrink.',
+      'the nine refs/cline/checkpoints refs that hold the file (purged or kept, decided against the ' +
+      'restore points it costs), the operator rotation decision at the providers, docs/agent/PERIMETER.md, ' +
+      'and proof that the capture path is closed by the new .gitignore rule.',
     acceptance:
-      'Each of the 48 variable names is either rotated (with provider, date and who) or marked dead ' +
-      'with the reason it is dead; a full history scan stays green; the baseline lists only exposure ' +
-      'confirmed non-live; and no credential value appears in the new document, the story text or ' +
-      'any artifact.',
+      'The exposure is stated with its true scope — local shadow refs, never pushed — rather than as a ' +
+      'published leak; the operator records a rotate-or-accept decision per credential with the reason; ' +
+      'either the nine checkpoint refs are pruned and the blob is shown unreachable afterwards, or ' +
+      'keeping them is recorded with its cost; a fresh checkpoint of an untracked env file is shown to ' +
+      'be ignored by the new rule; and `pnpm scan:secrets` stays green.',
     notes:
-      'MEASURED 2026-09-18 by Cline, the first time gitleaks ran in this repository (gitleaks 8.30.1, ' +
-      'installed by the operator). It found a committed backup of the environment file: ' +
-      '`.env.local.before-icloud-username-fix`, present in 9 commits dated 2026-09-03 to 2026-09-04, ' +
-      '144 findings under the tightened rules (90 under the default set). The file is gone from HEAD ' +
-      'and from disk, and only `.env.example` is tracked today, but removal from the tree does not ' +
-      'remove it from history. 48 variable names were in it, including DATABASE_URL_PROD and ' +
-      'DATABASE_URL_UNPOOLED, AUTH_SECRET, WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, ' +
-      'BOLDSIGN_API_KEY, BOLDSIGN_WEBHOOK_SECRET, ICLOUD_MAIL_APP_PASSWORD, MUX_TOKEN_SECRET_PROD, ' +
-      'XAI_API_KEY and PORTAL_REVIEW_TOKEN. ROOT CAUSE, fixed in the same commit: .gitignore carried ' +
-      '`.env*.local`, which requires the name to END in `.local`, so a backup named ' +
-      '`.env.local.before-icloud-username-fix` was never ignored; the rule is now `.env*` with ' +
-      '`!.env.example`. THREE further findings are in internal API routes (jessica-listing-v4, ' +
-      'signature-provision, signature-provision-reset) that no longer exist in the tree. HONEST ' +
-      'BOUNDARY: this story cannot rotate anything itself — the operator holds every one of those ' +
-      'accounts, and the only correct remedy for an exposed secret is rotation, not deletion. ' +
-      'Rewriting published history was rejected as the default: it breaks every existing clone, does ' +
-      'not un-expose a key that was already read, and rotation is what actually ends the risk.',
-    assayCommands: '- `pnpm scan:secrets` (must stay green; the baseline must not grow)',
+      'CORRECTED 2026-09-18, and the correction is the point. My first reading of the gitleaks report was ' +
+      'wrong in the way that matters: it said `.env.local.before-icloud-username-fix` sat in 9 commits, ' +
+      'I read "commits" as repository history, and I told the operator their production credentials were ' +
+      'published and must be rotated. THEY WERE NEVER PUSHED. The nine commits are CLINE CHECKPOINT ' +
+      'commits — shadow refs under `refs/cline/checkpoints/*`, message "untracked files on cline ' +
+      'checkpoint" — and the blob (297c48e2) is reachable from exactly those nine checkpoint refs and ' +
+      'from NO branch and NO remote ref. Confirmed against GitHub as well: ' +
+      '`gh api repos/culebraluxe/Culebraluxe-web/contents/.env.local.before-icloud-username-fix` is 404 ' +
+      'and the commit is not on the remote. A gitleaks `Link` field LOOKS like a GitHub URL and is not ' +
+      'one — it is the tool constructing a plausible URL from the remote name, and I read it as evidence ' +
+      'of publication. THE MECHANISM, which also answers how it "slipped in" with nobody git-adding it: ' +
+      'Cline checkpoints snapshot UNTRACKED files, so a plaintext backup that no human ever staged was ' +
+      'captured by a tool. The old `.gitignore` rule `.env*.local` could not match a name ending in ' +
+      '`-fix`, so nothing stopped it; that rule is fixed in the same commit as this story (`.env*` with ' +
+      '`!.env.example`). RISKS THAT REMAIN, stated without inflating them: (1) the secrets sit in local ' +
+      'git objects that survive deleting the working file; (2) `git push --mirror` would publish every ' +
+      'ref including refs/cline, while `git push --all` would not, since it carries refs/heads only; ' +
+      '(3) any full copy of this clone carries them. Rotation is therefore prudent for the cheap-to-' +
+      'regenerate crown jewels (AUTH_SECRET, the Neon passwords, the WhatsApp and BoldSign keys) but it ' +
+      'is NOT an emergency, and the operator decides per credential. PURGE OPTION, with its real cost: ' +
+      '`git for-each-ref refs/cline/checkpoints` can be pruned and the blob dropped with ' +
+      '`git gc --prune=now`, at the price of the Cline restore points tied to the refs that hold it — ' +
+      'nine of 1179 refs. HONEST BOUNDARY: rotation is the only remedy that ends the risk if the keys ' +
+      'were ever shared or copied; purging local objects does not un-expose anything that has already ' +
+      'left this machine.',
+    assayCommands: '- `pnpm scan:secrets` (baseline must not grow); the blob unreachable after a purge',
   },
   {
     id: 'ENG-FORGE-CI-PRODUCTION-FENCE-01',

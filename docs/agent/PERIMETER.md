@@ -20,15 +20,44 @@ Config: `.gitleaks.toml` (rules + allowlists), `.gitleaksignore` (the known hist
 
 ## What the first runs found — the numbers, because they are the argument
 
-**Credentials (gitleaks, first run in this repository's history).** A committed backup of the
-environment file — `.env.local.before-icloud-username-fix` — sits in 9 commits dated 2026-09-03/04,
-carrying 48 variable names, including `DATABASE_URL_PROD`, `AUTH_SECRET`,
-`WHATSAPP_ACCESS_TOKEN`, `BOLDSIGN_API_KEY`, `ICLOUD_MAIL_APP_PASSWORD` and `XAI_API_KEY`. The file
-is gone from the tree; history is not. **Root cause, fixed the same day:** `.gitignore` said
-`.env*.local`, which requires the name to END in `.local`, so the backup was never ignored. It now
-says `.env*` with `!.env.example`. The exposure and its rotation are tracked by
-`ENG-FORGE-SECRET-HISTORY-01` — the baseline in `.gitleaksignore` is a receipt of what is known, not
+**Credentials (gitleaks, first run in this repository).** A plaintext backup of the environment file
+— `.env.local.before-icloud-username-fix` — is captured in **9 `refs/cline/checkpoints/*` refs**
+dated 2026-09-03/04, carrying 48 variable names including `DATABASE_URL_PROD`, `AUTH_SECRET`,
+`WHATSAPP_ACCESS_TOKEN`, `BOLDSIGN_API_KEY`, `ICLOUD_MAIL_APP_PASSWORD` and `XAI_API_KEY`.
+
+**It was never pushed.** The blob (297c48e2) is reachable from exactly those nine checkpoint refs and
+from **no branch and no remote ref**; `gh api .../contents/.env.local.before-icloud-username-fix` is
+404 and the commit is not on the remote. The mechanism also explains how it "slipped in" with nobody
+staging it: **Cline checkpoints snapshot untracked files**, so a backup that no human ever
+`git add`ed was captured by a tool — and the old `.gitignore` rule `.env*.local` could not match a
+name ending in `-fix`, so nothing stopped it.
+
+**Root cause, fixed the same day:** `.gitignore` now says `.env*` with `!.env.example`. Remaining
+risks, not inflated: the secrets sit in local git objects that outlive the working file; `git push
+--mirror` would publish every ref including `refs/cline` (`git push --all` would not — it carries
+`refs/heads` only); and any full copy of this clone carries them. Rotation is prudent for the
+cheap-to-regenerate crown jewels but is not an emergency. Tracked by
+`ENG-FORGE-SECRET-HISTORY-01`; the `.gitleaksignore` baseline is a receipt of what is known, not
 permission to keep it.
+
+## CORRECTION, 2026-09-18 — my own wrong alarm, kept because it is instructive
+
+The first version of the section above said the credentials were **in git history** and told the
+operator their production keys were published and must be rotated. That was wrong, and it was wrong
+in a way worth writing down rather than quietly editing:
+
+1. **"Commits" is not "history".** gitleaks said 9 commits; I read that as repository history and
+   never asked which *refs* held them. The answer was nine shadow refs under `refs/cline/checkpoints/`
+   — of 1179 such refs — and no branch at all.
+2. **A tool's `Link` field is not evidence.** gitleaks emits
+   `https://github.com/culebraluxe/Culebraluxe-web/blob/<sha>/...`, which *looks* like a published
+   URL. It is the tool constructing a plausible URL from the remote name. I read it as publication.
+   The check that actually answers the question is `gh api repos/.../commits/<sha>` — which returns
+   422 for these.
+3. **The lesson generalises to every instrument in this file.** Each one produces a finding that
+   *feels* authoritative and carries a field that looks like proof. Before telling the operator
+   something is on fire, ask which ref, which environment, which authority — and make the tool's
+   own output show its work. The alarm was cheap to check and expensive to send.
 
 **Migrations (squawk, all 192 files).** 745 findings: 145 indexes created without `CONCURRENTLY`,
 161 missing `lock_timeout`, 161 missing `statement_timeout`, 50 constraints added without
