@@ -1,4 +1,4 @@
-import type { StoryboardStory } from './storyboard'
+import { normalizeSpendSource, resolveSpendSource, type StoryboardStory } from './storyboard'
 import type { RunMachineEvidence } from '../lib/forge-run-evidence'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
@@ -182,6 +182,14 @@ export async function recordForgeRunMachineEvidence(
 ): Promise<void> {
   const q = execute ?? (await executor())
   const detail = evidence.evidenceDetail?.trim() || null
+  // ENG-FORGE-REVIEW-RESIDUALS-01 — one closed vocabulary (db/storyboard.ts
+  // SPEND_SOURCES). A write carrying USD is 'vendor', one carrying widgets is
+  // 'widgets'; a write carrying neither preserves the recorded source and falls
+  // back to 'none', so absence is a recorded fact rather than NULL.
+  const spendSource = resolveSpendSource({
+    costUsd: evidence.costUsd ?? null,
+    costWidgets: evidence.costWidgets ?? null,
+  })
   await q`
     update storyboard_story_run
     set base_commit_hash = coalesce(${evidence.baseCommitHash}, base_commit_hash),
@@ -197,7 +205,8 @@ export async function recordForgeRunMachineEvidence(
         tokens_input = coalesce(${evidence.tokensInput ?? null}, tokens_input),
         tokens_output = coalesce(${evidence.tokensOutput ?? null}, tokens_output),
         cost_usd = coalesce(${evidence.costUsd ?? null}, cost_usd),
-        cost_source = case when (${evidence.costUsd ?? null})::numeric is not null then 'vendor' else cost_source end,
+        cost_widgets = coalesce(${evidence.costWidgets ?? null}, cost_widgets),
+        cost_source = coalesce(${spendSource}, cost_source, 'none'),
         harness_session_id = coalesce(${evidence.harnessSessionId ?? null}, harness_session_id),
         evidence_detail = case
           when ${detail}::text is null then evidence_detail
@@ -371,7 +380,7 @@ export async function getForgeRunMachineEvidence(
     tokensOutput: row.tokens_output ?? null,
     costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
     costWidgets: row.cost_widgets === null || row.cost_widgets === undefined ? null : Number(row.cost_widgets),
-    costSource: row.cost_source ?? null,
+    costSource: normalizeSpendSource(row.cost_source),
   }
 }
 

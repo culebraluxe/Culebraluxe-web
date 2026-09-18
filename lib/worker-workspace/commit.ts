@@ -62,12 +62,27 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim()
 }
 
+/**
+ * `git status --porcelain` output is POSITIONAL: each line is `XY <path>` and the
+ * two status columns (and the space after them) are data, not decoration. This read
+ * is deliberately NEVER trimmed — trimming the whole string or each line drops the
+ * first line's leading status space, and `slice(3)` then eats the first character of
+ * its path (`agent-runtime/...` became `gent-runtime/...`), so an in-scope modified
+ * tracked file was refused as out of scope.
+ */
+async function gitPorcelainStatus(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+    cwd,
+    encoding: 'utf8',
+  })
+  return stdout.replace(/\r?\n+$/, '')
+}
+
 /** One path per porcelain line, rename-aware (`R  old -> new` names `new`). */
 function porcelainPaths(status: string): string[] {
   return status
     .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line.trim().length > 0)
     .map((line) => line.slice(3).trim())
     .map((rest) => {
       const arrow = rest.lastIndexOf(' -> ')
@@ -105,7 +120,7 @@ export async function commitWorkerWorkspaceChanges(
   message: string,
   options: WorkerCommitOptions = {},
 ): Promise<WorkerCommitResult> {
-  const status = await git(worktreePath, ['status', '--porcelain'])
+  const status = await gitPorcelainStatus(worktreePath)
   if (!status) return { commitHash: null, changed: false }
 
   const declared = [

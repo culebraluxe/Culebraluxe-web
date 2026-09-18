@@ -753,6 +753,36 @@ type RunRow = QueryRow & {
   updated_at: string
 }
 
+/**
+ * ENG-FORGE-REVIEW-RESIDUALS-01 — the ONE closed vocabulary for what a run's
+ * spend columns carry. Both writers, the reader and the migration consume this
+ * list; there is no second copy. 'none' is a recorded fact (nothing measured),
+ * never an absent value.
+ */
+export const SPEND_SOURCES = ['vendor', 'widgets', 'none'] as const
+export type SpendSource = (typeof SPEND_SOURCES)[number]
+
+/**
+ * Which source a run's recorded spend is, from the quantities present THIS write.
+ * Null means this write carried no spend — the caller preserves any source already
+ * recorded and falls back to 'none'.
+ */
+export function resolveSpendSource(input: {
+  costUsd?: number | string | null
+  costWidgets?: number | string | null
+}): SpendSource | null {
+  if (input.costUsd !== null && input.costUsd !== undefined) return 'vendor'
+  if (input.costWidgets !== null && input.costWidgets !== undefined) return 'widgets'
+  return null
+}
+
+/** Normalize any stored value into the closed vocabulary; absence is 'none'. */
+export function normalizeSpendSource(value: unknown): SpendSource {
+  return (SPEND_SOURCES as readonly string[]).includes(String(value))
+    ? (String(value) as SpendSource)
+    : 'none'
+}
+
 function mapRun(row: RunRow): StoryRun {
   return {
     id: row.id,
@@ -797,7 +827,7 @@ function mapRun(row: RunRow): StoryRun {
     tokensOutput: row.tokens_output ?? null,
     costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
     costWidgets: row.cost_widgets === null || row.cost_widgets === undefined ? null : Number(row.cost_widgets),
-    costSource: row.cost_source ?? null,
+    costSource: normalizeSpendSource(row.cost_source),
     createdAt: dateOrNull(row.created_at) ?? '',
     updatedAt: dateOrNull(row.updated_at) ?? '',
   }
@@ -1266,11 +1296,11 @@ export async function finishStoryRun(
     await q`
       update storyboard_story_run
       set cost_widgets = ${widgets},
-          cost_source = coalesce(cost_source, 'widgets'),
+          cost_source = 'widgets',
           updated_at = now()
       where id = ${runId}`
     run.costWidgets = widgets
-    if (run.costSource == null) run.costSource = 'widgets'
+    run.costSource = 'widgets'
   }
 
   const { status: storyStatus, completion } = storyCompletionForRun(

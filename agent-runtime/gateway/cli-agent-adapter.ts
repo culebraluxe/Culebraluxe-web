@@ -20,7 +20,10 @@ import {
   verifyWorkspaceEnvFile,
   type ExecutionEnvironment,
 } from '../../lib/execution-target'
-import { commitWorkerWorkspaceChanges } from '../../lib/worker-workspace'
+import {
+  commitWorkerWorkspaceChanges,
+  parseAllowedScopeMarker,
+} from '../../lib/worker-workspace/commit'
 
 const FORGE_OWNED_ENV_KEYS = new Set([
   'APP_ENV',
@@ -39,6 +42,19 @@ export function buildGatewayChildEnv(
     Object.entries(providerEnv).filter(([key]) => !FORGE_OWNED_ENV_KEYS.has(key)),
   )
   return buildChildProcessEnv(target, { ...baseEnv, ...allowedProviderEnv })
+}
+
+/**
+ * ENG-FORGE-REVIEW-RESIDUALS-01 — the CLI gateway's commit options come from the
+ * SAME declared-surface marker the factory path reads (`parseAllowedScopeMarker`),
+ * so the two harness-owned commit paths cannot drift into two scope rules. An
+ * absent/unparseable marker preserves the legacy commit-everything behaviour.
+ */
+export function adapterCommitOptions(
+  specialInstructions: string | null | undefined,
+): { allowedScope?: string[] } {
+  const allowedScope = parseAllowedScopeMarker(specialInstructions)
+  return allowedScope ? { allowedScope } : {}
 }
 
 export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
@@ -121,6 +137,7 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
   ): Promise<AgentRunEvidence | null> {
     const cwd = context.executionWorkspace?.worktreePath ?? process.cwd()
     let commitHash: string | null = null
+    let refusedPaths: string[] = []
 
     if (context.policy.allowCommit && context.executionWorkspace) {
       try {
@@ -131,8 +148,10 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
           const committed = await commitWorkerWorkspaceChanges(
             cwd,
             `${context.story.id}: ${context.story.title}`,
+            adapterCommitOptions(context.command.specialInstructions),
           )
           commitHash = committed.commitHash
+          refusedPaths = committed.refused ?? []
         }
       } catch {
         commitHash = null
@@ -146,10 +165,16 @@ export class CliAgentGatewayAdapter extends AgentRuntimeAdapter {
     }
 
     const output = this.stdout.trim()
+    const refusedNote =
+      refusedPaths.length > 0
+        ? `Commit refused: path(s) outside the declared scope — ${refusedPaths.join(', ')}`
+        : null
     return {
       resultStatus: 'Complete',
       completion: 100,
-      notes: output || `${this.provider.id} completed successfully`,
+      notes: [output || `${this.provider.id} completed successfully`, refusedNote]
+        .filter(Boolean)
+        .join('\n'),
       testsSummary: extractTestsSummary(output, `${this.provider.id} exit 0`),
       commitHash,
       runtimeAdapter: this.runtimeAdapterId,
