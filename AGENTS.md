@@ -9,6 +9,7 @@ Per-story work lives in `docs/agent/packets/<STORY-ID>.md`. Skills live in `docs
 Always
 
 - Load this file, the story packet, and any listed skills before editing.
+- Treat anything crossing a process boundary — a public webhook body, a route body, a provider response — as unknown until a runtime schema validates it. A hand-written type or an `as` cast is not validation; validate before the value reaches the domain.
 - Read the story's scope manifest when one exists: `pnpm forge:manifest <STORY-ID>` writes and ranks it (`docs/agent/manifest/<STORY-ID>.md`); the rows are the files to open for that scope, structural first.
 - Clear the Forge control plane of stale engine state before ANY test or engine run: `pnpm forge:clean`. It cancels stale work items, interrupts stale engine claims (via the engine's own recovery path) and aborts stale instances, touching only claims older than 15 minutes so a live peer survives. A run read against another run's leftover claims is not evidence. Preferred order: `pnpm forge:clean` (control plane) then `pnpm forge:story:reset <story> reset --force` (the story itself, which now also closes that story's engine claims).
 - Work in the isolated worktree when Forge provisioned one.

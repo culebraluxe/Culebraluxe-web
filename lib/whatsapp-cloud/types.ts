@@ -1,56 +1,12 @@
-import type { JsonObject } from '../crm-types'
-
-export type MetaWhatsAppContact = {
-  wa_id?: string
-  profile?: { name?: string }
-}
-
-export type MetaWhatsAppMessage = {
-  from?: string
-  to?: string
-  id?: string
-  timestamp?: string
-  type?: string
-  context?: { id?: string }
-  image?: { id?: string; mime_type?: string; caption?: string }
-  video?: { id?: string; mime_type?: string; caption?: string }
-  audio?: { id?: string; mime_type?: string }
-  document?: {
-    id?: string
-    mime_type?: string
-    filename?: string
-    caption?: string
-  }
-  sticker?: { id?: string; mime_type?: string }
-  text?: { body?: string }
-  button?: JsonObject
-  interactive?: JsonObject
-  location?: JsonObject
-  contacts?: JsonObject[]
-}
-
-export type MetaWhatsAppChangeValue = {
-  messaging_product?: string
-  metadata?: {
-    display_phone_number?: string
-    phone_number_id?: string
-  }
-  contacts?: MetaWhatsAppContact[]
-  messages?: MetaWhatsAppMessage[]
-  message_echoes?: MetaWhatsAppMessage[]
-  statuses?: unknown[]
-}
-
-export type MetaWhatsAppWebhookPayload = {
-  object?: string
-  entry?: Array<{
-    id?: string
-    changes?: Array<{
-      field?: string
-      value?: MetaWhatsAppChangeValue
-    }>
-  }>
-}
+// Application types for the WhatsApp Cloud API webhook are INFERRED from the
+// runtime schema in ./schema.ts. There is no hand-written payload shape to keep
+// in step with the validator: change the schema and these types follow.
+export type {
+  MetaWhatsAppChangeValue,
+  MetaWhatsAppContact,
+  MetaWhatsAppMessage,
+  MetaWhatsAppWebhookPayload,
+} from './schema'
 
 export type MetaWhatsAppConfiguration = {
   appSecret: string

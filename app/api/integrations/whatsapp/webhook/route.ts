@@ -10,6 +10,7 @@ import {
   loadWhatsAppVerifyToken,
 } from '@/lib/whatsapp-cloud/config'
 import { processMetaWhatsAppWebhook } from '@/lib/whatsapp-cloud/application'
+import { validateMetaWhatsAppWebhookPayload } from '@/lib/whatsapp-cloud/schema'
 import type { MetaWhatsAppWebhookPayload, MetaWhatsAppMessage } from '@/lib/whatsapp-cloud/types'
 import {
   verifyMetaWhatsAppHandshake,
@@ -88,9 +89,9 @@ async function POSTHandler(request: NextRequest) {
     )
   }
 
-  let payload: MetaWhatsAppWebhookPayload
+  let parsedBody: unknown
   try {
-    payload = JSON.parse(rawBody) as MetaWhatsAppWebhookPayload
+    parsedBody = JSON.parse(rawBody)
   } catch (error) {
     captureServerError('/api/integrations/whatsapp/webhook', error, { route: '/api/integrations/whatsapp/webhook' })
     return NextResponse.json(
@@ -98,6 +99,18 @@ async function POSTHandler(request: NextRequest) {
       { status: 400 },
     )
   }
+
+  // The parsed body is unknown until the schema validates it. A validation
+  // failure is a rejected request, not an error row, and the domain is never
+  // reached. Signature verification (above) still runs before this point.
+  const validated = validateMetaWhatsAppWebhookPayload(parsedBody)
+  if (!validated.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'Invalid WhatsApp payload.' },
+      { status: 400 },
+    )
+  }
+  const payload: MetaWhatsAppWebhookPayload = validated.payload
 
   try {
     // GOLDEN RULE: all input lands in its own L table first — the RAW Meta
