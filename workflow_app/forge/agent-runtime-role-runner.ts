@@ -488,7 +488,10 @@ export function createAgentRuntimeForgeRoleRunner(
     // with a named reason, never a silent pass (active decision silent-refusal-is-a-defect).
     // ---------------------------------------------------------------------
     if (nodeId === 'deploy') {
-      let deployHoldReason: string | null = null
+      // Both paths assign before the read below, so the initialiser was dead (eslint no-useless-assignment)
+      // and, more to the point, this block is why the engine needs the linter in its static gate: it landed
+      // through a full QA pass with a lint error, because the gate runs semgrep, knip and tsc but not eslint.
+      let deployHoldReason: string | null
       try {
         deployHoldReason = forgeDeployHoldReason(await readForgeWorkflowEvidence(resolvedStory.id))
       } catch (error) {
