@@ -178,3 +178,86 @@ export function releaseReceiptFromDeploymentSignal(
 export function isRecordedDeploymentDeferral(deferredToBatch: number | null | undefined): boolean {
   return typeof deferredToBatch === 'number' && Number.isFinite(deferredToBatch) && deferredToBatch > 0
 }
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-BATCH-RECEIPT-01 — the batch release receipt, derived from the
+// actual release outcome and never asserted.
+//
+// A story may complete with its deployment DEFERRED to a release batch
+// (`deploymentDeferredToBatch`). The batch release itself is run by hand
+// (scripts/vercel-release-prod.sh prints the source commit it built and
+// deployed). This is the other half of that deferral: the release records what
+// it actually carried, so a sprint can be audited afterwards instead of
+// remembered. No outcome means no receipt, and the record path refuses to write.
+//
+// Pure module addition: no database, no network, no filesystem, no clock.
+// ---------------------------------------------------------------------------
+
+/** The ACTUAL outcome of a batch release, as reported by the release itself. */
+export type BatchReleaseOutcome = {
+  /** The release batch (the sprint axis: `deployment_deferred_to_batch`). */
+  batch: number | null
+  /** The stories the release carried, already sliced by the caller. */
+  storyIds: readonly string[]
+  /** The commit the release built and deployed, or null when there was no release. */
+  releasedSha: string | null
+  /** When the release happened (ISO-8601), or null when unknown. */
+  releasedAt: string | null
+  /** True only when the release actually succeeded. */
+  success: boolean
+}
+
+/** A durable batch release receipt: the batch, what it carried, the commit and when. */
+export type BatchReleaseReceipt = {
+  batch: number
+  storyIds: string[]
+  releasedSha: string
+  releasedAt: string
+}
+
+function isoOrNull(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const parsed = Date.parse(String(value))
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
+}
+
+/**
+ * Derive a batch release receipt from the ACTUAL release outcome.
+ *
+ * Returns null — and therefore no receipt — when there was no real release: an
+ * absent outcome, a failed release, no real commit sha, no positive batch, no
+ * carried story, or no usable release time. A receipt is never asserted from the
+ * deferral record; only a real outcome produces one.
+ */
+export function batchReleaseReceiptFromOutcome(
+  outcome: BatchReleaseOutcome | null | undefined,
+): BatchReleaseReceipt | null {
+  if (!outcome) return null
+  if (outcome.success !== true) return null
+  if (!isRecordedDeploymentDeferral(outcome.batch)) return null
+  if (!isCommitSha(outcome.releasedSha)) return null
+  const releasedSha = (outcome.releasedSha ?? '').trim()
+  if (isPlaceholderReceiptId(releasedSha)) return null
+  const storyIds = [...new Set((outcome.storyIds ?? []).map((s) => String(s).trim()).filter(Boolean))]
+  if (storyIds.length === 0) return null
+  const releasedAt = isoOrNull(outcome.releasedAt)
+  if (!releasedAt) return null
+  return { batch: outcome.batch as number, storyIds, releasedSha, releasedAt }
+}
+
+/**
+ * The record path's guard: the receipt, or a refusal. A caller that would write a
+ * batch release receipt without a real release outcome gets an error rather than
+ * a fabricated receipt.
+ */
+export function requireBatchReleaseReceipt(
+  outcome: BatchReleaseOutcome | null | undefined,
+): BatchReleaseReceipt {
+  const receipt = batchReleaseReceiptFromOutcome(outcome)
+  if (!receipt) {
+    throw new Error(
+      'refusing to record a batch release: the release outcome carries no real released commit',
+    )
+  }
+  return receipt
+}

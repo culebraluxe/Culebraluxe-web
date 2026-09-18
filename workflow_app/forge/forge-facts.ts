@@ -181,6 +181,14 @@ export type ForgeGateEvidence = {
   publishedSha?: string | null
   deployedSha?: string | null
   productionVerifiedSha?: string | null
+  /**
+   * ENG-FORGE-BATCH-RECEIPT-01 — the durable receipt of the batch release that
+   * carried this story: the commit it released and when. Null until a release
+   * actually happened; never asserted from the deferral record.
+   */
+  batchReleasedSha?: string | null
+  batchReleasedAt?: string | null
+  batchReleaseReceipt?: string | null
   /** hold_resolution */
   resumeTarget?:
     | 'SCOUT'

@@ -14,7 +14,9 @@
 // ---------------------------------------------------------------------------
 
 import { forgeDb, forgeDbTargetForUrl } from '../db/forge-db.ts'
+import { recordForgeBatchReleaseReceipt } from '../db/forge-workflow-evidence.ts'
 import { sliceForBatch, sliceOf } from '../workflow_app/forge/forge-batch-slice.ts'
+import { requireBatchReleaseReceipt } from '../workflow_app/forge/forge-release-receipt.ts'
 
 const argv = process.argv.slice(2)
 const only = argv.includes('--batch') ? Number(argv[argv.indexOf('--batch') + 1]) : null
@@ -67,4 +69,44 @@ for (const batch of batches) {
 }
 const deferred = stories.filter((r) => sliceOf(r) !== null && !r.deploymentReceipt && !r.productionVerified)
 console.log(`${deferred.length} story(ies) carry a deferred deployment; none of them claims production verification.`)
+
+// ---------------------------------------------------------------------------
+// RECORD: write the release receipt from the ACTUAL release result.
+//
+//   ... --record --batch <n> --sha <released commit> [--at <iso>]
+//
+// `--sha` is the commit the release built and deployed (what
+// scripts/vercel-release-prod.sh prints). There is NO default: without a real
+// commit sha there is no receipt, nothing is written and the command exits
+// non-zero. A batch that was never released leaves no receipt.
+// ---------------------------------------------------------------------------
+if (argv.includes('--record')) {
+  const releasedSha = argv.includes('--sha') ? argv[argv.indexOf('--sha') + 1] : null
+  const releasedAt = argv.includes('--at') ? argv[argv.indexOf('--at') + 1] : new Date().toISOString()
+  if (only === null) {
+    console.error('--record requires --batch <n>: a release receipt names the batch it released')
+    await pool.end()
+    process.exit(1)
+  }
+  let receipt
+  try {
+    receipt = requireBatchReleaseReceipt({
+      batch: only,
+      storyIds: sliceForBatch(stories, only).map((entry) => entry.id),
+      releasedSha,
+      releasedAt,
+      success: true,
+    })
+  } catch (error) {
+    console.error(`refusing to record batch ${only}: ${String((error && error.message) || error)}`)
+    await pool.end()
+    process.exit(1)
+  }
+  const written = await recordForgeBatchReleaseReceipt(receipt, pool.sql)
+  console.log(
+    `recorded batch ${receipt.batch} release ${receipt.releasedSha} at ${receipt.releasedAt}: ` +
+      `${written}/${receipt.storyIds.length} carried story(ies)`,
+  )
+}
+
 await pool.end()

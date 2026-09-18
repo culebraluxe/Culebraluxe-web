@@ -1,4 +1,5 @@
 import type { ForgeGateEvidence } from '../workflow_app/forge/forge-facts'
+import type { BatchReleaseReceipt } from '../workflow_app/forge/forge-release-receipt'
 import type { ArchitectFinding } from '../workflow_app/forge/forge-shaping'
 import { classifyStoredQaDisposition } from '../workflow_app/forge/qa-repair-policy'
 import type { QueryExecutor, QueryRow } from './query-executor'
@@ -18,6 +19,14 @@ type EvidenceRow = QueryRow & Record<string, unknown>
 const value = <T>(row: EvidenceRow, key: string): T | undefined => {
   const current = row[key]
   return current === null || current === undefined ? undefined : (current as T)
+}
+
+/** Driver timestamps leave this boundary as ISO strings or null — never a Date. */
+const isoOrNull = (current: unknown): string | null => {
+  if (current === null || current === undefined) return null
+  if (current instanceof Date) return current.toISOString()
+  const parsed = Date.parse(String(current))
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
 }
 
 const stringArray = (row: EvidenceRow, key: string): string[] | undefined => {
@@ -111,6 +120,9 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     publishedSha: value(row, 'published_sha'),
     deployedSha: value(row, 'deployed_sha'),
     productionVerifiedSha: value(row, 'production_verified_sha'),
+    batchReleasedSha: value(row, 'batch_released_sha'),
+    batchReleasedAt: isoOrNull(row['batch_released_at']),
+    batchReleaseReceipt: value(row, 'batch_release_receipt'),
   }
 }
 
@@ -222,6 +234,45 @@ export async function mergeForgeWorkflowEvidence(
       findings = coalesce(excluded.findings, forge_workflow_evidence.findings),
       updated_at = now()
   `
+}
+
+/**
+ * Record a batch release receipt onto every story the release carried.
+ *
+ * The receipt is DERIVED by `batchReleaseReceiptFromOutcome` from the actual
+ * release outcome; this writer refuses null and writes nothing without one. It
+ * owns exactly these three columns — the per-story deploy path keeps
+ * `deployment_receipt` and `deployed_sha` — so one fact has exactly one writer.
+ * Only rows whose RECORDED deferral names the released batch are touched, so a
+ * receipt can never land on a story the batch did not carry.
+ */
+export async function recordForgeBatchReleaseReceipt(
+  receipt: BatchReleaseReceipt | null | undefined,
+  execute?: QueryExecutor,
+): Promise<number> {
+  if (!receipt) {
+    throw new Error(
+      'recordForgeBatchReleaseReceipt: refusing to write a batch release without a derived receipt',
+    )
+  }
+  const q = execute ?? (await executor())
+  const receiptId = `batch-release:${receipt.batch}:${receipt.releasedSha}`
+  const releasedAt = new Date(receipt.releasedAt)
+  let written = 0
+  for (const storyId of receipt.storyIds) {
+    const rows = await q`
+      update forge_workflow_evidence
+      set batch_released_sha = ${receipt.releasedSha},
+          batch_released_at = ${releasedAt},
+          batch_release_receipt = ${receiptId},
+          updated_at = now()
+      where story_id = ${storyId}
+        and deployment_deferred_to_batch = ${receipt.batch}
+      returning story_id
+    `
+    written += rows.length
+  }
+  return written
 }
 
 export async function readForgeWorkflowEvidence(
