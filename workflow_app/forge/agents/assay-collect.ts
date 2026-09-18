@@ -5,7 +5,7 @@
  */
 import type { ForgeGateEvidence } from '../forge-facts'
 import type { RoleEffectPorts } from './ports'
-import type { AcceptanceCondition } from './qa/types'
+import type { AcceptanceCondition, NegativeControlOutcome } from './qa/types'
 import { adjudicateAssay, runAssayCommands } from './qa/run'
 
 /**
@@ -20,7 +20,10 @@ import { adjudicateAssay, runAssayCommands } from './qa/run'
  * The evidence is the row (see the run/evidence writers): the verdict, each command, its exit code, and
  * whether it could run at all.
  */
-export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEffectPorts): ForgeGateEvidence {
+export function collectAssayEvidence(
+  evidence: ForgeGateEvidence,
+  ports: RoleEffectPorts,
+): ForgeGateEvidence & { negativeControl?: NegativeControlOutcome } {
   const commands = ports.assayCommands ?? []
 
   // NO RUNNER IS A FAILURE, not a pass. The lane was handed a plan it cannot execute.
@@ -52,13 +55,23 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
         ]
       : []
 
-  const plan = { commands, conditions }
+  const plan = {
+    commands,
+    conditions,
+    ...(ports.negativeControl ? { negativeControl: ports.negativeControl } : {}),
+  }
   const results = runAssayCommands(plan, ports.runCommand)
+  // THE CONTROL RUNS SEPARATELY. Its non-zero exit is the required outcome, so it is not a frozen
+  // command and is never recorded as CMD_FAIL; the adjudicator reads it on its own terms.
+  const negativeControlResult = plan.negativeControl
+    ? ports.runCommand(plan.negativeControl.command)
+    : undefined
   const report = adjudicateAssay({
     plan,
     commands: results,
     staticGate: ports.runStatic?.() ?? null,
     frozenMap: ports.acceptanceMap ?? null,
+    ...(negativeControlResult !== undefined ? { negativeControlResult } : {}),
   })
 
   if (report.verdict !== 'PASS') {
@@ -79,6 +92,7 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
     return {
       ...evidence,
       qaPassed: false,
+      ...(report.negativeControl ? { negativeControl: report.negativeControl } : {}),
       ...(failed.length ? { failedCommands: failed } : {}),
       // WHAT IT SAID, NOT JUST THAT IT FAILED — a refusal that does not quote the failing command's own
       // output cannot be diagnosed from the log, only re-derived by hand. An UNPROVEN verdict names the
@@ -97,10 +111,19 @@ export function collectAssayEvidence(evidence: ForgeGateEvidence, ports: RoleEff
           ? ` || missingAssertions=[${missingAssertions
               .map((entry) => `${entry.conditionId}:${entry.assertion}`)
               .join(' | ')}]`
+          : '') +
+        (report.negativeControl
+          ? ` || negativeControl=[ran=${report.negativeControl.ran}` +
+            ` unmeasurable=${report.negativeControl.unmeasurable}` +
+            ` killing=[${report.negativeControl.killingAssertions.join(' | ') || 'none'}]]`
           : ''),
     }
   }
 
-  return { ...evidence, qaPassed: true }
+  return {
+    ...evidence,
+    qaPassed: true,
+    ...(report.negativeControl ? { negativeControl: report.negativeControl } : {}),
+  }
 }
 

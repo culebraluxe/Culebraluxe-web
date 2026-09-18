@@ -2,7 +2,7 @@
  * ADD. Injected effects. Nothing in this package spawns a process, reads env,
  * or touches the DB. The runner supplies these.
  */
-import type { AcceptanceMap } from './qa/types'
+import type { AcceptanceMap, NegativeControl } from './qa/types'
 
 export type BenchIntent = 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
 
@@ -55,6 +55,13 @@ export type RoleEffectPorts = {
    * pass): there is no assertion behind any clause.
    */
   acceptanceMap?: AcceptanceMap
+  /**
+   * The story's declared negative control, if any. QA runs `command` as the SAME fence with the
+   * claimed behaviour withheld or inverted and requires at least one intended assertion to go red.
+   * ABSENT preserves today's semantics exactly; a control that kills nothing makes the verdict
+   * UNPROVEN, and one that cannot run is a FAIL.
+   */
+  negativeControl?: NegativeControl
   /**
    * NOT part of the required contract. Bench membership does NOT imply a launch
    * cap — every non-null value here is a cap, so deriving one would ban SPLIT for

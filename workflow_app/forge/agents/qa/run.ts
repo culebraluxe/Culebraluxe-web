@@ -1,7 +1,10 @@
 import type {
+  AcceptanceCondition,
   AcceptanceMap,
   AssayPlan,
   CommandResult,
+  NegativeControl,
+  NegativeControlOutcome,
   QaReport,
   QaVerdict,
   StaticSlice,
@@ -64,6 +67,61 @@ export function assertionOutcome(output: string | null | undefined, ref: string)
   return sawPass ? 'passed' : 'absent'
 }
 
+/**
+ * Adjudicate the negative control. Its RED is the required outcome.
+ *
+ * At least one INTENDED assertion must report `failed` in the control's EXECUTED output. A control
+ * that ran and killed nothing proves the fence has no power, so its clause is UNPROVEN. A control
+ * that could not RUN (spawn error or timeout) is `unmeasurable` — "we could not check" is never a
+ * kill. Only a marker line counts, so a compile error (which prints no marker) yields no failed
+ * assertion and cannot masquerade as a discriminating control.
+ */
+export function adjudicateNegativeControl(input: {
+  control: NegativeControl
+  result: CommandResult | null | undefined
+  conditions: readonly AcceptanceCondition[]
+}): {
+  outcome: NegativeControlOutcome
+  missing: boolean
+  unmeasurable: boolean
+  survived: boolean
+} {
+  const intended = input.control.assertions?.length
+    ? input.control.assertions
+    : input.conditions.flatMap((condition) => condition.assertions ?? [])
+  const refs = [...new Set(intended.map((ref) => ref.trim()).filter(Boolean))]
+  if (!input.result) {
+    return {
+      outcome: { command: input.control.command, ran: false, unmeasurable: false, killingAssertions: [] },
+      missing: true,
+      unmeasurable: false,
+      survived: false,
+    }
+  }
+  if (input.result.unmeasurable) {
+    return {
+      outcome: { command: input.control.command, ran: false, unmeasurable: true, killingAssertions: [] },
+      missing: false,
+      unmeasurable: true,
+      survived: false,
+    }
+  }
+  const killingAssertions = refs.filter(
+    (ref) => assertionOutcome(input.result?.output, ref) === 'failed',
+  )
+  return {
+    outcome: {
+      command: input.control.command,
+      ran: true,
+      unmeasurable: false,
+      killingAssertions,
+    },
+    missing: false,
+    unmeasurable: false,
+    survived: killingAssertions.length === 0,
+  }
+}
+
 export function runAssayCommands(plan: AssayPlan, run: RunCommand): CommandResult[] {
   return plan.commands.map((command) => {
     const result = run(command)
@@ -103,6 +161,12 @@ export function adjudicateAssay(input: {
    * lane changed what is tested and that is recorded (`ACCEPTANCE_MAP_CHANGED`) — never silently re-derived.
    */
   frozenMap?: AcceptanceMap | null
+  /**
+   * The result of running the plan's declared negative control, when there is one. It is adjudicated
+   * SEPARATELY from `commands` because its non-zero exit is the EXPECTED outcome: the fence is
+   * supposed to go red. Absent while the plan declares a control is a wiring failure, not a pass.
+   */
+  negativeControlResult?: CommandResult | null
 }): QaReport {
   const blockers: string[] = []
   // AN EMPTY PLAN IS A FAILURE. QA is reached only after a Smith produced work, on a story
@@ -183,6 +247,25 @@ export function adjudicateAssay(input: {
     blockers.push('ACCEPTANCE_MAP_CHANGED')
   }
 
+  // THE NEGATIVE CONTROL. A fence that has never been shown to fail is not proof. The control's own
+  // non-zero exit is EXPECTED (the fence goes red under the inversion), so it is adjudicated apart
+  // from `commands` and can never become a CMD_FAIL. What it must NOT do is survive: a control that
+  // killed no intended assertion leaves the fence unproven.
+  const negative = input.plan.negativeControl
+    ? adjudicateNegativeControl({
+        control: input.plan.negativeControl,
+        result: input.negativeControlResult,
+        conditions,
+      })
+    : null
+  if (negative) {
+    if (negative.missing) blockers.push(`NEGATIVE_CONTROL_MISSING ${negative.outcome.command}`)
+    else if (negative.unmeasurable)
+      blockers.push(`NEGATIVE_CONTROL_UNMEASURABLE ${negative.outcome.command}`)
+    else if (negative.survived)
+      blockers.push(`NEGATIVE_CONTROL_SURVIVED ${negative.outcome.command}`)
+  }
+
   // A real command/static failure outranks an unmapped clause (there is nothing to prove either way), but
   // the UNPROVEN blockers above are still recorded so the gap is never hidden behind the failure.
   const commandFailure = blockers.some(
@@ -193,11 +276,16 @@ export function adjudicateAssay(input: {
       b === 'NO_ASSAY_COMMANDS' ||
       b === 'ASSAY_COMMAND_DRIFT',
   )
+  // A control that could not run, or was declared but never handed a result, is a FAILURE of the run.
+  const negativeFailure = negative !== null && (negative.missing || negative.unmeasurable)
+  // A control that RAN and killed nothing is UNPROVEN: the proof passed, but the fence was never shown
+  // to discriminate, so PASS is refused.
+  const negativeSurvived = negative !== null && negative.survived
   // A mapped assertion that ran and FAILED is a FAIL in its own right: the proof ran, and it said no.
   const verdict: QaVerdict =
-    commandFailure || failedConditions.length > 0
+    commandFailure || failedConditions.length > 0 || negativeFailure
       ? 'FAIL'
-      : unproven.length || blockers.includes('ACCEPTANCE_MAP_CHANGED')
+      : unproven.length || blockers.includes('ACCEPTANCE_MAP_CHANGED') || negativeSurvived
         ? 'UNPROVEN'
         : blockers.length
           ? 'FAIL'
@@ -212,6 +300,7 @@ export function adjudicateAssay(input: {
     unproven,
     failedConditions,
     missingAssertions,
+    ...(negative ? { negativeControl: negative.outcome } : {}),
   }
 }
 
@@ -223,10 +312,16 @@ export function runAssay(input: {
 }): QaReport {
   const commands = runAssayCommands(input.plan, input.runCommand)
   const staticGate = input.runStatic ? input.runStatic() : null
+  // THE CONTROL IS RUN WITH THE SAME RUNNER, separately from the frozen proofs, because its red is
+  // the required outcome. It is never appended to `commands`.
+  const negativeControlResult = input.plan.negativeControl
+    ? input.runCommand(input.plan.negativeControl.command)
+    : undefined
   return adjudicateAssay({
     plan: input.plan,
     commands,
     staticGate,
     ...(input.frozenMap !== undefined ? { frozenMap: input.frozenMap } : {}),
+    ...(negativeControlResult !== undefined ? { negativeControlResult } : {}),
   })
 }

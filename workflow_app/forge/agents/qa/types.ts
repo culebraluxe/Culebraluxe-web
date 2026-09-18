@@ -71,6 +71,12 @@ export type QaReport = {
    * proves nothing. Each entry names the clause and the assertion the proof never ran.
    */
   missingAssertions: Array<{ conditionId: string; assertion: string }>
+  /**
+   * ENG-FORGE-FENCE-CAN-FAIL-01 — the negative-control evidence. Absent when the plan declared no
+   * control; present whenever one was declared, whether it killed an assertion, survived, or could
+   * not run. A control that survived is why a green fence is UNPROVEN rather than PASS.
+   */
+  negativeControl?: NegativeControlOutcome
 }
 
 /**
@@ -157,6 +163,36 @@ export function acceptanceMapChanged(
 }
 
 /**
+ * A NEGATIVE CONTROL: the SAME fence, run with the claimed behaviour withheld or inverted.
+ *
+ * Its RED is the required outcome — it must kill at least one intended assertion, or the fence has
+ * never been shown to discriminate and its green proves nothing. It is a single command so the
+ * inversion, the run and the destruction of the scratch state happen inside one invocation: no
+ * mutant, no scratch file and no branch outlives it.
+ */
+export type NegativeControl = {
+  /** The single command that applies the inversion, runs the SAME fence, and destroys its scratch. */
+  command: string
+  /**
+   * The intended assertions the control is expected to kill. ABSENT means every assertion mapped on
+   * the plan's acceptance conditions is intended — the mapping already says what the fence proves.
+   */
+  assertions?: string[]
+}
+
+/** What the negative control did, recorded on the report as evidence. */
+export type NegativeControlOutcome = {
+  /** The command that was run, so the evidence names the exact control. */
+  command: string
+  /** True when the control actually executed. */
+  ran: boolean
+  /** True when it could not be RUN at all (spawn error or timeout) — never a kill. */
+  unmeasurable: boolean
+  /** The mapped assertions whose marker line reported `failed` under the control. */
+  killingAssertions: string[]
+}
+
+/**
  * What QA is given: the story's frozen proofs, and nothing else. No candidate, no SHA, no lineage — QA has
  * no relationship to git and no role in committing, promoting or advising on a release.
  */
@@ -171,6 +207,12 @@ export type AssayPlan = {
    * has no assertion behind it and PASS is refused.
    */
   conditions?: AcceptanceCondition[]
+  /**
+   * The story's declared negative control, if any. ABSENT preserves today's semantics exactly: the
+   * verdict is decided by the commands and the mapping alone. PRESENT means a green fence must also
+   * be shown to discriminate — a control that kills nothing makes the verdict UNPROVEN.
+   */
+  negativeControl?: NegativeControl
 }
 
 export const FAILURE_CLASSES = [
