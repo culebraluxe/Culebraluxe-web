@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-18 05:40:43Z
-- commit: `f29b2b4c` (working tree dirty) on `main`
+- generated: 2026-09-18 12:42:13Z
+- commit: `ae5ff5a0` on `main`
 - regenerate: `pnpm forge:manifest all`
-- rows: 37 — packet, cited paths and story commits first, lexical matches after
+- rows: 38 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -27,10 +27,11 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/DEEPSEEK_HARNESS_NOTES.md` — index · top-level harness page · last touched untracked
 - `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` — index · top-level harness page · last touched untracked
 - `docs/agent/FAILFAST_ESCALATION_POLICY.md` — index · top-level harness page · last touched untracked
-- `docs/agent/FORGE-WORKSHOP.md` — index · top-level harness page · last touched 2026-09-16
+- `docs/agent/FORGE-WORKSHOP.md` — index · top-level harness page · last touched 2026-09-18
 - `docs/agent/MAP-engine.md` — index · top-level harness page · last touched 2026-09-15
 - `docs/agent/MAP-services.md` — index · top-level harness page · last touched 2026-09-15
 - `docs/agent/NAMING-AND-PROTECTION.md` — index · top-level harness page · last touched 2026-09-17
+- `docs/agent/PERIMETER.md` — index · top-level harness page · last touched 2026-09-18
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — index · top-level harness page · last touched untracked
 - `docs/agent/REVIEWER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/RUNLOG 2.md` — index · top-level harness page · last touched untracked
@@ -44,6 +45,6 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — index · top-level harness page · last touched 2026-09-16
 - `docs/agent/WORKTREE_EXECUTION.md` — index · top-level harness page · last touched untracked
 - `docs/agent/knip-intent.md` — index · top-level harness page · last touched untracked
-- `docs/agent/releases.md` — index · top-level harness page · last touched 2026-09-17
-- `docs/agent/route-authority-manifest.md` — index · top-level harness page · last touched 2026-09-16
-- `docs/agent/typesafe-failure-triage.md` — index · top-level harness page · last touched untracked
+- `docs/agent/releases.md` — index · top-level harness page · last touched 2026-09-18
+- `docs/agent/route-authority-manifest.md` — index · top-level harness page · last touched 2026-09-18
+- `docs/agent/typesafe-failure-triage.md` — index · top-level harness page · last touched 2026-09-18
