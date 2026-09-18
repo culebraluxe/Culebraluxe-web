@@ -65,6 +65,8 @@
     "forge:clean": "APP_ENV=production EXECUTION_ENV=PROD node --import tsx --env-file=.env.local scripts/forge-story-reset.ts clean --force",
     "release": "bash scripts/release-record.sh",
     "forge:batch:status": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-batch-status.ts",
+    "forge:board": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-read-tools.ts board",
+    "forge:story:show": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-read-tools.ts story:show",
     "forge:doctor": "APP_ENV=production node --import tsx --env-file=.env.local scripts/forge-doctor.ts",
     "forge:packet-lint": "node --import tsx scripts/forge-packet-lint.ts",
     "forge:silent-failure-gate": "node --import tsx scripts/forge-silent-failure-gate.ts",
