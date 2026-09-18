@@ -117,6 +117,28 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    transport: `git log --oneline -1` (is the message the one I wrote?) and
    `git rev-list --left-right --count origin/main...HEAD` (is it ahead?). This is the same family as
    `typecheck | tail` reading a pipe's exit code, and it is why a claim of "pushed" gets the SHA attached.
+8. **A cleaner that cannot see landed work never cleans — and reports health while it doesn't.** The
+   counter-wipe (`pnpm health`) judged a branch with `git branch --merged main`, which asks whether the
+   branch tip is an **ancestor** of main. Work here lands by rebase and cherry-pick, so a branch whose
+   every patch is already in main is still not an ancestor of it. Measured 2026-09-18: `--merged` said
+   "not merged" about 106 local branches while `git cherry` said "already applied" about their patches;
+   168 branches had accumulated (including 59 test fixtures from dogfood and smoke runs), and
+   `git branch -d` refuses the same branches for the same wrong reason — so the fix needed a FORCE
+   delete with the proof established first. The same wrong test sat in the worktree section, where it
+   meant a rebase-landed worktree was never removed. Landedness is now judged by **patch**, in
+   `lib/git/branch-hygiene.ts`, with two rules that are not about proof: a branch checked out in a
+   worktree is never touched (`cmd-01` is a live second checkout), and a branch a PERSON named
+   (`feat/*`, `v0/*`, `demo-lockdown/*`) is reported, never deleted — 29 remote branches were provably
+   landed and most of them were someone's.
+9. **A fence can prove a setup the engine does not have.** The worker commit path passed no git
+   identity, so it used the machine's — and on a machine with no git config that is git's placeholder:
+   **228 commits on this repository are authored by `Your Name <you@example.com>`** (all
+   2026-08-23..28; real work, attributed to nobody). The fence never noticed because the fence
+   configured an identity (`user.email = eng21@test`) in its temp repo, so it asserted a commit's
+   contents while the file never asserted the **author**. Fixed by stamping `GIT_AUTHOR_*` and
+   `GIT_COMMITTER_*` on every commit the path makes (`lib/worker-workspace/commit.ts`, also used by the
+   learn loop's commit), and fenced the other way round: the new test builds a repo whose config IS the
+   bug and asserts the commit comes out as Forge Smith.
 
 ## The deploy boundary (not yet a fence)
 

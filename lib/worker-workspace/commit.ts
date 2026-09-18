@@ -57,8 +57,42 @@ export function parseAllowedScopeMarker(text: string | null | undefined): string
   }
 }
 
+/**
+ * THE IDENTITY IS SET HERE, NOT INHERITED FROM THE MACHINE.
+ *
+ * Every commit in this house is authored by someone accountable. Until 2026-09-18 the worker commit
+ * path passed no identity at all, so it used whatever the machine had — and on a machine with no git
+ * configuration that is git's placeholder: **228 commits on this repository are authored by
+ * `Your Name <you@example.com>`** (all of them 2026-08-23..28, real work, attributed to nobody).
+ *
+ * The fence could not catch it because the fence configured an identity in its temp repo: the test
+ * proved a setup the engine never had. So the fix is not "configure the machine" — that is a
+ * prerequisite someone can forget — but to stamp author and committer explicitly on every commit this
+ * path makes, which also means the environment can never silently change who authored a story.
+ */
+export const FORGE_COMMIT_IDENTITY = {
+  name: 'Forge Smith',
+  email: 'forge-smith@culebraluxe.local',
+} as const
+
+/** Environment for git calls made by this module: explicit author + committer, machine ignored. */
+export function forgeGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const { name, email } = FORGE_COMMIT_IDENTITY
+  return {
+    ...env,
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: name,
+    GIT_COMMITTER_EMAIL: email,
+  }
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8' })
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: forgeGitEnv(),
+  })
   return stdout.trim()
 }
 

@@ -24,6 +24,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gitBinary } from '../lib/worker-workspace/provisioner'
+import { forgeGitEnv } from '../lib/worker-workspace/commit'
 
 import { listStaleAgentWork } from '../db/agent-work'
 import { getStagingBatch } from '../db/forge-batch'
@@ -355,6 +356,11 @@ export async function runLearnPass(input: {
         execFileSync(gitBinary(), ['commit', '-q', '-m', `learn: packet ${storyId}`, '--', relative], {
           cwd: input.root,
           stdio: 'ignore',
+          // The identity is stamped, not inherited: this pass runs unattended on whatever machine the
+          // loop happens to be on, and a machine with no git config authors commits as "Your Name
+          // <you@example.com>". 228 such commits exist on this repo from 2026-08-23..28 for exactly
+          // that reason. See lib/worker-workspace/commit.ts.
+          env: forgeGitEnv(),
         })
       } catch (err) {
         // Never fail the pass for this: the row and the story are already durable, and a packet left dirty is
