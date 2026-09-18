@@ -23,6 +23,43 @@ export type ForgeToolArtifact = QueryRow & {
   created_at: unknown
 }
 
+/** Where a receipt's sha came from, and the defect when it came from prose instead of a column. */
+export type ReceiptSha = {
+  sha: string | null
+  source: 'column' | 'notes' | 'absent'
+  defect: string | null
+}
+
+const SHA_IN_TEXT = /\b[0-9a-f]{7,40}\b/i
+
+/**
+ * ENG-FORGE-RECEIPT-COLUMNS-01 — A RECEIPT'S SHA IS READ FROM ITS COLUMN, NEVER FROM PROSE.
+ *
+ * The `sha` column is what joins a receipt to its artifact. A sha that appears only inside
+ * the notes/summary text is a named defect, because a reader would have to parse prose to
+ * resolve it — so this resolver returns it as a defect rather than silently extracting it.
+ */
+export function resolveReceiptSha(input: { sha?: string | null; notes?: string | null }): ReceiptSha {
+  const column = (input.sha ?? '').trim().toLowerCase()
+  if (column) return { sha: column, source: 'column', defect: null }
+  const found = SHA_IN_TEXT.exec(input.notes ?? '')
+  if (found) {
+    return {
+      sha: null,
+      source: 'notes',
+      defect: `receipt sha ${found[0]} exists only in notes text; write it to the sha column`,
+    }
+  }
+  return { sha: null, source: 'absent', defect: null }
+}
+
+/** Resolve a persisted artifact row's sha from its column, flagging a notes-only sha. */
+export function receiptShaFromArtifact(
+  row: Pick<ForgeToolArtifact, 'sha' | 'summary'>,
+): ReceiptSha {
+  return resolveReceiptSha({ sha: row.sha, notes: row.summary })
+}
+
 export type RecordToolArtifactInput = {
   storyId: string
   storyRunId?: string | null
