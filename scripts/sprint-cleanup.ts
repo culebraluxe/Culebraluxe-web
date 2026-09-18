@@ -64,22 +64,36 @@ const findings: Finding[] = []
 const note = (area: string, detail: string, fixed = false) => findings.push({ area, detail, fixed })
 
 // --- build dirs -------------------------------------------------------------
+// RULE OF THUMB, so nobody has to ask again: `.next` is disposable and is never committed. What SHIPS
+// is `server` + `static` (tens of MB); `cache` is the webpack/turbopack cache and is usually 90%+ of
+// the directory. So a large `.next` is not a problem by itself — the signals are copy-on-conflict
+// strays (they break `tsc` and `next dev`), and a cache many times the size of the shipped artifacts,
+// where `--hard` costs one cold build and nothing else. As a ceiling: `.next` should stay smaller than
+// `node_modules`; this app measured 726 MB against 1.4 GB, i.e. healthy.
 const nextDir = join(root, '.next')
 if (existsSync(nextDir)) {
   const junk = walk(nextDir)
-  const sizeMb = Math.round(Number(sh(`du -sk "${nextDir}" | cut -f1`) || '0') / 1024)
+  const kb = (path: string) => Number(sh(`du -sk "${path}" 2>/dev/null | cut -f1`) || '0')
+  const sizeMb = Math.round(kb(nextDir) / 1024)
+  const cacheMb = Math.round(kb(join(nextDir, 'cache')) / 1024)
+  const shipsMb = Math.round((kb(join(nextDir, 'server')) + kb(join(nextDir, 'static'))) / 1024)
   if (junk.length > 0) {
     if (fix) for (const file of junk) rmSync(file, { force: true })
     note('.next', `${junk.length} copy-on-conflict stray(s)${fix ? ' removed' : ''} — these break tsc/dev`, fix)
   }
   if (hard) {
     rmSync(nextDir, { recursive: true, force: true })
-    note('.next', `dropped entirely (${sizeMb} MB); the next build recreates it`, true)
-  } else if (sizeMb > 400) {
-    note('.next', `${sizeMb} MB of build output — \`pnpm health --hard\` clears it (costs a rebuild)`)
+    note('.next', `dropped entirely (${sizeMb} MB: ${cacheMb} MB cache, ${shipsMb} MB shipped); the next build recreates it`, true)
+  } else if (cacheMb > 300 && cacheMb > shipsMb * 5) {
+    note(
+      '.next',
+      `${sizeMb} MB, of which ${cacheMb} MB is cache and only ${shipsMb} MB ships — \`pnpm health --hard\` clears the cache for the price of one cold build`,
+    )
+  } else {
+    note('.next', `${sizeMb} MB (${cacheMb} MB cache, ${shipsMb} MB shipped) — healthy, nothing to do`)
   }
 } else {
-  note('.next', 'absent — a clean tree')
+  note('.next', 'absent — a clean tree, and the next build recreates it')
 }
 
 // --- worktrees --------------------------------------------------------------
