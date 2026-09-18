@@ -47,6 +47,10 @@ that directory.
 
 ### Rules that are not a list
 
+0. **A new top-level page must be indexed.** Every page in `docs/agent/` is a row in
+   `docs/agent/manifest/all.md`; adding one without `pnpm forge:manifest all` leaves the harness
+   DRIFTED and blocks the release build (it caught exactly that on 2026-09-18, twice: batch 91's
+   `route-authority-manifest.md` and this file).
 1. **Never rewrite an applied migration.** The `schema_migration` ledger records each file by checksum
    and refuses a changed one. Append a new migration instead; if a correction is needed before prod
    sees it, re-apply with `--force` and a note (that is what 187 did).
