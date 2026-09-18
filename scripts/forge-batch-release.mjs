@@ -22,13 +22,20 @@ const target = (argv.includes('--target') ? argv[argv.indexOf('--target') + 1] :
 const url = target === 'dev' ? process.env.DATABASE_URL_DEV : process.env.DATABASE_URL_PROD
 
 const pool = forgeDb.forTarget(forgeDbTargetForUrl(url))
+// WHY THIS IS NOT SCOPED TO ONE ROLLOUT: the query used to read
+// `where s.id like 'PROJECTS-WORKSPACE-%'`, so a story that deferred its deployment from any OTHER
+// batch was invisible here — measured 2026-09-18, when ENG-FORGE-SCOPE-OWN-CHANGES-01 recorded
+// `deployment_deferred_to_batch = 92` and this tool reported "0 story(ies)". A deferral that the
+// release view cannot see is exactly the deployment nobody remembers at sprint release, which is the
+// failure the deferral record exists to prevent. The slice logic already ignores rows with no
+// deferral (`sliceOf` -> null), so the filter belongs there, not in the query. Use --batch to narrow.
 const rows = await pool.query(
   `select s.id, s.batch, s.status, s.batch_deploy,
           e.qa_passed, e.published_sha, e.deployed_sha, e.deployment_deferred_to_batch,
           e.deployment_receipt, e.production_verified
      from storyboard_story s
      left join forge_workflow_evidence e on e.story_id = s.id
-    where s.id like 'PROJECTS-WORKSPACE-%'
+    where e.deployment_deferred_to_batch is not null
     order by s.batch nulls last, s.id`,
 )
 
