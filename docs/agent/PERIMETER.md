@@ -95,10 +95,13 @@ medium, 2 low — `sharp 0.35.3` (8.9), `qs 6.15.2`, `next 16.3.0`, `postcss`, `
    test fixtures and would have baselined 50 findings in live source files as "known exposure". The
    rules now carry entropy floors and per-rule path allowlists, and the baseline fell from 183
    entries to 147 — all of them the real incident.
-5. **A squawk exception must sit IMMEDIATELY above the statement it excuses.** `-- squawk-ignore <rule>`
-   is honoured only as the last comment line before the statement; put prose in between and the finding
-   stands (measured on `192_forge_batch_release_receipt.sql`, where the first attempt failed and the
-   adjacent version passed with `Found 0 issues`).
+5. **A squawk exception must sit IMMEDIATELY above the REPORTED LINE — which inside a multi-line
+   statement is the COLUMN, not the statement.** `-- squawk-ignore <rule>` is honoured only as the last
+   comment line before that line: put prose in between and the finding stands, and put it above a
+   `create table` when the violation is reported on a column inside it and it does nothing at all.
+   Both mistakes were measured on 2026-09-18: `192_forge_batch_release_receipt.sql` (prose in between,
+   finding stood) and `194_stellar_listing_details.sql` (directive above the statement, while
+   `prefer-bigint-over-int` was reported on the `tax_year integer` line).
 6. **`CREATE INDEX CONCURRENTLY` cannot run in this repository at all** — and that is a real limitation,
    not a preference. `scripts/apply-migration.mjs` executes an entire migration file as one
    `pool.query(sql)`, and PostgreSQL runs a multi-statement simple query in a **single implicit
