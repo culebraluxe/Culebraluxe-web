@@ -2066,6 +2066,132 @@ const STORIES: TestStory[] = [
       '- `node --import tsx --test workflow_app/tests/run-spend-source.test.ts`',
   },
   {
+    id: 'ENG-FORGE-TYPESAFE-TRIAGE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 99,
+    title: 'An outside judgment is advisory: a failure-triage pilot that can point but cannot decide',
+    goal:
+      'A recorded Forge failure can be sent to an outside classifier for an advisory cause, stored beside the ' +
+      'existing verdict without touching it, so a confident-looking label can be compared with confirmed causes ' +
+      'before anything acts on it.',
+    scope:
+      'the triage judgment (workflow_app/forge/typesafe-failure-triage.ts), its storage through the existing ' +
+      'recordToolArtifact (db/forge-typesafe-triage.ts), the operator CLI (scripts/forge-triage.ts), the fence ' +
+      '(workflow_app/tests/typesafe-failure-triage.test.ts) and docs/agent/typesafe-failure-triage.md.',
+    acceptance:
+      'The source verdict, workflow evidence, stage failure and engine routing are unchanged by an analysis; the ' +
+      'observation carries the model, prompt version, redactor version, input hash, probabilities, confidence, ' +
+      'evidence sufficiency, latency and token usage; only allowlisted fields are sent, after best-effort ' +
+      'redaction; a malformed or model-mismatched response is rejected without saving; the report computes ' +
+      'agreement only over reviewed cases and returns null rather than a number when there are none. Measured ' +
+      '2026-09-18: 12/12 focused tests with no network or database, two live calls at 591-740 ms, and the report ' +
+      'showed agreement null with the denominator visible.',
+    notes:
+      'LANDED 2026-09-18 by Cline, from a patch the captain had GPT prepare (alpha) and asked to be pulled into ' +
+      'the right spot. Placement follows the house shape and reuses FORGE_FAILURE_CLASSES and recordToolArtifact ' +
+      'rather than inventing a parallel vocabulary or table. THE INTENT, written into the doc so it cannot be ' +
+      'quietly reinterpreted: a SENSOR, NEVER AN ORACLE - the useful output is the shape of its confusion (thin ' +
+      'evidence, a class distribution that moved, or a confident class no stored evidence supports), and each ' +
+      'cluster becomes a story where the truth is established with a fence and a QA ruling. GRADUATION BAR, ' +
+      'written before the data: advisory -> mainline requires measured agreement on EVIDENCED labels at least ' +
+      'equal to the existing classifier, at least 50 reviewed cases, and calibrated sufficiency. Until then it is ' +
+      'operator-invoked and the API key is the off-switch. HONEST BOUNDARY: this claims NO accuracy - the report ' +
+      'says observational sample, not a benchmark - and it is never cited as evidence, only as a pointer.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/typesafe-failure-triage.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-ATLAS-SOURCES-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title: 'The failure atlas can see the failures that cost hours, not only the tidy ones',
+    goal:
+      'Hold records and engine task failures join the triageable sources, so the atlas covers the failures that ' +
+      'cost the most time rather than only those that recorded an artifact for themselves.',
+    scope:
+      'the source selection and normalization (db/forge-typesafe-triage.ts, workflow_app/forge/' +
+      'typesafe-failure-triage.ts, the source list in scripts/forge-triage.ts) plus workflow_app/tests/' +
+      'atlas-sources.test.ts (new).',
+    acceptance:
+      'A hold record and an engine task row carrying an error are both listable and triageable, each mapped to the ' +
+      'same bounded, allowlisted, redacted evidence shape as an artifact (no free-form blobs, no filesystem logs); ' +
+      'their story/run/sha provenance is preserved where it exists and recorded as absent where it does not; the ' +
+      'report counts them in the same denominator. A test drives a hold source, a task-error source and a source ' +
+      'with no run id.',
+    notes:
+      'MEASURED 2026-09-18 by Cline, from the first real use. Eligible sources are qa-assay-evidence, ' +
+      'architecture-security and run-verdict: 28 not-passing rows on this machine. In the same window the engine ' +
+      'produced 13 hold records and 44 engine task rows with an error recorded - and NONE are visible to the ' +
+      'atlas. The sharpest illustration: ENG-FORGE-LANE-FAILURE-01 died on a constraint violation and its QA ' +
+      'artifact says PASS, because the failure happened after the verdict. So the pilot currently sees the ' +
+      'failures that were tidy enough to record themselves and misses the messy ones - exactly backwards from ' +
+      'where the captain wants help: the weird stuff that is hard to diagnose. HONEST BOUNDARY: this widens what ' +
+      'is READ; it does not change the model, the prompt, the thresholds or any routing, and a source with no run ' +
+      'id is recorded as having none rather than guessed.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/atlas-sources.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-ATLAS-LABELS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 99,
+    title: 'A triage label is evidenced by the commit that fixed it, not by how plausible the model sounded',
+    goal:
+      'The first labels in the triage sample come from failures whose cause was later PROVEN by the commit that ' +
+      'fixed them, so the accuracy number measures the model rather than agreement with the reviewer.',
+    scope:
+      'a labelling helper or documented procedure that ties a confirmed class to the fixing commit ' +
+      '(scripts/forge-triage.ts review path or a small companion script) and the resulting sample, plus ' +
+      'workflow_app/tests/atlas-label-evidence.test.ts (new).',
+    acceptance:
+      'A review records the evidence for its confirmed class with the commit or file that proves it, and the ' +
+      'review is refused when that evidence is missing or empty; the report distinguishes evidenced labels from ' +
+      'bare ones and can compute agreement over evidenced labels alone. A test drives an evidenced label, a bare ' +
+      'label and a review with no evidence. At least six historical failures whose cause is proven by a merge ' +
+      'commit are labelled, and the report over them is published as the pilot baseline.',
+    notes:
+      'MEASURED 2026-09-18 by Cline. The pilot reports agreement null with zero reviewed cases, which is the right ' +
+      'discipline but leaves it a demo rather than a measurement. The binding constraint is LABELS, not the model: ' +
+      'a review that confirms whatever the model said is self-confirming, and one that confirms what happened ' +
+      'requires knowing what happened. Tonight produced at least six failures whose cause is already proven by a ' +
+      'fixing commit (2a014527, f29b2b4c, 150ec8f7, e6f21de1, b5925057, 81eb5a25), so a first baseline is ' +
+      'available without guessing. HONEST BOUNDARY: this does not change the model, prompt or thresholds, and six ' +
+      'cases cannot establish production accuracy - the report denominator stays visible so a tiny sample reads ' +
+      'as a tiny sample.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/atlas-label-evidence.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-ATLAS-SPEND-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Low',
+    batch: 99,
+    title: 'A judgment call is a vendor cost: the atlas records what it spent',
+    goal:
+      'Each triage call records its token usage as a vendor cost in the same vocabulary the runs use, so judgment ' +
+      'spend appears in the sprint accounting instead of being invisible.',
+    scope:
+      'the triage observation writer (db/forge-typesafe-triage.ts) and the spend vocabulary already defined for ' +
+      'runs (db/storyboard.ts SPEND_SOURCES, migration 190), plus workflow_app/tests/atlas-spend.test.ts (new).',
+    acceptance:
+      'A triage call with recorded token usage produces a spend fact carrying source vendor with its token counts, ' +
+      'and a call with no usage recorded is recorded as none rather than left null; the sprint accounting can ' +
+      'include judgment spend, and widgets are never written into the dollars column. A test drives a call with ' +
+      'usage, a call without, and the none case.',
+    notes:
+      'FILED 2026-09-18 by Cline from the same first use: each call is ~780 input tokens at $0.042/M, so ' +
+      '~$0.00003 - negligible individually and exactly the kind of spend that hides as a floor when it is ' +
+      'aggregated and unrecorded. The vocabulary already exists (migration 190: vendor | widgets | none) and the ' +
+      'observation already stores token counts, so this is a wiring job, not a new concept. HONEST BOUNDARY: the ' +
+      'provider does not return a cost field today, so the cost is derived from published pricing and must be ' +
+      'labelled as derived rather than measured.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/atlas-spend.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-SPRINT-BOARD-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',

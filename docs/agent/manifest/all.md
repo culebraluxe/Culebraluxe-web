@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-18 03:34:29Z
-- commit: `5b80bf4d` on `main`
+- generated: 2026-09-18 05:40:43Z
+- commit: `f29b2b4c` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest all`
-- rows: 36 — packet, cited paths and story commits first, lexical matches after
+- rows: 37 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -38,7 +38,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/SOP-DEV-REFRESH.md` — index · top-level harness page · last touched untracked
 - `docs/agent/STORY_EXECUTION_CONTRACT.md` — index · top-level harness page · last touched untracked
 - `docs/agent/TECH-DEBT.md` — index · top-level harness page · last touched 2026-09-15
-- `docs/agent/TEST-BUDGET.md` — index · top-level harness page · last touched 2026-09-17
+- `docs/agent/TEST-BUDGET.md` — index · top-level harness page · last touched 2026-09-18
 - `docs/agent/TEST_ISOLATION.md` — index · top-level harness page · last touched untracked
 - `docs/agent/VENDOR-ADAPTERS.md` — index · top-level harness page · last touched 2026-09-15
 - `docs/agent/WORKFLOW-ARCHITECTURE.md` — index · top-level harness page · last touched 2026-09-16
@@ -46,3 +46,4 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/knip-intent.md` — index · top-level harness page · last touched untracked
 - `docs/agent/releases.md` — index · top-level harness page · last touched 2026-09-17
 - `docs/agent/route-authority-manifest.md` — index · top-level harness page · last touched 2026-09-16
+- `docs/agent/typesafe-failure-triage.md` — index · top-level harness page · last touched untracked

@@ -63,6 +63,11 @@ export const PROTECTED_FILES: ProtectedFile[] = [
     marker: '# Column writer audit',
     why: 'the classified column table. Nearly destroyed on 2026-09-18 by a tool given its name — the reason this list exists',
   },
+  {
+    path: 'docs/agent/typesafe-failure-triage.md',
+    marker: '# TypeSafe failure-triage pilot',
+    why: 'an outside judgment source is only safe while its BOUNDARIES are written down: advisory only, a sensor never an oracle, the graduation bar, and where it must never go. Losing this file would leave the tool without its leash',
+  },
 ]
 
 export type ProtectedDirectory = {

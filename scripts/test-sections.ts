@@ -59,7 +59,7 @@ export const SECTION_RULES: Array<{ section: string; match: RegExp }> = [
   {
     section: 'forge-verify',
     match:
-      /^workflow_app\/tests\/(acceptance|assertion-|evidence|migration-|release-|resume-|verify-|stale-|proof-|qa-|receipt)/,
+      /^workflow_app\/tests\/(acceptance|assertion-|evidence|migration-|release-|resume-|verify-|stale-|proof-|qa-|receipt|typesafe-|failure-triage)/,
   },
   {
     section: 'app-intake',

@@ -86,6 +86,7 @@
     "forge:decision": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-decision.ts",
     "forge:learn": "APP_ENV=dev node --env-file=.env.local --import tsx scripts/forge-learn.ts",
     "forge:roi": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-roi.ts",
+    "forge:triage": "APP_ENV=production EXECUTION_ENV=PROD node --env-file=.env.local --import tsx scripts/forge-triage.ts",
     "test:agent-runtime": "node --import tsx --test agent-runtime/*.test.ts",
     "forge:record-stories": "APP_ENV=production node --env-file=.env.local --import tsx scripts/forge-record-stories.ts",
     "forge:test-stories": "APP_ENV=production EXECUTION_ENV=PROD node --env-file=.env.local --import tsx scripts/forge-test-stories.ts",
