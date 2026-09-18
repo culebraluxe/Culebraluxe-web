@@ -2574,6 +2574,46 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/resume-door.test.ts`',
   },
   {
+    id: 'ENG-FORGE-LANE-TEARDOWN-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 102,
+    title: 'The machine deletes a lane branch when its work lands, instead of leaving it forever',
+    goal:
+      'A published candidate sweeps the machine-owned branches whose patches are now in the published ' +
+      'base, so attempting work cannot accumulate branches the way it did before: 168 of them on ' +
+      '2026-09-18, one per lane attempt plus one per dogfood and smoke rehearsal.',
+    scope:
+      'the publish path agent-runtime/accepted-candidate-publish.ts and the sweep ' +
+      'lib/worker-workspace/lane-teardown.ts (new), reusing the proof in lib/git/branch-hygiene.ts, with ' +
+      'the fence workflow_app/tests/lane-branch-teardown.test.ts (new).',
+    acceptance:
+      'After a candidate publishes, a machine-owned branch whose every patch is in the published base is ' +
+      'deleted; a lane whose work did NOT land is kept; a branch a person named is never touched; a branch ' +
+      'checked out in a worktree is never touched; and a fence drives the landed, unlanded, human-named ' +
+      'and base-branch cases. Cleanup is best-effort: it can never fail a release.',
+    notes:
+      'MEASURED 2026-09-18, and it is the third layer of one family. Attempt 1: a cleaner that could not ' +
+      'clean - `pnpm health` judged landing by ANCESTRY (`git branch --merged main`) while work lands by ' +
+      'rebase and cherry-pick, so a branch whose every patch was already in main was still not an ' +
+      'ancestor of it, and `git branch -d` refuses those branches for the same wrong reason. That was ' +
+      'fixed in the counter-wipe (lib/git/branch-hygiene.ts) and took refs from 1,347 to 19 by hand. ' +
+      'Attempt 2: the reason the pile existed at all - `provisionWorkerWorkspace` creates a branch per ' +
+      'attempt and `removeWorkerWorkspace` PRESERVES it on purpose ("The branch survives"), which is ' +
+      'right at teardown time because an abandoned lane commits are cheaper than lost code, but nothing ' +
+      'collected them afterwards and no engine path called the teardown at all. So the janitor was the ' +
+      'only defence, and the janitor runs when a human runs it. This story removes the need for the ' +
+      'janitor: the sweep runs at the one moment the answer is certain (a candidate has just been ' +
+      'published, so its patches are in main by construction) and still RE-DERIVES the proof rather than ' +
+      'assuming it, because a refused candidate branch must survive to be looked at. HONEST BOUNDARY: ' +
+      'the sweep only sees branches in the primary checkout, so a lane that never publishes anything ' +
+      '(refused, abandoned, or a rehearsal that ends without landing) still leaves its branch behind - ' +
+      'that residue is now visible (`pnpm health` reports every leftover with its class) rather than ' +
+      'invisible, and it is bounded by the same proof when the next publish runs.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/lane-branch-teardown.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-VERIFY-EXISTING-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',

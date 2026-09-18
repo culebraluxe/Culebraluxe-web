@@ -16,6 +16,7 @@ import {
   type RunMachineEvidence,
 } from '../lib/forge-run-evidence'
 import { isCleanAssayResult } from './orchestrate-apply'
+import { sweepLandedLaneBranches } from '../lib/worker-workspace/lane-teardown'
 import type { AssayEvidence } from './assay-evidence'
 
 export const ASSAY_FINISH_ROLES = ['reviewer', 'verifier'] as const
@@ -32,6 +33,8 @@ export type AcceptedCandidatePublishReport =
       action: 'published'
       candidateCommit: string
       publishedMainHash: string
+      /** Lane branches deleted because their patches are now in the published base (housekeeping). */
+      branchesSwept?: string[]
     }
   | {
       action: 'publish-conflict'
@@ -192,12 +195,25 @@ export async function publishAcceptedCandidateAfterAssay(
   switch (outcome.outcome) {
     case 'no-candidate':
       return { action: 'no-candidate', reason: outcome.reason }
-    case 'published':
+    case 'published': {
+      // THE LANE'S WORK IS ON MAIN, SO ITS BRANCH IS SPENT. Best-effort and never fatal: a candidate
+      // that published stays published even if the cleanup cannot run, and the sweep only deletes
+      // machine-owned branches whose patches are all in the published base (see lane-teardown.ts —
+      // this is what stops the 168-branch pile from rebuilding itself).
+      let branchesSwept: string[] = []
+      try {
+        const sweep = await sweepLandedLaneBranches({ repoRoot })
+        branchesSwept = sweep.deleted
+      } catch {
+        // A release is never failed by housekeeping.
+      }
       return {
         action: 'published',
         candidateCommit: outcome.candidateCommit,
         publishedMainHash: outcome.publishedMainHash,
+        ...(branchesSwept.length > 0 ? { branchesSwept } : {}),
       }
+    }
     case 'publish-conflict':
       return {
         action: 'publish-conflict',
