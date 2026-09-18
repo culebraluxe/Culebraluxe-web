@@ -3,10 +3,10 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-18 02:43:40Z
-- commit: `ae2f9e88` (working tree dirty) on `main`
+- generated: 2026-09-18 03:34:29Z
+- commit: `5b80bf4d` on `main`
 - regenerate: `pnpm forge:manifest all`
-- rows: 35 — packet, cited paths and story commits first, lexical matches after
+- rows: 36 — packet, cited paths and story commits first, lexical matches after
 
 Read top-down. A row is a file to open, and the why column says why it is here.
 
@@ -20,7 +20,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/BUILDER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/COCKPIT-PURPOSE.md` — index · top-level harness page · last touched 2026-09-14
 - `docs/agent/COCKPIT-SMOKE-TEST.md` — index · top-level harness page · last touched 2026-09-14
-- `docs/agent/COLUMN-WRITER-AUDIT.md` — index · top-level harness page · last touched untracked
+- `docs/agent/COLUMN-WRITER-AUDIT.md` — index · top-level harness page · last touched 2026-09-17
 - `docs/agent/CRM-06-PRELIMINARY.md` — index · top-level harness page · last touched untracked
 - `docs/agent/CRM-23-MAC-OBSERVER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/CULEBRALUXE-LEAD-ROUTING-CODE.md` — index · top-level harness page · last touched untracked
@@ -30,6 +30,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/FORGE-WORKSHOP.md` — index · top-level harness page · last touched 2026-09-16
 - `docs/agent/MAP-engine.md` — index · top-level harness page · last touched 2026-09-15
 - `docs/agent/MAP-services.md` — index · top-level harness page · last touched 2026-09-15
+- `docs/agent/NAMING-AND-PROTECTION.md` — index · top-level harness page · last touched 2026-09-17
 - `docs/agent/PERSON-PROPERTY-DESIGN.md` — index · top-level harness page · last touched untracked
 - `docs/agent/REVIEWER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/RUNLOG 2.md` — index · top-level harness page · last touched untracked
