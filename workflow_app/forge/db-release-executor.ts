@@ -269,9 +269,14 @@ export function createDbForgeReleaseExecutor(
               ? result.reason
               : result.reason /* publish-conflict */
 
+      // A CREDENTIAL IS A HOLD, NOT A CONFLICT. A moved main is retryable; a secret in the
+      // candidate is not — retrying republishes the same secret. Classify it so the router
+      // parks it for a human instead of looping repair.
+      const secretRefused = result.outcome === 'candidate-secret'
+
       await mergeEvidence(context.processInstanceId, context.storyId, {
         publishSucceeded: false,
-        failureClass: 'PUBLISH_CONFLICT',
+        failureClass: secretRefused ? 'HOLD' : 'PUBLISH_CONFLICT',
         failedReleaseStage: 'PUBLISH',
         // THE REASON IS PART OF THE OUTCOME.
         //

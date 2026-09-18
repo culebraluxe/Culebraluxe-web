@@ -29,6 +29,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
+import { scanCandidateOwnDiff, type CandidateSecretFinding } from './candidate-secret-scan'
+
 const execFileAsync = promisify(execFile)
 
 export const DEFAULT_PUBLISH_REMOTE = 'origin'
@@ -66,6 +68,16 @@ export type PublishAcceptedCandidateOutcome =
     }
   | {
       outcome: 'no-candidate'
+      reason: string
+    }
+  /**
+   * The candidate's own changes add a credential-shaped line. Refused BEFORE any remote is read,
+   * so the credential never reaches `origin/main` and never becomes history.
+   */
+  | {
+      outcome: 'candidate-secret'
+      candidateCommit: string
+      findings: CandidateSecretFinding[]
       reason: string
     }
   | {
@@ -269,6 +281,47 @@ export async function publishAcceptedCandidate(
     }
   }
   const candidate = resolved.stdout
+
+  // THE LANE'S OWN CHANGES, SCANNED FOR A CREDENTIAL, BEFORE THE REMOTE IS EVEN READ.
+  //
+  // Only each lane commit's added lines (`git diff <c>^ <c>`) are read, so a credential that
+  // already exists in the base or in a foreign commit in the range does not block this lane.
+  // An unreadable diff fails closed: an unscanned candidate is not a clean candidate.
+  const secretScan = await scanCandidateOwnDiff({
+    commits: [candidate],
+    readDiff: async (commit) => {
+      const diff = await runGit(repoRoot, [
+        'diff',
+        '--no-color',
+        '--unified=0',
+        `${commit}^`,
+        commit,
+      ])
+      return diff.ok ? diff.stdout : null
+    },
+  })
+  if (secretScan.unreadable.length > 0) {
+    return {
+      outcome: 'publish-conflict',
+      candidateCommit: candidate,
+      remoteMainHash: null,
+      reason:
+        `could not read the candidate's own diff for ${secretScan.unreadable
+          .map((commit) => commit.slice(0, 12))
+          .join(', ')}; refusing to publish a candidate whose changes could not be scanned`,
+    }
+  }
+  if (secretScan.findings.length > 0) {
+    const named = secretScan.findings
+      .map((finding) => `${finding.rule} in ${finding.file}:${finding.line}`)
+      .join(', ')
+    return {
+      outcome: 'candidate-secret',
+      candidateCommit: candidate,
+      findings: secretScan.findings,
+      reason: `candidate ${candidate.slice(0, 12)} adds a credential-shaped value (${named}); publication refused`,
+    }
+  }
 
   // Current remote head — the remote is the authority for main, never a stale
   // local guess.

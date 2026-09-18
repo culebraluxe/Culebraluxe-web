@@ -25,6 +25,7 @@ import {
 } from '../lib/agent-vendor-block'
 import { lineCitations } from '../lib/scope-manifest'
 import { DECISION_STATUSES, isValidDecisionKey, parseDecisionFile, validateStatement } from '../lib/forge-decision'
+import { SECRET_SHAPES } from '../lib/secret-shapes'
 
 export type Finding = {
   level: 'fail' | 'warn'
@@ -81,13 +82,6 @@ function isCommitDirective(window: string): boolean {
 const COMMIT_INSTRUCTION = /git commit|create (?:a )?commit|--no-verify/i
 /** A prohibition is not an instruction: "Never ... a git commit as Scout" is the rule, not a violation. */
 const PROHIBITION = /\b(?:never|not|no|may not|must not|do not|don't|cannot|can't|forbidden|prohibited)\b/i
-
-const SECRET_SHAPES: Array<{ name: string; pattern: RegExp }> = [
-  { name: 'openai-style key', pattern: /\bsk-[A-Za-z0-9]{16,}\b/ },
-  { name: 'github token', pattern: /\bghp_[A-Za-z0-9]{20,}\b/ },
-  { name: 'aws access key id', pattern: /\bAKIA[0-9A-Z]{12,}\b/ },
-  { name: 'database url with credentials', pattern: /postgres(?:ql)?:\/\/[^\s'"]+:[^\s'"]+@/i },
-]
 
 const MAX_SKILLS_PER_PACKET = 3
 

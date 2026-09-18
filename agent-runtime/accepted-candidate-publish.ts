@@ -205,6 +205,16 @@ export async function publishAcceptedCandidateAfterAssay(
         remoteMainHash: outcome.remoteMainHash,
         reason: outcome.reason,
       }
+    // A credential in the candidate is its own refusal, never an "unhandled outcome": the rule
+    // and file survive in `reason`, and the reducer's publish-conflict route parks it for a human
+    // (retry cannot remove a secret, so it must not loop).
+    case 'candidate-secret':
+      return {
+        action: 'publish-conflict',
+        candidateCommit: outcome.candidateCommit,
+        remoteMainHash: null,
+        reason: outcome.reason,
+      }
     default:
       return {
         action: 'publish-conflict',
