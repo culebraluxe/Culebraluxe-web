@@ -1989,6 +1989,83 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/finding-dedupe.test.ts`',
   },
   {
+    id: 'ENG-FORGE-PROOF-SEAM-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'A finding owns its proof: a two-unit story can fan out because each unit declares the fence it will add',
+    goal:
+      'A finding that requires a NEW proof declares that proof path inside its own seams, and two units that add ' +
+      'distinct files under one shared test directory are not treated as overlapping surfaces, so a story with two ' +
+      'independent units can lawfully split.',
+    scope:
+      'the architect handoff and its seam rules (workflow_app/forge/forge-shaping.ts, forge-architect-contract.ts, ' +
+      'the findings writer in workflow_app/forge/agents/architect/persist.ts) and the HARD SCOPE RULE reader in ' +
+      'workflow_app/forge/agent-runtime-role-runner.ts, plus workflow_app/tests/proof-seam.test.ts (new).',
+    acceptance:
+      'Given two required findings whose units are disjoint but whose new proofs land in the same tests directory, ' +
+      'the split is ALLOWED and each sibling is handed its own proof path as part of its seams; a test drives that ' +
+      'exact shape and asserts two assignments. A finding whose required proof is NOT inside its seams is refused ' +
+      'at shaping time by name, so the refusal arrives before the wave rather than as a HOLD after routing. Two ' +
+      'units that would genuinely edit the SAME file remain refused, unchanged.',
+    notes:
+      'MEASURED 2026-09-18 by Cline, from a purpose-built I5 attempt. Grok\'s nightly review named I5 as the first ' +
+      'of three reasons the factory is not at 100: "they tried a two-area story; it still came out one unit / one ' +
+      'SMITH. That is intake, not the scheduler." ENG-FORGE-SPLIT-DOGFOOD-01 could not be the vehicle (its units ' +
+      'are already implemented and green at baseRef 3e4b48c0, so the lead correctly HOLDed it). So ' +
+      'ENG-FORGE-REVIEW-RESIDUALS-01 was cut deliberately with two independent units in disjoint files, run with a ' +
+      'wave cap of 2. Result: the architect DID declare two required findings with disjoint seams ' +
+      '(cli-adapter-allowed-scope, run-spend-source-closed) and the lead still chose SMITH, refusing SPLIT for a ' +
+      'precise, mechanical reason in its own words: "F2\'s required proof workflow_app/tests/run-spend-source.test.ts ' +
+      'is not inside F2\'s seams and both units\' tests share the workflow_app/tests/ parent, so a sibling split ' +
+      'needs an undeclared seam and overlapping directories, refused by the HARD SCOPE RULE." This is the SECOND ' +
+      'occurrence of the same mechanism tonight: ENG-FORGE-QA-VERDICT-VOCAB-01 HOLDed for "the mandatory new proof ' +
+      'workflow_app/tests/qa-disposition-vocab.test.ts is not inside any declared finding seam". So the intake gap ' +
+      'is systematic, not incidental: a unit is not given the path it must create. HONEST BOUNDARY: this does not ' +
+      'raise the split cap, does not change which units are independent, and does not weaken the shared-file ' +
+      'refusal - Grok\'s instruction stands: do not raise the cap, do not open PARALLEL-WAVE-02, and a postcard is ' +
+      'owed only when the wave log actually shows two smith_split_work lanes.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/proof-seam.test.ts`',
+  },
+  {
+    id: 'ENG-FORGE-REVIEW-RESIDUALS-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 92,
+    title: 'Two independent residuals: the cli adapter commits inside a scope, and every run carries a closed spend source',
+    goal:
+      'Close the two residuals the nightly review named as the reasons the factory is not at 100, each in its own ' +
+      'surface: the cli agent adapter gains the same allowedScope discipline the factory path already has, and a run ' +
+      'records WHICH kind of spend it carried so the dollars column can never hold widgets.',
+    scope:
+      'Unit A (adapter scope): agent-runtime/cli-agent-adapter.ts and the commit path it calls, plus ' +
+      'workflow_app/tests/cli-adapter-scope.test.ts (new). Unit B (spend source): the run writer and reader in ' +
+      'db/forge-run.ts and db/storyboard.ts plus workflow_app/tests/run-spend-source.test.ts (new). The two units ' +
+      'share no file, so they are independent by construction.',
+    acceptance:
+      'Unit A: the cli adapter refuses a commit whose paths fall outside the declared scope, naming the offending ' +
+      'path, and a test drives an in-scope commit and a refused one; the check reuses the same allowedScope rule as ' +
+      'the factory path rather than a second implementation. Unit B: every run row carries a spend source from a ' +
+      'closed vocabulary (vendor, widgets, none), absence is recorded as none rather than left null, widgets are ' +
+      'never written to the dollars column, and a test drives all three sources including the none case.',
+    notes:
+      'FILED 2026-09-18 by Cline from Grok\'s nightly review (docs/agent/mailbox/GROK-2026-09-18-review.md, grade 95). ' +
+      'His named reasons for not giving 100: "cli-agent-adapter still commits with no scope" and "spend coverage is ' +
+      'still a floor until every run has a source". The third reason (I5 fan-out unobserved) is an observation, not ' +
+      'a code change: ENG-FORGE-SPLIT-DOGFOOD-01 tried to be its vehicle but the lead correctly HOLDed it because ' +
+      'both of its units are already implemented and green at baseRef 3e4b48c0 - no legitimate Smith edit remains, ' +
+      'and the story needs a live SPLIT run rather than a code change. This story is deliberately built with TWO ' +
+      'INDEPENDENT UNITS in disjoint surfaces so the scheduler has a lawful opportunity to fan out: if the wave log ' +
+      'shows two smith_split_work lanes, I5 fires and the postcard can be written from the evidence; if it collapses ' +
+      'to one unit and one Smith, that is the intake fact recorded instead. HONEST BOUNDARY: this story does not ' +
+      'change the split cap or the scheduler - do not raise the cap, and do not open PARALLEL-WAVE-02.',
+    assayCommands:
+      '- `node --import tsx --test workflow_app/tests/cli-adapter-scope.test.ts`\n' +
+      '- `node --import tsx --test workflow_app/tests/run-spend-source.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-SPRINT-BOARD-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
