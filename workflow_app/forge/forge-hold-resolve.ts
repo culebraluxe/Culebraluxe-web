@@ -62,8 +62,71 @@ export function validResumeTarget(target: string): boolean {
   return FORGE_HOLD_RESUME_TARGETS.has(target)
 }
 
-/** The run's stop point: the newest open engine task and the node it is parked at. */
-export type ForgeStopPoint = { taskId: string; nodeId: string }
+/**
+ * The run's stop point: the newest open engine task and the node it is parked at — plus what
+ * the door needs in order to refuse SAFELY rather than fabricate a completion
+ * (ENG-FORGE-SPLIT-SIBLING-01). The extra fields are optional so a caller that only knows an
+ * id still compiles; absent means "no evidence of an unstarted branch" and nothing is blocked.
+ */
+export type ForgeStopPoint = {
+  taskId: string
+  nodeId: string
+  /** Null (or absent) when the task has never been claimed — genuinely unstarted work. */
+  claimedAt?: string | null
+  /** True when this task is a dynamic-fork branch rather than a serial lane task. */
+  forkChild?: boolean
+  /** Other open branches sharing this branch's fork parent. */
+  openSiblings?: number
+}
+
+/**
+ * The fork's WORK branch node — the node the `<dynamic-fork>` creates its children at, and the
+ * one whose completion means "this unit's work is done".
+ *
+ * From `workflow_app/definitions/FORGE_SDLC-v1.xml`:
+ *   `<dynamic-fork id="split_dispatch" … branch-node="smith_split_work" join="split_join" …/>`
+ *
+ * Only tasks at THIS node can fabricate work by being advanced unclaimed. A downstream
+ * coordination task that happens to ride a branch token (lead_post, for example) is movable: the
+ * door parks it at the hold gate with a `hold` transition, which fabricates no ruling and no
+ * sibling's completion. Narrowing to the work branch is the correction that stopped this guard
+ * from blocking ordinary resumes on split stories (measured 2026-09-18, an hour after the first
+ * version refused a perfectly movable lead_post).
+ */
+const FORK_WORK_BRANCH_NODES: ReadonlySet<string> = new Set(['smith_split_work'])
+
+/**
+ * ADVANCING AN UNSTARTED FORK BRANCH FABRICATES WORK, and this is the whole of the
+ * ENG-FORGE-SPLIT-SIBLING-01 fix.
+ *
+ * The door's job is to move a run that is PARKED. A fork work branch that has never been claimed
+ * is not parked — no lane has run for it, no work item exists for it, and its proof was never
+ * attempted. Advancing it with a `hold` transition marks it completed (attributed to the
+ * resolver) and the fork can never recover: the engine believes the branch is done, so it never
+ * re-issues it, while the join — which is told N units will run — waits for work that will now
+ * never happen.
+ *
+ * MEASURED, not theorised: on 2026-09-18 a resume at 09:34 completed branch 0 of 2 with
+ * `claimed_at null, completed_by operator`. From then on every run could only reach branch 1,
+ * and `lead_post` refused with "split children never reached a terminal state:
+ * unit-a-media-length" — three times, reading like a lane failure that was not one.
+ *
+ * Pure, so the fence asserts the DECISION. Returns the named refusal, or null when the stop
+ * point is movable.
+ */
+export function unstartedForkBranchRefusal(stop: ForgeStopPoint): string | null {
+  if (!stop.forkChild) return null
+  if (stop.claimedAt) return null
+  if (!FORK_WORK_BRANCH_NODES.has(stop.nodeId)) return null
+  const siblings = stop.openSiblings ?? 0
+  return (
+    `the newest open engine task (${stop.nodeId}) is a split WORK branch that has never been claimed` +
+    (siblings > 0 ? `, and ${siblings} sibling branch(es) are open with it` : '') +
+    '; resolving the hold would mark a branch as done without running it (measured 2026-09-18: ' +
+    'this silently completed branch 0 of 2 and made the fork join unsatisfiable forever). ' +
+    'Re-dispatch the fork so the branch is issued and claimed, or terminate the run with --cancel.'
+  )
+}
 
 /**
  * The engine seam the door reads and moves through. Injectable so the frozen proof
@@ -129,6 +192,19 @@ export async function resolveForgeHold(
     return {
       outcome: 'refused',
       missing: `no open engine task on instance ${instanceId} (nothing to move; the run is already terminal)`,
+    }
+  }
+
+  // GARBAGE IN, GARBAGE OUT: the door exists to move a run that is PARKED, and it must never
+  // manufacture a completion. A split branch that has never been claimed has had no lane run
+  // for it, so resolving the hold over it records work that never happened AND makes the
+  // fork's join unsatisfiable for good (the branch can never be re-issued). Refuse, name the
+  // situation, and leave the branch open so a re-dispatch can claim it. `--cancel` remains the
+  // honest way to kill such a run, and it is left available on purpose.
+  if (input.resolution === 'resolve') {
+    const fabricated = unstartedForkBranchRefusal(stop)
+    if (fabricated) {
+      return { outcome: 'refused', missing: fabricated }
     }
   }
 

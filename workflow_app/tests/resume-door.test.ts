@@ -20,7 +20,16 @@ type Seen = {
 
 function fakeEngine(state: {
   instanceId: string | null
-  stops: Array<{ taskId: string; nodeId: string } | null>
+  stops: Array<
+    | {
+        taskId: string
+        nodeId: string
+        claimedAt?: string | null
+        forkChild?: boolean
+        openSiblings?: number
+      }
+    | null
+  >
 }): { engine: ForgeResumeEngine; seen: Seen } {
   const seen: Seen = { completed: [], cancelled: [], records: [] }
   let call = 0
@@ -181,4 +190,132 @@ test('resume-door: resume writes no verdict', async () => {
     assert.equal('qaPassed' in done.evidence, false)
     assert.equal('failureClass' in done.evidence, false)
   }
+})
+
+// ---------------------------------------------------------------------------
+// ENG-FORGE-SPLIT-SIBLING-01 — THE DOOR MUST NOT FABRICATE A COMPLETION.
+//
+// The door moves a run that is PARKED. A dynamic-fork branch that has never been claimed is not
+// parked: no lane ran for it, no work item exists for it, no proof was attempted. Advancing it
+// marks a sibling's work done and the fork can never recover — measured live on 2026-09-18, when a
+// resume completed branch 0 of 2 (`claimed_at null, completed_by operator`) and every later run
+// could only reach branch 1 while lead_post refused the join as "never reached a terminal state".
+// These fences assert the refusal AND that it does not over-block real work.
+// ---------------------------------------------------------------------------
+
+test('split-sibling: an unstarted fork branch is refused by name, and nothing is written', async () => {
+  const { engine, seen } = fakeEngine({
+    instanceId: 'inst-branch',
+    stops: [
+      {
+        taskId: 't-branch-0',
+        nodeId: 'smith_split_work',
+        claimedAt: null,
+        forkChild: true,
+        openSiblings: 1,
+      },
+    ],
+  })
+
+  const result = await resolveForgeHold(
+    { storyId: 'S', resolution: 'resolve', resumeTarget: 'SMITH', resolver: 'operator' },
+    engine,
+  )
+
+  assert.equal(result.outcome, 'refused')
+  const missing = result.outcome === 'refused' ? result.missing : ''
+  assert.match(missing, /never been claimed/)
+  assert.match(missing, /1 sibling branch/)
+  assert.match(missing, /--cancel/, 'the honest alternative must be named')
+  assert.deepEqual(seen.completed, [], 'an unstarted branch must not be advanced')
+  assert.deepEqual(seen.records, [], 'a refusal writes no resolution row')
+})
+
+test('split-sibling: a fork branch that WAS claimed still moves — real parked work is not blocked', async () => {
+  const { engine, seen } = fakeEngine({
+    instanceId: 'inst-branch-claimed',
+    stops: [
+      {
+        taskId: 't-branch-1',
+        nodeId: 'smith_split_work',
+        claimedAt: '2026-09-18T12:47:22Z',
+        forkChild: true,
+        openSiblings: 1,
+      },
+      { taskId: 't-hold', nodeId: 'hold' },
+    ],
+  })
+
+  const result = await resolveForgeHold(
+    { storyId: 'S', resolution: 'resolve', resumeTarget: 'QA', resolver: 'operator' },
+    engine,
+  )
+
+  assert.equal(result.outcome, 'resolved')
+  assert.equal(seen.completed.length, 2, 'the claimed branch advances to the hold gate, then resolves')
+})
+
+test('split-sibling: an unclaimed SERIAL lane task is still movable — the guard is about forks', async () => {
+  const { engine, seen } = fakeEngine({
+    instanceId: 'inst-serial',
+    stops: [
+      { taskId: 't-lead-pre', nodeId: 'lead_pre', claimedAt: null, forkChild: false, openSiblings: 0 },
+      { taskId: 't-hold', nodeId: 'hold' },
+    ],
+  })
+
+  const result = await resolveForgeHold(
+    { storyId: 'S', resolution: 'resolve', resumeTarget: 'SMITH', resolver: 'operator' },
+    engine,
+  )
+
+  assert.equal(result.outcome, 'resolved')
+  assert.equal(seen.completed[0].taskId, 't-lead-pre')
+})
+
+test('split-sibling: cancel is still allowed on an unstarted branch, because terminating is honest', async () => {
+  const { engine, seen } = fakeEngine({
+    instanceId: 'inst-cancel',
+    stops: [
+      {
+        taskId: 't-branch-0',
+        nodeId: 'smith_split_work',
+        claimedAt: null,
+        forkChild: true,
+        openSiblings: 1,
+      },
+    ],
+  })
+
+  const result = await resolveForgeHold(
+    { storyId: 'S', resolution: 'cancel', resolver: 'operator', reason: 'wrong decomposition' },
+    engine,
+  )
+
+  assert.equal(result.outcome, 'resolved')
+  assert.equal(seen.cancelled.length, 1)
+  assert.deepEqual(seen.completed, [])
+})
+
+
+
+test('split-sibling: an unclaimed COORDINATION task on a branch token is movable — only the WORK branch is protected', async () => {
+  // Narrowed AFTER the first version over-blocked: forkChild is inherited by downstream tasks that
+  // ride a branch token, and parking a lead_post at the hold gate fabricates no work. Measured live
+  // when the probe returned exactly this shape and the guard would have refused an ordinary resume.
+  const { engine, seen } = fakeEngine({
+    instanceId: 'inst-lead-post-branch',
+    stops: [
+      { taskId: 't-lead-post', nodeId: 'lead_post', claimedAt: null, forkChild: true, openSiblings: 0 },
+      { taskId: 't-hold', nodeId: 'hold' },
+    ],
+  })
+
+  const result = await resolveForgeHold(
+    { storyId: 'S', resolution: 'resolve', resumeTarget: 'SMITH', resolver: 'operator' },
+    engine,
+  )
+
+  assert.equal(result.outcome, 'resolved')
+  assert.equal(seen.completed[0].taskId, 't-lead-post')
 })

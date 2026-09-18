@@ -182,21 +182,58 @@ export async function listActiveForgeRoleTasks(
  */
 export async function findOpenForgeTask(
   instanceId: string,
-): Promise<{ taskId: string; nodeId: string } | null> {
+): Promise<{
+  taskId: string
+  nodeId: string
+  claimedAt: string | null
+  forkChild: boolean
+  openSiblings: number
+} | null> {
   if (!engineConfigured()) return null
+  // WHY THIS CARRIES MORE THAN AN ID (ENG-FORGE-SPLIT-SIBLING-01): the door used to take
+  // "the newest open task" and advance it, which is right for a lane parked mid-work and
+  // WRONG for a dynamic-fork branch that has never been claimed — advancing that one marks
+  // a sibling's work done without running it. Observed 2026-09-18: a resume at 09:34
+  // completed branch 0 of 2 (claimed_at null, completed_by operator), so the sibling's work
+  // item never existed, the join could never be satisfied, and every later run could only
+  // reach branch 1. The caller now refuses instead of fabricating that completion.
   const rows = await engineSql()`
-    select t.id as task_id, tk.node_id as node_id
-    from tasks t
-    join tokens tk on tk.id = t.token_id
-    where t.process_instance_id = ${instanceId}
-      and t.status in ('ready', 'reserved', 'in_progress')
-    order by t.created_at desc, t.id desc
+    with open_tasks as (
+      select t.id as task_id,
+             tk.node_id as node_id,
+             t.claimed_at,
+             tk.parent_token_id as fork_parent
+      from tasks t
+      join tokens tk on tk.id = t.token_id
+      where t.process_instance_id = ${instanceId}
+        and t.status in ('ready', 'reserved', 'in_progress')
+    )
+    select o.task_id,
+           o.node_id,
+           o.claimed_at,
+           (o.fork_parent is not null) as fork_child,
+           (
+             select count(*)
+             from open_tasks s
+             where s.fork_parent is not null
+               and s.fork_parent = o.fork_parent
+               and s.task_id <> o.task_id
+           ) as open_siblings
+    from open_tasks o
+    order by o.task_id desc
     limit 1
   `
-  return rows[0]
-    ? { taskId: String(rows[0].task_id), nodeId: String(rows[0].node_id) }
-    : null
+  const row = rows[0]
+  if (!row) return null
+  return {
+    taskId: String(row.task_id),
+    nodeId: String(row.node_id),
+    claimedAt: row.claimed_at ? new Date(row.claimed_at as string).toISOString() : null,
+    forkChild: Boolean(row.fork_child),
+    openSiblings: Number(row.open_siblings ?? 0),
+  }
 }
+
 
 export { FORGE_SDLC_KEY as FORGE_DEFINITION_KEY }
 
