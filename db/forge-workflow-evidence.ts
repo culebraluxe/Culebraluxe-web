@@ -137,7 +137,22 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
  * It follows the `lead_decision`/`split_count` precedent: an explicit write is
  * authoritative, every other write preserves what is known.
  */
-export type ForgeEvidenceMerge = ForgeGateEvidence & { releaseFailureResolved?: boolean }
+export type ForgeEvidenceMerge = ForgeGateEvidence & {
+  releaseFailureResolved?: boolean
+  /**
+   * ENG-FORGE-FENCE-CAN-FAIL-01 — the negative-control outcome for the story's declared fence.
+   *
+   * `ran` records whether the control executed at all; `killingAssertions` names the mapped
+   * assertions that went red under it. A control that ran and killed none is UNPROVEN, never
+   * proof. Omitted values coalesce, so a later write that knows nothing about the control
+   * preserves what an earlier write recorded.
+   */
+  negativeControl?: {
+    ran: boolean
+    unmeasurable?: boolean
+    killingAssertions: string[]
+  }
+}
 
 /** Merge newly observed facts; omitted values preserve previously known truth. */
 export async function mergeForgeWorkflowEvidence(
@@ -159,7 +174,8 @@ export async function mergeForgeWorkflowEvidence(
       derived_models, derived_refresh_succeeded, derived_refresh_verified,
       deployment_required, deployment_succeeded, deployment_receipt,
       production_verified, production_verification_receipt, resume_target, candidate_sha, qa_verified_sha,
-      published_sha, deployed_sha, production_verified_sha, findings, deployment_deferred_to_batch
+      published_sha, deployed_sha, production_verified_sha, findings, deployment_deferred_to_batch,
+      negative_control_ran, negative_control_killing_assertion
     ) values (
       ${processInstanceId}, ${storyId}, ${evidence.workType ?? null},
       ${evidence.researchDisposition ?? null}, ${evidence.scoutRequired ?? null},
@@ -182,7 +198,9 @@ export async function mergeForgeWorkflowEvidence(
       ${evidence.publishedSha ?? null}, ${evidence.deployedSha ?? null},
       ${evidence.productionVerifiedSha ?? null},
       ${evidence.findings === undefined ? null : JSON.stringify(evidence.findings)}::jsonb,
-      ${evidence.deploymentDeferredToBatch ?? null}
+      ${evidence.deploymentDeferredToBatch ?? null},
+      ${evidence.negativeControl?.ran ?? null},
+      ${evidence.negativeControl ? JSON.stringify(evidence.negativeControl.killingAssertions) : null}
     )
     on conflict (process_instance_id) do update set
       work_type = coalesce(excluded.work_type, forge_workflow_evidence.work_type),
@@ -201,6 +219,8 @@ export async function mergeForgeWorkflowEvidence(
       qa_review_passed = coalesce(excluded.qa_review_passed, forge_workflow_evidence.qa_review_passed),
       qa_passed = coalesce(excluded.qa_passed, forge_workflow_evidence.qa_passed),
       deployment_deferred_to_batch = coalesce(excluded.deployment_deferred_to_batch, forge_workflow_evidence.deployment_deferred_to_batch),
+      negative_control_ran = coalesce(excluded.negative_control_ran, forge_workflow_evidence.negative_control_ran),
+      negative_control_killing_assertion = coalesce(excluded.negative_control_killing_assertion, forge_workflow_evidence.negative_control_killing_assertion),
       -- An explicit release resolution clears the three markers together; every other
       -- write coalesces, so an unresolved failure keeps its markers.
       failure_class = case when ${clearReleaseFailure} then null
