@@ -635,6 +635,63 @@ export async function setAgentWorkRuntime(
 }
 
 /**
+ * PURE grouped-row shape guard for the work-item writer (FORGE-PARITY-CHECK-01,
+ * ENG-FORGE-SPLIT-SHAPE-01).
+ *
+ * Mirrors `agent_work_item_parallel_shape_check` for the columns the writer
+ * controls, in code, so a bad call fails by NAME instead of depending on which
+ * database is pointed at. A SQL CHECK treats NULL as satisfied, which is why a
+ * grouped row with a NULL `parallel_size` passed the constraint; this function is
+ * TOTAL and returns a refusal string (never `undefined`) for every NULL, blank or
+ * out-of-bound input, and `null` only when the grouped-row tuple is complete.
+ *
+ * The NUMERIC bounds the database owns (slot 1..3, size 2..3) deliberately stay
+ * there: repeating them here would create a second owner of one policy, which is
+ * the drift class this work removes. What the writer must not do is omit a column
+ * the CHECK reads as FALSE.
+ */
+export function parallelShapeRefusal(input: {
+  parallelGroupId?: string | null
+  parallelSlot?: number | null
+  splitAssignment?: string | null
+  parallelSize?: number | null
+}): string | null {
+  if (input.parallelSlot != null) {
+    if (!input.parallelGroupId) {
+      return (
+        `enqueueAgentWorkCommand: parallelSlot ${input.parallelSlot} without parallelGroupId — a slot ` +
+        'with no group is a shape agent_work_item_parallel_shape_check refuses'
+      )
+    }
+    if (!Number.isInteger(input.parallelSlot) || input.parallelSlot < 1) {
+      return `enqueueAgentWorkCommand: parallelSlot must be a 1-based integer (got ${String(input.parallelSlot)})`
+    }
+  }
+  if (input.parallelGroupId != null && input.parallelSlot == null) {
+    return (
+      'enqueueAgentWorkCommand: parallelGroupId without parallelSlot — every row in a parallel group ' +
+      'must declare its slot'
+    )
+  }
+  if (input.parallelGroupId != null) {
+    const assignment = input.splitAssignment?.trim()
+    if (!assignment) {
+      return (
+        'enqueueAgentWorkCommand: splitAssignment is required for a parallel group — ' +
+        'agent_work_item_parallel_shape_check refuses a grouped row with a null or blank split_assignment'
+      )
+    }
+    if (!Number.isInteger(input.parallelSize) || (input.parallelSize ?? 0) < 1) {
+      return (
+        `enqueueAgentWorkCommand: parallelSize must be a positive integer for a parallel group ` +
+        `(got ${String(input.parallelSize)})`
+      )
+    }
+  }
+  return null
+}
+
+/**
  * Enqueue a durable Agent Work Command (migration 028 envelope) for a story.
  * Creates a Ready work item with the logical role/model profile + optional
  * special instructions. The authoritative story spec is NOT copied here — it
@@ -694,53 +751,16 @@ export async function enqueueAgentWorkCommand(
 ): Promise<AgentWorkItem> {
   const q = execute ?? (await executor())
 
-  // FORGE-PARITY-CHECK-01 — the structural half of the parallel-shape rule, in
-  // code, so a bad call fails by NAME instead of depending on which database you
-  // are pointed at. PROD enforces the full shape with
+  // FORGE-PARITY-CHECK-01 / ENG-FORGE-SPLIT-SHAPE-01 — the structural half of
+  // the parallel-shape rule, extracted to a pure total function so it can be
+  // property-tested without a database. PROD enforces the full shape with
   // `agent_work_item_parallel_shape_check` (and DEV has the same constraint now),
   // but the rule used to live ONLY in that constraint: a caller that set a slot
   // without a group wrote a row PROD refused and DEV accepted, which is how two
   // malformed rows came to exist in DEV (see db/forge-split-children.ts, which had
-  // the same hole through an UPDATE). The NUMERIC bounds (slot 1..3, size 2..3)
-  // deliberately stay the database's business: repeating them here would create a
-  // second owner of one policy, which is the drift class this work removes.
-  if (input.parallelSlot != null) {
-    if (!input.parallelGroupId) {
-      throw new Error(
-        `enqueueAgentWorkCommand: parallelSlot ${input.parallelSlot} without parallelGroupId — a slot ` +
-          'with no group is a shape agent_work_item_parallel_shape_check refuses',
-      )
-    }
-    if (!Number.isInteger(input.parallelSlot) || input.parallelSlot < 1) {
-      throw new Error(
-        `enqueueAgentWorkCommand: parallelSlot must be a 1-based integer (got ${String(input.parallelSlot)})`,
-      )
-    }
-  }
-  if (input.parallelGroupId != null && input.parallelSlot == null) {
-    throw new Error(
-      'enqueueAgentWorkCommand: parallelGroupId without parallelSlot — every row in a parallel group ' +
-        'must declare its slot',
-    )
-  }
-  // ENG-FORGE-SPLIT-SHAPE-01 — a grouped row owes lane, size and its own assignment. The NUMERIC
-  // bounds (size 2..3) stay the database's business; what the writer must not do is omit a column
-  // the CHECK reads as FALSE. Refuse by name before any SQL, like the slot guards above.
-  if (input.parallelGroupId != null) {
-    const assignment = input.splitAssignment?.trim()
-    if (!assignment) {
-      throw new Error(
-        'enqueueAgentWorkCommand: splitAssignment is required for a parallel group — ' +
-          'agent_work_item_parallel_shape_check refuses a grouped row with a null or blank split_assignment',
-      )
-    }
-    if (!Number.isInteger(input.parallelSize) || (input.parallelSize ?? 0) < 1) {
-      throw new Error(
-        `enqueueAgentWorkCommand: parallelSize must be a positive integer for a parallel group ` +
-          `(got ${String(input.parallelSize)})`,
-      )
-    }
-  }
+  // the same hole through an UPDATE).
+  const shapeRefusal = parallelShapeRefusal(input)
+  if (shapeRefusal) throw new Error(shapeRefusal)
 
   // item created by the DB dispatch trigger (migration 025); the console
   // "Queue command" action UPSERTS that row with the command envelope rather
