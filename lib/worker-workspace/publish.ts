@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { scanCandidateOwnDiff, type CandidateSecretFinding } from './candidate-secret-scan'
+import { commitOwnDiffReader, scanCandidateOwnDiff, type CandidateSecretFinding } from './candidate-secret-scan'
 import { listCommitsToPublish } from './publish-range'
 
 const execFileAsync = promisify(execFile)
@@ -78,6 +78,11 @@ export type PublishAcceptedCandidateOutcome =
   | {
       outcome: 'candidate-secret'
       candidateCommit: string
+      /**
+       * Set when the credential-shaped value was found in the INTEGRATION commit rather than in the candidate
+       * range (work package C): the integration authors a new commit, and it is scanned before it is pushed.
+       */
+      integratedCommit?: string
       findings: CandidateSecretFinding[]
       reason: string
     }
@@ -286,10 +291,10 @@ export async function publishAcceptedCandidate(
   // EVERY COMMIT THE PUSH WOULD SEND, SCANNED BEFORE THE REMOTE IS READ.
   //
   // This used to pass `commits: [candidate]` — the tip only — so a credential introduced in an EARLIER
-  // unpublished commit rode along behind a clean final commit (FORGE-PUBLISH-SCAN-COVERAGE-01, reproduced
-  // by the Astra review: tip-only found 0 findings where both unpublished commits found 1). The range is
-  // measured from the remote-tracking ref when it exists, else from the local base, and the SOURCE is
-  // named in the refusal so nobody has to guess how much was covered.
+  // unpublished commit rode along behind a clean final commit (FORGE-PUBLISH-SCAN-COVERAGE-01, reproduced by the
+  // Astra review: tip-only found 0 findings where both unpublished commits found 1). The range is now measured
+  // from THE DESTINATION'S OWN ANSWER (work package C): local main is not evidence about the remote, and a
+  // remote-tracking ref is a cache that can be stale, so either one can omit commits this push will send.
   //
   // An unreadable diff still fails closed: an unscanned candidate is not a clean candidate.
   const publishRange = await listCommitsToPublish({
@@ -298,31 +303,25 @@ export async function publishAcceptedCandidate(
     remoteName,
     remoteBranch,
   })
-  // A base existed but the range could not be listed: history is unreadable, so an unscanned push cannot
-  // be called clean. Refuse BEFORE reading the remote, and never fall back to a tip-only scan.
+  // THE RANGE COULD NOT BE ESTABLISHED: refuse BEFORE reading the remote, and never fall back to a tip-only scan.
+  // "We could not read the destination" is not "there is nothing else to scan".
   if (publishRange.unreadable) {
     return {
       outcome: 'publish-conflict',
       candidateCommit: candidate,
       remoteMainHash: null,
       reason:
-        `could not list the commits to publish between ${publishRange.base?.slice(0, 12) ?? 'the base'} ` +
-        `and candidate ${candidate.slice(0, 12)} (${publishRange.source}); refusing to publish a candidate ` +
-        'whose history could not be read',
+        `could not establish the commits to publish for candidate ${candidate.slice(0, 12)} ` +
+        `(${publishRange.source}): ${publishRange.refusal ?? 'the range could not be read'}. Refusing to publish ` +
+        'a candidate whose history could not be read.',
     }
   }
   const secretScan = await scanCandidateOwnDiff({
     commits: publishRange.commits,
-    readDiff: async (commit) => {
-      const diff = await runGit(repoRoot, [
-        'diff',
-        '--no-color',
-        '--unified=0',
-        `${commit}^`,
-        commit,
-      ])
-      return diff.ok ? diff.stdout : null
-    },
+    // THE ROOT COMMIT IS READABLE (work package C): a parentless commit's own diff is its whole tree, taken
+    // against the empty tree. Without this, a first publish onto a new branch reported `unreadable` and refused —
+    // the right answer for a genuinely unreadable commit, and the wrong one for a root commit.
+    readDiff: commitOwnDiffReader(repoRoot),
   })
   if (secretScan.unreadable.length > 0) {
     return {
@@ -462,6 +461,32 @@ export async function publishAcceptedCandidate(
           `candidate ${candidate} was integrated onto ${remoteMain} as ${integrated.commit}, ` +
           `but the integrated tree did not verify: ${verification.detail ?? 'verifier refused'}. ` +
           'Nothing was published — the proofs decide, not the merge.',
+      }
+    }
+
+    // THE INTEGRATED COMMIT IS A NEW COMMIT, SO IT GETS ITS OWN SCAN (work package C, item 8). Integration
+    // authors a commit the range scan above never saw — a merge whose resolution can introduce anything — and
+    // pushing it unscanned would reintroduce exactly the hole this story closes, one layer up. The scan reads
+    // the integrated commit's own diff against its first parent, so it covers the candidate's changes AND the
+    // resolution, and a finding refuses the publication with the worktree cleaned up.
+    const integratedScan = await scanCandidateOwnDiff({
+      commits: [integrated.commit],
+      readDiff: commitOwnDiffReader(repoRoot),
+    })
+    if (integratedScan.unreadable.length > 0 || integratedScan.findings.length > 0) {
+      const named = integratedScan.findings
+        .map((finding) => `${finding.rule} in ${finding.file}:${finding.line}`)
+        .join(', ')
+      const reason = integratedScan.unreadable.length
+        ? `the integrated commit ${integrated.commit.slice(0, 12)} could not be scanned; nothing was published`
+        : `the integrated commit ${integrated.commit.slice(0, 12)} adds a credential-shaped value (${named}); publication refused`
+      await integrated.cleanup()
+      return {
+        outcome: 'candidate-secret',
+        candidateCommit: candidate,
+        integratedCommit: integrated.commit,
+        findings: integratedScan.findings,
+        reason,
       }
     }
 

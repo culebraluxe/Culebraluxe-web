@@ -20,7 +20,45 @@
 // scan that cannot run is never "clean".
 // ---------------------------------------------------------------------------
 
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
 import { secretShapesInLine } from '../secret-shapes'
+
+const execFileAsync = promisify(execFile)
+
+/** The empty tree: the diff base for a commit with no parent. Git's well-known constant for it. */
+export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+/**
+ * THE DIFF A COMMIT ITSELF INTRODUCES, INCLUDING FOR A ROOT COMMIT (work package C).
+ *
+ * `git diff <commit>^ <commit>` is the obvious reader and it FAILS on a commit with no parent — so a root
+ * commit was reported `unreadable` and a first publish onto a new branch could not be scanned at all. A root
+ * commit introduces its whole tree, and that is expressible: diff it against the EMPTY TREE. Returns null only
+ * when both reads fail, which keeps the scanner's fail-closed property exactly where it belongs.
+ */
+export function commitOwnDiffReader(
+  repoDir: string,
+): (commit: string) => Promise<string | null> {
+  return async (commit) => {
+    const read = async (args: string[]): Promise<string | null> => {
+      try {
+        const { stdout } = await execFileAsync(
+          'git',
+          ['-C', repoDir, 'diff', '--no-color', '--unified=0', ...args],
+          { encoding: 'utf8' },
+        )
+        return stdout
+      } catch {
+        return null
+      }
+    }
+    const withParent = await read([`${commit}^`, commit])
+    if (withParent !== null) return withParent
+    return read([EMPTY_TREE, commit])
+  }
+}
 
 export type CandidateSecretFinding = {
   /** The commit in the scanned range that introduced the matched line. */
