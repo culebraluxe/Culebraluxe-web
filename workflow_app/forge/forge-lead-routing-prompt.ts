@@ -33,7 +33,7 @@ function capabilityRules(context: RoutingContext): string {
  *
  * ASSAY means "the work this story asks for already exists on the base; judge it instead of authoring it".
  * The Lead cannot know that from the story text alone: it is a fact about the REPOSITORY, and the only
- * trustworthy source is the runner's own observation, which arrives in the context as `existingCandidate`.
+ * trustworthy source is the runner's own observation, which arrives in the context as `gitObservedCandidate`.
  * So the rule is stated in two directions and both are load-bearing:
  *
  *   * with an observed candidate, the option is named WITH the sha, so the decision can be recorded exactly;
@@ -43,8 +43,8 @@ function capabilityRules(context: RoutingContext): string {
  * This is the missing half of the earlier wiring: the validator, the arrangement and the workflow branch all
  * existed, and no directive ever told a Lead the option existed.
  */
-function verifyExistingRule(context: RoutingContext): string {
-  const observed = context.existingCandidate
+function assayRouteRule(context: RoutingContext): string {
+  const observed = context.gitObservedCandidate
   if (!observed?.sha) {
     return (
       'DIRECT-TO-QA (ASSAY) IS NOT AVAILABLE THIS RUN: no candidate observed on the base, so there is nothing ' +
@@ -118,7 +118,7 @@ export function buildLeadRoutingDirective(context: LeadRoutingDirectiveContext):
     'First assess work size by coherent outcomes, uncertainty, coupling, context burden and proof burden. File count alone is not size; several files can implement one small behavior.',
     capabilityRules(context),
     bench,
-    verifyExistingRule(context),
+    assayRouteRule(context),
     findingHandoffRule(context),
     'A Smith assignment contains 1..3 serial chunks in the same worker context. Three chunks do not imply three workers. Apply the chunk ceiling PER ASSIGNMENT, not per whole story.',
     'The current XML SPLIT is a sibling fork. Every assignment must be executable from the same starting candidate with existing stable contracts. A dependency on a sibling output is not runnable here; report HOLD with the missing prerequisite/staging need. Do not erase dependencies to make validation pass.',

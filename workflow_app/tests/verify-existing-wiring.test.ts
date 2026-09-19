@@ -42,17 +42,17 @@ const story = {
 
 const capabilities = { splitEnabled: true, maxSmiths: 2 } as never
 
-test('verify-existing: the routing context supplies the observed candidate, and omits it when nothing was observed', () => {
+test('verify-existing-git: the routing context supplies the GIT-observed candidate, and omits it when git saw nothing', () => {
   const withObservation = buildLeadRoutingContext({
     story,
     capabilities,
-    observedCandidate: { sha: 'a'.repeat(40), onBaseRef: true },
+    gitObservedCandidate: { sha: 'a'.repeat(40), onBaseRef: true },
   })
-  assert.deepEqual(withObservation.existingCandidate, { sha: 'a'.repeat(40), onBaseRef: true })
+  assert.deepEqual(withObservation.gitObservedCandidate, { sha: 'a'.repeat(40), onBaseRef: true })
 
   // Absent stays absent: the validator must see "nothing to verify" rather than a null that reads as one.
   const without = buildLeadRoutingContext({ story, findings: REQUIRED_FINDING, capabilities })
-  assert.equal('existingCandidate' in without, false)
+  assert.equal('gitObservedCandidate' in without, false)
 })
 
 test('verify-existing: ancestry is the test, not existence — a commit off the base is refused', async () => {
@@ -177,7 +177,7 @@ test('proposal: the recorded contract routes cleanly when the runner observed th
     story,
     findings: REQUIRED_FINDING,
     capabilities,
-    observedCandidate: { sha: ASSAY_SHA, onBaseRef: true },
+    gitObservedCandidate: { sha: ASSAY_SHA, onBaseRef: true },
   })
   const review = resolveLeadProposal({ contract: contractRow(), plan: null, context })
   assert.equal(review.ok, true, review.ok === false ? review.errors.join(' | ') : '')
@@ -201,7 +201,7 @@ test('proposal: unobserved, off-base and missing candidates are each refused wit
       story,
       findings: REQUIRED_FINDING,
       capabilities,
-      observedCandidate: { sha: ASSAY_SHA, onBaseRef: false },
+      gitObservedCandidate: { sha: ASSAY_SHA, onBaseRef: false },
     }),
   })
   assert.equal(offBase.ok, false)
@@ -215,7 +215,7 @@ test('proposal: unobserved, off-base and missing candidates are each refused wit
       story,
       findings: REQUIRED_FINDING,
       capabilities,
-      observedCandidate: { sha: ASSAY_SHA, onBaseRef: true },
+      gitObservedCandidate: { sha: ASSAY_SHA, onBaseRef: true },
     }),
   })
   assert.equal(noCandidate.ok, false)
@@ -236,7 +236,7 @@ test('proposal: a non-ASSAY route that names a candidate is refused as a contrad
       story,
       findings: REQUIRED_FINDING,
       capabilities,
-      observedCandidate: { sha: ASSAY_SHA, onBaseRef: true },
+      gitObservedCandidate: { sha: ASSAY_SHA, onBaseRef: true },
     }),
   })
   assert.equal(contradiction.ok, false)
@@ -261,21 +261,30 @@ test('no-git: the QA path carries NO git identity — the route fact lives in th
     'the ASSAY branch must not measure git or write a git identity',
   )
   assert.equal(
-    /Object\.assign\(evidence, \{ verifyExisting: arrangement \}\)/.test(runner),
+    /Object\.assign\(evidence, \{ assayRoute: arrangement \}\)/.test(runner),
     true,
     'the runner records the arrangement and nothing git-derived',
   )
 
-  // The routing context may — and does — establish the observed candidate, because that is a routing decision
-  // about which work to judge, not a QA verdict about whether it passed.
+  // The routing context may — and does — establish the GIT-observed candidate, and its name says so: the field
+  // is `gitObservedCandidate`, so nothing that touches git shares a name with the git-free assay/QA family.
+  // That naming rule is the operator's, 2026-09-19: "if there is another ASSAY that contradicts the no-git QA
+  // policy it must not be called, or be named so it explicitly says Assay-With-Git".
   const routing = readFileSync(repoFile('workflow_app/forge/lead-routing-context.ts'), 'utf8')
-  assert.equal(/existingCandidate/.test(routing), true)
+  assert.equal(/gitObservedCandidate/.test(routing), true, 'the git fact must be named as a git fact')
+  assert.equal(
+    /\bobservedCandidate\b/.test(routing.replace(/gitObservedCandidate/g, '')),
+    false,
+    'no git-bearing field may keep an unqualified name',
+  )
+  const contexts = readFileSync(repoFile('workflow_app/forge/forge-lead-routing.ts'), 'utf8')
+  assert.equal(/gitObservedCandidate/.test(contexts), true)
 })
 
 test('directive: ASSAY is offered only when the runner observed a candidate on the base', () => {
   const observed = { sha: ASSAY_SHA, onBaseRef: true }
   const offered = buildLeadRoutingDirective(
-    buildLeadRoutingContext({ story, findings: REQUIRED_FINDING, capabilities, observedCandidate: observed }) as never,
+    buildLeadRoutingContext({ story, findings: REQUIRED_FINDING, capabilities, gitObservedCandidate: observed }) as never,
   )
   assert.match(offered, /DIRECT-TO-QA \(ASSAY\) IS AVAILABLE/)
   assert.equal(offered.includes(`--verify-candidate ${ASSAY_SHA}`), true, 'the sha must be named, not described')
@@ -289,7 +298,7 @@ test('directive: ASSAY is offered only when the runner observed a candidate on t
       story,
       findings: REQUIRED_FINDING,
       capabilities,
-      observedCandidate: { sha: ASSAY_SHA, onBaseRef: false },
+      gitObservedCandidate: { sha: ASSAY_SHA, onBaseRef: false },
     }) as never,
   )
   assert.match(offBase, /NOT on the story base/)
@@ -301,13 +310,13 @@ test('verify-existing: production really supplies it, calls the arrangement, and
   // unit test it has — that is precisely how this defect survived a green suite. These assertions fail if
   // the wiring is removed, which is the only thing that keeps it wired.
   const runner = readFileSync(repoFile('workflow_app/forge/agent-runtime-role-runner.ts'), 'utf8')
-  assert.equal(/observedCandidate \? \{ observedCandidate \}/.test(runner), true, 'the context is not fed')
+  assert.equal(/gitObservedCandidate \? \{ gitObservedCandidate \}/.test(runner), true, 'the context is not fed')
   assert.equal(
     runner.includes('commitOnGitBaseRef(process.cwd())(storyBaseCommit, recordedCandidateSha)'),
     true,
     'ancestry check not invoked',
   )
-  assert.equal(/verifyExistingArrangement\(routingReview, leadRoutingContext\.allowedProofs\)/.test(runner), true, 'the arrangement helper is not called in production')
+  assert.equal(/assayRouteArrangement\(routingReview, leadRoutingContext\.allowedProofs\)/.test(runner), true, 'the arrangement helper is not called in production')
 
   const workflow = readFileSync(repoFile('workflow_app/definitions/FORGE_SDLC-v6.xml'), 'utf8')
   assert.equal(/leadDecision == 'ASSAY'/.test(workflow), true, 'no ASSAY condition in the execution-shape decision')

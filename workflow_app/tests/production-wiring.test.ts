@@ -110,7 +110,7 @@ test('wiring: the production runner actually supplies each of these, or CI fails
   const mustSupply: Array<[string, string]> = [
     ['acceptanceMap ? { acceptanceMap }', 'the acceptance map'],
     ['negativeControl ? { negativeControl }', 'the negative control'],
-    ['observedCandidate ? { observedCandidate }', 'the observed candidate'],
+    ['gitObservedCandidate ? { gitObservedCandidate }', 'the GIT-observed candidate (named as a git fact)'],
     ['runStatic: () => staticSliceForWorktree(', 'the static gate slice'],
   ]
   for (const [needle, what] of mustSupply) {

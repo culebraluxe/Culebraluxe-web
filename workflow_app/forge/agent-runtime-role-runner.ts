@@ -364,7 +364,7 @@ export type VerifyExistingArrangement = {
   proofs: string[]
 }
 
-export function verifyExistingArrangement(
+export function assayRouteArrangement(
   review: RoutingReview,
   proofs: readonly string[],
 ): VerifyExistingArrangement | null {
@@ -685,7 +685,7 @@ export function createAgentRuntimeForgeRoleRunner(
     // merely exists in the repository (a branch, an unlanded candidate) is not "already on the base", and
     // verifying it would be verifying something the story is supposed to author.
     const recordedCandidateSha = String(current.candidateSha ?? '').trim().toLowerCase()
-    const observedCandidate =
+    const gitObservedCandidate =
       /^[0-9a-f]{40}$/.test(recordedCandidateSha) && storyBaseCommit
         ? {
             sha: recordedCandidateSha,
@@ -701,7 +701,7 @@ export function createAgentRuntimeForgeRoleRunner(
       // validator had nothing to compare a named sha against, so the direct-to-QA route could never be
       // accepted in production. Observed means: the candidate the run recorded, AND that it is an ancestor
       // of the pinned base ref — present-but-unlanded work is not "already there".
-      ...(observedCandidate ? { observedCandidate } : {}),
+      ...(gitObservedCandidate ? { gitObservedCandidate } : {}),
       // Which attempt is in force and what a later attempt explicitly superseded. Null is the
       // legacy reply-parser fallback, where no attempt is recorded.
       findingHandoff: recordedHandoff
@@ -1957,13 +1957,13 @@ export function createAgentRuntimeForgeRoleRunner(
       Object.assign(evidence, leadRoutingFacts(routingReview))
       // THE DIRECT-ASSAY ARRANGEMENT, PRODUCED BY PRODUCTION (FORGE-VERIFY-EXISTING-COMPLETE-01).
       //
-      // verifyExistingArrangement existed and was fenced, but nothing in the runner called it — the helper
+      // assayRouteArrangement existed and was fenced, but nothing in the runner called it — the helper
       // Astra called out ("the arrangement helper is not called by the production runner"). It is produced
       // here, on an accepted ASSAY route, and it does two recorded things: the arrangement itself (so the
       // dispatch is auditable) and the candidate the verification is ABOUT, because for this route there is
       // no Smith candidate and the workflow's verification node must verify the named sha or nothing.
       if (routingReview.proposal.decision === 'ASSAY') {
-        const arrangement = verifyExistingArrangement(routingReview, leadRoutingContext.allowedProofs)
+        const arrangement = assayRouteArrangement(routingReview, leadRoutingContext.allowedProofs)
         if (arrangement) {
           // NO GIT IN THE QA PATH (ENG-FORGE-QA-NO-GIT-GUARD-01, restored 2026-09-19). This block briefly
           // measured the primary checkout against the named candidate and wrote `candidateSha`/`qaVerifiedSha`
@@ -1975,7 +1975,7 @@ export function createAgentRuntimeForgeRoleRunner(
           // runner records here is the arrangement alone: which candidate the route names, and which frozen
           // proofs judge it. QA then runs those proofs in the directory it was given and answers only "did the
           // tests pass".
-          Object.assign(evidence, { verifyExisting: arrangement })
+          Object.assign(evidence, { assayRoute: arrangement })
         }
       }
     }

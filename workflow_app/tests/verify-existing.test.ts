@@ -18,7 +18,7 @@ import {
   type LeadProposal,
   type RoutingContext,
 } from '../forge/forge-lead-routing'
-import { verifyExistingArrangement } from '../forge/agent-runtime-role-runner'
+import { assayRouteArrangement } from '../forge/agent-runtime-role-runner'
 
 const PROOF = 'node --import tsx --test workflow_app/tests/verify-existing.test.ts'
 const CANDIDATE = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0'
@@ -33,7 +33,7 @@ function context(overrides: Partial<RoutingContext> = {}): RoutingContext {
     splitEnabled: true,
     maxSmiths: 2,
     allowedProofs: [PROOF],
-    existingCandidate: { sha: CANDIDATE, onBaseRef: true },
+    gitObservedCandidate: { sha: CANDIDATE, onBaseRef: true },
     ...overrides,
   }
 }
@@ -57,7 +57,7 @@ test('verify-existing:existing-work-routes-to-assay', () => {
   assert.equal(review.ok, true, review.ok ? '' : review.errors.join('; '))
   if (!review.ok) return
   assert.equal(review.proposal.decision, 'ASSAY')
-  const arrangement = verifyExistingArrangement(review, [PROOF])
+  const arrangement = assayRouteArrangement(review, [PROOF])
   assert.ok(arrangement, 'an accepted ASSAY route yields an assay arrangement')
   assert.equal(arrangement.lane, 'assay')
   assert.equal(arrangement.node, 'qa_verify')
@@ -68,13 +68,13 @@ test('verify-existing:route-names-candidate-sha', () => {
   assert.equal(review.ok, true, review.ok ? '' : review.errors.join('; '))
   if (!review.ok) return
   assert.equal(review.proposal.verifyCandidate, CANDIDATE)
-  const arrangement = verifyExistingArrangement(review, [PROOF])
+  const arrangement = assayRouteArrangement(review, [PROOF])
   assert.equal(arrangement?.candidateSha, CANDIDATE)
 })
 
 test('verify-existing:nothing-to-verify-refused', () => {
   // A named sha with no candidate observed on the base: nothing to verify.
-  const noCandidate = reviewLeadProposal(assayProposal(), context({ existingCandidate: null }))
+  const noCandidate = reviewLeadProposal(assayProposal(), context({ gitObservedCandidate: null }))
   assert.equal(noCandidate.ok, false)
 
   // A candidate on the base that is not the sha the route names: nothing to verify.
@@ -139,7 +139,7 @@ test('verify-existing:ordinary-authoring-unchanged', () => {
   if (!review.ok) return
   assert.equal(review.proposal.decision, 'SMITH')
   assert.equal(
-    verifyExistingArrangement(review, [PROOF]),
+    assayRouteArrangement(review, [PROOF]),
     null,
     'ordinary authoring produces no verify-existing arrangement',
   )
@@ -158,5 +158,5 @@ test('verify-existing:ordinary-authoring-unchanged', () => {
     context(),
   )
   assert.equal(hold.ok, true)
-  if (hold.ok) assert.equal(verifyExistingArrangement(hold, [PROOF]), null)
+  if (hold.ok) assert.equal(assayRouteArrangement(hold, [PROOF]), null)
 })

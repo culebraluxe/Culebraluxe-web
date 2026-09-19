@@ -41,7 +41,7 @@ export type RoutingContext = {
    * no existing candidate was observed, which is "nothing to verify" — an ASSAY route is
    * then refused, never passed.
    */
-  existingCandidate?: { sha: string; onBaseRef: boolean } | null
+  gitObservedCandidate?: { sha: string; onBaseRef: boolean } | null
   /** Captain launch intent from the Bench. Absent/null = no cap (live default). */
   benchIntent?: BenchIntent
 }
@@ -190,7 +190,7 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
     if (!/^[0-9a-f]{40}$/.test(verify)) {
       errors.push('ASSAY requires a 40-hex verifyCandidate sha')
     }
-    const observed = context.existingCandidate
+    const observed = context.gitObservedCandidate
     const observedSha =
       observed && typeof observed.sha === 'string' ? observed.sha.trim().toLowerCase() : ''
     if (!observedSha || observedSha !== verify) {

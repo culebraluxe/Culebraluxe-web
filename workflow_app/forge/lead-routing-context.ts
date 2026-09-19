@@ -119,7 +119,7 @@ export function buildLeadRoutingContext(input: {
    * absent: a builder with nothing observed supplies nothing, and the validator then refuses ASSAY rather
    * than verifying a tree nobody named.
    */
-  observedCandidate?: { sha: string; onBaseRef: boolean } | null
+  gitObservedCandidate?: { sha: string; onBaseRef: boolean } | null
 }): LeadRoutingContext {
   const content = (value: string | null | undefined, cap: number): string | undefined => {
     const text = (value ?? '').trim()
@@ -147,7 +147,7 @@ export function buildLeadRoutingContext(input: {
     findingHandoff: input.findingHandoff ?? null,
     // The observed candidate, when the runner found one on the pinned base. Omitted (not null) when
     // nothing was observed, so the validator's "nothing to verify" refusal keeps its meaning.
-    ...(input.observedCandidate ? { existingCandidate: input.observedCandidate } : {}),
+    ...(input.gitObservedCandidate ? { gitObservedCandidate: input.gitObservedCandidate } : {}),
     // A real lead reads the work, not a pointer to it. Contents are bounded so the
     // directive stays inside the model's context budget.
     ...(architectContract || scoutContext
