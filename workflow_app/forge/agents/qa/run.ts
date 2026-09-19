@@ -238,6 +238,24 @@ export function adjudicateAssay(input: {
     blockers.push(...arch.archErrors.slice(0, 8).map((e) => `ARCH ${e}`))
   }
 
+  // THE MIGRATION HARD GATE. An unsafe statement about to hit a live database must refuse the candidate,
+  // and a required migration check that could not RUN is never a pass. This is read from the static slice
+  // precisely because the adapter dropping these fields is how a FAIL used to disappear before the verdict.
+  const migrationFailure = arch?.migrationOk === false
+  if (migrationFailure && arch) {
+    if (arch.migrationRan !== true) {
+      blockers.push(
+        `MIGRATION_UNMEASURABLE ${arch.migrationFindings?.[0] ?? 'migration lint did not run'}`,
+      )
+    } else {
+      const named = arch.migrationFindings?.length
+        ? arch.migrationFindings
+        : (arch.migrationRules ?? [])
+      if (named.length === 0) blockers.push('MIGRATION migration lint reported a failure')
+      else blockers.push(...named.slice(0, 8).map((finding) => `MIGRATION ${finding}`))
+    }
+  }
+
   // THE ACCEPTANCE, NOT THE CHEAPEST READING OF IT. A condition is satisfied only when one of its mapped
   // assertions actually RAN in the executed proof output. A name that is merely LISTED proves nothing: if it
   // never appears in the output the clause is UNPROVEN and NAMED, and if it ran and failed the clause is
@@ -319,7 +337,7 @@ export function adjudicateAssay(input: {
   const negativeSurvived = negative !== null && negative.survived
   // A mapped assertion that ran and FAILED is a FAIL in its own right: the proof ran, and it said no.
   const verdict: QaVerdict =
-    commandFailure || failedConditions.length > 0 || negativeFailure
+    commandFailure || migrationFailure || failedConditions.length > 0 || negativeFailure
       ? 'FAIL'
       : unproven.length || blockers.includes('ACCEPTANCE_MAP_CHANGED') || negativeSurvived
         ? 'UNPROVEN'

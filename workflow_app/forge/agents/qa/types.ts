@@ -37,6 +37,15 @@ export type StaticSlice = {
   archErrors: string[]
   semgrepFindings?: string[]
   knipFindings?: string[]
+  /**
+   * Migration safety (squawk), the second HARD gate. `migrationOk === false` must FAIL the verdict and
+   * name the rule; `migrationRan === false` with `migrationOk === false` is a required check that could
+   * not run, which is never a pass. Optional: a slice that predates the field carries no opinion.
+   */
+  migrationRan?: boolean
+  migrationOk?: boolean
+  migrationFindings?: string[]
+  migrationRules?: string[]
 }
 
 /**

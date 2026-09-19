@@ -31,6 +31,15 @@ export type StaticSlice = {
   /** Ride-along instruments: recorded, never verdict-flipping. */
   semgrepFindings?: string[]
   knipFindings?: string[]
+  /**
+   * Migration safety (squawk). A HARD gate like architecture: a false `migrationOk` must reach the QA
+   * verdict, not vanish at this adapter. Optional so a slice that predates the field stays valid.
+   * `migrationRan=false` with `migrationOk=false` is a check that could not run and fails closed.
+   */
+  migrationRan?: boolean
+  migrationOk?: boolean
+  migrationFindings?: string[]
+  migrationRules?: string[]
 }
 
 export type ReleaseEvidencePort = {

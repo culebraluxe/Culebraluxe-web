@@ -67,6 +67,12 @@ export function staticSliceFromGate(result: StaticGateResult): StaticSlice {
     archErrors: result.archErrors,
     semgrepFindings: result.semgrepFindings,
     knipFindings: result.knipFindings,
+    // THE MIGRATION HARD GATE TRAVELS WITH THE SLICE. Dropping it here is how an unsafe migration was
+    // judged PASS by a collector that never heard about it.
+    migrationRan: result.migrationRan,
+    migrationOk: result.migrationOk,
+    migrationFindings: result.migrationFindings,
+    migrationRules: result.migrationRules,
   }
 }
 
