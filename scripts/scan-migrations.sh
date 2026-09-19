@@ -84,6 +84,21 @@ if ! command -v squawk >/dev/null 2>&1; then
   exit 2
 fi
 
+# EXCLUDED RULES, and what excluding them costs (operator decision, 2026-09-19).
+#
+# `changing-column-type` fires on every ALTER COLUMN ... TYPE because an ACCESS EXCLUSIVE rewrite on a live
+# table blocks readers and writers. That is the right warning for a table with clients, and the wrong one for a
+# LANDING table whose only load path is a truncate-and-replace: widening a column there cannot strand a client,
+# and the alternative ways to express it are worse — DROP + ADD trips `ban-drop-column`, and neither is cleaner
+# than the ALTER it replaces. The first migration that needed it was l_Regrid's coordinate precision (199 typed
+# numeric(11,7), the export carries 8 decimals, so the values were being ROUNDED) found by verifying the load
+# cell-by-cell (scripts/verify-l-regrid.ts).
+#
+# THE COST, STATED PLAINLY: this exclusion is GLOBAL, not per-file — a type change anywhere in a changed
+# migration is no longer flagged. The rule that replaces it is review: a type change has to say in its own file
+# why the rewrite is safe, which is what migration 200 does. Everything else squawk reports still fails the gate.
+SQUAWK_EXCLUDES=(--exclude=changing-column-type)
+
 if [[ $json -eq 1 ]]; then
   echo "scan:migrations: ${#unique[@]} migration file(s) selected" >&2
   files_json=""
@@ -91,7 +106,7 @@ if [[ $json -eq 1 ]]; then
     files_json+="\"$f\","
   done
   files_json="[${files_json%,}]"
-  squawk_out="$(squawk "${unique[@]}" --reporter json 2>/dev/null)"
+  squawk_out="$(squawk "${unique[@]}" "${SQUAWK_EXCLUDES[@]}" --reporter json 2>/dev/null)"
   status=$?
   [[ -z "$squawk_out" ]] && squawk_out='[]'
   # Normalize squawk's native `rule_name` to the contract's `rule` so a caller reads one name.
@@ -101,7 +116,7 @@ if [[ $json -eq 1 ]]; then
 fi
 
 echo "scan:migrations: ${#unique[@]} changed migration file(s)"
-squawk "${unique[@]}" --reporter tty
+squawk "${unique[@]}" "${SQUAWK_EXCLUDES[@]}" --reporter tty
 status=$?
 
 if [[ $status -ne 0 ]]; then
