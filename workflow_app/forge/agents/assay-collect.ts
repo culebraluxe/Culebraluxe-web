@@ -33,6 +33,17 @@ export function collectAssayEvidence(
       ...evidence,
       qaPassed: false,
       deliverableRejection: 'QA FAIL: the lane was handed assay commands but no way to run them.',
+      // THE EARLY REFUSAL CARRIES ITS RECEIPT TOO (work package E, item 5). This path used to return a refusal
+      // with no receipt at all, so the one row a reader most needs to explain — "QA failed and here is what
+      // every check did" — was the one row that said nothing. Every proof is UNAVAILABLE for the same reason,
+      // because none of them could be executed.
+      gateChecks: gateChecksFor({
+        commands,
+        results: [],
+        staticGate: null,
+        acceptanceMapped: Boolean(ports.acceptanceMap),
+        negativeControl: null,
+      }),
     }
   }
 
@@ -75,15 +86,17 @@ export function collectAssayEvidence(
     frozenMap: ports.acceptanceMap ?? null,
     ...(negativeControlResult !== undefined ? { negativeControlResult } : {}),
   })
-  // WHAT EACH CHECK DID (FORGE-GATE-RECEIPT-01): a projection of checks that already happened, never a
-  // second verdict. It travels with BOTH returns below, because the failure path is where a reader most
-  // needs to know which check said no.
+  // WHAT EACH CHECK DID (FORGE-GATE-RECEIPT-01, work package E): a projection of checks that already happened,
+  // never a second verdict. The statuses are the ADJUDICATOR'S OWN outcomes rather than a re-derivation: a
+  // control that ran and killed nothing is not `passed` (it is a surviving control, which is exactly why the
+  // verdict is UNPROVEN), and a proof that could not be EXECUTED is `unavailable`, not an ordinary failure.
   const gateChecks = gateChecksFor({
     commands,
     results,
     staticGate,
     acceptanceMapped: Boolean(ports.acceptanceMap),
     negativeControl: report.negativeControl ?? null,
+    controlSurvived: report.negativeControl ? report.negativeControl.killingAssertions.length === 0 : false,
   })
 
   if (report.verdict !== 'PASS') {

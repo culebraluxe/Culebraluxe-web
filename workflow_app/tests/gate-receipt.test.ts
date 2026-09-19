@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { collectAssayEvidence } from '../forge/agents/assay-collect'
 import { gateChecksFor } from '../forge/agents/gate-checks'
+import { buildAcceptanceMap } from '../forge/agents/qa/types'
 import type { CommandResult, StaticSlice } from '../forge/agents/qa/types'
 import type { RoleEffectPorts } from '../forge/agents/ports'
 
@@ -22,6 +23,14 @@ const result = (command: string, passed: boolean): CommandResult => ({
   passed,
   excerpt: passed ? 'ok 1 - required assertion' : 'not ok 1 - required assertion',
   output: passed ? 'ok 1 - required assertion' : 'not ok 1 - required assertion',
+})
+
+const VALID_MAP = buildAcceptanceMap({
+  acceptance: ['it works'],
+  // THE REAL BUILDER, THE REAL HASH (work package F). A hand-written `hash: 'h'` is not a map hash: the
+  // adjudicator compares it against the mapping it was given, so the "valid" fixture was refused with
+  // ACCEPTANCE_MAP_CHANGED and every `qaPassed` expectation built on it was meaningless.
+  assertions: { 'it works': ['required assertion'] },
 })
 
 const slice = (extra: Partial<StaticSlice> = {}): StaticSlice => ({
@@ -101,22 +110,116 @@ test('gate receipt: an unmapped acceptance and an undeclared control are NOT CON
   assert.ok(control?.reason)
 })
 
-test('gate receipt: the collector ATTACHES the receipt on both the pass and the refusal path', () => {
+// ---------------------------------------------------------------------------
+// WORK PACKAGE E — THE RECEIPT AGREES WITH WHAT WAS OBSERVED.
+//
+// Two reproductions from the re-review:
+//   1. the control RAN and killed nothing → QA UNPROVEN, receipt `passed`, reason "killed nothing";
+//   2. a missing runner returned a refusal with NO receipt at all.
+// A receipt that disagrees with the verdict is worse than no receipt: it is the row a reader trusts when the
+// verdict is surprising. The projection stays a projection — it reads the adjudicator's own outcomes and never
+// recomputes QA policy.
+// ---------------------------------------------------------------------------
+
+test('receipt: a control that RAN and killed nothing is not `passed`', () => {
+  const surviving = { command: 'node --test x.test.ts', ran: true, unmeasurable: false, killingAssertions: [] }
+  const checks = gateChecksFor({
+    commands: [],
+    results: [],
+    staticGate: slice(),
+    acceptanceMapped: true,
+    negativeControl: surviving,
+    controlSurvived: true,
+  })
+  const control = checks.find((c) => c.id === 'negative-control')
+  assert.equal(control?.status, 'failed', 'a surviving control is the reason the verdict is UNPROVEN')
+  assert.match(String(control?.reason), /killed nothing/)
+
+  const killing = { command: 'node --test x.test.ts', ran: true, unmeasurable: false, killingAssertions: ['k'] }
+  const passed = gateChecksFor({
+    commands: [],
+    results: [],
+    staticGate: slice(),
+    acceptanceMapped: true,
+    negativeControl: killing,
+    controlSurvived: false,
+  }).find((c) => c.id === 'negative-control')
+  assert.equal(passed?.status, 'passed')
+})
+
+test('receipt: a proof that could not be EXECUTED is unavailable, not an ordinary failed assertion', () => {
+  const unmeasurable: CommandResult = {
+    command: 'node --test x.test.ts',
+    exitCode: 1,
+    passed: false,
+    excerpt: 'spawn timeout after 900s',
+    output: '',
+    unmeasurable: true,
+  }
+  const checks = gateChecksFor({
+    commands: ['node --test x.test.ts'],
+    results: [unmeasurable],
+    staticGate: slice(),
+    acceptanceMapped: true,
+    negativeControl: null,
+  })
+  const proof = checks.find((c) => c.id.startsWith('proof:'))
+  assert.equal(proof?.status, 'unavailable')
+  assert.match(String(proof?.reason), /timeout/)
+})
+
+test('receipt: the missing-runner refusal INCLUDES the receipt, and the pass path really passes', () => {
+  const withControl = {
+    assayCommands: ['node --test a.test.ts'],
+    runStatic: () => slice(),
+    acceptanceMap: VALID_MAP,
+    negativeControl: { command: 'node --test control.test.ts' },
+  } as Partial<RoleEffectPorts>
+
+  // NO RUNNER: a refusal, with every proof reported unavailable for the same reason.
+  const refused = collectAssayEvidence({} as never, withControl as RoleEffectPorts)
+  assert.equal(refused.qaPassed, false)
+  assert.ok(Array.isArray(refused.gateChecks) && refused.gateChecks.length > 0, 'the refusal carries a receipt')
+  assert.equal(
+    refused.gateChecks?.find((c) => c.id.startsWith('proof:'))?.status,
+    'unavailable',
+    'nothing could be executed, and the receipt says so',
+  )
+
+  // THE PASS PATH: a working runner and a control that kills something.
+  const passing = collectAssayEvidence({} as never, {
+    ...withControl,
+    runCommand: (command: string) =>
+      command.includes('control')
+        ? {
+            command,
+            exitCode: 1,
+            passed: false,
+            excerpt: 'not ok 1 - required assertion',
+            output: 'not ok 1 - required assertion',
+          }
+        : {
+            command,
+            exitCode: 0,
+            passed: true,
+            excerpt: 'ok 1 - required assertion',
+            output: 'ok 1 - required assertion',
+          },
+  } as RoleEffectPorts)
+  assert.equal(passing.qaPassed, true, 'a genuine success case, asserted — not inferred')
+  assert.equal(passing.gateChecks?.find((c) => c.id === 'negative-control')?.status, 'passed')
+  assert.equal(passing.gateChecks?.find((c) => c.id.startsWith('proof:'))?.status, 'passed')
+})
+
+test('receipt: the refusal path carries the acceptance-map receipt, where a reader most needs it', () => {
   const ports = (extra: Partial<RoleEffectPorts> = {}): RoleEffectPorts =>
     ({
       assayCommands: ['node --test a.test.ts'],
       runCommand: (command: string) => result(command, true),
       runStatic: () => slice(),
-      acceptanceMap: {
-        version: 1 as const,
-        hash: 'h',
-        conditions: [{ id: 'c1', text: 'it works', assertions: ['required assertion'] }],
-      },
+      acceptanceMap: VALID_MAP,
       ...extra,
     }) as RoleEffectPorts
-
-  const passing = collectAssayEvidence({} as never, ports())
-  assert.ok(Array.isArray(passing.gateChecks) && passing.gateChecks.length > 0, 'no receipt on the pass path')
 
   const refusing = collectAssayEvidence({} as never, ports({ acceptanceMap: undefined }))
   assert.equal(refusing.qaPassed, false)

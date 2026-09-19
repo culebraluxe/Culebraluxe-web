@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import { collectAssayEvidence } from '../forge/agents/assay-collect'
 import { staticSliceFromGate } from '../forge/agents/exec-command'
+import { buildAcceptanceMap } from '../forge/agents/qa/types'
 import type { CommandResult, StaticSlice } from '../forge/agents/qa/types'
 import type { RoleEffectPorts } from '../forge/agents/ports'
 
@@ -27,11 +28,13 @@ const result = (command: string, passed: boolean, output: string): CommandResult
   output,
 })
 
-const mapped = {
-  version: 1 as const,
-  hash: 'wiring-hash',
-  conditions: [{ id: 'c1', text: 'the fence proves it', assertions: ['required assertion'] }],
-}
+// THE MAP IS BUILT BY THE REAL BUILDER (work package F). A hand-written `hash: 'wiring-hash'` is not a map
+// hash, so the adjudicator refused the "valid" fixture with ACCEPTANCE_MAP_CHANGED — every negative case below
+// then passed for the wrong reason, and the positive case could never have been asserted at all.
+const mapped = buildAcceptanceMap({
+  acceptance: ['the fence proves it'],
+  assertions: { 'the fence proves it': ['required assertion'] },
+})
 
 const basePorts = (extra: Partial<RoleEffectPorts> = {}): RoleEffectPorts =>
   ({
@@ -42,14 +45,24 @@ const basePorts = (extra: Partial<RoleEffectPorts> = {}): RoleEffectPorts =>
     ...extra,
   }) as RoleEffectPorts
 
-test('wiring: dropping the ACCEPTANCE MAP is not a pass', () => {
-  const report = collectAssayEvidence({} as never, basePorts({ acceptanceMap: undefined }))
-  assert.notEqual(report.qaPassed, true, 'an unmapped acceptance cannot be judged clean')
+test('wiring: the COMPLETE fixture PASSES — the positive control the negatives depend on', () => {
+  // Without this, a negative test can pass because its fixture was already broken. Every refusal below is
+  // meaningful only against a baseline that genuinely reaches QA PASS.
+  const report = collectAssayEvidence({} as never, basePorts())
+  assert.equal(report.qaPassed, true, report.deliverableRejection ?? 'the baseline must pass')
+  assert.deepEqual(report.gateChecks?.filter((c) => c.status === 'failed'), [], 'no check failed in the baseline')
 })
 
-test('wiring: dropping the ASSAY COMMANDS is a FAIL, not a silent skip', () => {
+test('wiring: dropping the ACCEPTANCE MAP is refused for THAT reason, not for any refusal at all', () => {
+  const report = collectAssayEvidence({} as never, basePorts({ acceptanceMap: undefined }))
+  assert.equal(report.qaPassed, false)
+  assert.match(String(report.deliverableRejection ?? ''), /acceptance-map-missing/)
+})
+
+test('wiring: dropping the ASSAY COMMANDS is refused for THAT reason', () => {
   const report = collectAssayEvidence({} as never, basePorts({ assayCommands: [] }))
-  assert.notEqual(report.qaPassed, true)
+  assert.equal(report.qaPassed, false)
+  assert.match(String(report.deliverableRejection ?? ''), /NO_ASSAY_COMMANDS/)
 })
 
 test('wiring: a FAILED MIGRATION GATE reaches the verdict through the real collector and names the rule', () => {

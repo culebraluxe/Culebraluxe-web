@@ -32,6 +32,12 @@ export function gateChecksFor(input: {
   staticGate: StaticSlice | null
   acceptanceMapped: boolean
   negativeControl: NegativeControlOutcome | null
+  /**
+   * The control RAN and killed nothing. A surviving control is the reason the verdict is UNPROVEN, so the
+   * receipt must not call it `passed` — that was the review's first reproduction: QA UNPROVEN beside a receipt
+   * reading "passed, killed nothing".
+   */
+  controlSurvived?: boolean
 }): GateCheck[] {
   const checks: GateCheck[] = []
 
@@ -39,6 +45,16 @@ export function gateChecksFor(input: {
     const result = input.results.find((r) => r.command === command)
     if (!result) {
       checks.push({ id: `proof:${command}`, status: 'unavailable', reason: 'the command produced no result' })
+      continue
+    }
+    // COULD NOT RUN is not "ran and said no": a CommandResult carries `unmeasurable` for a spawn failure or a
+    // timeout, and reporting that as an ordinary failed assertion misleads the reader about the clause.
+    if (result.unmeasurable === true) {
+      checks.push({
+        id: `proof:${command}`,
+        status: 'unavailable',
+        reason: result.excerpt?.trim() || 'the command could not be executed',
+      })
       continue
     }
     checks.push({
@@ -94,15 +110,19 @@ export function gateChecksFor(input: {
       ? 'not-configured'
       : control.unmeasurable
         ? 'unavailable'
-        : control.ran
+        : control.ran && !input.controlSurvived
           ? 'passed'
-          : 'failed',
+          : control.ran
+            ? 'failed'
+            : 'skipped',
     reason: !control
       ? 'the story declared no negative control'
       : control.unmeasurable
         ? 'the control could not be executed'
         : control.ran
-          ? `killed ${control.killingAssertions.join(', ') || 'nothing'}`
+          ? input.controlSurvived
+            ? 'the control RAN and killed nothing — a surviving control proves no discrimination'
+            : `killed ${control.killingAssertions.join(', ') || 'the intended assertions'}`
           : 'the control did not run',
   })
 

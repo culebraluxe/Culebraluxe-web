@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { collectAssayEvidence } from '../forge/agents/assay-collect'
 import { negativeControlForStory } from '../forge/agents/negative-control-supplier'
+import { buildAcceptanceMap } from '../forge/agents/qa/types'
 import type { RoleEffectPorts } from '../forge/agents/ports'
 
 // ---------------------------------------------------------------------------
@@ -48,11 +49,12 @@ const result = (command: string, passed: boolean, output: string) => ({
   output,
 })
 
-const mapped = {
-  version: 1 as const,
-  hash: 'fence-hash',
-  conditions: [{ id: 'c1', text: 'the fence proves it', assertions: ['required assertion'] }],
-}
+// BUILT BY THE REAL BUILDER (work package F): a hand-written hash is refused as ACCEPTANCE_MAP_CHANGED, which
+// would make every negative control assertion below pass for a reason that has nothing to do with the control.
+const mapped = buildAcceptanceMap({
+  acceptance: ['the fence proves it'],
+  assertions: { 'the fence proves it': ['required assertion'] },
+})
 
 test('negative control collector: a supplied control that kills an intended assertion is recorded as such', () => {
   const report = collectAssayEvidence(
