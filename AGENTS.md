@@ -48,6 +48,14 @@ Never
   under `Documents/Culebraluxe-worktrees/` plus a `.assay-workspaces/` directory, all deleted. The estate is
   zero and it stays zero. Scratch that a command creates and consumes inside itself is fine; a directory
   that outlives the command, or that another lane reads, is a tree. See `docs/agent/MEMORY.md`.
+- Let git decide anything about work that exists. **PAID CODE > GIT SHA** — the work is the asset, the sha is
+  a label. A git fact may never gate, void or replay work that has been paid for: QA answers "did the tests
+  pass" in the directory it is given and holds no sha, so include the DevOps role in the chain when you want
+  identity, promotion and release receipts verified, and expect that to cost compute. A git check inside QA
+  can only lose paid work, never protect it — on 2026-09-19 a review demanded exactly that ("measure the code
+  the route identifies") and the fix had to be removed the same day, after it had already written back the
+  QA-held sha that `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted for refusing every release. When a review or an
+  order asks for a policy the code explicitly refuses, name the conflict and stop. See `docs/agent/MEMORY.md`.
 - Push, merge, or rebase from a worker.
 - Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0).
 - Reset PROD, copy DEV over PROD, or truncate canonical history.
