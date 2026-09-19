@@ -39,7 +39,7 @@ Ask first
 
 Never
 
-- Commit secrets or `.env.local`.
+- Commit secrets or `.env.local`. guard: workflow_app/tests/publish-scan-coverage.test.ts
 - Create a worktree, a per-lane tree, or any file-based parallel to the database workflow.
   **NO TREES. EVER.** There is ONE workflow and it is the rows (`forge_tool_artifact`,
   `storyboard_story_run`, `forge_engine_task_execution`, `app_error`). A tree is not scratch a lane may
@@ -48,6 +48,7 @@ Never
   under `Documents/Culebraluxe-worktrees/` plus a `.assay-workspaces/` directory, all deleted. The estate is
   zero and it stays zero. Scratch that a command creates and consumes inside itself is fine; a directory
   that outlives the command, or that another lane reads, is a tree. See `docs/agent/MEMORY.md`.
+  guard: workflow_app/tests/no-tree-residue.test.ts
 - Let git decide anything about work that exists. **PAID CODE > GIT SHA** — the work is the asset, the sha is
   a label. A git fact may never gate, void or replay work that has been paid for: QA answers "did the tests
   pass" in the directory it is given and holds no sha, so include the DevOps role in the chain when you want
@@ -56,17 +57,19 @@ Never
   the route identifies") and the fix had to be removed the same day, after it had already written back the
   QA-held sha that `ENG-FORGE-QA-NO-GIT-GUARD-01` deleted for refusing every release. When a review or an
   order asks for a policy the code explicitly refuses, name the conflict and stop. See `docs/agent/MEMORY.md`.
-- Push, merge, or rebase from a worker.
-- Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0).
-- Reset PROD, copy DEV over PROD, or truncate canonical history.
-- Keep a git commit as Scout, Assay, or Inspector.
-- Special-case Casa Luar or any one listing in application code.
-- Treat WhatsApp as a new identity type.
+  guard: workflow_app/tests/forge-qa-no-git.test.ts
+- Push, merge, or rebase from a worker. guard: workflow_app/tests/worker-commit-identity.test.ts
+- Run Forge against DEV. Forge runs (engine lanes, dogfoods, splits, role attempts) execute against PROD only — the environment is not something a run may flip (see `docs/agent/DEV-OPS-DATABASE-PLAYBOOK.md` §0). guard: workflow_app/tests/db-routing.test.ts
+- Reset PROD, copy DEV over PROD, or truncate canonical history. guard: NONE — no automated check; a destructive database action is a human decision the operator makes himself, and no test can stand between him and his own console.
+- Keep a git commit as Scout, Assay, or Inspector. guard: workflow_app/tests/forge-qa-no-git.test.ts
+- Special-case Casa Luar or any one listing in application code. guard: NONE — no automated check; would need a consumer-specific scan, and inventing one is a story, not a line.
+- Treat WhatsApp as a new identity type. guard: workflow_app/tests/whatsapp-attribution.test.ts
 - Let two sources answer one fact. One fact has ONE writer; if two ever disagree, that is a REFUSAL (HOLD)
   naming both, never a resolution that picks a winner. A fallback parser, a second adjudicator, a cached copy
   or a log line must never outvote the row. (2026-09-16: the Architect reply parser still stood beside the
   findings rows, and the QA verdict had three authors — both produced verdicts nobody could trust, and both
   were ours, not a model's.)
+  guard: workflow_app/tests/column-writer-audit.test.ts
 
 ## Project
 

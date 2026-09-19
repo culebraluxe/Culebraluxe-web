@@ -1,4 +1,86 @@
 // ---------------------------------------------------------------------------
+// NO TREES, ENFORCED AGAINST THE REAL ESTATE (2026-09-19, third attempt — and this one checks the REPOSITORY
+// STATE, not a token list).
+//
+// Why the two earlier guards did not stop the creep, measured today:
+//   * the scan above looks for PATH TOKENS in a hand-listed set of writers. A worktree created anywhere else —
+//     /tmp, ../anything — carries none of those tokens and is invisible to it;
+//   * nothing checked the LIVE estate (`git worktree list`) at all;
+//   * nothing noticed that the CAPABILITY was still shipped: three source files still invoke `git worktree add`,
+//     two of them reachable from a shipped CLI whose `create` subcommand makes a branch plus a worktree by hand.
+// The estate was deleted twice; the code that builds it was never removed, so the third attempt starts by
+// making the inventory explicit and freezing it.
+// ---------------------------------------------------------------------------
+
+/** The operator's own worktrees. A new one is a deliberate act: add it here and say why. */
+const SANCTIONED_WORKTREES: ReadonlyArray<{ suffix: string; why: string }> = [
+  { suffix: '-cmd01', why: "the operator's CMD-01 checkout (documented in MEMORY.md 2026-09-16)" },
+]
+
+/** Every source file that can create a worktree, with the reason it may. Growth here fails the fence. */
+const WORKTREE_CREATORS: ReadonlyArray<{ file: string; why: string }> = [
+  {
+    file: 'lib/worker-workspace/publish.ts',
+    why: 'integration scratch: a detached worktree created AND destroyed inside the publish command (AGENTS.md: scratch a command consumes itself is fine)',
+  },
+  {
+    file: 'lib/worker-workspace/provisioner.ts',
+    why: 'DELETE-ON-ORDER: the lane-provisioning capability whose estate was deleted twice; reachable only from the workspace CLI `create` and from the dormant recovering-provisioner',
+  },
+  {
+    file: 'lib/worker-workspace/recovering-provisioner.ts',
+    why: 'DELETE-ON-ORDER: dormant — no live caller (the invoker imports it and never calls it); proved dormant by the test below',
+  },
+]
+
+function registeredWorktrees(repoRoot: string): string[] {
+  const porcelain = execFileSync('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'], {
+    encoding: 'utf8',
+  })
+  return porcelain
+    .split('\n')
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => line.slice('worktree '.length).trim())
+}
+
+/** Every source file under a root, skipping tests and build output. */
+function walkSource(dir: string, visit: (path: string, rel: string) => void): void {
+  for (const child of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, child.name)
+    if (child.isDirectory()) {
+      if (!/node_modules|[.]git|__pycache__/.test(child.name)) walkSource(path, visit)
+      continue
+    }
+    if (!/\.(ts|mjs)$/.test(child.name) || /\.test\./.test(child.name)) continue
+    visit(path, relative(REPO_ROOT, path))
+  }
+}
+
+/** Every file under the source roots that invokes `git worktree add`. */
+function worktreeCreators(repoRoot: string): string[] {
+  const found: string[] = []
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!/node_modules|[.]git|__pycache__/.test(entry.name)) walk(path)
+        continue
+      }
+      if (!/[.](ts|mjs|sh|js)$/.test(entry.name)) continue
+      // THE GUARD ITSELF NAMES THE TOKEN, so tests are excluded from the capability scan: it measures what
+      // PRODUCTION can do, and a guard that counted itself would report its own text as a capability.
+      if (/[.]test[.]/.test(entry.name)) continue
+      const text = readFileSync(path, 'utf8')
+      if (/worktree'[^A-Za-z]*'add'/.test(text) || /worktree add/.test(text)) {
+        found.push(relative(repoRoot, path))
+      }
+    }
+  }
+  for (const root of ['lib', 'agent-runtime', 'workflow_app', 'scripts']) walk(join(repoRoot, root))
+  return found.sort()
+}
+
+// ---------------------------------------------------------------------------
 // ENG-FORGE-ARTIFACT-RESIDUE-01 — no record carries a worktree path or a
 // tree-era field.
 //
@@ -25,9 +107,10 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import {
   STORY_CUTOFF_ISO,
@@ -155,4 +238,68 @@ test('the generated sweep scans both record stores and only reads', () => {
   assert.ok(source.includes('from forge_tool_artifact'), 'the sweep must scan artifacts')
   assert.ok(source.includes('from storyboard_story_run'), 'the sweep must scan run notes')
   assert.ok(source.includes('select '), 'the sweep must be a generated read')
+})
+
+// ---------------------------------------------------------------------------
+// NO TREES, AGAINST THE REAL ESTATE (2026-09-19, third attempt).
+//
+// Why the two earlier guards did not stop the creep, measured today:
+//   * the scan above looks for PATH TOKENS in a hand-listed set of writers. A worktree created anywhere else —
+//     /tmp, ../anything — carries none of those tokens and is invisible to it;
+//   * nothing checked the LIVE estate (`git worktree list`) at all;
+//   * nothing noticed the CAPABILITY was still shipped: three source files still invoke `git worktree add`, two
+//     of them reachable from a shipped CLI whose `create` subcommand makes a branch plus a worktree by hand.
+// The estate was deleted twice and the code that builds it was never removed, so this attempt starts by making
+// the inventory explicit and freezing it.
+// ---------------------------------------------------------------------------
+
+test('NO TREES: the live estate holds nothing but the primary checkout and the operator’s own', () => {
+  const primary = execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+  }).trim()
+  const trees = registeredWorktrees(REPO_ROOT)
+  const unsanctioned = trees.filter(
+    (tree) => tree !== primary && !SANCTIONED_WORKTREES.some((allowed) => tree.endsWith(allowed.suffix)),
+  )
+  assert.deepEqual(
+    unsanctioned,
+    [],
+    `a worktree appeared that nobody declared: ${unsanctioned.join(', ')}. NO TREES, EVER — a per-lane tree is a ` +
+      'second workflow whose output cannot be queried from the rows (MEMORY.md 2026-09-16). If this tree is ' +
+      'deliberate, add it to SANCTIONED_WORKTREES in this file WITH its reason.',
+  )
+  for (const tree of trees) {
+    assert.equal(
+      tree.includes('Culebraluxe-worktrees'),
+      false,
+      `${tree} is inside the deleted tree-era estate; that directory is zero and stays zero`,
+    )
+  }
+})
+
+test('NO TREES: the set of files that can create a worktree is frozen, and growth fails here', () => {
+  assert.deepEqual(
+    worktreeCreators(REPO_ROOT),
+    WORKTREE_CREATORS.map((entry) => entry.file).sort(),
+    'a file that can create a worktree was added or removed. This boundary is deliberately explicit: remove the ' +
+      'capability, or add the file here with the reason it may exist. Silence is not an option.',
+  )
+})
+
+test('NO TREES: the dormant provisioning module cannot be re-armed quietly', () => {
+  // The estate was deleted twice while the capability stayed. This makes "dormant" a VERIFIED fact: if anything
+  // outside the module and its own test starts importing it, the capability is reachable again and this fails.
+  const importers: string[] = []
+  for (const root of ['lib', 'agent-runtime', 'workflow_app', 'scripts']) {
+    walkSource(join(REPO_ROOT, root), (path, rel) => {
+      if (rel === 'lib/worker-workspace/recovering-provisioner.ts') return
+      if (/recovering-provisioner/.test(readFileSync(path, 'utf8'))) importers.push(rel)
+    })
+  }
+  assert.deepEqual(
+    importers.sort(),
+    ['agent-runtime/invoker.ts'],
+    'the dormant worktree provisioner is imported by exactly one file, which never calls it (a stale import). ' +
+      'Any other importer means the capability is reachable again.',
+  )
 })
