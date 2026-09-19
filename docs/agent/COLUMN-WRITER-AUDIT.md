@@ -11,9 +11,9 @@ node --env-file=.env.local --import tsx scripts/column-writer-audit.ts
 node --env-file=.env.local --import tsx --test workflow_app/tests/db/column-writer-audit.test.ts
 ```
 
-Totals: 133 columns — 130 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
+Totals: 135 columns — 132 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 
-## storyboard_story (36)
+## storyboard_story (37)
 
 | column | classification | writer / reason |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ Totals: 133 columns — 130 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `actual_start_at` | WRITTEN | db/storyboard.ts |
 | `architect_brief` | WRITTEN | db/storyboard.ts |
 | `architect_brief_updated_at` | WRITTEN | db/storyboard.ts |
-| `assay_commands` | WRITTEN | db/storyboard.ts |
+| `assay_commands` | WRITTEN | db/storyboard.ts, scripts/forge-test-stories.ts |
 | `batch` | WRITTEN | db/storyboard.ts |
 | `batch_deploy` | DEAD-KEEP | No durable writer exists — only a throwaway /tmp script and tests have ever set it. Still READ by workflow_app/forge/forge-facts.ts and scripts/forge-batch-release.mjs as the batch-release deferral flag, so it is kept and the missing write path is the defect. |
 | `carried_over_from_sprint_id` | WRITTEN | db/sprint.ts |
@@ -38,6 +38,7 @@ Totals: 133 columns — 130 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `forge_v1_legacy` | DEAD-KEEP | No ongoing writer: backfilled once by migration 139 as a historical discriminator, and still READ by scripts/forge-consistency.ts. Kept because the legacy partition it names is real. |
 | `goal` | WRITTEN | db/storyboard.ts |
 | `id` | WRITTEN | db/storyboard.ts |
+| `negative_control_command` | WRITTEN | db/storyboard.ts, scripts/forge-test-stories.ts |
 | `notes` | WRITTEN | db/storyboard.ts |
 | `operating_surface` | WRITTEN | db/storyboard.ts |
 | `packet_sha` | WRITTEN | db/storyboard.ts |
@@ -107,7 +108,7 @@ Totals: 133 columns — 130 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `tokens_output` | WRITTEN | db/forge-run.ts |
 | `updated_at` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
 
-## forge_workflow_evidence (49)
+## forge_workflow_evidence (50)
 
 | column | classification | writer / reason |
 | --- | --- | --- |
@@ -133,6 +134,7 @@ Totals: 133 columns — 130 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `failed_release_stage` | WRITTEN | db/forge-workflow-evidence.ts |
 | `failure_class` | WRITTEN | db/forge-workflow-evidence.ts |
 | `findings` | WRITTEN | db/forge-workflow-evidence.ts |
+| `gate_checks` | WRITTEN | db/forge-workflow-evidence.ts |
 | `last_failure` | WRITTEN | db/forge-workflow-evidence.ts |
 | `lead_decision` | WRITTEN | db/forge-workflow-evidence.ts |
 | `lead_routing` | WRITTEN | db/forge-workflow-evidence.ts |

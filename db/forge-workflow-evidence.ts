@@ -1,6 +1,7 @@
 import type { ForgeGateEvidence } from '../workflow_app/forge/forge-facts'
 import type { BatchReleaseReceipt } from '../workflow_app/forge/forge-release-receipt'
 import type { ArchitectFinding } from '../workflow_app/forge/forge-shaping'
+import type { GateCheck } from '../workflow_app/forge/agents/gate-checks'
 import { classifyStoredQaDisposition } from '../workflow_app/forge/qa-repair-policy'
 import type { QueryExecutor, QueryRow } from './query-executor'
 
@@ -121,6 +122,7 @@ export function mapForgeWorkflowEvidence(row: EvidenceRow): ForgeGateEvidence {
     deployedSha: value(row, 'deployed_sha'),
     productionVerifiedSha: value(row, 'production_verified_sha'),
     batchReleasedSha: value(row, 'batch_released_sha'),
+    gateChecks: (row['gate_checks'] as GateCheck[] | null) ?? undefined,
     batchReleasedAt: isoOrNull(row['batch_released_at']),
     batchReleaseReceipt: value(row, 'batch_release_receipt'),
   }
@@ -175,7 +177,7 @@ export async function mergeForgeWorkflowEvidence(
       deployment_required, deployment_succeeded, deployment_receipt,
       production_verified, production_verification_receipt, resume_target, candidate_sha, qa_verified_sha,
       published_sha, deployed_sha, production_verified_sha, findings, deployment_deferred_to_batch,
-      negative_control_ran, negative_control_killing_assertion
+      negative_control_ran, negative_control_killing_assertion, gate_checks
     ) values (
       ${processInstanceId}, ${storyId}, ${evidence.workType ?? null},
       ${evidence.researchDisposition ?? null}, ${evidence.scoutRequired ?? null},
@@ -200,7 +202,8 @@ export async function mergeForgeWorkflowEvidence(
       ${evidence.findings === undefined ? null : JSON.stringify(evidence.findings)}::jsonb,
       ${evidence.deploymentDeferredToBatch ?? null},
       ${evidence.negativeControl?.ran ?? null},
-      ${evidence.negativeControl ? JSON.stringify(evidence.negativeControl.killingAssertions) : null}
+      ${evidence.negativeControl ? JSON.stringify(evidence.negativeControl.killingAssertions) : null},
+      ${evidence.gateChecks === undefined ? null : JSON.stringify(evidence.gateChecks)}::jsonb
     )
     on conflict (process_instance_id) do update set
       work_type = coalesce(excluded.work_type, forge_workflow_evidence.work_type),
@@ -221,6 +224,7 @@ export async function mergeForgeWorkflowEvidence(
       deployment_deferred_to_batch = coalesce(excluded.deployment_deferred_to_batch, forge_workflow_evidence.deployment_deferred_to_batch),
       negative_control_ran = coalesce(excluded.negative_control_ran, forge_workflow_evidence.negative_control_ran),
       negative_control_killing_assertion = coalesce(excluded.negative_control_killing_assertion, forge_workflow_evidence.negative_control_killing_assertion),
+      gate_checks = coalesce(excluded.gate_checks, forge_workflow_evidence.gate_checks),
       -- An explicit release resolution clears the three markers together; every other
       -- write coalesces, so an unresolved failure keeps its markers.
       failure_class = case when ${clearReleaseFailure} then null

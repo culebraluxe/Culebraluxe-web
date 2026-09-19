@@ -235,6 +235,9 @@ export const DECLARED_COLUMNS: DeclaredColumns = {
     batch_release_receipt: { kind: 'WRITTEN', writers: [EVIDENCE] },
     negative_control_ran: { kind: 'WRITTEN', writers: [EVIDENCE] },
     negative_control_killing_assertion: { kind: 'WRITTEN', writers: [EVIDENCE] },
+    // Migration 197 (FORGE-GATE-RECEIPT-01): the per-check receipt. Declared with its writer on the day it is
+    // added — the audit was red on DEV hours earlier for columns added and declared nowhere.
+    gate_checks: { kind: 'WRITTEN', writers: [EVIDENCE] },
     updated_at: { kind: 'WRITTEN', writers: [EVIDENCE] },
     created_at: { kind: 'WRITTEN', writers: [EVIDENCE] },
     findings: { kind: 'WRITTEN', writers: [EVIDENCE] },

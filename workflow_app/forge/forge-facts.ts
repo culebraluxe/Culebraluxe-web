@@ -1,6 +1,7 @@
 import type { ApplicationFacts } from '../../workflow_engine/lib/workflow/types'
 import { routeQaResult } from './qa-repair-policy'
 import type { ArchitectFinding } from './forge-shaping'
+import type { GateCheck } from './agents/gate-checks'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-V10 — Forge decision-gate facts projection.
@@ -50,6 +51,12 @@ export type ForgeGateEvidence = {
    * it never claims production verification.
    */
   deploymentDeferredToBatch?: number
+  /**
+   * WHAT EACH CHECK DID (FORGE-GATE-RECEIPT-01, migration 197): [{id, status, reason}] where status is
+   * passed | failed | skipped | unavailable | not-configured. A projection of checks that already happened,
+   * so it never writes a verdict — and a check that did not run is never `passed`.
+   */
+  gateChecks?: GateCheck[]
   /** ENG-FORGE-SHAPE-01 — durable Architect findings snapshot (Lead shaping gate). */
   findings?: ArchitectFinding[]
   /**

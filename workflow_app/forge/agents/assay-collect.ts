@@ -7,6 +7,7 @@ import type { ForgeGateEvidence } from '../forge-facts'
 import type { RoleEffectPorts } from './ports'
 import type { AcceptanceCondition, NegativeControlOutcome } from './qa/types'
 import { adjudicateAssay, runAssayCommands } from './qa/run'
+import { gateChecksFor } from './gate-checks'
 
 /**
  * THE QA VERDICT: DID THE TESTS PASS THE STORY'S OWN ACCEPTANCE.
@@ -66,12 +67,23 @@ export function collectAssayEvidence(
   const negativeControlResult = plan.negativeControl
     ? ports.runCommand(plan.negativeControl.command)
     : undefined
+  const staticGate = ports.runStatic?.() ?? null
   const report = adjudicateAssay({
     plan,
     commands: results,
-    staticGate: ports.runStatic?.() ?? null,
+    staticGate,
     frozenMap: ports.acceptanceMap ?? null,
     ...(negativeControlResult !== undefined ? { negativeControlResult } : {}),
+  })
+  // WHAT EACH CHECK DID (FORGE-GATE-RECEIPT-01): a projection of checks that already happened, never a
+  // second verdict. It travels with BOTH returns below, because the failure path is where a reader most
+  // needs to know which check said no.
+  const gateChecks = gateChecksFor({
+    commands,
+    results,
+    staticGate,
+    acceptanceMapped: Boolean(ports.acceptanceMap),
+    negativeControl: report.negativeControl ?? null,
   })
 
   if (report.verdict !== 'PASS') {
@@ -93,6 +105,7 @@ export function collectAssayEvidence(
       ...evidence,
       qaPassed: false,
       ...(report.negativeControl ? { negativeControl: report.negativeControl } : {}),
+      gateChecks,
       ...(failed.length ? { failedCommands: failed } : {}),
       // WHAT IT SAID, NOT JUST THAT IT FAILED — a refusal that does not quote the failing command's own
       // output cannot be diagnosed from the log, only re-derived by hand. An UNPROVEN verdict names the
@@ -123,6 +136,7 @@ export function collectAssayEvidence(
   return {
     ...evidence,
     qaPassed: true,
+    gateChecks,
     ...(report.negativeControl ? { negativeControl: report.negativeControl } : {}),
   }
 }
