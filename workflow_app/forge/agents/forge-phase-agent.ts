@@ -19,20 +19,21 @@ const SCOUT_NODES = new Set(['research_scout', 'feature_scout', 'diagnose_scout'
 const ARCHITECT_NODES = new Set(['architect', 'repair_architect', 'research_architect'])
 
 const RESEARCH_DISPOSITIONS = new Set(['IMPLEMENT', 'ARCHIVE', 'HOLD'])
-const LEAD_DECISIONS = new Set(['SMITH', 'SPLIT', 'HOLD', 'SOLO'])
+// THE LEAD DECISION SET HAS ONE DEFINITION, AND THIS FILE READS IT (work package A).
+//
+// This used to declare its own `LEAD_DECISIONS` set and its own `LEAD_DECISION_FIELD` declaration whose comment
+// claimed the two could not drift — while the real declaration lived in `lib/field-mediator.ts` and the two
+// lists were maintained separately. They drifted exactly as warned: ASSAY was added to the mediator and not to
+// this set, so the phase agent's own gate would have refused a decision the database can now record. Importing
+// the shared declaration removes the second copy rather than updating it.
+import { LEAD_DECISION } from '../../../lib/field-mediator'
 
 // THE FAILSAFE, AT THE FIRST REAL DECISION (captain, 2026-09-16). This value crosses into a row, so it goes
 // through the mediator rather than being trusted: mechanical shape work only — case, whitespace, fences and
 // DECLARED synonyms — while anything outside the declared set is refused WITH the accepted set, never coerced
-// and never given a default, because a decision with a default is a decision nobody made. One definition of
-// the set: the declaration reads LEAD_DECISIONS, so the gate and the mediator cannot drift apart.
-const LEAD_DECISION_FIELD: FieldDeclaration = {
-  field: 'leadDecision',
-  kind: 'closed',
-  accepted: [...LEAD_DECISIONS],
-  aliases: { single: 'SOLO' },
-  decision: true,
-}
+// and never given a default, because a decision with a default is a decision nobody made. The declaration is
+// IMPORTED, not re-stated: two copies of a closed set is how one of them ends up wrong.
+const LEAD_DECISION_FIELD: FieldDeclaration = LEAD_DECISION
 const FAILURE_CLASSES = new Set([
   'CODE_DEFECT',
   'TEST_DEFECT',

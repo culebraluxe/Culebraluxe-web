@@ -9,7 +9,7 @@ import type { QueryExecutor } from './query-executor'
 import { normalizeAcceptanceAssertions } from '../workflow_app/forge/forge-architect-contract'
 
 export type ForgeRoleContract = {
-  decision: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
+  decision: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | 'ASSAY' | null
   size: 'SMALL' | 'MEDIUM' | 'LARGE' | null
   sizeReason: string | null
   reason: string | null
@@ -17,6 +17,15 @@ export type ForgeRoleContract = {
   findingIds: string[]
   mergeChecks: string[]
   surfaceScope: string[]
+  /**
+   * ASSAY only (migration 198, work package A): the 40-hex commit the decision verifies.
+   *
+   * This is a DECISION-BEARING field, not a note. The direct-to-QA route is "judge the work that already
+   * exists", so the row has to say WHICH work: without this column the decision was recordable and the
+   * proposal builder had nothing to name, which is why the route could not fire however well the validator
+   * was written. Null for every other decision and refused by the database beside them.
+   */
+  verifyCandidate: string | null
   /**
    * ENG-FORGE-ACCEPTANCE-SUPPLIER-01: the HANDOFF declaration of the clause -> assertion mapping,
    * written through `scripts/forge-handoff.mjs --acceptance-assertion`. Null = not declared.
@@ -46,6 +55,7 @@ function mapContractRow(row: Record<string, unknown>, fallbackAttempt: number): 
     findingIds: Array.isArray(row.finding_ids) ? (row.finding_ids as string[]) : [],
     mergeChecks: Array.isArray(row.merge_checks) ? (row.merge_checks as string[]) : [],
     surfaceScope: Array.isArray(row.surface_scope) ? (row.surface_scope as string[]) : [],
+    verifyCandidate: typeof row.verify_candidate === 'string' ? row.verify_candidate : null,
     acceptanceAssertions: normalizeAcceptanceAssertions(row.acceptance_assertions),
     attempt: Number(row.attempt ?? fallbackAttempt),
   }
@@ -59,7 +69,7 @@ export async function getForgeRoleContract(
   const q = execute ?? (await executor())
   const rows = await q`
     select decision, size, size_reason, reason, assignment_count,
-           finding_ids, merge_checks, surface_scope, acceptance_assertions, attempt
+           finding_ids, merge_checks, surface_scope, verify_candidate, acceptance_assertions, attempt
     from forge_role_contract
     where task_id = ${key.taskId}
       and node_id = ${key.nodeId}
@@ -86,7 +96,7 @@ export async function getLatestForgeRoleContractForStory(
   const q = execute ?? (await executor())
   const rows = await q`
     select decision, size, size_reason, reason, assignment_count,
-           finding_ids, merge_checks, surface_scope, acceptance_assertions, attempt
+           finding_ids, merge_checks, surface_scope, verify_candidate, acceptance_assertions, attempt
     from forge_role_contract
     where story_id = ${key.storyId}
       and process_instance_id = ${key.processInstanceId}

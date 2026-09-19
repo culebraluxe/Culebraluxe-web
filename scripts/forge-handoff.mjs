@@ -59,8 +59,9 @@ const commands = (name) => values(name).map((s) => s.trim()).filter(Boolean)
 // value outside the declared set is REFUSED HERE, naming the field and the accepted set, instead of reaching
 // Postgres and surfacing as a database error that sends the reader hunting the wrong fault. Nothing is
 // inferred and nothing is defaulted: a decision with a default is a decision nobody made.
-import { ARCHITECT_HINT, ARCHITECT_REQUIRED, LEAD_DECISION, LEAD_SIZE, describeRefusal, mediateField } from '../lib/field-mediator'
+import { ARCHITECT_HINT, ARCHITECT_REQUIRED, LEAD_DECISION, LEAD_SIZE, VERIFY_CANDIDATE, describeRefusal, mediateField } from '../lib/field-mediator'
 import { acceptanceClauses } from '../workflow_app/forge/agents/qa/types'
+import { validateLeadDecisionWrite } from '../lib/lead-decision-write'
 
 /**
  * THE ACCEPTANCE-TO-ASSERTION MAPPING, CARRIED BY THE CONTRACT (ENG-FORGE-ACCEPTANCE-SUPPLIER-01).
@@ -147,7 +148,7 @@ const show = args.includes('--show')
 if (!storyId || !processInstanceId || !taskId || !nodeId) {
   console.error(
     'forge-handoff: need --story --process --task --node (identity is in your task line). ' +
-      'Add --decision SOLO|SMITH|SPLIT|HOLD and the fields, or --show to read the current contract.',
+      'Add --decision SOLO|SMITH|SPLIT|HOLD|ASSAY and the fields, or --show to read the current contract.',
   )
   process.exit(2)
 }
@@ -559,7 +560,7 @@ if (arg('finding-id')) {
 if (show || !arg('decision')) {
   const rows = await pool.query(
     `select decision, size, size_reason, reason, assignment_count, finding_ids,
-            merge_checks, surface_scope, attempt, updated_at
+            merge_checks, surface_scope, verify_candidate, attempt, updated_at
      from forge_role_contract
      where task_id = $1 and node_id = $2 and attempt = $3`,
     [taskId, nodeId, attempt],
@@ -577,6 +578,32 @@ const assignments = arg('assignments')
 const decisionValue = closedUnique(LEAD_DECISION, 'decision', 'decision')
 const sizeValue = closedOptional(LEAD_SIZE, arg('size'), 'size')
 if (decisionValue === null || (sizeValue.given && sizeValue.value === null)) {
+  await pool.end()
+  process.exit(2)
+}
+
+// THE NAMED CANDIDATE (work package A, migration 198). Mediated BEFORE SQL so a truncated or malformed sha is
+// refused with the accepted shape, the same way the decision and the size are — and refused HERE rather than
+// stored and refused later by the routing validator, because this is the place the model can still fix it.
+//
+// THE THREE REFUSALS ARE NAMED, not merged into one "bad request":
+//   * ASSAY without a candidate — the route would judge unnamed work, so the contract is incomplete;
+//   * a candidate with any other decision — a SOLO that names something to verify contradicts itself;
+//   * a malformed sha — 40 hex characters exactly, which is what the validator compares against.
+const verifyGiven = (arg('verify-candidate') ?? '').trim() !== ''
+const verifyValue = closedOptional(VERIFY_CANDIDATE, arg('verify-candidate'), 'verify-candidate')
+if (verifyGiven && verifyValue.value === null) {
+  await pool.end()
+  process.exit(2)
+}
+// THE RULE ITSELF LIVES IN lib/lead-decision-write.ts, so the CLI and its tests exercise the SAME predicate
+// rather than two copies of it. This block is the printing and the exit code, nothing else.
+const decisionWrite = validateLeadDecisionWrite({
+  decision: decisionValue,
+  verifyCandidate: verifyValue.value,
+})
+if (!decisionWrite.ok) {
+  console.error(`forge-handoff: REFUSED — ${decisionWrite.message}`)
   await pool.end()
   process.exit(2)
 }
@@ -636,8 +663,8 @@ try {
     `insert into forge_role_contract
        (story_id, process_instance_id, task_id, node_id, attempt,
         decision, size, size_reason, reason, assignment_count,
-        finding_ids, merge_checks, surface_scope, acceptance_assertions)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+        finding_ids, merge_checks, surface_scope, acceptance_assertions, verify_candidate)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15)
      on conflict (task_id, node_id, attempt) do update set
        decision = excluded.decision,
        size = coalesce(excluded.size, forge_role_contract.size),
@@ -650,8 +677,13 @@ try {
        -- AN ABSENT MAPPING DOES NOT CLEAR A DECLARED ONE: a re-write that omits the flag leaves the
        -- mapping untouched, the same contract the other scalar fields already follow.
        acceptance_assertions = coalesce(excluded.acceptance_assertions, forge_role_contract.acceptance_assertions),
+       -- The candidate follows its decision, and it is written unconditionally when the decision is ASSAY: a
+       -- re-write of an ASSAY contract always states its candidate (the flag is required above), so there is
+       -- no "absent" case to preserve. A re-write under a different decision cannot carry one at all — the
+       -- mismatch is refused before this statement runs.
+       verify_candidate = excluded.verify_candidate,
        updated_at = now()
-     returning decision, size, assignment_count`,
+     returning decision, size, assignment_count, verify_candidate`,
     [
       storyId,
       processInstanceId,
@@ -667,6 +699,7 @@ try {
       contractWrite.mergeChecks,
       contractWrite.surfaceScope,
       acceptanceJson,
+      verifyValue.value,
     ],
   )
   console.log('contract recorded:', JSON.stringify(written.rows[0]))

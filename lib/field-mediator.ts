@@ -31,6 +31,11 @@ export type FieldDeclaration = {
   default?: string | number | boolean
   /** Free text may be mined for the value (descriptive fields only; never for a decision). */
   allowProse?: boolean
+  /**
+   * For kind 'sha': the EXACT character count when the contract demands an identity and not a prefix. A
+   * prefix is a convenience everywhere a sha is a pointer; it is wrong where the sha is compared for equality.
+   */
+  exactLength?: number
 }
 
 export type FieldReason =
@@ -110,9 +115,11 @@ export function mediateField(declaration: FieldDeclaration, raw: unknown): Field
 
   if (d.kind === 'sha') {
     const v = statedValue(text, d.field)
-    // SHA-1 is 40 characters and SHA-256 is 64, so the window covers both: a rule that refused a value the
-    // old normalizers accepted would be a regression dressed as consistency.
-    if (!/^[0-9a-f]{7,64}$/i.test(v)) return refuse(d, 'NOT_A_SHA', text)
+    // Exposed first, and declared only where the contract demands it: the direct-to-QA candidate is compared
+    // for EQUALITY against a 40-hex observation, so a 7-character prefix has to be refused HERE, at the write,
+    // rather than written to a row and refused later by a different reader.
+    const pattern = d.exactLength === undefined ? /^[0-9a-f]{7,64}$/i : new RegExp(`^[0-9a-f]{${d.exactLength}}$`, 'i')
+    if (!pattern.test(v)) return refuse(d, 'NOT_A_SHA', text)
     return { ok: true, value: v.toLowerCase(), source: 'raw' }
   }
 
@@ -169,8 +176,26 @@ export const CANDIDATE_SHA: FieldDeclaration = { field: 'candidateSha', kind: 's
 export const LEAD_DECISION: FieldDeclaration = {
   field: 'leadDecision',
   kind: 'closed',
-  accepted: ['SMITH', 'SPLIT', 'HOLD', 'SOLO'],
+  // ASSAY ADDED 2026-09-19 (FORGE-VERIFY-EXISTING-COMPLETE-01, work package A). The direct-to-QA route was
+  // implemented in the validator, the arrangement and the workflow XML, and was still unreachable because
+  // THIS set refused the word: `--decision ASSAY` came back NOT_IN_SET before any row was written. A closed
+  // set is the right place for the refusal, so the word has to be in it for the route to exist at all.
+  accepted: ['SMITH', 'SPLIT', 'HOLD', 'SOLO', 'ASSAY'],
   aliases: { single: 'SOLO' },
+  decision: true,
+}
+
+/**
+ * THE CANDIDATE AN ASSAY ROUTE VERIFIES (work package A).
+ *
+ * A decision to judge existing work is meaningless without naming the work: "verify what is already there"
+ * with no sha is a route to nowhere. This is a decision-bearing field for the same reason the candidate sha
+ * is — nothing defaults it, and an absent value is refused rather than invented.
+ */
+export const VERIFY_CANDIDATE: FieldDeclaration = {
+  field: 'verifyCandidate',
+  kind: 'sha',
+  exactLength: 40,
   decision: true,
 }
 

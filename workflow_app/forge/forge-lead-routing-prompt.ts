@@ -28,6 +28,44 @@ function capabilityRules(context: RoutingContext): string {
   ].join(' ')
 }
 
+/**
+ * THE DIRECT-TO-QA OPTION, OFFERED ONLY WHEN IT IS REAL (work package A).
+ *
+ * ASSAY means "the work this story asks for already exists on the base; judge it instead of authoring it".
+ * The Lead cannot know that from the story text alone: it is a fact about the REPOSITORY, and the only
+ * trustworthy source is the runner's own observation, which arrives in the context as `existingCandidate`.
+ * So the rule is stated in two directions and both are load-bearing:
+ *
+ *   * with an observed candidate, the option is named WITH the sha, so the decision can be recorded exactly;
+ *   * with no observation, the option is refused outright, because a Lead that invents a sha would produce a
+ *     route the validator must then refuse — after a whole turn was spent on it.
+ *
+ * This is the missing half of the earlier wiring: the validator, the arrangement and the workflow branch all
+ * existed, and no directive ever told a Lead the option existed.
+ */
+function verifyExistingRule(context: RoutingContext): string {
+  const observed = context.existingCandidate
+  if (!observed?.sha) {
+    return (
+      'DIRECT-TO-QA (ASSAY) IS NOT AVAILABLE THIS RUN: no candidate observed on the base, so there is nothing ' +
+      'already-existing to judge. Do not propose decision=ASSAY and do not name a candidate — an ASSAY route ' +
+      'whose candidate the runner never observed is refused.'
+    )
+  }
+  if (!observed.onBaseRef) {
+    return (
+      `DIRECT-TO-QA (ASSAY) IS NOT AVAILABLE THIS RUN: a candidate was seen (${observed.sha}) but it is NOT on the ` +
+      'story base, so verifying it would verify work the repository does not have. Do not propose decision=ASSAY.'
+    )
+  }
+  return [
+    `DIRECT-TO-QA (ASSAY) IS AVAILABLE: the runner observed candidate ${observed.sha} ON the story base.`,
+    'If — and only if — the required findings are ALREADY satisfied by that candidate, you may route decision=ASSAY instead of authoring the work again. ASSAY dispatches no Smith and writes NO chunks.',
+    `Record it as: --decision ASSAY --verify-candidate ${observed.sha} --merge-checks "<the frozen story proof commands that judge it>" — plus --size/--size-reason/--reason as usual.`,
+    'The candidate must be that exact observed sha: any other value is refused, and no chunks may be written on an ASSAY route.',
+  ].join(' ')
+}
+
 function benchRule(context: RoutingContext): string {
   if (!context.benchIntent) return ''
   if (context.benchIntent === 'HOLD') return 'BENCH CAP: HOLD. You may only HOLD.'
@@ -80,6 +118,7 @@ export function buildLeadRoutingDirective(context: LeadRoutingDirectiveContext):
     'First assess work size by coherent outcomes, uncertainty, coupling, context burden and proof burden. File count alone is not size; several files can implement one small behavior.',
     capabilityRules(context),
     bench,
+    verifyExistingRule(context),
     findingHandoffRule(context),
     'A Smith assignment contains 1..3 serial chunks in the same worker context. Three chunks do not imply three workers. Apply the chunk ceiling PER ASSIGNMENT, not per whole story.',
     'The current XML SPLIT is a sibling fork. Every assignment must be executable from the same starting candidate with existing stable contracts. A dependency on a sibling output is not runnable here; report HOLD with the missing prerequisite/staging need. Do not erase dependencies to make validation pass.',
@@ -92,7 +131,7 @@ export function buildLeadRoutingDirective(context: LeadRoutingDirectiveContext):
     'State the COMPARISON, not a score: name the concrete reason the next-cheaper option was rejected (why not SOLO / why not one Smith) and how you will integrate and verify the result. "This looks big" is insufficient; "these two assignments can proceed against an established contract and be verified separately" is useful reasoning.',
     'Your risk numbers are RECORDED EVIDENCE, not the decision. Never refuse work or HOLD because of a rating — a rating is not a measured fact. HOLD only for a concrete impediment: an unresolved contract decision, missing required evidence, conflicting requirements, or an arrangement the engine cannot support.',
     'RECORD THE DECISION IN FIELDS. Do not emit LEAD_ROUTING, LEAD_PLAN, or FORGE_EVIDENCE_JSON routing keys. Chat JSON is scrap. Run forge-handoff.mjs with the identity from your task line:',
-    'node --import tsx --env-file=.env.local scripts/forge-handoff.mjs --story <story> --process <process> --task <task> --node lead_pre --attempt <attempt> --decision SOLO|SMITH|SPLIT|HOLD --size SMALL|MEDIUM|LARGE --size-reason "<why this size>" --reason "<why this route>" --assignments <n> --findings <ids> --merge-checks "<exact frozen command>" --scope <paths>',
+    'node --import tsx --env-file=.env.local scripts/forge-handoff.mjs --story <story> --process <process> --task <task> --node lead_pre --attempt <attempt> --decision SOLO|SMITH|SPLIT|HOLD|ASSAY --size SMALL|MEDIUM|LARGE --size-reason "<why this size>" --reason "<why this route>" --assignments <n> --findings <ids> --merge-checks "<exact frozen command>" --scope <paths>',
     'DECLARE THE ACCEPTANCE-TO-ASSERTION MAPPING when you route (it is frozen before the work and QA consumes it; it is NEVER authored by the lane that does the work). On the SAME contract command add one flag per clause: --acceptance-assertion "<acceptance clause quoted verbatim>=<assertion ref in the frozen proof>". The clause must be one of the story\'s own acceptance clauses and the ref must exist in the frozen proof; a malformed or unmatched entry is refused by name and the whole contract write is refused. The handoff-declared mapping beats any mapping declared on the story row, and the record names which source was used.',
     'ASSERTION REF FORMAT: write the ref as a bare `<name>` or file-qualified `path#name`; the reader ' +
       'resolves the name tail after the last `#` and requires it on a pass/fail marker line the proof ' +

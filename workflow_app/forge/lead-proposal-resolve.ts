@@ -49,6 +49,9 @@ export function leadProposalFromFields(
     // The decision asks for a route that NEEDS a plan and no chunk rows were written.
     // Say exactly that rather than inventing a plan the model never wrote: the reviewer
     // refuses it, the self-heal reprompt names the missing rows, and the run HOLDs.
+    //
+    // ASSAY is the route that legitimately needs NO plan (work package A): it dispatches no Smith at all, so
+    // returning an empty assignment list here is the honest reading of the rows rather than a degraded one.
     return {
       version: 1,
       decision: contract.decision,
@@ -57,6 +60,10 @@ export function leadProposalFromFields(
       reason: contract.reason ?? contract.sizeReason ?? 'recorded in fields',
       assignments: [],
       mergeChecks: contract.mergeChecks,
+      // THE NAMED CANDIDATE TRAVELS (work package A). It was recorded in the row and dropped here, which made
+      // an ASSAY decision unroutable however valid the row was: the validator requires the proposal to name the
+      // sha it judges, and a builder that discards it leaves nothing to check.
+      ...(contract.verifyCandidate ? { verifyCandidate: contract.verifyCandidate } : {}),
     }
   }
   return {
@@ -66,6 +73,7 @@ export function leadProposalFromFields(
     ...(contract.sizeReason ? { sizeReason: contract.sizeReason } : {}),
     ...(contract.reason ? { reason: contract.reason } : {}),
     ...(contract.mergeChecks.length > 0 ? { mergeChecks: contract.mergeChecks } : {}),
+    ...(contract.verifyCandidate ? { verifyCandidate: contract.verifyCandidate } : {}),
   }
 }
 

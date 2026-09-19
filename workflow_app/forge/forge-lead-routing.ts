@@ -172,6 +172,12 @@ export function reviewLeadProposal(raw: unknown, context: RoutingContext): Routi
   if (!required.length) errors.push('No required findings supplied; obtain the bounded Architect handoff')
   if (!unique(context.findings.map(f => f.id))) errors.push('Duplicate finding IDs in Architect handoff')
   if (required.some(f => f.hint === 'HOLD')) errors.push('Required Architect HOLD remains unresolved')
+  // A CANDIDATE ON THE WRONG ROUTE IS CONTRADICTORY (work package A). Naming a sha to verify on a SOLO/SMITH/
+  // SPLIT is not a harmless extra field: it describes a different route than the decision, and the row it came
+  // from is refused by the database for the same reason. Saying so here keeps the rule in two places that agree.
+  if (p.decision !== 'ASSAY' && typeof p.verifyCandidate === 'string' && p.verifyCandidate.trim() !== '') {
+    errors.push(`${p.decision} must not name a verifyCandidate; only ASSAY verifies existing work`)
+  }
   // DIRECT ASSAY (ENG-FORGE-VERIFY-EXISTING-01). A story whose required findings already
   // exist on the base is JUDGED, not re-authored: the route names the candidate sha it
   // verifies and dispatches no Smith. It is accepted ONLY when that sha is the candidate

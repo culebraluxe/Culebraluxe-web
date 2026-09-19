@@ -35,7 +35,7 @@ export type ForgeGateEvidence = {
   /** Scope C review park — Architect completion may STOP at `hold` for human review. */
   architectureReviewRequired?: boolean
   /** execution_shape */
-  leadDecision?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD'
+  leadDecision?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | 'ASSAY'
   splitCount?: number
   /**
    * ENG-FORGE-SPLIT-01 — the ACCEPTED Lead routing proposal (validated once at

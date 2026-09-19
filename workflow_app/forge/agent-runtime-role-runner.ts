@@ -78,6 +78,7 @@ import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
 import { negativeControlForStory } from './agents/negative-control-supplier'
+import { measureAssayCandidate } from './agents/assay-measurement'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import {
@@ -1459,7 +1460,7 @@ export function createAgentRuntimeForgeRoleRunner(
           logit: scored.logit,
           pSuccess: scored.pSuccess,
           gate: scored.gate,
-          route: (recordedContract?.decision as 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD') ?? null,
+          route: (recordedContract?.decision as 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | 'ASSAY') ?? null,
         })
       }
     }
@@ -1965,10 +1966,25 @@ export function createAgentRuntimeForgeRoleRunner(
       if (routingReview.proposal.decision === 'ASSAY') {
         const arrangement = verifyExistingArrangement(routingReview, leadRoutingContext.allowedProofs)
         if (arrangement) {
-          Object.assign(evidence, {
-            verifyExisting: arrangement,
+          // THE MEASUREMENT MUST BE ABOUT THE CODE THE ROUTE NAMED (work package A, item 7). The proofs run in
+          // the primary checkout (`roleCwd`), so the only honest statement is: this tree contains the identified
+          // candidate, and here is the tree that was measured. When it does not contain it, the route REFUSES
+          // rather than stamping a measurement with a sha it never ran against.
+          const measurement = measureAssayCandidate({
+            repoDir: roleCwd,
             candidateSha: arrangement.candidateSha,
           })
+          if (!measurement.ok) {
+            Object.assign(evidence, {
+              deliverableRejection: `ASSAY REFUSED (direct-to-QA): ${measurement.refusal}`,
+            })
+          } else {
+            Object.assign(evidence, {
+              verifyExisting: { ...arrangement, measuredSha: measurement.measuredSha },
+              candidateSha: arrangement.candidateSha,
+              qaVerifiedSha: measurement.measuredSha,
+            })
+          }
         }
       }
     }

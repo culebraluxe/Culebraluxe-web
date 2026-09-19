@@ -142,6 +142,12 @@ const stringArrayEvidenceKeys = new Set<keyof ForgeGateEvidence>([
 
 const enumEvidenceValues: Partial<Record<keyof ForgeGateEvidence, ReadonlySet<string>>> = {
   researchDisposition: new Set(['IMPLEMENT', 'ARCHIVE', 'HOLD']),
+  // NO ASSAY HERE, AND THAT IS DELIBERATE (work package A). This table normalizes values scraped out of a
+  // model's REPLY, and a reply cannot carry the verification candidate — `leadDecision` is not an input from
+  // chat at all (`lead-proposal-resolve.ts`: "THE REPLY IS NOT AN INPUT"). An ASSAY arriving through this path
+  // would therefore be a route with no named candidate, which the validator refuses anyway. It is dropped here
+  // so the decision channel stays the recorded contract, not the reply. `ASSAY` IS in `LEAD_DECISION` in
+  // lib/field-mediator.ts, which is what the handoff, the phase gate and the database all read.
   leadDecision: new Set(['SOLO', 'SMITH', 'SPLIT', 'HOLD']),
   disposition: new Set(['REPAIR', 'REPLAN', 'ESCALATE']),
   failureClass: new Set([

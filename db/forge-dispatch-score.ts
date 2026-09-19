@@ -40,7 +40,7 @@ export type ForgeDispatchScoreInput = {
   logit: number
   pSuccess: number
   gate: 'reject' | 'flag' | 'dispatch'
-  route?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | null
+  route?: 'SOLO' | 'SMITH' | 'SPLIT' | 'HOLD' | 'ASSAY' | null
 }
 
 /** Record (or re-record) the prediction for one assessed unit. Idempotent per identity. */
