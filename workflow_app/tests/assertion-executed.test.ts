@@ -120,15 +120,39 @@ const adjudicateRef = (ref: string, output: string): ReturnType<typeof adjudicat
   return adjudicateAssay({ plan, commands: results })
 }
 
-test('a file-qualified ref resolves by its name tail and passes', () => {
-  const tail = 'a file-qualified ref resolves by its name tail and passes'
-  const report = adjudicateRef(
-    `${FILE}#${tail}`,
-    `\u2714 ${tail} (0.4ms)\n\u2139 tests 1\n\u2139 pass 1`,
-  )
-  assert.equal(report.verdict, 'PASS', 'the name tail on a marker line satisfies the file-qualified ref')
+test('a file-qualified ref is satisfied ONLY by its own file, proven by reporter provenance', () => {
+  const tail = 'a file-qualified ref is satisfied only by its own file'
+  // The runner's own structured provenance: TAP's `location:` names the file the entry came from.
+  const withOwnFile = [
+    `\u2714 ${tail} (0.4ms)`,
+    '  ---',
+    `  location: '/repo/${FILE}:12:1'`,
+    '  ...',
+    '\u2139 tests 1',
+    '\u2139 pass 1',
+  ].join('\n')
+  const report = adjudicateRef(`${FILE}#${tail}`, withOwnFile)
+  assert.equal(report.verdict, 'PASS', "the name in the ref's OWN file satisfies the file-qualified ref")
   assert.deepEqual(report.missingAssertions, [])
-  assert.deepEqual(report.blockers, [])
+
+  // The SAME passing line, attributed to a DIFFERENT file, does not: this is the false PASS work package B
+  // closed. The qualifier is part of the claim, so it is checked rather than discarded.
+  const withOtherFile = withOwnFile.replace(`location: '/repo/${FILE}`, "location: '/repo/other/x.test.ts")
+  const refused = adjudicateRef(`${FILE}#${tail}`, withOtherFile)
+  assert.notEqual(refused.verdict, 'PASS', 'an assertion that ran elsewhere is not evidence about this clause')
+})
+
+test('a file-qualified ref over output with NO provenance is unproven, not assumed', () => {
+  // Byte-identical to the old passing fixture: a name on a marker line and nothing that says which file it ran
+  // in. The old reader resolved the name tail and passed; the file was never checked because it was discarded.
+  const tail = 'a file-qualified ref with no provenance'
+  const report = adjudicateRef(`${FILE}#${tail}`, `\u2714 ${tail} (0.4ms)\n\u2139 tests 1`)
+  assert.equal(report.verdict, 'UNPROVEN')
+  assert.ok(report.unproven.includes('clause'))
+  assert.ok(
+    report.blockers.some((blocker) => blocker.includes('ASSERTION_ORIGIN_UNMET')),
+    'the missing identity is named',
+  )
 })
 
 test('a file-qualified name on a non-marker line is still unproven', () => {
@@ -145,11 +169,22 @@ test('a bare ref behaves exactly as before', () => {
   assert.equal(absent.verdict, 'UNPROVEN', 'a bare name absent from the output is still UNPROVEN')
 })
 
-test('a failed marker naming the name tail is fail not unproven', () => {
-  const report = adjudicateRef(`${FILE}#a tail that failed`, '\u2716 a tail that failed (0.4ms)')
+test('a failed marker naming the name tail is fail not unproven, in the file it names', () => {
+  const report = adjudicateRef(
+    `${FILE}#a tail that failed`,
+    [`\u2716 a tail that failed (0.4ms)`, '  ---', `  location: '/repo/${FILE}:40:1'`, '  ...'].join('\n'),
+  )
   assert.equal(report.verdict, 'FAIL', 'a failed marker naming the tail is FAIL')
   assert.ok(report.failedConditions.includes('clause'))
   assert.ok(!report.unproven.includes('clause'), 'a ran-and-failed tail is not UNPROVEN')
+
+  // The SAME failure attributed to another file is not this clause's failure: nothing here ran the clause's
+  // assertion, so it is UNPROVEN rather than FAIL (work package B).
+  const elsewhere = adjudicateRef(
+    `${FILE}#a tail that failed`,
+    [`\u2716 a tail that failed (0.4ms)`, '  ---', "  location: '/repo/other/x.test.ts:40:1'", '  ...'].join('\n'),
+  )
+  assert.notEqual(elsewhere.verdict, 'FAIL')
 })
 
 test('the accepted ref format is stated where the mapping is declared', () => {
