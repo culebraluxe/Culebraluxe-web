@@ -87,6 +87,23 @@ jobs:
       - name: harness tests (no database)
         run: pnpm test:harness
 
+      # THE APP SUITE, AND THE REASON IT IS NEW HERE (Astra review, 2026-09-18).
+      #
+      # This step did not exist, and its absence is why four High defects — a secret scan that read only
+      # the tip commit, migration results dropped on the way to QA, a skipped test satisfying acceptance —
+      # sat under a green pipeline. `workflow_app/tests/*.test.ts` is now the DB-FREE glob its own
+      # documentation always claimed it was: the two files that need the control plane moved to
+      # `workflow_app/tests/db/` (see `pnpm test:app:db`, on demand, with `.env.local`). Before that, the
+      # glob included them, so the suite could never be green without a database — which is how a suite
+      # gets switched off instead of fixed.
+      #
+      # It also had to be FIXED, not merely wired: three tests were genuinely stale (a test double whose
+      # parameter map had drifted from the finish statement's three run-updates, and a shape guard whose
+      # test predated the splitAssignment/parallelSize requirement). Wiring a red suite is how a gate
+      # becomes something people scroll past.
+      - name: app fences (no database)
+        run: pnpm test:app
+
       # squawk-cli via npm, the same install and version verified against this repository locally.
       - name: migrations — squawk over changed files
         env:

@@ -221,6 +221,15 @@ export const DECLARED_COLUMNS: DeclaredColumns = {
     deployed_sha: { kind: 'WRITTEN', writers: [EVIDENCE] },
     production_verified_sha: { kind: 'WRITTEN', writers: [EVIDENCE] },
     last_failure: { kind: 'WRITTEN', writers: [EVIDENCE] },
+    // FOUND BY THIS AUDIT ON 2026-09-18, the first time its live half could actually run: five columns
+    // exist in DEV because two stories added them and neither registered a writer here. The audit's own
+    // contract is that a migration adding a column fails until the audit names its writer or its reason,
+    // and it was RED for exactly that — unnoticed because the live half needs a database and nothing ran it.
+    batch_released_sha: { kind: 'WRITTEN', writers: [EVIDENCE] },
+    batch_released_at: { kind: 'WRITTEN', writers: [EVIDENCE] },
+    batch_release_receipt: { kind: 'WRITTEN', writers: [EVIDENCE] },
+    negative_control_ran: { kind: 'WRITTEN', writers: [EVIDENCE] },
+    negative_control_killing_assertion: { kind: 'WRITTEN', writers: [EVIDENCE] },
     updated_at: { kind: 'WRITTEN', writers: [EVIDENCE] },
     created_at: { kind: 'WRITTEN', writers: [EVIDENCE] },
     findings: { kind: 'WRITTEN', writers: [EVIDENCE] },
@@ -314,7 +323,7 @@ export function renderManifest(result: AuditResult): string {
   lines.push('')
   lines.push('```sh')
   lines.push('node --env-file=.env.local --import tsx scripts/column-writer-audit.ts')
-  lines.push('node --import tsx --test workflow_app/tests/column-writer-audit.test.ts')
+  lines.push('node --env-file=.env.local --import tsx --test workflow_app/tests/db/column-writer-audit.test.ts')
   lines.push('```')
   lines.push('')
   lines.push(

@@ -10,19 +10,21 @@ import {
   listActiveForgeRoleTasks,
   reconcileForgeCompletions,
   startForgeWorkflow,
-} from '../forge/forge-engine-runtime'
-import type { ForgeGateEvidence } from '../forge/forge-facts'
-import { engineSql } from '../engine-client'
-import { FORGE_SDLC_KEY, FORGE_SDLC_VERSION, parseForgeSdlc } from '../definitions/forge-sdlc'
-import { readForgeWorkflowEvidence } from '../../db/forge-workflow-evidence'
-import { readForgeRepairLedger } from '../../db/forge-repair-ledger'
-import { readFinalReceipt } from '../../db/workflow-command-receipt'
+} from '../../forge/forge-engine-runtime'
+import type { ForgeGateEvidence } from '../../forge/forge-facts'
+import { engineSql } from '../../engine-client'
+import { FORGE_SDLC_KEY, FORGE_SDLC_VERSION, parseForgeSdlc } from '../../definitions/forge-sdlc'
+import { readForgeWorkflowEvidence } from '../../../db/forge-workflow-evidence'
+import { readForgeRepairLedger } from '../../../db/forge-repair-ledger'
+import { readFinalReceipt } from '../../../db/workflow-command-receipt'
 
 // ---------------------------------------------------------------------------
 // ENG-FORGE-CRASH-WINDOW-01 — the completion unit is recoverable and exactly-once.
 //
-// Run (DEV, on demand — the DB-free glob does not include it):
-//   node --env-file=.env.local --import tsx --test workflow_app/tests/completion-crash-window.test.ts
+// Run (DEV, on demand — the DB-free `pnpm test:app` glob does not include this directory, which is the
+// point of `workflow_app/tests/db/`): this file moved there on 2026-09-18 so the glob could finally mean
+// what its documentation claimed. `pnpm test:app:db` runs everything in here.
+//   node --env-file=.env.local --import tsx --test workflow_app/tests/db/completion-crash-window.test.ts
 //
 // Two crash windows used to be unrecoverable:
 //   1. the engine transition committed but the evidence merge did not — an advanced

@@ -87,7 +87,17 @@ describe('enqueueAgentWorkCommand refuses a half-grouped row before it writes', 
   it('a well-formed grouped call proceeds (the guard is not a blanket refusal)', async () => {
     const db = new RecordingDb()
     db.rows = [{ id: 'wi-1', story_id: STORY }]
-    await enqueue(db, { parallelGroupId: 'group-1', parallelSlot: 2 })
+    // splitAssignment is required for a parallel group (the constraint refuses a grouped row without
+    // one), so a test that means to prove the guard is not a blanket refusal must supply it. This test
+    // predated that requirement and had been failing in silence because nothing ran this suite.
+    // A grouped row must also declare its size: the constraint refuses a parallel row whose slot has no
+    // group size to be measured against, so the "well-formed" shape is group + slot + size + assignment.
+    await enqueue(db, {
+      parallelGroupId: 'group-1',
+      parallelSlot: 2,
+      parallelSize: 2,
+      splitAssignment: 'unit A',
+    })
     // The numeric UPPER bounds stay the database's business on purpose: the guard
     // must not refuse a value the constraint would accept.
     assert.ok(ranAnySql(db), 'a legal shape must reach SQL')

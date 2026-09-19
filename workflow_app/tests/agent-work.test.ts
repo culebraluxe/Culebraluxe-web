@@ -216,6 +216,20 @@ class FakeQueueDb {
       const runId = p[p.length - 1]
       const r = this.runs.find((x) => x.id === runId)
       if (!r) return Promise.resolve([])
+      // THE WIDGET-COST UPDATE IS NOT A PROGRESS UPDATE, and treating it as one corrupted the run row:
+      // it appended the run ID as a note and set tests_summary to undefined. Measured against the real
+      // emission on 2026-09-18 (a spy executor, not a guess): the finish path emits THREE run updates —
+      //   finish:        [status, completion, notes×4, commit, tests, execution_environment, id] (10)
+      //   cost widgets:  [costWidgets, costSource, id]                                             (3)
+      //   progress:      [completion×2, note×5, tests×2, id]                                       (9)
+      // so a 3-param statement is the estimator's, and it must leave the narrative alone.
+      if (t.includes('cost_widgets')) {
+        const withCost = r as unknown as { cost_widgets?: unknown; cost_source?: unknown }
+        withCost.cost_widgets = p[0]
+        if (p[1] !== null) withCost.cost_source = p[1]
+        r.updated_at = this.now
+        return Promise.resolve([r])
+      }
       const append = (note: string) => {
         r.notes = r.notes ? `${r.notes}\n${note}` : note
       }

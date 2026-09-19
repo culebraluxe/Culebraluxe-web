@@ -12,20 +12,19 @@
 // column that describes a machine nobody wrote stays a lie.
 // ---------------------------------------------------------------------------
 
-import { after, test } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AUDITED_TABLES,
   DECLARED_COLUMNS,
   classify,
-  loadLiveColumns,
   renderManifest,
 } from '../../scripts/column-writer-audit'
-import { forgeDb } from '../../db/forge-db'
 
-after(async () => {
-  await forgeDb.end()
-})
+// NO DATABASE HANDLE HERE, ON PURPOSE. This file's `after(() => forgeDb.end())` cleanup used to live at
+// the top level, which made a DB-free test file require APP_ENV at load: with no control plane declared,
+// the hook itself threw `ExecutionTargetError` and turned four classifier tests red in a no-database gate.
+// The handle moved with the live-schema test, which is the only thing here that ever opened one.
 
 /** The declared map expressed as a schema, so classify() can validate the map itself. */
 function declaredAsColumns(): Record<string, string[]> {
@@ -83,31 +82,8 @@ test('the rendered manifest is byte-stable and free of UNCLASSIFIED', () => {
   }
 })
 
-test('the LIVE schema of the three tables is fully classified', async () => {
-  let columns: Record<string, string[]>
-  try {
-    columns = await loadLiveColumns()
-  } catch (error) {
-    assert.fail(
-      `could not read the live schema (information_schema.columns): ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-  for (const table of AUDITED_TABLES) {
-    assert.ok(
-      (columns[table] ?? []).length > 0,
-      `no live columns read for ${table} — the audit would be silently empty`,
-    )
-  }
-  const result = classify(columns)
-  assert.deepEqual(
-    result.unclassified,
-    [],
-    'a live column is unclassified — add its writer or its reason to DECLARED_COLUMNS in scripts/column-writer-audit.ts, then regenerate the manifest',
-  )
-  assert.deepEqual(
-    result.stale,
-    [],
-    'a declared column no longer exists in the schema — remove it from DECLARED_COLUMNS',
-  )
-  assert.deepEqual(result.missingWriters, [], 'a declared writer path does not exist on disk')
-})
+// THE LIVE-SCHEMA HALF MOVED: `workflow_app/tests/db/column-writer-live-schema.test.ts`.
+//
+// It needs the control plane (the classifier tests below need nothing), so it lives in the db/ directory
+// that the DB-free `pnpm test:app` glob deliberately excludes — while these classifier tests stay here,
+// because moving the whole file would have dropped four running tests out of CI to satisfy a convention.

@@ -8,10 +8,10 @@ Regenerate and verify:
 
 ```sh
 node --env-file=.env.local --import tsx scripts/column-writer-audit.ts
-node --import tsx --test workflow_app/tests/column-writer-audit.test.ts
+node --env-file=.env.local --import tsx --test workflow_app/tests/db/column-writer-audit.test.ts
 ```
 
-Totals: 128 columns — 125 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
+Totals: 133 columns — 130 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 
 ## storyboard_story (36)
 
@@ -107,12 +107,15 @@ Totals: 128 columns — 125 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `tokens_output` | WRITTEN | db/forge-run.ts |
 | `updated_at` | WRITTEN | db/storyboard.ts, db/forge-run.ts |
 
-## forge_workflow_evidence (44)
+## forge_workflow_evidence (49)
 
 | column | classification | writer / reason |
 | --- | --- | --- |
 | `architecture_review_required` | WRITTEN | db/forge-workflow-evidence.ts |
 | `architecture_suspect` | WRITTEN | db/forge-workflow-evidence.ts |
+| `batch_release_receipt` | WRITTEN | db/forge-workflow-evidence.ts |
+| `batch_released_at` | WRITTEN | db/forge-workflow-evidence.ts |
+| `batch_released_sha` | WRITTEN | db/forge-workflow-evidence.ts |
 | `candidate_sha` | WRITTEN | db/forge-workflow-evidence.ts |
 | `created_at` | WRITTEN | db/forge-workflow-evidence.ts |
 | `deployed_sha` | WRITTEN | db/forge-workflow-evidence.ts |
@@ -135,6 +138,8 @@ Totals: 128 columns — 125 WRITTEN, 1 DEAD-DROP, 2 DEAD-KEEP.
 | `lead_routing` | WRITTEN | db/forge-workflow-evidence.ts |
 | `migration_files` | WRITTEN | db/forge-workflow-evidence.ts |
 | `migration_required` | WRITTEN | db/forge-workflow-evidence.ts |
+| `negative_control_killing_assertion` | WRITTEN | db/forge-workflow-evidence.ts |
+| `negative_control_ran` | WRITTEN | db/forge-workflow-evidence.ts |
 | `process_instance_id` | WRITTEN | db/forge-workflow-evidence.ts |
 | `prod_migration_applied` | WRITTEN | db/forge-workflow-evidence.ts |
 | `prod_migration_verified` | WRITTEN | db/forge-workflow-evidence.ts |
