@@ -23,8 +23,11 @@ const excerpt = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 240)
  * `failed` — the assertion ran and its line reports failure.
  * `absent` — the assertion does not appear in the executed output at all. A named-but-unrun assertion
  *            proves nothing, so its clause is UNPROVEN exactly like a clause with no assertion.
+ * `skipped` — the assertion's marker line carries a SKIP/TODO directive, so the proof says it did NOT run
+ *            by its own choice. This is a NAMED state, not a silent absence: acceptance evidence can tell
+ *            "did not run" from "was skipped by its own proof", and neither is ever a pass.
  */
-export type AssertionOutcome = 'passed' | 'failed' | 'absent'
+export type AssertionOutcome = 'passed' | 'failed' | 'absent' | 'skipped'
 
 const PASS_MARKERS = ['\u2714', '\u2713'] // ✔ ✓
 const FAIL_MARKERS = ['\u2716', '\u2717', '\u2718'] // ✖ ✗ ✘
@@ -35,16 +38,21 @@ const FAIL_MARKERS = ['\u2716', '\u2717', '\u2718'] // ✖ ✗ ✘
  * MEASURED (Astra review, 2026-09-18) and reproduced: `ok 1 - required assertion # SKIP missing tool`
  * was read as `passed`, so a required assertion could be satisfied by a test that never executed. That
  * is the worst kind of false PASS — the acceptance evidence is the thing being forged — and the TAP
- * directive is the honest signal that it did not run. Such a line is now `null`, which makes the clause
- * UNPROVEN exactly as if the assertion were missing, and that is the correct verdict for evidence that
- * does not exist.
+ * directive is the honest signal that it did not run. Such a line is now its own `skipped` verdict: the
+ * clause stays UNPROVEN, but it is NAMED as skipped rather than silently read as absent.
  */
 const SKIP_DIRECTIVE = /(^|\s)#\s*(skip|todo)\b/i
 
-/** The verdict a single output line reports, or null when the line is not a pass/fail line. */
-function markerLine(line: string): 'passed' | 'failed' | null {
+/**
+ * The verdict a single output line reports, or null when the line is not a marker line at all.
+ *
+ * A SKIP/TODO directive line is its OWN verdict, not an absence: the proof spoke about the assertion and
+ * said it did not run. Returning `'skipped'` (rather than the old `null`) keeps it a marker line so
+ * `markerName` still resolves the assertion's name, while `assertionOutcome` refuses to call it a pass.
+ */
+function markerLine(line: string): 'passed' | 'failed' | 'skipped' | null {
   const text = line.trimStart()
-  if (SKIP_DIRECTIVE.test(text)) return null
+  if (SKIP_DIRECTIVE.test(text)) return 'skipped'
   // `not ok` must be tested BEFORE `ok`: the TAP failure line contains the pass word.
   if (text.startsWith('not ok')) return 'failed'
   for (const marker of FAIL_MARKERS) if (text.startsWith(marker)) return 'failed'
@@ -88,6 +96,7 @@ export function assertionOutcome(output: string | null | undefined, ref: string)
   const needle = (hashAt >= 0 ? trimmed.slice(hashAt + 1) : trimmed).trim()
   if (!needle) return 'absent'
   let sawPass = false
+  let sawSkip = false
   for (const raw of output.split(/\r?\n/)) {
     // EXACT IDENTITY, NOT SUBSTRING (Astra review, 2026-09-18). The old test was
     // `if (!raw.includes(needle)) continue`, so a DIFFERENT test whose longer name merely contained the
@@ -99,8 +108,10 @@ export function assertionOutcome(output: string | null | undefined, ref: string)
     const verdict = markerLine(raw)
     if (verdict === 'failed') return 'failed'
     if (verdict === 'passed') sawPass = true
+    else if (verdict === 'skipped') sawSkip = true
   }
-  return sawPass ? 'passed' : 'absent'
+  if (sawPass) return 'passed'
+  return sawSkip ? 'skipped' : 'absent'
 }
 
 /**
@@ -291,6 +302,12 @@ export function adjudicateAssay(input: {
     unproven.push(condition.id)
     blockers.push(`UNPROVEN ${condition.id}`)
     for (const entry of outcomes) {
+      // A SKIPPED assertion appeared in the output and said it did not run; it is NAMED as skipped, never
+      // reported as absent. Either way the clause is UNPROVEN and can never PASS.
+      if (entry.outcome === 'skipped') {
+        blockers.push(`ASSERTION_SKIPPED ${condition.id} ${entry.ref}`)
+        continue
+      }
       missingAssertions.push({ conditionId: condition.id, assertion: entry.ref })
       blockers.push(`ASSERTION_NOT_RUN ${condition.id} ${entry.ref}`)
     }
