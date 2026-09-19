@@ -2614,6 +2614,267 @@ const STORIES: TestStory[] = [
     assayCommands: '- `node --import tsx --test workflow_app/tests/lane-branch-teardown.test.ts`',
   },
   {
+    id: 'FORGE-QA-MIGRATION-PROPAGATION-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 103,
+    title: 'A failed migration gate reaches the QA verdict instead of disappearing',
+    goal:
+      'Carry migration status and findings from the static gate through the QA slice so an unsafe migration ' +
+      'cannot be judged PASS by the collector that never heard about it.',
+    scope:
+      'the gate-to-slice adapter (workflow_app/forge/agents/exec-command.ts, staticSliceFromGate), the QA ' +
+      'slice and verdict (workflow_app/forge/agents/qa/types.ts, workflow_app/forge/agents/qa/run.ts), and ' +
+      'the fence workflow_app/tests/qa-migration-propagation.test.ts (new).',
+    acceptance:
+      'An unsafe migration produces FAIL through the ACTUAL collector, naming the rule; a required check ' +
+      'that could not run is never a pass; a safe migration passes; and the fence drives all three cases ' +
+      'through the collector rather than through the adapter alone.',
+    notes:
+      'MEASURED by Astra review, 2026-09-18, and confirmed by reading the code: runStaticGate reports ' +
+      'migrationOk/findings, staticSliceFromGate copies only archRan, archOk, archErrors, semgrepFindings ' +
+      'and knipFindings into the port slice, and the QA collector therefore decides without them. Reproduced ' +
+      'as failed migration gate -> adapter -> QA PASS. The existing migration tests exercise the underlying ' +
+      'gate, which is why nothing noticed: the capability exists and the production caller drops its result. ' +
+      'HONEST BOUNDARY: "an unavailable required check cannot pass" is the same rule the repository already ' +
+      'recorded as "a script that cannot run is not a gate", so an absent or unreadable migration result must ' +
+      'fail the clause rather than be treated as clean.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/qa-migration-propagation.test.ts`',
+  },
+  {
+    id: 'FORGE-ASSERTION-SKIP-STATE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 103,
+    title: 'A skipped assertion is a named state, not a silent absence',
+    goal:
+      'Give the assertion reader an explicit skipped/TODO state so acceptance evidence can distinguish ' +
+      '"ran and passed", "ran and failed", "did not run" and "was skipped by its own proof".',
+    scope:
+      'the assertion reader (workflow_app/forge/agents/qa/run.ts) and the fence ' +
+      'workflow_app/tests/qa-assertion-identity.test.ts (extended).',
+    acceptance:
+      'A skipped or TODO assertion is reported as its own state, never as absent and never as passed; a ' +
+      'skipped INTENDED assertion cannot be the killing assertion of a negative control; a real pass and a ' +
+      'real failure keep their meanings; and the fence drives each state.',
+    notes:
+      'THE CORE OF THIS WAS FIXED ON 2026-09-18 (commit 700107eb), and this story is the residue of Astra ' +
+      'review item 1.2: `ok 1 - required assertion # SKIP missing tool` used to read as PASSED, and ' +
+      'matching was `raw.includes(needle)` so a longer unrelated test name satisfied the clause. Both are ' +
+      'fixed and fenced (7 fences), and the negative-control adjudicator inherits the fix because it decides ' +
+      'via assertionOutcome(...) === "failed". WHAT REMAINS: a skip currently collapses to ABSENT, which is ' +
+      'the safe verdict but loses the distinction the evidence model wants, and the negative-control side ' +
+      'has no explicit fence of its own. HONEST LIMIT: a marker line carries only the assertion NAME, so two ' +
+      'identically named assertions inside ONE command cannot be told apart from output alone — refs are ' +
+      'matched per command, which bounds the exposure but does not eliminate it.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/qa-assertion-identity.test.ts`',
+  },
+  {
+    id: 'FORGE-PUBLISH-SCAN-COVERAGE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 103,
+    title: 'The credential scan covers every commit being published, not just the tip',
+    goal:
+      'Scan every unpublished commit a candidate would send to the remote, so a credential introduced in an ' +
+      'earlier commit cannot ride along behind a clean final commit.',
+    scope:
+      'the publish path (lib/worker-workspace/publish.ts) and the scanner it calls, with the fence ' +
+      'workflow_app/tests/publish-scan-coverage.test.ts (new).',
+    acceptance:
+      'A synthetic credential in the FIRST of two unpublished commits blocks publication even when the ' +
+      'final commit is clean; unreadable history blocks publication; history already on the remote is ' +
+      'excluded so a lane is never refused for a foreign commit; findings name the introducing commit ' +
+      'without printing a credential value; and the fence drives both the blocked and the excluded cases.',
+    notes:
+      'MEASURED by Astra review, 2026-09-18: the publisher supplies `commits: [candidate]` and the reader ' +
+      'diffs `${commit}^..${commit}`, so only the tip is ever scanned. His synthetic reproduction: a tip-only ' +
+      'scan found 0 findings where scanning both unpublished commits found 1. This is a COVERAGE defect, not ' +
+      'evidence of a leaked credential — no real secret is known to have been published this way. The scan ' +
+      'already fails closed on an unreadable diff, which is the behaviour to preserve while widening the ' +
+      'range; the range should be the commits the push would actually send (remote base .. candidate), not ' +
+      'the whole history.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/publish-scan-coverage.test.ts`',
+  },
+  {
+    id: 'FORGE-NEGATIVE-CONTROL-WIRING-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 103,
+    title: 'A declared negative control reaches QA through the real runner',
+    goal:
+      'Persist a story declared negative control and supply it through the production role ports, so an ' +
+      'ordinary run can exercise the capability instead of only a hand-assembled test.',
+    scope:
+      'the production port composition (workflow_app/forge/agent-runtime-role-runner.ts) and the QA ' +
+      'collector wiring, with the fence workflow_app/tests/negative-control-production-wiring.test.ts (new).',
+    acceptance:
+      'A control that kills its intended assertion is recorded as such; one that survives returns UNPROVEN; ' +
+      'one that cannot execute returns FAIL; and the fence proves this through the production composition ' +
+      'rather than through manually assembled ports.',
+    notes:
+      'MEASURED by Astra review, 2026-09-18: the collector and adjudicator both support negativeControl and ' +
+      'the test supplies it by hand, but the production rolePorts never supply it, so no ordinary run can ' +
+      'reach the capability. CORROBORATION FOUND THE SAME NIGHT, from the other end: the column-writer audit ' +
+      'was RED on DEV naming negative_control_ran and negative_control_killing_assertion as columns that ' +
+      'exist and were declared nowhere — the persistence half was built by ENG-FORGE-FENCE-CAN-FAIL-01 and ' +
+      'never registered or wired, which is the same "helper works, production never supplies it" shape. This ' +
+      'story completes FENCE-CAN-FAIL-01 (closed on helper-grade evidence) without editing it.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/negative-control-production-wiring.test.ts`',
+  },
+  {
+    id: 'FORGE-VERIFY-EXISTING-COMPLETE-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 103,
+    title: 'The direct-to-QA route for already-finished work actually fires',
+    goal:
+      'Complete the verify-existing route end to end: the routing context supplies the observed candidate, ' +
+      'ASSAY is supported across the handoff and the workflow decision, and the real arrangement runs.',
+    scope:
+      'the routing context and decision (workflow_app/forge/lead-routing-context.ts, ' +
+      'workflow_app/forge/forge-lead-routing.ts), the arrangement runner ' +
+      '(workflow_app/forge/agent-runtime-role-runner.ts), the workflow branch ' +
+      '(workflow_app/definitions/FORGE_SDLC-v6.xml), and the fence workflow_app/tests/verify-existing.test.ts ' +
+      '(extended).',
+    acceptance:
+      'Existing finished work reaches QA without launching Smith; a missing or mismatched candidate is ' +
+      'refused rather than verified; ordinary authoring routes are unchanged; and the fence drives the ' +
+      'route, the refusal and the unchanged case through production composition.',
+    notes:
+      'MEASURED by Astra review, 2026-09-18, and confirmed here: `existingCandidate` is DECLARED in ' +
+      'forge-lead-routing.ts and READ at the decision, but nothing in production ever assigns it — the ' +
+      'grep finds only the type and the read. So the focused tests demonstrate helpers, not a working route, ' +
+      'which is why this story exists: ENG-FORGE-VERIFY-EXISTING-01 was closed on helper-grade evidence and ' +
+      'is reopened alongside this one. The original defect is real and unchanged (a story whose work is ' +
+      'already on the base cannot be routed to Assay, so it can only be finished by an operator close).',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/verify-existing.test.ts`',
+  },
+  {
+    id: 'FORGE-RUNTIME-WIRING-CI-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'High',
+    batch: 103,
+    title: 'CI fails when a capability exists but its production supplier is disconnected',
+    goal:
+      'Add a small, database-independent suite that exercises the real adapters and production composition, ' +
+      'so the class "the helper works and the caller drops its result" is caught by the gate rather than by ' +
+      'a reviewer.',
+    scope:
+      'the wiring suite workflow_app/tests/production-wiring.test.ts (new) and, if a supplier needs a fake ' +
+      'seam to be testable, the port composition in workflow_app/forge/agent-runtime-role-runner.ts.',
+    acceptance:
+      'Deliberately disconnecting a supplier or dropping a required result makes CI fail; the suite needs ' +
+      'no database and runs inside the existing "app fences (no database)" step; executed and skipped ' +
+      'counts are reported explicitly; and the four High findings of the Astra review would each be caught ' +
+      'by it (migration results, assertion state, publish scan range, negative-control supply).',
+    notes:
+      'THE MECHANISM NOW EXISTS: on 2026-09-18 the app suite was wired into CI (`app fences (no database)`, ' +
+      'commit 5dcab119), so this story is the CONTENT for a step that already runs — 2,736 tests, 0 ' +
+      'failures, about 1m52s. Astra review item 6 asks for exactly this, and his reasoning is the record of ' +
+      'why it matters: green CI did not catch four High defects because it ran the scripts harness and never ' +
+      'workflow_app/tests. HONEST BOUNDARY: the fences now in CI catch DRIFT (a stale double, a stale ' +
+      'expectation — three such were found on the first run); they do NOT catch an unwired supplier, which ' +
+      'is what this suite is for.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/production-wiring.test.ts`',
+  },
+  {
+    id: 'FORGE-SPLIT-COMPLETE-PROOF-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 103,
+    title: 'Two scoped siblings run, join, and reach QA PASS — with the join receipt quoted',
+    goal:
+      'Observe and record the whole two-lane lifecycle once: siblings claimed, completing, their outputs ' +
+      'contributing, the join satisfied, and the story reaching QA PASS — with durable evidence for the ' +
+      'sequence, or the named reason the join refused.',
+    scope:
+      'the run and its recorded evidence (db/forge-workflow-evidence.ts rows for the story), using ' +
+      'ENG-FORGE-TWO-UNIT-DOGFOOD-02 as the vehicle, with the join receipt recorded in the postcard and the ' +
+      'fence workflow_app/tests/split-lifecycle-receipt.test.ts (new) asserting the receipt shape.',
+    acceptance:
+      'Durable evidence shows two correctly scoped siblings claimed, each completing, both outputs ' +
+      'contributing, the join satisfied, and QA PASS for the story; separately, a missing or failed child ' +
+      'prevents advancement; and the fence asserts the receipt shape rather than the run happening to go ' +
+      'well, so a future replay cannot fabricate completion.',
+    notes:
+      'STATE AT FILING, measured: the fan-out is OBSERVED (two siblings, slot 1 of 2 and 2 of 2, both ' +
+      'claimed and both Done, wave concurrent at cap 2) and the join REFUSED on scope creep — one lane ' +
+      'touched files outside its assignment (db/forge-workflow-evidence.ts, ' +
+      'db/migrations/193_forge_negative_control.sql), which is the bound working, not a kernel fault. WHAT ' +
+      'IS NOT OWED: "replay cannot fabricate completion" is already fixed and fenced (ENG-FORGE-RESUME-DOOR, ' +
+      'commit 70420b46) because forge-hold-resolve was completing an UNCLAIMED fork branch. WHAT IS OWED: ' +
+      'one wave whose per-unit slice covers the files each unit actually touches, then the receipt or the ' +
+      'HOLD. Grok has said the closing postcard must quote the join sha or the HOLD, and that is the ' +
+      'evidence standard this story accepts.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/split-lifecycle-receipt.test.ts`',
+  },
+  {
+    id: 'FORGE-GATE-RECEIPT-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 103,
+    title: 'A story run records what each check did: passed, failed, skipped, unavailable',
+    goal:
+      'Extend the evidence model with per-check status so a reader can see which checks ran, failed, were ' +
+      'skipped, were unavailable or were never configured — without a skipped check ever reading as green.',
+    scope:
+      'the evidence model (db/forge-workflow-evidence.ts and its migration), the writer that records it, and ' +
+      'the fence workflow_app/tests/gate-receipt.test.ts (new).',
+    acceptance:
+      'A check that passed, failed, was skipped, was unavailable, or was never configured is recorded with ' +
+      'its identity and reason and associated with the run; a skipped check is never a pass; the story view ' +
+      'exposes these facts; and no second verdict writer is introduced — the existing model is extended.',
+    notes:
+      'THE NEED, measured from tonight own tooling: `pnpm test:app` reports "4 skipped" with no per-check ' +
+      'identity, so a reader cannot tell WHICH checks did not run; and the repository already holds the ' +
+      'principle in writing — "a skipped gate is visibly skipped; a gate that silently passes because it had ' +
+      'no credentials is the failure mode this repository already recorded". Astra review feature 3 asks ' +
+      'for exactly this and adds the right constraint: extend the evidence model rather than adding another ' +
+      'verdict writer. CORROBORATION: the column-writer audit was red on DEV because five columns existed ' +
+      '(two of them negative-control state) with no declaration — the same "state that nothing records" ' +
+      'shape this story addresses.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/gate-receipt.test.ts`',
+  },
+  {
+    id: 'FORGE-LOCAL-RELEASE-CI-CHECK-01',
+    workstream: 'ENGINEERING',
+    operatingSurface: 'TECH',
+    priority: 'Medium',
+    batch: 103,
+    title: 'pnpm release reads the CI result for the exact SHA before it builds',
+    goal:
+      'Refuse a local release whose commit has a failing, pending, missing or unreadable CI result, so a red ' +
+      'main cannot reach production without adding a single CI build.',
+    scope:
+      'the release script (scripts/release-record.sh) and the fence ' +
+      'workflow_app/tests/release-ci-check.test.ts (new).',
+    acceptance:
+      'A failed, pending, missing or unreadable result for the release SHA produces a clear refusal naming ' +
+      'what was found; the check observes the SHA it actually builds and detects HEAD changing after the ' +
+      'check; the existing one local build and one deploy per release is preserved and NO CI deployment is ' +
+      'added; and there is a NAMED opt-out for the case where GitHub itself cannot be reached, in the style ' +
+      'the file already uses for the probe (`RELEASE_PROBE_CMD=skip` is the honest opt-out).',
+    notes:
+      'THIS REPLACES A FENCE THAT WAS DELETED FOR COST. ENG-FORGE-CI-PRODUCTION-FENCE-01 put a deploy job in ' +
+      'CI, which was inert but told the next reader how to switch it on; the captain measured the cost ' +
+      '("i purposely broke that it was doubling my bill" — about 30 builds a day where 1-2 were wanted) and ' +
+      'the job was deleted, leaving CI as a check that reports and never ships. That leaves a real gap: a ' +
+      'red main can still be released by hand, because the release script reads nothing. Astra review ' +
+      'feature 4 proposes closing it with a READ, and the captain endorsed the idea the same night. ' +
+      'HONEST BOUNDARY: a check that cannot be bypassed during a GitHub outage is a check somebody deletes, ' +
+      'so the bypass must exist, be named, and shout.',
+    assayCommands: '- `node --import tsx --test workflow_app/tests/release-ci-check.test.ts`',
+  },
+  {
     id: 'ENG-FORGE-VERIFY-EXISTING-01',
     workstream: 'ENGINEERING',
     operatingSurface: 'TECH',
