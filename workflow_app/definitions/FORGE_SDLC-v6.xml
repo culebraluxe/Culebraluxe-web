@@ -246,14 +246,20 @@
   </task-node>
 
   <decision id="execution_shape" label="Execution Shape"
-    description="Lead chooses SOLO, SMITH, SPLIT, or HOLD." refresh-facts="true">
+    description="Lead chooses SOLO, SMITH, SPLIT, ASSAY, or HOLD." refresh-facts="true">
     <on condition="leadDecision == 'SOLO'" transition="solo"/>
     <on condition="leadDecision == 'SMITH'" transition="smith"/>
     <on condition="leadDecision == 'SPLIT'" transition="split"/>
+    <!-- DIRECT ASSAY (FORGE-VERIFY-EXISTING-COMPLETE-01): a story whose work already exists on the base is
+         JUDGED rather than re-authored, so it goes straight to the deterministic verification node instead of
+         a Smith. Without this branch the decision was accepted by the validator and then had nowhere to go in
+         the workflow, which is why the route could not fire in production. -->
+    <on condition="leadDecision == 'ASSAY'" transition="assay"/>
     <on condition="leadDecision == 'HOLD'" transition="hold"/>
     <transition name="solo" to="lead_solo_implement"/>
     <transition name="smith" to="smith"/>
     <transition name="split" to="split_dispatch"/>
+    <transition name="assay" to="qa_verify"/>
     <transition name="hold" to="hold"/>
   </decision>
 

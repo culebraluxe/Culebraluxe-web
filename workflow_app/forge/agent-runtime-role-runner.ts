@@ -71,7 +71,7 @@ import { leadRoutingFacts } from './forge-lead-routing'
 import { buildLeadRoutingDirective } from './forge-lead-routing-prompt'
 import { candidateOwnChangedFiles, recordedScopeBase, storyScopeBase } from './story-scope-base'
 import type { RoleEffectPorts } from './agents/ports'
-import { existsOnGitBaseRef } from './agents/architect/exists-git'
+import { existsOnGitBaseRef, commitOnGitBaseRef } from './agents/architect/exists-git'
 import { CANDIDATE_SHA, describeRefusal, mediateField } from '../../lib/field-mediator'
 import { parseArchitectHandoff } from './agents/architect-handoff'
 import { seamGroupHint } from './agents/architect/shape-hint'
@@ -674,10 +674,34 @@ export function createAgentRuntimeForgeRoleRunner(
       const proofs = proofsByFinding.get(f.id)
       return proofs && proofs.length > 0 ? { ...f, proofs } : f
     })
+    // THE OBSERVED CANDIDATE, SUPPLIED (FORGE-VERIFY-EXISTING-COMPLETE-01).
+    //
+    // The ASSAY validator compares the Lead's named sha against `context.existingCandidate`, and until now
+    // nothing in production ever assigned it — so the direct-to-QA route could never be accepted, exactly as
+    // Astra measured ("the focused tests demonstrate helpers, not a working route").
+    //
+    // "Observed" means two things, and both matter: the run RECORDED a candidate, and that commit is an
+    // ANCESTOR OF THE STORY'S BASE — i.e. the work was already there before this story started. Work that
+    // merely exists in the repository (a branch, an unlanded candidate) is not "already on the base", and
+    // verifying it would be verifying something the story is supposed to author.
+    const recordedCandidateSha = String(current.candidateSha ?? '').trim().toLowerCase()
+    const observedCandidate =
+      /^[0-9a-f]{40}$/.test(recordedCandidateSha) && storyBaseCommit
+        ? {
+            sha: recordedCandidateSha,
+            onBaseRef: commitOnGitBaseRef(process.cwd())(storyBaseCommit, recordedCandidateSha),
+          }
+        : null
+
     const leadRoutingContext = buildLeadRoutingContext({
       story: resolvedStory,
       findings: findingsForRouting,
       capabilities: LEAD_ROUTING_CAPABILITIES,
+      // THE OBSERVED CANDIDATE, SUPPLIED (FORGE-VERIFY-EXISTING-COMPLETE-01). Without this the ASSAY
+      // validator had nothing to compare a named sha against, so the direct-to-QA route could never be
+      // accepted in production. Observed means: the candidate the run recorded, AND that it is an ancestor
+      // of the pinned base ref — present-but-unlanded work is not "already there".
+      ...(observedCandidate ? { observedCandidate } : {}),
       // Which attempt is in force and what a later attempt explicitly superseded. Null is the
       // legacy reply-parser fallback, where no attempt is recorded.
       findingHandoff: recordedHandoff
@@ -1931,6 +1955,22 @@ export function createAgentRuntimeForgeRoleRunner(
         : null
     if (routingReview?.ok) {
       Object.assign(evidence, leadRoutingFacts(routingReview))
+      // THE DIRECT-ASSAY ARRANGEMENT, PRODUCED BY PRODUCTION (FORGE-VERIFY-EXISTING-COMPLETE-01).
+      //
+      // verifyExistingArrangement existed and was fenced, but nothing in the runner called it — the helper
+      // Astra called out ("the arrangement helper is not called by the production runner"). It is produced
+      // here, on an accepted ASSAY route, and it does two recorded things: the arrangement itself (so the
+      // dispatch is auditable) and the candidate the verification is ABOUT, because for this route there is
+      // no Smith candidate and the workflow's verification node must verify the named sha or nothing.
+      if (routingReview.proposal.decision === 'ASSAY') {
+        const arrangement = verifyExistingArrangement(routingReview, leadRoutingContext.allowedProofs)
+        if (arrangement) {
+          Object.assign(evidence, {
+            verifyExisting: arrangement,
+            candidateSha: arrangement.candidateSha,
+          })
+        }
+      }
     }
     // A Lead who DECIDES HOLD is a valid routing outcome (`reviewLeadProposal`
     // returns ok for it), so nothing throws and the engine advances on the

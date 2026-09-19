@@ -110,6 +110,16 @@ export function buildLeadRoutingContext(input: {
   findings?: ForgeGateEvidence['findings']
   capabilities: LeadRoutingCapabilities
   findingHandoff?: FindingHandoffSummary | null
+  /**
+   * THE CANDIDATE THE RUNNER OBSERVED ON THE PINNED BASE (FORGE-VERIFY-EXISTING-COMPLETE-01).
+   *
+   * ENG-FORGE-VERIFY-EXISTING-01 declared this field and the ASSAY validator read it, but nothing in
+   * production ever SUPPLIED it — so the direct-to-QA route could never be accepted, which is exactly the
+   * defect Astra measured ("the focused tests demonstrate helpers, not a working route"). Absent stays
+   * absent: a builder with nothing observed supplies nothing, and the validator then refuses ASSAY rather
+   * than verifying a tree nobody named.
+   */
+  observedCandidate?: { sha: string; onBaseRef: boolean } | null
 }): LeadRoutingContext {
   const content = (value: string | null | undefined, cap: number): string | undefined => {
     const text = (value ?? '').trim()
@@ -135,6 +145,9 @@ export function buildLeadRoutingContext(input: {
     // Which findings attempt is in force and what a later attempt explicitly superseded. Null is
     // the legacy reply-parser fallback, where no attempt is recorded — never a fabricated one.
     findingHandoff: input.findingHandoff ?? null,
+    // The observed candidate, when the runner found one on the pinned base. Omitted (not null) when
+    // nothing was observed, so the validator's "nothing to verify" refusal keeps its meaning.
+    ...(input.observedCandidate ? { existingCandidate: input.observedCandidate } : {}),
     // A real lead reads the work, not a pointer to it. Contents are bounded so the
     // directive stays inside the model's context budget.
     ...(architectContract || scoutContext
