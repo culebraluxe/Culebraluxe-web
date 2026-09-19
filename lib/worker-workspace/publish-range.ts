@@ -42,6 +42,12 @@ export type PublishRange = {
   /** The commit the range was measured from, or null when no base could be resolved. */
   base: string | null
   source: PublishRangeSource
+  /**
+   * True when a base WAS resolved but the range could not be listed. That is not the same as
+   * `candidate-only`: history exists and could not be read, so the caller must refuse rather than scan
+   * the tip and report it as complete coverage.
+   */
+  unreadable: boolean
 }
 
 export async function listCommitsToPublish(input: {
@@ -62,16 +68,23 @@ export async function listCommitsToPublish(input: {
     const resolved = await git(input.repoRoot, ['rev-parse', '--verify', '--quiet', ref])
     if (!resolved.ok || !resolved.stdout) continue
     const base = resolved.stdout
-    // If the candidate IS the base there is nothing to send; the scanner still sees the candidate so a
-    // retry of an already-published candidate cannot skip its own check.
+    // A base exists, so the range is knowable. If `rev-list` cannot list it, the history is UNREADABLE:
+    // returning just the candidate here would silently reintroduce the tip-only hole this module exists
+    // to close. The caller must refuse.
     const range = await git(input.repoRoot, ['rev-list', `${base}..${input.candidate}`])
-    const commits = range.ok ? range.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : []
+    if (!range.ok) {
+      return { commits: [input.candidate], base, source, unreadable: true }
+    }
+    const commits = range.stdout.split('\n').map((l) => l.trim()).filter(Boolean)
     return {
       commits: [input.candidate, ...commits.filter((c) => c !== input.candidate)],
       base,
       source,
+      unreadable: false,
     }
   }
 
-  return { commits: [input.candidate], base: null, source: 'candidate-only' }
+  // No base resolvable at all. The candidate's own diff is all that can be attributed; this is an
+  // explicit state, not a failed read, so it is not `unreadable`.
+  return { commits: [input.candidate], base: null, source: 'candidate-only', unreadable: false }
 }

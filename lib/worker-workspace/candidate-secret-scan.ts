@@ -23,6 +23,8 @@
 import { secretShapesInLine } from '../secret-shapes'
 
 export type CandidateSecretFinding = {
+  /** The commit in the scanned range that introduced the matched line. */
+  commit: string
   /** The catalog rule that matched (e.g. `openai-style key`). */
   rule: string
   /** Repository-relative path the added line lives in. */
@@ -102,7 +104,7 @@ export async function scanCandidateOwnDiff(input: {
       if (seen.has(key)) continue
       seen.add(key)
       for (const shape of secretShapesInLine(added.text)) {
-        findings.push({ rule: shape.name, file: added.file, line: added.line })
+        findings.push({ commit, rule: shape.name, file: added.file, line: added.line })
       }
     }
   }

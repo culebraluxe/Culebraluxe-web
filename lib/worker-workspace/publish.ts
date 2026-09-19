@@ -298,6 +298,19 @@ export async function publishAcceptedCandidate(
     remoteName,
     remoteBranch,
   })
+  // A base existed but the range could not be listed: history is unreadable, so an unscanned push cannot
+  // be called clean. Refuse BEFORE reading the remote, and never fall back to a tip-only scan.
+  if (publishRange.unreadable) {
+    return {
+      outcome: 'publish-conflict',
+      candidateCommit: candidate,
+      remoteMainHash: null,
+      reason:
+        `could not list the commits to publish between ${publishRange.base?.slice(0, 12) ?? 'the base'} ` +
+        `and candidate ${candidate.slice(0, 12)} (${publishRange.source}); refusing to publish a candidate ` +
+        'whose history could not be read',
+    }
+  }
   const secretScan = await scanCandidateOwnDiff({
     commits: publishRange.commits,
     readDiff: async (commit) => {
@@ -324,7 +337,10 @@ export async function publishAcceptedCandidate(
   }
   if (secretScan.findings.length > 0) {
     const named = secretScan.findings
-      .map((finding) => `${finding.rule} in ${finding.file}:${finding.line}`)
+      .map(
+        (finding) =>
+          `${finding.rule} in ${finding.file}:${finding.line} (introduced by ${finding.commit.slice(0, 12)})`,
+      )
       .join(', ')
     return {
       outcome: 'candidate-secret',
