@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { scanCandidateOwnDiff, type CandidateSecretFinding } from './candidate-secret-scan'
+import { listCommitsToPublish } from './publish-range'
 
 const execFileAsync = promisify(execFile)
 
@@ -282,13 +283,23 @@ export async function publishAcceptedCandidate(
   }
   const candidate = resolved.stdout
 
-  // THE LANE'S OWN CHANGES, SCANNED FOR A CREDENTIAL, BEFORE THE REMOTE IS EVEN READ.
+  // EVERY COMMIT THE PUSH WOULD SEND, SCANNED BEFORE THE REMOTE IS READ.
   //
-  // Only each lane commit's added lines (`git diff <c>^ <c>`) are read, so a credential that
-  // already exists in the base or in a foreign commit in the range does not block this lane.
-  // An unreadable diff fails closed: an unscanned candidate is not a clean candidate.
+  // This used to pass `commits: [candidate]` — the tip only — so a credential introduced in an EARLIER
+  // unpublished commit rode along behind a clean final commit (FORGE-PUBLISH-SCAN-COVERAGE-01, reproduced
+  // by the Astra review: tip-only found 0 findings where both unpublished commits found 1). The range is
+  // measured from the remote-tracking ref when it exists, else from the local base, and the SOURCE is
+  // named in the refusal so nobody has to guess how much was covered.
+  //
+  // An unreadable diff still fails closed: an unscanned candidate is not a clean candidate.
+  const publishRange = await listCommitsToPublish({
+    repoRoot,
+    candidate,
+    remoteName,
+    remoteBranch,
+  })
   const secretScan = await scanCandidateOwnDiff({
-    commits: [candidate],
+    commits: publishRange.commits,
     readDiff: async (commit) => {
       const diff = await runGit(repoRoot, [
         'diff',
@@ -319,7 +330,7 @@ export async function publishAcceptedCandidate(
       outcome: 'candidate-secret',
       candidateCommit: candidate,
       findings: secretScan.findings,
-      reason: `candidate ${candidate.slice(0, 12)} adds a credential-shaped value (${named}); publication refused`,
+      reason: `candidate ${candidate.slice(0, 12)} adds a credential-shaped value (${named}); publication refused after scanning ${publishRange.commits.length} commit(s) of the range based on ${publishRange.source}`,
     }
   }
 
