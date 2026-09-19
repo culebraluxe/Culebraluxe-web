@@ -77,6 +77,7 @@ import { parseArchitectHandoff } from './agents/architect-handoff'
 import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
+import { negativeControlForStory } from './agents/negative-control-supplier'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import {
@@ -1495,6 +1496,10 @@ export function createAgentRuntimeForgeRoleRunner(
       })
     }
 
+    // The story's declared control, read from the row the runner already resolved. See
+    // negative-control-supplier.ts for why this is a module rather than three inline lines.
+    const negativeControl = negativeControlForStory(resolvedStory)
+
     const rolePorts: RoleEffectPorts = {
       splitEnabled: leadRoutingContext.splitEnabled,
       maxSmiths: leadRoutingContext.maxSmiths,
@@ -1516,6 +1521,14 @@ export function createAgentRuntimeForgeRoleRunner(
       // Absent stays absent: `undefined` (never `{}`) keeps `collectAssayEvidence` returning UNPROVEN
       // with `acceptance-map-missing` when neither declaration place said anything.
       ...(acceptanceMap ? { acceptanceMap } : {}),
+      // THE STORY'S DECLARED NEGATIVE CONTROL, SUPPLIED AT LAST (FORGE-NEGATIVE-CONTROL-WIRING-01).
+      //
+      // ENG-FORGE-FENCE-CAN-FAIL-01 built the capability — collector, adjudicator, evidence columns — and
+      // Astra's review measured that production never supplied it: every ordinary run left this port
+      // undefined, so the only way to exercise the control was a hand-assembled test. Absent stays absent
+      // (`undefined`, never `{}`): a story that declares no control supplies none, and QA records that
+      // honestly rather than running a vacuous one.
+      ...(negativeControl ? { negativeControl } : {}),
       // NO TREE, SO NOTHING TO PIN: every assay command simply runs. QA's job is to run
       // the proofs and write the record — the row is the evidence, not a checkout.
       runCommand: (command: string) => commandRunner(roleCwd)(command),

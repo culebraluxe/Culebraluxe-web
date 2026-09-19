@@ -60,6 +60,12 @@ export type StoryboardStory = {
   completedAt: string | null
   testMode?: string | null
   assayCommands?: string | null
+  /**
+   * The story's declared NEGATIVE CONTROL command (migration 196): the inversion that runs the same fence
+   * and must kill at least one intended assertion. NULL means none declared, which QA records honestly —
+   * an absent control is not a pass.
+   */
+  negativeControlCommand?: string | null
   packetSha?: string | null
   createdAt: string
   updatedAt: string
@@ -85,6 +91,7 @@ export type StoryboardStoryInput = {
   postconditions: string | null
   testMode?: string | null
   assayCommands?: string | null
+  negativeControlCommand?: string | null
   packetSha?: string | null
   completion: number
   rollup: boolean
@@ -116,6 +123,7 @@ export type StoryRow = QueryRow & {
   postconditions: string | null
   test_mode?: string | null
   assay_commands?: string | null
+  negative_control_command?: string | null
   packet_sha?: string | null
   architect_brief_updated_at: string | null
   completion: number
@@ -173,6 +181,7 @@ export function mapStory(row: StoryRow): StoryboardStory {
     architectBriefUpdatedAt: dateOrNull(row.architect_brief_updated_at),
     testMode: (row.test_mode as string | null) ?? null,
     assayCommands: (row.assay_commands as string | null) ?? null,
+    negativeControlCommand: (row.negative_control_command as string | null) ?? null,
     packetSha: (row.packet_sha as string | null) ?? null,
     completion: row.completion,
     rollup: row.rollup,
@@ -206,7 +215,7 @@ export async function listStoryboardStories(
       batch, batch_deploy, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
     from storyboard_story
@@ -285,7 +294,7 @@ export async function getStoryboardStory(
       batch, batch_deploy, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
     from storyboard_story
@@ -305,7 +314,7 @@ export async function createStoryboardStory(
       id, workstream, title, priority, status, notes, batch, goal, scope,
       dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       operating_surface
     ) values (
@@ -316,7 +325,7 @@ export async function createStoryboardStory(
       ${input.architectBrief ?? null}, ${input.contextRefs ?? null},
       ${input.acceptanceCriteria ?? null}, ${input.postconditions ?? null},
       case when ${input.architectBrief ?? null}::text is null then null else now() end,
-      ${input.testMode ?? null}, ${input.assayCommands ?? null}, ${input.packetSha ?? null},
+      ${input.testMode ?? null}, ${input.assayCommands ?? null}, ${input.negativeControlCommand ?? null}, ${input.packetSha ?? null},
       ${input.completion}, ${input.rollup},
       ${input.plannedStartAt ?? null}, ${input.actualStartAt ?? null},
       ${input.completedAt ?? null},
@@ -327,7 +336,7 @@ export async function createStoryboardStory(
       batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -379,7 +388,7 @@ export async function updateStoryboardStory(
       batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -534,7 +543,7 @@ export async function setStoryboardStatus(
       batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `
@@ -1098,7 +1107,7 @@ export async function startStoryRun(
     returning id, workstream, title, priority, status, notes, batch, batch_deploy, goal,
       scope, dependencies, preconditions, architect_brief, context_refs,
       acceptance_criteria, acceptance_assertions, postconditions, architect_brief_updated_at,
-      test_mode, assay_commands, packet_sha,
+      test_mode, assay_commands, negative_control_command, packet_sha,
       completion, rollup, planned_start_at, actual_start_at, completed_at,
       created_at, updated_at
   `

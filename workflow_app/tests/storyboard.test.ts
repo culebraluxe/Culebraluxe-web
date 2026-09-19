@@ -73,13 +73,17 @@ class FakeDb {
         architect_brief_updated_at: p[15] ? this.stamp() : null,
         test_mode: p[16] ?? null,
         assay_commands: p[17] ?? null,
-        packet_sha: p[18] ?? null,
-        completion: p[19],
-        rollup: p[20],
-        planned_start_at: p[21] ?? null,
-        actual_start_at: p[22] ?? null,
-        completed_at: p[23] ?? null,
-        operating_surface: p[24] ?? null,
+        // Migration 196 inserted this between assay_commands and packet_sha, so every later param moved by
+        // one. (A positional fake is why that matters: the same class of drift that made the agent-work
+        // double read a widget-cost UPDATE as a progress note.)
+        negative_control_command: p[18] ?? null,
+        packet_sha: p[19] ?? null,
+        completion: p[20],
+        rollup: p[21],
+        planned_start_at: p[22] ?? null,
+        actual_start_at: p[23] ?? null,
+        completed_at: p[24] ?? null,
+        operating_surface: p[25] ?? null,
         created_at: '2026-08-21T00:00:00Z',
         updated_at: '2026-08-21T00:00:00Z',
       }

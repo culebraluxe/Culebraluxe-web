@@ -63,6 +63,7 @@ export type AuditResult = {
 }
 
 const STORYBOARD = 'db/storyboard.ts'
+const STORY_FILE = 'scripts/forge-test-stories.ts'
 const SPRINT = 'db/sprint.ts'
 /** 187: the sprint trigger derives storyboard_story.sprint_id from its batch. */
 const SPRINT_TRIGGER = 'db/migrations/187_sprint_parent.sql'
@@ -111,7 +112,11 @@ export const DECLARED_COLUMNS: DeclaredColumns = {
     architect_brief_updated_at: { kind: 'WRITTEN', writers: [STORYBOARD] },
     operating_surface: { kind: 'WRITTEN', writers: [STORYBOARD] },
     test_mode: { kind: 'WRITTEN', writers: [STORYBOARD] },
-    assay_commands: { kind: 'WRITTEN', writers: [STORYBOARD] },
+    assay_commands: { kind: 'WRITTEN', writers: [STORYBOARD, STORY_FILE] },
+    // Migration 196, declared the day it was added — because this audit was RED on DEV for exactly the
+    // opposite reason on 2026-09-18 (five columns added by two stories and declared nowhere, found only
+    // when its live half first ran). The control command is DECLARED here and WRITTEN by the filing path.
+    negative_control_command: { kind: 'WRITTEN', writers: [STORYBOARD, STORY_FILE] },
     packet_sha: { kind: 'WRITTEN', writers: [STORYBOARD] },
     forge_repair_attempts: { kind: 'WRITTEN', writers: [REPAIR_LEDGER] },
     forge_replan_attempts: { kind: 'WRITTEN', writers: [REPAIR_LEDGER] },
