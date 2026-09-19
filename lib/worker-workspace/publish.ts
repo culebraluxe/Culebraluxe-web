@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { scanCandidateOwnDiff, type CandidateSecretFinding } from './candidate-secret-scan'
+import { listCommitsToPublish } from './publish-range'
 
 const execFileAsync = promisify(execFile)
 
@@ -282,13 +283,36 @@ export async function publishAcceptedCandidate(
   }
   const candidate = resolved.stdout
 
-  // THE LANE'S OWN CHANGES, SCANNED FOR A CREDENTIAL, BEFORE THE REMOTE IS EVEN READ.
+  // EVERY COMMIT THE PUSH WOULD SEND, SCANNED BEFORE THE REMOTE IS READ.
   //
-  // Only each lane commit's added lines (`git diff <c>^ <c>`) are read, so a credential that
-  // already exists in the base or in a foreign commit in the range does not block this lane.
-  // An unreadable diff fails closed: an unscanned candidate is not a clean candidate.
+  // This used to pass `commits: [candidate]` — the tip only — so a credential introduced in an EARLIER
+  // unpublished commit rode along behind a clean final commit (FORGE-PUBLISH-SCAN-COVERAGE-01, reproduced
+  // by the Astra review: tip-only found 0 findings where both unpublished commits found 1). The range is
+  // measured from the remote-tracking ref when it exists, else from the local base, and the SOURCE is
+  // named in the refusal so nobody has to guess how much was covered.
+  //
+  // An unreadable diff still fails closed: an unscanned candidate is not a clean candidate.
+  const publishRange = await listCommitsToPublish({
+    repoRoot,
+    candidate,
+    remoteName,
+    remoteBranch,
+  })
+  // A base existed but the range could not be listed: history is unreadable, so an unscanned push cannot
+  // be called clean. Refuse BEFORE reading the remote, and never fall back to a tip-only scan.
+  if (publishRange.unreadable) {
+    return {
+      outcome: 'publish-conflict',
+      candidateCommit: candidate,
+      remoteMainHash: null,
+      reason:
+        `could not list the commits to publish between ${publishRange.base?.slice(0, 12) ?? 'the base'} ` +
+        `and candidate ${candidate.slice(0, 12)} (${publishRange.source}); refusing to publish a candidate ` +
+        'whose history could not be read',
+    }
+  }
   const secretScan = await scanCandidateOwnDiff({
-    commits: [candidate],
+    commits: publishRange.commits,
     readDiff: async (commit) => {
       const diff = await runGit(repoRoot, [
         'diff',
@@ -313,13 +337,16 @@ export async function publishAcceptedCandidate(
   }
   if (secretScan.findings.length > 0) {
     const named = secretScan.findings
-      .map((finding) => `${finding.rule} in ${finding.file}:${finding.line}`)
+      .map(
+        (finding) =>
+          `${finding.rule} in ${finding.file}:${finding.line} (introduced by ${finding.commit.slice(0, 12)})`,
+      )
       .join(', ')
     return {
       outcome: 'candidate-secret',
       candidateCommit: candidate,
       findings: secretScan.findings,
-      reason: `candidate ${candidate.slice(0, 12)} adds a credential-shaped value (${named}); publication refused`,
+      reason: `candidate ${candidate.slice(0, 12)} adds a credential-shaped value (${named}); publication refused after scanning ${publishRange.commits.length} commit(s) of the range based on ${publishRange.source}`,
     }
   }
 

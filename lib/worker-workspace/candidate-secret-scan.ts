@@ -1,18 +1,30 @@
 // ---------------------------------------------------------------------------
-// CANDIDATE-OWN-DIFF SECRET SCAN (ENG-FORGE-LANE-SECRET-GATE-01).
+// CANDIDATE-OWN-DIFF SECRET SCAN (ENG-FORGE-LANE-SECRET-GATE-01, widened by
+// FORGE-PUBLISH-SCAN-COVERAGE-01 on 2026-09-18).
 //
-// The gate reads only the candidate's OWN changes: for each lane commit, the added lines of
-// `git diff <c>^ <c>`. It never scans the tree and never diffs `base..candidate`, so a credential
-// that already exists in the base or in a foreign commit in the range is not attributed to this
-// lane. The git read is injected, so the rule is testable without a repository.
+// The gate reads only each commit's OWN changes: for each commit in the range, the added lines of
+// `git diff <c>^ <c>`. It never scans the tree, so a credential that already exists in the BASE is never
+// attributed to this lane.
 //
-// FAIL CLOSED: an unreadable diff is reported as `unreadable`, and the caller must refuse to
-// publish. A scan that cannot run is never "clean".
+// WHAT WIDENED, and why the caller changed: this module was always able to read several commits, but the
+// publisher handed it `commits: [candidate]` — the tip — so a credential introduced in an earlier
+// unpublished commit rode along behind a clean final commit (Astra review 1.3, reproduced). The caller now
+// passes the whole range the push would send (lib/worker-workspace/publish-range.ts), which means a
+// credential in a FOREIGN but still-unpublished commit inside that range is now attributed to whoever
+// publishes it. That is the honest reading of "the range is being published": the base is excluded, the
+// rest is not.
+//
+// The git read is injected, so the rule is testable without a repository.
+//
+// FAIL CLOSED: an unreadable diff is reported as `unreadable`, and the caller must refuse to publish. A
+// scan that cannot run is never "clean".
 // ---------------------------------------------------------------------------
 
 import { secretShapesInLine } from '../secret-shapes'
 
 export type CandidateSecretFinding = {
+  /** The commit in the scanned range that introduced the matched line. */
+  commit: string
   /** The catalog rule that matched (e.g. `openai-style key`). */
   rule: string
   /** Repository-relative path the added line lives in. */
@@ -92,7 +104,7 @@ export async function scanCandidateOwnDiff(input: {
       if (seen.has(key)) continue
       seen.add(key)
       for (const shape of secretShapesInLine(added.text)) {
-        findings.push({ rule: shape.name, file: added.file, line: added.line })
+        findings.push({ commit, rule: shape.name, file: added.file, line: added.line })
       }
     }
   }
