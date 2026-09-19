@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -30,7 +30,35 @@ const QA_MODULE_FILES = [
   'workflow_app/forge/agents/qa/run.ts',
   'workflow_app/forge/agents/qa/types.ts',
   'workflow_app/forge/agents/assay-collect.ts',
+  // ADDED 2026-09-19 after the gap was measured: the receipt projection is QA-side, and it was outside this
+  // list. It is clean today; listing it means it stays that way.
+  'workflow_app/forge/agents/gate-checks.ts',
 ]
+
+/**
+ * A GIT-BEARING FILE NAMED LIKE A QA FILE IS THE HOLE THIS GUARD COULD NOT SEE (2026-09-19).
+ *
+ * Measured: a review demanded that QA "measure the code the route identified", and a new module
+ * `workflow_app/forge/agents/assay-measurement.ts` appeared with `git rev-parse`, `merge-base --is-ancestor`
+ * and a `measuredSha` field. This guard stayed GREEN, because its list named three files and the new one was
+ * not among them — exactly the failure it was written to prevent ("prose cannot stop a git call from being
+ * added back"). It now scans every module in the QA agent directory whose NAME says QA or Assay, so a new file
+ * in that family is covered the day it exists rather than the day somebody remembers to list it.
+ */
+const QA_AGENT_DIR = 'workflow_app/forge/agents'
+const QA_NAMED = /(^|\/)(qa|assay|gate)[^/]*\.ts$|^workflow_app\/forge\/agents\/qa\//i
+
+function qaAgentDirFiles(): string[] {
+  const dir = join(repoRoot, QA_AGENT_DIR)
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.ts') && /^(qa|assay|gate)/i.test(name))
+    .map((name) => `${QA_AGENT_DIR}/${name}`)
+    .concat(
+      readdirSync(join(dir, 'qa'))
+        .filter((name) => name.endsWith('.ts'))
+        .map((name) => `${QA_AGENT_DIR}/qa/${name}`),
+    )
+}
 
 /** The QA phase agent, scanned as a class slice — role-agents.ts also holds DevOps/Smith. */
 const QA_AGENT_FILE = 'workflow_app/forge/agents/role-agents.ts'
@@ -124,7 +152,8 @@ test('the QA module set excludes test fixtures', () => {
 
 test('no QA module names a sha field, runs a git command or checks lineage', () => {
   const violations: QaGitViolation[] = []
-  for (const file of QA_MODULE_FILES) {
+  const files = [...new Set([...QA_MODULE_FILES, ...qaAgentDirFiles()])]
+  for (const file of files) {
     violations.push(...findQaGitViolations(readFileSync(join(repoRoot, file), 'utf8'), file))
   }
   const roleAgents = readFileSync(join(repoRoot, QA_AGENT_FILE), 'utf8')
@@ -135,4 +164,17 @@ test('no QA module names a sha field, runs a git command or checks lineage', () 
     [],
     `QA must not touch git or carry a sha: ${JSON.stringify(violations)}`,
   )
+})
+
+test('the directory scan really covers the QA family — a new QA-named file is included', () => {
+  // The guard is only as good as its reach. This asserts the reach: every QA/Assay/gate-named module in the
+  // agents directory (and the whole qa/ directory) is scanned, so the 2026-09-19 hole cannot reopen by naming
+  // a file something this guard does not look at.
+  const files = qaAgentDirFiles()
+  assert.ok(files.includes('workflow_app/forge/agents/assay-collect.ts'), files.join(', '))
+  assert.ok(files.includes('workflow_app/forge/agents/gate-checks.ts'), files.join(', '))
+  assert.ok(files.includes('workflow_app/forge/agents/qa/run.ts'), files.join(', '))
+  for (const file of files) {
+    assert.ok(QA_NAMED.test(file), `${file} is scanned but not QA-named — the reach rule is inconsistent`)
+  }
 })

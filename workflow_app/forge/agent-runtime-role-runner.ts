@@ -78,7 +78,6 @@ import { seamGroupHint } from './agents/architect/shape-hint'
 import { smithWorkOrdersFromFindings } from './agents/architect/persist'
 import { assignmentFromLead } from './agents/smith/from-lead'
 import { negativeControlForStory } from './agents/negative-control-supplier'
-import { measureAssayCandidate } from './agents/assay-measurement'
 import { buildSmithDirective } from './agents/smith/prompt'
 import { buildSelfHealDirectiveWithReasons } from './agents/self-heal'
 import {
@@ -1966,25 +1965,17 @@ export function createAgentRuntimeForgeRoleRunner(
       if (routingReview.proposal.decision === 'ASSAY') {
         const arrangement = verifyExistingArrangement(routingReview, leadRoutingContext.allowedProofs)
         if (arrangement) {
-          // THE MEASUREMENT MUST BE ABOUT THE CODE THE ROUTE NAMED (work package A, item 7). The proofs run in
-          // the primary checkout (`roleCwd`), so the only honest statement is: this tree contains the identified
-          // candidate, and here is the tree that was measured. When it does not contain it, the route REFUSES
-          // rather than stamping a measurement with a sha it never ran against.
-          const measurement = measureAssayCandidate({
-            repoDir: roleCwd,
-            candidateSha: arrangement.candidateSha,
-          })
-          if (!measurement.ok) {
-            Object.assign(evidence, {
-              deliverableRejection: `ASSAY REFUSED (direct-to-QA): ${measurement.refusal}`,
-            })
-          } else {
-            Object.assign(evidence, {
-              verifyExisting: { ...arrangement, measuredSha: measurement.measuredSha },
-              candidateSha: arrangement.candidateSha,
-              qaVerifiedSha: measurement.measuredSha,
-            })
-          }
+          // NO GIT IN THE QA PATH (ENG-FORGE-QA-NO-GIT-GUARD-01, restored 2026-09-19). This block briefly
+          // measured the primary checkout against the named candidate and wrote `candidateSha`/`qaVerifiedSha`
+          // from that measurement. It was written to a reviewer's instruction and it was wrong twice over: it put
+          // a git fact in front of QA (a story could HOLD because the checkout moved, not because a test failed),
+          // and it wrote back the QA-held sha that ENG-FORGE-QA-NO-GIT-GUARD-01 removed after it refused every
+          // release. The route's git fact belongs where it already is — the ROUTING context, which refuses an
+          // ASSAY whose candidate the runner did not observe on the base (`lead-routing-context.ts`). What the
+          // runner records here is the arrangement alone: which candidate the route names, and which frozen
+          // proofs judge it. QA then runs those proofs in the directory it was given and answers only "did the
+          // tests pass".
+          Object.assign(evidence, { verifyExisting: arrangement })
         }
       }
     }

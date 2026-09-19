@@ -8,7 +8,6 @@ import test from 'node:test'
 import { promisify } from 'node:util'
 
 import { commitOnGitBaseRef } from '../forge/agents/architect/exists-git'
-import { measureAssayCandidate } from '../forge/agents/assay-measurement'
 import { buildLeadRoutingContext } from '../forge/lead-routing-context'
 import { leadProposalFromFields, resolveLeadProposal } from '../forge/lead-proposal-resolve'
 import { buildLeadRoutingDirective } from '../forge/forge-lead-routing-prompt'
@@ -244,39 +243,33 @@ test('proposal: a non-ASSAY route that names a candidate is refused as a contrad
   assert.match(contradiction.ok === false ? contradiction.errors.join(' | ') : '', /must not name a verifyCandidate/)
 })
 
-test('measurement: the identity QA reports is the tree the proofs ran against, or a refusal', () => {
-  const candidate = ASSAY_SHA
-  const head = 'c'.repeat(40)
+test('no-git: the QA path carries NO git identity — the route fact lives in the routing context', () => {
+  // ENG-FORGE-QA-NO-GIT-GUARD-01, RESTORED. A brief version of this branch measured the primary checkout
+  // (`git rev-parse HEAD`, `merge-base --is-ancestor`) and wrote `candidateSha`/`qaVerifiedSha` from it, so a
+  // story could HOLD because the checkout moved rather than because a test failed — a git fact in front of QA,
+  // and the QA-held sha that story removed after it refused every release. The git fact that IS legitimate is a
+  // ROUTING fact: the context refuses an ASSAY whose candidate the runner never observed on the base. That is
+  // where it is checked, and this fence pins both halves.
+  const runner = readFileSync(repoFile('workflow_app/forge/agent-runtime-role-runner.ts'), 'utf8')
+  const assayBlock = runner.slice(runner.indexOf("decision === 'ASSAY'"))
+  // COMMENTS ARE STRIPPED FIRST, exactly as the repository's own no-git guard does: the block's comment NAMES
+  // what was removed (`qaVerifiedSha`, `measuredSha`), and a naive scan would be red on a correct tree.
+  const code = assayBlock.slice(0, 2000).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  assert.equal(
+    /measuredSha|qaVerifiedSha|measureAssayCandidate/.test(code),
+    false,
+    'the ASSAY branch must not measure git or write a git identity',
+  )
+  assert.equal(
+    /Object\.assign\(evidence, \{ verifyExisting: arrangement \}\)/.test(runner),
+    true,
+    'the runner records the arrangement and nothing git-derived',
+  )
 
-  const contains = measureAssayCandidate({
-    repoDir: '/tmp/irrelevant',
-    candidateSha: candidate,
-    read: (args) => (args[0] === 'rev-parse' ? head : ''),
-  })
-  assert.equal(contains.ok, true)
-  assert.equal(contains.ok === true && contains.measuredSha, head, 'the MEASURED tree is recorded, not the named one')
-
-  const isTheCandidate = measureAssayCandidate({
-    repoDir: '/tmp/irrelevant',
-    candidateSha: candidate,
-    read: (args) => (args[0] === 'rev-parse' ? candidate : ''),
-  })
-  assert.equal(isTheCandidate.ok, true)
-  assert.equal(isTheCandidate.ok === true && isTheCandidate.measuredSha, candidate)
-
-  const notContained = measureAssayCandidate({
-    repoDir: '/tmp/irrelevant',
-    candidateSha: candidate,
-    read: (args) => (args[0] === 'rev-parse' ? head : null),
-  })
-  assert.equal(notContained.ok, false)
-  assert.match(notContained.ok === false ? notContained.refusal : '', /not an ancestor of the tree/)
-
-  const unreadable = measureAssayCandidate({ repoDir: '/tmp/irrelevant', candidateSha: candidate, read: () => null })
-  assert.equal(unreadable.ok, false)
-  assert.match(unreadable.ok === false ? unreadable.refusal : '', /could not be read/)
-
-  assert.equal(measureAssayCandidate({ repoDir: '/tmp/irrelevant', candidateSha: 'abc', read: () => head }).ok, false)
+  // The routing context may — and does — establish the observed candidate, because that is a routing decision
+  // about which work to judge, not a QA verdict about whether it passed.
+  const routing = readFileSync(repoFile('workflow_app/forge/lead-routing-context.ts'), 'utf8')
+  assert.equal(/existingCandidate/.test(routing), true)
 })
 
 test('directive: ASSAY is offered only when the runner observed a candidate on the base', () => {
