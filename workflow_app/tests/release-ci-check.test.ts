@@ -15,12 +15,41 @@ import test from 'node:test'
 
 const sha = 'a'.repeat(40)
 
-function runCheck(conclusions: string, env: Record<string, string> = {}): { code: number; out: string } {
+type Run = {
+  databaseId: number
+  name: string
+  workflowName: string
+  headSha: string
+  status: 'completed' | 'in_progress' | 'queued'
+  conclusion: string
+  attempt: number
+}
+
+/** A realistic `gh run list --json …` entry: pending is a STATUS with an empty conclusion, never a conclusion. */
+const run = (over: Partial<Run> = {}): Run => ({
+  databaseId: 100,
+  name: 'Gates',
+  workflowName: 'Gates',
+  headSha: sha,
+  status: 'completed',
+  conclusion: 'success',
+  attempt: 1,
+  ...over,
+})
+
+function runCheck(runs: Run[] | string, env: Record<string, string> = {}): { code: number; out: string } {
   const script = new URL('../../scripts/release-ci-check.sh', import.meta.url).pathname
+  const payload = typeof runs === 'string' ? runs : JSON.stringify(runs)
   try {
     const out = execFileSync('bash', [script, sha], {
       encoding: 'utf8',
-      env: { ...process.env, RELEASE_CI_CMD: `printf '${conclusions}'`, ...env },
+      env: {
+        ...process.env,
+        // The provider is a shell command, so the fixture is delivered as the reader's stdout — the same seam
+        // `gh` uses. No network, and the JSON is the payload rather than a paraphrase of it.
+        RELEASE_CI_CMD: `printf '%s' '${payload.replace(/'/g, "'\\''")}'`,
+        ...env,
+      },
       stdio: 'pipe',
     })
     return { code: 0, out: `${out}` }
@@ -31,43 +60,89 @@ function runCheck(conclusions: string, env: Record<string, string> = {}): { code
 }
 
 test('release gate: green CI lets the release proceed', () => {
-  const { code, out } = runCheck('success\\n')
+  const { code, out } = runCheck([run()])
   assert.equal(code, 0)
   assert.match(out, /green/)
 })
 
-test('release gate: a FAILED run refuses', () => {
-  const { code, out } = runCheck('failure\\n')
+test('release gate: a PENDING required run is refused, even with an older success beside it', () => {
+  // THE REVIEW'S REPRODUCTION, in its true shape: pending is `status: in_progress` with an EMPTY conclusion.
+  // The old reader asked only for conclusions, so the pending run arrived as a blank line and the older success
+  // read as green.
+  const { code, out } = runCheck([
+    run({ databaseId: 200, status: 'in_progress', conclusion: '' }),
+    run({ databaseId: 100, status: 'completed', conclusion: 'success' }),
+  ])
   assert.equal(code, 1)
-  assert.match(out, /not green/)
+  assert.match(out, /not finished/)
 })
 
-test('release gate: a run still IN PROGRESS refuses rather than waits or assumes', () => {
-  const { code, out } = runCheck('in_progress\\n')
+test('release gate: a QUEUED required run is refused for the same reason', () => {
+  const { code, out } = runCheck([run({ databaseId: 201, status: 'queued', conclusion: '' })])
   assert.equal(code, 1)
-  assert.match(out, /still running/)
+  assert.match(out, /not finished/)
 })
 
-test('release gate: NO RUN for the sha refuses — an unverified commit is not releasable', () => {
-  const { code, out } = runCheck('')
+test('release gate: an UNRELATED workflow success cannot authorise the release', () => {
+  const { code, out } = runCheck([
+    run({ databaseId: 300, name: 'Deploy', workflowName: 'Deploy', status: 'completed', conclusion: 'success' }),
+  ])
   assert.equal(code, 1)
-  assert.match(out, /no CI run exists/)
+  assert.match(out, /has no run for/)
+})
+
+test('release gate: a success for a DIFFERENT sha is refused', () => {
+  const { code, out } = runCheck([run({ headSha: 'b'.repeat(40) })])
+  assert.equal(code, 1)
+  assert.match(out, /other SHAs/)
+})
+
+test('release gate: the LATEST successful rerun is not blocked by a superseded failed run', () => {
+  const { code, out } = runCheck([
+    run({ databaseId: 400, attempt: 1, status: 'completed', conclusion: 'failure' }),
+    run({ databaseId: 401, attempt: 2, status: 'completed', conclusion: 'success' }),
+  ])
+  assert.equal(code, 0)
+  assert.match(out, /attempt 2/)
+})
+
+test('release gate: a FAILED required run is refused, and so is a cancelled one', () => {
+  const failed = runCheck([run({ conclusion: 'failure' })])
+  assert.equal(failed.code, 1)
+  assert.match(failed.out, /did not succeed/)
+  const cancelled = runCheck([run({ conclusion: 'cancelled' })])
+  assert.equal(cancelled.code, 1)
+  assert.match(cancelled.out, /did not succeed/)
+})
+
+test('release gate: an unrecognised conclusion is not a pass', () => {
+  const { code, out } = runCheck([run({ conclusion: 'some_new_state' })])
+  assert.equal(code, 1)
+  assert.match(out, /did not succeed/)
+})
+
+test('release gate: no run at all, and malformed provider output, both refuse', () => {
+  const none = runCheck([])
+  assert.equal(none.code, 1)
+  assert.match(none.out, /has no run for/)
+
+  const malformed = runCheck('not json at all')
+  assert.equal(malformed.code, 1)
+  assert.match(malformed.out, /malformed/)
+
+  const wrongShape = runCheck('{"runs":[]}')
+  assert.equal(wrongShape.code, 1)
+  assert.match(wrongShape.out, /malformed/)
 })
 
 test('release gate: an UNREADABLE reader refuses — "could not check" is not "fine"', () => {
-  const { code, out } = runCheck('', { RELEASE_CI_CMD: 'exit 3' })
+  const { code, out } = runCheck([], { RELEASE_CI_CMD: 'exit 3' })
   assert.equal(code, 1)
   assert.match(out, /could not read/)
 })
 
-test('release gate: an UNKNOWN conclusion is not a pass', () => {
-  const { code, out } = runCheck('some_new_state\\n')
-  assert.equal(code, 1)
-  assert.match(out, /unrecognised/)
-})
-
 test('release gate: the named opt-out exists, and it says the gate was NOT read', () => {
-  const { code, out } = runCheck('failure\\n', { RELEASE_CI_CHECK: 'skip' })
+  const { code, out } = runCheck([run({ conclusion: 'failure' })], { RELEASE_CI_CHECK: 'skip' })
   assert.equal(code, 0, 'the bypass must work, or somebody deletes the check during an outage')
   assert.match(out, /NOT read/)
 })
