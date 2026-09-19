@@ -30,6 +30,22 @@ contacts_lock_owner_alive() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+# The lock file's mtime in epoch seconds, PORTABLY.
+#
+# MEASURED 2026-09-18, and it broke the one guarantee this library exists for: the age check used BSD
+# `stat -f '%m'` alone. On GNU/Linux (CI) `-f` means FILESYSTEM status and `%m` is not a filesystem
+# directive, so the arithmetic got non-numeric output, `contacts_lock_is_stale` answered WRONGLY, and the
+# lock was reclaimed while a live process held it — reproduced by shimming `stat` to GNU behaviour. Both
+# spellings are tried now and the answer must be DIGITS; anything else means "now", i.e. age 0, i.e.
+# conservatively NOT stale. Reclaiming a live lock is worse than waiting out a dead one.
+contacts_lock_mtime() {
+  local path="$1" mtime=""
+  mtime="$(stat -c '%Y' "$path" 2>/dev/null)"
+  case "$mtime" in '' | *[!0-9]*) mtime="$(stat -f '%m' "$path" 2>/dev/null)" ;; esac
+  case "$mtime" in '' | *[!0-9]*) mtime="$(date +%s)" ;; esac
+  printf '%s' "$mtime"
+}
+
 contacts_lock_is_stale() {
   # No pid file, or a dead PID, or an over-age lock -> stale (safe to reclaim).
   if ! contacts_lock_owner_alive; then
@@ -37,7 +53,7 @@ contacts_lock_is_stale() {
   fi
   local age=0
   if [ -f "$CONTACTS_SYNC_LOCK/pid" ]; then
-    age=$(( $(date +%s) - $(stat -f '%m' "$CONTACTS_SYNC_LOCK/pid" 2>/dev/null || printf '%s' "$(date +%s)") ))
+    age=$(( $(date +%s) - $(contacts_lock_mtime "$CONTACTS_SYNC_LOCK/pid") ))
   fi
   [ "$age" -gt "$CONTACTS_SYNC_LOCK_MAX_AGE" ]
 }

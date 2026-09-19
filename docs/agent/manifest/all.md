@@ -3,8 +3,8 @@
 <!-- GENERATED FILE. Do not hand-edit. The freshness gate compares the structural rows
      (handbook, packet, cited, commit, index); the lexical tail is informational. -->
 
-- generated: 2026-09-19 00:25:21Z
-- commit: `700107eb` (working tree dirty) on `main`
+- generated: 2026-09-19 00:31:04Z
+- commit: `5dcab119` (working tree dirty) on `main`
 - regenerate: `pnpm forge:manifest all`
 - rows: 39 — packet, cited paths and story commits first, lexical matches after
 
@@ -20,7 +20,7 @@ Read top-down. A row is a file to open, and the why column says why it is here.
 - `docs/agent/BUILDER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/COCKPIT-PURPOSE.md` — index · top-level harness page · last touched 2026-09-14
 - `docs/agent/COCKPIT-SMOKE-TEST.md` — index · top-level harness page · last touched 2026-09-14
-- `docs/agent/COLUMN-WRITER-AUDIT.md` — index · top-level harness page · last touched 2026-09-17
+- `docs/agent/COLUMN-WRITER-AUDIT.md` — index · top-level harness page · last touched 2026-09-18
 - `docs/agent/CRM-06-PRELIMINARY.md` — index · top-level harness page · last touched untracked
 - `docs/agent/CRM-23-MAC-OBSERVER.md` — index · top-level harness page · last touched untracked
 - `docs/agent/CULEBRALUXE-LEAD-ROUTING-CODE.md` — index · top-level harness page · last touched untracked
