@@ -118,6 +118,36 @@ printf '\n=== MASTER RELEASE ===\n  %s on %s (%s)\n  mode: %s\n\n' "$BUILD_SHA" 
 
 BUILD_RC="skipped"; DEPLOY_RC="skipped"; PROBE_RC="skipped"; DEPLOY_SHA="$BUILD_SHA"
 
+# READ THE GATE BEFORE YOU BUILD (FORGE-LOCAL-RELEASE-CI-CHECK-01).
+#
+# A deploy job in CI was added and deleted for cost (it was doubling the bill): CI now CHECKS and never ships,
+# and this is the deploy. That left a red main releasable by hand, because nothing here read the gate. The
+# check below is a READ — `gh run list` for this exact sha — and it refuses on failed, pending, missing or
+# unreadable results. RELEASE_CI_CHECK=skip is the named opt-out for an outage, and it says loudly that the
+# gate was NOT read.
+#
+# HEAD IS RE-READ AFTER THE CHECK. A check that passes for one sha and a build that then ships another is
+# the stale cite this file already guards against between build and deploy; here it is guarded between the
+# check and the build, because the check is only worth its answer for the commit it was asked about.
+if [ "$MODE" = "all" ] || [ "$MODE" = "build" ]; then
+  CHECK_SHA="$(git rev-parse HEAD)"
+  printf -- '--- release gate: CI results for %s ---\n' "$(printf '%.12s' "$CHECK_SHA")"
+  bash scripts/release-ci-check.sh "$CHECK_SHA"; CI_CHECK_RC="$?"
+  printf -- '--- release gate exit: %s ---\n' "$CI_CHECK_RC"
+  AFTER_CHECK_SHA="$(git rev-parse HEAD)"
+  if [ "$CI_CHECK_RC" -ne 0 ]; then
+    printf '\n=== RELEASE REFUSED: CI is not green for %s (see above; RELEASE_CI_CHECK=skip to override) ===\n' \
+      "$(printf '%.12s' "$CHECK_SHA")"
+    exit 1
+  fi
+  if [ "$AFTER_CHECK_SHA" != "$CHECK_SHA" ]; then
+    printf '\n=== RELEASE REFUSED: HEAD moved from %s to %s while the gate was being read ===\n' \
+      "$(printf '%.12s' "$CHECK_SHA")" "$(printf '%.12s' "$AFTER_CHECK_SHA")"
+    exit 1
+  fi
+  BUILD_SHA="$(printf '%.12s' "$CHECK_SHA")"
+fi
+
 # Never `set -e` through a wrapped script: its exit code IS the record.
 set +e
 if [ "$MODE" = "all" ] || [ "$MODE" = "build" ]; then
