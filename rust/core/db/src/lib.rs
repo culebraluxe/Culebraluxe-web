@@ -5,6 +5,7 @@
 //! PostgreSQL pool or transaction. Domain-specific DAOs receive database
 //! capability from here; callers never construct raw pools or SQLx transactions.
 
+mod contract;
 mod error;
 mod firm;
 mod person;
@@ -16,6 +17,7 @@ mod showing;
 mod transaction;
 mod wbs;
 
+pub use contract::ContractDao;
 pub use domain;
 pub use error::{DbFailure, DbFailureKind, DbResult};
 pub use firm::FirmDao;

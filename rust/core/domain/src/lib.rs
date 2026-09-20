@@ -2,6 +2,7 @@
 //!
 //! This crate must not depend on database, HTTP, process, or provider adapters.
 
+pub mod contract;
 pub mod firm;
 pub mod person;
 pub mod project;
@@ -35,4 +36,10 @@ pub use showing::{SaveShowingReportRequest, Showing, ShowingReportOutcome};
 
 pub use wbs::{
     CreateWbsItemRequest, SaveWbsItemRequest, WbsEntityLink, WbsEntityType, WbsItem, WbsStatus,
+};
+
+pub use contract::{
+    Contract, ContractEffectiveState, ContractFacts, ContractRole, ContractSummary,
+    CreateContractFromFormRequest, ExecuteContractRequest, SaveContractDraftRequest,
+    CONTRACT_FIRM_ROLE_CODES, CONTRACT_PERSON_ROLE_CODES,
 };

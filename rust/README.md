@@ -153,3 +153,17 @@ commands, and service audit/events.
 The rejected runtime-built SELECT strings were replaced with compile-time static
 SQL accepted by SQLx 0.9. The DAO was rechecked against the live DEV
 `wbs_item` schema before publication.
+
+
+## Slice 3E: Contract
+
+Contract completes the required Rust core-service sweep. The salvaged service
+preserves contextual Person/Firm Role vocabulary, SUBJECT_PROPERTY mapping,
+draft-only mutation, predecessor validation, recursive effective-state lineage,
+execution evidence, and stronger BUSINESS_POWER_USER authorization for
+`contract.execute`.
+
+Contract writes remain atomic through the shared Rust transaction boundary.
+The original dynamic mapping-delete loop was replaced with literal static SQL
+accepted by SQLx 0.9, and SQLx JSON support is enabled for canonical JSONB
+facts and role attributes.
