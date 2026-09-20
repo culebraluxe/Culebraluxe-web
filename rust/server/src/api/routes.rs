@@ -1,11 +1,12 @@
 use super::context::{resolve_request_context, ResolvedRequestContext};
 use super::{ApiError, ApiState};
+use crate::service_support::CoreServiceError;
 use crate::vault::VaultArtifactPort;
 use async_trait::async_trait;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use domain::{
@@ -14,8 +15,10 @@ use domain::{
     VaultArtifactFailure, VaultCommandOutcome, VaultRenderRequest, VaultRenderedArtifact,
     MAX_MEDIA_UPLOAD_BYTES,
 };
+use integrations::boldsign::{BoldSignConfig, BoldSignSignatureProvider};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use service::SignatureProvider;
 use std::sync::Arc;
 
 #[derive(Debug, Serialize)]
@@ -115,6 +118,84 @@ impl VaultArtifactPort for UnavailableVaultArtifactPort {
     }
 }
 
+/// Signature (BoldSign) — the HTTP attachment for the service in `rust/server/src/signature`.
+///
+/// The service has been complete in Rust for a while: send, get, refresh, cancel, decline, reconcile, and webhook
+/// handling all exist, and the BoldSign adapter behind them verifies the provider's HMAC. What was missing was this
+/// transport, which is why `docs/rust-parity-ledger.md` recorded the `signature` capability as "built, 0 routes"
+/// while the production webhook still ran through TypeScript.
+///
+/// The provider is built from the environment per request, like every other integration edge here. A host with no
+/// BoldSign configuration answers with a business failure instead of refusing to boot, because this transport also
+/// runs in environments that never sign a document.
+fn bold_sign(state: &ApiState) -> Result<Arc<dyn SignatureProvider>, ApiError> {
+    let config = BoldSignConfig::from_env().map_err(|message| {
+        ApiError::from(CoreServiceError::business(
+            "SIGNATURE_NOT_CONFIGURED",
+            message,
+        ))
+    })?;
+    let provider =
+        BoldSignSignatureProvider::new(state.db().clone(), config).map_err(|message| {
+            ApiError::from(CoreServiceError::business(
+                "SIGNATURE_NOT_CONFIGURED",
+                message,
+            ))
+        })?;
+    Ok(Arc::new(provider))
+}
+
+async fn signature_send(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<domain::SendSignatureRequest>,
+) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().signature(bold_sign(&state)?);
+    let value = service
+        .send(&request, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
+async fn signature_request(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::SignatureRequest>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().signature(bold_sign(&state)?);
+    let value = service
+        .get(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?
+        .ok_or_else(|| {
+            correlate(
+                ApiError::not_found(
+                    "SIGNATURE_REQUEST_NOT_FOUND",
+                    format!("Signature request not found: {id}"),
+                ),
+                &resolved,
+            )
+        })?;
+    Ok(success(value, &resolved))
+}
+
+async fn signature_refresh(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiSuccess<domain::SignatureCommandResult>>, ApiError> {
+    let resolved = resolve_request_context(&state, &headers).await?;
+    let mut service = state.services().signature(bold_sign(&state)?);
+    let value = service
+        .refresh_status(&id, &resolved.service)
+        .await
+        .map_err(|error| correlate(ApiError::from(error), &resolved))?;
+    Ok(success(value, &resolved))
+}
+
 pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/healthz", get(health))
@@ -149,6 +230,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/calendar", get(calendar))
         .route("/v1/vault/documents", get(vault_documents))
         .route("/v1/vault/documents/{id}", get(vault_document))
+        // Signature (BoldSign). Mirrors the production endpoints the TypeScript path already serves, so the webhook
+        // and the operator actions can be pointed at Rust without changing a client contract.
+        .route("/v1/signature/requests", post(signature_send))
+        .route("/v1/signature/requests/{id}", get(signature_request))
+        .route(
+            "/v1/signature/requests/{id}/refresh",
+            post(signature_refresh),
+        )
         .with_state(state)
 }
 

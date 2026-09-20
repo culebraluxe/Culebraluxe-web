@@ -38,9 +38,10 @@
       "id": "properties",
       "rustStatus": "built",
       "productionPath": "typescript",
-      "routes": ["/v1/properties/{id}"],
+      "routes": ["/v1/properties/{id}", "/v1/properties/{id}/media"],
       "rustModules": [
         "rust/server/src/properties",
+        "rust/server/src/media",
         "rust/core/db/src/property.rs",
         "rust/core/domain/src/property.rs"
       ],
@@ -50,7 +51,7 @@
       "id": "contracts",
       "rustStatus": "built",
       "productionPath": "typescript",
-      "routes": ["/v1/contracts", "/v1/contracts/{id}"],
+      "routes": ["/v1/contracts", "/v1/contracts/{id}", "/v1/process-instances/{id}/contracts"],
       "rustModules": [
         "rust/server/src/contracts",
         "rust/core/db/src/contract.rs",
@@ -123,14 +124,18 @@
       "id": "signature",
       "rustStatus": "built",
       "productionPath": "typescript",
-      "routes": [],
+      "routes": [
+        "/v1/signature/requests",
+        "/v1/signature/requests/{id}",
+        "/v1/signature/requests/{id}/refresh"
+      ],
       "rustModules": [
         "rust/server/src/signature",
         "rust/core/db/src/signature.rs",
         "rust/core/domain/src/signature.rs"
       ],
       "tsFiles": ["db/bold-sign-request.ts", "db/broker-signature.ts"],
-      "note": "The BoldSign adapter and reconciliation exist in Rust; the production webhook still runs through TypeScript because Signature routes are not attached to Axum."
+      "note": "Routes are attached to Axum now (send, get, refresh) — this was the 'built, 0 routes' capability. The BoldSign provider is constructed per request from the environment, which required adding `integrations` to the server crate; without that dependency the adapter could not be reached from the composition root at all. Still TypeScript in production, so productionPath stays 'typescript' until a receipt shows the Rust path serving real traffic. /v1/signature/webhook is NOT attached yet: it needs a system ServiceContext because the provider authenticates by HMAC rather than by the internal API key. rust/server/tests/signature_routes.rs fails if the router and this map disagree."
     },
     {
       "id": "showings",

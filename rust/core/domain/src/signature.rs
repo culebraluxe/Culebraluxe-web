@@ -139,7 +139,8 @@ pub struct SignatureRequest {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendSignatureRequest {
     pub command_id: String,
     pub transaction_document_id: String,

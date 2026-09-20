@@ -11,6 +11,10 @@ auth = { path = "../core/auth" }
 chrono.workspace = true
 db = { path = "../core/db" }
 domain = { path = "../core/domain" }
+# The composition root wires adapters, so `server` depends on `integrations` and `domain` never does. This line is
+# what made the BoldSign adapter attachable: without it the Signature service could not be constructed on this
+# transport, which is why the `signature` capability sat in the parity ledger as "built, 0 routes".
+integrations = { path = "../integrations" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

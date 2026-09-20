@@ -17,6 +17,13 @@
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// Run from the repository root regardless of where the caller stands. Every path below is relative — `scripts/`,
+// `docs/`, `db/`, `rust/` — and invoking this from `rust/` used to fail with ENOENT on its own map file. Since the
+// parity test shells out to this script, the cwd cannot be assumed.
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+if (process.cwd() !== ROOT) process.chdir(ROOT)
 
 const ROOTS = ['app', 'components', 'lib', 'workflow_app', 'scripts']
 const SUBJECTS = ['db', 'services']
@@ -106,7 +113,10 @@ function relative(file: string): string {
 const routes = (() => {
   try {
     const text = readFileSync(resolve('rust/server/src/api/routes.rs'), 'utf8')
-    return [...text.matchAll(/\.route\("([^"]+)"/g)].map((match) => match[1])
+    // Whitespace-tolerant on purpose: `cargo fmt` reflows a long `.route(...)` onto its own lines, and an earlier
+    // version of this regex required `.route("` unbroken — so two mounted routes were reported as missing and the
+    // ledger flagged the map for a fault that was the reader's.
+    return [...text.matchAll(/\.route\(\s*"([^"]+)"/g)].map((match) => match[1])
   } catch {
     return []
   }

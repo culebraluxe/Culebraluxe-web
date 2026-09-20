@@ -1534,6 +1534,7 @@ dependencies = [
  "chrono",
  "db",
  "domain",
+ "integrations",
  "serde",
  "serde_json",
  "service",

@@ -56,7 +56,7 @@ test('parity ledger: every route is either claimed or explicitly listed as infra
   }
   const claimed = new Set(map.capabilities.flatMap((capability) => capability.routes))
   const router = readFileSync('rust/server/src/api/routes.rs', 'utf8')
-  const mounted = [...router.matchAll(/\.route\("([^"]+)"/g)].map((match) => match[1])
+  const mounted = [...router.matchAll(/\.route\(\s*"([^"]+)"/g)].map((match) => match[1])
   const unaccounted = mounted.filter(
     (route) => !claimed.has(route) && !map.knownUnmappedRoutes.includes(route),
   )
